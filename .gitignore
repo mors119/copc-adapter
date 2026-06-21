@@ -1,0 +1,15 @@
+# Rust
+/target
+
+# WASM pkg
+**/pkg
+
+# Node
+node_modules
+dist
+
+# Vite
+.vite
+
+# OS
+.DS_Store
