@@ -72,4 +72,6 @@ npm run dev
 
 - https://copc.io
 - https://github.com/connormanning/copc.js
+- https://github.com/pka/copc-rs
 - https://github.com/potree/potree
+- https://www.kossa.kr/materials/2026/ossp/tasks-gaia3d.html
