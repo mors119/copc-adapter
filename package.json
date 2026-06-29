@@ -1,0 +1,11 @@
+{
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "download-samples": "tsx scripts/download-samples.ts"
+  },
+  "devDependencies": {
+    "tsx": "^4"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "datasets": [
+    {
+      "id": "autzen",
+      "name": "Autzen Stadium",
+      "description": "Official COPC sample dataset.",
+      "filename": "autzen.copc.laz",
+      "url": "https://s3.amazonaws.com/hobu-lidar/autzen-classified.copc.laz",
+      "size": "80 MB",
+      "category": "sample",
+      "recommended": true
+    },
+    {
+      "id": "sofi",
+      "name": "SoFi Stadium",
+      "description": "Very large COPC dataset.",
+      "filename": "sofi.copc.laz",
+      "url": "https://hobu-lidar.s3.amazonaws.com/sofi.copc.laz",
+      "size": "2.4 GB",
+      "category": "large",
+      "recommended": false
+    }
+  ]
+}
