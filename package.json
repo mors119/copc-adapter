@@ -1,0 +1,8 @@
+{
+  "scripts": {
+    "download-samples": "tsx scripts/download-samples.ts"
+  },
+  "devDependencies": {
+    "tsx": "^4"
+  }
+}

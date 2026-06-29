@@ -60,6 +60,19 @@ npm install
 npm run dev
 ```
 
+## 샘플 데이터
+
+샘플 COPC 파일은 저장소에 포함하지 않고 별도 다운로드합니다.
+
+```bash
+npm install
+npm run download-samples -- autzen
+```
+
+기본 저장 위치는 `samples/local/`입니다.
+
+2026-06-29 검증 기준으로 `autzen`과 `sofi` 링크는 공개 HTTPS S3 객체로 정상 응답했고, `millsite` 링크는 `404 Not Found` 상태입니다.
+
 ## 현재 상태
 
 - [x] 프로젝트 구조 설계
