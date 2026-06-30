@@ -1,13 +1,14 @@
 import * as Cesium from 'cesium';
 
-export async function createCesiumViewer(containerId: string) {
-  const viewer = new Cesium.Viewer(containerId, {
-    terrainProvider: await Cesium.createWorldTerrainAsync(),
+export function createCesiumViewer(containerId: string): Cesium.Viewer {
+  return new Cesium.Viewer(containerId, {
     animation: false,
     timeline: false,
+    baseLayerPicker: false,
+    geocoder: false,
+    homeButton: false,
+    sceneModePicker: false,
+    navigationHelpButton: false,
+    fullscreenButton: false,
   });
-
-  viewer.scene.globe.depthTestAgainstTerrain = true;
-
-  return viewer;
 }

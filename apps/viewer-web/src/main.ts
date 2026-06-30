@@ -2,23 +2,42 @@ import * as Cesium from 'cesium';
 import './style.css';
 import 'cesium/Build/Cesium/Widgets/widgets.css';
 
-const viewer = new Cesium.Viewer('cesium-container', {
-  animation: false,
-  timeline: false,
-  baseLayerPicker: false,
-  geocoder: false,
-  homeButton: false,
-  sceneModePicker: false,
-  navigationHelpButton: false,
-  fullscreenButton: false,
-});
+import { createCesiumViewer } from './cesium/createViewer';
+import { loadCopcMetadata } from './copc/loadCopcMetadata';
 
-viewer.entities.add({
-  position: Cesium.Cartesian3.fromDegrees(127.0, 37.5, 1000),
-  point: {
-    pixelSize: 12,
-    color: Cesium.Color.YELLOW,
-  },
-});
+const COPC_URL = '/samples/autzen.copc.laz';
 
-viewer.zoomTo(viewer.entities);
+const viewer = createCesiumViewer('cesium-container');
+import * as CopcPackage from 'copc';
+
+async function main() {
+  const response = await fetch('/samples/autzen.copc.laz');
+
+  console.log(response.status);
+  console.log(response.ok);
+
+  const buffer = await response.arrayBuffer();
+
+  console.log(buffer.byteLength);
+
+  console.log(CopcPackage.Getter.http);
+  const metadata = await loadCopcMetadata(COPC_URL);
+
+  console.log('Normalized COPC metadata:', metadata);
+
+  const centerLon = (metadata.bounds.minX + metadata.bounds.maxX) / 2;
+  const centerLat = (metadata.bounds.minY + metadata.bounds.maxY) / 2;
+  const centerHeight = metadata.bounds.maxZ + 1000;
+
+  viewer.camera.flyTo({
+    destination: Cesium.Cartesian3.fromDegrees(
+      centerLon,
+      centerLat,
+      centerHeight,
+    ),
+  });
+}
+
+main().catch((error) => {
+  console.error('Failed to load COPC:', error);
+});
