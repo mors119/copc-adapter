@@ -15,6 +15,7 @@
     "vite-plugin-static-copy": "^4.1.1"
   },
   "dependencies": {
-    "cesium": "^1.142.0"
+    "cesium": "^1.142.0",
+    "copc": "^0.0.8"
   }
 }
