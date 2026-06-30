@@ -4,9 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview"
+    "dev": "npm run prepare-laz-perf && vite",
+    "build": "tsc && npm run prepare-laz-perf && vite build",
+    "preview": "vite preview",
+    "prepare-laz-perf": "cp node_modules/laz-perf/lib/laz-perf.wasm public/laz-perf.wasm"
   },
   "devDependencies": {
     "typescript": "~6.0.2",

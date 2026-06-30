@@ -1,5 +1,5 @@
 import { Copc, Getter } from 'copc';
-import type { CopcMetadata } from './CopcMetadata';
+import type { CopcMetadata } from '../types/copc';
 
 export async function loadCopcMetadata(url: string): Promise<CopcMetadata> {
   const getter = Getter.http(url);
