@@ -9,6 +9,13 @@ npm run download-samples
 npm run download-samples -- autzen
 ```
 
+샘플 사용을 위해 `apps/viewer-web/public/` 아래에 `samples` 폴더를 만들고 샘플을 복사하면 됩니다.
+
+```bash
+mkdir -p apps/viewer-web/public/samples
+cp samples/local/<sample> apps/viewer-web/public/samples/<sample>
+```
+
 기본 저장 위치:
 
 `samples/local/`

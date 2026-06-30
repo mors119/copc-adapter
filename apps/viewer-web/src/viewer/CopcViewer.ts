@@ -1,4 +1,4 @@
-import { createCesiumViewer } from '../cesium/createViewer';
+import { createCesiumViewer } from '../cesium/viewer/createViewer';
 
 type CopcViewerOptions = {
   container: string;

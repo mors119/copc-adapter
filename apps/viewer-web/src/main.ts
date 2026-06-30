@@ -1,41 +1,25 @@
-import * as Cesium from 'cesium';
 import './style.css';
 import 'cesium/Build/Cesium/Widgets/widgets.css';
 
-import { createCesiumViewer } from './cesium/createViewer';
-import { loadCopcMetadata } from './copc/loadCopcMetadata';
+import { loadRootHierarchy } from './copc/hierarchy/loadRootHierarchy';
+import { loadPointDataView } from './copc/points/loadPointData';
 
 const COPC_URL = '/samples/autzen.copc.laz';
 
-const viewer = createCesiumViewer('cesium-container');
-import * as CopcPackage from 'copc';
-
 async function main() {
-  const response = await fetch('/samples/autzen.copc.laz');
+  const nodes = await loadRootHierarchy(COPC_URL);
 
-  console.log(response.status);
-  console.log(response.ok);
+  const sortedNodes = [...nodes]
+    .filter((node) => node.pointCount > 0)
+    .sort((a, b) => a.pointCount - b.pointCount);
 
-  const buffer = await response.arrayBuffer();
+  console.table(sortedNodes.slice(0, 20));
 
-  console.log(buffer.byteLength);
+  const selectedNode = sortedNodes[0];
 
-  console.log(CopcPackage.Getter.http);
-  const metadata = await loadCopcMetadata(COPC_URL);
+  console.log('Selected node:', selectedNode);
 
-  console.log('Normalized COPC metadata:', metadata);
-
-  const centerLon = (metadata.bounds.minX + metadata.bounds.maxX) / 2;
-  const centerLat = (metadata.bounds.minY + metadata.bounds.maxY) / 2;
-  const centerHeight = metadata.bounds.maxZ + 1000;
-
-  viewer.camera.flyTo({
-    destination: Cesium.Cartesian3.fromDegrees(
-      centerLon,
-      centerLat,
-      centerHeight,
-    ),
-  });
+  await loadPointDataView(COPC_URL, selectedNode);
 }
 
 main().catch((error) => {
