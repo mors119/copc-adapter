@@ -60,9 +60,12 @@ npm run dev
 2. root hierarchy 로딩
 3. camera 위치 기반 node selection
 4. LoD 기준으로 렌더링 대상 node 선택
-5. 선택된 node point decoding + cache
-6. CRS -> WGS84 + meters 좌표 변환
-7. Cesium point primitive 렌더링
+5. 선택된 node `CopcPointView` 로딩
+6. Rust + WASM point decoder 로 interleaved point buffer 생성
+7. CRS -> WGS84 + meters 좌표 변환
+8. Cesium point primitive 렌더링
+
+`npm run dev`, `npm test`, `npm run build` 는 모두 내부적으로 `cargo build -p copc-wasm --target wasm32-unknown-unknown --release` 를 실행해 WASM asset 을 준비한다.
 
 ## Library API
 
@@ -80,6 +83,14 @@ console.log(viewer.getSnapshot());
 ```
 
 상세 API 는 [docs/API.md](/Users/mars112/code/project/copc-adapter/docs/API.md), 예제는 [docs/EXAMPLES.md](/Users/mars112/code/project/copc-adapter/docs/EXAMPLES.md) 에 정리했다.
+
+## Rust + WASM Decoder
+
+현재 Rust + WASM 경계는 point decoding hot path 에 적용되어 있다.
+
+- `copc.js`: metadata / hierarchy / LAZ point view
+- `copc-wasm`: X/Y/Z dimension 을 interleaved point buffer 로 디코딩
+- TypeScript: CRS transform, streaming selection, Cesium rendering
 
 ## 샘플 데이터
 
@@ -104,7 +115,7 @@ npm run download-samples -- autzen
 - [x] Node request cache
 - [x] Public viewer API entrypoint
 - [x] API 문서 및 예제 정리
-- [ ] Rust + WASM decoder 전환
+- [x] Rust + WASM point decoder 전환
 
 ## 참고
 

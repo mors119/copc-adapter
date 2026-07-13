@@ -3,15 +3,19 @@ import { renderCopcPoints, toCartesian3Array } from '../cesium/render/renderPoin
 import { createCesiumViewer } from '../cesium/viewer/createViewer';
 import { loadRootHierarchy } from '../copc/hierarchy/loadRootHierarchy';
 import { loadCopcMetadata } from '../copc/metadata/loadMetadata';
-import { loadCopcPoints } from '../copc/points/loadPointData';
+import { loadCopcPointBuffer } from '../copc/points/loadPointData';
 import { extractHorizontalUnitScale } from '../coordinates/crs/parseCopcWkt';
-import { createPointTransformer } from '../coordinates/transform/createPointTransformer';
+import {
+  createPointTransformer,
+  transformPointBuffer,
+} from '../coordinates/transform/createPointTransformer';
 import type {
   CopcHierarchyNode,
-  CopcPoint,
+  CopcPointBuffer,
   CopcMetadata,
   GeographicCamera,
   GeographicPoint,
+  GeographicPointBuffer,
 } from '../copc/types/copc';
 import { buildStreamingHierarchy, type StreamingHierarchyNode } from './streaming/buildStreamingHierarchy';
 import { createNodePointCache } from './streaming/createNodePointCache';
@@ -256,7 +260,7 @@ export class CopcViewer {
     );
   }
 
-  private async loadRenderableNodePoints(nodeKey: string): Promise<GeographicPoint[]> {
+  private async loadRenderableNodePoints(nodeKey: string): Promise<GeographicPointBuffer> {
     if (!this.streamingState) {
       throw new Error('Streaming state is not initialized');
     }
@@ -268,13 +272,12 @@ export class CopcViewer {
     }
 
     const points = await this.loadPoints(streamingNode.node);
-    const transformPoint = createPointTransformer(this.streamingState.metadata);
 
-    return points.map(transformPoint);
+    return transformPointBuffer(this.streamingState.metadata, points);
   }
 
-  private async loadPoints(node: CopcHierarchyNode): Promise<CopcPoint[]> {
-    return loadCopcPoints(this.options.url, node);
+  private async loadPoints(node: CopcHierarchyNode): Promise<CopcPointBuffer> {
+    return loadCopcPointBuffer(this.options.url, node);
   }
 
   getRenderedNodeKeys(): string[] {

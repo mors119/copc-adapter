@@ -47,6 +47,11 @@ export type CopcPoint = {
   z: number;
 };
 
+export type CopcPointBuffer = {
+  pointCount: number;
+  coordinates: Float64Array;
+};
+
 export type GeographicPoint = {
   longitude: number;
   latitude: number;
@@ -54,6 +59,11 @@ export type GeographicPoint = {
 };
 
 export type GeographicCamera = GeographicPoint;
+
+export type GeographicPointBuffer = {
+  pointCount: number;
+  coordinates: Float64Array;
+};
 
 export type CopcPointView = {
   pointCount: number;

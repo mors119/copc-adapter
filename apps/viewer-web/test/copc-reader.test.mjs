@@ -12,11 +12,15 @@ import { toCartesian3Array } from '../src/cesium/render/renderPoints.ts';
 import { loadRootHierarchy } from '../src/copc/hierarchy/loadRootHierarchy.ts';
 import { loadCopcMetadata } from '../src/copc/metadata/loadMetadata.ts';
 import {
+  loadCopcPointBuffer,
   loadCopcPoints,
   loadPointDataView,
 } from '../src/copc/points/loadPointData.ts';
 import { createPointReader, readAllPoints } from '../src/copc/points/readPoint.ts';
-import { createPointTransformer } from '../src/coordinates/transform/createPointTransformer.ts';
+import {
+  createPointTransformer,
+  transformPointBuffer,
+} from '../src/coordinates/transform/createPointTransformer.ts';
 import { buildStreamingHierarchy } from '../src/viewer/streaming/buildStreamingHierarchy.ts';
 import { createNodePointCache } from '../src/viewer/streaming/createNodePointCache.ts';
 import {
@@ -174,6 +178,26 @@ test('loadPointDataView and loadCopcPoints decode sample node points', async () 
   });
 });
 
+test('loadCopcPointBuffer decodes sample points through Rust WASM', async () => {
+  const nodes = await loadRootHierarchy(samplePath);
+  const rootNode = nodes.find((node) => node.key === '0-0-0-0');
+
+  assert.ok(rootNode);
+
+  const buffer = await loadCopcPointBuffer(samplePath, rootNode);
+
+  assert.equal(buffer.pointCount, 61201);
+  assert.equal(buffer.coordinates.length, 183603);
+  assert.deepEqual(Array.from(buffer.coordinates.slice(0, 6)), [
+    638865.15,
+    849280.01,
+    425.15999999999997,
+    638852.82,
+    849328.6,
+    424.53999999999996,
+  ]);
+});
+
 test('createPointTransformer converts projected COPC points to WGS84', async () => {
   const metadata = await loadCopcMetadata(samplePath);
   const nodes = await loadRootHierarchy(samplePath);
@@ -188,6 +212,22 @@ test('createPointTransformer converts projected COPC points to WGS84', async () 
   assertClose(geographicPoint.longitude, -123.06253409115912, 1e-9);
   assertClose(geographicPoint.latitude, 44.051092079742745, 1e-9);
   assertClose(geographicPoint.height, 129.58902717805427, 1e-9);
+});
+
+test('transformPointBuffer converts interleaved buffers to geographic triples', async () => {
+  const metadata = await loadCopcMetadata(samplePath);
+  const nodes = await loadRootHierarchy(samplePath);
+  const rootNode = nodes.find((node) => node.key === '0-0-0-0');
+
+  assert.ok(rootNode);
+
+  const pointBuffer = await loadCopcPointBuffer(samplePath, rootNode);
+  const geographicBuffer = transformPointBuffer(metadata, pointBuffer);
+
+  assert.equal(geographicBuffer.pointCount, 61201);
+  assertClose(geographicBuffer.coordinates[0], -123.06253409115912, 1e-9);
+  assertClose(geographicBuffer.coordinates[1], 44.051092079742745, 1e-9);
+  assertClose(geographicBuffer.coordinates[2], 129.58902717805427, 1e-9);
 });
 
 test('createPointTransformer falls back to geographic coordinates when metadata is already geodetic', () => {

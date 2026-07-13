@@ -1,15 +1,13 @@
-import type { GeographicPoint } from '../../copc/types/copc';
+export type NodePointLoader<TValue> = (nodeKey: string) => Promise<TValue>;
 
-export type NodePointLoader = (nodeKey: string) => Promise<GeographicPoint[]>;
-
-export function createNodePointCache(loader: NodePointLoader): {
-  load(nodeKey: string): Promise<GeographicPoint[]>;
+export function createNodePointCache<TValue>(loader: NodePointLoader<TValue>): {
+  load(nodeKey: string): Promise<TValue>;
   clear(): void;
 } {
-  const cache = new Map<string, Promise<GeographicPoint[]>>();
+  const cache = new Map<string, Promise<TValue>>();
 
   return {
-    load(nodeKey: string): Promise<GeographicPoint[]> {
+    load(nodeKey: string): Promise<TValue> {
       const cached = cache.get(nodeKey);
 
       if (cached) {

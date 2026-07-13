@@ -15,5 +15,7 @@ export type {
 export type {
   CopcMetadata,
   CopcPoint,
+  CopcPointBuffer,
   GeographicPoint,
+  GeographicPointBuffer,
 } from './copc/types/copc';

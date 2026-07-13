@@ -27,7 +27,9 @@ Cesium viewer lifecycle 과 COPC streaming orchestration 을 감싸는 public cl
 - `CopcViewerLifecycleState`
 - `CopcMetadata`
 - `CopcPoint`
+- `CopcPointBuffer`
 - `GeographicPoint`
+- `GeographicPointBuffer`
 
 ## Quick Start
 
@@ -59,3 +61,11 @@ console.log(viewer.getRenderedNodeKeys());
 
 viewer.destroy();
 ```
+
+## Decoder Boundary
+
+현재 public API 는 renderer / viewer lifecycle 에 집중하고, 내부 decoder hot path 는 Rust + WASM 으로 교체되어 있다.
+
+- `copc.js`: metadata, hierarchy, point view 로딩
+- `copc-wasm`: X/Y/Z -> interleaved point buffer decode
+- `viewer-web`: streaming selection, CRS transform, Cesium rendering
