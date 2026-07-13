@@ -447,3 +447,12 @@ test('CopcViewer snapshot exposes lifecycle and dataset info', () => {
 
   assert.equal(viewer.getSnapshot().lifecycle, 'destroyed');
 });
+
+test('CopcViewer metadata API is empty before load', () => {
+  const viewer = new PublicCopcViewer({
+    container: 'cesium-container',
+    url: '/samples/autzen.copc.laz',
+  });
+
+  assert.equal(viewer.getMetadata(), undefined);
+});

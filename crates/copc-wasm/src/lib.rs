@@ -11,23 +11,48 @@ fn decode_xyz_to_interleaved_impl(x: &[f64], y: &[f64], z: &[f64], out: &mut [f6
     }
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn alloc_f64(length: usize) -> *mut f64 {
+fn into_leaked_f64_buffer(length: usize) -> *mut f64 {
     let mut values = Vec::<f64>::with_capacity(length);
     let ptr = values.as_mut_ptr();
     std::mem::forget(values);
     ptr
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn dealloc_f64(ptr: *mut f64, length: usize) {
+fn reclaim_f64_buffer(ptr: *mut f64, length: usize) {
     if ptr.is_null() {
         return;
     }
 
+    // SAFETY:
+    // `ptr` must have been returned by `into_leaked_f64_buffer(length)` with the
+    // same `length`, so reconstructing the allocation here is valid.
     unsafe {
         let _ = Vec::from_raw_parts(ptr, 0, length);
     }
+}
+
+fn f64_input_slice<'a>(ptr: *const f64, length: usize) -> &'a [f64] {
+    // SAFETY:
+    // The JS caller allocates `length` f64 values in wasm linear memory and
+    // passes a non-null pointer to that initialized region.
+    unsafe { std::slice::from_raw_parts(ptr, length) }
+}
+
+fn f64_output_slice<'a>(ptr: *mut f64, length: usize) -> &'a mut [f64] {
+    // SAFETY:
+    // The JS caller allocates `length` f64 values in wasm linear memory and
+    // passes a non-null mutable pointer to that writable region.
+    unsafe { std::slice::from_raw_parts_mut(ptr, length) }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn alloc_f64(length: usize) -> *mut f64 {
+    into_leaked_f64_buffer(length)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dealloc_f64(ptr: *mut f64, length: usize) {
+    reclaim_f64_buffer(ptr, length);
 }
 
 #[unsafe(no_mangle)]
@@ -42,10 +67,10 @@ pub extern "C" fn decode_xyz_to_interleaved(
         return 0;
     }
 
-    let x = unsafe { std::slice::from_raw_parts(x_ptr, count) };
-    let y = unsafe { std::slice::from_raw_parts(y_ptr, count) };
-    let z = unsafe { std::slice::from_raw_parts(z_ptr, count) };
-    let out = unsafe { std::slice::from_raw_parts_mut(out_ptr, count * 3) };
+    let x = f64_input_slice(x_ptr, count);
+    let y = f64_input_slice(y_ptr, count);
+    let z = f64_input_slice(z_ptr, count);
+    let out = f64_output_slice(out_ptr, count * 3);
 
     decode_xyz_to_interleaved_impl(x, y, z, out);
 

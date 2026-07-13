@@ -6,10 +6,13 @@ import { createCopcViewer } from './index';
 const COPC_URL = '/samples/autzen.copc.laz';
 
 async function main(): Promise<void> {
-  await createCopcViewer({
+  const viewer = await createCopcViewer({
     container: 'cesium-container',
     url: COPC_URL,
   });
+
+  console.log('COPC Metadata:', viewer.getMetadata());
+  console.log('COPC Viewer Snapshot:', viewer.getSnapshot());
 }
 
 main().catch((error) => {

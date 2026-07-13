@@ -165,6 +165,13 @@ export class CopcViewer {
     };
   }
 
+  /**
+   * Return the currently loaded COPC metadata if the dataset has been loaded.
+   */
+  getMetadata(): CopcMetadata | undefined {
+    return this.streamingState?.metadata;
+  }
+
   private flyToDataset(metadata: CopcMetadata): void {
     if (!this.viewer || this.hasFlownToDataset) {
       return;
