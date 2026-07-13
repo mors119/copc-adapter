@@ -44,13 +44,7 @@ copc-viewer/
 
 ---
 
-## 실행 방법 (예정)
-
-### WASM 빌드
-
-```bash
-wasm-pack build crates/copc-wasm --target web
-```
+## 실행 방법
 
 ### Web 실행
 
@@ -59,6 +53,14 @@ cd apps/viewer-web
 npm install
 npm run dev
 ```
+
+기본 샘플 URL은 `/samples/autzen.copc.laz` 이며, 현재 viewer는 아래 순서로 동작합니다.
+
+1. COPC metadata 로딩
+2. root hierarchy 로딩
+3. root node point decoding
+4. CRS -> WGS84 + meters 좌표 변환
+5. Cesium point primitive 렌더링
 
 ## 샘플 데이터
 
@@ -76,10 +78,11 @@ npm run download-samples -- autzen
 ## 현재 상태
 
 - [x] 프로젝트 구조 설계
-- [ ] COPC WASM 파서
-- [ ] Cesium Viewer 연동
+- [x] COPC reader 계층 정리
+- [x] 좌표 변환 + Cesium point rendering 연결
 - [ ] Octree 기반 스트리밍
 - [ ] LOD 구현
+- [ ] Rust + WASM decoder 전환
 
 ## 참고
 

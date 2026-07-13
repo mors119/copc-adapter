@@ -25,5 +25,6 @@ export function toCopcMetadata(copc: Copc): CopcMetadata {
       y: header.offset[1],
       z: header.offset[2],
     },
+    wkt: copc.wkt,
   };
 }
