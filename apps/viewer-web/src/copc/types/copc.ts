@@ -30,12 +30,19 @@ export type CopcMetadata = {
     y: number;
     z: number;
   };
+  wkt?: string;
 };
 
 export type CopcPoint = {
   x: number;
   y: number;
   z: number;
+};
+
+export type GeographicPoint = {
+  longitude: number;
+  latitude: number;
+  height: number;
 };
 
 export type CopcPointView = {

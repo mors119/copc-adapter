@@ -1,13 +1,48 @@
 import * as Cesium from 'cesium';
+import type { GeographicPoint } from '../../copc/types/copc';
 
-export function renderSinglePoint(viewer: Cesium.Viewer) {
-  viewer.entities.add({
-    position: Cesium.Cartesian3.fromDegrees(127.0, 37.5, 1000),
-    point: {
-      pixelSize: 10,
-      color: Cesium.Color.YELLOW,
-    },
-  });
-
-  viewer.zoomTo(viewer.entities);
+function toCartesian3Array(points: GeographicPoint[]): Cesium.Cartesian3[] {
+  return points.map((point) =>
+    Cesium.Cartesian3.fromDegrees(
+      point.longitude,
+      point.latitude,
+      point.height,
+    ),
+  );
 }
+
+export function renderCopcPoints(
+  viewer: Cesium.Viewer,
+  points: GeographicPoint[],
+  existingCollection?: Cesium.PointPrimitiveCollection,
+): Cesium.PointPrimitiveCollection {
+  if (existingCollection) {
+    viewer.scene.primitives.remove(existingCollection);
+  }
+
+  const collection = viewer.scene.primitives.add(
+    new Cesium.PointPrimitiveCollection(),
+  );
+  const positions = toCartesian3Array(points);
+
+  for (const position of positions) {
+    collection.add({
+      position,
+      pixelSize: 3,
+      color: Cesium.Color.CYAN.withAlpha(0.9),
+    });
+  }
+
+  if (positions.length > 0) {
+    viewer.camera.flyToBoundingSphere(
+      Cesium.BoundingSphere.fromPoints(positions),
+      {
+        duration: 0,
+      },
+    );
+  }
+
+  return collection;
+}
+
+export { toCartesian3Array };
