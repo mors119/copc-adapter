@@ -1,7 +1,9 @@
 import * as Cesium from 'cesium';
 
-export function createCesiumViewer(containerId: string): Cesium.Viewer {
-  return new Cesium.Viewer(containerId, {
+export function createCesiumViewer(
+  container: string | HTMLElement,
+): Cesium.Viewer {
+  return new Cesium.Viewer(container, {
     animation: false,
     timeline: false,
     baseLayerPicker: false,

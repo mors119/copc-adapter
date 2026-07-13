@@ -3,6 +3,10 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import {
+  CopcViewer as PublicCopcViewer,
+  createCopcViewer,
+} from '../src/index.ts';
 import { toCopcHierarchyNode } from '../src/copc/adapters/hierarchyAdapter.ts';
 import { toCartesian3Array } from '../src/cesium/render/renderPoints.ts';
 import { loadRootHierarchy } from '../src/copc/hierarchy/loadRootHierarchy.ts';
@@ -378,4 +382,28 @@ test('createNodePointCache deduplicates repeated node loads', async () => {
 
   assert.equal(callCount, 1);
   assert.deepEqual(first, second);
+});
+
+test('public API exports CopcViewer and createCopcViewer', () => {
+  assert.equal(typeof PublicCopcViewer, 'function');
+  assert.equal(typeof createCopcViewer, 'function');
+});
+
+test('CopcViewer snapshot exposes lifecycle and dataset info', () => {
+  const viewer = new PublicCopcViewer({
+    container: 'cesium-container',
+    url: '/samples/autzen.copc.laz',
+  });
+
+  assert.deepEqual(viewer.getSnapshot(), {
+    lifecycle: 'idle',
+    renderedNodeKeys: [],
+    selectedNodeKeys: [],
+    renderedPointCount: 0,
+    datasetUrl: '/samples/autzen.copc.laz',
+  });
+
+  viewer.destroy();
+
+  assert.equal(viewer.getSnapshot().lifecycle, 'destroyed');
 });

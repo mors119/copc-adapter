@@ -64,6 +64,23 @@ npm run dev
 6. CRS -> WGS84 + meters 좌표 변환
 7. Cesium point primitive 렌더링
 
+## Library API
+
+public entrypoint 는 `apps/viewer-web/src/index.ts` 이다.
+
+```ts
+import { createCopcViewer } from './src';
+
+const viewer = await createCopcViewer({
+  container: 'cesium-container',
+  url: '/samples/autzen.copc.laz',
+});
+
+console.log(viewer.getSnapshot());
+```
+
+상세 API 는 [docs/API.md](/Users/mars112/code/project/copc-adapter/docs/API.md), 예제는 [docs/EXAMPLES.md](/Users/mars112/code/project/copc-adapter/docs/EXAMPLES.md) 에 정리했다.
+
 ## 샘플 데이터
 
 샘플 COPC 파일은 저장소에 포함하지 않고 별도 다운로드합니다.
@@ -85,6 +102,8 @@ npm run download-samples -- autzen
 - [x] Camera based streaming selection
 - [x] LoD 기반 node rendering
 - [x] Node request cache
+- [x] Public viewer API entrypoint
+- [x] API 문서 및 예제 정리
 - [ ] Rust + WASM decoder 전환
 
 ## 참고
