@@ -1,5 +1,11 @@
 import proj4 from 'proj4';
-import type { CopcMetadata, CopcPoint, GeographicPoint } from '../../copc/types/copc';
+import type {
+  CopcMetadata,
+  CopcPoint,
+  CopcPointBuffer,
+  GeographicPoint,
+  GeographicPointBuffer,
+} from '../../copc/types/copc';
 import {
   extractHorizontalWkt,
   extractVerticalUnitScale,
@@ -44,5 +50,31 @@ export function createPointTransformer(
       latitude,
       height: point.z * verticalUnitScale,
     };
+  };
+}
+
+export function transformPointBuffer(
+  metadata: CopcMetadata,
+  points: CopcPointBuffer,
+): GeographicPointBuffer {
+  const transformPoint = createPointTransformer(metadata);
+  const coordinates = new Float64Array(points.coordinates.length);
+
+  for (let index = 0; index < points.pointCount; index += 1) {
+    const offset = index * 3;
+    const point = transformPoint({
+      x: points.coordinates[offset],
+      y: points.coordinates[offset + 1],
+      z: points.coordinates[offset + 2],
+    });
+
+    coordinates[offset] = point.longitude;
+    coordinates[offset + 1] = point.latitude;
+    coordinates[offset + 2] = point.height;
+  }
+
+  return {
+    pointCount: points.pointCount,
+    coordinates,
   };
 }

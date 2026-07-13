@@ -1,4 +1,4 @@
-import type { CopcPoint, CopcPointView } from '../types/copc';
+import type { CopcPoint, CopcPointBuffer, CopcPointView } from '../types/copc';
 
 export type PointReader = {
   read(index: number): CopcPoint;
@@ -26,6 +26,22 @@ export function readAllPoints(view: CopcPointView): CopcPoint[] {
 
   for (let index = 0; index < view.pointCount; index += 1) {
     points.push(reader.read(index));
+  }
+
+  return points;
+}
+
+export function readPointsFromBuffer(buffer: CopcPointBuffer): CopcPoint[] {
+  const points: CopcPoint[] = [];
+
+  for (let index = 0; index < buffer.pointCount; index += 1) {
+    const offset = index * 3;
+
+    points.push({
+      x: buffer.coordinates[offset],
+      y: buffer.coordinates[offset + 1],
+      z: buffer.coordinates[offset + 2],
+    });
   }
 
   return points;

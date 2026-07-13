@@ -8,10 +8,12 @@
   },
   "types": "./src/index.ts",
   "scripts": {
-    "dev": "npm run prepare-laz-perf && vite",
-    "build": "tsc && npm run prepare-laz-perf && vite build",
-    "test": "node --import tsx --test test/copc-reader.test.mjs",
+    "dev": "npm run prepare-assets && vite",
+    "build": "tsc && npm run prepare-assets && vite build",
+    "test": "npm run prepare-copc-wasm && node --import tsx --test test/copc-reader.test.mjs",
     "preview": "vite preview",
+    "prepare-assets": "npm run prepare-copc-wasm && npm run prepare-laz-perf",
+    "prepare-copc-wasm": "node scripts/build-copc-wasm.mjs",
     "prepare-laz-perf": "cp node_modules/laz-perf/lib/laz-perf.wasm public/laz-perf.wasm"
   },
   "devDependencies": {
