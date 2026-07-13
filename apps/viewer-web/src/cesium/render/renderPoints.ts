@@ -33,15 +33,6 @@ export function renderCopcPoints(
     });
   }
 
-  if (positions.length > 0) {
-    viewer.camera.flyToBoundingSphere(
-      Cesium.BoundingSphere.fromPoints(positions),
-      {
-        duration: 0,
-      },
-    );
-  }
-
   return collection;
 }
 
