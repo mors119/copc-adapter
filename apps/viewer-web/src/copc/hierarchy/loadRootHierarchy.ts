@@ -1,19 +1,16 @@
-import { Copc, Getter, Key } from 'copc';
+import { Copc } from 'copc';
 import { toCopcHierarchyNode } from '../adapters/hierarchyAdapter';
+import { createCopcGetter } from '../getter/createCopcGetter';
 import type { CopcHierarchyNode } from '../types/copc';
 
 export async function loadRootHierarchy(
-  url: string,
+  source: string,
 ): Promise<CopcHierarchyNode[]> {
-  const getter = Getter.http(url);
+  const getter = createCopcGetter(source);
   const copc = await Copc.create(getter);
 
   const rootPage = copc.info.rootHierarchyPage;
   const subtree = await Copc.loadHierarchyPage(getter, rootPage);
-
-  console.log('Raw hierarchy subtree:', subtree);
-  console.log('Hierarchy nodes:', subtree.nodes);
-  console.log('Hierarchy pages:', subtree.pages);
 
   const nodes: CopcHierarchyNode[] = [];
 

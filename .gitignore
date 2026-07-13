@@ -17,3 +17,4 @@ dist
 # COPC sample
 samples/local/*
 apps/viewer-web/public/samples/*
+apps/viewer-web/public/laz-perf.wasm

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "npm run prepare-laz-perf && vite",
     "build": "tsc && npm run prepare-laz-perf && vite build",
+    "test": "node --import tsx --test test/copc-reader.test.mjs",
     "preview": "vite preview",
     "prepare-laz-perf": "cp node_modules/laz-perf/lib/laz-perf.wasm public/laz-perf.wasm"
   },

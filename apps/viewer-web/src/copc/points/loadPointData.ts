@@ -1,26 +1,28 @@
-import { Copc, Getter } from 'copc';
+import { Copc } from 'copc';
+import { createCopcGetter } from '../getter/createCopcGetter';
+import { readAllPoints } from './readPoint';
 import type { CopcHierarchyNode } from '../types/copc';
+import type { CopcPoint, CopcPointView } from '../types/copc';
 
 export async function loadPointDataView(
-  url: string,
+  source: string,
   hierarchyNode: CopcHierarchyNode,
-) {
-  const getter = Getter.http(url);
+): Promise<CopcPointView> {
+  const getter = createCopcGetter(source);
   const copc = await Copc.create(getter);
+  const view = await Copc.loadPointDataView(getter, copc, hierarchyNode);
 
-  console.log('Selected hierarchy node:', hierarchyNode);
+  return {
+    pointCount: view.pointCount,
+    getter: view.getter,
+  };
+}
 
-  const view = await Copc.loadPointDataView(getter, copc, hierarchyNode.raw);
+export async function loadCopcPoints(
+  source: string,
+  hierarchyNode: CopcHierarchyNode,
+): Promise<CopcPoint[]> {
+  const view = await loadPointDataView(source, hierarchyNode);
 
-  console.log('Raw point data view:', view);
-  console.log('View keys:', Object.keys(view));
-  console.log(view.getter);
-
-  const getX = view.getter('X');
-  const getY = view.getter('Y');
-  const getZ = view.getter('Z');
-  console.log(getX(0));
-  console.log(getY(0));
-  console.log(getZ(0));
-  return view;
+  return readAllPoints(view);
 }

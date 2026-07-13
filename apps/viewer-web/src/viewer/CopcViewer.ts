@@ -13,11 +13,11 @@ export class CopcViewer {
     this.options = options;
   }
 
-  async init() {
+  async init(): Promise<void> {
     this.viewer = createCesiumViewer(this.options.container);
   }
 
-  async load() {
+  async load(): Promise<void> {
     console.log('Loading COPC from:', this.options.url);
 
     const metadata = await this.loadMetadata();
@@ -27,7 +27,7 @@ export class CopcViewer {
     this.render(points);
   }
 
-  private async loadMetadata() {
+  private async loadMetadata(): Promise<{ pointCount: number; version: string }> {
     // TODO: copc.js or wasm 연결
     return {
       pointCount: 1000000,
@@ -35,7 +35,7 @@ export class CopcViewer {
     };
   }
 
-  private async loadPoints() {
+  private async loadPoints(): Promise<Array<{ x: number; y: number; z: number }>> {
     // MVP: 더미 데이터
     return Array.from({ length: 1000 }, () => ({
       x: -120 + Math.random() * 40, // longitude
@@ -44,7 +44,11 @@ export class CopcViewer {
     }));
   }
 
-  private render(points: any[]) {
+  private render(points: Array<{ x: number; y: number; z: number }>): void {
+    if (!this.viewer) {
+      throw new Error('Cesium viewer is not initialized');
+    }
+
     console.log('Render points:', points.length);
     // TODO: Cesium 연결
   }
