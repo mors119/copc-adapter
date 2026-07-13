@@ -19,3 +19,14 @@ export function createPointReader(view: CopcPointView): PointReader {
     },
   };
 }
+
+export function readAllPoints(view: CopcPointView): CopcPoint[] {
+  const reader = createPointReader(view);
+  const points: CopcPoint[] = [];
+
+  for (let index = 0; index < view.pointCount; index += 1) {
+    points.push(reader.read(index));
+  }
+
+  return points;
+}

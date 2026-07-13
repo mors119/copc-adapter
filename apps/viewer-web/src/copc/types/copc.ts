@@ -1,5 +1,3 @@
-import type { Hierarchy } from 'copc';
-
 export type CopcHierarchyNode = {
   key: string;
   level: number;
@@ -9,7 +7,6 @@ export type CopcHierarchyNode = {
   pointCount: number;
   pointDataOffset: number;
   pointDataLength: number;
-  raw: Hierarchy.Node;
 };
 
 export type CopcMetadata = {
