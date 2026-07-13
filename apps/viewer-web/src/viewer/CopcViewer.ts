@@ -17,14 +17,29 @@ import { buildStreamingHierarchy, type StreamingHierarchyNode } from './streamin
 import { createNodePointCache } from './streaming/createNodePointCache';
 import { selectStreamingNodes } from './streaming/selectNodes';
 
-type CopcViewerOptions = {
-  container: string;
+export type CopcViewerOptions = {
+  container: string | HTMLElement;
   url: string;
 };
 
 type StreamingState = {
   metadata: CopcMetadata;
   nodes: Map<string, StreamingHierarchyNode>;
+};
+
+export type CopcViewerLifecycleState =
+  | 'idle'
+  | 'mounted'
+  | 'loading'
+  | 'ready'
+  | 'destroyed';
+
+export type CopcViewerSnapshot = {
+  lifecycle: CopcViewerLifecycleState;
+  renderedNodeKeys: string[];
+  selectedNodeKeys: string[];
+  renderedPointCount: number;
+  datasetUrl: string;
 };
 
 const STREAMING_OPTIONS = {
@@ -45,20 +60,52 @@ export class CopcViewer {
   private streamingState?: StreamingState;
   private updateTimer?: number;
   private hasFlownToDataset = false;
+  private lifecycle: CopcViewerLifecycleState = 'idle';
+  private readonly handleCameraMoveEnd = (): void => {
+    void this.scheduleStreamingUpdate();
+  };
 
+  /**
+   * Create a reusable COPC viewer controller.
+   *
+   * `container` may be a DOM element or an element id accepted by Cesium.
+   * `url` must resolve to a browser-readable COPC resource that supports range requests.
+   */
   constructor(options: CopcViewerOptions) {
     this.options = options;
   }
 
+  /**
+   * Mount the Cesium viewer into the configured container.
+   *
+   * This must be called before `load()` unless the caller uses `createCopcViewer()`.
+   */
   async init(): Promise<void> {
+    if (this.lifecycle === 'destroyed') {
+      throw new Error('CopcViewer has been destroyed');
+    }
+
+    if (this.viewer) {
+      return;
+    }
+
     this.viewer = createCesiumViewer(this.options.container);
     this.viewer.camera.percentageChanged = 0.02;
-    this.viewer.camera.moveEnd.addEventListener(() => {
-      void this.scheduleStreamingUpdate();
-    });
+    this.viewer.camera.moveEnd.addEventListener(this.handleCameraMoveEnd);
+    this.lifecycle = 'mounted';
   }
 
+  /**
+   * Load COPC metadata, hierarchy, and initial streamed nodes into the viewer.
+   *
+   * The viewer must already be mounted.
+   */
   async load(): Promise<void> {
+    if (!this.viewer) {
+      throw new Error('CopcViewer must be initialized before load()');
+    }
+
+    this.lifecycle = 'loading';
     const metadata = await loadCopcMetadata(this.options.url);
     const nodes = await loadRootHierarchy(this.options.url);
 
@@ -69,6 +116,49 @@ export class CopcViewer {
 
     this.flyToDataset(metadata);
     await this.updateStreamingView();
+    this.lifecycle = 'ready';
+  }
+
+  /**
+   * Convenience lifecycle that mounts the viewer and loads the dataset.
+   */
+  async start(): Promise<void> {
+    await this.init();
+    await this.load();
+  }
+
+  /**
+   * Release Cesium resources and stop streaming updates.
+   */
+  destroy(): void {
+    if (this.updateTimer) {
+      window.clearTimeout(this.updateTimer);
+      this.updateTimer = undefined;
+    }
+
+    if (this.viewer) {
+      this.viewer.camera.moveEnd.removeEventListener(this.handleCameraMoveEnd);
+      this.viewer.destroy();
+      this.viewer = undefined;
+    }
+
+    this.pointCollections.clear();
+    this.selectedNodeKeys.clear();
+    this.streamingState = undefined;
+    this.lifecycle = 'destroyed';
+  }
+
+  /**
+   * Return public viewer state that callers can use for diagnostics or UI.
+   */
+  getSnapshot(): CopcViewerSnapshot {
+    return {
+      lifecycle: this.lifecycle,
+      renderedNodeKeys: this.getRenderedNodeKeys(),
+      selectedNodeKeys: this.getCurrentSelection(),
+      renderedPointCount: this.getRenderedPointCount(),
+      datasetUrl: this.options.url,
+    };
   }
 
   private flyToDataset(metadata: CopcMetadata): void {
@@ -229,4 +319,17 @@ export class CopcViewer {
 
     return Cesium.BoundingSphere.fromPoints(positions);
   }
+}
+
+/**
+ * Create, mount, and load a COPC viewer in one call.
+ */
+export async function createCopcViewer(
+  options: CopcViewerOptions,
+): Promise<CopcViewer> {
+  const viewer = new CopcViewer(options);
+
+  await viewer.start();
+
+  return viewer;
 }
