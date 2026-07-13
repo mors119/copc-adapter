@@ -25,6 +25,14 @@ export function toCopcMetadata(copc: Copc): CopcMetadata {
       y: header.offset[1],
       z: header.offset[2],
     },
+    cube: {
+      minX: info.cube[0],
+      minY: info.cube[1],
+      minZ: info.cube[2],
+      maxX: info.cube[3],
+      maxY: info.cube[4],
+      maxZ: info.cube[5],
+    },
     wkt: copc.wkt,
   };
 }

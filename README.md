@@ -58,9 +58,11 @@ npm run dev
 
 1. COPC metadata 로딩
 2. root hierarchy 로딩
-3. root node point decoding
-4. CRS -> WGS84 + meters 좌표 변환
-5. Cesium point primitive 렌더링
+3. camera 위치 기반 node selection
+4. LoD 기준으로 렌더링 대상 node 선택
+5. 선택된 node point decoding + cache
+6. CRS -> WGS84 + meters 좌표 변환
+7. Cesium point primitive 렌더링
 
 ## 샘플 데이터
 
@@ -80,8 +82,9 @@ npm run download-samples -- autzen
 - [x] 프로젝트 구조 설계
 - [x] COPC reader 계층 정리
 - [x] 좌표 변환 + Cesium point rendering 연결
-- [ ] Octree 기반 스트리밍
-- [ ] LOD 구현
+- [x] Camera based streaming selection
+- [x] LoD 기반 node rendering
+- [x] Node request cache
 - [ ] Rust + WASM decoder 전환
 
 ## 참고

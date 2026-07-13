@@ -30,6 +30,14 @@ export type CopcMetadata = {
     y: number;
     z: number;
   };
+  cube: {
+    minX: number;
+    minY: number;
+    minZ: number;
+    maxX: number;
+    maxY: number;
+    maxZ: number;
+  };
   wkt?: string;
 };
 
@@ -44,6 +52,8 @@ export type GeographicPoint = {
   latitude: number;
   height: number;
 };
+
+export type GeographicCamera = GeographicPoint;
 
 export type CopcPointView = {
   pointCount: number;

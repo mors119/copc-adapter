@@ -13,6 +13,12 @@ import {
 } from '../src/copc/points/loadPointData.ts';
 import { createPointReader, readAllPoints } from '../src/copc/points/readPoint.ts';
 import { createPointTransformer } from '../src/coordinates/transform/createPointTransformer.ts';
+import { buildStreamingHierarchy } from '../src/viewer/streaming/buildStreamingHierarchy.ts';
+import { createNodePointCache } from '../src/viewer/streaming/createNodePointCache.ts';
+import {
+  calculateDistanceMeters,
+  selectStreamingNodes,
+} from '../src/viewer/streaming/selectNodes.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -110,6 +116,14 @@ test('loadCopcMetadata reads sample metadata', async () => {
     y: 851209.9,
     z: 510.7,
   });
+  assert.deepEqual(metadata.cube, {
+    minX: 635577.79,
+    minY: 848882.15,
+    minZ: 406.1400000000003,
+    maxX: 640233.3,
+    maxY: 853537.66,
+    maxZ: 5061.65000000001,
+  });
   assert.match(metadata.wkt, /PROJCS\["NAD83 \/ Oregon GIC Lambert \(ft\)"/);
 });
 
@@ -183,6 +197,14 @@ test('createPointTransformer falls back to geographic coordinates when metadata 
       maxY: 44.1,
       maxZ: 20,
     },
+    cube: {
+      minX: -123.1,
+      minY: 44,
+      minZ: 10,
+      maxX: -123,
+      maxY: 44.1,
+      maxZ: 20,
+    },
     wkt: undefined,
   });
 
@@ -212,4 +234,148 @@ test('toCartesian3Array converts transformed points into Cesium positions', () =
   assert.ok(Number.isFinite(position.x));
   assert.ok(Number.isFinite(position.y));
   assert.ok(Number.isFinite(position.z));
+});
+
+test('buildStreamingHierarchy links children and computes node centers', async () => {
+  const metadata = await loadCopcMetadata(samplePath);
+  const nodes = await loadRootHierarchy(samplePath);
+  const hierarchy = buildStreamingHierarchy(metadata, nodes);
+  const rootNode = hierarchy.get('0-0-0-0');
+  const childNode = hierarchy.get('1-0-0-0');
+
+  assert.ok(rootNode);
+  assert.ok(childNode);
+  assert.deepEqual(rootNode.children.sort(), [
+    '1-0-0-0',
+    '1-0-1-0',
+    '1-1-0-0',
+    '1-1-1-0',
+  ]);
+  assert.ok(rootNode.approximateSizeMeters > childNode.approximateSizeMeters);
+  assertClose(rootNode.center.longitude, -123.0664124403113, 1e-9);
+  assertClose(rootNode.center.latitude, 44.056302479022975, 1e-9);
+});
+
+test('selectStreamingNodes refines near the dataset and collapses farther away', () => {
+  const hierarchy = new Map([
+    [
+      '0-0-0-0',
+      {
+        node: {
+          key: '0-0-0-0',
+          level: 0,
+          x: 0,
+          y: 0,
+          z: 0,
+          pointCount: 100,
+          pointDataOffset: 0,
+          pointDataLength: 0,
+        },
+        children: ['1-0-0-0', '1-1-0-0'],
+        center: { longitude: -123, latitude: 44, height: 100 },
+        approximateSizeMeters: 1200,
+      },
+    ],
+    [
+      '1-0-0-0',
+      {
+        node: {
+          key: '1-0-0-0',
+          level: 1,
+          x: 0,
+          y: 0,
+          z: 0,
+          pointCount: 60,
+          pointDataOffset: 0,
+          pointDataLength: 0,
+        },
+        children: [],
+        center: { longitude: -123.0008, latitude: 44, height: 100 },
+        approximateSizeMeters: 300,
+      },
+    ],
+    [
+      '1-1-0-0',
+      {
+        node: {
+          key: '1-1-0-0',
+          level: 1,
+          x: 1,
+          y: 0,
+          z: 0,
+          pointCount: 40,
+          pointDataOffset: 0,
+          pointDataLength: 0,
+        },
+        children: [],
+        center: { longitude: -122.9992, latitude: 44, height: 100 },
+        approximateSizeMeters: 300,
+      },
+    ],
+  ]);
+  const options = {
+    maxNodes: 8,
+    minScreenSpaceMetric: 0.01,
+    refineScreenSpaceMetric: 0.08,
+    maxRenderDistanceMeters: 12000,
+  };
+
+  assert.deepEqual(
+    selectStreamingNodes(hierarchy, {
+      longitude: -123,
+      latitude: 44,
+      height: 1500,
+    }, options),
+    ['1-0-0-0', '1-1-0-0'],
+  );
+
+  assert.deepEqual(
+    selectStreamingNodes(hierarchy, {
+      longitude: -123,
+      latitude: 44,
+      height: 40000,
+    }, options),
+    ['0-0-0-0'],
+  );
+});
+
+test('calculateDistanceMeters measures geographic and height delta', () => {
+  const distance = calculateDistanceMeters(
+    { longitude: -123, latitude: 44, height: 1000 },
+    {
+      node: {
+        key: '0-0-0-0',
+        level: 0,
+        x: 0,
+        y: 0,
+        z: 0,
+        pointCount: 1,
+        pointDataOffset: 0,
+        pointDataLength: 0,
+      },
+      children: [],
+      center: { longitude: -123, latitude: 44.001, height: 1500 },
+      approximateSizeMeters: 100,
+    },
+  );
+
+  assert.ok(distance > 500);
+  assert.ok(distance < 700);
+});
+
+test('createNodePointCache deduplicates repeated node loads', async () => {
+  let callCount = 0;
+  const cache = createNodePointCache(async (nodeKey) => {
+    callCount += 1;
+
+    return [{ longitude: -123, latitude: 44, height: nodeKey.length }];
+  });
+
+  const [first, second] = await Promise.all([
+    cache.load('1-0-0-0'),
+    cache.load('1-0-0-0'),
+  ]);
+
+  assert.equal(callCount, 1);
+  assert.deepEqual(first, second);
 });
