@@ -89,7 +89,25 @@ page 와 node 차이:
 - node: point chunk offset / length / pointCount 를 가진 renderable entry
 - page: 더 많은 node / page metadata 를 담은 hierarchy container
 
-### 2. Rust + WASM Decoder Layer
+### 2. Hierarchy Layer
+
+위치:
+
+- `apps/viewer-web/src/copc/hierarchy`
+- `apps/viewer-web/src/viewer/streaming/buildStreamingHierarchy.ts`
+
+역할:
+
+- COPC hierarchy page traversal 결과를 내부 node 집합으로 유지
+- parent/child 연결 정보 구성
+- selection 단계가 사용할 geographic bounds, center, approximate size 계산
+
+핵심 책임:
+
+- `HierarchyLoader`: raw hierarchy page recursion, page dedupe, subtree merge
+- `buildStreamingHierarchy`: render/selection 용 hierarchy node 파생 정보 계산
+
+### 3. Rust + WASM Decoder Layer
 
 위치:
 
@@ -109,7 +127,7 @@ page 와 node 차이:
 
 즉, Rust + WASM 은 현재 "full COPC parser" 가 아니라 "point decoder replacement" 이다.
 
-### 3. Streaming Viewer Layer
+### 4. Streaming Layer
 
 위치:
 
@@ -157,7 +175,7 @@ cache lifecycle:
 - node deselection 시 cache entry 제거
 - viewer `destroy()` 시 전체 cache clear
 
-### 4. Coordinate Transformation Layer
+### 5. Coordinate Transformation Layer
 
 위치:
 
@@ -169,7 +187,7 @@ cache lifecycle:
 - projected coordinates -> WGS84 + meters 변환
 - Cesium 입력 좌표 준비
 
-### 5. Cesium Rendering Layer
+### 6. Rendering Layer
 
 위치:
 
@@ -179,7 +197,8 @@ cache lifecycle:
 
 - Cesium viewer 생성
 - Point primitive collection 생성
-- 화면 렌더링
+- streamed point set 교체 렌더링
+- removed node primitive cleanup
 
 금지 사항:
 
@@ -203,6 +222,7 @@ cache lifecycle:
 - viewer lifecycle
 - metadata 조회
 - snapshot 조회
+- rendered node / selected node / bounding sphere 조회
 
 소비자는 내부 `copc/`, `coordinates/`, `cesium/`, `wasm/` 세부 구현이 아니라 public entrypoint 만 사용해야 한다.
 

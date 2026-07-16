@@ -7,8 +7,14 @@ import {
   CopcViewer as PublicCopcViewer,
   createCopcViewer,
 } from '../src/index.ts';
-import { toCopcHierarchyNode } from '../src/copc/adapters/hierarchyAdapter.ts';
+import { Getter } from 'copc';
+import {
+  toCopcHierarchyNode,
+  toCopcHierarchyPage,
+} from '../src/copc/adapters/hierarchyAdapter.ts';
+import { toCopcMetadata } from '../src/copc/adapters/metadataAdapter.ts';
 import { createCopcContext } from '../src/copc/context/createCopcContext.ts';
+import { createCopcGetter } from '../src/copc/getter/createCopcGetter.ts';
 import { toCartesian3Array } from '../src/cesium/render/renderPoints.ts';
 import { loadRootHierarchy } from '../src/copc/hierarchy/loadRootHierarchy.ts';
 import { loadCopcMetadata } from '../src/copc/metadata/loadMetadata.ts';
@@ -68,6 +74,118 @@ test('toCopcHierarchyNode rejects an invalid hierarchy key', () => {
       }),
     /Invalid COPC hierarchy key/,
   );
+});
+
+test('toCopcHierarchyPage maps hierarchy page offsets', () => {
+  assert.deepEqual(
+    toCopcHierarchyPage('1-0-0-0', {
+      pageOffset: 256,
+      pageLength: 512,
+    }),
+    {
+      key: '1-0-0-0',
+      pageOffset: 256,
+      pageLength: 512,
+    },
+  );
+});
+
+test('toCopcMetadata maps header and cube data to project metadata', () => {
+  assert.deepEqual(
+    toCopcMetadata({
+      header: {
+        pointCount: 10,
+        min: [1, 2, 3],
+        max: [4, 5, 6],
+        scale: [0.1, 0.2, 0.3],
+        offset: [7, 8, 9],
+      },
+      info: {
+        spacing: 4.5,
+        cube: [11, 12, 13, 14, 15, 16],
+      },
+      wkt: 'GEOGCS["WGS 84"]',
+    }),
+    {
+      pointCount: 10,
+      bounds: {
+        minX: 1,
+        minY: 2,
+        minZ: 3,
+        maxX: 4,
+        maxY: 5,
+        maxZ: 6,
+      },
+      spacing: 4.5,
+      scale: {
+        x: 0.1,
+        y: 0.2,
+        z: 0.3,
+      },
+      offset: {
+        x: 7,
+        y: 8,
+        z: 9,
+      },
+      cube: {
+        minX: 11,
+        minY: 12,
+        minZ: 13,
+        maxX: 14,
+        maxY: 15,
+        maxZ: 16,
+      },
+      wkt: 'GEOGCS["WGS 84"]',
+    },
+  );
+});
+
+test('createCopcGetter chooses HTTP, browser-relative, and local getters correctly', () => {
+  const originalWindow = globalThis.window;
+  const originalHttp = Getter.http;
+  const originalCreate = Getter.create;
+  const calls = [];
+
+  Getter.http = (source) => {
+    calls.push(['http', source]);
+    return { kind: 'http', source };
+  };
+  Getter.create = (source) => {
+    calls.push(['create', source]);
+    return { kind: 'create', source };
+  };
+
+  assert.deepEqual(createCopcGetter('https://example.com/data.copc.laz'), {
+    kind: 'http',
+    source: 'https://example.com/data.copc.laz',
+  });
+
+  globalThis.window = {
+    location: {
+      href: 'https://viewer.example/app/',
+    },
+  };
+
+  assert.deepEqual(createCopcGetter('/samples/autzen.copc.laz'), {
+    kind: 'http',
+    source: 'https://viewer.example/samples/autzen.copc.laz',
+  });
+
+  globalThis.window = undefined;
+
+  assert.deepEqual(createCopcGetter(samplePath), {
+    kind: 'create',
+    source: samplePath,
+  });
+  assert.deepEqual(calls, [
+    ['http', 'https://example.com/data.copc.laz'],
+    ['http', 'https://viewer.example/samples/autzen.copc.laz'],
+    ['create', samplePath],
+  ]);
+
+  Getter.http = originalHttp;
+  Getter.create = originalCreate;
+  globalThis.window = originalWindow;
 });
 
 test('readPoint utilities decode all coordinates from a point view', () => {
@@ -418,4 +536,25 @@ test('CopcViewer metadata API is empty before load', () => {
   });
 
   assert.equal(viewer.getMetadata(), undefined);
+});
+
+test('CopcViewer load rejects when init has not run', async () => {
+  const viewer = new PublicCopcViewer({
+    container: 'cesium-container',
+    url: '/samples/autzen.copc.laz',
+  });
+
+  await assert.rejects(
+    () => viewer.load(),
+    /CopcViewer must be initialized before load/,
+  );
+});
+
+test('CopcViewer selection bounding sphere is empty before rendering', () => {
+  const viewer = new PublicCopcViewer({
+    container: 'cesium-container',
+    url: '/samples/autzen.copc.laz',
+  });
+
+  assert.equal(viewer.getSelectionBoundingSphere(), undefined);
 });

@@ -285,6 +285,60 @@ test('NodeSelector uses bounds to exclude nodes outside the current view range',
   assert.deepEqual(selected.map((entry) => entry.node.key), ['0-0-0-0']);
 });
 
+test('NodeSelector falls back to the nearest node when nothing is visible', () => {
+  const selector = createSelector({ maxRenderDistanceMeters: 10 });
+  const hierarchy = new Map([
+    [
+      '0-0-0-0',
+      createStreamingNode({
+        key: '0-0-0-0',
+        level: 0,
+        pointCount: 50,
+        center: { longitude: -123, latitude: 44.5, height: 100 },
+        bounds: {
+          minX: -123.1,
+          minY: 44.4,
+          minZ: 50,
+          maxX: -122.9,
+          maxY: 44.6,
+          maxZ: 150,
+        },
+        approximateSizeMeters: 1200,
+        boundingRadiusMeters: 0,
+      }),
+    ],
+    [
+      '0-1-0-0',
+      createStreamingNode({
+        key: '0-1-0-0',
+        level: 0,
+        pointCount: 50,
+        center: { longitude: -121, latitude: 45.5, height: 100 },
+        bounds: {
+          minX: -121.1,
+          minY: 45.4,
+          minZ: 50,
+          maxX: -120.9,
+          maxY: 45.6,
+          maxZ: 150,
+        },
+        approximateSizeMeters: 1200,
+        boundingRadiusMeters: 0,
+      }),
+    ],
+  ]);
+
+  const selected = selector.selectVisibleNodes(createCamera(), hierarchy);
+
+  assert.deepEqual(selected.map((entry) => entry.node.key), ['0-0-0-0']);
+});
+
+test('NodeSelector returns an empty selection for an empty hierarchy', () => {
+  const selector = createSelector();
+
+  assert.deepEqual(selector.selectVisibleNodes(createCamera(), new Map()), []);
+});
+
 test('calculateDistanceMeters measures geographic and height delta', () => {
   const distance = calculateDistanceMeters(
     createCamera({ height: 1000, viewDistanceMeters: 5000 }),
@@ -412,4 +466,122 @@ test('StreamingManager uses cached nodes and loads missing nodes', async () => {
   assert.equal(loadCount, 2);
   assert.deepEqual(thirdUpdate.selectedNodeKeys, ['1-0-0-0']);
   assert.deepEqual(thirdUpdate.removedNodeKeys, ['0-0-0-0']);
+});
+
+test('StreamingManager.clear resets selection state and cache', async () => {
+  const hierarchy = new Map([
+    [
+      '0-0-0-0',
+      createStreamingNode({
+        key: '0-0-0-0',
+        level: 0,
+        pointCount: 100,
+        center: { longitude: -123, latitude: 44, height: 100 },
+        bounds: {
+          minX: -123.01,
+          minY: 43.99,
+          minZ: 50,
+          maxX: -122.99,
+          maxY: 44.01,
+          maxZ: 150,
+        },
+        approximateSizeMeters: 1200,
+        boundingRadiusMeters: 800,
+      }),
+    ],
+  ]);
+  const cache = createNodePointCache(async () => ({
+    pointCount: 1,
+    coordinates: new Float64Array([-123, 44, 1]),
+  }), { maxEntries: 2 });
+  const manager = new StreamingManager(hierarchy, {
+    maxNodes: 8,
+    maxDepth: 4,
+    refineDistanceMultiplier: 6,
+    maxRenderDistanceMeters: 12000,
+  }, cache);
+
+  await manager.update(createCamera());
+  assert.equal(cache.getSize(), 1);
+
+  manager.clear();
+
+  assert.equal(cache.getSize(), 0);
+  const nextUpdate = await manager.update(createCamera());
+  assert.deepEqual(nextUpdate.removedNodeKeys, []);
+  assert.deepEqual(nextUpdate.selectedNodeKeys, ['0-0-0-0']);
+});
+
+test('StreamingManager returns an empty update when no hierarchy nodes exist', async () => {
+  const cache = createNodePointCache(async () => ({
+    pointCount: 1,
+    coordinates: new Float64Array([-123, 44, 1]),
+  }), { maxEntries: 1 });
+  const manager = new StreamingManager(new Map(), {
+    maxNodes: 8,
+    maxDepth: 4,
+    refineDistanceMultiplier: 6,
+    maxRenderDistanceMeters: 12000,
+  }, cache);
+
+  const update = await manager.update(createCamera());
+
+  assert.deepEqual(update.selectedNodeKeys, []);
+  assert.deepEqual(update.removedNodeKeys, []);
+  assert.equal(update.loadedNodePoints.size, 0);
+});
+
+test('StreamingManager propagates load failures and retries after cache eviction', async () => {
+  let attempts = 0;
+  const hierarchy = new Map([
+    [
+      '0-0-0-0',
+      createStreamingNode({
+        key: '0-0-0-0',
+        level: 0,
+        pointCount: 100,
+        center: { longitude: -123, latitude: 44, height: 100 },
+        bounds: {
+          minX: -123.01,
+          minY: 43.99,
+          minZ: 50,
+          maxX: -122.99,
+          maxY: 44.01,
+          maxZ: 150,
+        },
+        approximateSizeMeters: 1200,
+        boundingRadiusMeters: 800,
+      }),
+    ],
+  ]);
+  const cache = createNodePointCache(async () => {
+    attempts += 1;
+
+    if (attempts === 1) {
+      throw new Error('load failed');
+    }
+
+    return {
+      pointCount: 1,
+      coordinates: new Float64Array([-123, 44, 1]),
+    };
+  }, { maxEntries: 1 });
+  const manager = new StreamingManager(hierarchy, {
+    maxNodes: 8,
+    maxDepth: 4,
+    refineDistanceMultiplier: 6,
+    maxRenderDistanceMeters: 12000,
+  }, cache);
+
+  await assert.rejects(
+    () => manager.update(createCamera()),
+    /load failed/,
+  );
+  assert.equal(cache.getSize(), 0);
+
+  const update = await manager.update(createCamera());
+
+  assert.equal(attempts, 2);
+  assert.deepEqual(update.selectedNodeKeys, ['0-0-0-0']);
+  assert.equal(update.loadedNodePoints.size, 1);
 });
