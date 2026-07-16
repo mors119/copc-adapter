@@ -19,6 +19,8 @@
     "prepare-laz-perf": "cp node_modules/laz-perf/lib/laz-perf.wasm public/laz-perf.wasm"
   },
   "devDependencies": {
+    "@emnapi/core": "^1.11.2",
+    "@emnapi/runtime": "^1.11.2",
     "typescript": "~6.0.2",
     "vite": "^8.0.12",
     "vite-plugin-cesium": "^1.2.23",
