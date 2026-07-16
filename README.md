@@ -57,15 +57,61 @@ npm run dev
 기본 샘플 URL은 `/samples/autzen.copc.laz` 이며, 현재 viewer는 아래 순서로 동작합니다.
 
 1. COPC metadata 로딩
-2. root hierarchy 로딩
-3. camera 위치 기반 node selection
-4. LoD 기준으로 렌더링 대상 node 선택
-5. 선택된 node `CopcPointView` 로딩
-6. Rust + WASM point decoder 로 interleaved point buffer 생성
-7. CRS -> WGS84 + meters 좌표 변환
-8. Cesium point primitive 렌더링
+2. root hierarchy page 로딩
+3. child hierarchy page 재귀 순회
+4. camera state -> `NodeSelector`
+5. distance / bounds / max depth 기반 LoD selection
+6. `StreamingManager` 가 선택 node 와 cache 상태 조정
+7. 선택된 node `CopcPointView` 로딩
+8. Rust + WASM point decoder 로 interleaved point buffer 생성
+9. CRS -> WGS84 + meters 좌표 변환
+10. Cesium point primitive 렌더링
 
-`npm run dev`, `npm test`, `npm run build` 는 모두 내부적으로 `cargo build -p copc-wasm --target wasm32-unknown-unknown --release` 를 실행해 WASM asset 을 준비한다.
+`npm run dev`, `npm test`, `npm run coverage`, `npm run build` 는 모두 내부적으로 `cargo build -p copc-wasm --target wasm32-unknown-unknown --release` 를 실행해 WASM asset 을 준비한다.
+
+## Release Stabilization
+
+현재 viewer-web 은 release-quality MVP 를 위한 두 가지 내부 안정화 경로를 추가했다.
+
+- `CopcContext`: dataset 당 한 번만 `Copc.create()` 를 수행하고 metadata, hierarchy, point loading 이 같은 reader state 를 재사용한다.
+- bounded node cache: viewer streaming cache 는 LRU 순서로 최대 entry 수를 유지하며, node deselection 과 `destroy()` 시 cached point promise 를 정리한다.
+
+## Hierarchy Traversal
+
+hierarchy 계층은 rendering 과 분리되어 COPC hierarchy page traversal 만 담당한다.
+
+- hierarchy `node`: point chunk metadata 를 가진 octree node
+- hierarchy `page`: 추가 node / page metadata 가 들어 있는 child hierarchy block
+
+viewer 는 point data 를 요청하기 전에 전체 hierarchy metadata 를 재귀적으로 순회하지만, 이 단계에서는 point chunk 자체를 읽지 않는다.
+
+## Streaming Selection
+
+streaming 계층은 hierarchy 와 renderer 사이에서 “지금 어떤 node를 그릴지” 결정한다.
+
+- `NodeSelector`: camera distance, node bounds, max depth 로 visible node 선택
+- `StreamingManager`: 선택 결과를 기준으로 cache 조회, 누락 node load, deselection cleanup 수행
+
+현재 LoD 전략은 intentionally simple 하다.
+
+- distance based refinement
+- bounding box visibility
+- maximum depth limit
+
+advanced screen-space error 는 아직 포함하지 않는다.
+
+## Quality Gates
+
+`apps/viewer-web` 에는 아래 검증 스크립트가 있다.
+
+```bash
+npm run typecheck
+npm test
+npm run coverage
+npm run build
+```
+
+GitHub Actions workflow `.github/workflows/ci.yml` 은 위 순서를 자동으로 실행한다.
 
 ## Library API
 
@@ -109,10 +155,11 @@ npm run download-samples -- autzen
 
 - [x] 프로젝트 구조 설계
 - [x] COPC reader 계층 정리
+- [x] generalized hierarchy traversal
 - [x] 좌표 변환 + Cesium point rendering 연결
 - [x] Camera based streaming selection
-- [x] LoD 기반 node rendering
-- [x] Node request cache
+- [x] basic LoD node rendering
+- [x] Bounded node request cache
 - [x] Public viewer API entrypoint
 - [x] API 문서 및 예제 정리
 - [x] Rust + WASM point decoder 전환

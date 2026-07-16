@@ -1,6 +1,10 @@
 import * as Cesium from 'cesium';
 import { renderCopcPoints, toCartesian3Array } from '../cesium/render/renderPoints';
 import { createCesiumViewer } from '../cesium/viewer/createViewer';
+import {
+  createCopcContext,
+  type CopcContext,
+} from '../copc/context/createCopcContext';
 import { loadRootHierarchy } from '../copc/hierarchy/loadRootHierarchy';
 import { loadCopcMetadata } from '../copc/metadata/loadMetadata';
 import { loadCopcPointBuffer } from '../copc/points/loadPointData';
@@ -17,9 +21,14 @@ import type {
   GeographicPoint,
   GeographicPointBuffer,
 } from '../copc/types/copc';
-import { buildStreamingHierarchy, type StreamingHierarchyNode } from './streaming/buildStreamingHierarchy';
-import { createNodePointCache } from './streaming/createNodePointCache';
-import { selectStreamingNodes } from './streaming/selectNodes';
+import {
+  buildStreamingHierarchy,
+  createNodePointCache,
+  StreamingManager,
+  type StreamingCameraState,
+  type StreamingHierarchy,
+  type StreamingSelectionOptions,
+} from './streaming/index';
 
 export type CopcViewerOptions = {
   container: string | HTMLElement;
@@ -27,8 +36,10 @@ export type CopcViewerOptions = {
 };
 
 type StreamingState = {
+  context: CopcContext;
   metadata: CopcMetadata;
-  nodes: Map<string, StreamingHierarchyNode>;
+  nodes: StreamingHierarchy;
+  manager: StreamingManager;
 };
 
 export type CopcViewerLifecycleState =
@@ -46,12 +57,13 @@ export type CopcViewerSnapshot = {
   datasetUrl: string;
 };
 
-const STREAMING_OPTIONS = {
+const STREAMING_OPTIONS: StreamingSelectionOptions = {
   maxNodes: 24,
-  minScreenSpaceMetric: 0.01,
-  refineScreenSpaceMetric: 0.08,
+  maxDepth: 6,
+  refineDistanceMultiplier: 6,
   maxRenderDistanceMeters: 12000,
 };
+const MAX_CACHED_NODES = 48;
 
 export class CopcViewer {
   private viewer?: Cesium.Viewer;
@@ -60,6 +72,7 @@ export class CopcViewer {
   private readonly selectedNodeKeys = new Set<string>();
   private readonly nodePointCache = createNodePointCache(async (nodeKey) =>
     this.loadRenderableNodePoints(nodeKey),
+    { maxEntries: MAX_CACHED_NODES },
   );
   private streamingState?: StreamingState;
   private updateTimer?: number;
@@ -110,12 +123,20 @@ export class CopcViewer {
     }
 
     this.lifecycle = 'loading';
-    const metadata = await loadCopcMetadata(this.options.url);
-    const nodes = await loadRootHierarchy(this.options.url);
+    const context = await createCopcContext(this.options.url);
+    const metadata = await loadCopcMetadata(context);
+    const nodes = await loadRootHierarchy(context);
+    const hierarchy = buildStreamingHierarchy(metadata, nodes);
 
     this.streamingState = {
+      context,
       metadata,
-      nodes: buildStreamingHierarchy(metadata, nodes),
+      nodes: hierarchy,
+      manager: new StreamingManager(
+        hierarchy,
+        STREAMING_OPTIONS,
+        this.nodePointCache,
+      ),
     };
 
     this.flyToDataset(metadata);
@@ -148,6 +169,7 @@ export class CopcViewer {
 
     this.pointCollections.clear();
     this.selectedNodeKeys.clear();
+    this.nodePointCache.clear();
     this.streamingState = undefined;
     this.lifecycle = 'destroyed';
   }
@@ -225,46 +247,53 @@ export class CopcViewer {
     };
   }
 
+  private getStreamingCameraState(): StreamingCameraState {
+    const camera = this.getCameraPosition();
+
+    return {
+      ...camera,
+      viewDistanceMeters: Math.max(camera.height * 6, 2000),
+    };
+  }
+
   private async updateStreamingView(): Promise<void> {
     if (!this.viewer || !this.streamingState) {
       return;
     }
 
-    const selectedNodeKeys = selectStreamingNodes(
-      this.streamingState.nodes,
-      this.getCameraPosition(),
-      STREAMING_OPTIONS,
+    const update = await this.streamingState.manager.update(
+      this.getStreamingCameraState(),
     );
 
     this.selectedNodeKeys.clear();
 
-    for (const nodeKey of selectedNodeKeys) {
+    for (const nodeKey of update.selectedNodeKeys) {
       this.selectedNodeKeys.add(nodeKey);
     }
 
-    for (const [nodeKey, collection] of this.pointCollections) {
-      if (!this.selectedNodeKeys.has(nodeKey)) {
-        this.viewer.scene.primitives.remove(collection);
-        this.pointCollections.delete(nodeKey);
+    for (const nodeKey of update.removedNodeKeys) {
+      const collection = this.pointCollections.get(nodeKey);
+
+      if (!collection) {
+        continue;
       }
+
+      this.viewer.scene.primitives.remove(collection);
+      this.pointCollections.delete(nodeKey);
     }
 
-    await Promise.all(
-      selectedNodeKeys.map(async (nodeKey) => {
-        if (this.pointCollections.has(nodeKey)) {
-          return;
-        }
+    for (const [nodeKey, points] of update.loadedNodePoints) {
+      if (!this.viewer || !this.selectedNodeKeys.has(nodeKey)) {
+        continue;
+      }
 
-        const points = await this.nodePointCache.load(nodeKey);
+      if (this.pointCollections.has(nodeKey)) {
+        continue;
+      }
 
-        if (!this.viewer || !this.selectedNodeKeys.has(nodeKey)) {
-          return;
-        }
-
-        const collection = renderCopcPoints(this.viewer, points);
-        this.pointCollections.set(nodeKey, collection);
-      }),
-    );
+      const collection = renderCopcPoints(this.viewer, points);
+      this.pointCollections.set(nodeKey, collection);
+    }
   }
 
   private async loadRenderableNodePoints(nodeKey: string): Promise<GeographicPointBuffer> {
@@ -284,7 +313,11 @@ export class CopcViewer {
   }
 
   private async loadPoints(node: CopcHierarchyNode): Promise<CopcPointBuffer> {
-    return loadCopcPointBuffer(this.options.url, node);
+    if (!this.streamingState) {
+      throw new Error('Streaming state is not initialized');
+    }
+
+    return loadCopcPointBuffer(this.streamingState.context, node);
   }
 
   getRenderedNodeKeys(): string[] {

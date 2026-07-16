@@ -1,26 +1,23 @@
-import { Copc } from 'copc';
-import { createCopcGetter } from '../getter/createCopcGetter';
+import {
+  resolveCopcContext,
+  type CopcContextInput,
+} from '../context/createCopcContext';
 import { decodeCopcPointBuffer } from '../../wasm/copcDecoder';
 import { readPointsFromBuffer } from './readPoint';
 import type { CopcHierarchyNode } from '../types/copc';
 import type { CopcPoint, CopcPointBuffer, CopcPointView } from '../types/copc';
 
 export async function loadPointDataView(
-  source: string,
+  source: CopcContextInput,
   hierarchyNode: CopcHierarchyNode,
 ): Promise<CopcPointView> {
-  const getter = createCopcGetter(source);
-  const copc = await Copc.create(getter);
-  const view = await Copc.loadPointDataView(getter, copc, hierarchyNode);
+  const context = await resolveCopcContext(source);
 
-  return {
-    pointCount: view.pointCount,
-    getter: view.getter,
-  };
+  return context.loadPointDataView(hierarchyNode);
 }
 
 export async function loadCopcPoints(
-  source: string,
+  source: CopcContextInput,
   hierarchyNode: CopcHierarchyNode,
 ): Promise<CopcPoint[]> {
   const buffer = await loadCopcPointBuffer(source, hierarchyNode);
@@ -29,7 +26,7 @@ export async function loadCopcPoints(
 }
 
 export async function loadCopcPointBuffer(
-  source: string,
+  source: CopcContextInput,
   hierarchyNode: CopcHierarchyNode,
 ): Promise<CopcPointBuffer> {
   const view = await loadPointDataView(source, hierarchyNode);

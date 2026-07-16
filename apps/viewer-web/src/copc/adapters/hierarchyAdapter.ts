@@ -1,5 +1,8 @@
 import type { Hierarchy } from 'copc';
-import type { CopcHierarchyNode } from '../types/copc';
+import type {
+  CopcHierarchyNode,
+  CopcHierarchyPage,
+} from '../hierarchy/types';
 
 function parseHierarchyKey(keyText: string): {
   level: number;
@@ -33,5 +36,16 @@ export function toCopcHierarchyNode(
     pointCount: node.pointCount,
     pointDataOffset: node.pointDataOffset,
     pointDataLength: node.pointDataLength,
+  };
+}
+
+export function toCopcHierarchyPage(
+  keyText: string,
+  page: Hierarchy.Page,
+): CopcHierarchyPage {
+  return {
+    key: keyText,
+    pageOffset: page.pageOffset,
+    pageLength: page.pageLength,
   };
 }

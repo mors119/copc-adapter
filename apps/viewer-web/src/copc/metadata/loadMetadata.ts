@@ -1,11 +1,13 @@
-import { Copc } from 'copc';
-import { toCopcMetadata } from '../adapters/metadataAdapter';
-import { createCopcGetter } from '../getter/createCopcGetter';
+import {
+  resolveCopcContext,
+  type CopcContextInput,
+} from '../context/createCopcContext';
 import type { CopcMetadata } from '../types/copc';
 
-export async function loadCopcMetadata(source: string): Promise<CopcMetadata> {
-  const getter = createCopcGetter(source);
-  const copc = await Copc.create(getter);
+export async function loadCopcMetadata(
+  source: CopcContextInput,
+): Promise<CopcMetadata> {
+  const context = await resolveCopcContext(source);
 
-  return toCopcMetadata(copc);
+  return context.getMetadata();
 }

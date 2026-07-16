@@ -1,13 +1,8 @@
-export type CopcHierarchyNode = {
-  key: string;
-  level: number;
-  x: number;
-  y: number;
-  z: number;
-  pointCount: number;
-  pointDataOffset: number;
-  pointDataLength: number;
-};
+export type {
+  CopcHierarchyNode,
+  CopcHierarchyPage,
+  CopcHierarchyTree,
+} from '../hierarchy/types';
 
 export type CopcMetadata = {
   pointCount: number;

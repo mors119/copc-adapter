@@ -8,6 +8,7 @@ import {
   createCopcViewer,
 } from '../src/index.ts';
 import { toCopcHierarchyNode } from '../src/copc/adapters/hierarchyAdapter.ts';
+import { createCopcContext } from '../src/copc/context/createCopcContext.ts';
 import { toCartesian3Array } from '../src/cesium/render/renderPoints.ts';
 import { loadRootHierarchy } from '../src/copc/hierarchy/loadRootHierarchy.ts';
 import { loadCopcMetadata } from '../src/copc/metadata/loadMetadata.ts';
@@ -23,10 +24,6 @@ import {
 } from '../src/coordinates/transform/createPointTransformer.ts';
 import { buildStreamingHierarchy } from '../src/viewer/streaming/buildStreamingHierarchy.ts';
 import { createNodePointCache } from '../src/viewer/streaming/createNodePointCache.ts';
-import {
-  calculateDistanceMeters,
-  selectStreamingNodes,
-} from '../src/viewer/streaming/selectNodes.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -101,6 +98,24 @@ test('readPoint utilities decode all coordinates from a point view', () => {
   ]);
 });
 
+test('createCopcContext initializes reusable COPC state', async () => {
+  const context = await createCopcContext(samplePath);
+  const metadata = context.getMetadata();
+
+  assert.equal(context.source, samplePath);
+  assert.equal(metadata.pointCount, 10653336);
+  assert.equal(metadata.spacing, 36.37117187500007);
+});
+
+test('loadCopcMetadata supports a shared context', async () => {
+  const context = await createCopcContext(samplePath);
+  const metadata = await loadCopcMetadata(context);
+
+  assert.equal(metadata.pointCount, 10653336);
+  assert.equal(metadata.bounds.minX, 635577.79);
+  assert.match(metadata.wkt, /PROJCS\["NAD83 \/ Oregon GIC Lambert \(ft\)"/);
+});
+
 test('loadCopcMetadata reads sample metadata', async () => {
   const metadata = await loadCopcMetadata(samplePath);
 
@@ -135,7 +150,7 @@ test('loadCopcMetadata reads sample metadata', async () => {
   assert.match(metadata.wkt, /PROJCS\["NAD83 \/ Oregon GIC Lambert \(ft\)"/);
 });
 
-test('loadRootHierarchy returns sample root hierarchy nodes', async () => {
+test('loadRootHierarchy returns traversed sample hierarchy nodes', async () => {
   const nodes = await loadRootHierarchy(samplePath);
   const rootNode = nodes.find((node) => node.key === '0-0-0-0');
 
@@ -150,6 +165,7 @@ test('loadRootHierarchy returns sample root hierarchy nodes', async () => {
     pointCount: 61201,
     pointDataOffset: 79462688,
     pointDataLength: 763258,
+    children: ['1-0-0-0', '1-1-0-0', '1-0-1-0', '1-1-1-0'],
   });
 });
 
@@ -176,6 +192,25 @@ test('loadPointDataView and loadCopcPoints decode sample node points', async () 
     y: 849328.6,
     z: 424.53999999999996,
   });
+});
+
+test('shared context loads point data without recreating source inputs', async () => {
+  const context = await createCopcContext(samplePath);
+  const nodes = await loadRootHierarchy(context);
+  const rootNode = nodes.find((node) => node.key === '0-0-0-0');
+
+  assert.ok(rootNode);
+
+  const view = await loadPointDataView(context, rootNode);
+  const buffer = await loadCopcPointBuffer(context, rootNode);
+
+  assert.equal(view.pointCount, 61201);
+  assert.equal(buffer.pointCount, 61201);
+  assert.deepEqual(Array.from(buffer.coordinates.slice(0, 3)), [
+    638865.15,
+    849280.01,
+    425.15999999999997,
+  ]);
 });
 
 test('loadCopcPointBuffer decodes sample points through Rust WASM', async () => {
@@ -296,115 +331,11 @@ test('buildStreamingHierarchy links children and computes node centers', async (
     '1-1-1-0',
   ]);
   assert.ok(rootNode.approximateSizeMeters > childNode.approximateSizeMeters);
+  assert.ok(rootNode.boundingRadiusMeters > childNode.boundingRadiusMeters);
+  assert.ok(rootNode.bounds.minX < rootNode.bounds.maxX);
+  assert.ok(rootNode.bounds.minY < rootNode.bounds.maxY);
   assertClose(rootNode.center.longitude, -123.0664124403113, 1e-9);
   assertClose(rootNode.center.latitude, 44.056302479022975, 1e-9);
-});
-
-test('selectStreamingNodes refines near the dataset and collapses farther away', () => {
-  const hierarchy = new Map([
-    [
-      '0-0-0-0',
-      {
-        node: {
-          key: '0-0-0-0',
-          level: 0,
-          x: 0,
-          y: 0,
-          z: 0,
-          pointCount: 100,
-          pointDataOffset: 0,
-          pointDataLength: 0,
-        },
-        children: ['1-0-0-0', '1-1-0-0'],
-        center: { longitude: -123, latitude: 44, height: 100 },
-        approximateSizeMeters: 1200,
-      },
-    ],
-    [
-      '1-0-0-0',
-      {
-        node: {
-          key: '1-0-0-0',
-          level: 1,
-          x: 0,
-          y: 0,
-          z: 0,
-          pointCount: 60,
-          pointDataOffset: 0,
-          pointDataLength: 0,
-        },
-        children: [],
-        center: { longitude: -123.0008, latitude: 44, height: 100 },
-        approximateSizeMeters: 300,
-      },
-    ],
-    [
-      '1-1-0-0',
-      {
-        node: {
-          key: '1-1-0-0',
-          level: 1,
-          x: 1,
-          y: 0,
-          z: 0,
-          pointCount: 40,
-          pointDataOffset: 0,
-          pointDataLength: 0,
-        },
-        children: [],
-        center: { longitude: -122.9992, latitude: 44, height: 100 },
-        approximateSizeMeters: 300,
-      },
-    ],
-  ]);
-  const options = {
-    maxNodes: 8,
-    minScreenSpaceMetric: 0.01,
-    refineScreenSpaceMetric: 0.08,
-    maxRenderDistanceMeters: 12000,
-  };
-
-  assert.deepEqual(
-    selectStreamingNodes(hierarchy, {
-      longitude: -123,
-      latitude: 44,
-      height: 1500,
-    }, options),
-    ['1-0-0-0', '1-1-0-0'],
-  );
-
-  assert.deepEqual(
-    selectStreamingNodes(hierarchy, {
-      longitude: -123,
-      latitude: 44,
-      height: 40000,
-    }, options),
-    ['0-0-0-0'],
-  );
-});
-
-test('calculateDistanceMeters measures geographic and height delta', () => {
-  const distance = calculateDistanceMeters(
-    { longitude: -123, latitude: 44, height: 1000 },
-    {
-      node: {
-        key: '0-0-0-0',
-        level: 0,
-        x: 0,
-        y: 0,
-        z: 0,
-        pointCount: 1,
-        pointDataOffset: 0,
-        pointDataLength: 0,
-      },
-      children: [],
-      center: { longitude: -123, latitude: 44.001, height: 1500 },
-      approximateSizeMeters: 100,
-    },
-  );
-
-  assert.ok(distance > 500);
-  assert.ok(distance < 700);
 });
 
 test('createNodePointCache deduplicates repeated node loads', async () => {
@@ -413,7 +344,7 @@ test('createNodePointCache deduplicates repeated node loads', async () => {
     callCount += 1;
 
     return [{ longitude: -123, latitude: 44, height: nodeKey.length }];
-  });
+  }, { maxEntries: 2 });
 
   const [first, second] = await Promise.all([
     cache.load('1-0-0-0'),
@@ -421,7 +352,39 @@ test('createNodePointCache deduplicates repeated node loads', async () => {
   ]);
 
   assert.equal(callCount, 1);
+  assert.equal(cache.getSize(), 1);
+  assert.equal(cache.has('1-0-0-0'), true);
   assert.deepEqual(first, second);
+});
+
+test('createNodePointCache evicts the least recently used entry', async () => {
+  const cache = createNodePointCache(async (nodeKey) => nodeKey, {
+    maxEntries: 2,
+  });
+
+  await cache.load('0-0-0-0');
+  await cache.load('1-0-0-0');
+  await cache.load('0-0-0-0');
+  await cache.load('2-0-0-0');
+
+  assert.equal(cache.getSize(), 2);
+  assert.equal(cache.has('0-0-0-0'), true);
+  assert.equal(cache.has('1-0-0-0'), false);
+  assert.equal(cache.has('2-0-0-0'), true);
+});
+
+test('createNodePointCache clears stored entries', async () => {
+  const cache = createNodePointCache(async (nodeKey) => nodeKey, {
+    maxEntries: 3,
+  });
+
+  await cache.load('0-0-0-0');
+  await cache.load('1-0-0-0');
+  cache.clear();
+
+  assert.equal(cache.getSize(), 0);
+  assert.equal(cache.has('0-0-0-0'), false);
+  assert.equal(cache.has('1-0-0-0'), false);
 });
 
 test('public API exports CopcViewer and createCopcViewer', () => {
