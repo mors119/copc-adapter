@@ -4,62 +4,58 @@
 
 ## Exported API
 
-### `CopcViewer`
+### `CopcCesiumLayer`
 
-Cesium viewer lifecycle 과 COPC streaming orchestration 을 감싸는 public class.
+호출자가 소유한 Cesium `Viewer`에 COPC streaming primitives를 연결하는 public class.
 
 주요 메서드:
 
-- `init()`: Cesium viewer mount
-- `load()`: metadata / hierarchy / streaming node 로딩
-- `start()`: `init()` + `load()`
-- `destroy()`: Cesium resource 와 listener 정리
+- `load()`: URL에서 metadata / hierarchy 로딩
+- `unload()`: loaded data와 rendered primitives 정리
+- `reload()`: `unload()` 후 configured URL을 다시 로딩
+- `attachTo(viewer)`: caller-owned Cesium viewer에 primitives와 camera listener 연결
+- `detachFrom()`: Cesium viewer를 destroy하지 않고 primitives와 listener 분리
+- `destroy()`: layer resource 와 listener 정리
 - `getSnapshot()`: 현재 lifecycle, 선택 node, 렌더링 point 수 조회
 
-### `createCopcViewer(options)`
+### `CopcCesiumLayerOptions`
 
-한 번에 viewer 생성, mount, load 를 수행하는 convenience helper.
-
-### Exported types
-
-- `CopcViewerOptions`
-- `CopcViewerSnapshot`
-- `CopcViewerLifecycleState`
-- `CopcMetadata`
-- `CopcPoint`
-- `CopcPointBuffer`
-- `GeographicPoint`
-- `GeographicPointBuffer`
+- `url`: HTTP range request를 지원하는 browser-readable COPC URL
+- `pointSize`: Cesium point primitive 크기 (기본값 `3`)
+- `debug`: lifecycle debug logging 활성화
+- `streaming`: `maxNodes`, `maxDepth`, `refineDistanceMultiplier`,
+  `maxRenderDistanceMeters` overrides
 
 ## Quick Start
 
 ```ts
-import { createCopcViewer } from './src';
+import * as Cesium from 'cesium';
+import { CopcCesiumLayer } from 'viewer-web';
 
-const viewer = await createCopcViewer({
-  container: 'cesium-container',
+const viewer = new Cesium.Viewer('cesium-container');
+const layer = new CopcCesiumLayer({
   url: '/samples/autzen.copc.laz',
 });
 
-console.log(viewer.getSnapshot());
+await layer.load();
+layer.attachTo(viewer);
 ```
 
-## Manual Lifecycle
+## Layer Lifecycle
 
 ```ts
-import { CopcViewer } from './src';
-
-const viewer = new CopcViewer({
-  container: document.getElementById('cesium-container')!,
+const layer = new CopcCesiumLayer({
   url: '/samples/autzen.copc.laz',
 });
 
-await viewer.init();
-await viewer.load();
+await layer.load();
+layer.attachTo(viewer);
 
-console.log(viewer.getRenderedNodeKeys());
+layer.detachFrom();
+await layer.reload();
+layer.attachTo(viewer);
 
-viewer.destroy();
+layer.destroy();
 ```
 
 ## Decoder Boundary

@@ -1,6 +1,5 @@
 import * as Cesium from 'cesium';
 import { renderCopcPoints, toCartesian3Array } from '../cesium/render/renderPoints';
-import { createCesiumViewer } from '../cesium/viewer/createViewer';
 import {
   createCopcContext,
   type CopcContext,
@@ -30,9 +29,11 @@ import {
   type StreamingSelectionOptions,
 } from './streaming/index';
 
-export type CopcViewerOptions = {
-  container: string | HTMLElement;
+export type CopcLayerOptions = {
   url: string;
+  pointSize?: number;
+  debug?: boolean;
+  streaming?: Partial<StreamingSelectionOptions>;
 };
 
 type StreamingState = {
@@ -42,19 +43,20 @@ type StreamingState = {
   manager: StreamingManager;
 };
 
-export type CopcViewerLifecycleState =
+export type CopcLayerLifecycleState =
   | 'idle'
   | 'mounted'
   | 'loading'
   | 'ready'
   | 'destroyed';
 
-export type CopcViewerSnapshot = {
-  lifecycle: CopcViewerLifecycleState;
+export type CopcLayerSnapshot = {
+  lifecycle: CopcLayerLifecycleState;
   renderedNodeKeys: string[];
   selectedNodeKeys: string[];
   renderedPointCount: number;
   datasetUrl: string;
+  attached: boolean;
 };
 
 const STREAMING_OPTIONS: StreamingSelectionOptions = {
@@ -65,9 +67,12 @@ const STREAMING_OPTIONS: StreamingSelectionOptions = {
 };
 const MAX_CACHED_NODES = 48;
 
-export class CopcViewer {
+/**
+ * Internal streaming controller used by the public CopcCesiumLayer facade.
+ */
+export class CopcLayerController {
   private viewer?: Cesium.Viewer;
-  private readonly options: CopcViewerOptions;
+  private readonly options: CopcLayerOptions;
   private readonly pointCollections = new Map<string, Cesium.PointPrimitiveCollection>();
   private readonly selectedNodeKeys = new Set<string>();
   private readonly nodePointCache = createNodePointCache(async (nodeKey) =>
@@ -77,49 +82,70 @@ export class CopcViewer {
   private streamingState?: StreamingState;
   private updateTimer?: number;
   private hasFlownToDataset = false;
-  private lifecycle: CopcViewerLifecycleState = 'idle';
+  private lifecycle: CopcLayerLifecycleState = 'idle';
   private readonly handleCameraMoveEnd = (): void => {
     void this.scheduleStreamingUpdate();
   };
 
   /**
-   * Create a reusable COPC viewer controller.
-   *
-   * `container` may be a DOM element or an element id accepted by Cesium.
-   * `url` must resolve to a browser-readable COPC resource that supports range requests.
+   * Create a reusable COPC layer controller.
    */
-  constructor(options: CopcViewerOptions) {
+  constructor(options: CopcLayerOptions) {
     this.options = options;
   }
 
   /**
-   * Mount the Cesium viewer into the configured container.
-   *
-   * This must be called before `load()` unless the caller uses `createCopcViewer()`.
+   * Attach this layer to a caller-owned Cesium viewer.
    */
-  async init(): Promise<void> {
+  attachTo(viewer: Cesium.Viewer): void {
     if (this.lifecycle === 'destroyed') {
-      throw new Error('CopcViewer has been destroyed');
+      throw new Error('CopcCesiumLayer has been destroyed');
     }
 
-    if (this.viewer) {
+    if (this.viewer && this.viewer !== viewer) {
+      this.detachFrom();
+    }
+
+    if (this.viewer === viewer) {
       return;
     }
 
-    this.viewer = createCesiumViewer(this.options.container);
+    this.viewer = viewer;
     this.viewer.camera.percentageChanged = 0.02;
     this.viewer.camera.moveEnd.addEventListener(this.handleCameraMoveEnd);
-    this.lifecycle = 'mounted';
+    this.lifecycle = this.streamingState ? 'ready' : 'mounted';
+
+    if (this.streamingState) {
+      this.flyToDataset(this.streamingState.metadata);
+      void this.updateStreamingView();
+    }
   }
 
   /**
-   * Load COPC metadata, hierarchy, and initial streamed nodes into the viewer.
-   *
-   * The viewer must already be mounted.
+   * Remove this layer's primitives and camera listener without destroying the
+   * caller-owned Cesium viewer.
+   */
+  detachFrom(): void {
+    if (!this.viewer) {
+      return;
+    }
+
+    this.viewer.camera.moveEnd.removeEventListener(this.handleCameraMoveEnd);
+    this.removePointCollections();
+    this.viewer = undefined;
+    this.lifecycle = this.streamingState ? 'ready' : 'idle';
+  }
+
+  /**
+   * Load COPC metadata and hierarchy. Rendering begins when a viewer is attached.
    */
   async load(): Promise<void> {
-    if (!this.viewer) {
-      throw new Error('CopcViewer must be initialized before load()');
+    if (this.lifecycle === 'destroyed') {
+      throw new Error('CopcCesiumLayer has been destroyed');
+    }
+
+    if (this.streamingState) {
+      throw new Error('COPC layer is already loaded; call reload() to load it again');
     }
 
     this.lifecycle = 'loading';
@@ -134,21 +160,42 @@ export class CopcViewer {
       nodes: hierarchy,
       manager: new StreamingManager(
         hierarchy,
-        STREAMING_OPTIONS,
+        { ...STREAMING_OPTIONS, ...this.options.streaming },
         this.nodePointCache,
       ),
     };
 
-    this.flyToDataset(metadata);
-    await this.updateStreamingView();
     this.lifecycle = 'ready';
+    this.debug('COPC metadata and hierarchy loaded');
+
+    if (this.viewer) {
+      this.flyToDataset(metadata);
+      await this.updateStreamingView();
+    }
   }
 
   /**
-   * Convenience lifecycle that mounts the viewer and loads the dataset.
+   * Remove loaded data and rendered primitives while keeping the layer reusable.
    */
-  async start(): Promise<void> {
-    await this.init();
+  unload(): void {
+    if (this.lifecycle === 'destroyed') {
+      return;
+    }
+
+    this.removePointCollections();
+    this.selectedNodeKeys.clear();
+    this.nodePointCache.clear();
+    this.streamingState = undefined;
+    this.hasFlownToDataset = false;
+    this.lifecycle = this.viewer ? 'mounted' : 'idle';
+    this.debug('COPC layer unloaded');
+  }
+
+  /**
+   * Replace the currently loaded COPC state using the configured URL.
+   */
+  async reload(): Promise<void> {
+    this.unload();
     await this.load();
   }
 
@@ -161,29 +208,22 @@ export class CopcViewer {
       this.updateTimer = undefined;
     }
 
-    if (this.viewer) {
-      this.viewer.camera.moveEnd.removeEventListener(this.handleCameraMoveEnd);
-      this.viewer.destroy();
-      this.viewer = undefined;
-    }
-
-    this.pointCollections.clear();
-    this.selectedNodeKeys.clear();
-    this.nodePointCache.clear();
-    this.streamingState = undefined;
+    this.unload();
+    this.detachFrom();
     this.lifecycle = 'destroyed';
   }
 
   /**
    * Return public viewer state that callers can use for diagnostics or UI.
    */
-  getSnapshot(): CopcViewerSnapshot {
+  getSnapshot(): CopcLayerSnapshot {
     return {
       lifecycle: this.lifecycle,
       renderedNodeKeys: this.getRenderedNodeKeys(),
       selectedNodeKeys: this.getCurrentSelection(),
       renderedPointCount: this.getRenderedPointCount(),
       datasetUrl: this.options.url,
+      attached: this.viewer !== undefined,
     };
   }
 
@@ -291,7 +331,9 @@ export class CopcViewer {
         continue;
       }
 
-      const collection = renderCopcPoints(this.viewer, points);
+      const collection = renderCopcPoints(this.viewer, points, {
+        pointSize: this.options.pointSize ?? 3,
+      });
       this.pointCollections.set(nodeKey, collection);
     }
   }
@@ -362,17 +404,20 @@ export class CopcViewer {
 
     return Cesium.BoundingSphere.fromPoints(positions);
   }
-}
 
-/**
- * Create, mount, and load a COPC viewer in one call.
- */
-export async function createCopcViewer(
-  options: CopcViewerOptions,
-): Promise<CopcViewer> {
-  const viewer = new CopcViewer(options);
+  private removePointCollections(): void {
+    if (this.viewer) {
+      for (const collection of this.pointCollections.values()) {
+        this.viewer.scene.primitives.remove(collection);
+      }
+    }
 
-  await viewer.start();
+    this.pointCollections.clear();
+  }
 
-  return viewer;
+  private debug(message: string): void {
+    if (this.options.debug) {
+      console.debug(`[CopcCesiumLayer] ${message}`);
+    }
+  }
 }

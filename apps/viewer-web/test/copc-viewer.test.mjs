@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as Cesium from 'cesium';
 
-import { CopcViewer, createCopcViewer } from '../src/viewer/CopcViewer.ts';
+import { CopcCesiumLayer } from '../src/index.ts';
+import { CopcLayerController } from '../src/viewer/CopcViewer.ts';
 
 function createFakeViewer() {
   const removedCollections = [];
@@ -76,11 +77,10 @@ function createStreamingState(update) {
   };
 }
 
-test('CopcViewer destroy releases resources and remains safe when called twice', () => {
+test('CopcLayerController destroy releases layer resources without destroying the attached viewer', () => {
   const originalWindow = globalThis.window;
   const fakeViewer = createFakeViewer();
-  const viewer = new CopcViewer({
-    container: 'cesium-container',
+  const viewer = new CopcLayerController({
     url: '/samples/autzen.copc.laz',
   });
   const existingCollection = new Cesium.PointPrimitiveCollection();
@@ -105,20 +105,41 @@ test('CopcViewer destroy releases resources and remains safe when called twice',
   viewer.destroy();
   viewer.destroy();
 
-  assert.equal(fakeViewer.destroyed, true);
+  assert.equal(fakeViewer.destroyed, false);
   assert.equal(removedListener, viewer.handleCameraMoveEnd);
   assert.equal(viewer.getRenderedNodeKeys().length, 0);
   assert.equal(viewer.getCurrentSelection().length, 0);
   assert.equal(viewer.getSnapshot().lifecycle, 'destroyed');
-  assert.equal(cleared, 2);
+  assert.equal(cleared, 1);
 
   globalThis.window = originalWindow;
 });
 
-test('CopcViewer updateStreamingView removes stale nodes and renders newly loaded nodes', async () => {
+test('CopcCesiumLayer attaches and detaches without taking ownership of the viewer', () => {
   const fakeViewer = createFakeViewer();
-  const viewer = new CopcViewer({
-    container: 'cesium-container',
+  const layer = new CopcCesiumLayer({
+    url: '/samples/autzen.copc.laz',
+    pointSize: 5,
+    debug: true,
+  });
+
+  layer.attachTo(fakeViewer);
+
+  assert.equal(layer.getSnapshot().attached, true);
+  assert.equal(fakeViewer.moveEndListeners.size, 1);
+
+  layer.detachFrom();
+
+  assert.equal(layer.getSnapshot().attached, false);
+  assert.equal(fakeViewer.moveEndListeners.size, 0);
+
+  layer.destroy();
+  assert.equal(fakeViewer.destroyed, false);
+});
+
+test('CopcLayerController updateStreamingView removes stale nodes and renders newly loaded nodes', async () => {
+  const fakeViewer = createFakeViewer();
+  const viewer = new CopcLayerController({
     url: '/samples/autzen.copc.laz',
   });
   const staleCollection = new Cesium.PointPrimitiveCollection();
@@ -151,10 +172,9 @@ test('CopcViewer updateStreamingView removes stale nodes and renders newly loade
   assert.ok(viewer.getSelectionBoundingSphere());
 });
 
-test('CopcViewer ignores loaded nodes after destroy during an in-flight update', async () => {
+test('CopcLayerController ignores loaded nodes after destroy during an in-flight update', async () => {
   const fakeViewer = createFakeViewer();
-  const viewer = new CopcViewer({
-    container: 'cesium-container',
+  const viewer = new CopcLayerController({
     url: '/samples/autzen.copc.laz',
   });
   let resolveUpdate;
@@ -188,9 +208,8 @@ test('CopcViewer ignores loaded nodes after destroy during an in-flight update',
   assert.equal(fakeViewer.addedCollections.length, 0);
 });
 
-test('CopcViewer loadRenderableNodePoints rejects missing streaming state and unknown nodes', async () => {
-  const viewer = new CopcViewer({
-    container: 'cesium-container',
+test('CopcLayerController loadRenderableNodePoints rejects missing streaming state and unknown nodes', async () => {
+  const viewer = new CopcLayerController({
     url: '/samples/autzen.copc.laz',
   });
 
@@ -211,9 +230,8 @@ test('CopcViewer loadRenderableNodePoints rejects missing streaming state and un
   );
 });
 
-test('CopcViewer load rejects invalid dataset paths after initialization', async () => {
-  const viewer = new CopcViewer({
-    container: 'cesium-container',
+test('CopcLayerController load rejects invalid dataset paths', async () => {
+  const viewer = new CopcLayerController({
     url: '/samples/local/missing.copc.laz',
   });
 
@@ -222,25 +240,4 @@ test('CopcViewer load rejects invalid dataset paths after initialization', async
 
   await assert.rejects(() => viewer.load());
   assert.equal(viewer.getSnapshot().lifecycle, 'loading');
-});
-
-test('createCopcViewer returns the started public viewer instance', async () => {
-  const originalStart = CopcViewer.prototype.start;
-  let started = 0;
-
-  CopcViewer.prototype.start = async function startStub() {
-    started += 1;
-    this.lifecycle = 'ready';
-  };
-
-  const viewer = await createCopcViewer({
-    container: 'cesium-container',
-    url: '/samples/autzen.copc.laz',
-  });
-
-  assert.ok(viewer instanceof CopcViewer);
-  assert.equal(started, 1);
-  assert.equal(viewer.getSnapshot().lifecycle, 'ready');
-
-  CopcViewer.prototype.start = originalStart;
 });

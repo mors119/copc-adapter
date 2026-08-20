@@ -1,15 +1,21 @@
 {
-  "name": "viewer-web",
-  "private": true,
-  "version": "0.0.0",
+  "name": "@mors119/copc-cesium",
+  "version": "0.1.0",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
   },
-  "types": "./src/index.ts",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "dev": "npm run prepare-assets && vite",
     "build": "tsc && npm run prepare-assets && vite build",
+    "build:library": "tsc -p tsconfig.lib.json && vite build --config vite.lib.config.ts",
     "typecheck": "tsc --noEmit",
     "test": "npm run prepare-copc-wasm && node --import tsx --test test/*.test.mjs",
     "coverage": "npm run prepare-copc-wasm && node --import tsx --test --experimental-test-coverage test/*.test.mjs",

@@ -97,14 +97,24 @@ npm run dev
 ### Library Usage
 
 ```ts
-import { createCopcViewer } from './src';
+import * as Cesium from 'cesium';
+import { CopcCesiumLayer } from 'viewer-web';
 
-const viewer = await createCopcViewer({
-  container: 'cesium-container',
+const viewer = new Cesium.Viewer('cesium-container');
+const layer = new CopcCesiumLayer({
   url: '/samples/autzen.copc.laz',
+  pointSize: 2,
+  debug: true,
 });
 
-console.log(viewer.getSnapshot());
+await layer.load();
+layer.attachTo(viewer);
+
+// Later, without destroying the caller-owned Cesium Viewer:
+layer.detachFrom();
+await layer.reload();
+layer.attachTo(viewer);
+layer.unload();
 ```
 
 상세 API 는 [docs/API.md](/Users/mars112/code/project/copc-adapter/docs/API.md), 예제는 [docs/EXAMPLES.md](/Users/mars112/code/project/copc-adapter/docs/EXAMPLES.md) 에 정리했다.

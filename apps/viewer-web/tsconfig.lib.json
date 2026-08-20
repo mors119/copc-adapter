@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "declarationDir": "./dist",
+    "rootDir": "./src"
+  },
+  "include": [
+    "src/index.ts",
+    "src/api/**/*.ts",
+    "src/cesium/**/*.ts",
+    "src/copc/**/*.ts",
+    "src/coordinates/**/*.ts",
+    "src/viewer/**/*.ts",
+    "src/wasm/**/*.ts",
+    "src/types/**/*.d.ts"
+  ]
+}

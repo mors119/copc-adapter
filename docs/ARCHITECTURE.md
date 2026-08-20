@@ -154,7 +154,7 @@ page 와 node 차이:
 
 - `NodeSelector`: camera state + hierarchy + node bounds -> render 대상 node 결정
 - `StreamingManager`: selector 결과 + cache + point loader orchestration
-- `CopcViewer`: Cesium camera adapter 및 render lifecycle orchestration
+- `CopcLayerController`: Cesium camera adapter 및 render lifecycle orchestration
 
 현재 selection 전략:
 
@@ -173,7 +173,7 @@ cache lifecycle:
 - node load 시 promise cache 저장
 - cache limit 초과 시 least recently used entry 제거
 - node deselection 시 cache entry 제거
-- viewer `destroy()` 시 전체 cache clear
+- layer `destroy()` 시 전체 cache clear
 
 ### 5. Coordinate Transformation Layer
 
@@ -213,16 +213,15 @@ cache lifecycle:
 위치:
 
 - `apps/viewer-web/src/index.ts`
-- `apps/viewer-web/src/viewer/CopcViewer.ts`
+- `apps/viewer-web/src/api/CopcCesiumLayer.ts`
 
 제공 기능:
 
-- `CopcViewer`
-- `createCopcViewer()`
-- viewer lifecycle
+- `CopcCesiumLayer`
+- load / unload / reload lifecycle
+- caller-owned Cesium Viewer attach / detach
 - metadata 조회
 - snapshot 조회
-- rendered node / selected node / bounding sphere 조회
 
 소비자는 내부 `copc/`, `coordinates/`, `cesium/`, `wasm/` 세부 구현이 아니라 public entrypoint 만 사용해야 한다.
 
@@ -230,16 +229,17 @@ cache lifecycle:
 
 ## Actual Runtime Data Flow
 
-1. consumer 가 `createCopcViewer()` 또는 `CopcViewer.start()` 호출
+1. consumer 가 `CopcCesiumLayer.load()` 호출
 2. metadata loader 가 COPC metadata 읽기
 3. `CopcContext` 가 shared getter + reader state 를 유지
 4. hierarchy loader 가 root page + child hierarchy pages 를 재귀 순회
-5. `NodeSelector` 가 카메라 기준으로 render node 선택
-6. `StreamingManager` 가 cache 와 point load orchestration 수행
-7. point loader 가 node `CopcPointView` 읽기
-8. Rust + WASM decoder 가 interleaved point buffer 생성
-9. coordinate transform 이 WGS84 좌표로 변환
-10. Cesium renderer 가 primitive collection 으로 표시
+5. consumer 가 `attachTo(viewer)`로 caller-owned Cesium viewer에 layer를 연결
+6. `NodeSelector` 가 카메라 기준으로 render node 선택
+7. `StreamingManager` 가 cache 와 point load orchestration 수행
+8. point loader 가 node `CopcPointView` 읽기
+9. Rust + WASM decoder 가 interleaved point buffer 생성
+10. coordinate transform 이 WGS84 좌표로 변환
+11. Cesium renderer 가 primitive collection 으로 표시
 
 ---
 
