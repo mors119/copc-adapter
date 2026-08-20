@@ -1,6 +1,7 @@
 # Library API
 
 `apps/viewer-web/src/index.ts` 가 현재 public entrypoint 이다.
+The package has an ESM build configuration but is not published to npm.
 
 ## Exported API
 
@@ -30,7 +31,7 @@
 
 ```ts
 import * as Cesium from 'cesium';
-import { CopcCesiumLayer } from 'viewer-web';
+import { CopcCesiumLayer } from './src/index.ts';
 
 const viewer = new Cesium.Viewer('cesium-container');
 const layer = new CopcCesiumLayer({
@@ -60,8 +61,9 @@ layer.destroy();
 
 ## Decoder Boundary
 
-현재 public API 는 renderer / viewer lifecycle 에 집중하고, 내부 decoder hot path 는 Rust + WASM 으로 교체되어 있다.
+The public API focuses on the layer and viewer lifecycle. The Rust/WASM
+boundary currently handles XYZ interleaved-buffer conversion only.
 
 - `copc.js`: metadata, hierarchy, point view 로딩
-- `copc-wasm`: X/Y/Z -> interleaved point buffer decode
+- `copc-wasm`: X/Y/Z -> interleaved point buffer conversion
 - `viewer-web`: streaming selection, CRS transform, Cesium rendering
