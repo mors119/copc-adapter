@@ -3,10 +3,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import {
-  CopcViewer as PublicCopcViewer,
-  createCopcViewer,
-} from '../src/index.ts';
+import { CopcCesiumLayer } from '../src/index.ts';
 import { Getter } from 'copc';
 import {
   toCopcHierarchyNode,
@@ -505,56 +502,63 @@ test('createNodePointCache clears stored entries', async () => {
   assert.equal(cache.has('1-0-0-0'), false);
 });
 
-test('public API exports CopcViewer and createCopcViewer', () => {
-  assert.equal(typeof PublicCopcViewer, 'function');
-  assert.equal(typeof createCopcViewer, 'function');
+test('public API exports CopcCesiumLayer', () => {
+  assert.equal(typeof CopcCesiumLayer, 'function');
 });
 
-test('CopcViewer snapshot exposes lifecycle and dataset info', () => {
-  const viewer = new PublicCopcViewer({
-    container: 'cesium-container',
+test('CopcCesiumLayer snapshot exposes lifecycle and dataset info', () => {
+  const layer = new CopcCesiumLayer({
     url: '/samples/autzen.copc.laz',
   });
 
-  assert.deepEqual(viewer.getSnapshot(), {
+  assert.deepEqual(layer.getSnapshot(), {
     lifecycle: 'idle',
     renderedNodeKeys: [],
     selectedNodeKeys: [],
     renderedPointCount: 0,
     datasetUrl: '/samples/autzen.copc.laz',
+    attached: false,
   });
 
-  viewer.destroy();
+  layer.destroy();
 
-  assert.equal(viewer.getSnapshot().lifecycle, 'destroyed');
+  assert.equal(layer.getSnapshot().lifecycle, 'destroyed');
 });
 
-test('CopcViewer metadata API is empty before load', () => {
-  const viewer = new PublicCopcViewer({
-    container: 'cesium-container',
+test('CopcCesiumLayer metadata API is empty before load', () => {
+  const layer = new CopcCesiumLayer({
     url: '/samples/autzen.copc.laz',
   });
 
-  assert.equal(viewer.getMetadata(), undefined);
+  assert.equal(layer.getMetadata(), undefined);
 });
 
-test('CopcViewer load rejects when init has not run', async () => {
-  const viewer = new PublicCopcViewer({
-    container: 'cesium-container',
-    url: '/samples/autzen.copc.laz',
+test('CopcCesiumLayer loads, unloads, and reloads a COPC URL before attachment', async () => {
+  const layer = new CopcCesiumLayer({
+    url: samplePath,
   });
 
-  await assert.rejects(
-    () => viewer.load(),
-    /CopcViewer must be initialized before load/,
-  );
+  await layer.load();
+
+  assert.equal(layer.getSnapshot().lifecycle, 'ready');
+  assert.equal(layer.getSnapshot().attached, false);
+  assert.equal(layer.getMetadata()?.pointCount, 10653336);
+
+  layer.unload();
+  assert.equal(layer.getSnapshot().lifecycle, 'idle');
+  assert.equal(layer.getMetadata(), undefined);
+
+  await layer.reload();
+  assert.equal(layer.getMetadata()?.pointCount, 10653336);
+
+  layer.destroy();
 });
 
-test('CopcViewer selection bounding sphere is empty before rendering', () => {
-  const viewer = new PublicCopcViewer({
-    container: 'cesium-container',
+test('CopcCesiumLayer rejects loading after destroy', async () => {
+  const layer = new CopcCesiumLayer({
     url: '/samples/autzen.copc.laz',
   });
+  layer.destroy();
 
-  assert.equal(viewer.getSelectionBoundingSphere(), undefined);
+  await assert.rejects(() => layer.load(), /CopcCesiumLayer has been destroyed/);
 });

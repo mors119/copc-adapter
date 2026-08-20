@@ -1,6 +1,10 @@
 import * as Cesium from 'cesium';
 import type { GeographicPoint, GeographicPointBuffer } from '../../copc/types/copc';
 
+export type CopcPointRenderOptions = {
+  pointSize: number;
+};
+
 export function toCartesian3Array(points: GeographicPoint[]): Cesium.Cartesian3[] {
   return points.map((point) =>
     Cesium.Cartesian3.fromDegrees(
@@ -34,12 +38,8 @@ export function toCartesian3ArrayFromBuffer(
 export function renderCopcPoints(
   viewer: Cesium.Viewer,
   points: GeographicPointBuffer,
-  existingCollection?: Cesium.PointPrimitiveCollection,
+  options: CopcPointRenderOptions,
 ): Cesium.PointPrimitiveCollection {
-  if (existingCollection) {
-    viewer.scene.primitives.remove(existingCollection);
-  }
-
   const collection = viewer.scene.primitives.add(
     new Cesium.PointPrimitiveCollection(),
   );
@@ -48,7 +48,7 @@ export function renderCopcPoints(
   for (const position of positions) {
     collection.add({
       position,
-      pixelSize: 3,
+      pixelSize: options.pointSize,
       color: Cesium.Color.CYAN.withAlpha(0.9),
     });
   }

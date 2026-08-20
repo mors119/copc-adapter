@@ -3,15 +3,12 @@
  *
  * Consumers should import from this module rather than deep internal paths.
  */
-export {
-  CopcViewer,
-  createCopcViewer,
-} from './viewer/CopcViewer';
+export { CopcCesiumLayer } from './api/CopcCesiumLayer';
 export type {
-  CopcViewerLifecycleState,
-  CopcViewerOptions,
-  CopcViewerSnapshot,
-} from './viewer/CopcViewer';
+  CopcCesiumLayerOptions,
+  CopcCesiumLayerSnapshot,
+  CopcStreamingOptions,
+} from './api/CopcCesiumLayer';
 export type {
   CopcMetadata,
   CopcPoint,

@@ -85,7 +85,7 @@ COPC 포인트를 내부 타입으로 읽어 Cesium에 실제로 표시한다.
 viewer 앱 프로토타입을 재사용 가능한 라이브러리 API로 정리한다.
 
 - [x] public entrypoint 정의
-- [x] `CopcViewer` API 정리
+- [x] `CopcCesiumLayer` API 정리
 - [x] 옵션, 에러, lifecycle 문서화
 - [x] 최소 예제와 사용 문서 추가
 - [x] 외부 의존성 노출 여부 점검

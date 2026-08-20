@@ -6,9 +6,9 @@
 
 동작 흐름:
 
-1. `createCopcViewer()` 호출
-2. Cesium container mount
-3. COPC metadata / hierarchy 로딩
+1. Cesium `Viewer` 생성
+2. `CopcCesiumLayer.load()` 호출
+3. `attachTo(viewer)`로 layer 연결
 4. camera 기반 streaming selection 시작
 5. Rust + WASM point decoder 경유
 
@@ -22,16 +22,21 @@
 ## Manual Integration Example
 
 ```ts
-import { CopcViewer } from './src';
+import * as Cesium from 'cesium';
+import { CopcCesiumLayer } from 'viewer-web';
 
-const viewer = new CopcViewer({
-  container: 'cesium-container',
+const viewer = new Cesium.Viewer('cesium-container');
+const layer = new CopcCesiumLayer({
   url: '/samples/autzen.copc.laz',
 });
 
-await viewer.start();
+await layer.load();
+layer.attachTo(viewer);
 
-console.log(viewer.getSnapshot());
+console.log(layer.getSnapshot());
+
+layer.detachFrom();
+layer.destroy();
 ```
 
 ## Build Note

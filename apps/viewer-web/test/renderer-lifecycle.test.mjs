@@ -38,8 +38,6 @@ test('renderCopcPoints replaces an existing primitive collection', () => {
       },
     },
   };
-  const existingCollection = new Cesium.PointPrimitiveCollection();
-
   const collection = renderCopcPoints(
     viewer,
     {
@@ -49,11 +47,11 @@ test('renderCopcPoints replaces an existing primitive collection', () => {
         -123.1, 44.1, 200.0,
       ]),
     },
-    existingCollection,
+    { pointSize: 5 },
   );
 
-  assert.equal(removedCollections.length, 1);
-  assert.equal(removedCollections[0], existingCollection);
+  assert.equal(removedCollections.length, 0);
   assert.equal(addedCollections.length, 1);
   assert.equal(collection.length, 2);
+  assert.equal(collection.get(0).pixelSize, 5);
 });
