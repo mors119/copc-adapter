@@ -55,6 +55,7 @@ export type CopcLayerSnapshot = {
   renderedNodeKeys: string[];
   selectedNodeKeys: string[];
   renderedPointCount: number;
+  streamingUpdateCount: number;
   datasetUrl: string;
   attached: boolean;
 };
@@ -81,6 +82,7 @@ export class CopcLayerController {
   );
   private streamingState?: StreamingState;
   private updateTimer?: number;
+  private streamingUpdateCount = 0;
   private hasFlownToDataset = false;
   private lifecycle: CopcLayerLifecycleState = 'idle';
   private readonly handleCameraMoveEnd = (): void => {
@@ -186,6 +188,7 @@ export class CopcLayerController {
     this.selectedNodeKeys.clear();
     this.nodePointCache.clear();
     this.streamingState = undefined;
+    this.streamingUpdateCount = 0;
     this.hasFlownToDataset = false;
     this.lifecycle = this.viewer ? 'mounted' : 'idle';
     this.debug('COPC layer unloaded');
@@ -222,6 +225,7 @@ export class CopcLayerController {
       renderedNodeKeys: this.getRenderedNodeKeys(),
       selectedNodeKeys: this.getCurrentSelection(),
       renderedPointCount: this.getRenderedPointCount(),
+      streamingUpdateCount: this.streamingUpdateCount,
       datasetUrl: this.options.url,
       attached: this.viewer !== undefined,
     };
@@ -304,6 +308,7 @@ export class CopcLayerController {
     const update = await this.streamingState.manager.update(
       this.getStreamingCameraState(),
     );
+    this.streamingUpdateCount += 1;
 
     this.selectedNodeKeys.clear();
 

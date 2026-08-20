@@ -516,6 +516,7 @@ test('CopcCesiumLayer snapshot exposes lifecycle and dataset info', () => {
     renderedNodeKeys: [],
     selectedNodeKeys: [],
     renderedPointCount: 0,
+    streamingUpdateCount: 0,
     datasetUrl: '/samples/autzen.copc.laz',
     attached: false,
   });
