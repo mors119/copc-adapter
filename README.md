@@ -112,12 +112,20 @@ npm --prefix apps/viewer-web run typecheck
 npm --prefix apps/viewer-web run test
 npm --prefix apps/viewer-web run coverage
 npm --prefix apps/viewer-web run build
+npm --prefix apps/viewer-web run test:e2e
 ```
 
 To generate the ESM library entry and declarations:
 
 ```bash
 npm --prefix apps/viewer-web run build:library
+```
+
+The browser acceptance test uses Playwright Chromium with SwiftShader so it can
+exercise WebGL in headless environments. Install its browser once with:
+
+```bash
+npx --prefix apps/viewer-web playwright install chromium
 ```
 
 ## Known Limitations
@@ -134,6 +142,10 @@ npm --prefix apps/viewer-web run build:library
   metadata and hierarchy parsing still use `copc.js`.
 - The demo requires a manually downloaded sample COPC file; there is no hosted
   demo or checked-in visual asset.
+- Vite reports browser-externalized `node:` module warnings while bundling
+  `copc.js` fallback imports. The Playwright browser acceptance test exercises
+  the browser path successfully; these warnings are not a demonstrated runtime
+  failure.
 
 ## Future Work
 

@@ -18,6 +18,7 @@
     "build:library": "tsc -p tsconfig.lib.json && vite build --config vite.lib.config.ts",
     "typecheck": "tsc --noEmit",
     "test": "npm run prepare-copc-wasm && node --import tsx --test test/*.test.mjs",
+    "test:e2e": "playwright test",
     "coverage": "npm run prepare-copc-wasm && node --import tsx --test --experimental-test-coverage test/*.test.mjs",
     "preview": "vite preview",
     "prepare-assets": "npm run prepare-copc-wasm && npm run prepare-laz-perf",
@@ -27,6 +28,7 @@
   "devDependencies": {
     "@emnapi/core": "^1.11.2",
     "@emnapi/runtime": "^1.11.2",
+    "@playwright/test": "^1.55.0",
     "typescript": "~6.0.2",
     "vite": "^8.0.12",
     "vite-plugin-cesium": "^1.2.23",

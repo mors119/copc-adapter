@@ -78,3 +78,12 @@ changing the streaming or Cesium rendering layers.
 `apps/viewer-web/src/index.ts` is the only public source entrypoint. The viewer
 package also has an ESM declaration and bundle build configuration. It is not
 published to npm yet; runtime asset packaging remains future work.
+
+## Browser Acceptance Coverage
+
+`apps/viewer-web/e2e/copc-viewer.spec.ts` starts the real Vite application in
+Chromium, loads the local Autzen COPC sample, and verifies metadata, decoded
+point rendering, actual Cesium point primitive collections, and camera-driven
+streaming updates. The application installs `window.__COPC_DEBUG__` only in
+Vite development mode to make those runtime states observable; it is not a
+production API.
