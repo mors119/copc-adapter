@@ -20,7 +20,7 @@ cp samples/local/<sample> apps/viewer-web/public/samples/<sample>
 
 `samples/local/`
 
-지원되는 샘플 목록은 [datasets.json](/Users/mars112/code/project/copc-adapter/samples/datasets.json)에서 관리됩니다.
+지원되는 샘플 목록은 [datasets.json](datasets.json)에서 관리됩니다.
 
 2026-06-29 기준 링크 확인 결과:
 

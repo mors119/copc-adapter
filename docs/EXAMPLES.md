@@ -2,7 +2,8 @@
 
 ## Browser App Example
 
-실행 가능한 최소 예제는 [apps/viewer-web/src/main.ts](/Users/mars112/code/project/copc-adapter/apps/viewer-web/src/main.ts) 이다.
+실행 가능한 최소 예제는
+[`apps/viewer-web/src/main.ts`](../apps/viewer-web/src/main.ts) 이다.
 
 동작 흐름:
 
@@ -23,7 +24,7 @@
 
 ```ts
 import * as Cesium from 'cesium';
-import { CopcCesiumLayer } from 'viewer-web';
+import { CopcCesiumLayer } from './src/index.ts';
 
 const viewer = new Cesium.Viewer('cesium-container');
 const layer = new CopcCesiumLayer({
@@ -41,4 +42,7 @@ layer.destroy();
 
 ## Build Note
 
-브라우저 예제 실행 전에 `npm run dev`, `npm test`, `npm run build` 는 자동으로 `copc-wasm` release build 와 public wasm asset 복사를 수행한다.
+`npm --prefix apps/viewer-web run dev`, `test`, and `build` prepare the
+`copc-wasm` release asset. The default browser URL also requires the downloaded
+Autzen sample at `apps/viewer-web/public/samples/autzen.copc.laz`; see the
+[README](../README.md#run-the-local-demo) for the complete setup sequence.
