@@ -19,3 +19,6 @@ samples/local/*
 apps/viewer-web/public/samples/*
 apps/viewer-web/public/laz-perf.wasm
 apps/viewer-web/public/wasm/*
+tests/environments/cesium-vite/public/samples/*
+tests/environments/cesium-vite/public/wasm/*
+tests/environments/cesium-vite/public/laz-perf.wasm
