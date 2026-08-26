@@ -48,3 +48,6 @@ jobs:
 
       - name: Build production bundle
         run: npm --prefix apps/viewer-web run build
+
+      - name: Run packed artifact smoke test
+        run: npm run test:pack
