@@ -9,12 +9,14 @@ import {
   CopcHierarchyLoadError,
   CopcMetadataError,
   CopcSourceError,
+  getCopcPointFieldSelection,
 } from '../src/index.ts';
 import { Getter } from 'copc';
 import {
   toCopcHierarchyNode,
   toCopcHierarchyPage,
 } from '../src/copc/adapters/hierarchyAdapter.ts';
+import { toCopcPointView } from '../src/copc/backend/copcJsBackend.ts';
 import { toCopcMetadata } from '../src/copc/adapters/metadataAdapter.ts';
 import { createCopcContext } from '../src/copc/context/createCopcContext.ts';
 import { createCopcGetter } from '../src/copc/getter/createCopcGetter.ts';
@@ -25,6 +27,7 @@ import {
   loadCopcPointBuffer,
   loadCopcPoints,
   loadPointDataView,
+  validateCopcPointBuffer,
 } from '../src/copc/points/loadPointData.ts';
 import { createPointReader, readAllPoints } from '../src/copc/points/readPoint.ts';
 import {
@@ -195,15 +198,15 @@ test('createCopcGetter chooses HTTP, browser-relative, and local getters correct
 test('readPoint utilities decode all coordinates from a point view', () => {
   const view = {
     pointCount: 2,
-    dimensions: ['X', 'Y', 'Z'],
-    getter(name) {
+    availableFields: new Set(['position']),
+    getter(component) {
       const values = {
-        X: [10, 40],
-        Y: [20, 50],
-        Z: [30, 60],
+        x: [10, 40],
+        y: [20, 50],
+        z: [30, 60],
       };
 
-      return (index) => values[name][index];
+      return (index) => values[component][index];
     },
   };
 
@@ -479,11 +482,9 @@ test('loadPointDataView and loadCopcPoints decode sample node points', async () 
   const view = await loadPointDataView(samplePath, rootNode);
 
   assert.equal(view.pointCount, 61201);
-  assert.ok(view.dimensions.includes('Intensity'));
-  assert.ok(view.dimensions.includes('Classification'));
-  assert.ok(view.dimensions.includes('Red'));
-  assert.ok(view.dimensions.includes('Green'));
-  assert.ok(view.dimensions.includes('Blue'));
+  assert.ok(view.availableFields.has('intensity'));
+  assert.ok(view.availableFields.has('classification'));
+  assert.ok(view.availableFields.has('rgb'));
 
   const points = await loadCopcPoints(samplePath, rootNode);
 
@@ -532,10 +533,10 @@ test('a fake backend source covers metadata, hierarchy, and point paths', async 
   };
   const view = {
     pointCount: 1,
-    dimensions: ['X', 'Y', 'Z'],
-    getter(name) {
-      const values = { X: [-123], Y: [44], Z: [10] };
-      return (index) => values[name][index];
+    availableFields: new Set(['position']),
+    getter(component) {
+      const values = { x: [-123], y: [44], z: [10] };
+      return (index) => values[component][index];
     },
   };
   const source = {
@@ -568,8 +569,9 @@ test('a fake backend source covers metadata, hierarchy, and point paths', async 
       assert.equal(page.key, node.key);
       return { nodes: [node], pages: [] };
     },
-    async loadPointDataView(requestedNode) {
+    async loadPointDataView(requestedNode, fields) {
       assert.equal(requestedNode.key, node.key);
+      assert.deepEqual([...fields], ['position', 'intensity', 'classification', 'rgb']);
       return view;
     },
   };
@@ -601,6 +603,96 @@ test('a fake backend source covers metadata, hierarchy, and point paths', async 
   assert.deepEqual(nodes, [{ ...node, children: [] }]);
   assert.equal(pointView, view);
   assert.deepEqual(Array.from(buffer.coordinates), [-123, 44, 10]);
+});
+
+test('render field selection is minimal and backend-neutral', () => {
+  assert.deepEqual([...getCopcPointFieldSelection('fixed')], ['position']);
+  assert.deepEqual([...getCopcPointFieldSelection('elevation')], ['position']);
+  assert.deepEqual([...getCopcPointFieldSelection('rgb')], ['position', 'rgb']);
+  assert.deepEqual([...getCopcPointFieldSelection('intensity')], ['position', 'intensity']);
+  assert.deepEqual(
+    [...getCopcPointFieldSelection('classification')],
+    ['position', 'classification'],
+  );
+});
+
+test('point view exposes only requested fields and preserves unavailable attributes', () => {
+  const sourceView = {
+    pointCount: 1,
+    dimensions: {
+      X: {},
+      Y: {},
+      Z: {},
+      Intensity: {},
+      Classification: {},
+      Red: {},
+      Green: {},
+      Blue: {},
+    },
+    getter(name) {
+      return () => ({
+        X: 1,
+        Y: 2,
+        Z: 3,
+        Intensity: 4,
+        Classification: 5,
+        Red: 65535,
+        Green: 0,
+        Blue: 0,
+      }[name]);
+    },
+  };
+  const view = toCopcPointView(sourceView, getCopcPointFieldSelection('fixed'));
+
+  assert.deepEqual([...view.availableFields], ['position']);
+  assert.deepEqual(Array.from({ length: 1 }, (_, index) => view.getter('x')(index)), [1]);
+  assert.throws(() => view.getter('red'), /unavailable/);
+});
+
+test('point view marks a source field unavailable when its source component is missing', () => {
+  const view = toCopcPointView(
+    {
+      pointCount: 1,
+      dimensions: { X: {}, Y: {}, Z: {}, Red: {}, Green: {} },
+      getter() {
+        return () => 0;
+      },
+    },
+    getCopcPointFieldSelection('rgb'),
+  );
+
+  assert.deepEqual([...view.availableFields], ['position']);
+
+  const classificationView = toCopcPointView(
+    {
+      pointCount: 1,
+      dimensions: { X: {}, Y: {}, Z: {} },
+      getter() {
+        return () => 0;
+      },
+    },
+    getCopcPointFieldSelection('classification'),
+  );
+
+  assert.deepEqual([...classificationView.availableFields], ['position']);
+});
+
+test('point buffer validation rejects partial coordinate and attribute arrays', () => {
+  assert.throws(
+    () => validateCopcPointBuffer({
+      pointCount: 2,
+      coordinates: new Float64Array([1, 2, 3]),
+    }),
+    /three values per point/,
+  );
+  assert.throws(
+    () => validateCopcPointBuffer({
+      pointCount: 2,
+      coordinates: new Float64Array([1, 2, 3, 4, 5, 6]),
+      attributes: { intensity: new Uint16Array([1]) },
+    }),
+    /attribute length mismatch: intensity/,
+  );
 });
 
 test('loadCopcPointBuffer decodes sample points through Rust WASM', async () => {
@@ -658,13 +750,20 @@ test('decodeCopcPointBuffer omits attributes absent from the point format', asyn
   };
   const buffer = await decodeCopcPointBuffer({
     pointCount: 2,
-    dimensions: Object.keys(values),
-    getter(name) {
-      if (!(name in values)) {
-        throw new Error(`No extractor for dimension: ${name}`);
+    availableFields: new Set(['position', 'intensity', 'classification']),
+    getter(component) {
+      const components = {
+        x: 'X',
+        y: 'Y',
+        z: 'Z',
+        intensity: 'Intensity',
+        classification: 'Classification',
+      };
+      if (!(components[component] in values)) {
+        throw new Error(`No extractor for component: ${component}`);
       }
 
-      return (index) => values[name][index];
+      return (index) => values[components[component]][index];
     },
   });
 
@@ -680,9 +779,10 @@ test('decodeCopcPointBuffer omits attributes absent from the point format', asyn
 
   const xyzOnlyBuffer = await decodeCopcPointBuffer({
     pointCount: 2,
-    dimensions: ['X', 'Y', 'Z'],
-    getter(name) {
-      return (index) => values[name][index];
+    availableFields: new Set(['position']),
+    getter(component) {
+      const components = { x: 'X', y: 'Y', z: 'Z' };
+      return (index) => values[components[component]][index];
     },
   });
 

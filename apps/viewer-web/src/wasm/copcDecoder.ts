@@ -4,6 +4,7 @@ import type {
   CopcPointView,
 } from '../copc/types/copc';
 import type { CopcPointDecoder } from '../copc/points/types';
+import type { CopcPointComponent } from '../copc/points/fieldSelection';
 
 type CopcWasmExports = {
   memory: WebAssembly.Memory;
@@ -63,8 +64,11 @@ async function loadCopcWasm(): Promise<CopcWasmExports> {
   return wasmPromise;
 }
 
-function readDimensionValues(view: CopcPointView, name: string): Float64Array {
-  const getter = view.getter(name);
+function readDimensionValues(
+  view: CopcPointView,
+  component: CopcPointComponent,
+): Float64Array {
+  const getter = view.getter(component);
   const values = new Float64Array(view.pointCount);
 
   for (let index = 0; index < view.pointCount; index += 1) {
@@ -76,13 +80,14 @@ function readDimensionValues(view: CopcPointView, name: string): Float64Array {
 
 function readOptionalUint16Dimension(
   view: CopcPointView,
-  name: string,
+  field: 'intensity' | 'rgb',
+  component: CopcPointComponent,
 ): Uint16Array | undefined {
-  if (!view.dimensions.includes(name)) {
+  if (!view.availableFields.has(field)) {
     return undefined;
   }
 
-  const getter = view.getter(name);
+  const getter = view.getter(component);
   const values = new Uint16Array(view.pointCount);
 
   for (let index = 0; index < view.pointCount; index += 1) {
@@ -94,13 +99,14 @@ function readOptionalUint16Dimension(
 
 function readOptionalUint8Dimension(
   view: CopcPointView,
-  name: string,
+  field: 'classification',
+  component: CopcPointComponent,
 ): Uint8Array | undefined {
-  if (!view.dimensions.includes(name)) {
+  if (!view.availableFields.has(field)) {
     return undefined;
   }
 
-  const getter = view.getter(name);
+  const getter = view.getter(component);
   const values = new Uint8Array(view.pointCount);
 
   for (let index = 0; index < view.pointCount; index += 1) {
@@ -112,11 +118,11 @@ function readOptionalUint8Dimension(
 
 function readPointAttributes(view: CopcPointView): CopcPointAttributes | undefined {
   const attributes: CopcPointAttributes = {
-    intensity: readOptionalUint16Dimension(view, 'Intensity'),
-    classification: readOptionalUint8Dimension(view, 'Classification'),
-    red: readOptionalUint16Dimension(view, 'Red'),
-    green: readOptionalUint16Dimension(view, 'Green'),
-    blue: readOptionalUint16Dimension(view, 'Blue'),
+    intensity: readOptionalUint16Dimension(view, 'intensity', 'intensity'),
+    classification: readOptionalUint8Dimension(view, 'classification', 'classification'),
+    red: readOptionalUint16Dimension(view, 'rgb', 'red'),
+    green: readOptionalUint16Dimension(view, 'rgb', 'green'),
+    blue: readOptionalUint16Dimension(view, 'rgb', 'blue'),
   };
 
   return Object.values(attributes).some((values) => values !== undefined)
@@ -127,10 +133,14 @@ function readPointAttributes(view: CopcPointView): CopcPointAttributes | undefin
 export async function decodeCopcPointBuffer(
   view: CopcPointView,
 ): Promise<CopcPointBuffer> {
+  if (!view.availableFields.has('position')) {
+    throw new Error('COPC point view does not contain the requested position field');
+  }
+
   const wasm = await loadCopcWasm();
-  const xValues = readDimensionValues(view, 'X');
-  const yValues = readDimensionValues(view, 'Y');
-  const zValues = readDimensionValues(view, 'Z');
+  const xValues = readDimensionValues(view, 'x');
+  const yValues = readDimensionValues(view, 'y');
+  const zValues = readDimensionValues(view, 'z');
   const attributes = readPointAttributes(view);
   const count = view.pointCount;
   const outputLength = count * 3;

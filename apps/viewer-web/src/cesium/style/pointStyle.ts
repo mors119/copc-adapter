@@ -1,12 +1,8 @@
 import * as Cesium from 'cesium';
 import type { CopcPointAttributes } from '../../copc/types/copc';
-
-export type CopcColorMode =
-  | 'fixed'
-  | 'elevation'
-  | 'rgb'
-  | 'intensity'
-  | 'classification';
+export { getCopcPointFieldSelection } from '../../copc/points/fieldSelection';
+export type { CopcColorMode } from '../../copc/points/fieldSelection';
+import type { CopcColorMode } from '../../copc/points/fieldSelection';
 
 export type CopcValueRange = {
   min: number;

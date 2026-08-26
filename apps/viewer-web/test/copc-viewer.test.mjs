@@ -314,12 +314,13 @@ test('CopcLayerController decodes point views through an injected decoder', asyn
   };
   const view = {
     pointCount: 1,
-    dimensions: ['X', 'Y', 'Z'],
+    availableFields: new Set(['position']),
     getter() {
       return () => 0;
     },
   };
   let decodedView;
+  let requestedFields;
   const viewer = new CopcLayerController({
     url: 'memory://fake.copc.laz',
     decoder: {
@@ -340,7 +341,8 @@ test('CopcLayerController decodes point views through an injected decoder', asyn
     })),
     context: {
       source: 'memory://fake.copc.laz',
-      async loadPointDataView() {
+      async loadPointDataView(_node, fields) {
+        requestedFields = fields;
         return view;
       },
     },
@@ -349,6 +351,7 @@ test('CopcLayerController decodes point views through an injected decoder', asyn
   const buffer = await viewer.loadPoints(node);
 
   assert.equal(decodedView, view);
+  assert.deepEqual([...requestedFields], ['position']);
   assert.deepEqual(Array.from(buffer.coordinates), [-123, 44, 10]);
 });
 

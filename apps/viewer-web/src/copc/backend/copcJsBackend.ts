@@ -12,7 +12,68 @@ import type {
   CopcMetadata,
   CopcPointView,
 } from '../types/copc';
+import {
+  type CopcPointComponent,
+  type CopcPointField,
+  type CopcPointFieldSelection,
+} from '../points/fieldSelection';
 import type { CopcBackend, CopcSource } from './types';
+
+const SOURCE_DIMENSIONS: Readonly<Record<CopcPointComponent, string>> = {
+  x: 'X',
+  y: 'Y',
+  z: 'Z',
+  intensity: 'Intensity',
+  classification: 'Classification',
+  red: 'Red',
+  green: 'Green',
+  blue: 'Blue',
+};
+
+const FIELD_COMPONENTS: Readonly<Record<CopcPointField, readonly CopcPointComponent[]>> = {
+  position: ['x', 'y', 'z'],
+  intensity: ['intensity'],
+  classification: ['classification'],
+  rgb: ['red', 'green', 'blue'],
+};
+
+type SourcePointView = {
+  pointCount: number;
+  dimensions: Record<string, unknown>;
+  getter(name: string): (index: number) => number;
+};
+
+export function toCopcPointView(
+  view: SourcePointView,
+  requestedFields: CopcPointFieldSelection,
+): CopcPointView {
+  const sourceDimensions = new Set(Object.keys(view.dimensions));
+  const availableFields = new Set<CopcPointField>();
+  const availableComponents = new Set<CopcPointComponent>();
+
+  for (const field of requestedFields) {
+    const components = FIELD_COMPONENTS[field];
+
+    if (components.every((component) => sourceDimensions.has(SOURCE_DIMENSIONS[component]))) {
+      availableFields.add(field);
+      for (const component of components) {
+        availableComponents.add(component);
+      }
+    }
+  }
+
+  return {
+    pointCount: view.pointCount,
+    availableFields,
+    getter(component: CopcPointComponent): (index: number) => number {
+      if (!availableComponents.has(component)) {
+        throw new Error(`COPC point component is unavailable: ${component}`);
+      }
+
+      return view.getter(SOURCE_DIMENSIONS[component]);
+    },
+  };
+}
 
 /** The production source adapter backed by copc.js. */
 class CopcJsSource implements CopcSource {
@@ -69,6 +130,7 @@ class CopcJsSource implements CopcSource {
 
   async loadPointDataView(
     hierarchyNode: CopcHierarchyNode,
+    fields: CopcPointFieldSelection,
   ): Promise<CopcPointView> {
     const view = await Copc.loadPointDataView(
       this.getter,
@@ -76,11 +138,10 @@ class CopcJsSource implements CopcSource {
       hierarchyNode,
     );
 
-    return {
-      pointCount: view.pointCount,
-      dimensions: Object.keys(view.dimensions),
-      getter: view.getter,
-    };
+    // copc.js currently exposes a complete point view. Keep the requested
+    // fields enforced at this adapter boundary until a backend can skip LAZ
+    // layers during decode.
+    return toCopcPointView(view, fields);
   }
 }
 

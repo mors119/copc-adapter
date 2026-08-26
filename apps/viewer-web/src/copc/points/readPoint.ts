@@ -5,9 +5,9 @@ export type PointReader = {
 };
 
 export function createPointReader(view: CopcPointView): PointReader {
-  const getX = view.getter('X');
-  const getY = view.getter('Y');
-  const getZ = view.getter('Z');
+  const getX = view.getter('x');
+  const getY = view.getter('y');
+  const getZ = view.getter('z');
 
   return {
     read(index: number): CopcPoint {
