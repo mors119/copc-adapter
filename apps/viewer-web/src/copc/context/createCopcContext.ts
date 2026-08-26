@@ -3,7 +3,7 @@ import {
   type CopcBackendSelection,
 } from '../backend/selection';
 import type { CopcSource } from '../backend/types';
-import { CopcLoadError } from '../errors';
+import { CopcLoadError, CopcSourceError } from '../errors';
 import type { CopcHierarchySubtree } from '../hierarchy/types';
 import type {
   CopcHierarchyNode,
