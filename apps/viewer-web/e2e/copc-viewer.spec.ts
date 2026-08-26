@@ -17,6 +17,20 @@ type CopcDebugState = {
   lastError?: string;
 };
 
+type CopcDebugAdapter = {
+  getState(): CopcDebugState;
+  getLastError(): string | undefined;
+  setCameraHeight(height: number): void;
+  setCameraPitch(pitchDegrees: number): void;
+  recordError(error: unknown): void;
+};
+
+declare global {
+  interface Window {
+    __COPC_DEBUG__?: CopcDebugAdapter;
+  }
+}
+
 async function getDebugState(page: import('@playwright/test').Page): Promise<CopcDebugState> {
   return page.evaluate(() => {
     if (!window.__COPC_DEBUG__) {
@@ -46,6 +60,16 @@ test('streams a COPC sample into a real Cesium scene and updates after camera mo
     .toBeGreaterThan(0);
   await expect.poll(async () => (await getDebugState(page)).scenePointCollectionCount)
     .toBeGreaterThan(0);
+
+  const debugPanel = page.getByRole('complementary', {
+    name: 'COPC runtime debug panel',
+  });
+  await expect(debugPanel).toBeVisible();
+  await expect(debugPanel.getByText('autzen.copc.laz', { exact: true })).toBeVisible();
+  await expect(debugPanel.getByText('10,653,336', { exact: true })).toBeVisible();
+  await expect(debugPanel.getByText('Ready', { exact: true })).toBeVisible();
+  await expect(debugPanel.locator('details').filter({ hasText: 'Metadata' }))
+    .toHaveAttribute('open', '');
 
   const initialState = await getDebugState(page);
   expect(initialState.renderedNodeKeys).not.toEqual([]);
@@ -83,4 +107,17 @@ test('streams a COPC sample into a real Cesium scene and updates after camera mo
   expect(nearState.renderedPointCount).toBeGreaterThan(0);
   expect(nearState.lastError).toBeUndefined();
   expect(pageErrors).toEqual([]);
+
+  await debugPanel.getByRole('button', { name: 'Hide' }).click();
+  await expect(debugPanel).toBeHidden();
+  await page.keyboard.press('Shift+D');
+  await expect(debugPanel).toBeVisible();
+});
+
+test('can disable the runtime debug panel with a query parameter', async ({ page }) => {
+  await page.goto('/?debugPanel=false');
+
+  await expect(page.getByRole('complementary', {
+    name: 'COPC runtime debug panel',
+  })).toHaveCount(0);
 });
