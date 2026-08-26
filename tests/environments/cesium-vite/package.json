@@ -11,6 +11,7 @@
     "prepare:runtime": "node scripts/prepare-runtime.mjs",
     "dev": "npm run prepare:runtime && vite",
     "build": "npm run prepare:runtime && tsc --noEmit && vite build",
+    "test:e2e": "playwright test",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -18,6 +19,7 @@
     "cesium": "1.142.0"
   },
   "devDependencies": {
+    "@playwright/test": "1.55.0",
     "typescript": "6.0.2",
     "vite": "8.0.16",
     "vite-plugin-cesium": "1.2.23"

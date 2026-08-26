@@ -2,9 +2,9 @@
 
 This is a real browser integration environment for the repository's public
 `@mors119/copc-cesium` package. It creates an actual CesiumJS `Viewer`, loads a
-real COPC file through browser range requests, runs the adapter's Rust/WASM
-decoder, and renders point primitives with WebGL. It does not use viewer or
-Cesium mocks.
+real COPC file through browser range requests, runs the adapter's packaged
+Rust/WASM and LAZ decoders, and renders point primitives with WebGL. It does
+not use viewer or Cesium mocks.
 
 ## Run it
 
@@ -18,10 +18,11 @@ npm install
 npm run dev
 ```
 
-Open the local URL printed by Vite. `npm install` builds the local adapter
-package and decoder, downloads the repository's registered Autzen sample when
-it is not already present, and stages ignored runtime assets under `public/`.
-The browser does not depend on a remote COPC service after setup.
+Open the local URL printed by Vite. `npm install` builds and packs the local
+adapter, installs that generated tarball into the consumer, downloads the
+repository's registered Autzen sample when it is not already present, and
+stages the sample under `public/`. The browser does not depend on the adapter
+repository's `public/` directory or on a remote COPC service after setup.
 
 The other Vite workflows are:
 
@@ -32,21 +33,30 @@ npm run preview
 
 ## Package and asset boundary
 
-The environment declares this local dependency:
+The environment declares this bootstrap local dependency:
 
 ```json
 "@mors119/copc-cesium": "file:../../../apps/viewer-web"
 ```
 
-Application code imports `CopcCesiumLayer` from that package's public export.
+The setup script replaces that bootstrap install with the generated `.tgz`
+from `npm pack`, and application code imports `CopcCesiumLayer` from the
+installed package's public export.
 The setup script builds its ESM `dist` entry instead of aliasing or importing
 internal TypeScript files.
 
 `vite-plugin-cesium` provides Cesium's workers, widgets, and static assets and
 sets Cesium's runtime base URL. The page imports Cesium's widgets CSS directly.
-The adapter decoder is served at `/wasm/copc_wasm.wasm`, laz-perf is served at
-`/laz-perf.wasm`, and the sample is served at
-`/samples/autzen.copc.laz`, matching the real adapter's browser URLs.
+The adapter's decoder assets are resolved from the installed package. Only the
+sample is served by the fixture at `/samples/autzen.copc.laz`.
+
+The packed consumer smoke test can be run after setup with:
+
+```bash
+npm run build
+npx playwright install chromium
+npm run test:e2e
+```
 
 ## What to test
 

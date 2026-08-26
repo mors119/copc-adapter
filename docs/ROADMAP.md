@@ -18,7 +18,7 @@
 | Streaming | Implemented | Camera-driven selection, basic depth/distance limits, and bounded cache |
 | Public API | Implemented | `CopcCesiumLayer` load, attach, detach, unload, reload, and destroy lifecycle |
 | WASM decoder | Implemented | Replaceable point-decoder boundary with Rust/WASM interleaved XYZ decoding as the default |
-| ESM package build | Implemented | Bundle and declaration build configuration; no npm publication yet |
+| ESM package build | Implemented | Packed ESM bundle, declarations, package-local WASM assets, and Cesium peer dependency |
 
 ## Known Gaps
 
@@ -27,7 +27,7 @@
 - Main-thread loading and decoding can affect responsiveness for larger data.
 - Intensity normalization currently uses each loaded node buffer's range.
 - Rust/WASM does not yet parse COPC metadata or hierarchy.
-- Browser runtime assets are not packaged for a published npm release.
+- The package is not published to npm yet.
 - The repository contains no owned screenshot, GIF, or hosted demo.
 
 ## Next Work
@@ -36,7 +36,7 @@
 2. Evaluate Web Workers for hierarchy, loading, and decoder work.
 3. Extend the Rust/WASM implementation beyond the XYZ interleaving boundary.
 4. Explore scalable rendering approaches and dataset-global attribute statistics.
-5. Complete browser runtime-asset packaging and publish the library.
+5. Publish the library after broader consumer compatibility validation.
 6. Add repository-owned demo media when a reproducible capture is available.
 
 ## Submission State
