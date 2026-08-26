@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as Cesium from 'cesium';
 
-import { CopcCesiumLayer } from '../src/index.ts';
+import { CopcCesiumLayer, CopcSourceError } from '../src/index.ts';
 import { CopcLayerController } from '../src/viewer/CopcViewer.ts';
 
 function createFakeViewer() {
@@ -245,6 +245,14 @@ test('CopcLayerController load rejects invalid dataset paths', async () => {
   viewer.viewer = createFakeViewer();
   viewer.lifecycle = 'mounted';
 
-  await assert.rejects(() => viewer.load());
+  await assert.rejects(
+    () => viewer.load(),
+    (error) => {
+      assert.ok(error instanceof CopcSourceError);
+      assert.equal(error.stage, 'source');
+      assert.match(error.message, /missing\.copc\.laz/);
+      return true;
+    },
+  );
   assert.equal(viewer.getSnapshot().lifecycle, 'loading');
 });
