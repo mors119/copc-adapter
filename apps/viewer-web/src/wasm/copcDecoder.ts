@@ -5,69 +5,7 @@ import type {
 } from '../copc/types/copc';
 import type { CopcPointDecoder } from '../copc/points/types';
 import type { CopcPointComponent } from '../copc/points/fieldSelection';
-
-type CopcWasmExports = {
-  memory: WebAssembly.Memory;
-  alloc_f64(length: number): number;
-  dealloc_f64(pointer: number, length: number): void;
-  decode_xyz_to_interleaved(
-    xPointer: number,
-    yPointer: number,
-    zPointer: number,
-    count: number,
-    outputPointer: number,
-  ): number;
-};
-
-let wasmPromise: Promise<CopcWasmExports> | undefined;
-
-// Vite rewrites this URL to the emitted package asset in both library and
-// application builds. Keeping it relative to this module means an installed
-// package does not depend on the consumer's web root.
-const bundledWasmUrl = new URL('./copc_wasm.wasm', import.meta.url);
-
-function isBrowser(): boolean {
-  return typeof window !== 'undefined';
-}
-
-async function loadWasmBinary(): Promise<Uint8Array> {
-  if (isBrowser()) {
-    const response = await fetch(bundledWasmUrl);
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch COPC WASM decoder: ${response.status}`);
-    }
-
-    return new Uint8Array(await response.arrayBuffer());
-  }
-
-  const [{ readFile }, pathModule, urlModule] = await Promise.all([
-    import('node:fs/promises'),
-    import('node:path'),
-    import('node:url'),
-  ]);
-  const modulePath = pathModule.resolve(
-    pathModule.dirname(urlModule.fileURLToPath(import.meta.url)),
-    '../../../../target/wasm32-unknown-unknown/release/copc_wasm.wasm',
-  );
-  const bytes = await readFile(modulePath);
-
-  return new Uint8Array(bytes);
-}
-
-async function loadCopcWasm(): Promise<CopcWasmExports> {
-  if (!wasmPromise) {
-    wasmPromise = (async () => {
-      const binary = await loadWasmBinary();
-      const module = await WebAssembly.compile(binary as unknown as BufferSource);
-      const instance = await WebAssembly.instantiate(module);
-
-      return instance.exports as unknown as CopcWasmExports;
-    })();
-  }
-
-  return wasmPromise;
-}
+import { loadCopcWasm } from './copcWasm';
 
 function readDimensionValues(
   view: CopcPointView,

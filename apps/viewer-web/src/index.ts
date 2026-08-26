@@ -13,6 +13,11 @@ export {
 export type { CopcLoadStage } from './copc/errors';
 export { CopcJsBackend, copcJsBackend } from './copc/backend/copcJsBackend';
 export type { CopcBackend, CopcSource } from './copc/backend/types';
+export { RustCopcParseError, RustCopcReader } from './copc/rustCopcReader';
+export type {
+  RustCopcHeader,
+  RustCopcParseErrorCode,
+} from './copc/rustCopcReader';
 export type { CopcPointDecoder } from './copc/points/types';
 export {
   HttpRangeByteSource,
