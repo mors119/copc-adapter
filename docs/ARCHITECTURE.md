@@ -146,6 +146,30 @@ backend remains the default runtime backend. The next Rust/WASM reader can
 consume the source contract without taking a dependency on `fetch` or Cesium,
 while the current viewer and package asset model remain unchanged.
 
+## Rust COPC Header and Root Reader
+
+`apps/viewer-web/src/copc/rustCopcReader.ts` is the first consumer of the
+random-access boundary. `RustCopcReader.open()` reads the LAS 1.4 header and
+VLR area, passes those bytes to `copc-wasm`, then reads the COPC root hierarchy
+page by the offset and length returned by the COPC info VLR. TypeScript owns
+range I/O and maps the compact parser result into project-owned metadata and
+hierarchy values; Rust owns little-endian interpretation, COPC validation, and
+structured parse errors.
+
+The WASM ABI uses a small NUL-terminated JSON response for this initial
+metadata/root-page milestone. This is bounded by the header/VLR area and one
+root page, and is deliberately not the future recursive or point-data ABI.
+Root entries with `pointCount == -1` are returned as `pages`, while all
+non-negative point counts are returned as point-data `nodes`. Offsets and
+lengths are checked against JavaScript's safe-integer range before they cross
+the boundary.
+
+The implementation was checked against the COPC 1.0 specification's LAS/VLR,
+COPC info VLR, and hierarchy-page entry definitions, and against the
+`copc_types.rs`, `header.rs`, and `hierarchy.rs` concepts in the 360-geo
+projects. The code and tests independently reimplement those concepts and do
+not require an external repository at build or test time.
+
 Point styling consumes these transformed buffers directly. RGB channels are
 normalized from their detected 8-bit or 16-bit range, intensity is normalized
 per loaded node buffer, and classification values use a fixed categorical

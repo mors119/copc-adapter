@@ -114,7 +114,10 @@ LAS attributes exposed by the point view.
 
 The public entrypoint also exports the backend-neutral `RandomAccessByteSource`,
 `HttpRangeByteSource`, `InMemoryByteSource`, and `RangeSourceError` types for
-the future Rust/WASM reader boundary.
+the Rust/WASM reader boundary. `RustCopcReader` and `RustCopcParseError` are
+also exported for callers that need to parse LAS/COPC metadata and the root
+hierarchy through an injected random-access source. It does not decode point
+chunks and does not replace `CopcJsBackend` as the default backend.
 
 `CopcPointBuffer`와 `GeographicPointBuffer`는 optional `intensity`,
 `classification`, `red`, `green`, `blue` typed arrays를 보존한다. source point
