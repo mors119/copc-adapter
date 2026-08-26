@@ -7,11 +7,13 @@ export { CopcCesiumLayer } from './api/CopcCesiumLayer';
 export type {
   CopcCesiumLayerOptions,
   CopcCesiumLayerSnapshot,
+  CopcColorMode,
   CopcStreamingOptions,
 } from './api/CopcCesiumLayer';
 export type {
   CopcMetadata,
   CopcPoint,
+  CopcPointAttributes,
   CopcPointBuffer,
   GeographicPoint,
   GeographicPointBuffer,

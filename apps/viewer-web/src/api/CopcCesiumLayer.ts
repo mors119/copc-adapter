@@ -4,6 +4,9 @@ import {
   type CopcLayerSnapshot,
 } from '../viewer/CopcViewer';
 import type { CopcMetadata } from '../copc/types/copc';
+import type { CopcColorMode } from '../cesium/style/pointStyle';
+
+export type { CopcColorMode } from '../cesium/style/pointStyle';
 
 export type CopcStreamingOptions = {
   maxNodes?: number;
@@ -17,6 +20,8 @@ export type CopcCesiumLayerOptions = {
   url: string;
   /** Cesium point primitive size in pixels. Defaults to 3. */
   pointSize?: number;
+  /** Point color mapping. Defaults to the backward-compatible fixed cyan. */
+  colorMode?: CopcColorMode;
   /** Emits COPC layer lifecycle messages through console.debug. */
   debug?: boolean;
   /** Overrides for the default streaming selection limits. */

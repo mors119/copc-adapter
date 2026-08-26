@@ -10,6 +10,10 @@ type CopcDebugState = {
   selectedNodeKeys: string[];
   streamingUpdateCount: number;
   cameraMoveEventCount: number;
+  cameraPitchDegrees: number;
+  minRenderedHeight?: number;
+  maxRenderedHeight?: number;
+  renderedColorCount: number;
   lastError?: string;
 };
 
@@ -47,6 +51,18 @@ test('streams a COPC sample into a real Cesium scene and updates after camera mo
   expect(initialState.renderedNodeKeys).not.toEqual([]);
   expect(initialState.selectedNodeKeys).not.toEqual([]);
   expect(initialState.streamingUpdateCount).toBeGreaterThan(0);
+  expect(initialState.minRenderedHeight).toBeDefined();
+  expect(initialState.maxRenderedHeight).toBeDefined();
+  expect(
+    initialState.maxRenderedHeight! - initialState.minRenderedHeight!,
+  ).toBeGreaterThan(1);
+  expect(initialState.renderedColorCount).toBeGreaterThan(1);
+
+  await page.evaluate(() => {
+    window.__COPC_DEBUG__?.setCameraPitch(-35);
+  });
+  await expect.poll(async () => (await getDebugState(page)).cameraPitchDegrees)
+    .toBeCloseTo(-35, 0);
 
   await page.evaluate(() => {
     window.__COPC_DEBUG__?.setCameraHeight(100000);

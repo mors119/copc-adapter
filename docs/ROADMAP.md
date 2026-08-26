@@ -14,6 +14,7 @@
 | Point data | Implemented | Selected point-data views converted to project-owned buffers |
 | Coordinate transformation | Implemented | COPC CRS values transformed to WGS84 coordinates |
 | Cesium rendering | Implemented | Point primitive collections rendered in a Cesium viewer |
+| Point styling | Implemented | Backward-compatible fixed cyan and dataset-normalized elevation modes |
 | Streaming | Implemented | Camera-driven selection, basic depth/distance limits, and bounded cache |
 | Public API | Implemented | `CopcCesiumLayer` load, attach, detach, unload, reload, and destroy lifecycle |
 | WASM decoder | Implemented | Rust/WASM interleaved XYZ buffer decoding |
@@ -24,7 +25,7 @@
 - Hierarchy metadata is traversed before point streaming begins.
 - Selection is heuristic-based rather than screen-space-error-based.
 - Main-thread loading and decoding can affect responsiveness for larger data.
-- Point rendering is fixed-color Cesium primitives without attribute styling.
+- RGB, intensity, and classification attributes are not decoded or styled yet.
 - Rust/WASM does not yet parse COPC metadata or hierarchy.
 - Browser runtime assets are not packaged for a published npm release.
 - The repository contains no owned screenshot, GIF, or hosted demo.
@@ -34,7 +35,7 @@
 1. Improve LOD selection with screen-space error and viewport-aware metrics.
 2. Evaluate Web Workers for hierarchy, loading, and decoder work.
 3. Extend the Rust/WASM implementation beyond the XYZ interleaving boundary.
-4. Support configurable point styling and scalable rendering approaches.
+4. Decode optional LAS attributes, add attribute styling, and explore scalable rendering approaches.
 5. Complete browser runtime-asset packaging and publish the library.
 6. Add repository-owned demo media when a reproducible capture is available.
 

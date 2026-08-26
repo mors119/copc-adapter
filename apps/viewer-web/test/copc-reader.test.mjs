@@ -380,6 +380,42 @@ test('transformPointBuffer converts interleaved buffers to geographic triples', 
   assertClose(geographicBuffer.coordinates[2], 129.58902717805427, 1e-9);
 });
 
+test('transformPointBuffer preserves optional COPC point attributes', () => {
+  const attributes = {
+    intensity: new Uint16Array([1024]),
+    classification: new Uint8Array([2]),
+    red: new Uint16Array([65535]),
+    green: new Uint16Array([32768]),
+    blue: new Uint16Array([0]),
+  };
+  const geographicBuffer = transformPointBuffer({
+    pointCount: 1,
+    bounds: {
+      minX: -123.1,
+      minY: 44,
+      minZ: 10,
+      maxX: -123,
+      maxY: 44.1,
+      maxZ: 20,
+    },
+    cube: {
+      minX: -123.1,
+      minY: 44,
+      minZ: 10,
+      maxX: -123,
+      maxY: 44.1,
+      maxZ: 20,
+    },
+  }, {
+    pointCount: 1,
+    coordinates: new Float64Array([-123.05, 44.05, 15]),
+    attributes,
+  });
+
+  assert.equal(geographicBuffer.coordinates[2], 15);
+  assert.equal(geographicBuffer.attributes, attributes);
+});
+
 test('createPointTransformer falls back to geographic coordinates when metadata is already geodetic', () => {
   const transformPoint = createPointTransformer({
     pointCount: 1,

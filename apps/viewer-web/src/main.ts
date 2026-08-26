@@ -17,14 +17,64 @@ type CopcDebugState = {
   selectedNodeKeys: string[];
   streamingUpdateCount: number;
   cameraMoveEventCount: number;
+  cameraPitchDegrees: number;
+  minRenderedHeight?: number;
+  maxRenderedHeight?: number;
+  renderedColorCount: number;
   lastError?: string;
 };
 
 type CopcDebugAdapter = {
   getState(): CopcDebugState;
   setCameraHeight(height: number): void;
+  setCameraPitch(pitchDegrees: number): void;
   recordError(error: unknown): void;
 };
+
+function getRenderedPointDiagnostics(viewer: Cesium.Viewer): {
+  minRenderedHeight?: number;
+  maxRenderedHeight?: number;
+  renderedColorCount: number;
+} {
+  let minRenderedHeight = Number.POSITIVE_INFINITY;
+  let maxRenderedHeight = Number.NEGATIVE_INFINITY;
+  const colors = new Set<string>();
+
+  for (let collectionIndex = 0;
+    collectionIndex < viewer.scene.primitives.length;
+    collectionIndex += 1) {
+    const collection = viewer.scene.primitives.get(collectionIndex);
+
+    if (!(collection instanceof Cesium.PointPrimitiveCollection)) {
+      continue;
+    }
+
+    const stride = Math.max(1, Math.floor(collection.length / 256));
+
+    for (let pointIndex = 0; pointIndex < collection.length; pointIndex += stride) {
+      const point = collection.get(pointIndex);
+      const height = Cesium.Cartographic.fromCartesian(point.position).height;
+
+      minRenderedHeight = Math.min(minRenderedHeight, height);
+      maxRenderedHeight = Math.max(maxRenderedHeight, height);
+      colors.add([
+        point.color.red.toFixed(3),
+        point.color.green.toFixed(3),
+        point.color.blue.toFixed(3),
+      ].join(','));
+    }
+  }
+
+  return {
+    minRenderedHeight: Number.isFinite(minRenderedHeight)
+      ? minRenderedHeight
+      : undefined,
+    maxRenderedHeight: Number.isFinite(maxRenderedHeight)
+      ? maxRenderedHeight
+      : undefined,
+    renderedColorCount: colors.size,
+  };
+}
 
 declare global {
   interface Window {
@@ -57,6 +107,7 @@ function installDebugAdapter(
   const adapter: CopcDebugAdapter = {
     getState(): CopcDebugState {
       const snapshot = layer.getSnapshot();
+      const pointDiagnostics = getRenderedPointDiagnostics(viewer);
 
       return {
         viewerReady: !viewer.isDestroyed(),
@@ -68,6 +119,8 @@ function installDebugAdapter(
         selectedNodeKeys: snapshot.selectedNodeKeys,
         streamingUpdateCount: snapshot.streamingUpdateCount,
         cameraMoveEventCount,
+        cameraPitchDegrees: Cesium.Math.toDegrees(viewer.camera.pitch),
+        ...pointDiagnostics,
         lastError,
       };
     },
@@ -80,6 +133,16 @@ function installDebugAdapter(
           position.latitude,
           height,
         ),
+      });
+      viewer.camera.moveEnd.raiseEvent();
+    },
+    setCameraPitch(pitchDegrees: number): void {
+      viewer.camera.setView({
+        orientation: {
+          heading: viewer.camera.heading,
+          pitch: Cesium.Math.toRadians(pitchDegrees),
+          roll: viewer.camera.roll,
+        },
       });
       viewer.camera.moveEnd.raiseEvent();
     },
@@ -107,6 +170,7 @@ async function main(): Promise<void> {
   const viewer = createCesiumViewer('cesium-container');
   const layer = new CopcCesiumLayer({
     url: COPC_URL,
+    colorMode: 'elevation',
     debug: true,
   });
   const debugAdapter = import.meta.env.DEV
