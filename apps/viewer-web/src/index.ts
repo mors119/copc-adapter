@@ -4,6 +4,13 @@
  * Consumers should import from this module rather than deep internal paths.
  */
 export { CopcCesiumLayer } from './api/CopcCesiumLayer';
+export {
+  CopcHierarchyLoadError,
+  CopcLoadError,
+  CopcMetadataError,
+  CopcSourceError,
+} from './copc/errors';
+export type { CopcLoadStage } from './copc/errors';
 export type {
   CopcCesiumLayerOptions,
   CopcCesiumLayerSnapshot,

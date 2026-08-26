@@ -12,6 +12,7 @@ import type {
   CopcPointView,
 } from '../types/copc';
 import type { CopcHierarchySubtree } from '../hierarchy/types';
+import { CopcSourceError } from '../errors';
 
 export class CopcContext {
   readonly source: string;
@@ -29,10 +30,18 @@ export class CopcContext {
   }
 
   static async create(source: string): Promise<CopcContext> {
-    const getter = createCopcGetter(source);
-    const copc = await Copc.create(getter);
+    try {
+      const getter = createCopcGetter(source);
+      const copc = await Copc.create(getter);
 
-    return new CopcContext(source, getter, copc);
+      return new CopcContext(source, getter, copc);
+    } catch (error: unknown) {
+      if (error instanceof CopcSourceError) {
+        throw error;
+      }
+
+      throw new CopcSourceError(source, { cause: error });
+    }
   }
 
   getMetadata(): CopcMetadata {

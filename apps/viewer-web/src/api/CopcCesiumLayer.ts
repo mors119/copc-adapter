@@ -52,7 +52,12 @@ export class CopcCesiumLayer {
     this.controller.detachFrom();
   }
 
-  /** Load metadata and hierarchy from the configured COPC URL. */
+  /**
+   * Load metadata and hierarchy from the configured COPC URL.
+   *
+   * Rejects with a project-owned CopcLoadError when source, metadata/CRS, or
+   * hierarchy initialization fails.
+   */
   async load(): Promise<void> {
     await this.controller.load();
   }

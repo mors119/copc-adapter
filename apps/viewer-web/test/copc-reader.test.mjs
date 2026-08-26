@@ -3,7 +3,12 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { CopcCesiumLayer } from '../src/index.ts';
+import {
+  CopcCesiumLayer,
+  CopcHierarchyLoadError,
+  CopcMetadataError,
+  CopcSourceError,
+} from '../src/index.ts';
 import { Getter } from 'copc';
 import {
   toCopcHierarchyNode,
@@ -229,6 +234,184 @@ test('loadCopcMetadata supports a shared context', async () => {
   assert.equal(metadata.pointCount, 10653336);
   assert.equal(metadata.bounds.minX, 635577.79);
   assert.match(metadata.wkt, /PROJCS\["NAD83 \/ Oregon GIC Lambert \(ft\)"/);
+});
+
+test('createCopcContext wraps source failures and preserves their cause', async () => {
+  const missingPath = path.resolve(__dirname, 'missing.copc.laz');
+
+  await assert.rejects(
+    () => createCopcContext(missingPath),
+    (error) => {
+      assert.ok(error instanceof CopcSourceError);
+      assert.equal(error.stage, 'source');
+      assert.equal(error.source, missingPath);
+      assert.ok(error.cause);
+      assert.match(error.message, /Failed to create COPC source context/);
+      assert.match(error.message, /range requests and CORS/);
+      return true;
+    },
+  );
+});
+
+test('source errors do not expose URL credentials, query values, or fragments', () => {
+  const error = new CopcSourceError(
+    'https://reader:secret@example.com/data.copc.laz?token=private#section',
+  );
+
+  assert.match(error.message, /https:\/\/example.com\/data.copc.laz/);
+  assert.doesNotMatch(error.message, /reader|secret|token|private|section/);
+  assert.equal(
+    error.source,
+    'https://reader:secret@example.com/data.copc.laz?token=private#section',
+  );
+});
+
+test('loadCopcMetadata wraps metadata read failures and preserves their cause', async () => {
+  const cause = new Error('copc.js implementation detail');
+  const context = {
+    source: 'https://example.com/broken.copc.laz',
+    getMetadata() {
+      throw cause;
+    },
+  };
+
+  await assert.rejects(
+    () => loadCopcMetadata(context),
+    (error) => {
+      assert.ok(error instanceof CopcMetadataError);
+      assert.equal(error.stage, 'metadata');
+      assert.equal(error.source, context.source);
+      assert.equal(error.cause, cause);
+      assert.doesNotMatch(error.message, /implementation detail/);
+      return true;
+    },
+  );
+});
+
+test('loadCopcMetadata rejects projected coordinates without actionable CRS metadata', async () => {
+  const context = {
+    source: 'https://example.com/missing-crs.copc.laz',
+    getMetadata() {
+      return {
+        pointCount: 1,
+        bounds: {
+          minX: 635577,
+          minY: 848882,
+          minZ: 406,
+          maxX: 639003,
+          maxY: 853537,
+          maxZ: 615,
+        },
+        cube: {
+          minX: 635577,
+          minY: 848882,
+          minZ: 406,
+          maxX: 639003,
+          maxY: 853537,
+          maxZ: 615,
+        },
+      };
+    },
+  };
+
+  await assert.rejects(
+    () => loadCopcMetadata(context),
+    (error) => {
+      assert.ok(error instanceof CopcMetadataError);
+      assert.equal(error.stage, 'metadata');
+      assert.match(error.message, /CRS is missing, malformed, or unsupported/);
+      assert.match(error.message, /WKT is required/);
+      assert.ok(error.cause);
+      return true;
+    },
+  );
+});
+
+test('loadCopcMetadata rejects invalid numeric metadata before hierarchy loading', async () => {
+  const validMetadata = {
+    pointCount: 1,
+    bounds: {
+      minX: -123.1,
+      minY: 44,
+      minZ: 10,
+      maxX: -123,
+      maxY: 44.1,
+      maxZ: 20,
+    },
+    cube: {
+      minX: -123.1,
+      minY: 44,
+      minZ: 10,
+      maxX: -123,
+      maxY: 44.1,
+      maxZ: 20,
+    },
+  };
+  const cases = [
+    {
+      metadata: { ...validMetadata, pointCount: -1 },
+      message: /pointCount must be a non-negative safe integer/,
+    },
+    {
+      metadata: {
+        ...validMetadata,
+        bounds: { ...validMetadata.bounds, minX: Number.NaN },
+      },
+      message: /bounds must contain only finite numbers/,
+    },
+    {
+      metadata: {
+        ...validMetadata,
+        cube: { ...validMetadata.cube, minZ: 21 },
+      },
+      message: /cube minimum values must not exceed maximum values/,
+    },
+    {
+      metadata: { ...validMetadata, spacing: 0 },
+      message: /spacing must be a positive finite number/,
+    },
+  ];
+
+  for (const [index, testCase] of cases.entries()) {
+    const context = {
+      source: `https://example.com/invalid-${index}.copc.laz`,
+      getMetadata: () => testCase.metadata,
+    };
+
+    await assert.rejects(
+      () => loadCopcMetadata(context),
+      (error) => {
+        assert.ok(error instanceof CopcMetadataError);
+        assert.match(error.message, testCase.message);
+        return true;
+      },
+    );
+  }
+});
+
+test('loadRootHierarchy wraps hierarchy failures with source context', async () => {
+  const cause = new Error('range read failed');
+  const context = {
+    source: 'https://example.com/broken-hierarchy.copc.laz',
+    getRootHierarchyPage() {
+      return { key: '0-0-0-0', pageOffset: 128, pageLength: 64 };
+    },
+    async loadHierarchyPage() {
+      throw cause;
+    },
+  };
+
+  await assert.rejects(
+    () => loadRootHierarchy(context),
+    (error) => {
+      assert.ok(error instanceof CopcHierarchyLoadError);
+      assert.equal(error.stage, 'hierarchy');
+      assert.equal(error.source, context.source);
+      assert.equal(error.cause.cause, cause);
+      assert.match(error.message, /broken-hierarchy\.copc\.laz/);
+      return true;
+    },
+  );
 });
 
 test('loadCopcMetadata reads sample metadata', async () => {

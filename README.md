@@ -89,6 +89,26 @@ layer.destroy();
 `url` must be readable by the browser and support the range requests made by
 the COPC reader. Cross-origin URLs therefore need compatible CORS headers.
 
+`load()` rejects with a project-owned `CopcLoadError` when source access,
+metadata/CRS validation, or hierarchy loading fails. Applications can inspect
+its `stage` (`'source'`, `'metadata'`, or `'hierarchy'`) and `source` fields,
+while `cause` retains the underlying failure for diagnostics. Error messages
+omit URL credentials, query strings, and fragments, so they are suitable for a
+user-facing debug panel.
+
+```ts
+import { CopcLoadError } from './src';
+
+try {
+  await layer.load();
+} catch (error) {
+  if (error instanceof CopcLoadError) {
+    debugPanel.textContent = error.message;
+  }
+  throw error;
+}
+```
+
 `colorMode` defaults to `'fixed'`, which preserves the original cyan rendering.
 Use `'elevation'` to map the dataset's transformed minimum and maximum heights
 through a blue, cyan, green, yellow, and red gradient:

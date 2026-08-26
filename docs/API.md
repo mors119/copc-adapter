@@ -19,6 +19,14 @@ The package has an ESM build configuration but is not published to npm.
 - `destroy()`: layer resource 와 listener 정리
 - `getSnapshot()`: 현재 lifecycle, 선택 node, 렌더링 point 수 조회
 
+`load()`와 `reload()`는 source/context 생성, metadata 및 CRS 검증,
+hierarchy 로딩 실패를 각각 project-owned `CopcLoadError`로 reject한다.
+`stage`는 `'source' | 'metadata' | 'hierarchy'`, `source`는 원본 configured
+URL이며, 지원되는 runtime에서는 원래 오류가 `cause`에 보존된다. 표시용
+`message`에서는 URL credential, query, fragment가 제거되므로 demo/debug
+panel에 그대로 표시할 수 있다. `CopcSourceError`, `CopcMetadataError`,
+`CopcHierarchyLoadError`도 public entrypoint에서 export된다.
+
 ### `CopcCesiumLayerOptions`
 
 - `url`: HTTP range request를 지원하는 browser-readable COPC URL
