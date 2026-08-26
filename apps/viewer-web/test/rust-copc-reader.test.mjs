@@ -13,6 +13,12 @@ import {
   RustCopcBackend,
   RustCopcReader,
 } from '../src/index.ts';
+import {
+  assertMetadataParity,
+  assertPointParity,
+  assertRootHierarchyParity,
+  openBackendPair,
+} from './support/backend-contract.mjs';
 
 const samplePath = path.resolve(
   path.dirname(new URL(import.meta.url).pathname),
@@ -116,10 +122,6 @@ function makeFixture({ rootPageLength = 96 } = {}) {
   putI32(root, 92, -1);
 
   return { bytes, rootPageOffset, rootPageLength };
-}
-
-function assertClose(actual, expected, epsilon = 1e-10) {
-  assert.ok(Math.abs(actual - expected) <= epsilon, `${actual} is not within ${epsilon} of ${expected}`);
 }
 
 function normalizeRoot(subtree) {
@@ -232,31 +234,15 @@ test('RustCopcBackend maps source, header, and point-chunk failures', async () =
   );
 });
 
-test('Rust reader and CopcJsBackend match on the same deterministic COPC file', async () => {
+test('RustCopcBackend and CopcJsBackend match on the same deterministic COPC file', async () => {
   const fixture = makeFixture();
   const directory = await mkdtemp(path.join(os.tmpdir(), 'copc-adapter-'));
   const fixturePath = path.join(directory, 'fixture.copc.laz');
   await writeFile(fixturePath, fixture.bytes);
   try {
-    const rust = await RustCopcReader.open(new InMemoryByteSource(fixture.bytes, fixturePath));
-    const js = await new CopcJsBackend().open(fixturePath);
-    const jsMetadata = js.getMetadata();
-    const rustMetadata = rust.getMetadata();
-
-    assert.equal(rustMetadata.pointCount, jsMetadata.pointCount);
-    for (const field of ['minX', 'minY', 'minZ', 'maxX', 'maxY', 'maxZ']) {
-      assertClose(rustMetadata.bounds[field], jsMetadata.bounds[field]);
-    }
-    for (const axis of ['x', 'y', 'z']) {
-      assertClose(rustMetadata.scale[axis], jsMetadata.scale[axis]);
-      assertClose(rustMetadata.offset[axis], jsMetadata.offset[axis]);
-    }
-    assertClose(rustMetadata.spacing, jsMetadata.spacing);
-    assert.deepEqual(rust.getRootHierarchyPage(), js.getRootHierarchyPage());
-    const jsRoot = await js.loadHierarchyPage(js.getRootHierarchyPage());
-    const rustRoot = await rust.loadRootHierarchy();
-    assert.equal(rustRoot.nodes.length + rustRoot.pages.length, jsRoot.nodes.length + jsRoot.pages.length);
-    assert.deepEqual(normalizeRoot(rustRoot), normalizeRoot(jsRoot));
+    const { rust, copcJs } = await openBackendPair(fixturePath, fixture.bytes);
+    assertMetadataParity(rust.getMetadata(), copcJs.getMetadata());
+    await assertRootHierarchyParity(rust, copcJs);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -309,27 +295,11 @@ test('Rust reader returns structured failures for malformed header and hierarchy
   );
 });
 
-test('Autzen metadata and root entries match CopcJsBackend', { skip: !existsSync(samplePath) }, async () => {
+test('Autzen backend metadata and root entries match', { skip: !existsSync(samplePath) }, async () => {
   const bytes = await import('node:fs/promises').then(({ readFile }) => readFile(samplePath));
-  const rust = await RustCopcReader.open(new InMemoryByteSource(bytes, samplePath));
-  const js = await new CopcJsBackend().open(samplePath);
-  const rustMetadata = rust.getMetadata();
-  const jsMetadata = js.getMetadata();
-
-  assert.equal(rustMetadata.pointCount, jsMetadata.pointCount);
-  for (const field of ['minX', 'minY', 'minZ', 'maxX', 'maxY', 'maxZ']) {
-    assertClose(rustMetadata.bounds[field], jsMetadata.bounds[field], 1e-7);
-  }
-  for (const axis of ['x', 'y', 'z']) {
-    assertClose(rustMetadata.scale[axis], jsMetadata.scale[axis]);
-    assertClose(rustMetadata.offset[axis], jsMetadata.offset[axis]);
-  }
-  assertClose(rustMetadata.spacing, jsMetadata.spacing, 1e-9);
-  assert.deepEqual(rust.getRootHierarchyPage(), js.getRootHierarchyPage());
-  const jsRoot = await js.loadHierarchyPage(js.getRootHierarchyPage());
-  const rustRoot = await rust.loadRootHierarchy();
-  assert.equal(rustRoot.nodes.length + rustRoot.pages.length, jsRoot.nodes.length + jsRoot.pages.length);
-  assert.deepEqual(normalizeRoot(rustRoot), normalizeRoot(jsRoot));
+  const { rust, copcJs } = await openBackendPair(samplePath, bytes);
+  assertMetadataParity(rust.getMetadata(), copcJs.getMetadata());
+  await assertRootHierarchyParity(rust, copcJs);
 });
 
 test('Rust decodes one Autzen node from its exact range and matches CopcJsBackend', {
@@ -357,6 +327,8 @@ test('Rust decodes one Autzen node from its exact range and matches CopcJsBacken
   const rustBuffer = await rust.loadPointDataBuffer(root, fields);
   const js = await new CopcJsBackend().open(samplePath);
   const jsView = await js.loadPointDataView(root, fields);
+
+  await assertPointParity(rust, js, root);
 
   assert.equal(rustBuffer.pointCount, root.pointCount);
   assert.equal(rustBuffer.pointCount, jsView.pointCount);
