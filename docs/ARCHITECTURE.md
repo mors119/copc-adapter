@@ -11,7 +11,8 @@ converts those points into Cesium primitives in the browser.
 
 ```text
 Browser-readable COPC URL
-  -> CopcContext and copc.js getter
+  -> project-owned CopcBackend / CopcSource boundary
+  -> default copc.js backend and getter
   -> metadata and recursive hierarchy loading
   -> streaming hierarchy and camera-based node selection
   -> selected COPC point-data views
@@ -28,7 +29,8 @@ state.
 
 | Area | Location | Responsibility |
 | --- | --- | --- |
-| COPC adapters and loading | `apps/viewer-web/src/copc/` | Isolate `copc.js`, expose project-owned metadata, hierarchy, and point types |
+| COPC backend boundary | `apps/viewer-web/src/copc/backend/` | Define project-owned source capabilities and isolate the default `copc.js` adapter |
+| COPC loading | `apps/viewer-web/src/copc/` | Consume backend-neutral metadata, hierarchy, and point-view types |
 | Coordinate transformation | `apps/viewer-web/src/coordinates/` | Convert COPC coordinates to WGS84 longitude, latitude, and height |
 | WASM decoder | `crates/copc-wasm/`, `apps/viewer-web/src/wasm/` | Convert XYZ values into an interleaved point buffer |
 | Streaming | `apps/viewer-web/src/viewer/streaming/` | Build selection data, choose nodes, and maintain the bounded point cache |
@@ -36,9 +38,24 @@ state.
 | Internal controller | `apps/viewer-web/src/viewer/CopcViewer.ts` | Coordinate loading, camera events, streaming, and primitive lifecycle |
 | Public API | `apps/viewer-web/src/api/`, `apps/viewer-web/src/index.ts` | Expose `CopcCesiumLayer` and its public types |
 
-External `copc.js` types stay behind the COPC adapter boundary. Cesium types are
+External `copc.js` types stay inside `copcJsBackend.ts`. The context, loaders,
+streaming controller, and decoder communicate through project-owned interfaces.
+Cesium types are
 used only by the rendering and public attachment boundary, not by core COPC
 domain types.
+
+## Backend Boundary
+
+`CopcBackend.open(url)` returns a reusable `CopcSource`. A source exposes only
+the capabilities the runtime needs: metadata, the root hierarchy page,
+hierarchy-page loading, and point-data-view loading. `CopcJsBackend` is the
+default production implementation and adapts all `copc.js` values before they
+cross this boundary. A future Rust/WASM metadata or hierarchy reader can
+implement the same interfaces without changing `CopcLayerController`, the
+streaming manager, or Cesium rendering.
+
+Callers may inject a backend for an alternative implementation or unit tests.
+There is intentionally no second placeholder production backend.
 
 ## Public Layer Lifecycle
 
@@ -68,12 +85,13 @@ selection, worker-based loading, or a GPU-specific point-cloud renderer.
 
 ## Decoder Boundary
 
-`copc.js` currently reads COPC metadata, hierarchy, and point data views.
-Rust/WASM receives the X, Y, and Z values and returns a project-owned
+`CopcPointDecoder.decode(view)` is independent of the source backend. The
+default decoder uses Rust/WASM: it receives the X, Y, and Z values and returns a project-owned
 interleaved point buffer. The TypeScript side reads available intensity,
 classification, and RGB dimensions into optional typed arrays. Coordinate
 transformation retains the same attribute arrays, keeping the decoder boundary
 replaceable without changing the streaming or Cesium rendering layers.
+Tests may inject a decoder without loading WebAssembly.
 
 Point styling consumes these transformed buffers directly. RGB channels are
 normalized from their detected 8-bit or 16-bit range, intensity is normalized

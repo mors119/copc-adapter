@@ -11,6 +11,9 @@ export {
   CopcSourceError,
 } from './copc/errors';
 export type { CopcLoadStage } from './copc/errors';
+export { CopcJsBackend, copcJsBackend } from './copc/backend/copcJsBackend';
+export type { CopcBackend, CopcSource } from './copc/backend/types';
+export type { CopcPointDecoder } from './copc/points/types';
 export type {
   CopcCesiumLayerOptions,
   CopcCesiumLayerSnapshot,

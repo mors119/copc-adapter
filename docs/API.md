@@ -39,6 +39,8 @@ panel에 그대로 표시할 수 있다. `CopcSourceError`, `CopcMetadataError`,
 - `debug`: lifecycle debug logging 활성화
 - `streaming`: `maxNodes`, `maxDepth`, `refineDistanceMultiplier`,
   `maxRenderDistanceMeters` overrides
+- `backend`: optional `CopcBackend`; defaults to `CopcJsBackend`
+- `decoder`: optional `CopcPointDecoder`; defaults to the Rust/WASM decoder
 
 ## Quick Start
 
@@ -75,7 +77,12 @@ layer.destroy();
 
 ## Decoder Boundary
 
-The public API focuses on the layer and viewer lifecycle. Rust/WASM handles XYZ
+The public entrypoint exports `CopcBackend`, `CopcSource`, `CopcJsBackend`, and
+`CopcPointDecoder`. Applications normally use the defaults; alternative
+backends and test doubles can be passed through layer options without changing
+the controller or renderer.
+
+Rust/WASM handles XYZ
 interleaved-buffer conversion, while the TypeScript decoder preserves supported
 LAS attributes exposed by the point view.
 

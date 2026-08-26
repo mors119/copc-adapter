@@ -3,6 +3,7 @@ import type {
   CopcPointBuffer,
   CopcPointView,
 } from '../copc/types/copc';
+import type { CopcPointDecoder } from '../copc/points/types';
 
 type CopcWasmExports = {
   memory: WebAssembly.Memory;
@@ -173,3 +174,8 @@ export async function decodeCopcPointBuffer(
     wasm.dealloc_f64(outputPointer, outputLength);
   }
 }
+
+/** Default point decoder backed by the Rust WebAssembly module. */
+export const wasmCopcPointDecoder: CopcPointDecoder = {
+  decode: decodeCopcPointBuffer,
+};

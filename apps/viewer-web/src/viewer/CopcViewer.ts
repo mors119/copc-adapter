@@ -3,8 +3,9 @@ import { renderCopcPoints, toCartesian3Array } from '../cesium/render/renderPoin
 import type { CopcColorMode } from '../cesium/style/pointStyle';
 import {
   createCopcContext,
-  type CopcContext,
 } from '../copc/context/createCopcContext';
+import type { CopcBackend, CopcSource } from '../copc/backend/types';
+import type { CopcPointDecoder } from '../copc/points/types';
 import { loadRootHierarchy } from '../copc/hierarchy/loadRootHierarchy';
 import { loadCopcMetadata } from '../copc/metadata/loadMetadata';
 import { loadCopcPointBuffer } from '../copc/points/loadPointData';
@@ -36,10 +37,12 @@ export type CopcLayerOptions = {
   colorMode?: CopcColorMode;
   debug?: boolean;
   streaming?: Partial<StreamingSelectionOptions>;
+  backend?: CopcBackend;
+  decoder?: CopcPointDecoder;
 };
 
 type StreamingState = {
-  context: CopcContext;
+  context: CopcSource;
   metadata: CopcMetadata;
   nodes: StreamingHierarchy;
   manager: StreamingManager;
@@ -153,7 +156,10 @@ export class CopcLayerController {
     }
 
     this.lifecycle = 'loading';
-    const context = await createCopcContext(this.options.url);
+    const context = await createCopcContext(
+      this.options.url,
+      this.options.backend,
+    );
     const metadata = await loadCopcMetadata(context);
     const nodes = await loadRootHierarchy(context);
     const hierarchy = buildStreamingHierarchy(metadata, nodes);
@@ -368,7 +374,11 @@ export class CopcLayerController {
       throw new Error('Streaming state is not initialized');
     }
 
-    return loadCopcPointBuffer(this.streamingState.context, node);
+    return loadCopcPointBuffer(
+      this.streamingState.context,
+      node,
+      this.options.decoder,
+    );
   }
 
   private getDatasetElevationRange(): { min: number; max: number } {

@@ -9,7 +9,7 @@
 
 | Area | Status | Current scope |
 | --- | --- | --- |
-| COPC source access | Implemented | Browser-readable URLs and local sample files through `copc.js` getters |
+| COPC source access | Implemented | Pluggable project-owned backend/source boundary with `copc.js` as the default |
 | Metadata and hierarchy | Implemented | Metadata loading plus recursive hierarchy-page traversal |
 | Point data | Implemented | XYZ plus available intensity, classification, and RGB dimensions converted to project-owned typed buffers |
 | Coordinate transformation | Implemented | COPC CRS values transformed to WGS84 coordinates |
@@ -17,7 +17,7 @@
 | Point styling | Implemented | Fixed cyan, elevation, RGB, intensity, and classification modes with missing-attribute fallback |
 | Streaming | Implemented | Camera-driven selection, basic depth/distance limits, and bounded cache |
 | Public API | Implemented | `CopcCesiumLayer` load, attach, detach, unload, reload, and destroy lifecycle |
-| WASM decoder | Implemented | Rust/WASM interleaved XYZ buffer decoding |
+| WASM decoder | Implemented | Replaceable point-decoder boundary with Rust/WASM interleaved XYZ decoding as the default |
 | ESM package build | Implemented | Bundle and declaration build configuration; no npm publication yet |
 
 ## Known Gaps

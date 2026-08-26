@@ -5,6 +5,8 @@ import {
 } from '../viewer/CopcViewer';
 import type { CopcMetadata } from '../copc/types/copc';
 import type { CopcColorMode } from '../cesium/style/pointStyle';
+import type { CopcBackend } from '../copc/backend/types';
+import type { CopcPointDecoder } from '../copc/points/types';
 
 export type { CopcColorMode } from '../cesium/style/pointStyle';
 
@@ -26,6 +28,10 @@ export type CopcCesiumLayerOptions = {
   debug?: boolean;
   /** Overrides for the default streaming selection limits. */
   streaming?: CopcStreamingOptions;
+  /** Backend used to open metadata, hierarchy, and point-data views. */
+  backend?: CopcBackend;
+  /** Decoder used to convert point-data views into project point buffers. */
+  decoder?: CopcPointDecoder;
 };
 export type CopcCesiumLayerSnapshot = CopcLayerSnapshot;
 

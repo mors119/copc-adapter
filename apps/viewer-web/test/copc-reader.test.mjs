@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   CopcCesiumLayer,
+  CopcJsBackend,
   CopcHierarchyLoadError,
   CopcMetadataError,
   CopcSourceError,
@@ -518,6 +519,90 @@ test('shared context loads point data without recreating source inputs', async (
   ]);
 });
 
+test('a fake backend source covers metadata, hierarchy, and point paths', async () => {
+  const node = {
+    key: '0-0-0-0',
+    level: 0,
+    x: 0,
+    y: 0,
+    z: 0,
+    pointCount: 1,
+    pointDataOffset: 100,
+    pointDataLength: 20,
+  };
+  const view = {
+    pointCount: 1,
+    dimensions: ['X', 'Y', 'Z'],
+    getter(name) {
+      const values = { X: [-123], Y: [44], Z: [10] };
+      return (index) => values[name][index];
+    },
+  };
+  const source = {
+    source: 'memory://fake.copc.laz',
+    getMetadata() {
+      return {
+        pointCount: 1,
+        bounds: {
+          minX: -123,
+          minY: 44,
+          minZ: 10,
+          maxX: -123,
+          maxY: 44,
+          maxZ: 10,
+        },
+        cube: {
+          minX: -123,
+          minY: 44,
+          minZ: 10,
+          maxX: -122,
+          maxY: 45,
+          maxZ: 11,
+        },
+      };
+    },
+    getRootHierarchyPage() {
+      return { key: node.key, pageOffset: 10, pageLength: 10 };
+    },
+    async loadHierarchyPage(page) {
+      assert.equal(page.key, node.key);
+      return { nodes: [node], pages: [] };
+    },
+    async loadPointDataView(requestedNode) {
+      assert.equal(requestedNode.key, node.key);
+      return view;
+    },
+  };
+  const opened = [];
+  const backend = {
+    async open(sourceUrl) {
+      opened.push(sourceUrl);
+      return source;
+    },
+  };
+  const decoder = {
+    async decode(requestedView) {
+      assert.equal(requestedView, view);
+      return {
+        pointCount: 1,
+        coordinates: new Float64Array([-123, 44, 10]),
+      };
+    },
+  };
+
+  const context = await createCopcContext('memory://fake.copc.laz', backend);
+  const metadata = await loadCopcMetadata(context);
+  const nodes = await loadRootHierarchy(context);
+  const pointView = await loadPointDataView(context, nodes[0]);
+  const buffer = await loadCopcPointBuffer(context, nodes[0], decoder);
+
+  assert.deepEqual(opened, ['memory://fake.copc.laz']);
+  assert.equal(metadata.pointCount, 1);
+  assert.deepEqual(nodes, [{ ...node, children: [] }]);
+  assert.equal(pointView, view);
+  assert.deepEqual(Array.from(buffer.coordinates), [-123, 44, 10]);
+});
+
 test('loadCopcPointBuffer decodes sample points through Rust WASM', async () => {
   const nodes = await loadRootHierarchy(samplePath);
   const rootNode = nodes.find((node) => node.key === '0-0-0-0');
@@ -796,6 +881,7 @@ test('createNodePointCache clears stored entries', async () => {
 
 test('public API exports CopcCesiumLayer', () => {
   assert.equal(typeof CopcCesiumLayer, 'function');
+  assert.equal(typeof CopcJsBackend, 'function');
 });
 
 test('CopcCesiumLayer snapshot exposes lifecycle and dataset info', () => {
