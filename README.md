@@ -195,8 +195,11 @@ npx --prefix apps/viewer-web playwright install chromium
   back to fixed cyan when the required dimensions are unavailable.
 - Loading and decoding run on the main thread; Web Worker offloading is not
   implemented.
-- Rust/WASM currently converts XYZ values to an interleaved buffer. COPC
-  metadata and hierarchy parsing still use `copc.js`.
+- The default viewer path still obtains point views from `copc.js` and uses
+  Rust/WASM for the final typed point buffer. `RustCopcReader` additionally
+  provides a focused direct node path that range-reads and decodes LAS 1.4
+  point formats 6/7/8; it is currently a differential-validation path rather
+  than the default backend.
 - The local demo and consumer fixture require a downloaded sample COPC file;
   there is no hosted demo or checked-in visual asset.
 - Vite reports browser-externalized `node:` module warnings while bundling
@@ -208,7 +211,7 @@ npx --prefix apps/viewer-web playwright install chromium
 
 1. Add screen-space-error-based refinement and improve selection heuristics.
 2. Move suitable loading and decoding work to Web Workers.
-3. Expand the Rust/WASM boundary to metadata and hierarchy parsing.
+3. Promote the focused Rust/WASM node decoder to a selectable production backend after broader format and edge-case coverage.
 4. Publish the library after broader consumer compatibility validation.
 
 ## Submission Summary

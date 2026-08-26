@@ -108,16 +108,18 @@ The public entrypoint exports `CopcBackend`, `CopcSource`, `CopcJsBackend`, and
 backends and test doubles can be passed through layer options without changing
 the controller or renderer.
 
-Rust/WASM handles XYZ
-interleaved-buffer conversion, while the TypeScript decoder preserves supported
-LAS attributes exposed by the point view.
+The default point decoder uses Rust/WASM for XYZ interleaving while the
+TypeScript adapter preserves supported LAS attributes exposed by `copc.js`.
+The separately exported `RustCopcReader.loadPointDataBuffer()` path decodes
+XYZ and the selected LAS attributes directly in Rust/WASM.
 
 The public entrypoint also exports the backend-neutral `RandomAccessByteSource`,
 `HttpRangeByteSource`, `InMemoryByteSource`, and `RangeSourceError` types for
 the Rust/WASM reader boundary. `RustCopcReader` and `RustCopcParseError` are
-also exported for callers that need to parse LAS/COPC metadata and the root
-hierarchy through an injected random-access source. It does not decode point
-chunks and does not replace `CopcJsBackend` as the default backend.
+also exported for callers that need to parse LAS/COPC metadata, the root
+hierarchy, and one LAS 1.4 point chunk through an injected random-access
+source. Its `loadPointDataBuffer()` method is a focused Rust/WASM differential
+validation path and does not replace `CopcJsBackend` as the default backend.
 
 `CopcPointBuffer`와 `GeographicPointBuffer`는 optional `intensity`,
 `classification`, `red`, `green`, `blue` typed arrays를 보존한다. source point
@@ -126,6 +128,6 @@ style은 해당 typed arrays를 직접 사용하며, attribute 누락 시 fixed 
 fallback한다.
 
 - `copc.js`: metadata, hierarchy, point view 로딩
-- `copc-wasm`: X/Y/Z -> interleaved point buffer conversion
+- `copc-wasm`: focused LAS 1.4 point 6/7/8 node decode and X/Y/Z interleaving
 - `viewer-web` decoder: available LAS attributes -> optional typed arrays
 - `viewer-web`: streaming selection, CRS transform, Cesium rendering

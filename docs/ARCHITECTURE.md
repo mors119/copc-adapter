@@ -156,9 +156,26 @@ range I/O and maps the compact parser result into project-owned metadata and
 hierarchy values; Rust owns little-endian interpretation, COPC validation, and
 structured parse errors.
 
-The WASM ABI uses a small NUL-terminated JSON response for this initial
-metadata/root-page milestone. This is bounded by the header/VLR area and one
-root page, and is deliberately not the future recursive or point-data ABI.
+`RustCopcReader.loadPointDataBuffer()` is the focused node-decoding proof path.
+It requests only `pointDataOffset..pointDataOffset + pointDataLength` for one
+hierarchy entry and passes that exact chunk, together with the metadata bytes,
+to Rust. The Rust ABI returns project-owned XYZ, intensity, classification, and
+RGB buffers. LAS scale/offset is applied once in Rust while converting raw
+integer coordinates to the existing projected-coordinate contract.
+
+The decoder dependency is `laz 0.13.0`, used through its public layered
+point-record decompressor. It supports the COPC layered chunks used by LAS
+1.4 point formats 6, 7, and 8, including the crate's selective field
+decompression API. The crate builds for `wasm32-unknown-unknown` in this
+repository. `360-geo/copc-streaming` is intentionally not a dependency and no
+reference source is vendored. The existing `copc.js` backend remains the
+default and stable fallback while this Rust path is differentially validated.
+
+The metadata and hierarchy parser ABI uses a small NUL-terminated JSON
+response. The node decoder uses the same bounded status/error envelope while
+writing its project-owned typed output buffers directly. Parser responses are
+bounded by the header/VLR area and one root page; point output is bounded by
+the selected node's point count.
 Root entries with `pointCount == -1` are returned as `pages`, while all
 non-negative point counts are returned as point-data `nodes`. Offsets and
 lengths are checked against JavaScript's safe-integer range before they cross

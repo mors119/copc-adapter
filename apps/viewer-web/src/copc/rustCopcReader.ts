@@ -4,13 +4,19 @@ import type {
   CopcHierarchyPage,
   CopcHierarchySubtree,
 } from './hierarchy/types';
-import type { CopcMetadata } from './types/copc';
+import type { CopcMetadata, CopcPointBuffer, CopcPointAttributes } from './types/copc';
 import type { RandomAccessByteSource } from './range/types';
+import type { CopcPointFieldSelection } from './points/fieldSelection';
 
 const INITIAL_LAS_HEADER_LENGTH = 375;
 const MAX_METADATA_BYTES = 64 * 1024 * 1024;
 const MAX_HIERARCHY_PAGE_BYTES = 64 * 1024 * 1024;
 const MAX_SAFE_INTEGER = Number.MAX_SAFE_INTEGER;
+const MAX_DECODE_POINTS = 5_000_000;
+const MAX_NODE_CHUNK_BYTES = 64 * 1024 * 1024;
+const FIELD_INTENSITY = 1 << 0;
+const FIELD_CLASSIFICATION = 1 << 1;
+const FIELD_RGB = 1 << 2;
 
 type RustHeaderValue = {
   version_major: number;
@@ -58,6 +64,13 @@ type RustParserResponse<T> = {
   };
 };
 
+type RustDecodeValue = {
+  point_count: number;
+  intensity: boolean;
+  classification: boolean;
+  rgb: boolean;
+};
+
 export type RustCopcParseErrorCode =
   | 'invalid-input'
   | 'truncated'
@@ -83,6 +96,17 @@ export class RustCopcParseError extends Error {
 }
 
 export type RustCopcHeader = RustHeaderValue;
+
+function requireDecodePointCount(value: number): number {
+  const count = requireSafeInteger(value, 'point count');
+  if (count === 0 || count > MAX_DECODE_POINTS) {
+    throw new RustCopcParseError(
+      'unsupported-value',
+      `point count must be between 1 and ${MAX_DECODE_POINTS}`,
+    );
+  }
+  return count;
+}
 
 function requireSafeInteger(value: number, name: string): number {
   if (!Number.isSafeInteger(value) || value < 0 || value > MAX_SAFE_INTEGER) {
@@ -216,6 +240,8 @@ export class RustCopcReader {
     this.header = header;
   }
 
+  private metadataBytes: Uint8Array | undefined;
+
   static async open(byteSource: RandomAccessByteSource): Promise<RustCopcReader> {
     const initialBytes = await byteSource.readRange(0, INITIAL_LAS_HEADER_LENGTH);
     const { pointDataOffset } = headerLayout(initialBytes);
@@ -226,7 +252,9 @@ export class RustCopcReader {
       metadataBytes,
       (wasm, pointer, length) => wasm.parse_copc_header_json(pointer, length),
     );
-    return new RustCopcReader(byteSource, header);
+    const reader = new RustCopcReader(byteSource, header);
+    reader.metadataBytes = metadataBytes;
+    return reader;
   }
 
   getMetadata(): CopcMetadata {
@@ -277,5 +305,115 @@ export class RustCopcReader {
 
   async loadRootHierarchy(): Promise<CopcHierarchySubtree> {
     return this.loadHierarchyPage(this.getRootHierarchyPage());
+  }
+
+  /**
+   * Reads and decodes exactly one hierarchy node's compressed LAZ chunk.
+   * TypeScript owns both range requests; Rust owns LAZ and LAS field decoding.
+   */
+  async loadPointDataBuffer(
+    node: CopcHierarchyNode,
+    fields: CopcPointFieldSelection,
+  ): Promise<CopcPointBuffer> {
+    if (!fields.has('position')) {
+      throw new RustCopcParseError('invalid-value', 'COPC point selection must include position');
+    }
+    const pointCount = requireDecodePointCount(node.pointCount);
+    const coordinateLength = pointCount * 3;
+    if (!Number.isSafeInteger(coordinateLength)) {
+      throw new RustCopcParseError('overflow', 'coordinate output length exceeds safe integer range');
+    }
+    if (!Number.isSafeInteger(node.pointDataLength) || node.pointDataLength > MAX_NODE_CHUNK_BYTES) {
+      throw new RustCopcParseError(
+        'unsupported-value',
+        `point data chunk must not exceed ${MAX_NODE_CHUNK_BYTES} bytes`,
+      );
+    }
+
+    const requestedFields = (fields.has('intensity') ? FIELD_INTENSITY : 0)
+      | (fields.has('classification') ? FIELD_CLASSIFICATION : 0)
+      | (fields.has('rgb') ? FIELD_RGB : 0);
+    const metadataBytes = this.metadataBytes;
+    if (!metadataBytes) {
+      throw new RustCopcParseError('invalid-input', 'Rust COPC reader metadata is unavailable');
+    }
+    const chunkBytes = await this.byteSource.readRange(node.pointDataOffset, node.pointDataLength);
+    const wasm = await loadCopcWasm();
+    const metadataPointer = wasm.alloc_bytes(metadataBytes.byteLength);
+    const chunkPointer = wasm.alloc_bytes(chunkBytes.byteLength);
+    const coordinatesPointer = wasm.alloc_f64(coordinateLength);
+    const intensityPointer = fields.has('intensity') ? wasm.alloc_u16(pointCount) : 0;
+    const classificationPointer = fields.has('classification') ? wasm.alloc_u8(pointCount) : 0;
+    const redPointer = fields.has('rgb') ? wasm.alloc_u16(pointCount) : 0;
+    const greenPointer = fields.has('rgb') ? wasm.alloc_u16(pointCount) : 0;
+    const bluePointer = fields.has('rgb') ? wasm.alloc_u16(pointCount) : 0;
+
+    try {
+      const memory = wasm.memory.buffer;
+      new Uint8Array(memory, metadataPointer, metadataBytes.byteLength).set(metadataBytes);
+      new Uint8Array(memory, chunkPointer, chunkBytes.byteLength).set(chunkBytes);
+      const responsePointer = wasm.decode_copc_node_json(
+        metadataPointer,
+        metadataBytes.byteLength,
+        chunkPointer,
+        chunkBytes.byteLength,
+        pointCount,
+        requestedFields,
+        coordinatesPointer,
+        intensityPointer,
+        classificationPointer,
+        redPointer,
+        greenPointer,
+        bluePointer,
+      );
+      try {
+        const response = JSON.parse(readCString(wasm.memory, responsePointer)) as RustParserResponse<RustDecodeValue>;
+        if (!response.ok || response.value === undefined) {
+          throw new RustCopcParseError(
+            response.error?.code ?? 'invalid-input',
+            response.error?.message ?? 'Rust decoder returned an invalid error response',
+          );
+        }
+
+        const value = response.value;
+        if (value.point_count !== pointCount) {
+          throw new RustCopcParseError(
+            'chunk-length-mismatch',
+            `Rust decoder returned ${value.point_count} points; expected ${pointCount}`,
+          );
+        }
+        const coordinates = new Float64Array(coordinateLength);
+        coordinates.set(new Float64Array(wasm.memory.buffer, coordinatesPointer, coordinateLength));
+        const attributes: CopcPointAttributes = {
+          intensity: value.intensity
+            ? Uint16Array.from(new Uint16Array(wasm.memory.buffer, intensityPointer, pointCount))
+            : undefined,
+          classification: value.classification
+            ? Uint8Array.from(new Uint8Array(wasm.memory.buffer, classificationPointer, pointCount))
+            : undefined,
+          red: value.rgb ? Uint16Array.from(new Uint16Array(wasm.memory.buffer, redPointer, pointCount)) : undefined,
+          green: value.rgb ? Uint16Array.from(new Uint16Array(wasm.memory.buffer, greenPointer, pointCount)) : undefined,
+          blue: value.rgb ? Uint16Array.from(new Uint16Array(wasm.memory.buffer, bluePointer, pointCount)) : undefined,
+        };
+        return {
+          pointCount,
+          coordinates,
+          attributes: Object.values(attributes).some((values) => values !== undefined)
+            ? attributes
+            : undefined,
+        };
+      } finally {
+        wasm.free_parser_json(responsePointer);
+      }
+    } finally {
+      wasm.dealloc_bytes(metadataPointer, metadataBytes.byteLength);
+      wasm.dealloc_bytes(chunkPointer, chunkBytes.byteLength);
+      wasm.dealloc_f64(coordinatesPointer, coordinateLength);
+      if (intensityPointer) wasm.dealloc_u16(intensityPointer, pointCount);
+      if (classificationPointer) wasm.dealloc_u8(classificationPointer, pointCount);
+      if (redPointer) wasm.dealloc_u16(redPointer, pointCount);
+      if (greenPointer) wasm.dealloc_u16(greenPointer, pointCount);
+      if (bluePointer) wasm.dealloc_u16(bluePointer, pointCount);
+    }
   }
 }

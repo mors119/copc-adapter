@@ -261,3 +261,83 @@ test('Autzen metadata and root entries match CopcJsBackend', { skip: !existsSync
   assert.equal(rustRoot.nodes.length + rustRoot.pages.length, jsRoot.nodes.length + jsRoot.pages.length);
   assert.deepEqual(normalizeRoot(rustRoot), normalizeRoot(jsRoot));
 });
+
+test('Rust decodes one Autzen node from its exact range and matches CopcJsBackend', {
+  skip: !existsSync(samplePath),
+}, async () => {
+  class RecordingByteSource extends InMemoryByteSource {
+    requests = [];
+
+    async readRange(offset, length, options) {
+      this.requests.push({ offset, length });
+      return super.readRange(offset, length, options);
+    }
+  }
+
+  const bytes = await import('node:fs/promises').then(({ readFile }) => readFile(samplePath));
+  const byteSource = new RecordingByteSource(bytes, samplePath);
+  const rust = await RustCopcReader.open(byteSource);
+  const root = (await rust.loadRootHierarchy()).nodes.find((node) => node.key === '0-0-0-0');
+  assert.ok(root);
+
+  const fields = new Set(['position', 'intensity', 'classification', 'rgb']);
+  const rustBuffer = await rust.loadPointDataBuffer(root, fields);
+  const js = await new CopcJsBackend().open(samplePath);
+  const jsView = await js.loadPointDataView(root, fields);
+
+  assert.equal(rustBuffer.pointCount, root.pointCount);
+  assert.equal(rustBuffer.pointCount, jsView.pointCount);
+  const chunkRequest = byteSource.requests.find(
+    ({ offset, length }) => offset === root.pointDataOffset && length === root.pointDataLength,
+  );
+  assert.deepEqual(chunkRequest, {
+    offset: root.pointDataOffset,
+    length: root.pointDataLength,
+  });
+
+  for (const index of [0, 1, 17, 1024, rustBuffer.pointCount - 1]) {
+    assert.equal(rustBuffer.coordinates[index * 3], jsView.getter('x')(index));
+    assert.equal(rustBuffer.coordinates[index * 3 + 1], jsView.getter('y')(index));
+    assert.equal(rustBuffer.coordinates[index * 3 + 2], jsView.getter('z')(index));
+    assert.equal(rustBuffer.attributes.intensity[index], jsView.getter('intensity')(index));
+    assert.equal(rustBuffer.attributes.classification[index], jsView.getter('classification')(index));
+    assert.equal(rustBuffer.attributes.red[index], jsView.getter('red')(index));
+    assert.equal(rustBuffer.attributes.green[index], jsView.getter('green')(index));
+    assert.equal(rustBuffer.attributes.blue[index], jsView.getter('blue')(index));
+  }
+
+  for (const selection of [
+    { field: 'intensity', component: 'intensity' },
+    { field: 'classification', component: 'classification' },
+    { field: 'rgb', component: 'red' },
+  ]) {
+    const selected = await rust.loadPointDataBuffer(
+      root,
+      new Set(['position', selection.field]),
+    );
+    assert.equal(selected.pointCount, root.pointCount);
+    assert.equal(selected.attributes[selection.component][17], jsView.getter(selection.component)(17));
+    for (const field of ['intensity', 'classification', 'red', 'green', 'blue']) {
+      if (field !== selection.component && !(selection.field === 'rgb' && ['red', 'green', 'blue'].includes(field))) {
+        assert.equal(selected.attributes?.[field], undefined);
+      }
+    }
+  }
+
+  const xyzOnly = await rust.loadPointDataBuffer(root, new Set(['position']));
+  assert.equal(xyzOnly.pointCount, root.pointCount);
+  assert.equal(xyzOnly.attributes, undefined);
+  assert.deepEqual(Array.from(xyzOnly.coordinates.slice(0, 6)), [
+    jsView.getter('x')(0), jsView.getter('y')(0), jsView.getter('z')(0),
+    jsView.getter('x')(1), jsView.getter('y')(1), jsView.getter('z')(1),
+  ]);
+
+  await assert.rejects(
+    () => rust.loadPointDataBuffer({ ...root, pointCount: root.pointCount - 1 }, fields),
+    (error) => error instanceof RustCopcParseError && error.code === 'chunk-length-mismatch',
+  );
+  await assert.rejects(
+    () => rust.loadPointDataBuffer({ ...root, pointDataLength: root.pointDataLength - 1 }, fields),
+    (error) => error instanceof RustCopcParseError && error.code === 'laz-decode',
+  );
+});

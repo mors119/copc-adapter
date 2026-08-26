@@ -17,7 +17,7 @@
 | Point styling | Implemented | Fixed cyan, elevation, RGB, intensity, and classification modes with missing-attribute fallback |
 | Streaming | Implemented | Camera-driven selection, basic depth/distance limits, and bounded cache |
 | Public API | Implemented | `CopcCesiumLayer` load, attach, detach, unload, reload, and destroy lifecycle |
-| WASM decoder | Implemented | Replaceable point-decoder boundary with Rust/WASM interleaved XYZ decoding as the default |
+| WASM decoder | Implemented | Default XYZ interleaving plus a direct Rust/WASM LAS 1.4 point 6/7/8 node-decoding proof path |
 | ESM package build | Implemented | Packed ESM bundle, declarations, package-local WASM assets, and Cesium peer dependency |
 
 ## Known Gaps
@@ -26,7 +26,6 @@
 - Selection is heuristic-based rather than screen-space-error-based.
 - Main-thread loading and decoding can affect responsiveness for larger data.
 - Intensity normalization currently uses each loaded node buffer's range.
-- Rust/WASM does not yet parse COPC metadata or hierarchy.
 - The package is not published to npm yet.
 - The repository contains no owned screenshot, GIF, or hosted demo.
 
@@ -34,7 +33,7 @@
 
 1. Improve LOD selection with screen-space error and viewport-aware metrics.
 2. Evaluate Web Workers for hierarchy, loading, and decoder work.
-3. Extend the Rust/WASM implementation beyond the XYZ interleaving boundary.
+3. Promote the focused Rust/WASM node decoder to a selectable production backend after broader format and edge-case coverage.
 4. Explore scalable rendering approaches and dataset-global attribute statistics.
 5. Publish the library after broader consumer compatibility validation.
 6. Add repository-owned demo media when a reproducible capture is available.
