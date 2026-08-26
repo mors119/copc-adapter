@@ -1,5 +1,9 @@
+use laz::LazVlr;
+use laz::las::selective::DecompressionSelection;
+use laz::record::{LayeredPointRecordDecompressor, RecordDecompressor};
 use serde::Serialize;
 use std::ffi::{CString, c_char};
+use std::io::Cursor;
 
 const LAS_HEADER_SIZE: usize = 375;
 const VLR_HEADER_SIZE: usize = 54;
@@ -7,6 +11,12 @@ const COPC_INFO_SIZE: usize = 160;
 const HIERARCHY_ENTRY_SIZE: usize = 32;
 const MAX_HIERARCHY_PAGE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
+const MAX_DECODE_POINTS: usize = 5_000_000;
+const MAX_NODE_CHUNK_BYTES: usize = 64 * 1024 * 1024;
+const FIELD_INTENSITY: u32 = 1 << 0;
+const FIELD_CLASSIFICATION: u32 = 1 << 1;
+const FIELD_RGB: u32 = 1 << 2;
+const KNOWN_FIELD_MASK: u32 = FIELD_INTENSITY | FIELD_CLASSIFICATION | FIELD_RGB;
 
 #[derive(Debug, Serialize)]
 struct ParseError {
@@ -81,6 +91,14 @@ struct RootHierarchyResult {
     entry_count: usize,
     nodes: Vec<RootHierarchyNode>,
     pages: Vec<RootHierarchyPage>,
+}
+
+#[derive(Debug, Serialize)]
+struct DecodeResult {
+    point_count: usize,
+    intensity: bool,
+    classification: bool,
+    rgb: bool,
 }
 
 struct CopcInfo {
@@ -367,7 +385,7 @@ fn parse_root_hierarchy(bytes: &[u8]) -> Result<RootHierarchyResult, ParseError>
             format!("root hierarchy page exceeds {MAX_HIERARCHY_PAGE_BYTES} bytes"),
         ));
     }
-    if bytes.is_empty() || bytes.len() % HIERARCHY_ENTRY_SIZE != 0 {
+    if bytes.is_empty() || !bytes.len().is_multiple_of(HIERARCHY_ENTRY_SIZE) {
         return Err(error(
             "invalid-hierarchy",
             format!(
@@ -441,6 +459,266 @@ fn parse_root_hierarchy(bytes: &[u8]) -> Result<RootHierarchyResult, ParseError>
     })
 }
 
+fn parse_laz_vlr(bytes: &[u8], header: &CopcHeaderResult) -> Result<LazVlr, ParseError> {
+    let header_size = read_u16(bytes, 94, "header size")? as usize;
+    let point_data_offset = read_u32(bytes, 96, "point data offset")? as usize;
+    let number_of_vlrs = read_u32(bytes, 100, "number of VLRs")? as usize;
+    let mut position = header_size;
+
+    if bytes.get(104).is_none_or(|format| format & 0x80 == 0) {
+        return Err(error(
+            "unsupported-value",
+            "COPC node data is not marked as compressed LAZ",
+        ));
+    }
+
+    let expected_record_length = match header.point_data_record_format {
+        6 => 30,
+        7 => 36,
+        8 => 38,
+        format => {
+            return Err(error(
+                "unsupported-point-format",
+                format!("LAS point format {format} is outside the initial COPC decoder scope"),
+            ));
+        }
+    };
+    if usize::from(header.point_data_record_length) != expected_record_length {
+        return Err(error(
+            "unsupported-point-format",
+            format!(
+                "LAS point format {} has {} bytes per record; extra bytes are not supported",
+                header.point_data_record_format, header.point_data_record_length
+            ),
+        ));
+    }
+
+    for _ in 0..number_of_vlrs {
+        ensure_range(bytes, position, VLR_HEADER_SIZE, "VLR header")?;
+        let user_id = las_string(&bytes[position + 2..position + 18]);
+        let record_id = read_u16(bytes, position + 18, "VLR record ID")?;
+        let record_length = read_u16(bytes, position + 20, "VLR record length")? as usize;
+        let payload_start = position
+            .checked_add(VLR_HEADER_SIZE)
+            .ok_or_else(|| error("overflow", "LAZ VLR payload offset overflows the input"))?;
+        ensure_range(bytes, payload_start, record_length, "VLR payload")?;
+        let payload_end = payload_start + record_length;
+        if payload_end > point_data_offset {
+            return Err(error("invalid-header", "VLR payload overlaps point data"));
+        }
+
+        if user_id == LazVlr::USER_ID && record_id == LazVlr::RECORD_ID {
+            return LazVlr::from_buffer(&bytes[payload_start..payload_end])
+                .map_err(|value| error("invalid-laz-vlr", value.to_string()));
+        }
+        position = payload_end;
+    }
+
+    Err(error(
+        "missing-laz-vlr",
+        "LASZIP VLR is required to decode a COPC node",
+    ))
+}
+
+fn mutable_f64_slice<'a>(ptr: *mut f64, length: usize) -> Result<&'a mut [f64], ParseError> {
+    if ptr.is_null() {
+        return Err(error("invalid-input", "coordinate output pointer is null"));
+    }
+    // SAFETY: the host allocated `length` f64 values in this module's linear memory.
+    Ok(unsafe { std::slice::from_raw_parts_mut(ptr, length) })
+}
+
+fn mutable_u16_slice<'a>(ptr: *mut u16, length: usize) -> Result<&'a mut [u16], ParseError> {
+    if ptr.is_null() {
+        return Err(error("invalid-input", "u16 output pointer is null"));
+    }
+    // SAFETY: the host allocated `length` u16 values in this module's linear memory.
+    Ok(unsafe { std::slice::from_raw_parts_mut(ptr, length) })
+}
+
+fn mutable_u8_slice<'a>(ptr: *mut u8, length: usize) -> Result<&'a mut [u8], ParseError> {
+    if ptr.is_null() {
+        return Err(error("invalid-input", "u8 output pointer is null"));
+    }
+    // SAFETY: the host allocated `length` u8 values in this module's linear memory.
+    Ok(unsafe { std::slice::from_raw_parts_mut(ptr, length) })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn decode_copc_node_impl(
+    metadata: &[u8],
+    chunk: &[u8],
+    point_count: usize,
+    requested_fields: u32,
+    coordinates_ptr: *mut f64,
+    intensity_ptr: *mut u16,
+    classification_ptr: *mut u8,
+    red_ptr: *mut u16,
+    green_ptr: *mut u16,
+    blue_ptr: *mut u16,
+) -> Result<DecodeResult, ParseError> {
+    if requested_fields & !KNOWN_FIELD_MASK != 0 {
+        return Err(error(
+            "unsupported-value",
+            "unknown COPC point field selection bits",
+        ));
+    }
+    if point_count == 0 {
+        return Err(error(
+            "invalid-value",
+            "COPC node point count must be positive",
+        ));
+    }
+    if point_count > MAX_DECODE_POINTS {
+        return Err(error(
+            "unsupported-value",
+            format!("COPC node has more than the {MAX_DECODE_POINTS}-point safety limit"),
+        ));
+    }
+    if chunk.len() > MAX_NODE_CHUNK_BYTES {
+        return Err(error(
+            "unsupported-value",
+            format!("COPC node chunk exceeds the {MAX_NODE_CHUNK_BYTES}-byte safety limit"),
+        ));
+    }
+    let header = parse_header(metadata)?;
+    let laz_vlr = parse_laz_vlr(metadata, &header)?;
+    let record_length = usize::try_from(laz_vlr.items_size())
+        .map_err(|_| error("overflow", "LAZ record length does not fit in this target"))?;
+    if record_length != usize::from(header.point_data_record_length) {
+        return Err(error(
+            "invalid-laz-vlr",
+            format!(
+                "LASZIP record length {record_length} does not match LAS record length {}",
+                header.point_data_record_length
+            ),
+        ));
+    }
+
+    let compressed_count_offset = record_length;
+    let compressed_count =
+        read_u32(chunk, compressed_count_offset, "COPC chunk point count")? as usize;
+    if compressed_count != point_count {
+        return Err(error(
+            "chunk-length-mismatch",
+            format!("hierarchy says {point_count} points but chunk says {compressed_count}"),
+        ));
+    }
+    let raw_length = point_count
+        .checked_mul(record_length)
+        .ok_or_else(|| error("overflow", "decompressed point buffer size overflows"))?;
+    if chunk.len() < record_length + 4 {
+        return Err(error(
+            "truncated",
+            "COPC node chunk is shorter than its first point and count",
+        ));
+    }
+
+    let has_intensity = requested_fields & FIELD_INTENSITY != 0;
+    let has_classification = requested_fields & FIELD_CLASSIFICATION != 0;
+    let has_rgb = requested_fields & FIELD_RGB != 0 && header.point_data_record_format >= 7;
+    let mut selection = DecompressionSelection::xy_returns_channel().decompress_z();
+    if has_intensity {
+        selection = selection.decompress_intensity();
+    }
+    if has_classification {
+        selection = selection.decompress_classification();
+    }
+    if has_rgb {
+        selection = selection.decompress_rgb();
+    }
+
+    let mut decompressor = LayeredPointRecordDecompressor::new(Cursor::new(chunk));
+    decompressor
+        .set_fields_from(laz_vlr.items())
+        .map_err(|value| error("laz-decode", value.to_string()))?;
+    decompressor.set_selection(selection);
+
+    let mut raw = Vec::new();
+    raw.try_reserve_exact(raw_length)
+        .map_err(|_| error("allocation", "unable to allocate decompressed point buffer"))?;
+    raw.resize(raw_length, 0);
+    decompressor
+        .decompress_many(&mut raw)
+        .map_err(|value| error("laz-decode", value.to_string()))?;
+    let consumed = usize::try_from(decompressor.get().position()).map_err(|_| {
+        error(
+            "overflow",
+            "LAZ decoder position does not fit in this target",
+        )
+    })?;
+    if consumed != chunk.len() {
+        return Err(error(
+            "chunk-length-mismatch",
+            format!(
+                "LAZ decoder consumed {consumed} bytes from a {0}-byte node chunk",
+                chunk.len()
+            ),
+        ));
+    }
+
+    let coordinates = mutable_f64_slice(coordinates_ptr, point_count * 3)?;
+    let mut intensity = if has_intensity {
+        Some(mutable_u16_slice(intensity_ptr, point_count)?)
+    } else {
+        None
+    };
+    let mut classification = if has_classification {
+        Some(mutable_u8_slice(classification_ptr, point_count)?)
+    } else {
+        None
+    };
+    let mut red = if has_rgb {
+        Some(mutable_u16_slice(red_ptr, point_count)?)
+    } else {
+        None
+    };
+    let mut green = if has_rgb {
+        Some(mutable_u16_slice(green_ptr, point_count)?)
+    } else {
+        None
+    };
+    let mut blue = if has_rgb {
+        Some(mutable_u16_slice(blue_ptr, point_count)?)
+    } else {
+        None
+    };
+
+    for index in 0..point_count {
+        let record = &raw[index * record_length..(index + 1) * record_length];
+        let x = i32::from_le_bytes(record[0..4].try_into().unwrap()) as f64;
+        let y = i32::from_le_bytes(record[4..8].try_into().unwrap()) as f64;
+        let z = i32::from_le_bytes(record[8..12].try_into().unwrap()) as f64;
+        coordinates[index * 3] = x * header.scale[0] + header.offset[0];
+        coordinates[index * 3 + 1] = y * header.scale[1] + header.offset[1];
+        coordinates[index * 3 + 2] = z * header.scale[2] + header.offset[2];
+        if let Some(values) = intensity.as_deref_mut() {
+            values[index] = u16::from_le_bytes(record[12..14].try_into().unwrap());
+        }
+        if let Some(values) = classification.as_deref_mut() {
+            values[index] = record[16];
+        }
+        if has_rgb {
+            if let Some(values) = red.as_deref_mut() {
+                values[index] = u16::from_le_bytes(record[30..32].try_into().unwrap());
+            }
+            if let Some(values) = green.as_deref_mut() {
+                values[index] = u16::from_le_bytes(record[32..34].try_into().unwrap());
+            }
+            if let Some(values) = blue.as_deref_mut() {
+                values[index] = u16::from_le_bytes(record[34..36].try_into().unwrap());
+            }
+        }
+    }
+
+    Ok(DecodeResult {
+        point_count,
+        intensity: has_intensity,
+        classification: has_classification,
+        rgb: has_rgb,
+    })
+}
+
 fn input_slice<'a>(ptr: *const u8, length: usize) -> Result<&'a [u8], ParseError> {
     if length == 0 {
         return Ok(&[]);
@@ -478,7 +756,56 @@ pub extern "C" fn parse_root_hierarchy_json(ptr: *const u8, length: usize) -> *m
     json_pointer(response)
 }
 
+/// Decode one COPC node chunk using only the LAS metadata and the exact range
+/// returned for that hierarchy entry.
+///
+/// `requested_fields` uses bit 0 for intensity, bit 1 for classification, and
+/// bit 2 for RGB. XYZ is always decoded. Output arrays are owned by the host;
+/// this function only writes into them and returns a small JSON status object.
 #[unsafe(no_mangle)]
+pub extern "C" fn decode_copc_node_json(
+    metadata_ptr: *const u8,
+    metadata_length: usize,
+    chunk_ptr: *const u8,
+    chunk_length: usize,
+    point_count: usize,
+    requested_fields: u32,
+    coordinates_ptr: *mut f64,
+    intensity_ptr: *mut u16,
+    classification_ptr: *mut u8,
+    red_ptr: *mut u16,
+    green_ptr: *mut u16,
+    blue_ptr: *mut u16,
+) -> *mut c_char {
+    let response = match (
+        input_slice(metadata_ptr, metadata_length),
+        input_slice(chunk_ptr, chunk_length),
+    ) {
+        (Ok(metadata), Ok(chunk)) => decode_copc_node_impl(
+            metadata,
+            chunk,
+            point_count,
+            requested_fields,
+            coordinates_ptr,
+            intensity_ptr,
+            classification_ptr,
+            red_ptr,
+            green_ptr,
+            blue_ptr,
+        )
+        .map(ParseResponse::success)
+        .unwrap_or_else(ParseResponse::failure),
+        (Err(parse_error), _) | (_, Err(parse_error)) => ParseResponse::failure(parse_error),
+    };
+    json_pointer(response)
+}
+
+#[unsafe(no_mangle)]
+/// # Safety
+///
+/// `ptr` must be a pointer returned by `parse_copc_header_json`,
+/// `parse_root_hierarchy_json`, or `decode_copc_node_json` and must not be
+/// freed more than once.
 pub unsafe extern "C" fn free_parser_json(ptr: *mut c_char) {
     if !ptr.is_null() {
         // SAFETY: `ptr` must be a pointer returned by `json_pointer` and is
@@ -502,6 +829,10 @@ pub extern "C" fn alloc_bytes(length: usize) -> *mut u8 {
 }
 
 #[unsafe(no_mangle)]
+/// # Safety
+///
+/// `ptr` must be a pointer returned by `alloc_bytes(length)` with the same
+/// `length`, and must not be deallocated more than once.
 pub unsafe extern "C" fn dealloc_bytes(ptr: *mut u8, length: usize) {
     if !ptr.is_null() {
         // SAFETY: `ptr` must have been returned by `alloc_bytes(length)`.
@@ -710,6 +1041,42 @@ pub extern "C" fn decode_xyz_to_interleaved(
     decode_xyz_to_interleaved_impl(x, y, z, out);
 
     count * 3
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn alloc_u16(length: usize) -> *mut u16 {
+    into_leaked_buffer(length)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dealloc_u16(ptr: *mut u16, length: usize) {
+    reclaim_buffer(ptr, length);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn alloc_u8(length: usize) -> *mut u8 {
+    into_leaked_buffer(length)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn dealloc_u8(ptr: *mut u8, length: usize) {
+    reclaim_buffer(ptr, length);
+}
+
+fn into_leaked_buffer<T>(length: usize) -> *mut T {
+    let mut values = Vec::<T>::with_capacity(length);
+    let ptr = values.as_mut_ptr();
+    std::mem::forget(values);
+    ptr
+}
+
+fn reclaim_buffer<T>(ptr: *mut T, length: usize) {
+    if !ptr.is_null() {
+        // SAFETY: `ptr` must have been returned by `into_leaked_buffer(length)`.
+        unsafe {
+            drop(Vec::from_raw_parts(ptr, 0, length));
+        }
+    }
 }
 
 #[cfg(test)]

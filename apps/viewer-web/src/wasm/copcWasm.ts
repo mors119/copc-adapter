@@ -4,6 +4,10 @@ export type CopcWasmExports = {
   dealloc_bytes(pointer: number, length: number): void;
   alloc_f64(length: number): number;
   dealloc_f64(pointer: number, length: number): void;
+  alloc_u16(length: number): number;
+  dealloc_u16(pointer: number, length: number): void;
+  alloc_u8(length: number): number;
+  dealloc_u8(pointer: number, length: number): void;
   decode_xyz_to_interleaved(
     xPointer: number,
     yPointer: number,
@@ -13,6 +17,20 @@ export type CopcWasmExports = {
   ): number;
   parse_copc_header_json(pointer: number, length: number): number;
   parse_root_hierarchy_json(pointer: number, length: number): number;
+  decode_copc_node_json(
+    metadataPointer: number,
+    metadataLength: number,
+    chunkPointer: number,
+    chunkLength: number,
+    pointCount: number,
+    requestedFields: number,
+    coordinatesPointer: number,
+    intensityPointer: number,
+    classificationPointer: number,
+    redPointer: number,
+    greenPointer: number,
+    bluePointer: number,
+  ): number;
   free_parser_json(pointer: number): void;
 };
 
