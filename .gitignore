@@ -7,6 +7,7 @@
 # Node
 node_modules
 dist
+apps/viewer-web/*.tgz
 
 # Vite
 .vite
@@ -22,6 +23,8 @@ samples/local/*
 apps/viewer-web/public/samples/*
 apps/viewer-web/public/laz-perf.wasm
 apps/viewer-web/public/wasm/*
+apps/viewer-web/src/wasm/*.wasm
 tests/environments/cesium-vite/public/samples/*
 tests/environments/cesium-vite/public/wasm/*
 tests/environments/cesium-vite/public/laz-perf.wasm
+tests/environments/cesium-vite/.package/

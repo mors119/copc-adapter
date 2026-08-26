@@ -21,13 +21,18 @@ type CopcWasmExports = {
 
 let wasmPromise: Promise<CopcWasmExports> | undefined;
 
+// Vite rewrites this URL to the emitted package asset in both library and
+// application builds. Keeping it relative to this module means an installed
+// package does not depend on the consumer's web root.
+const bundledWasmUrl = new URL('./copc_wasm.wasm', import.meta.url);
+
 function isBrowser(): boolean {
   return typeof window !== 'undefined';
 }
 
 async function loadWasmBinary(): Promise<Uint8Array> {
   if (isBrowser()) {
-    const response = await fetch('/wasm/copc_wasm.wasm');
+    const response = await fetch(bundledWasmUrl);
 
     if (!response.ok) {
       throw new Error(`Failed to fetch COPC WASM decoder: ${response.status}`);

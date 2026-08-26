@@ -1,7 +1,7 @@
 # Library API
 
-`apps/viewer-web/src/index.ts` 가 현재 public entrypoint 이다.
-The package has an ESM build configuration but is not published to npm.
+`apps/viewer-web/src/index.ts` 가 source public entrypoint 이며, package
+consumers should import the generated `@mors119/copc-cesium` package.
 
 ## Exported API
 
@@ -61,7 +61,7 @@ layer normalizes them for Cesium.
 
 ```ts
 import * as Cesium from 'cesium';
-import { CopcCesiumLayer } from './src/index.ts';
+import { CopcCesiumLayer } from '@mors119/copc-cesium';
 
 const viewer = new Cesium.Viewer('cesium-container');
 const layer = new CopcCesiumLayer({
@@ -72,6 +72,17 @@ const layer = new CopcCesiumLayer({
 await layer.load();
 layer.attachTo(viewer);
 ```
+
+Install the package together with the Cesium version owned by the host app:
+
+```bash
+npm install @mors119/copc-cesium cesium
+```
+
+`cesium` is a peer dependency. `copc`, `proj4`, and the browser decoder
+runtime are provided by the adapter package; its `npm pack` artifact includes
+the Rust/WASM and LAZ decoder assets, so no `/wasm` or `/laz-perf.wasm` web-root
+copy is required.
 
 ## Layer Lifecycle
 

@@ -12,6 +12,7 @@ const wasmOutputPath = path.resolve(
 );
 const publicWasmDirectory = path.resolve(appDirectory, 'public/wasm');
 const publicWasmPath = path.resolve(publicWasmDirectory, 'copc_wasm.wasm');
+const libraryWasmPath = path.resolve(appDirectory, 'src/wasm/copc_wasm.wasm');
 
 function runCargoBuild() {
   return new Promise((resolve, reject) => {
@@ -38,4 +39,7 @@ function runCargoBuild() {
 
 await runCargoBuild();
 await mkdir(publicWasmDirectory, { recursive: true });
-await copyFile(wasmOutputPath, publicWasmPath);
+await Promise.all([
+  copyFile(wasmOutputPath, publicWasmPath),
+  copyFile(wasmOutputPath, libraryWasmPath),
+]);

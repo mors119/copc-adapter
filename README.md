@@ -18,8 +18,9 @@ The repository currently provides:
 - CRS transformation to WGS84 plus a Rust/WASM interleaved point-buffer decoder.
 - Fixed-color and dataset-normalized elevation-gradient point styling.
 
-The public API is source-level and has an ESM build configuration, but this
-repository does not publish an npm package or host a live demo.
+The repository also builds a self-contained ESM npm package. The package keeps
+Cesium external so the host application owns its Cesium version, while the
+COPC and decoder runtime assets are included in the packed artifact.
 
 ## Requirements
 
@@ -66,7 +67,7 @@ The browser demo uses the API below from `apps/viewer-web/src/index.ts`:
 
 ```ts
 import * as Cesium from 'cesium';
-import { CopcCesiumLayer } from './src';
+import { CopcCesiumLayer } from '@mors119/copc-cesium';
 
 const viewer = new Cesium.Viewer('cesium-container');
 const layer = new CopcCesiumLayer({
@@ -161,10 +162,31 @@ npm --prefix apps/viewer-web run build
 npm --prefix apps/viewer-web run test:e2e
 ```
 
-To generate the ESM library entry and declarations:
+To generate the ESM library entry, declarations, and package-local WASM assets:
 
 ```bash
 npm --prefix apps/viewer-web run build:library
+npm --prefix apps/viewer-web pack
+```
+
+The package declares Cesium as a peer dependency because the consuming
+application owns the Cesium `Viewer` instance:
+
+```bash
+npm install @mors119/copc-cesium cesium
+```
+
+For a repeatable packed-consumer check, the repository includes a clean
+Cesium/Vite fixture. It builds and installs the generated `.tgz`, then its
+Playwright smoke test loads the local Autzen sample and verifies rendered
+points:
+
+```bash
+cd tests/environments/cesium-vite
+npm ci
+npm run build
+npx playwright install chromium
+npm run test:e2e
 ```
 
 The browser acceptance test uses Playwright Chromium with SwiftShader so it can
@@ -188,8 +210,8 @@ npx --prefix apps/viewer-web playwright install chromium
   implemented.
 - Rust/WASM currently converts XYZ values to an interleaved buffer. COPC
   metadata and hierarchy parsing still use `copc.js`.
-- The demo requires a manually downloaded sample COPC file; there is no hosted
-  demo or checked-in visual asset.
+- The local demo and consumer fixture require a downloaded sample COPC file;
+  there is no hosted demo or checked-in visual asset.
 - Vite reports browser-externalized `node:` module warnings while bundling
   `copc.js` fallback imports. The Playwright browser acceptance test exercises
   the browser path successfully; these warnings are not a demonstrated runtime
@@ -200,7 +222,7 @@ npx --prefix apps/viewer-web playwright install chromium
 1. Add screen-space-error-based refinement and improve selection heuristics.
 2. Move suitable loading and decoding work to Web Workers.
 3. Expand the Rust/WASM boundary to metadata and hierarchy parsing.
-4. Package and publish the library with its browser runtime assets.
+4. Publish the library after broader consumer compatibility validation.
 
 ## Submission Summary
 
