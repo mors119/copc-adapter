@@ -166,6 +166,4 @@ Chromium, loads the local Autzen COPC sample, and verifies metadata, decoded
 point rendering, actual Cesium point primitive collections, and camera-driven
 streaming updates. The application installs `window.__COPC_DEBUG__` only in
 Vite development mode to make those runtime states observable; it is not a
-production API. The separate
-`tests/environments/cesium-vite/e2e/packed-consumer.spec.ts` performs the same
-kind of browser check after installing the generated package tarball.
+production API.

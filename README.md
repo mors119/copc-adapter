@@ -176,19 +176,6 @@ application owns the Cesium `Viewer` instance:
 npm install @frillab/copc-adapter cesium
 ```
 
-For a repeatable packed-consumer check, the repository includes a clean
-Cesium/Vite fixture. It builds and installs the generated `.tgz`, then its
-Playwright smoke test loads the local Autzen sample and verifies rendered
-points:
-
-```bash
-cd tests/environments/cesium-vite
-npm ci
-npm run build
-npx playwright install chromium
-npm run test:e2e
-```
-
 The browser acceptance test uses Playwright Chromium with SwiftShader so it can
 exercise WebGL in headless environments. Install its browser once with:
 
