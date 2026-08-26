@@ -77,6 +77,57 @@ function createStreamingState(update) {
   };
 }
 
+function createFakeBackend() {
+  const node = {
+    key: '0-0-0-0',
+    level: 0,
+    x: 0,
+    y: 0,
+    z: 0,
+    pointCount: 1,
+    pointDataOffset: 100,
+    pointDataLength: 20,
+  };
+
+  return {
+    async open(source) {
+      return {
+        source,
+        getMetadata() {
+          return {
+            pointCount: 1,
+            bounds: {
+              minX: -123,
+              minY: 44,
+              minZ: 10,
+              maxX: -123,
+              maxY: 44,
+              maxZ: 10,
+            },
+            cube: {
+              minX: -123,
+              minY: 44,
+              minZ: 10,
+              maxX: -122,
+              maxY: 45,
+              maxZ: 11,
+            },
+          };
+        },
+        getRootHierarchyPage() {
+          return { key: node.key, pageOffset: 10, pageLength: 10 };
+        },
+        async loadHierarchyPage() {
+          return { nodes: [node], pages: [] };
+        },
+        async loadPointDataView() {
+          throw new Error('point data is not loaded until the layer is attached');
+        },
+      };
+    },
+  };
+}
+
 test('CopcLayerController destroy releases layer resources without destroying the attached viewer', () => {
   const originalWindow = globalThis.window;
   const fakeViewer = createFakeViewer();
@@ -136,6 +187,19 @@ test('CopcCesiumLayer attaches and detaches without taking ownership of the view
 
   layer.destroy();
   assert.equal(fakeViewer.destroyed, false);
+});
+
+test('CopcCesiumLayer loads through an injected backend', async () => {
+  const layer = new CopcCesiumLayer({
+    url: 'memory://fake.copc.laz',
+    backend: createFakeBackend(),
+  });
+
+  await layer.load();
+
+  assert.equal(layer.getSnapshot().lifecycle, 'ready');
+  assert.equal(layer.getMetadata().pointCount, 1);
+  layer.destroy();
 });
 
 test('CopcLayerController updateStreamingView removes stale nodes and renders newly loaded nodes', async () => {
@@ -235,6 +299,57 @@ test('CopcLayerController loadRenderableNodePoints rejects missing streaming sta
     () => viewer.loadRenderableNodePoints('0-0-0-0'),
     /Unknown COPC hierarchy node/,
   );
+});
+
+test('CopcLayerController decodes point views through an injected decoder', async () => {
+  const node = {
+    key: '0-0-0-0',
+    level: 0,
+    x: 0,
+    y: 0,
+    z: 0,
+    pointCount: 1,
+    pointDataOffset: 100,
+    pointDataLength: 20,
+  };
+  const view = {
+    pointCount: 1,
+    dimensions: ['X', 'Y', 'Z'],
+    getter() {
+      return () => 0;
+    },
+  };
+  let decodedView;
+  const viewer = new CopcLayerController({
+    url: 'memory://fake.copc.laz',
+    decoder: {
+      async decode(requestedView) {
+        decodedView = requestedView;
+        return {
+          pointCount: 1,
+          coordinates: new Float64Array([-123, 44, 10]),
+        };
+      },
+    },
+  });
+  viewer.streamingState = {
+    ...createStreamingState(async () => ({
+      selectedNodeKeys: [],
+      removedNodeKeys: [],
+      loadedNodePoints: new Map(),
+    })),
+    context: {
+      source: 'memory://fake.copc.laz',
+      async loadPointDataView() {
+        return view;
+      },
+    },
+  };
+
+  const buffer = await viewer.loadPoints(node);
+
+  assert.equal(decodedView, view);
+  assert.deepEqual(Array.from(buffer.coordinates), [-123, 44, 10]);
 });
 
 test('CopcLayerController load rejects invalid dataset paths', async () => {

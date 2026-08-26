@@ -1,40 +1,37 @@
-import { Copc } from 'copc';
-import {
-  toCopcHierarchyNode,
-  toCopcHierarchyPage,
-} from '../adapters/hierarchyAdapter';
-import { toCopcMetadata } from '../adapters/metadataAdapter';
-import { createCopcGetter } from '../getter/createCopcGetter';
+import { copcJsBackend } from '../backend/copcJsBackend';
+import type { CopcBackend, CopcSource } from '../backend/types';
+import { CopcSourceError } from '../errors';
+import type { CopcHierarchySubtree } from '../hierarchy/types';
 import type {
   CopcHierarchyNode,
   CopcHierarchyPage,
   CopcMetadata,
   CopcPointView,
 } from '../types/copc';
-import type { CopcHierarchySubtree } from '../hierarchy/types';
-import { CopcSourceError } from '../errors';
 
-export class CopcContext {
-  readonly source: string;
-  private readonly getter: ReturnType<typeof createCopcGetter>;
-  private readonly copc: Copc;
+/**
+ * Reusable project-owned context around an opened backend source.
+ *
+ * The wrapper preserves the existing context API while keeping backend-specific
+ * state behind the CopcSource interface.
+ */
+export class CopcContext implements CopcSource {
+  private readonly delegate: CopcSource;
 
-  private constructor(
-    source: string,
-    getter: ReturnType<typeof createCopcGetter>,
-    copc: Copc,
-  ) {
-    this.source = source;
-    this.getter = getter;
-    this.copc = copc;
+  private constructor(delegate: CopcSource) {
+    this.delegate = delegate;
   }
 
-  static async create(source: string): Promise<CopcContext> {
-    try {
-      const getter = createCopcGetter(source);
-      const copc = await Copc.create(getter);
+  get source(): string {
+    return this.delegate.source;
+  }
 
-      return new CopcContext(source, getter, copc);
+  static async create(
+    source: string,
+    backend: CopcBackend = copcJsBackend,
+  ): Promise<CopcContext> {
+    try {
+      return new CopcContext(await backend.open(source));
     } catch (error: unknown) {
       if (error instanceof CopcSourceError) {
         throw error;
@@ -45,70 +42,39 @@ export class CopcContext {
   }
 
   getMetadata(): CopcMetadata {
-    return toCopcMetadata(this.copc);
+    return this.delegate.getMetadata();
   }
 
   getRootHierarchyPage(): CopcHierarchyPage {
-    return {
-      key: '0-0-0-0',
-      pageOffset: this.copc.info.rootHierarchyPage.pageOffset,
-      pageLength: this.copc.info.rootHierarchyPage.pageLength,
-    };
+    return this.delegate.getRootHierarchyPage();
   }
 
-  async loadHierarchyPage(
-    page: CopcHierarchyPage,
-  ): Promise<CopcHierarchySubtree> {
-    const subtree = await Copc.loadHierarchyPage(this.getter, {
-      pageOffset: page.pageOffset,
-      pageLength: page.pageLength,
-    });
-    const nodes: CopcHierarchySubtree['nodes'] = [];
-    const pages: CopcHierarchySubtree['pages'] = [];
-
-    for (const [key, node] of Object.entries(subtree.nodes)) {
-      if (node) {
-        nodes.push(toCopcHierarchyNode(key, node));
-      }
-    }
-
-    for (const [key, childPage] of Object.entries(subtree.pages)) {
-      if (childPage) {
-        pages.push(toCopcHierarchyPage(key, childPage));
-      }
-    }
-
-    return { nodes, pages };
+  loadHierarchyPage(page: CopcHierarchyPage): Promise<CopcHierarchySubtree> {
+    return this.delegate.loadHierarchyPage(page);
   }
 
-  async loadPointDataView(
-    hierarchyNode: CopcHierarchyNode,
-  ): Promise<CopcPointView> {
-    const view = await Copc.loadPointDataView(
-      this.getter,
-      this.copc,
-      hierarchyNode,
-    );
-
-    return {
-      pointCount: view.pointCount,
-      dimensions: Object.keys(view.dimensions),
-      getter: view.getter,
-    };
+  loadPointDataView(node: CopcHierarchyNode): Promise<CopcPointView> {
+    return this.delegate.loadPointDataView(node);
   }
 }
 
-export type CopcContextInput = string | CopcContext;
+export type CopcContextInput = string | CopcSource;
 
-export async function createCopcContext(source: string): Promise<CopcContext> {
-  return CopcContext.create(source);
+/** Open a source using the selected backend. */
+export async function createCopcContext(
+  source: string,
+  backend: CopcBackend = copcJsBackend,
+): Promise<CopcContext> {
+  return CopcContext.create(source, backend);
 }
 
+/** Resolve a URL to a context or reuse an already-open project source. */
 export async function resolveCopcContext(
   input: CopcContextInput,
-): Promise<CopcContext> {
+  backend: CopcBackend = copcJsBackend,
+): Promise<CopcSource> {
   if (typeof input === 'string') {
-    return createCopcContext(input);
+    return createCopcContext(input, backend);
   }
 
   return input;
