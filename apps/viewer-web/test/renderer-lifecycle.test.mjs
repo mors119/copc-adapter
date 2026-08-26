@@ -54,4 +54,13 @@ test('renderCopcPoints replaces an existing primitive collection', () => {
   assert.equal(addedCollections.length, 1);
   assert.equal(collection.length, 2);
   assert.equal(collection.get(0).pixelSize, 5);
+  assert.deepEqual(
+    [
+      collection.get(0).color.red,
+      collection.get(0).color.green,
+      collection.get(0).color.blue,
+      collection.get(0).color.alpha,
+    ],
+    [0, 1, 1, 0.9],
+  );
 });

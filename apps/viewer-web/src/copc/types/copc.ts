@@ -42,9 +42,18 @@ export type CopcPoint = {
   z: number;
 };
 
+export type CopcPointAttributes = {
+  intensity?: Uint16Array;
+  classification?: Uint8Array;
+  red?: Uint16Array;
+  green?: Uint16Array;
+  blue?: Uint16Array;
+};
+
 export type CopcPointBuffer = {
   pointCount: number;
   coordinates: Float64Array;
+  attributes?: CopcPointAttributes;
 };
 
 export type GeographicPoint = {
@@ -58,6 +67,7 @@ export type GeographicCamera = GeographicPoint;
 export type GeographicPointBuffer = {
   pointCount: number;
   coordinates: Float64Array;
+  attributes?: CopcPointAttributes;
 };
 
 export type CopcPointView = {

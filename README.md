@@ -16,6 +16,7 @@ The repository currently provides:
 - Metadata loading, recursive COPC hierarchy traversal, and point-chunk loading.
 - Camera-driven node selection, basic LOD limits, and a bounded node cache.
 - CRS transformation to WGS84 plus a Rust/WASM interleaved point-buffer decoder.
+- Fixed-color and dataset-normalized elevation-gradient point styling.
 
 The public API is source-level and has an ESM build configuration, but this
 repository does not publish an npm package or host a live demo.
@@ -71,6 +72,7 @@ const viewer = new Cesium.Viewer('cesium-container');
 const layer = new CopcCesiumLayer({
   url: '/samples/autzen.copc.laz',
   pointSize: 2,
+  colorMode: 'elevation',
   debug: true,
 });
 
@@ -86,6 +88,22 @@ layer.destroy();
 
 `url` must be readable by the browser and support the range requests made by
 the COPC reader. Cross-origin URLs therefore need compatible CORS headers.
+
+`colorMode` defaults to `'fixed'`, which preserves the original cyan rendering.
+Use `'elevation'` to map the dataset's transformed minimum and maximum heights
+through a blue, cyan, green, yellow, and red gradient:
+
+```ts
+const fixedLayer = new CopcCesiumLayer({
+  url: '/samples/autzen.copc.laz',
+  colorMode: 'fixed',
+});
+
+const elevationLayer = new CopcCesiumLayer({
+  url: '/samples/autzen.copc.laz',
+  colorMode: 'elevation',
+});
+```
 
 ## Architecture
 
@@ -133,9 +151,9 @@ npx --prefix apps/viewer-web playwright install chromium
 - The viewer fully traverses hierarchy metadata before streaming point chunks.
 - LOD uses distance, bounds, and maximum-depth heuristics; it does not use
   screen-space error.
-- Rendering uses Cesium point primitives with a fixed cyan color. Classification
-  styling, per-point attributes, and GPU-specialized point-cloud rendering are
-  not implemented.
+- Rendering uses Cesium point primitives. RGB, intensity, and classification
+  modes remain follow-up work; point-buffer types can carry these optional
+  attributes, but the current Rust/WASM decoder still emits XYZ only.
 - Loading and decoding run on the main thread; Web Worker offloading is not
   implemented.
 - Rust/WASM currently converts XYZ values to an interleaved buffer. COPC
@@ -152,7 +170,7 @@ npx --prefix apps/viewer-web playwright install chromium
 1. Add screen-space-error-based refinement and improve selection heuristics.
 2. Move suitable loading and decoding work to Web Workers.
 3. Expand the Rust/WASM boundary to metadata and hierarchy parsing.
-4. Add configurable styling and more scalable rendering paths.
+4. Decode optional LAS attributes and add RGB, intensity, and classification modes.
 5. Package and publish the library with its browser runtime assets.
 
 ## Submission Summary

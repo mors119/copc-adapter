@@ -1,9 +1,37 @@
 import * as Cesium from 'cesium';
 import type { GeographicPoint, GeographicPointBuffer } from '../../copc/types/copc';
+import {
+  getPointColor,
+  type CopcColorMode,
+  type CopcElevationRange,
+  type CopcPointStyleOptions,
+} from '../style/pointStyle';
 
 export type CopcPointRenderOptions = {
   pointSize: number;
+  colorMode?: CopcColorMode;
+  elevationRange?: CopcElevationRange;
 };
+
+export function getPointBufferElevationRange(
+  points: GeographicPointBuffer,
+): CopcElevationRange {
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+
+  for (let index = 0; index < points.pointCount; index += 1) {
+    const height = points.coordinates[index * 3 + 2];
+
+    if (Number.isFinite(height)) {
+      min = Math.min(min, height);
+      max = Math.max(max, height);
+    }
+  }
+
+  return Number.isFinite(min) && Number.isFinite(max)
+    ? { min, max }
+    : { min: 0, max: 0 };
+}
 
 export function toCartesian3Array(points: GeographicPoint[]): Cesium.Cartesian3[] {
   return points.map((point) =>
@@ -44,12 +72,17 @@ export function renderCopcPoints(
     new Cesium.PointPrimitiveCollection(),
   );
   const positions = toCartesian3ArrayFromBuffer(points);
+  const styleOptions: CopcPointStyleOptions = {
+    colorMode: options.colorMode ?? 'fixed',
+    elevationRange:
+      options.elevationRange ?? getPointBufferElevationRange(points),
+  };
 
-  for (const position of positions) {
+  for (let index = 0; index < positions.length; index += 1) {
     collection.add({
-      position,
+      position: positions[index],
       pixelSize: options.pointSize,
-      color: Cesium.Color.CYAN.withAlpha(0.9),
+      color: getPointColor(points.coordinates[index * 3 + 2], styleOptions),
     });
   }
 

@@ -29,6 +29,7 @@ import { CopcCesiumLayer } from './src/index.ts';
 const viewer = new Cesium.Viewer('cesium-container');
 const layer = new CopcCesiumLayer({
   url: '/samples/autzen.copc.laz',
+  colorMode: 'elevation',
 });
 
 await layer.load();
@@ -39,6 +40,11 @@ console.log(layer.getSnapshot());
 layer.detachFrom();
 layer.destroy();
 ```
+
+기존 cyan rendering을 유지하려면 `colorMode: 'fixed'`를 지정하거나
+`colorMode`를 생략한다. 높이 차이를 시각화하려면 `colorMode: 'elevation'`을
+사용한다. Elevation mode는 streaming node마다 색 범위가 바뀌지 않도록 COPC
+metadata의 전체 Z 범위를 transformed Cesium height로 변환해 사용한다.
 
 ## Build Note
 

@@ -76,5 +76,6 @@ export function transformPointBuffer(
   return {
     pointCount: points.pointCount,
     coordinates,
+    attributes: points.attributes,
   };
 }

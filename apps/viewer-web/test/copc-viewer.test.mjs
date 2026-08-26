@@ -120,6 +120,7 @@ test('CopcCesiumLayer attaches and detaches without taking ownership of the view
   const layer = new CopcCesiumLayer({
     url: '/samples/autzen.copc.laz',
     pointSize: 5,
+    colorMode: 'elevation',
     debug: true,
   });
 
@@ -141,6 +142,7 @@ test('CopcLayerController updateStreamingView removes stale nodes and renders ne
   const fakeViewer = createFakeViewer();
   const viewer = new CopcLayerController({
     url: '/samples/autzen.copc.laz',
+    colorMode: 'elevation',
   });
   const staleCollection = new Cesium.PointPrimitiveCollection();
 
@@ -155,8 +157,8 @@ test('CopcLayerController updateStreamingView removes stale nodes and renders ne
         {
           pointCount: 2,
           coordinates: new Float64Array([
-            -123.0, 44.0, 100.0,
-            -123.1, 44.1, 200.0,
+            -123.0, 44.0, 0.0,
+            -123.1, 44.1, 100.0,
           ]),
         },
       ],
@@ -169,6 +171,11 @@ test('CopcLayerController updateStreamingView removes stale nodes and renders ne
   assert.deepEqual(viewer.getRenderedNodeKeys(), ['1-0-0-0']);
   assert.equal(fakeViewer.removedCollections[0], staleCollection);
   assert.equal(viewer.getRenderedPointCount(), 2);
+  const renderedCollection = viewer.pointCollections.get('1-0-0-0');
+  assert.notDeepEqual(
+    renderedCollection.get(0).color,
+    renderedCollection.get(1).color,
+  );
   assert.ok(viewer.getSelectionBoundingSphere());
 });
 

@@ -1,5 +1,6 @@
 import * as Cesium from 'cesium';
 import { renderCopcPoints, toCartesian3Array } from '../cesium/render/renderPoints';
+import type { CopcColorMode } from '../cesium/style/pointStyle';
 import {
   createCopcContext,
   type CopcContext,
@@ -32,6 +33,7 @@ import {
 export type CopcLayerOptions = {
   url: string;
   pointSize?: number;
+  colorMode?: CopcColorMode;
   debug?: boolean;
   streaming?: Partial<StreamingSelectionOptions>;
 };
@@ -338,6 +340,8 @@ export class CopcLayerController {
 
       const collection = renderCopcPoints(this.viewer, points, {
         pointSize: this.options.pointSize ?? 3,
+        colorMode: this.options.colorMode ?? 'fixed',
+        elevationRange: this.getDatasetElevationRange(),
       });
       this.pointCollections.set(nodeKey, collection);
     }
@@ -365,6 +369,22 @@ export class CopcLayerController {
     }
 
     return loadCopcPointBuffer(this.streamingState.context, node);
+  }
+
+  private getDatasetElevationRange(): { min: number; max: number } {
+    if (!this.streamingState) {
+      return { min: 0, max: 0 };
+    }
+
+    const { metadata } = this.streamingState;
+    const transformPoint = createPointTransformer(metadata);
+    const x = (metadata.bounds.minX + metadata.bounds.maxX) / 2;
+    const y = (metadata.bounds.minY + metadata.bounds.maxY) / 2;
+
+    return {
+      min: transformPoint({ x, y, z: metadata.bounds.minZ }).height,
+      max: transformPoint({ x, y, z: metadata.bounds.maxZ }).height,
+    };
   }
 
   getRenderedNodeKeys(): string[] {
