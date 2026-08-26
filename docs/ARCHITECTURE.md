@@ -83,15 +83,32 @@ least-recently-used entries.
 This is intentionally a basic streaming policy. It is not screen-space-error
 selection, worker-based loading, or a GPU-specific point-cloud renderer.
 
-## Decoder Boundary
+## Point Field Contract
+
+The project-owned `CopcPointFieldSelection` contains `position`, `intensity`,
+`classification`, and `rgb`. Styling maps deterministically to the minimum
+selection: fixed/elevation request position only; RGB, intensity, and
+classification request position plus their corresponding field. The selection
+crosses the backend boundary without Cesium or `copc.js` types.
+
+`CopcPointView.availableFields` contains only fields that were both requested
+and found in the source point format. An absent or unrequested field is not
+represented by a zero-filled array. A field whose getter fails propagates the
+decoder error. RGB remains `Uint16Array` in `CopcPointBuffer` and is normalized
+only by the Cesium styling boundary.
 
 `CopcPointDecoder.decode(view)` is independent of the source backend. The
-default decoder uses Rust/WASM: it receives the X, Y, and Z values and returns a project-owned
-interleaved point buffer. The TypeScript side reads available intensity,
-classification, and RGB dimensions into optional typed arrays. Coordinate
-transformation retains the same attribute arrays, keeping the decoder boundary
-replaceable without changing the streaming or Cesium rendering layers.
+default decoder uses Rust/WASM for XYZ interleaving and reads only available
+requested attributes into optional typed arrays. Buffer validation rejects
+coordinate or attribute length mismatches before transformation/rendering.
+Coordinate transformation retains the same attribute arrays, keeping the
+decoder boundary replaceable without changing the streaming or Cesium layers.
 Tests may inject a decoder without loading WebAssembly.
+
+The current `copc.js` release still returns a complete point view internally,
+so `CopcJsBackend` enforces the selection by filtering the project-owned view.
+It makes no selective-LAZ performance claim; a future Rust backend can use the
+same request to skip unneeded decode layers.
 
 Point styling consumes these transformed buffers directly. RGB channels are
 normalized from their detected 8-bit or 16-bit range, intensity is normalized

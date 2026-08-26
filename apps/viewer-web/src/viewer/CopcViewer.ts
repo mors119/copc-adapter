@@ -1,6 +1,9 @@
 import * as Cesium from 'cesium';
 import { renderCopcPoints, toCartesian3Array } from '../cesium/render/renderPoints';
-import type { CopcColorMode } from '../cesium/style/pointStyle';
+import {
+  getCopcPointFieldSelection,
+  type CopcColorMode,
+} from '../cesium/style/pointStyle';
 import {
   createCopcContext,
 } from '../copc/context/createCopcContext';
@@ -378,6 +381,7 @@ export class CopcLayerController {
       this.streamingState.context,
       node,
       this.options.decoder,
+      getCopcPointFieldSelection(this.options.colorMode ?? 'fixed'),
     );
   }
 

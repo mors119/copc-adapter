@@ -3,6 +3,16 @@ export type {
   CopcHierarchyPage,
   CopcHierarchyTree,
 } from '../hierarchy/types';
+export type {
+  CopcColorMode,
+  CopcPointComponent,
+  CopcPointField,
+  CopcPointFieldSelection,
+} from '../points/fieldSelection';
+import type {
+  CopcPointComponent,
+  CopcPointFieldSelection,
+} from '../points/fieldSelection';
 
 export type CopcMetadata = {
   pointCount: number;
@@ -72,6 +82,7 @@ export type GeographicPointBuffer = {
 
 export type CopcPointView = {
   pointCount: number;
-  dimensions: readonly string[];
-  getter(name: string): (index: number) => number;
+  /** Fields that are both requested and available in the source point format. */
+  availableFields: CopcPointFieldSelection;
+  getter(component: CopcPointComponent): (index: number) => number;
 };

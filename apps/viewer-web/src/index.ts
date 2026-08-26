@@ -14,6 +14,16 @@ export type { CopcLoadStage } from './copc/errors';
 export { CopcJsBackend, copcJsBackend } from './copc/backend/copcJsBackend';
 export type { CopcBackend, CopcSource } from './copc/backend/types';
 export type { CopcPointDecoder } from './copc/points/types';
+export {
+  allCopcPointFields,
+  createCopcPointFieldSelection,
+  getCopcPointFieldSelection,
+} from './copc/points/fieldSelection';
+export type {
+  CopcPointComponent,
+  CopcPointField,
+  CopcPointFieldSelection,
+} from './copc/points/fieldSelection';
 export type {
   CopcCesiumLayerOptions,
   CopcCesiumLayerSnapshot,

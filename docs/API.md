@@ -42,6 +42,21 @@ panel에 그대로 표시할 수 있다. `CopcSourceError`, `CopcMetadataError`,
 - `backend`: optional `CopcBackend`; defaults to `CopcJsBackend`
 - `decoder`: optional `CopcPointDecoder`; defaults to the Rust/WASM decoder
 
+### Point field selection
+
+The public `CopcPointFieldSelection` is a `ReadonlySet` of project-owned
+fields: `position`, `intensity`, `classification`, and `rgb`. Use
+`getCopcPointFieldSelection(colorMode)` to obtain the minimum request for a
+render mode. `CopcSource.loadPointDataView(node, fields)` accepts that request
+without exposing `copc.js`, LAS, LAZ, or Cesium types.
+
+The returned `CopcPointView.availableFields` reports fields that are both
+requested and present in the source. Missing and unrequested fields are
+unavailable, never zero-filled. Decode failures propagate as errors. Point
+buffers validate that every present attribute array has exactly `pointCount`
+values. RGB channel arrays retain source 16-bit precision until the rendering
+layer normalizes them for Cesium.
+
 ## Quick Start
 
 ```ts

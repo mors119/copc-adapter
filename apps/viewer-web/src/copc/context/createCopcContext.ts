@@ -8,6 +8,7 @@ import type {
   CopcMetadata,
   CopcPointView,
 } from '../types/copc';
+import type { CopcPointFieldSelection } from '../points/fieldSelection';
 
 /**
  * Reusable project-owned context around an opened backend source.
@@ -53,8 +54,11 @@ export class CopcContext implements CopcSource {
     return this.delegate.loadHierarchyPage(page);
   }
 
-  loadPointDataView(node: CopcHierarchyNode): Promise<CopcPointView> {
-    return this.delegate.loadPointDataView(node);
+  loadPointDataView(
+    node: CopcHierarchyNode,
+    fields: CopcPointFieldSelection,
+  ): Promise<CopcPointView> {
+    return this.delegate.loadPointDataView(node, fields);
   }
 }
 
