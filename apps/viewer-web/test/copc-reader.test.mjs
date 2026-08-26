@@ -997,11 +997,21 @@ test('CopcCesiumLayer snapshot exposes lifecycle and dataset info', () => {
     streamingUpdateCount: 0,
     datasetUrl: '/samples/autzen.copc.laz',
     attached: false,
+    backend: 'copc-js',
   });
 
   layer.destroy();
 
   assert.equal(layer.getSnapshot().lifecycle, 'destroyed');
+});
+
+test('CopcCesiumLayer reports the selected backend without changing its viewer boundary', () => {
+  const layer = new CopcCesiumLayer({
+    url: '/samples/autzen.copc.laz',
+    backend: 'rust',
+  });
+
+  assert.equal(layer.getSnapshot().backend, 'rust');
 });
 
 test('CopcCesiumLayer metadata API is empty before load', () => {

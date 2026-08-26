@@ -6,14 +6,29 @@
 export { CopcCesiumLayer } from './api/CopcCesiumLayer';
 export {
   CopcHierarchyLoadError,
+  CopcBackendError,
   CopcLoadError,
   CopcMetadataError,
   CopcSourceError,
 } from './copc/errors';
-export type { CopcLoadStage } from './copc/errors';
+export type {
+  CopcBackendErrorCode,
+  CopcLoadStage,
+} from './copc/errors';
 export { CopcJsBackend, copcJsBackend } from './copc/backend/copcJsBackend';
+export {
+  RustCopcBackend,
+  rustCopcBackend,
+} from './copc/backend/rustCopcBackend';
+export type {
+  CopcBackendName,
+  CopcBackendSelection,
+  RustByteSourceFactory,
+  RustCopcBackendOptions,
+} from './copc/backend';
 export type { CopcBackend, CopcSource } from './copc/backend/types';
 export { RustCopcParseError, RustCopcReader } from './copc/rustCopcReader';
+export { CopcWasmError } from './wasm/copcWasm';
 export type {
   RustCopcHeader,
   RustCopcParseErrorCode,

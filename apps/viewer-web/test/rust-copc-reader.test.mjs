@@ -7,8 +7,10 @@ import path from 'node:path';
 
 import {
   CopcJsBackend,
+  CopcBackendError,
   InMemoryByteSource,
   RustCopcParseError,
+  RustCopcBackend,
   RustCopcReader,
 } from '../src/index.ts';
 
@@ -162,6 +164,74 @@ test('Rust reader parses project metadata and separates root page references', a
   });
 });
 
+test('RustCopcBackend exposes the shared source contract without a viewer', async () => {
+  const fixture = makeFixture();
+  let requestedSource;
+  const backend = new RustCopcBackend({
+    createByteSource(source) {
+      requestedSource = source;
+      return new InMemoryByteSource(fixture.bytes, source);
+    },
+  });
+  const source = await backend.open('memory://fixture.copc.laz');
+
+  assert.equal(requestedSource, 'memory://fixture.copc.laz');
+  assert.equal(source.source, 'memory://fixture.copc.laz');
+  assert.equal(source.getMetadata().pointCount, 42);
+  assert.deepEqual(source.getRootHierarchyPage(), {
+    key: '0-0-0-0',
+    pageOffset: fixture.rootPageOffset,
+    pageLength: fixture.rootPageLength,
+  });
+  const subtree = await source.loadHierarchyPage(source.getRootHierarchyPage());
+  assert.deepEqual(normalizeRoot(subtree), normalizeRoot(await RustCopcReader.open(
+    new InMemoryByteSource(fixture.bytes),
+  ).then((reader) => reader.loadRootHierarchy())));
+});
+
+test('RustCopcBackend maps source, header, and point-chunk failures', async () => {
+  const fixture = makeFixture();
+  const missingCopcInfo = makeFixture();
+  putU32(missingCopcInfo.bytes, 100, 0);
+  const backend = new RustCopcBackend({
+    createByteSource(source) {
+      if (source === 'memory://missing-info') {
+        return new InMemoryByteSource(missingCopcInfo.bytes, source);
+      }
+      return new InMemoryByteSource(fixture.bytes, source);
+    },
+  });
+
+  await assert.rejects(
+    () => new RustCopcBackend({
+      createByteSource: (source) => new InMemoryByteSource(new Uint8Array(10), source),
+    }).open('memory://short'),
+    (error) => error instanceof CopcBackendError
+      && error.stage === 'source'
+      && error.code === 'source-range'
+      && error.cause?.code === 'out-of-bounds',
+  );
+
+  await assert.rejects(
+    () => backend.open('memory://missing-info'),
+    (error) => error instanceof CopcBackendError
+      && error.stage === 'metadata'
+      && error.code === 'header-parse'
+      && error.cause instanceof RustCopcParseError,
+  );
+
+  const source = await backend.open('memory://fixture');
+  const node = (await source.loadHierarchyPage(source.getRootHierarchyPage())).nodes[0];
+  await assert.rejects(
+    () => source.loadPointDataBuffer(node, new Set(['position'])),
+    (error) => error instanceof CopcBackendError
+      && error.stage === 'point-data'
+      && error.code === 'point-chunk'
+      && error.nodeKey === node.key
+      && error.cause?.code === 'out-of-bounds',
+  );
+});
+
 test('Rust reader and CopcJsBackend match on the same deterministic COPC file', async () => {
   const fixture = makeFixture();
   const directory = await mkdtemp(path.join(os.tmpdir(), 'copc-adapter-'));
@@ -276,8 +346,11 @@ test('Rust decodes one Autzen node from its exact range and matches CopcJsBacken
 
   const bytes = await import('node:fs/promises').then(({ readFile }) => readFile(samplePath));
   const byteSource = new RecordingByteSource(bytes, samplePath);
-  const rust = await RustCopcReader.open(byteSource);
-  const root = (await rust.loadRootHierarchy()).nodes.find((node) => node.key === '0-0-0-0');
+  const rust = await new RustCopcBackend({
+    createByteSource: () => byteSource,
+  }).open(samplePath);
+  const root = (await rust.loadHierarchyPage(rust.getRootHierarchyPage())).nodes
+    .find((node) => node.key === '0-0-0-0');
   assert.ok(root);
 
   const fields = new Set(['position', 'intensity', 'classification', 'rgb']);
@@ -334,10 +407,16 @@ test('Rust decodes one Autzen node from its exact range and matches CopcJsBacken
 
   await assert.rejects(
     () => rust.loadPointDataBuffer({ ...root, pointCount: root.pointCount - 1 }, fields),
-    (error) => error instanceof RustCopcParseError && error.code === 'chunk-length-mismatch',
+    (error) => error instanceof CopcBackendError
+      && error.stage === 'decode'
+      && error.code === 'laz-decode'
+      && error.cause instanceof RustCopcParseError,
   );
   await assert.rejects(
     () => rust.loadPointDataBuffer({ ...root, pointDataLength: root.pointDataLength - 1 }, fields),
-    (error) => error instanceof RustCopcParseError && error.code === 'laz-decode',
+    (error) => error instanceof CopcBackendError
+      && error.stage === 'decode'
+      && error.code === 'laz-decode'
+      && error.cause instanceof RustCopcParseError,
   );
 });

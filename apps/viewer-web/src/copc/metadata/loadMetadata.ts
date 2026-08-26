@@ -3,7 +3,7 @@ import {
   type CopcContextInput,
 } from '../context/createCopcContext';
 import type { CopcMetadata } from '../types/copc';
-import { CopcMetadataError } from '../errors';
+import { CopcLoadError, CopcMetadataError } from '../errors';
 import {
   CopcMetadataValidationError,
   validateCopcMetadata,
@@ -20,7 +20,7 @@ export async function loadCopcMetadata(
 
     return metadata;
   } catch (error: unknown) {
-    if (error instanceof CopcMetadataError) {
+    if (error instanceof CopcMetadataError || error instanceof CopcLoadError) {
       throw error;
     }
 

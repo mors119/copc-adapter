@@ -9,7 +9,7 @@
 
 | Area | Status | Current scope |
 | --- | --- | --- |
-| COPC source access | Implemented | Pluggable project-owned backend/source boundary with `copc.js` as the default |
+| COPC source access | Implemented | Shared project-owned boundary with `copc.js` default and opt-in Rust/WASM backend |
 | Metadata and hierarchy | Implemented | Metadata loading plus recursive hierarchy-page traversal |
 | Point data | Implemented | XYZ plus available intensity, classification, and RGB dimensions converted to project-owned typed buffers |
 | Coordinate transformation | Implemented | COPC CRS values transformed to WGS84 coordinates |
@@ -17,7 +17,7 @@
 | Point styling | Implemented | Fixed cyan, elevation, RGB, intensity, and classification modes with missing-attribute fallback |
 | Streaming | Implemented | Camera-driven selection, basic depth/distance limits, and bounded cache |
 | Public API | Implemented | `CopcCesiumLayer` load, attach, detach, unload, reload, and destroy lifecycle |
-| WASM decoder | Implemented | Default XYZ interleaving plus a direct Rust/WASM LAS 1.4 point 6/7/8 node-decoding proof path |
+| WASM decoder | Implemented | Rust/WASM LAS 1.4 point 6/7/8 node decoding with selected project-owned attributes |
 | ESM package build | Implemented | Packed ESM bundle, declarations, package-local WASM assets, and Cesium peer dependency |
 
 ## Known Gaps
@@ -33,7 +33,8 @@
 
 1. Improve LOD selection with screen-space error and viewport-aware metrics.
 2. Evaluate Web Workers for hierarchy, loading, and decoder work.
-3. Promote the focused Rust/WASM node decoder to a selectable production backend after broader format and edge-case coverage.
+3. Broaden Rust backend format and edge-case coverage before considering it for
+   the default backend.
 4. Explore scalable rendering approaches and dataset-global attribute statistics.
 5. Publish the library after broader consumer compatibility validation.
 6. Add repository-owned demo media when a reproducible capture is available.

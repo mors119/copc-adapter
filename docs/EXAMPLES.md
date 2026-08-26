@@ -11,7 +11,7 @@
 2. `CopcCesiumLayer.load()` 호출
 3. `attachTo(viewer)`로 layer 연결
 4. camera 기반 streaming selection 시작
-5. Rust + WASM point decoder 경유
+5. 선택한 backend의 project-owned point buffer 경유
 
 ## HTML Skeleton
 
@@ -29,6 +29,7 @@ import { CopcCesiumLayer } from '@frillab/copc-adapter';
 const viewer = new Cesium.Viewer('cesium-container');
 const layer = new CopcCesiumLayer({
   url: '/samples/autzen.copc.laz',
+  backend: 'rust',
   colorMode: 'rgb',
 });
 

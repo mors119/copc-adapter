@@ -36,7 +36,13 @@ export async function loadCopcPointBuffer(
   decoder: CopcPointDecoder = wasmCopcPointDecoder,
   fields: CopcPointFieldSelection = allCopcPointFields(),
 ): Promise<CopcPointBuffer> {
-  const view = await loadPointDataView(source, hierarchyNode, fields);
+  const context = await resolveCopcContext(source);
+
+  if (decoder === wasmCopcPointDecoder && context.loadPointDataBuffer) {
+    return validateCopcPointBuffer(await context.loadPointDataBuffer(hierarchyNode, fields));
+  }
+
+  const view = await context.loadPointDataView(hierarchyNode, fields);
 
   return validateCopcPointBuffer(await decoder.decode(view));
 }

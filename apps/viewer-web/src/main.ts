@@ -2,7 +2,7 @@ import './style.css';
 import 'cesium/Build/Cesium/Widgets/widgets.css';
 
 import * as Cesium from 'cesium';
-import { CopcCesiumLayer } from './index';
+import { CopcCesiumLayer, type CopcBackendName } from './index';
 import { createCesiumViewer } from './cesium/viewer/createViewer';
 import { createCopcDebugPanel } from './debug/CopcDebugPanel';
 
@@ -23,6 +23,7 @@ type CopcDebugState = {
   maxRenderedHeight?: number;
   renderedColorCount: number;
   lastError?: string;
+  backend: CopcBackendName | 'custom';
 };
 
 function isDebugPanelEnabled(): boolean {
@@ -130,6 +131,7 @@ function installDebugAdapter(
         cameraMoveEventCount,
         cameraPitchDegrees: Cesium.Math.toDegrees(viewer.camera.pitch),
         ...pointDiagnostics,
+        backend: snapshot.backend,
         lastError,
       };
     },
@@ -168,6 +170,12 @@ function installDebugAdapter(
   return adapter;
 }
 
+function getSelectedBackend(): CopcBackendName {
+  return new URLSearchParams(window.location.search).get('backend') === 'rust'
+    ? 'rust'
+    : 'copc-js';
+}
+
 function getScenePointCollectionCount(viewer: Cesium.Viewer): number {
   let count = 0;
 
@@ -185,6 +193,7 @@ async function main(): Promise<void> {
   const layer = new CopcCesiumLayer({
     url: COPC_URL,
     colorMode: 'rgb',
+    backend: getSelectedBackend(),
     debug: true,
   });
   const debugAdapter = installDebugAdapter(viewer, layer, import.meta.env.DEV);

@@ -74,6 +74,7 @@ const layer = new CopcCesiumLayer({
   url: '/samples/autzen.copc.laz',
   pointSize: 2,
   colorMode: 'elevation',
+  backend: 'rust',
   debug: true,
 });
 
@@ -92,7 +93,7 @@ the COPC reader. Cross-origin URLs therefore need compatible CORS headers.
 
 `load()` rejects with a project-owned `CopcLoadError` when source access,
 metadata/CRS validation, or hierarchy loading fails. Applications can inspect
-its `stage` (`'source'`, `'metadata'`, or `'hierarchy'`) and `source` fields,
+its `stage` and `source` fields,
 while `cause` retains the underlying failure for diagnostics. Error messages
 omit URL credentials, query strings, and fragments, so they are suitable for a
 user-facing debug panel.
@@ -138,9 +139,8 @@ const rgbLayer = new CopcCesiumLayer({
 
 ```text
 COPC URL
-  -> metadata and hierarchy loading (copc.js adapter)
-  -> point-data view loading
-  -> Rust/WASM XYZ interleaved buffer decoding
+  -> CopcBackend (copc-js by default, Rust/WASM with backend: 'rust')
+  -> project-owned metadata, hierarchy, and point buffers
   -> CRS transformation to WGS84
   -> streaming selection and bounded cache
   -> Cesium point primitives
@@ -195,11 +195,10 @@ npx --prefix apps/viewer-web playwright install chromium
   back to fixed cyan when the required dimensions are unavailable.
 - Loading and decoding run on the main thread; Web Worker offloading is not
   implemented.
-- The default viewer path still obtains point views from `copc.js` and uses
-  Rust/WASM for the final typed point buffer. `RustCopcReader` additionally
-  provides a focused direct node path that range-reads and decodes LAS 1.4
-  point formats 6/7/8; it is currently a differential-validation path rather
-  than the default backend.
+- `CopcJsBackend` is the default. `RustCopcBackend` is opt-in and supports the
+  current LAS 1.4 point formats 6/7/8 through the same viewer, streaming,
+  coordinate, and Cesium rendering path. Rust failures are surfaced with
+  structured backend categories; there is no hidden fallback to `copc.js`.
 - The local demo and consumer fixture require a downloaded sample COPC file;
   there is no hosted demo or checked-in visual asset.
 - Vite reports browser-externalized `node:` module warnings while bundling
@@ -211,7 +210,8 @@ npx --prefix apps/viewer-web playwright install chromium
 
 1. Add screen-space-error-based refinement and improve selection heuristics.
 2. Move suitable loading and decoding work to Web Workers.
-3. Promote the focused Rust/WASM node decoder to a selectable production backend after broader format and edge-case coverage.
+3. Broaden Rust backend format and edge-case coverage before considering it for
+   the default backend.
 4. Publish the library after broader consumer compatibility validation.
 
 ## Submission Summary

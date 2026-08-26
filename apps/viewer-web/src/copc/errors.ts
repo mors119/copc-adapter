@@ -1,4 +1,20 @@
-export type CopcLoadStage = 'source' | 'metadata' | 'hierarchy';
+export type CopcLoadStage =
+  | 'source'
+  | 'metadata'
+  | 'hierarchy'
+  | 'point-data'
+  | 'decode'
+  | 'wasm';
+
+export type CopcBackendErrorCode =
+  | 'source-range'
+  | 'header-parse'
+  | 'hierarchy'
+  | 'point-chunk'
+  | 'laz-decode'
+  | 'unsupported'
+  | 'wasm'
+  | 'unknown';
 
 type CopcLoadErrorOptions = ErrorOptions & {
   detail?: string;
@@ -78,5 +94,29 @@ export class CopcHierarchyLoadError extends CopcLoadError {
       options,
     );
     this.name = 'CopcHierarchyLoadError';
+  }
+}
+
+/** Structured failure raised by a backend while reading or decoding COPC data. */
+export class CopcBackendError extends CopcLoadError {
+  readonly code: CopcBackendErrorCode;
+  readonly nodeKey?: string;
+
+  constructor(
+    source: string,
+    stage: CopcLoadStage,
+    code: CopcBackendErrorCode,
+    detail: string,
+    options?: ErrorOptions & { nodeKey?: string },
+  ) {
+    super(
+      `COPC backend ${stage} failure for "${displaySource(source)}": ${detail}`,
+      stage,
+      source,
+      options,
+    );
+    this.name = 'CopcBackendError';
+    this.code = code;
+    this.nodeKey = options?.nodeKey;
   }
 }

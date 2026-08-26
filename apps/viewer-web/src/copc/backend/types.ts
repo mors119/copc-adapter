@@ -2,6 +2,7 @@ import type { CopcHierarchySource } from '../hierarchy/types';
 import type {
   CopcHierarchyNode,
   CopcMetadata,
+  CopcPointBuffer,
   CopcPointView,
 } from '../types/copc';
 import type { CopcPointFieldSelection } from '../points/fieldSelection';
@@ -14,6 +15,11 @@ export interface CopcSource extends CopcHierarchySource {
     node: CopcHierarchyNode,
     fields: CopcPointFieldSelection,
   ): Promise<CopcPointView>;
+  /** Optional direct buffer path for backends that already decode points. */
+  loadPointDataBuffer?(
+    node: CopcHierarchyNode,
+    fields: CopcPointFieldSelection,
+  ): Promise<CopcPointBuffer>;
 }
 
 /** Opens COPC resources without exposing the library used to read them. */
