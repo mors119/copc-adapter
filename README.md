@@ -160,6 +160,7 @@ npm --prefix apps/viewer-web run test
 npm --prefix apps/viewer-web run coverage
 npm --prefix apps/viewer-web run build
 npm --prefix apps/viewer-web run test:e2e
+npm run test:pack
 ```
 
 To generate the ESM library entry, declarations, and package-local WASM assets:
@@ -167,6 +168,14 @@ To generate the ESM library entry, declarations, and package-local WASM assets:
 ```bash
 npm --prefix apps/viewer-web run build:library
 npm --prefix apps/viewer-web pack
+```
+
+The single packed-artifact smoke test rebuilds Rust/WASM, creates a real npm
+tarball, and verifies that the public bundle, declarations, and both decoder
+WASM assets are included:
+
+```bash
+npm run test:pack
 ```
 
 The package declares Cesium as a peer dependency because the consuming

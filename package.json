@@ -3,7 +3,8 @@
     "node": ">=18"
   },
   "scripts": {
-    "download-samples": "tsx scripts/download-samples.ts"
+    "download-samples": "tsx scripts/download-samples.ts",
+    "test:pack": "node scripts/pack-smoke-test.mjs"
   },
   "devDependencies": {
     "tsx": "^4"
