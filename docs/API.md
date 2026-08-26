@@ -1,7 +1,7 @@
 # Library API
 
 `apps/viewer-web/src/index.ts` 가 source public entrypoint 이며, package
-consumers should import the generated `@mors119/copc-cesium` package.
+consumers should import the generated `@frillab/copc-adapter` package.
 
 ## Exported API
 
@@ -61,7 +61,7 @@ layer normalizes them for Cesium.
 
 ```ts
 import * as Cesium from 'cesium';
-import { CopcCesiumLayer } from '@mors119/copc-cesium';
+import { CopcCesiumLayer } from '@frillab/copc-adapter';
 
 const viewer = new Cesium.Viewer('cesium-container');
 const layer = new CopcCesiumLayer({
@@ -76,7 +76,7 @@ layer.attachTo(viewer);
 Install the package together with the Cesium version owned by the host app:
 
 ```bash
-npm install @mors119/copc-cesium cesium
+npm install @frillab/copc-adapter cesium
 ```
 
 `cesium` is a peer dependency. `copc`, `proj4`, and the browser decoder
@@ -111,6 +111,10 @@ the controller or renderer.
 Rust/WASM handles XYZ
 interleaved-buffer conversion, while the TypeScript decoder preserves supported
 LAS attributes exposed by the point view.
+
+The public entrypoint also exports the backend-neutral `RandomAccessByteSource`,
+`HttpRangeByteSource`, `InMemoryByteSource`, and `RangeSourceError` types for
+the future Rust/WASM reader boundary.
 
 `CopcPointBuffer`와 `GeographicPointBuffer`는 optional `intensity`,
 `classification`, `red`, `green`, `blue` typed arrays를 보존한다. source point

@@ -15,6 +15,20 @@ export { CopcJsBackend, copcJsBackend } from './copc/backend/copcJsBackend';
 export type { CopcBackend, CopcSource } from './copc/backend/types';
 export type { CopcPointDecoder } from './copc/points/types';
 export {
+  HttpRangeByteSource,
+  InMemoryByteSource,
+  RangeSourceError,
+  validateByteRange,
+} from './copc/range';
+export type {
+  ByteRange,
+  RangeFetch,
+  RangeReadOptions,
+  RangeSourceErrorCode,
+  RangeSourceErrorDetails,
+  RandomAccessByteSource,
+} from './copc/range';
+export {
   allCopcPointFields,
   createCopcPointFieldSelection,
   getCopcPointFieldSelection,

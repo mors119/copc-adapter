@@ -67,7 +67,7 @@ The browser demo uses the API below from `apps/viewer-web/src/index.ts`:
 
 ```ts
 import * as Cesium from 'cesium';
-import { CopcCesiumLayer } from '@mors119/copc-cesium';
+import { CopcCesiumLayer } from '@frillab/copc-adapter';
 
 const viewer = new Cesium.Viewer('cesium-container');
 const layer = new CopcCesiumLayer({
@@ -173,20 +173,7 @@ The package declares Cesium as a peer dependency because the consuming
 application owns the Cesium `Viewer` instance:
 
 ```bash
-npm install @mors119/copc-cesium cesium
-```
-
-For a repeatable packed-consumer check, the repository includes a clean
-Cesium/Vite fixture. It builds and installs the generated `.tgz`, then its
-Playwright smoke test loads the local Autzen sample and verifies rendered
-points:
-
-```bash
-cd tests/environments/cesium-vite
-npm ci
-npm run build
-npx playwright install chromium
-npm run test:e2e
+npm install @frillab/copc-adapter cesium
 ```
 
 The browser acceptance test uses Playwright Chromium with SwiftShader so it can

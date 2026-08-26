@@ -1,5 +1,5 @@
 {
-  "name": "@mors119/copc-cesium",
+  "name": "@frillab/copc-adapter",
   "version": "0.1.0",
   "type": "module",
   "exports": {

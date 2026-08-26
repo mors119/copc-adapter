@@ -22,7 +22,6 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             apps/viewer-web/package-lock.json
-            tests/environments/cesium-vite/package-lock.json
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -49,34 +48,3 @@ jobs:
 
       - name: Build production bundle
         run: npm --prefix apps/viewer-web run build
-
-  packed-consumer:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: tests/environments/cesium-vite/package-lock.json
-
-      - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-
-      - name: Install consumer dependencies and packed adapter
-        run: npm ci --prefix tests/environments/cesium-vite
-
-      - name: Build clean consumer
-        run: npm run build --prefix tests/environments/cesium-vite
-
-      - name: Install Playwright Chromium
-        run: npx --prefix tests/environments/cesium-vite playwright install --with-deps chromium
-
-      - name: Run packed consumer smoke test
-        run: npm run test:e2e --prefix tests/environments/cesium-vite

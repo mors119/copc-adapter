@@ -110,6 +110,42 @@ so `CopcJsBackend` enforces the selection by filtering the project-owned view.
 It makes no selective-LAZ performance claim; a future Rust backend can use the
 same request to skip unneeded decode layers.
 
+## Random-Access Byte Source
+
+`apps/viewer-web/src/copc/range/` defines the project-owned
+`RandomAccessByteSource` boundary for the future Rust/WASM reader. Its core
+operation is `readRange(offset, length)`, with `readRanges()` for a logical
+batch and `size()` for an optional known source length. The boundary is
+backend-neutral and can be implemented by a browser HTTP source, an in-memory
+source, or a future worker/local-file bridge.
+
+`HttpRangeByteSource` owns browser network I/O. It sends one `Range:
+bytes=start-end` request per read and runs `readRanges()` requests concurrently.
+Every partial response must be HTTP 206, include a matching `Content-Range`,
+and contain exactly the requested number of bytes. A 200 whole-resource
+response, 404/416 response, malformed range metadata, short body, invalid
+range, and network failure become a structured `RangeSourceError`; a server
+that ignores Range is never counted as efficient streaming. `Content-Range`
+also supplies a cached total size when available.
+
+Callers pass an `AbortSignal` for cancellation. The camera/streaming owner can
+create a controller per generation and abort the previous generation when a
+new camera state supersedes it; the source does not retain camera or Cesium
+state. This keeps staleness policy in the caller while making cancellation
+observable as `RangeSourceError` with code `aborted`.
+
+Browser deployment requires the COPC host to allow the `Range` request header
+and expose `Content-Range` (and any application request headers) through CORS;
+`Access-Control-Allow-Origin` must allow the consuming origin. A server must
+also return byte ranges rather than silently returning 200 for the whole
+resource. The `InMemoryByteSource` provides the same bounds-checked semantics
+without a browser, so Rust-facing parsing tests can use deterministic bytes.
+
+This boundary is additive in the current issue: the existing `copc.js`
+backend remains the default runtime backend. The next Rust/WASM reader can
+consume the source contract without taking a dependency on `fetch` or Cesium,
+while the current viewer and package asset model remain unchanged.
+
 Point styling consumes these transformed buffers directly. RGB channels are
 normalized from their detected 8-bit or 16-bit range, intensity is normalized
 per loaded node buffer, and classification values use a fixed categorical
@@ -130,6 +166,4 @@ Chromium, loads the local Autzen COPC sample, and verifies metadata, decoded
 point rendering, actual Cesium point primitive collections, and camera-driven
 streaming updates. The application installs `window.__COPC_DEBUG__` only in
 Vite development mode to make those runtime states observable; it is not a
-production API. The separate
-`tests/environments/cesium-vite/e2e/packed-consumer.spec.ts` performs the same
-kind of browser check after installing the generated package tarball.
+production API.

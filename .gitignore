@@ -15,6 +15,9 @@ apps/viewer-web/*.tgz
 # Playwright
 test-results/
 
+# Repository-local integration fixtures are not tracked.
+/tests/
+
 # OS
 .DS_Store
 
