@@ -34,6 +34,14 @@ export type CopcWasmExports = {
   free_parser_json(pointer: number): void;
 };
 
+/** Runtime or asset failure while loading the shared Rust/WASM module. */
+export class CopcWasmError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'CopcWasmError';
+  }
+}
+
 let wasmPromise: Promise<CopcWasmExports> | undefined;
 
 const bundledWasmUrl = new URL('./copc_wasm.wasm', import.meta.url);
@@ -68,10 +76,17 @@ async function loadWasmBinary(): Promise<Uint8Array> {
 export async function loadCopcWasm(): Promise<CopcWasmExports> {
   if (!wasmPromise) {
     wasmPromise = (async () => {
-      const binary = await loadWasmBinary();
-      const module = await WebAssembly.compile(binary as unknown as BufferSource);
-      const instance = await WebAssembly.instantiate(module);
-      return instance.exports as unknown as CopcWasmExports;
+      try {
+        const binary = await loadWasmBinary();
+        const module = await WebAssembly.compile(binary as unknown as BufferSource);
+        const instance = await WebAssembly.instantiate(module);
+        return instance.exports as unknown as CopcWasmExports;
+      } catch (error: unknown) {
+        throw new CopcWasmError(
+          'Failed to load or instantiate the COPC Rust/WASM module',
+          { cause: error },
+        );
+      }
     })();
   }
 

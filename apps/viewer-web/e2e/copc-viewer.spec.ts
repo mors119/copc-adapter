@@ -15,6 +15,7 @@ type CopcDebugState = {
   maxRenderedHeight?: number;
   renderedColorCount: number;
   lastError?: string;
+  backend: 'copc-js' | 'rust' | 'custom';
 };
 
 type CopcDebugAdapter = {
@@ -41,7 +42,7 @@ async function getDebugState(page: import('@playwright/test').Page): Promise<Cop
   });
 }
 
-test('streams a COPC sample into a real Cesium scene and updates after camera movement', async ({
+test('streams a COPC sample through the opt-in Rust backend in a real Cesium scene', async ({
   page,
 }) => {
   const pageErrors: Error[] = [];
@@ -49,12 +50,13 @@ test('streams a COPC sample into a real Cesium scene and updates after camera mo
     pageErrors.push(error);
   });
 
-  await page.goto('/');
+  await page.goto('/?backend=rust');
 
   await expect.poll(() => getDebugState(page)).toMatchObject({
     viewerReady: true,
     layerLoaded: true,
     metadataPointCount: 10653336,
+    backend: 'rust',
   });
   await expect.poll(async () => (await getDebugState(page)).renderedPointCount)
     .toBeGreaterThan(0);

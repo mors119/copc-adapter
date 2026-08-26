@@ -12,11 +12,10 @@ converts those points into Cesium primitives in the browser.
 ```text
 Browser-readable COPC URL
   -> project-owned CopcBackend / CopcSource boundary
-  -> default copc.js backend and getter
+  -> copc-js (default) or Rust/WASM (explicit opt-in)
   -> metadata and recursive hierarchy loading
   -> streaming hierarchy and camera-based node selection
-  -> selected COPC point-data views
-  -> Rust/WASM XYZ interleaved buffer decoder
+  -> selected project-owned point buffers
   -> coordinate transformation to WGS84
   -> Cesium PointPrimitiveCollection
 ```
@@ -29,7 +28,7 @@ state.
 
 | Area | Location | Responsibility |
 | --- | --- | --- |
-| COPC backend boundary | `apps/viewer-web/src/copc/backend/` | Define project-owned source capabilities and isolate the default `copc.js` adapter |
+| COPC backend boundary | `apps/viewer-web/src/copc/backend/` | Define project-owned source capabilities and isolate the `copc.js` and Rust/WASM adapters |
 | COPC loading | `apps/viewer-web/src/copc/` | Consume backend-neutral metadata, hierarchy, and point-view types |
 | Coordinate transformation | `apps/viewer-web/src/coordinates/` | Convert COPC coordinates to WGS84 longitude, latitude, and height |
 | WASM decoder | `crates/copc-wasm/`, `apps/viewer-web/src/wasm/` | Convert XYZ values into an interleaved point buffer |
@@ -48,11 +47,22 @@ domain types.
 
 `CopcBackend.open(url)` returns a reusable `CopcSource`. A source exposes only
 the capabilities the runtime needs: metadata, the root hierarchy page,
-hierarchy-page loading, and point-data-view loading. `CopcJsBackend` is the
-default production implementation and adapts all `copc.js` values before they
-cross this boundary. A future Rust/WASM metadata or hierarchy reader can
-implement the same interfaces without changing `CopcLayerController`, the
-streaming manager, or Cesium rendering.
+hierarchy-page loading, and project-owned point data. `CopcJsBackend` remains
+the default production implementation. `RustCopcBackend` is selected with
+`backend: 'rust'`; it uses `HttpRangeByteSource` and `RustCopcReader`, and
+returns the same metadata, hierarchy, point count, coordinate, and optional
+attribute semantics. Neither backend creates a Cesium viewer.
+
+The public selection is additive:
+
+```ts
+new CopcCesiumLayer({ url, backend: 'rust', colorMode: 'elevation' });
+```
+
+Omitting `backend` or passing `'copc-js'` selects the stable implementation.
+An injected `CopcBackend` remains supported for tests and host-owned sources.
+There is no automatic Rust-to-JS fallback: a Rust source or decode error is
+reported with its backend error category so validation cannot be masked.
 
 Callers may inject a backend for an alternative implementation or unit tests.
 There is intentionally no second placeholder production backend.
@@ -97,18 +107,18 @@ represented by a zero-filled array. A field whose getter fails propagates the
 decoder error. RGB remains `Uint16Array` in `CopcPointBuffer` and is normalized
 only by the Cesium styling boundary.
 
-`CopcPointDecoder.decode(view)` is independent of the source backend. The
-default decoder uses Rust/WASM for XYZ interleaving and reads only available
-requested attributes into optional typed arrays. Buffer validation rejects
-coordinate or attribute length mismatches before transformation/rendering.
-Coordinate transformation retains the same attribute arrays, keeping the
-decoder boundary replaceable without changing the streaming or Cesium layers.
-Tests may inject a decoder without loading WebAssembly.
+`CopcPointDecoder.decode(view)` remains available for injected decoders and
+legacy source implementations. Both production backends also expose the
+optional direct `loadPointDataBuffer()` capability; the default point-loading
+path uses that capability, so Rust decodes the selected node once and returns
+project-owned typed arrays. Buffer validation rejects coordinate or attribute
+length mismatches before transformation/rendering. Coordinate transformation
+retains the same attribute arrays, keeping the decoder boundary replaceable
+without changing the streaming or Cesium layers.
 
 The current `copc.js` release still returns a complete point view internally,
 so `CopcJsBackend` enforces the selection by filtering the project-owned view.
-It makes no selective-LAZ performance claim; a future Rust backend can use the
-same request to skip unneeded decode layers.
+The Rust backend passes the same request to its selective LAZ decode path.
 
 ## Random-Access Byte Source
 
@@ -141,10 +151,9 @@ also return byte ranges rather than silently returning 200 for the whole
 resource. The `InMemoryByteSource` provides the same bounds-checked semantics
 without a browser, so Rust-facing parsing tests can use deterministic bytes.
 
-This boundary is additive in the current issue: the existing `copc.js`
-backend remains the default runtime backend. The next Rust/WASM reader can
-consume the source contract without taking a dependency on `fetch` or Cesium,
-while the current viewer and package asset model remain unchanged.
+This boundary is additive: the existing `copc.js` backend remains the default
+runtime backend. Rust consumes the source contract without taking a dependency
+on Cesium; browser HTTP range I/O is isolated in `HttpRangeByteSource`.
 
 ## Rust COPC Header and Root Reader
 
@@ -168,8 +177,13 @@ point-record decompressor. It supports the COPC layered chunks used by LAS
 1.4 point formats 6, 7, and 8, including the crate's selective field
 decompression API. The crate builds for `wasm32-unknown-unknown` in this
 repository. `360-geo/copc-streaming` is intentionally not a dependency and no
-reference source is vendored. The existing `copc.js` backend remains the
-default and stable fallback while this Rust path is differentially validated.
+reference source is vendored. Rust is opt-in; `copc.js` remains the default,
+but errors from the selected Rust backend are never silently retried in JS.
+
+Backend errors expose a project-owned `CopcBackendError` with a stage and
+category such as `source-range`, `header-parse`, `hierarchy`, `point-chunk`,
+`laz-decode`, `unsupported`, or `wasm`. The original range/parser/decoder
+error is retained as `cause`, and point failures include the hierarchy node key.
 
 The metadata and hierarchy parser ABI uses a small NUL-terminated JSON
 response. The node decoder uses the same bounded status/error envelope while
@@ -203,8 +217,8 @@ by the consuming application.
 ## Browser Acceptance Coverage
 
 `apps/viewer-web/e2e/copc-viewer.spec.ts` starts the real Vite application in
-Chromium, loads the local Autzen COPC sample, and verifies metadata, decoded
-point rendering, actual Cesium point primitive collections, and camera-driven
-streaming updates. The application installs `window.__COPC_DEBUG__` only in
-Vite development mode to make those runtime states observable; it is not a
-production API.
+Chromium with `?backend=rust`, loads the local Autzen COPC sample, and verifies
+metadata, decoded point rendering, actual Cesium point primitive collections,
+and camera-driven streaming updates. The application installs
+`window.__COPC_DEBUG__` only in Vite development mode to make those runtime
+states observable; it is not a production API.

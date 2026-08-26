@@ -4,7 +4,7 @@ import {
 } from '../context/createCopcContext';
 import { HierarchyLoader } from './HierarchyLoader';
 import type { CopcHierarchyNode } from '../types/copc';
-import { CopcHierarchyLoadError } from '../errors';
+import { CopcHierarchyLoadError, CopcLoadError } from '../errors';
 
 export async function loadRootHierarchy(
   source: CopcContextInput,
@@ -16,7 +16,7 @@ export async function loadRootHierarchy(
 
     return hierarchy.nodes;
   } catch (error: unknown) {
-    if (error instanceof CopcHierarchyLoadError) {
+    if (error instanceof CopcHierarchyLoadError || error instanceof CopcLoadError) {
       throw error;
     }
 

@@ -5,11 +5,13 @@ import {
 } from '../adapters/hierarchyAdapter';
 import { toCopcMetadata } from '../adapters/metadataAdapter';
 import { createCopcGetter } from '../getter/createCopcGetter';
+import { decodeCopcPointBuffer } from '../../wasm/copcDecoder';
 import type { CopcHierarchySubtree } from '../hierarchy/types';
 import type {
   CopcHierarchyNode,
   CopcHierarchyPage,
   CopcMetadata,
+  CopcPointBuffer,
   CopcPointView,
 } from '../types/copc';
 import {
@@ -142,6 +144,13 @@ class CopcJsSource implements CopcSource {
     // fields enforced at this adapter boundary until a backend can skip LAZ
     // layers during decode.
     return toCopcPointView(view, fields);
+  }
+
+  async loadPointDataBuffer(
+    hierarchyNode: CopcHierarchyNode,
+    fields: CopcPointFieldSelection,
+  ): Promise<CopcPointBuffer> {
+    return decodeCopcPointBuffer(await this.loadPointDataView(hierarchyNode, fields));
   }
 }
 

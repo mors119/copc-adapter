@@ -21,8 +21,8 @@ consumers should import the generated `@frillab/copc-adapter` package.
 
 `load()`와 `reload()`는 source/context 생성, metadata 및 CRS 검증,
 hierarchy 로딩 실패를 각각 project-owned `CopcLoadError`로 reject한다.
-`stage`는 `'source' | 'metadata' | 'hierarchy'`, `source`는 원본 configured
-URL이며, 지원되는 runtime에서는 원래 오류가 `cause`에 보존된다. 표시용
+`stage`는 `'source' | 'metadata' | 'hierarchy' | 'point-data' | 'decode' |
+'wasm'`, `source`는 원본 configured URL이며, 지원되는 runtime에서는 원래 오류가 `cause`에 보존된다. 표시용
 `message`에서는 URL credential, query, fragment가 제거되므로 demo/debug
 panel에 그대로 표시할 수 있다. `CopcSourceError`, `CopcMetadataError`,
 `CopcHierarchyLoadError`도 public entrypoint에서 export된다.
@@ -39,8 +39,13 @@ panel에 그대로 표시할 수 있다. `CopcSourceError`, `CopcMetadataError`,
 - `debug`: lifecycle debug logging 활성화
 - `streaming`: `maxNodes`, `maxDepth`, `refineDistanceMultiplier`,
   `maxRenderDistanceMeters` overrides
-- `backend`: optional `CopcBackend`; defaults to `CopcJsBackend`
+- `backend`: `'copc-js' | 'rust' | CopcBackend`; defaults to `'copc-js'`.
+  Rust is opt-in and does not silently fall back to `copc-js`.
 - `decoder`: optional `CopcPointDecoder`; defaults to the Rust/WASM decoder
+
+The Rust selector uses the same layer API; it does not create a Rust-only
+Viewer. Applications continue to create and own `Cesium.Viewer`, then call
+`layer.attachTo(viewer)`.
 
 ### Point field selection
 
@@ -108,18 +113,20 @@ The public entrypoint exports `CopcBackend`, `CopcSource`, `CopcJsBackend`, and
 backends and test doubles can be passed through layer options without changing
 the controller or renderer.
 
-The default point decoder uses Rust/WASM for XYZ interleaving while the
-TypeScript adapter preserves supported LAS attributes exposed by `copc.js`.
-The separately exported `RustCopcReader.loadPointDataBuffer()` path decodes
-XYZ and the selected LAS attributes directly in Rust/WASM.
+The default backend is `CopcJsBackend`. Selecting `backend: 'rust'` uses the
+exported `RustCopcBackend` behind the same source boundary; the layer,
+streaming manager, coordinate transform, and Cesium renderer do not change.
+Both production backends return project-owned buffers. The Rust path decodes
+XYZ and selected LAS attributes directly in Rust/WASM.
 
 The public entrypoint also exports the backend-neutral `RandomAccessByteSource`,
 `HttpRangeByteSource`, `InMemoryByteSource`, and `RangeSourceError` types for
 the Rust/WASM reader boundary. `RustCopcReader` and `RustCopcParseError` are
 also exported for callers that need to parse LAS/COPC metadata, the root
 hierarchy, and one LAS 1.4 point chunk through an injected random-access
-source. Its `loadPointDataBuffer()` method is a focused Rust/WASM differential
-validation path and does not replace `CopcJsBackend` as the default backend.
+source. `CopcBackendError` maps Rust source, parser, hierarchy, point-chunk,
+LAZ, unsupported-format, and WASM failures into project-owned stage/category
+values while preserving `cause`.
 
 `CopcPointBuffer`와 `GeographicPointBuffer`는 optional `intensity`,
 `classification`, `red`, `green`, `blue` typed arrays를 보존한다. source point

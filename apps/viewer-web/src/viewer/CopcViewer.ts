@@ -7,7 +7,12 @@ import {
 import {
   createCopcContext,
 } from '../copc/context/createCopcContext';
-import type { CopcBackend, CopcSource } from '../copc/backend/types';
+import type { CopcSource } from '../copc/backend/types';
+import {
+  getCopcBackendName,
+  type CopcBackendSelection,
+  type CopcBackendName,
+} from '../copc/backend/selection';
 import type { CopcPointDecoder } from '../copc/points/types';
 import { loadRootHierarchy } from '../copc/hierarchy/loadRootHierarchy';
 import { loadCopcMetadata } from '../copc/metadata/loadMetadata';
@@ -40,7 +45,7 @@ export type CopcLayerOptions = {
   colorMode?: CopcColorMode;
   debug?: boolean;
   streaming?: Partial<StreamingSelectionOptions>;
-  backend?: CopcBackend;
+  backend?: CopcBackendSelection;
   decoder?: CopcPointDecoder;
 };
 
@@ -66,6 +71,7 @@ export type CopcLayerSnapshot = {
   streamingUpdateCount: number;
   datasetUrl: string;
   attached: boolean;
+  backend: CopcBackendName | 'custom';
 };
 
 const STREAMING_OPTIONS: StreamingSelectionOptions = {
@@ -239,6 +245,7 @@ export class CopcLayerController {
       streamingUpdateCount: this.streamingUpdateCount,
       datasetUrl: this.options.url,
       attached: this.viewer !== undefined,
+      backend: getCopcBackendName(this.options.backend),
     };
   }
 
