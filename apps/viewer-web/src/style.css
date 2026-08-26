@@ -7,3 +7,181 @@ body,
   padding: 0;
   overflow: hidden;
 }
+
+.copc-debug-panel {
+  --panel-accent: #ffca5c;
+  position: fixed;
+  z-index: 10;
+  top: 14px;
+  left: 14px;
+  box-sizing: border-box;
+  width: min(340px, calc(100vw - 28px));
+  max-height: calc(100vh - 28px);
+  overflow: auto;
+  padding: 14px;
+  color: #f7f8fa;
+  border: 1px solid rgb(255 255 255 / 16%);
+  border-radius: 10px;
+  background: rgb(15 20 27 / 92%);
+  box-shadow: 0 8px 30px rgb(0 0 0 / 35%);
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  backdrop-filter: blur(10px);
+}
+
+.copc-debug-panel[hidden] {
+  display: none;
+}
+
+.copc-debug-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.copc-debug-panel__header strong {
+  display: block;
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+}
+
+.copc-debug-panel__eyebrow,
+.copc-debug-panel__detail span {
+  color: #98a2b3;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.copc-debug-panel button {
+  padding: 3px 7px;
+  color: #d0d5dd;
+  border: 1px solid rgb(255 255 255 / 16%);
+  border-radius: 5px;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.copc-debug-panel button:hover {
+  color: #fff;
+  border-color: rgb(255 255 255 / 35%);
+}
+
+.copc-debug-panel__url {
+  margin-top: 5px;
+  overflow: hidden;
+  color: #98a2b3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.copc-debug-panel__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 12px 0 9px;
+  color: var(--panel-accent);
+}
+
+.copc-debug-panel__status::before {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  content: '';
+  box-shadow: 0 0 8px currentColor;
+}
+
+.copc-debug-panel[data-status='ready'] {
+  --panel-accent: #55d187;
+}
+
+.copc-debug-panel[data-status='error'] {
+  --panel-accent: #ff6b6b;
+}
+
+.copc-debug-panel[data-status='inactive'] {
+  --panel-accent: #98a2b3;
+}
+
+.copc-debug-panel dl {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 10%);
+  border-radius: 7px;
+  background: rgb(255 255 255 / 10%);
+}
+
+.copc-debug-panel dl div {
+  padding: 8px 9px;
+  background: rgb(8 12 18 / 75%);
+}
+
+.copc-debug-panel dl div:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
+.copc-debug-panel dt {
+  color: #98a2b3;
+  font-size: 10px;
+}
+
+.copc-debug-panel dd {
+  margin: 2px 0 0;
+  color: #fff;
+  font-size: 13px;
+}
+
+.copc-debug-panel details {
+  padding: 9px 0;
+  border-bottom: 1px solid rgb(255 255 255 / 10%);
+}
+
+.copc-debug-panel summary {
+  color: #d0d5dd;
+  cursor: pointer;
+  user-select: none;
+}
+
+.copc-debug-panel__detail {
+  display: grid;
+  gap: 3px;
+  margin-top: 8px;
+}
+
+.copc-debug-panel code {
+  overflow-wrap: anywhere;
+  color: #e4e7ec;
+  font: inherit;
+}
+
+.copc-debug-panel__nodes {
+  display: block;
+  max-height: 92px;
+  margin-top: 8px;
+  overflow: auto;
+}
+
+.copc-debug-panel__error {
+  margin-top: 10px;
+  padding: 8px;
+  overflow-wrap: anywhere;
+  color: #ffd5d5;
+  border: 1px solid rgb(255 107 107 / 35%);
+  border-radius: 6px;
+  background: rgb(145 31 31 / 25%);
+}
+
+@media (max-width: 520px) {
+  .copc-debug-panel {
+    top: 8px;
+    left: 8px;
+    width: calc(100vw - 16px);
+    max-height: calc(100vh - 16px);
+  }
+}

@@ -4,6 +4,7 @@ import 'cesium/Build/Cesium/Widgets/widgets.css';
 import * as Cesium from 'cesium';
 import { CopcCesiumLayer } from './index';
 import { createCesiumViewer } from './cesium/viewer/createViewer';
+import { createCopcDebugPanel } from './debug/CopcDebugPanel';
 
 const COPC_URL = '/samples/autzen.copc.laz';
 
@@ -24,8 +25,15 @@ type CopcDebugState = {
   lastError?: string;
 };
 
+function isDebugPanelEnabled(): boolean {
+  const value = new URLSearchParams(window.location.search).get('debugPanel');
+
+  return value === null || !['0', 'false', 'off'].includes(value.toLowerCase());
+}
+
 type CopcDebugAdapter = {
   getState(): CopcDebugState;
+  getLastError(): string | undefined;
   setCameraHeight(height: number): void;
   setCameraPitch(pitchDegrees: number): void;
   recordError(error: unknown): void;
@@ -85,6 +93,7 @@ declare global {
 function installDebugAdapter(
   viewer: Cesium.Viewer,
   layer: CopcCesiumLayer,
+  exposeGlobally: boolean,
 ): CopcDebugAdapter {
   let cameraMoveEventCount = 0;
   let lastError: string | undefined;
@@ -124,6 +133,9 @@ function installDebugAdapter(
         lastError,
       };
     },
+    getLastError(): string | undefined {
+      return lastError;
+    },
     setCameraHeight(height: number): void {
       const position = Cesium.Cartographic.fromCartesian(viewer.camera.positionWC);
 
@@ -149,7 +161,9 @@ function installDebugAdapter(
     recordError,
   };
 
-  window.__COPC_DEBUG__ = adapter;
+  if (exposeGlobally) {
+    window.__COPC_DEBUG__ = adapter;
+  }
 
   return adapter;
 }
@@ -173,9 +187,16 @@ async function main(): Promise<void> {
     colorMode: 'rgb',
     debug: true,
   });
-  const debugAdapter = import.meta.env.DEV
-    ? installDebugAdapter(viewer, layer)
+  const debugAdapter = installDebugAdapter(viewer, layer, import.meta.env.DEV);
+  const debugPanel = isDebugPanelEnabled()
+    ? createCopcDebugPanel(() => ({
+        snapshot: layer.getSnapshot(),
+        metadata: layer.getMetadata(),
+        lastError: debugAdapter.getLastError(),
+      }))
     : undefined;
+
+  window.addEventListener('pagehide', () => debugPanel?.destroy(), { once: true });
 
   try {
     await layer.load();
@@ -184,7 +205,7 @@ async function main(): Promise<void> {
     console.log('COPC Metadata:', layer.getMetadata());
     console.log('COPC Layer Snapshot:', layer.getSnapshot());
   } catch (error) {
-    debugAdapter?.recordError(error);
+    debugAdapter.recordError(error);
     throw error;
   }
 }

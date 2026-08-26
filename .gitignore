@@ -11,6 +11,9 @@ dist
 # Vite
 .vite
 
+# Playwright
+test-results/
+
 # OS
 .DS_Store
 
