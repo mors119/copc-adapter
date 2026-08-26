@@ -72,5 +72,6 @@ export type GeographicPointBuffer = {
 
 export type CopcPointView = {
   pointCount: number;
+  dimensions: readonly string[];
   getter(name: string): (index: number) => number;
 };

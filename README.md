@@ -110,8 +110,11 @@ try {
 ```
 
 `colorMode` defaults to `'fixed'`, which preserves the original cyan rendering.
-Use `'elevation'` to map the dataset's transformed minimum and maximum heights
-through a blue, cyan, green, yellow, and red gradient:
+The supported modes are `'fixed'`, `'elevation'`, `'rgb'`, `'intensity'`, and
+`'classification'`. Elevation uses the transformed dataset height range, RGB
+uses source color channels, intensity uses a grayscale range, and classification
+uses a stable categorical palette. Attribute modes fall back to fixed cyan when
+their source dimensions are unavailable.
 
 ```ts
 const fixedLayer = new CopcCesiumLayer({
@@ -122,6 +125,11 @@ const fixedLayer = new CopcCesiumLayer({
 const elevationLayer = new CopcCesiumLayer({
   url: '/samples/autzen.copc.laz',
   colorMode: 'elevation',
+});
+
+const rgbLayer = new CopcCesiumLayer({
+  url: '/samples/autzen.copc.laz',
+  colorMode: 'rgb',
 });
 ```
 
@@ -171,9 +179,11 @@ npx --prefix apps/viewer-web playwright install chromium
 - The viewer fully traverses hierarchy metadata before streaming point chunks.
 - LOD uses distance, bounds, and maximum-depth heuristics; it does not use
   screen-space error.
-- Rendering uses Cesium point primitives. RGB, intensity, and classification
-  modes remain follow-up work; point-buffer types can carry these optional
-  attributes, but the current Rust/WASM decoder still emits XYZ only.
+- Rendering uses Cesium point primitives with fixed, elevation, RGB, intensity,
+  and classification color modes. When present in the LAS point format,
+  `intensity`, `classification`, `red`, `green`, and `blue` are preserved in
+  typed attribute arrays alongside the XYZ point buffer. Attribute modes fall
+  back to fixed cyan when the required dimensions are unavailable.
 - Loading and decoding run on the main thread; Web Worker offloading is not
   implemented.
 - Rust/WASM currently converts XYZ values to an interleaved buffer. COPC
@@ -190,8 +200,7 @@ npx --prefix apps/viewer-web playwright install chromium
 1. Add screen-space-error-based refinement and improve selection heuristics.
 2. Move suitable loading and decoding work to Web Workers.
 3. Expand the Rust/WASM boundary to metadata and hierarchy parsing.
-4. Decode optional LAS attributes and add RGB, intensity, and classification modes.
-5. Package and publish the library with its browser runtime assets.
+4. Package and publish the library with its browser runtime assets.
 
 ## Submission Summary
 

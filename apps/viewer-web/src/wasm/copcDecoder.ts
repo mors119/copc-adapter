@@ -1,4 +1,8 @@
-import type { CopcPointBuffer, CopcPointView } from '../copc/types/copc';
+import type {
+  CopcPointAttributes,
+  CopcPointBuffer,
+  CopcPointView,
+} from '../copc/types/copc';
 
 type CopcWasmExports = {
   memory: WebAssembly.Memory;
@@ -69,6 +73,56 @@ function readDimensionValues(view: CopcPointView, name: string): Float64Array {
   return values;
 }
 
+function readOptionalUint16Dimension(
+  view: CopcPointView,
+  name: string,
+): Uint16Array | undefined {
+  if (!view.dimensions.includes(name)) {
+    return undefined;
+  }
+
+  const getter = view.getter(name);
+  const values = new Uint16Array(view.pointCount);
+
+  for (let index = 0; index < view.pointCount; index += 1) {
+    values[index] = getter(index);
+  }
+
+  return values;
+}
+
+function readOptionalUint8Dimension(
+  view: CopcPointView,
+  name: string,
+): Uint8Array | undefined {
+  if (!view.dimensions.includes(name)) {
+    return undefined;
+  }
+
+  const getter = view.getter(name);
+  const values = new Uint8Array(view.pointCount);
+
+  for (let index = 0; index < view.pointCount; index += 1) {
+    values[index] = getter(index);
+  }
+
+  return values;
+}
+
+function readPointAttributes(view: CopcPointView): CopcPointAttributes | undefined {
+  const attributes: CopcPointAttributes = {
+    intensity: readOptionalUint16Dimension(view, 'Intensity'),
+    classification: readOptionalUint8Dimension(view, 'Classification'),
+    red: readOptionalUint16Dimension(view, 'Red'),
+    green: readOptionalUint16Dimension(view, 'Green'),
+    blue: readOptionalUint16Dimension(view, 'Blue'),
+  };
+
+  return Object.values(attributes).some((values) => values !== undefined)
+    ? attributes
+    : undefined;
+}
+
 export async function decodeCopcPointBuffer(
   view: CopcPointView,
 ): Promise<CopcPointBuffer> {
@@ -76,6 +130,7 @@ export async function decodeCopcPointBuffer(
   const xValues = readDimensionValues(view, 'X');
   const yValues = readDimensionValues(view, 'Y');
   const zValues = readDimensionValues(view, 'Z');
+  const attributes = readPointAttributes(view);
   const count = view.pointCount;
   const outputLength = count * 3;
 
@@ -109,6 +164,7 @@ export async function decodeCopcPointBuffer(
     return {
       pointCount: count,
       coordinates,
+      attributes,
     };
   } finally {
     wasm.dealloc_f64(xPointer, count);

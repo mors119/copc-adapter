@@ -31,8 +31,11 @@ panel에 그대로 표시할 수 있다. `CopcSourceError`, `CopcMetadataError`,
 
 - `url`: HTTP range request를 지원하는 browser-readable COPC URL
 - `pointSize`: Cesium point primitive 크기 (기본값 `3`)
-- `colorMode`: `'fixed' | 'elevation'` (기본값 `'fixed'`). `elevation`은
-  transformed dataset height 범위를 사용해 point별 gradient color를 적용
+- `colorMode`: `'fixed' | 'elevation' | 'rgb' | 'intensity' |
+  'classification'` (기본값 `'fixed'`). `elevation`은 transformed dataset
+  height, `rgb`는 source RGB, `intensity`는 node buffer의 intensity 범위,
+  `classification`은 categorical palette를 사용한다. 필요한 attribute가
+  없으면 fixed cyan으로 fallback한다.
 - `debug`: lifecycle debug logging 활성화
 - `streaming`: `maxNodes`, `maxDepth`, `refineDistanceMultiplier`,
   `maxRenderDistanceMeters` overrides
@@ -46,7 +49,7 @@ import { CopcCesiumLayer } from './src/index.ts';
 const viewer = new Cesium.Viewer('cesium-container');
 const layer = new CopcCesiumLayer({
   url: '/samples/autzen.copc.laz',
-  colorMode: 'elevation',
+  colorMode: 'rgb',
 });
 
 await layer.load();
@@ -72,14 +75,17 @@ layer.destroy();
 
 ## Decoder Boundary
 
-The public API focuses on the layer and viewer lifecycle. The Rust/WASM
-boundary currently handles XYZ interleaved-buffer conversion only.
+The public API focuses on the layer and viewer lifecycle. Rust/WASM handles XYZ
+interleaved-buffer conversion, while the TypeScript decoder preserves supported
+LAS attributes exposed by the point view.
 
 `CopcPointBuffer`와 `GeographicPointBuffer`는 optional `intensity`,
-`classification`, `red`, `green`, `blue` typed arrays를 보존할 수 있다.
-해당 LAS attribute의 decoder 지원과 RGB/intensity/classification styling은
-후속 작업이다.
+`classification`, `red`, `green`, `blue` typed arrays를 보존한다. source point
+format에 없는 attribute는 생성하지 않는다. RGB/intensity/classification
+style은 해당 typed arrays를 직접 사용하며, attribute 누락 시 fixed color로
+fallback한다.
 
 - `copc.js`: metadata, hierarchy, point view 로딩
 - `copc-wasm`: X/Y/Z -> interleaved point buffer conversion
+- `viewer-web` decoder: available LAS attributes -> optional typed arrays
 - `viewer-web`: streaming selection, CRS transform, Cesium rendering
