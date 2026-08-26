@@ -29,7 +29,7 @@ import { CopcCesiumLayer } from './src/index.ts';
 const viewer = new Cesium.Viewer('cesium-container');
 const layer = new CopcCesiumLayer({
   url: '/samples/autzen.copc.laz',
-  colorMode: 'elevation',
+  colorMode: 'rgb',
 });
 
 await layer.load();
@@ -45,6 +45,10 @@ layer.destroy();
 `colorMode`를 생략한다. 높이 차이를 시각화하려면 `colorMode: 'elevation'`을
 사용한다. Elevation mode는 streaming node마다 색 범위가 바뀌지 않도록 COPC
 metadata의 전체 Z 범위를 transformed Cesium height로 변환해 사용한다.
+source RGB를 사용하려면 `rgb`, 반사 강도를 grayscale로 보려면 `intensity`,
+LAS classification을 categorical palette로 보려면 `classification`을 사용한다.
+필요한 source attribute가 없는 경우 기존 cyan으로 fallback한다. Intensity
+범위는 각 streaming node의 loaded point buffer에서 계산한다.
 
 ## Build Note
 

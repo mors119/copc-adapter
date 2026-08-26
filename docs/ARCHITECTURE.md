@@ -70,8 +70,15 @@ selection, worker-based loading, or a GPU-specific point-cloud renderer.
 
 `copc.js` currently reads COPC metadata, hierarchy, and point data views.
 Rust/WASM receives the X, Y, and Z values and returns a project-owned
-interleaved point buffer. This keeps the decoder boundary replaceable without
-changing the streaming or Cesium rendering layers.
+interleaved point buffer. The TypeScript side reads available intensity,
+classification, and RGB dimensions into optional typed arrays. Coordinate
+transformation retains the same attribute arrays, keeping the decoder boundary
+replaceable without changing the streaming or Cesium rendering layers.
+
+Point styling consumes these transformed buffers directly. RGB channels are
+normalized from their detected 8-bit or 16-bit range, intensity is normalized
+per loaded node buffer, and classification values use a fixed categorical
+palette. Missing attributes select the backward-compatible fixed cyan color.
 
 ## Package Boundary
 

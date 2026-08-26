@@ -92,6 +92,7 @@ export class CopcContext {
 
     return {
       pointCount: view.pointCount,
+      dimensions: Object.keys(view.dimensions),
       getter: view.getter,
     };
   }

@@ -32,6 +32,7 @@ import {
 } from '../src/coordinates/transform/createPointTransformer.ts';
 import { buildStreamingHierarchy } from '../src/viewer/streaming/buildStreamingHierarchy.ts';
 import { createNodePointCache } from '../src/viewer/streaming/createNodePointCache.ts';
+import { decodeCopcPointBuffer } from '../src/wasm/copcDecoder.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -193,6 +194,7 @@ test('createCopcGetter chooses HTTP, browser-relative, and local getters correct
 test('readPoint utilities decode all coordinates from a point view', () => {
   const view = {
     pointCount: 2,
+    dimensions: ['X', 'Y', 'Z'],
     getter(name) {
       const values = {
         X: [10, 40],
@@ -476,6 +478,11 @@ test('loadPointDataView and loadCopcPoints decode sample node points', async () 
   const view = await loadPointDataView(samplePath, rootNode);
 
   assert.equal(view.pointCount, 61201);
+  assert.ok(view.dimensions.includes('Intensity'));
+  assert.ok(view.dimensions.includes('Classification'));
+  assert.ok(view.dimensions.includes('Red'));
+  assert.ok(view.dimensions.includes('Green'));
+  assert.ok(view.dimensions.includes('Blue'));
 
   const points = await loadCopcPoints(samplePath, rootNode);
 
@@ -529,6 +536,72 @@ test('loadCopcPointBuffer decodes sample points through Rust WASM', async () => 
     849328.6,
     424.53999999999996,
   ]);
+  assert.deepEqual(Array.from(buffer.attributes.intensity.slice(0, 2)), [
+    29952,
+    18688,
+  ]);
+  assert.deepEqual(Array.from(buffer.attributes.classification.slice(0, 2)), [
+    2,
+    2,
+  ]);
+  assert.deepEqual(Array.from(buffer.attributes.red.slice(0, 2)), [
+    44544,
+    22016,
+  ]);
+  assert.deepEqual(Array.from(buffer.attributes.green.slice(0, 2)), [
+    44032,
+    28416,
+  ]);
+  assert.deepEqual(Array.from(buffer.attributes.blue.slice(0, 2)), [
+    37632,
+    27648,
+  ]);
+  assert.equal(buffer.attributes.intensity.length, buffer.pointCount);
+  assert.equal(buffer.attributes.classification.length, buffer.pointCount);
+  assert.equal(buffer.attributes.red.length, buffer.pointCount);
+  assert.equal(buffer.attributes.green.length, buffer.pointCount);
+  assert.equal(buffer.attributes.blue.length, buffer.pointCount);
+});
+
+test('decodeCopcPointBuffer omits attributes absent from the point format', async () => {
+  const values = {
+    X: [10, 40],
+    Y: [20, 50],
+    Z: [30, 60],
+    Intensity: [1024, 2048],
+    Classification: [2, 6],
+  };
+  const buffer = await decodeCopcPointBuffer({
+    pointCount: 2,
+    dimensions: Object.keys(values),
+    getter(name) {
+      if (!(name in values)) {
+        throw new Error(`No extractor for dimension: ${name}`);
+      }
+
+      return (index) => values[name][index];
+    },
+  });
+
+  assert.deepEqual(Array.from(buffer.coordinates), [
+    10, 20, 30,
+    40, 50, 60,
+  ]);
+  assert.deepEqual(Array.from(buffer.attributes.intensity), [1024, 2048]);
+  assert.deepEqual(Array.from(buffer.attributes.classification), [2, 6]);
+  assert.equal(buffer.attributes.red, undefined);
+  assert.equal(buffer.attributes.green, undefined);
+  assert.equal(buffer.attributes.blue, undefined);
+
+  const xyzOnlyBuffer = await decodeCopcPointBuffer({
+    pointCount: 2,
+    dimensions: ['X', 'Y', 'Z'],
+    getter(name) {
+      return (index) => values[name][index];
+    },
+  });
+
+  assert.equal(xyzOnlyBuffer.attributes, undefined);
 });
 
 test('createPointTransformer converts projected COPC points to WGS84', async () => {

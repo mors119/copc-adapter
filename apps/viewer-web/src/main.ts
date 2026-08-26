@@ -170,7 +170,7 @@ async function main(): Promise<void> {
   const viewer = createCesiumViewer('cesium-container');
   const layer = new CopcCesiumLayer({
     url: COPC_URL,
-    colorMode: 'elevation',
+    colorMode: 'rgb',
     debug: true,
   });
   const debugAdapter = import.meta.env.DEV

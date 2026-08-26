@@ -5,6 +5,7 @@ import {
   type CopcColorMode,
   type CopcElevationRange,
   type CopcPointStyleOptions,
+  type CopcValueRange,
 } from '../style/pointStyle';
 
 export type CopcPointRenderOptions = {
@@ -31,6 +32,47 @@ export function getPointBufferElevationRange(
   return Number.isFinite(min) && Number.isFinite(max)
     ? { min, max }
     : { min: 0, max: 0 };
+}
+
+export function getPointBufferIntensityRange(
+  points: GeographicPointBuffer,
+): CopcValueRange | undefined {
+  const values = points.attributes?.intensity;
+
+  if (!values || values.length === 0) {
+    return undefined;
+  }
+
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+
+  for (let index = 0; index < Math.min(points.pointCount, values.length); index += 1) {
+    min = Math.min(min, values[index]);
+    max = Math.max(max, values[index]);
+  }
+
+  return Number.isFinite(min) && Number.isFinite(max)
+    ? { min, max }
+    : undefined;
+}
+
+export function getPointBufferRgbMax(
+  points: GeographicPointBuffer,
+): 255 | 65535 | undefined {
+  const { red, green, blue } = points.attributes ?? {};
+
+  if (!red || !green || !blue) {
+    return undefined;
+  }
+
+  const length = Math.min(points.pointCount, red.length, green.length, blue.length);
+  let max = 0;
+
+  for (let index = 0; index < length; index += 1) {
+    max = Math.max(max, red[index], green[index], blue[index]);
+  }
+
+  return max <= 255 ? 255 : 65535;
 }
 
 export function toCartesian3Array(points: GeographicPoint[]): Cesium.Cartesian3[] {
@@ -76,13 +118,20 @@ export function renderCopcPoints(
     colorMode: options.colorMode ?? 'fixed',
     elevationRange:
       options.elevationRange ?? getPointBufferElevationRange(points),
+    intensityRange: getPointBufferIntensityRange(points),
+    rgbMax: getPointBufferRgbMax(points),
   };
 
   for (let index = 0; index < positions.length; index += 1) {
     collection.add({
       position: positions[index],
       pixelSize: options.pointSize,
-      color: getPointColor(points.coordinates[index * 3 + 2], styleOptions),
+      color: getPointColor(
+        points.coordinates[index * 3 + 2],
+        styleOptions,
+        points.attributes,
+        index,
+      ),
     });
   }
 
