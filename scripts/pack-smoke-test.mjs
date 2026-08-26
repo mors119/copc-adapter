@@ -86,7 +86,7 @@ try {
     assertIncluded(entries, requiredEntry);
   }
 
-  for (const forbiddenPrefix of ['package/target/', 'package/tests/', 'package/samples/']) {
+  for (const forbiddenPrefix of ['package/target/', 'package/test/', 'package/samples/']) {
     if ([...entries].some((entry) => entry.startsWith(forbiddenPrefix))) {
       throw new Error(`Packed adapter contains an unintended path: ${forbiddenPrefix}`);
     }
