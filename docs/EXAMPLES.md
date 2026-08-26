@@ -24,7 +24,7 @@
 
 ```ts
 import * as Cesium from 'cesium';
-import { CopcCesiumLayer } from '@mors119/copc-cesium';
+import { CopcCesiumLayer } from '@frillab/copc-adapter';
 
 const viewer = new Cesium.Viewer('cesium-container');
 const layer = new CopcCesiumLayer({

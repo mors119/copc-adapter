@@ -102,7 +102,7 @@ async function prepareSample() {
   );
 }
 
-console.log('Preparing the local @mors119/copc-cesium package...');
+console.log('Preparing the local @frillab/copc-adapter package...');
 await runNpm(['install', '--ignore-scripts'], adapterDirectory);
 await runNpm(['run', 'build:library'], adapterDirectory);
 await rm(packageOutputDirectory, { recursive: true, force: true });
@@ -124,7 +124,7 @@ await runNpm(
 
 const installedPackageDirectory = resolve(
   environmentDirectory,
-  'node_modules/@mors119/copc-cesium',
+  'node_modules/@frillab/copc-adapter',
 );
 
 if (!(await exists(resolve(installedPackageDirectory, 'dist/index.js')))) {

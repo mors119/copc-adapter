@@ -1,7 +1,7 @@
 # Cesium/Vite manual test environment
 
 This is a real browser integration environment for the repository's public
-`@mors119/copc-cesium` package. It creates an actual CesiumJS `Viewer`, loads a
+`@frillab/copc-adapter` package. It creates an actual CesiumJS `Viewer`, loads a
 real COPC file through browser range requests, runs the adapter's packaged
 Rust/WASM and LAZ decoders, and renders point primitives with WebGL. It does
 not use viewer or Cesium mocks.
@@ -36,7 +36,7 @@ npm run preview
 The environment declares this bootstrap local dependency:
 
 ```json
-"@mors119/copc-cesium": "file:../../../apps/viewer-web"
+"@frillab/copc-adapter": "file:../../../apps/viewer-web"
 ```
 
 The setup script replaces that bootstrap install with the generated `.tgz`

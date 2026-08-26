@@ -15,7 +15,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@mors119/copc-cesium": "file:../../../apps/viewer-web",
+    "@frillab/copc-adapter": "file:../../../apps/viewer-web",
     "cesium": "1.142.0"
   },
   "devDependencies": {

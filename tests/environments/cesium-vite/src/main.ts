@@ -1,7 +1,7 @@
 import './style.css';
 import 'cesium/Build/Cesium/Widgets/widgets.css';
 
-import { CopcCesiumLayer } from '@mors119/copc-cesium';
+import { CopcCesiumLayer } from '@frillab/copc-adapter';
 import * as Cesium from 'cesium';
 
 const DEFAULT_COPC_URL = '/samples/autzen.copc.laz';

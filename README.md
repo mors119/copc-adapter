@@ -67,7 +67,7 @@ The browser demo uses the API below from `apps/viewer-web/src/index.ts`:
 
 ```ts
 import * as Cesium from 'cesium';
-import { CopcCesiumLayer } from '@mors119/copc-cesium';
+import { CopcCesiumLayer } from '@frillab/copc-adapter';
 
 const viewer = new Cesium.Viewer('cesium-container');
 const layer = new CopcCesiumLayer({
@@ -173,7 +173,7 @@ The package declares Cesium as a peer dependency because the consuming
 application owns the Cesium `Viewer` instance:
 
 ```bash
-npm install @mors119/copc-cesium cesium
+npm install @frillab/copc-adapter cesium
 ```
 
 For a repeatable packed-consumer check, the repository includes a clean
