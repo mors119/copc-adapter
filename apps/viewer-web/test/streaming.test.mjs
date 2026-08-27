@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { extractHorizontalUnitScale } from '../src/coordinates/crs/parseCopcWkt.ts';
 import { createNodePointCache } from '../src/viewer/streaming/createNodePointCache.ts';
 import {
   calculateBoundsDistanceMeters,
@@ -108,7 +109,10 @@ test('NodeSelector selects the visible root node when the camera is far', () => 
     hierarchy,
   );
 
-  assert.deepEqual(selected.map((entry) => entry.node.key), ['0-0-0-0']);
+  assert.deepEqual(
+    selected.map((entry) => entry.node.key),
+    ['0-0-0-0'],
+  );
 });
 
 test('NodeSelector selects child nodes when the camera is closer', () => {
@@ -185,6 +189,78 @@ test('NodeSelector selects child nodes when the camera is closer', () => {
   );
 });
 
+test('NodeSelector does not select a parent when a deeper descendant is selected', () => {
+  const selector = createSelector();
+  const hierarchy = new Map([
+    [
+      '0-0-0-0',
+      createStreamingNode({
+        key: '0-0-0-0',
+        level: 0,
+        pointCount: 100,
+        children: ['1-0-0-0'],
+        center: { longitude: -123, latitude: 44, height: 100 },
+        bounds: {
+          minX: -123.01,
+          minY: 43.99,
+          minZ: 50,
+          maxX: -122.99,
+          maxY: 44.01,
+          maxZ: 150,
+        },
+        approximateSizeMeters: 1200,
+        boundingRadiusMeters: 800,
+      }),
+    ],
+    [
+      '1-0-0-0',
+      createStreamingNode({
+        key: '1-0-0-0',
+        level: 1,
+        pointCount: 60,
+        children: ['2-0-0-0'],
+        center: { longitude: -123, latitude: 44, height: 100 },
+        bounds: {
+          minX: -123.001,
+          minY: 43.999,
+          minZ: 80,
+          maxX: -122.999,
+          maxY: 44.001,
+          maxZ: 120,
+        },
+        approximateSizeMeters: 600,
+        boundingRadiusMeters: 120,
+      }),
+    ],
+    [
+      '2-0-0-0',
+      createStreamingNode({
+        key: '2-0-0-0',
+        level: 2,
+        pointCount: 30,
+        center: { longitude: -123, latitude: 44, height: 100 },
+        bounds: {
+          minX: -123.0005,
+          minY: 43.9995,
+          minZ: 90,
+          maxX: -122.9995,
+          maxY: 44.0005,
+          maxZ: 110,
+        },
+        approximateSizeMeters: 100,
+        boundingRadiusMeters: 60,
+      }),
+    ],
+  ]);
+
+  const selected = selector.selectVisibleNodes(createCamera(), hierarchy);
+
+  assert.deepEqual(
+    selected.map((entry) => entry.node.key),
+    ['2-0-0-0'],
+  );
+});
+
 test('NodeSelector respects the maximum depth limit', () => {
   const selector = createSelector({ maxDepth: 0 });
   const hierarchy = new Map([
@@ -231,7 +307,10 @@ test('NodeSelector respects the maximum depth limit', () => {
 
   const selected = selector.selectVisibleNodes(createCamera(), hierarchy);
 
-  assert.deepEqual(selected.map((entry) => entry.node.key), ['0-0-0-0']);
+  assert.deepEqual(
+    selected.map((entry) => entry.node.key),
+    ['0-0-0-0'],
+  );
 });
 
 test('NodeSelector uses bounds to exclude nodes outside the current view range', () => {
@@ -282,7 +361,10 @@ test('NodeSelector uses bounds to exclude nodes outside the current view range',
     hierarchy,
   );
 
-  assert.deepEqual(selected.map((entry) => entry.node.key), ['0-0-0-0']);
+  assert.deepEqual(
+    selected.map((entry) => entry.node.key),
+    ['0-0-0-0'],
+  );
 });
 
 test('NodeSelector falls back to the nearest node when nothing is visible', () => {
@@ -330,7 +412,10 @@ test('NodeSelector falls back to the nearest node when nothing is visible', () =
 
   const selected = selector.selectVisibleNodes(createCamera(), hierarchy);
 
-  assert.deepEqual(selected.map((entry) => entry.node.key), ['0-0-0-0']);
+  assert.deepEqual(
+    selected.map((entry) => entry.node.key),
+    ['0-0-0-0'],
+  );
 });
 
 test('NodeSelector returns an empty selection for an empty hierarchy', () => {
@@ -431,24 +516,27 @@ test('StreamingManager uses cached nodes and loads missing nodes', async () => {
       }),
     ],
   ]);
-  const cache = createNodePointCache(async (nodeKey) => {
-    loadCount += 1;
+  const cache = createNodePointCache(
+    async (nodeKey) => {
+      loadCount += 1;
 
-    return {
-      pointCount: 1,
-      coordinates: new Float64Array([
-        -123,
-        44,
-        nodeKey.length,
-      ]),
-    };
-  }, { maxEntries: 2 });
-  const manager = new StreamingManager(hierarchy, {
-    maxNodes: 8,
-    maxDepth: 4,
-    refineDistanceMultiplier: 6,
-    maxRenderDistanceMeters: 12000,
-  }, cache);
+      return {
+        pointCount: 1,
+        coordinates: new Float64Array([-123, 44, nodeKey.length]),
+      };
+    },
+    { maxEntries: 2 },
+  );
+  const manager = new StreamingManager(
+    hierarchy,
+    {
+      maxNodes: 8,
+      maxDepth: 4,
+      refineDistanceMultiplier: 6,
+      maxRenderDistanceMeters: 12000,
+    },
+    cache,
+  );
 
   const firstUpdate = await manager.update(
     createCamera({ height: 40000, viewDistanceMeters: 12000 }),
@@ -490,16 +578,23 @@ test('StreamingManager.clear resets selection state and cache', async () => {
       }),
     ],
   ]);
-  const cache = createNodePointCache(async () => ({
-    pointCount: 1,
-    coordinates: new Float64Array([-123, 44, 1]),
-  }), { maxEntries: 2 });
-  const manager = new StreamingManager(hierarchy, {
-    maxNodes: 8,
-    maxDepth: 4,
-    refineDistanceMultiplier: 6,
-    maxRenderDistanceMeters: 12000,
-  }, cache);
+  const cache = createNodePointCache(
+    async () => ({
+      pointCount: 1,
+      coordinates: new Float64Array([-123, 44, 1]),
+    }),
+    { maxEntries: 2 },
+  );
+  const manager = new StreamingManager(
+    hierarchy,
+    {
+      maxNodes: 8,
+      maxDepth: 4,
+      refineDistanceMultiplier: 6,
+      maxRenderDistanceMeters: 12000,
+    },
+    cache,
+  );
 
   await manager.update(createCamera());
   assert.equal(cache.getSize(), 1);
@@ -513,16 +608,23 @@ test('StreamingManager.clear resets selection state and cache', async () => {
 });
 
 test('StreamingManager returns an empty update when no hierarchy nodes exist', async () => {
-  const cache = createNodePointCache(async () => ({
-    pointCount: 1,
-    coordinates: new Float64Array([-123, 44, 1]),
-  }), { maxEntries: 1 });
-  const manager = new StreamingManager(new Map(), {
-    maxNodes: 8,
-    maxDepth: 4,
-    refineDistanceMultiplier: 6,
-    maxRenderDistanceMeters: 12000,
-  }, cache);
+  const cache = createNodePointCache(
+    async () => ({
+      pointCount: 1,
+      coordinates: new Float64Array([-123, 44, 1]),
+    }),
+    { maxEntries: 1 },
+  );
+  const manager = new StreamingManager(
+    new Map(),
+    {
+      maxNodes: 8,
+      maxDepth: 4,
+      refineDistanceMultiplier: 6,
+      maxRenderDistanceMeters: 12000,
+    },
+    cache,
+  );
 
   const update = await manager.update(createCamera());
 
@@ -554,29 +656,33 @@ test('StreamingManager propagates load failures and retries after cache eviction
       }),
     ],
   ]);
-  const cache = createNodePointCache(async () => {
-    attempts += 1;
+  const cache = createNodePointCache(
+    async () => {
+      attempts += 1;
 
-    if (attempts === 1) {
-      throw new Error('load failed');
-    }
+      if (attempts === 1) {
+        throw new Error('load failed');
+      }
 
-    return {
-      pointCount: 1,
-      coordinates: new Float64Array([-123, 44, 1]),
-    };
-  }, { maxEntries: 1 });
-  const manager = new StreamingManager(hierarchy, {
-    maxNodes: 8,
-    maxDepth: 4,
-    refineDistanceMultiplier: 6,
-    maxRenderDistanceMeters: 12000,
-  }, cache);
-
-  await assert.rejects(
-    () => manager.update(createCamera()),
-    /load failed/,
+      return {
+        pointCount: 1,
+        coordinates: new Float64Array([-123, 44, 1]),
+      };
+    },
+    { maxEntries: 1 },
   );
+  const manager = new StreamingManager(
+    hierarchy,
+    {
+      maxNodes: 8,
+      maxDepth: 4,
+      refineDistanceMultiplier: 6,
+      maxRenderDistanceMeters: 12000,
+    },
+    cache,
+  );
+
+  await assert.rejects(() => manager.update(createCamera()), /load failed/);
   assert.equal(cache.getSize(), 0);
 
   const update = await manager.update(createCamera());
@@ -584,4 +690,17 @@ test('StreamingManager propagates load failures and retries after cache eviction
   assert.equal(attempts, 2);
   assert.deepEqual(update.selectedNodeKeys, ['0-0-0-0']);
   assert.equal(update.loadedNodePoints.size, 1);
+});
+
+test('extractHorizontalUnitScale ignores nested geographic angular units', () => {
+  const wkt = `
+    PROJCS["Test",
+      GEOGCS["GCS",
+        UNIT["Degree",0.0174532925199433]
+      ],
+      UNIT["US survey foot",0.3048006096012192]
+    ]
+  `;
+
+  assert.equal(extractHorizontalUnitScale(wkt), 0.3048006096012192);
 });
