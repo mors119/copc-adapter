@@ -96,6 +96,8 @@ export class CopcLayerController {
   );
   private streamingState?: StreamingState;
   private updateTimer?: number;
+  private loadGeneration = 0;
+  private streamingGeneration = 0;
   private streamingUpdateCount = 0;
   private hasFlownToDataset = false;
   private lifecycle: CopcLayerLifecycleState = 'idle';
@@ -142,6 +144,13 @@ export class CopcLayerController {
    * caller-owned Cesium viewer.
    */
   detachFrom(): void {
+    this.streamingGeneration += 1;
+
+    if (this.updateTimer) {
+      window.clearTimeout(this.updateTimer);
+      this.updateTimer = undefined;
+    }
+
     if (!this.viewer) {
       return;
     }
@@ -164,13 +173,33 @@ export class CopcLayerController {
       throw new Error('COPC layer is already loaded; call reload() to load it again');
     }
 
+    if (this.lifecycle === 'loading') {
+      throw new Error('COPC layer is already loading');
+    }
+
     this.lifecycle = 'loading';
+    const loadGeneration = ++this.loadGeneration;
     const context = await createCopcContext(
       this.options.url,
       this.options.backend,
     );
+
+    if (!this.isCurrentLoad(loadGeneration)) {
+      return;
+    }
+
     const metadata = await loadCopcMetadata(context);
+
+    if (!this.isCurrentLoad(loadGeneration)) {
+      return;
+    }
+
     const nodes = await loadRootHierarchy(context);
+
+    if (!this.isCurrentLoad(loadGeneration)) {
+      return;
+    }
+
     const hierarchy = buildStreamingHierarchy(metadata, nodes);
 
     this.streamingState = {
@@ -199,6 +228,14 @@ export class CopcLayerController {
   unload(): void {
     if (this.lifecycle === 'destroyed') {
       return;
+    }
+
+    this.loadGeneration += 1;
+    this.streamingGeneration += 1;
+
+    if (this.updateTimer) {
+      window.clearTimeout(this.updateTimer);
+      this.updateTimer = undefined;
     }
 
     this.removePointCollections();
@@ -291,6 +328,7 @@ export class CopcLayerController {
     }
 
     this.updateTimer = window.setTimeout(() => {
+      this.updateTimer = undefined;
       void this.updateStreamingView();
     }, 100);
   }
@@ -319,13 +357,27 @@ export class CopcLayerController {
   }
 
   private async updateStreamingView(): Promise<void> {
-    if (!this.viewer || !this.streamingState) {
+    const viewer = this.viewer;
+    const streamingState = this.streamingState;
+
+    if (!viewer || !streamingState) {
       return;
     }
 
-    const update = await this.streamingState.manager.update(
+    const streamingGeneration = ++this.streamingGeneration;
+    const update = await streamingState.manager.update(
       this.getStreamingCameraState(),
     );
+
+    if (
+      streamingGeneration !== this.streamingGeneration
+      || this.viewer !== viewer
+      || this.streamingState !== streamingState
+      || this.lifecycle === 'destroyed'
+    ) {
+      return;
+    }
+
     this.streamingUpdateCount += 1;
 
     this.selectedNodeKeys.clear();
@@ -341,12 +393,12 @@ export class CopcLayerController {
         continue;
       }
 
-      this.viewer.scene.primitives.remove(collection);
+      viewer.scene.primitives.remove(collection);
       this.pointCollections.delete(nodeKey);
     }
 
     for (const [nodeKey, points] of update.loadedNodePoints) {
-      if (!this.viewer || !this.selectedNodeKeys.has(nodeKey)) {
+      if (this.viewer !== viewer || !this.selectedNodeKeys.has(nodeKey)) {
         continue;
       }
 
@@ -354,7 +406,7 @@ export class CopcLayerController {
         continue;
       }
 
-      const collection = renderCopcPoints(this.viewer, points, {
+      const collection = renderCopcPoints(viewer, points, {
         pointSize: this.options.pointSize ?? 3,
         colorMode: this.options.colorMode ?? 'fixed',
         elevationRange: this.getDatasetElevationRange(),
@@ -465,5 +517,9 @@ export class CopcLayerController {
     if (this.options.debug) {
       console.debug(`[CopcCesiumLayer] ${message}`);
     }
+  }
+
+  private isCurrentLoad(loadGeneration: number): boolean {
+    return loadGeneration === this.loadGeneration && this.lifecycle !== 'destroyed';
   }
 }

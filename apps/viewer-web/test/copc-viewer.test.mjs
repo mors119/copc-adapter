@@ -279,6 +279,60 @@ test('CopcLayerController ignores loaded nodes after destroy during an in-flight
   assert.equal(fakeViewer.addedCollections.length, 0);
 });
 
+test('CopcLayerController ignores an older streaming result after a newer camera update', async () => {
+  const fakeViewer = createFakeViewer();
+  const viewer = new CopcLayerController({
+    url: '/samples/autzen.copc.laz',
+  });
+  let callCount = 0;
+  let resolveFirst;
+  let resolveSecond;
+
+  viewer.viewer = fakeViewer;
+  viewer.streamingState = createStreamingState(() => {
+    callCount += 1;
+
+    return new Promise((resolve) => {
+      if (callCount === 1) {
+        resolveFirst = resolve;
+      } else {
+        resolveSecond = resolve;
+      }
+    });
+  });
+
+  const firstUpdate = viewer.updateStreamingView();
+  const secondUpdate = viewer.updateStreamingView();
+
+  resolveSecond({
+    selectedNodeKeys: ['1-0-0-0'],
+    removedNodeKeys: [],
+    loadedNodePoints: new Map([
+      ['1-0-0-0', {
+        pointCount: 1,
+        coordinates: new Float64Array([-123, 44, 100]),
+      }],
+    ]),
+  });
+  await secondUpdate;
+
+  resolveFirst({
+    selectedNodeKeys: ['0-0-0-0'],
+    removedNodeKeys: [],
+    loadedNodePoints: new Map([
+      ['0-0-0-0', {
+        pointCount: 1,
+        coordinates: new Float64Array([-123, 44, 100]),
+      }],
+    ]),
+  });
+  await firstUpdate;
+
+  assert.deepEqual(viewer.getCurrentSelection(), ['1-0-0-0']);
+  assert.deepEqual(viewer.getRenderedNodeKeys(), ['1-0-0-0']);
+  viewer.destroy();
+});
+
 test('CopcLayerController loadRenderableNodePoints rejects missing streaming state and unknown nodes', async () => {
   const viewer = new CopcLayerController({
     url: '/samples/autzen.copc.laz',

@@ -5,6 +5,9 @@ import { fileURLToPath } from 'node:url';
 const appDirectory = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
+  // The application public directory may contain a downloaded sample. It is
+  // never part of the reusable library package.
+  publicDir: false,
   build: {
     lib: {
       entry: 'src/index.ts',

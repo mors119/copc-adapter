@@ -78,6 +78,8 @@ try {
   const entries = new Set(tarResult.stdout.trim().split('\n').filter(Boolean));
 
   for (const requiredEntry of [
+    'package/README.md',
+    'package/LICENSE',
     'package/dist/index.js',
     'package/dist/index.d.ts',
     'package/dist/wasm/copc_wasm.wasm',
@@ -86,7 +88,12 @@ try {
     assertIncluded(entries, requiredEntry);
   }
 
-  for (const forbiddenPrefix of ['package/target/', 'package/test/', 'package/samples/']) {
+  for (const forbiddenPrefix of [
+    'package/target/',
+    'package/test/',
+    'package/samples/',
+    'package/dist/samples/',
+  ]) {
     if ([...entries].some((entry) => entry.startsWith(forbiddenPrefix))) {
       throw new Error(`Packed adapter contains an unintended path: ${forbiddenPrefix}`);
     }

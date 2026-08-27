@@ -36,6 +36,8 @@ import {
 } from '../src/coordinates/transform/createPointTransformer.ts';
 import { buildStreamingHierarchy } from '../src/viewer/streaming/buildStreamingHierarchy.ts';
 import { createNodePointCache } from '../src/viewer/streaming/createNodePointCache.ts';
+import { NodeSelector } from '../src/viewer/streaming/NodeSelector.ts';
+import { extractHorizontalUnitScale } from '../src/coordinates/crs/parseCopcWkt.ts';
 import { decodeCopcPointBuffer } from '../src/wasm/copcDecoder.ts';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -928,6 +930,43 @@ test('buildStreamingHierarchy links children and computes node centers', async (
   assert.ok(rootNode.bounds.minY < rootNode.bounds.maxY);
   assertClose(rootNode.center.longitude, -123.0664124403113, 1e-9);
   assertClose(rootNode.center.latitude, 44.056302479022975, 1e-9);
+});
+
+test('Autzen uses the projected linear unit for streaming size and refines', async () => {
+  const metadata = await loadCopcMetadata(samplePath);
+  const nodes = await loadRootHierarchy(samplePath);
+  const hierarchy = buildStreamingHierarchy(metadata, nodes);
+  const rootNode = hierarchy.get('0-0-0-0');
+
+  assert.ok(rootNode);
+  assert.equal(extractHorizontalUnitScale(metadata.wkt), 0.3048);
+  assert.ok(rootNode.children.length > 0);
+  assert.ok(rootNode.approximateSizeMeters > 1418);
+  assert.ok(rootNode.approximateSizeMeters < 1420);
+
+  const selector = new NodeSelector({
+    maxNodes: 24,
+    maxDepth: 6,
+    refineDistanceMultiplier: 6,
+    maxRenderDistanceMeters: 12000,
+  });
+  const farSelection = selector.selectVisibleNodes({
+    longitude: rootNode.center.longitude,
+    latitude: rootNode.center.latitude,
+    height: 100000,
+    viewDistanceMeters: 200000,
+  }, hierarchy);
+  const nearSelection = selector.selectVisibleNodes({
+    longitude: rootNode.center.longitude,
+    latitude: rootNode.center.latitude,
+    height: 1000,
+    viewDistanceMeters: 6000,
+  }, hierarchy);
+
+  assert.deepEqual(farSelection.map((entry) => entry.node.key), ['0-0-0-0']);
+  assert.ok(nearSelection.length > farSelection.length);
+  assert.ok(nearSelection.length <= 24);
+  assert.ok(nearSelection.every((entry) => entry.node.level > 0));
 });
 
 test('createNodePointCache deduplicates repeated node loads', async () => {

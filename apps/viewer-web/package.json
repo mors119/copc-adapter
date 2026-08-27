@@ -2,6 +2,12 @@
   "name": "@frillab/copc-adapter",
   "version": "0.1.0",
   "type": "module",
+  "description": "Stream and visualize COPC point clouds directly in CesiumJS.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mors119/copc-adapter.git"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
