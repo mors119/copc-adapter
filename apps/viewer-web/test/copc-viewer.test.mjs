@@ -49,7 +49,7 @@ function createFakeViewer() {
   };
 }
 
-function createStreamingState(update) {
+function createStreamingState(update, nodes = new Map()) {
   return {
     metadata: {
       pointCount: 1,
@@ -71,7 +71,7 @@ function createStreamingState(update) {
       },
       wkt: undefined,
     },
-    nodes: new Map(),
+    nodes,
     context: {},
     manager: { update },
   };
@@ -241,6 +241,59 @@ test('CopcLayerController updateStreamingView removes stale nodes and renders ne
     renderedCollection.get(1).color,
   );
   assert.ok(viewer.getSelectionBoundingSphere());
+});
+
+test('CopcLayerController retains a coarse parent until all selected replacements are ready', async () => {
+  const fakeViewer = createFakeViewer();
+  const viewer = new CopcLayerController({
+    url: '/samples/autzen.copc.laz',
+    colorMode: 'elevation',
+  });
+  const parentCollection = new Cesium.PointPrimitiveCollection();
+  const parent = {
+    node: { key: '0-0-0-0', level: 0, pointCount: 1 },
+    children: ['1-0-0-0'],
+  };
+  const child = {
+    node: { key: '1-0-0-0', level: 1, pointCount: 1 },
+    children: [],
+  };
+  const nodes = new Map([
+    ['0-0-0-0', parent],
+    ['1-0-0-0', child],
+  ]);
+  const namesDuringProgress = [];
+
+  viewer.viewer = fakeViewer;
+  viewer.pointCollections.set(parent.node.key, parentCollection);
+  viewer.streamingState = createStreamingState(async (_camera, onProgress) => {
+    onProgress({
+      selectedNodeKeys: ['1-0-0-0'],
+      removedNodeKeys: ['0-0-0-0'],
+      loadedNodePoints: new Map(),
+      completedBatchPointCount: 0,
+    });
+    namesDuringProgress.push(viewer.getRenderedNodeKeys());
+    onProgress({
+      selectedNodeKeys: ['1-0-0-0'],
+      removedNodeKeys: ['0-0-0-0'],
+      loadedNodePoints: new Map([['1-0-0-0', {
+        pointCount: 1,
+        coordinates: new Float64Array([-123, 44, 100]),
+      }]]),
+      completedBatchPointCount: 1,
+    });
+    return {
+      selectedNodeKeys: ['1-0-0-0'],
+      removedNodeKeys: ['0-0-0-0'],
+      loadedNodePoints: new Map(),
+    };
+  }, nodes);
+
+  await viewer.updateStreamingView();
+
+  assert.deepEqual(namesDuringProgress, [['0-0-0-0']]);
+  assert.deepEqual(viewer.getRenderedNodeKeys(), ['1-0-0-0']);
 });
 
 test('CopcLayerController ignores loaded nodes after destroy during an in-flight update', async () => {

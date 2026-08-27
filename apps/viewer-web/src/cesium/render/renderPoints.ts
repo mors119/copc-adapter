@@ -7,11 +7,13 @@ import {
   type CopcPointStyleOptions,
   type CopcValueRange,
 } from '../style/pointStyle';
+import { performanceNow } from '../../copc/performance';
 
 export type CopcPointRenderOptions = {
   pointSize: number;
   colorMode?: CopcColorMode;
   elevationRange?: CopcElevationRange;
+  onPerformance?: (stage: 'geographicToCartesian' | 'pointStylePreparation' | 'pointCollectionCreation' | 'pointAdd', durationMs: number) => void;
 };
 
 export function getPointBufferElevationRange(
@@ -110,10 +112,14 @@ export function renderCopcPoints(
   points: GeographicPointBuffer,
   options: CopcPointRenderOptions,
 ): Cesium.PointPrimitiveCollection {
+  const collectionStartedAt = performanceNow();
   const collection = viewer.scene.primitives.add(
     new Cesium.PointPrimitiveCollection(),
   );
+  options.onPerformance?.('pointCollectionCreation', performanceNow() - collectionStartedAt);
+  const positionsStartedAt = performanceNow();
   const positions = toCartesian3ArrayFromBuffer(points);
+  options.onPerformance?.('geographicToCartesian', performanceNow() - positionsStartedAt);
   const styleOptions: CopcPointStyleOptions = {
     colorMode: options.colorMode ?? 'fixed',
     elevationRange:
@@ -122,18 +128,23 @@ export function renderCopcPoints(
     rgbMax: getPointBufferRgbMax(points),
   };
 
+  const styleStartedAt = performanceNow();
+  const colors = positions.map((_, index) => getPointColor(
+    points.coordinates[index * 3 + 2],
+    styleOptions,
+    points.attributes,
+    index,
+  ));
+  options.onPerformance?.('pointStylePreparation', performanceNow() - styleStartedAt);
+  const addStartedAt = performanceNow();
   for (let index = 0; index < positions.length; index += 1) {
     collection.add({
       position: positions[index],
       pixelSize: options.pointSize,
-      color: getPointColor(
-        points.coordinates[index * 3 + 2],
-        styleOptions,
-        points.attributes,
-        index,
-      ),
+      color: colors[index],
     });
   }
+  options.onPerformance?.('pointAdd', performanceNow() - addStartedAt);
 
   return collection;
 }

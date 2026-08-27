@@ -24,6 +24,8 @@ type CopcDebugState = {
   renderedColorCount: number;
   lastError?: string;
   backend: CopcBackendName | 'custom';
+  performance: ReturnType<CopcCesiumLayer['getSnapshot']>['performance'];
+  longestMainThreadTaskMs: number;
 };
 
 function isDebugPanelEnabled(): boolean {
@@ -98,6 +100,20 @@ function installDebugAdapter(
 ): CopcDebugAdapter {
   let cameraMoveEventCount = 0;
   let lastError: string | undefined;
+  let longestMainThreadTaskMs = 0;
+
+  if (typeof PerformanceObserver !== 'undefined') {
+    try {
+      const observer = new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          longestMainThreadTaskMs = Math.max(longestMainThreadTaskMs, entry.duration);
+        }
+      });
+      observer.observe({ type: 'longtask', buffered: true });
+    } catch {
+      // Long Task API is optional in browsers and test environments.
+    }
+  }
 
   viewer.camera.moveEnd.addEventListener(() => {
     cameraMoveEventCount += 1;
@@ -132,6 +148,8 @@ function installDebugAdapter(
         cameraPitchDegrees: Cesium.Math.toDegrees(viewer.camera.pitch),
         ...pointDiagnostics,
         backend: snapshot.backend,
+        performance: snapshot.performance,
+        longestMainThreadTaskMs,
         lastError,
       };
     },
@@ -176,6 +194,33 @@ function getSelectedBackend(): CopcBackendName {
     : 'copc-js';
 }
 
+function getLayerOptions(): ConstructorParameters<typeof CopcCesiumLayer>[0] {
+  const params = new URLSearchParams(window.location.search);
+
+  if (params.get('scenario') === 'issue61') {
+    return {
+      url: COPC_URL,
+      colorMode: 'elevation',
+      backend: params.get('backend') === 'copc-js' ? 'copc-js' : 'rust',
+      pointSize: 2,
+      debug: true,
+      streaming: {
+        maxNodes: 16,
+        maxDepth: 6,
+        refineDistanceMultiplier: 1.5,
+        maxRenderDistanceMeters: 20_000,
+      },
+    };
+  }
+
+  return {
+    url: COPC_URL,
+    colorMode: 'rgb',
+    backend: getSelectedBackend(),
+    debug: true,
+  };
+}
+
 function getScenePointCollectionCount(viewer: Cesium.Viewer): number {
   let count = 0;
 
@@ -190,12 +235,7 @@ function getScenePointCollectionCount(viewer: Cesium.Viewer): number {
 
 async function main(): Promise<void> {
   const viewer = createCesiumViewer('cesium-container');
-  const layer = new CopcCesiumLayer({
-    url: COPC_URL,
-    colorMode: 'rgb',
-    backend: getSelectedBackend(),
-    debug: true,
-  });
+  const layer = new CopcCesiumLayer(getLayerOptions());
   const debugAdapter = installDebugAdapter(viewer, layer, import.meta.env.DEV);
   const debugPanel = isDebugPanelEnabled()
     ? createCopcDebugPanel(() => ({

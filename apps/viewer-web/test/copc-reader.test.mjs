@@ -1037,6 +1037,22 @@ test('CopcCesiumLayer snapshot exposes lifecycle and dataset info', () => {
     datasetUrl: '/samples/autzen.copc.laz',
     attached: false,
     backend: 'copc-js',
+    performance: {
+      updateDurationMs: 0,
+      nodeSelectionMs: 0,
+      selectedNodeCount: 0,
+      estimatedSelectedPointCount: 0,
+      loadedNodeCount: 0,
+      loadedPointCount: 0,
+      rangeFetchDurationMs: 0,
+      decodeDurationMs: 0,
+      crsTransformDurationMs: 0,
+      geographicToCartesianDurationMs: 0,
+      pointStylePreparationDurationMs: 0,
+      pointCollectionCreationDurationMs: 0,
+      pointAddDurationMs: 0,
+      longestMainThreadBlockingSectionMs: 0,
+    },
   });
 
   layer.destroy();

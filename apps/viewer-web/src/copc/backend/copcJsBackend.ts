@@ -20,6 +20,7 @@ import {
   type CopcPointFieldSelection,
 } from '../points/fieldSelection';
 import type { CopcBackend, CopcSource } from './types';
+import { performanceNow, type CopcPerformanceObserver } from '../performance';
 
 const SOURCE_DIMENSIONS: Readonly<Record<CopcPointComponent, string>> = {
   x: 'X',
@@ -82,6 +83,9 @@ class CopcJsSource implements CopcSource {
   readonly source: string;
   private readonly getter: ReturnType<typeof createCopcGetter>;
   private readonly copc: Copc;
+  private performanceObserver?: CopcPerformanceObserver;
+  private activeNodeKey?: string;
+  private pointRangeDurationMs = 0;
 
   constructor(
     source: string,
@@ -89,7 +93,18 @@ class CopcJsSource implements CopcSource {
     copc: Copc,
   ) {
     this.source = source;
-    this.getter = getter;
+    this.getter = async (begin, end) => {
+      const rangeStartedAt = performanceNow();
+      const bytes = await getter(begin, end);
+      const durationMs = performanceNow() - rangeStartedAt;
+      this.pointRangeDurationMs += durationMs;
+      this.performanceObserver?.({
+        stage: 'rangeFetch',
+        durationMs,
+        nodeKey: this.activeNodeKey,
+      });
+      return bytes;
+    };
     this.copc = copc;
   }
 
@@ -134,16 +149,29 @@ class CopcJsSource implements CopcSource {
     hierarchyNode: CopcHierarchyNode,
     fields: CopcPointFieldSelection,
   ): Promise<CopcPointView> {
-    const view = await Copc.loadPointDataView(
-      this.getter,
-      this.copc,
-      hierarchyNode,
-    );
+    this.activeNodeKey = hierarchyNode.key;
+    this.pointRangeDurationMs = 0;
+    const startedAt = performanceNow();
+    try {
+      const view = await Copc.loadPointDataView(
+        this.getter,
+        this.copc,
+        hierarchyNode,
+      );
 
-    // copc.js currently exposes a complete point view. Keep the requested
-    // fields enforced at this adapter boundary until a backend can skip LAZ
-    // layers during decode.
-    return toCopcPointView(view, fields);
+      // copc.js currently exposes a complete point view. Keep the requested
+      // fields enforced at this adapter boundary until a backend can skip LAZ
+      // layers during decode.
+      this.performanceObserver?.({
+        stage: 'decode',
+        durationMs: Math.max(0, performanceNow() - startedAt - this.pointRangeDurationMs),
+        nodeKey: hierarchyNode.key,
+      });
+      return toCopcPointView(view, fields);
+    } finally {
+      this.activeNodeKey = undefined;
+      this.pointRangeDurationMs = 0;
+    }
   }
 
   async loadPointDataBuffer(
@@ -151,6 +179,10 @@ class CopcJsSource implements CopcSource {
     fields: CopcPointFieldSelection,
   ): Promise<CopcPointBuffer> {
     return decodeCopcPointBuffer(await this.loadPointDataView(hierarchyNode, fields));
+  }
+
+  setPerformanceObserver(observer: CopcPerformanceObserver | undefined): void {
+    this.performanceObserver = observer;
   }
 }
 

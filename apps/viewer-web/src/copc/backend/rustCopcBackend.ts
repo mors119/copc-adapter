@@ -17,6 +17,7 @@ import type {
   CopcPointFieldSelection,
 } from '../points/fieldSelection';
 import type { CopcBackend, CopcSource } from './types';
+import type { CopcPerformanceObserver } from '../performance';
 
 export type RustByteSourceFactory = (
   source: string,
@@ -223,6 +224,10 @@ class RustCopcSource implements CopcSource {
     fields: CopcPointFieldSelection,
   ): Promise<CopcPointView> {
     return toCopcPointView(await this.loadPointDataBuffer(node, fields), fields);
+  }
+
+  setPerformanceObserver(observer: CopcPerformanceObserver | undefined): void {
+    this.reader.setPerformanceObserver(observer);
   }
 }
 

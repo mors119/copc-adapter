@@ -115,6 +115,17 @@ function getRootNodes(hierarchy: StreamingHierarchy): StreamingHierarchyNode[] {
   return [...hierarchy.values()].filter((entry) => entry.node.level === 0);
 }
 
+export function compareNodePriority(
+  camera: StreamingCameraState,
+  left: StreamingHierarchyNode,
+  right: StreamingHierarchyNode,
+): number {
+  return right.node.level - left.node.level
+    || calculateBoundsDistanceMeters(camera, left) - calculateBoundsDistanceMeters(camera, right)
+    || left.node.pointCount - right.node.pointCount
+    || left.node.key.localeCompare(right.node.key);
+}
+
 export class NodeSelector {
   private readonly options: StreamingSelectionOptions;
 
@@ -182,11 +193,7 @@ export class NodeSelector {
     }
 
     return [...selected.values()]
-      .sort(
-        (left, right) =>
-          calculateBoundsDistanceMeters(camera, left) -
-          calculateBoundsDistanceMeters(camera, right),
-      )
+      .sort((left, right) => compareNodePriority(camera, left, right))
       .slice(0, this.options.maxNodes);
   }
 }

@@ -1,69 +1,51 @@
 # COPC Adapter
 
-COPC Adapter is an MVP for visualizing a Cloud Optimized Point Cloud (COPC)
-directly in CesiumJS. It reads the original COPC resource through HTTP range
-requests, traverses its hierarchy, loads selected point chunks, transforms them
-to WGS84 coordinates, and renders Cesium point primitives. No preprocessing or
-conversion to a Cesium-specific tile format is required.
+Stream and visualize Cloud Optimized Point Cloud (COPC) data directly in
+CesiumJS without preprocessing or converting it to Cesium-specific tiles.
 
-## MVP Status
+COPC Adapter reads the original COPC resource in the browser, uses HTTP Range
+requests to load the hierarchy and selected point chunks, and renders them in
+CesiumJS. The application keeps ownership of its own `Cesium.Viewer`.
 
-The repository currently provides:
+![COPC Adapter demo](docs/assets/copc-main.gif)
 
-- A browser viewer built with Vite and CesiumJS.
-- `CopcCesiumLayer`, a typed API for loading a COPC URL and attaching it to a
-  caller-owned `Cesium.Viewer`.
-- Metadata loading, recursive COPC hierarchy traversal, and point-chunk loading.
-- Camera-driven node selection, basic LOD limits, and a bounded node cache.
-- CRS transformation to WGS84 plus a Rust/WASM interleaved point-buffer decoder.
-- Fixed-color and dataset-normalized elevation-gradient point styling.
+## Why COPC Adapter
 
-The repository also builds a self-contained ESM npm package. The package keeps
-Cesium external so the host application owns its Cesium version, while the
-COPC and decoder runtime assets are included in the packed artifact.
+Many point-cloud workflows look like this:
 
-## Requirements
-
-- Node.js 18 or later
-- Rust toolchain with the `wasm32-unknown-unknown` target
-
-```bash
-rustup target add wasm32-unknown-unknown
+```text
+Point cloud -> preprocessing -> tiling/conversion -> hosting -> visualization
 ```
 
-## Run the Local Demo
+COPC Adapter keeps the original COPC resource as the source for both storage
+and visualization:
 
-Install the root script dependency and the viewer dependencies:
-
-```bash
-npm ci
-npm ci --prefix apps/viewer-web
+```text
+COPC -> HTTP Range requests -> hierarchy / LoD -> point chunks -> CesiumJS
 ```
 
-Download the default COPC sample and make it available to the Vite app:
+It is a focused browser-side path for applications that want to stream COPC
+data without a separate conversion step.
+
+## Features
+
+- Direct COPC streaming from a browser-readable URL
+- HTTP Range random access and recursive hierarchy traversal
+- Camera-driven distance/bounds-based LoD selection
+- Progressive refinement with bounded streaming work
+- CesiumJS rendering through a caller-owned `Viewer`
+- Stable `copc-js` backend and opt-in Rust/WASM backend
+- Fixed, RGB, elevation, intensity, and classification styling
+- Typed TypeScript API and explicit layer lifecycle
+- Packed npm artifact with declarations and decoder runtime assets
+
+## Quick Start
+
+Install the package and the Cesium version owned by your application:
 
 ```bash
-npm run download-samples -- autzen
-mkdir -p apps/viewer-web/public/samples
-cp samples/local/autzen.copc.laz apps/viewer-web/public/samples/autzen.copc.laz
+npm install @frillab/copc-adapter cesium
 ```
-
-Start the viewer:
-
-```bash
-npm --prefix apps/viewer-web run dev
-```
-
-Open the local URL printed by Vite. The demo uses
-`/samples/autzen.copc.laz`; after it loads, move the Cesium camera to trigger
-streaming selection and point rendering.
-
-No repository-owned screenshot or GIF is available, so this README does not
-include a visual asset.
-
-## Public API
-
-The browser demo uses the API below from `apps/viewer-web/src/index.ts`:
 
 ```ts
 import * as Cesium from 'cesium';
@@ -71,88 +53,160 @@ import { CopcCesiumLayer } from '@frillab/copc-adapter';
 
 const viewer = new Cesium.Viewer('cesium-container');
 const layer = new CopcCesiumLayer({
-  url: '/samples/autzen.copc.laz',
-  pointSize: 2,
+  url: 'https://example.com/data.copc.laz',
   colorMode: 'elevation',
-  backend: 'rust',
-  debug: true,
 });
 
 await layer.load();
 layer.attachTo(viewer);
+```
 
-// These methods do not destroy the caller-owned Cesium Viewer.
+The caller owns the Cesium `Viewer` and is responsible for destroying it.
+Destroying the layer does not destroy the viewer:
+
+```ts
 layer.detachFrom();
-await layer.reload();
-layer.unload();
 layer.destroy();
+viewer.destroy();
 ```
 
-`url` must be readable by the browser and support the range requests made by
-the COPC reader. Cross-origin URLs therefore need compatible CORS headers.
+The COPC source must support HTTP Range requests. Cross-origin sources also
+need CORS headers that allow the consuming origin and expose the range
+response metadata used by the reader.
 
-`load()` rejects with a project-owned `CopcLoadError` when source access,
-metadata/CRS validation, or hierarchy loading fails. Applications can inspect
-its `stage` and `source` fields,
-while `cause` retains the underlying failure for diagnostics. Error messages
-omit URL credentials, query strings, and fragments, so they are suitable for a
-user-facing debug panel.
+## Rust / WASM Backend
+
+`copc-js` is the stable default backend. Rust/WASM is opt-in and experimental:
 
 ```ts
-import { CopcLoadError } from './src';
-
-try {
-  await layer.load();
-} catch (error) {
-  if (error instanceof CopcLoadError) {
-    debugPanel.textContent = error.message;
-  }
-  throw error;
-}
-```
-
-`colorMode` defaults to `'fixed'`, which preserves the original cyan rendering.
-The supported modes are `'fixed'`, `'elevation'`, `'rgb'`, `'intensity'`, and
-`'classification'`. Elevation uses the transformed dataset height range, RGB
-uses source color channels, intensity uses a grayscale range, and classification
-uses a stable categorical palette. Attribute modes fall back to fixed cyan when
-their source dimensions are unavailable.
-
-```ts
-const fixedLayer = new CopcCesiumLayer({
-  url: '/samples/autzen.copc.laz',
-  colorMode: 'fixed',
-});
-
-const elevationLayer = new CopcCesiumLayer({
-  url: '/samples/autzen.copc.laz',
-  colorMode: 'elevation',
-});
-
-const rgbLayer = new CopcCesiumLayer({
-  url: '/samples/autzen.copc.laz',
-  colorMode: 'rgb',
+const layer = new CopcCesiumLayer({
+  url: 'https://example.com/data.copc.laz',
+  backend: 'rust',
 });
 ```
+
+Both backends use the same public layer, streaming, coordinate, and Cesium
+rendering path. Rust/WASM does not create or own the Cesium viewer. It is not
+presented as universally faster; in the tested Autzen scenario, coordinate
+transformation was a larger cost than Rust point decoding.
+
+## Styling Modes
+
+<table>
+  <thead>
+    <tr>
+      <th>RGB</th>
+      <th>Elevation</th>
+      <th>Classification</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><img src="docs/assets/copc-rgb.webp" width="280" alt="RGB COPC rendering"></td>
+      <td><img src="docs/assets/copc-elevation.webp" width="280" alt="Elevation COPC rendering"></td>
+      <td><img src="docs/assets/copc-classification.webp" width="280" alt="Classification COPC rendering"></td>
+    </tr>
+    <tr>
+      <td><code>colorMode: 'rgb'</code></td>
+      <td><code>colorMode: 'elevation'</code></td>
+      <td><code>colorMode: 'classification'</code></td>
+    </tr>
+  </tbody>
+</table>
+
+The supported modes are:
+
+- `fixed`: stable cyan fallback color
+- `rgb`: source RGB channels
+- `elevation`: transformed dataset height range
+- `intensity`: normalized intensity range
+- `classification`: categorical classification palette
+
+Attribute-based modes fall back to the fixed color when the required source
+attribute is unavailable.
+
+## Camera-Driven LoD and Streaming
+
+![COPC Adapter streaming demo](docs/assets/copc-demo.gif)
+
+Camera movement changes hierarchy selection. Coarse nodes provide useful
+coverage while higher-detail nodes are loaded, decoded, prepared, and
+rendered in bounded progressive batches. Ready finer nodes replace their
+coarse ancestors; a coarse node remains visible while its replacement is
+pending.
+
+Streaming updates yield between batches and invalidate stale asynchronous work
+after a newer camera update. The current policy is distance/bounds-based LoD,
+not screen-space-error refinement.
 
 ## Architecture
 
 ```text
 COPC URL
-  -> CopcBackend (copc-js by default, Rust/WASM with backend: 'rust')
-  -> project-owned metadata, hierarchy, and point buffers
-  -> CRS transformation to WGS84
-  -> streaming selection and bounded cache
-  -> Cesium point primitives
+  ↓
+HTTP Range source
+  ↓
+CopcBackend
+  ├─ copc-js
+  └─ Rust/WASM
+  ↓
+COPC metadata / hierarchy / point buffers
+  ↓
+CRS transform → WGS84
+  ↓
+NodeSelector / StreamingManager
+  ↓
+Cesium PointPrimitiveCollection
 ```
 
-`CopcCesiumLayer` owns the COPC and streaming lifecycle. The application owns
-the Cesium `Viewer`; attaching and detaching a layer does not destroy it. See
-[the architecture guide](docs/ARCHITECTURE.md) for module responsibilities.
+The backend reads COPC data. The layer coordinates Cesium camera events, LoD,
+streaming, rendering, and lifecycle. The application creates and owns the
+Cesium `Viewer`. See the [architecture guide](docs/ARCHITECTURE.md) for the
+module boundaries.
 
-## Verification Commands
+## Public API and Lifecycle
 
-From the repository root:
+With a caller-owned `viewer` and a configured `layer`, the lifecycle is:
+
+```ts
+import { CopcCesiumLayer } from '@frillab/copc-adapter';
+
+await layer.load();
+layer.attachTo(viewer);
+
+layer.detachFrom();
+await layer.reload();
+layer.unload();
+layer.destroy();
+
+const snapshot = layer.getSnapshot();
+const metadata = layer.getMetadata();
+```
+
+See [API documentation](docs/API.md) for options, backend boundaries, point
+fields, errors, and lifecycle details.
+
+## Development
+
+Requirements: Node.js 18 or later and a Rust toolchain with the
+`wasm32-unknown-unknown` target.
+
+```bash
+rustup target add wasm32-unknown-unknown
+npm ci
+npm ci --prefix apps/viewer-web
+npm run download-samples -- autzen
+mkdir -p apps/viewer-web/public/samples
+cp samples/local/autzen.copc.laz apps/viewer-web/public/samples/autzen.copc.laz
+```
+
+Start the local viewer with:
+
+```bash
+npm --prefix apps/viewer-web run dev
+```
+
+Core validation commands:
 
 ```bash
 npm --prefix apps/viewer-web run typecheck
@@ -161,74 +215,53 @@ npm --prefix apps/viewer-web run coverage
 npm --prefix apps/viewer-web run build
 npm --prefix apps/viewer-web run test:e2e
 npm run test:pack
+cargo test --workspace
 ```
 
-To generate the ESM library entry, declarations, and package-local WASM assets:
+To build and inspect the library artifact:
 
 ```bash
-npm --prefix apps/viewer-web run build:library
-npm --prefix apps/viewer-web pack
+cd apps/viewer-web
+npm run build:library
+npm pack
 ```
 
-The single packed-artifact smoke test rebuilds Rust/WASM, creates a real npm
-tarball, and verifies that the public bundle, declarations, and both decoder
-WASM assets are included:
-
-```bash
-npm run test:pack
-```
-
-The package declares Cesium as a peer dependency because the consuming
-application owns the Cesium `Viewer` instance:
-
-```bash
-npm install @frillab/copc-adapter cesium
-```
-
-The browser acceptance test uses Playwright Chromium with SwiftShader so it can
-exercise WebGL in headless environments. Install its browser once with:
-
-```bash
-npx --prefix apps/viewer-web playwright install chromium
-```
+The v0.1.0 package has also been checked in a clean Vite + Cesium consumer:
+the generated `.tgz` was installed, built for production, and exercised in a
+browser with Rust/WASM initialization.
 
 ## Known Limitations
 
-- The viewer fully traverses hierarchy metadata before streaming point chunks.
-- LOD uses distance, bounds, and maximum-depth heuristics; it does not use
-  screen-space error.
-- Rendering uses Cesium point primitives with fixed, elevation, RGB, intensity,
-  and classification color modes. When present in the LAS point format,
-  `intensity`, `classification`, `red`, `green`, and `blue` are preserved in
-  typed attribute arrays alongside the XYZ point buffer. Attribute modes fall
-  back to fixed cyan when the required dimensions are unavailable.
-- Loading and decoding run on the main thread; Web Worker offloading is not
-  implemented.
-- `CopcJsBackend` is the default. `RustCopcBackend` is opt-in and supports the
-  current LAS 1.4 point formats 6/7/8 through the same viewer, streaming,
-  coordinate, and Cesium rendering path. Rust failures are surfaced with
-  structured backend categories; there is no hidden fallback to `copc.js`.
-- The local demo and consumer fixture require a downloaded sample COPC file;
-  there is no hosted demo or checked-in visual asset.
-- Vite reports browser-externalized `node:` module warnings while bundling
-  `copc.js` fallback imports. The Playwright browser acceptance test exercises
-  the browser path successfully; these warnings are not a demonstrated runtime
-  failure.
+These are the current v0.1.0 boundaries:
 
-## Future Work
+- Hierarchy metadata is fully traversed before point streaming begins.
+- LoD uses distance and bounds heuristics rather than screen-space error.
+- Frustum and occlusion culling are not implemented yet.
+- Rust/WASM decode still runs on the main thread; worker decode is tracked in
+  [#46](https://github.com/mors119/copc-adapter/issues/46).
+- Rendering currently uses `Cesium.PointPrimitiveCollection`; scalable
+  renderer work is tracked in
+  [#48](https://github.com/mors119/copc-adapter/issues/48).
+- Dense refinement workloads can take several seconds to finish progressively.
+  The scheduler keeps the browser responsive while work is in progress;
+  rendered-point budget and backpressure work is tracked in
+  [#59](https://github.com/mors119/copc-adapter/issues/59).
+- The Rust backend currently targets the supported LAS 1.4 point format
+  subset, including point formats 6, 7, and 8.
+- Source URLs must support HTTP Range requests and appropriate CORS behavior.
 
-1. Add screen-space-error-based refinement and improve selection heuristics.
-2. Move suitable loading and decoding work to Web Workers.
-3. Broaden Rust backend format and edge-case coverage before considering it for
-   the default backend.
-4. Publish the library after broader consumer compatibility validation.
+## Roadmap
 
-## Submission Summary
+Follow-up work includes:
 
-This MVP demonstrates the core project goal: a browser can visualize a COPC
-file in CesiumJS directly from the source data, selecting and loading point
-chunks as the camera changes. The project deliberately documents the remaining
-scalability and packaging work rather than presenting those items as complete.
+- View- and frustum-aware selection with screen-space-error refinement
+- Web Worker decode and loading ([#46](https://github.com/mors119/copc-adapter/issues/46))
+- Renderer scalability ([#48](https://github.com/mors119/copc-adapter/issues/48))
+- Rendered-point budget and streaming backpressure ([#59](https://github.com/mors119/copc-adapter/issues/59))
+
+See the [project roadmap](docs/ROADMAP.md) and the
+[GitHub issue tracker](https://github.com/mors119/copc-adapter/issues) for
+scope and status.
 
 ## Related Documentation
 
@@ -237,3 +270,4 @@ scalability and packaging work rather than presenting those items as complete.
 - [Examples](docs/EXAMPLES.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Sample datasets](samples/README.md)
+- [Issue #61 performance work](https://github.com/mors119/copc-adapter/issues/61)

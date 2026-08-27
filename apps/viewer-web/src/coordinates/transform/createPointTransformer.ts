@@ -41,9 +41,10 @@ export function createPointTransformer(
 
   const horizontalWkt = extractHorizontalWkt(metadata.wkt);
   const verticalUnitScale = extractVerticalUnitScale(metadata.wkt);
+  const projection = proj4(horizontalWkt, 'WGS84');
 
   return (point: CopcPoint): GeographicPoint => {
-    const [longitude, latitude] = proj4(horizontalWkt, 'WGS84', [point.x, point.y]);
+    const [longitude, latitude] = projection.forward([point.x, point.y]);
 
     return {
       longitude,

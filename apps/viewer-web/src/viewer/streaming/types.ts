@@ -23,6 +23,8 @@ export type StreamingSelectionOptions = {
   maxDepth: number;
   refineDistanceMultiplier: number;
   maxRenderDistanceMeters: number;
+  /** Internal release-safety bound; this is not a rendered-point API. */
+  maxPointsPerBatch?: number;
 };
 
 export type StreamingHierarchyNode = {
@@ -40,4 +42,11 @@ export type StreamingUpdateResult = {
   selectedNodeKeys: string[];
   removedNodeKeys: string[];
   loadedNodePoints: Map<string, GeographicPointBuffer>;
+};
+
+export type StreamingProgress = {
+  selectedNodeKeys: string[];
+  removedNodeKeys: string[];
+  loadedNodePoints: Map<string, GeographicPointBuffer>;
+  completedBatchPointCount: number;
 };
