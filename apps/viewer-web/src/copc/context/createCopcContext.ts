@@ -13,6 +13,7 @@ import type {
   CopcPointView,
 } from '../types/copc';
 import type { CopcPointFieldSelection } from '../points/fieldSelection';
+import type { CopcPerformanceObserver } from '../performance';
 
 /**
  * Reusable project-owned context around an opened backend source.
@@ -26,11 +27,17 @@ export class CopcContext implements CopcSource {
     node: CopcHierarchyNode,
     fields: CopcPointFieldSelection,
   ) => Promise<CopcPointBuffer>;
+  readonly setPerformanceObserver?: (
+    observer: CopcPerformanceObserver | undefined,
+  ) => void;
 
   private constructor(delegate: CopcSource) {
     this.delegate = delegate;
     if (delegate.loadPointDataBuffer) {
       this.loadPointDataBuffer = delegate.loadPointDataBuffer.bind(delegate);
+    }
+    if (delegate.setPerformanceObserver) {
+      this.setPerformanceObserver = delegate.setPerformanceObserver.bind(delegate);
     }
   }
 

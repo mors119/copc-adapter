@@ -6,9 +6,11 @@ import { createNodePointCache } from '../src/viewer/streaming/createNodePointCac
 import {
   calculateBoundsDistanceMeters,
   calculateDistanceMeters,
+  compareNodePriority,
   NodeSelector,
 } from '../src/viewer/streaming/NodeSelector.ts';
 import { StreamingManager } from '../src/viewer/streaming/StreamingManager.ts';
+import { createStreamingWorkBatches } from '../src/viewer/streaming/scheduler.ts';
 
 function createStreamingNode({
   key,
@@ -59,6 +61,53 @@ function createCamera(overrides = {}) {
     ...overrides,
   };
 }
+
+function createWorkNode(key, pointCount, level = 1) {
+  return createStreamingNode({
+    key,
+    level,
+    pointCount,
+    center: { longitude: -123, latitude: 44, height: 100 },
+    bounds: {
+      minX: -123.01,
+      minY: 43.99,
+      minZ: 50,
+      maxX: -122.99,
+      maxY: 44.01,
+      maxZ: 150,
+    },
+    approximateSizeMeters: 100,
+    boundingRadiusMeters: 20,
+  });
+}
+
+test('streaming work batches enforce a deterministic point bound', () => {
+  const batches = createStreamingWorkBatches([
+    createWorkNode('a', 70),
+    createWorkNode('b', 30),
+    createWorkNode('c', 40),
+  ], 100);
+
+  assert.deepEqual(
+    batches.map((batch) => [batch.nodes.map((node) => node.node.key), batch.estimatedPointCount]),
+    [
+      [['a', 'b'], 100],
+      [['c'], 40],
+    ],
+  );
+});
+
+test('a stricter workload bound never increases synchronous batch workload', () => {
+  const nodes = [createWorkNode('a', 100), createWorkNode('b', 100), createWorkNode('c', 100)];
+  const relaxed = createStreamingWorkBatches(nodes, 300);
+  const strict = createStreamingWorkBatches(nodes, 100);
+
+  assert.ok(strict.length >= relaxed.length);
+  assert.ok(
+    Math.max(...strict.map((batch) => batch.estimatedPointCount))
+      <= Math.max(...relaxed.map((batch) => batch.estimatedPointCount)),
+  );
+});
 
 test('NodeSelector selects the visible root node when the camera is far', () => {
   const selector = createSelector();
@@ -185,8 +234,16 @@ test('NodeSelector selects child nodes when the camera is closer', () => {
 
   assert.deepEqual(
     selected.map((entry) => entry.node.key),
-    ['1-0-0-0', '1-1-0-0'],
+    ['1-1-0-0', '1-0-0-0'],
   );
+});
+
+test('NodeSelector prioritises finer LoD before a closer coarse fallback', () => {
+  const camera = createCamera();
+  const coarse = createWorkNode('coarse', 10, 1);
+  const fine = createWorkNode('fine', 100, 2);
+
+  assert.ok(compareNodePriority(camera, fine, coarse) < 0);
 });
 
 test('NodeSelector caps a refined selection at maxNodes', () => {
@@ -752,6 +809,43 @@ test('StreamingManager propagates load failures and retries after cache eviction
   assert.equal(attempts, 2);
   assert.deepEqual(update.selectedNodeKeys, ['0-0-0-0']);
   assert.equal(update.loadedNodePoints.size, 1);
+});
+
+test('StreamingManager ignores stale generation results after clear', async () => {
+  let callCount = 0;
+  const resolvers = [];
+  const hierarchy = new Map([
+    ['0-0-0-0', createWorkNode('0-0-0-0', 10, 0)],
+  ]);
+  const cache = createNodePointCache(
+    () => new Promise((resolve) => {
+      callCount += 1;
+      resolvers.push(resolve);
+    }),
+    { maxEntries: 2 },
+  );
+  const manager = new StreamingManager(hierarchy, {
+    maxNodes: 8,
+    maxDepth: 4,
+    refineDistanceMultiplier: 6,
+    maxRenderDistanceMeters: 12000,
+    maxPointsPerBatch: 10,
+  }, cache);
+  const progress = [];
+  const firstUpdate = manager.update(createCamera(), (value) => progress.push(value));
+  await Promise.resolve();
+  manager.clear();
+  const secondUpdate = manager.update(createCamera(), (value) => progress.push(value));
+  await Promise.resolve();
+  assert.equal(callCount, 2);
+
+  resolvers[0]({ pointCount: 10, coordinates: new Float64Array(30) });
+  await Promise.resolve();
+  assert.equal(progress.filter((value) => value.loadedNodePoints.size > 0).length, 0);
+  resolvers[1]({ pointCount: 10, coordinates: new Float64Array(30) });
+  await Promise.all([firstUpdate, secondUpdate]);
+
+  assert.equal(progress.filter((value) => value.loadedNodePoints.size > 0).length, 1);
 });
 
 test('extractHorizontalUnitScale ignores nested geographic angular units', () => {

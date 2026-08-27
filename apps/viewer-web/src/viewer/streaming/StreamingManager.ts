@@ -7,6 +7,9 @@ import type {
   StreamingSelectionOptions,
   StreamingUpdateResult,
 } from './types';
+import { performanceNow } from '../../copc/performance';
+import { StreamingPerformanceRecorder } from './performance';
+import { createStreamingWorkBatches, yieldToBrowser } from './scheduler';
 
 export type StreamingNodePointLoader = (
   nodeKey: string,
@@ -16,20 +19,41 @@ export class StreamingManager {
   private readonly hierarchy: StreamingHierarchy;
   private readonly selector: NodeSelector;
   private readonly cache: NodePointCache<GeographicPointBuffer>;
+  private readonly performanceRecorder: StreamingPerformanceRecorder;
+  private readonly maxPointsPerBatch: number;
+  private updateGeneration = 0;
   private readonly selectedNodeKeys = new Set<string>();
 
   constructor(
     hierarchy: StreamingHierarchy,
     options: StreamingSelectionOptions,
     cache: NodePointCache<GeographicPointBuffer>,
+    performanceRecorder = new StreamingPerformanceRecorder(),
   ) {
     this.hierarchy = hierarchy;
     this.selector = new NodeSelector(options);
     this.cache = cache;
+    this.performanceRecorder = performanceRecorder;
+    this.maxPointsPerBatch = options.maxPointsPerBatch ?? 100_000;
   }
 
-  async update(camera: StreamingCameraState): Promise<StreamingUpdateResult> {
+  getPerformanceSnapshot() {
+    return this.performanceRecorder.getSnapshot();
+  }
+
+  async update(
+    camera: StreamingCameraState,
+    onProgress?: (progress: import('./types').StreamingProgress) => void,
+  ): Promise<StreamingUpdateResult> {
+    const updateGeneration = ++this.updateGeneration;
+    this.performanceRecorder.beginUpdate();
+    const selectionStartedAt = performanceNow();
     const selectedNodes = this.selector.selectVisibleNodes(camera, this.hierarchy);
+    this.performanceRecorder.setSelection(
+      selectedNodes.length,
+      selectedNodes.reduce((total, entry) => total + entry.node.pointCount, 0),
+      performanceNow() - selectionStartedAt,
+    );
     const nextSelectedNodeKeys = new Set(
       selectedNodes.map((entry) => entry.node.key),
     );
@@ -46,18 +70,48 @@ export class StreamingManager {
       this.selectedNodeKeys.add(nodeKey);
     }
 
+    onProgress?.({
+      selectedNodeKeys: [...nextSelectedNodeKeys].sort(),
+      removedNodeKeys,
+      loadedNodePoints: new Map(),
+      completedBatchPointCount: 0,
+    });
+
     const loadedNodePoints = new Map<string, GeographicPointBuffer>();
 
-    await Promise.all(
-      selectedNodes.map(async (node) => {
+    for (const batch of createStreamingWorkBatches(selectedNodes, this.maxPointsPerBatch)) {
+      for (const node of batch.nodes) {
+        if (updateGeneration !== this.updateGeneration) {
+          break;
+        }
+
         const nodeKey = node.node.key;
         const points = await this.cache.load(nodeKey);
 
+        if (updateGeneration !== this.updateGeneration) {
+          break;
+        }
+
         if (this.selectedNodeKeys.has(nodeKey)) {
           loadedNodePoints.set(nodeKey, points);
+          this.performanceRecorder.recordLoadedNode(points.pointCount);
+          onProgress?.({
+            selectedNodeKeys: [...nextSelectedNodeKeys].sort(),
+            removedNodeKeys,
+            loadedNodePoints: new Map([[nodeKey, points]]),
+            completedBatchPointCount: points.pointCount,
+          });
         }
-      }),
-    );
+      }
+
+      if (updateGeneration !== this.updateGeneration) {
+        break;
+      }
+
+      await yieldToBrowser();
+    }
+
+    this.performanceRecorder.finishUpdate();
 
     return {
       selectedNodeKeys: [...nextSelectedNodeKeys].sort(),
@@ -67,7 +121,13 @@ export class StreamingManager {
   }
 
   clear(): void {
+    this.invalidate();
     this.selectedNodeKeys.clear();
     this.cache.clear();
+  }
+
+  /** Invalidate queued work while preserving reusable point-cache entries. */
+  invalidate(): void {
+    this.updateGeneration += 1;
   }
 }

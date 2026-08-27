@@ -36,8 +36,11 @@ import {
   StreamingManager,
   type StreamingCameraState,
   type StreamingHierarchy,
+  type StreamingProgress,
   type StreamingSelectionOptions,
 } from './streaming/index';
+import { performanceNow, type CopcPerformanceObserver } from '../copc/performance';
+import { StreamingPerformanceRecorder } from './streaming/performance';
 
 export type CopcLayerOptions = {
   url: string;
@@ -72,6 +75,7 @@ export type CopcLayerSnapshot = {
   datasetUrl: string;
   attached: boolean;
   backend: CopcBackendName | 'custom';
+  performance: ReturnType<StreamingManager['getPerformanceSnapshot']>;
 };
 
 const STREAMING_OPTIONS: StreamingSelectionOptions = {
@@ -79,6 +83,7 @@ const STREAMING_OPTIONS: StreamingSelectionOptions = {
   maxDepth: 6,
   refineDistanceMultiplier: 6,
   maxRenderDistanceMeters: 12000,
+  maxPointsPerBatch: 100000,
 };
 const MAX_CACHED_NODES = 48;
 
@@ -94,6 +99,13 @@ export class CopcLayerController {
     this.loadRenderableNodePoints(nodeKey),
     { maxEntries: MAX_CACHED_NODES },
   );
+  private readonly performanceRecorder = new StreamingPerformanceRecorder();
+  private readonly performanceObserver: CopcPerformanceObserver = (event) => {
+    const stage = event.stage === 'rangeFetch'
+      ? 'rangeFetchDurationMs'
+      : 'decodeDurationMs';
+    this.performanceRecorder.recordStage(stage, event.durationMs, event.stage === 'decode');
+  };
   private streamingState?: StreamingState;
   private updateTimer?: number;
   private loadGeneration = 0;
@@ -145,6 +157,7 @@ export class CopcLayerController {
    */
   detachFrom(): void {
     this.streamingGeneration += 1;
+    this.streamingState?.manager.invalidate();
 
     if (this.updateTimer) {
       window.clearTimeout(this.updateTimer);
@@ -188,6 +201,7 @@ export class CopcLayerController {
       return;
     }
 
+    context.setPerformanceObserver?.(this.performanceObserver);
     const metadata = await loadCopcMetadata(context);
 
     if (!this.isCurrentLoad(loadGeneration)) {
@@ -210,6 +224,7 @@ export class CopcLayerController {
         hierarchy,
         { ...STREAMING_OPTIONS, ...this.options.streaming },
         this.nodePointCache,
+        this.performanceRecorder,
       ),
     };
 
@@ -238,6 +253,7 @@ export class CopcLayerController {
       this.updateTimer = undefined;
     }
 
+    this.streamingState?.manager.clear?.();
     this.removePointCollections();
     this.selectedNodeKeys.clear();
     this.nodePointCache.clear();
@@ -283,6 +299,7 @@ export class CopcLayerController {
       datasetUrl: this.options.url,
       attached: this.viewer !== undefined,
       backend: getCopcBackendName(this.options.backend),
+      performance: this.performanceRecorder.getSnapshot(),
     };
   }
 
@@ -365,8 +382,23 @@ export class CopcLayerController {
     }
 
     const streamingGeneration = ++this.streamingGeneration;
+    let progressApplied = false;
     const update = await streamingState.manager.update(
       this.getStreamingCameraState(),
+      (progress) => {
+        if (
+          streamingGeneration !== this.streamingGeneration
+          || this.viewer !== viewer
+          || this.streamingState !== streamingState
+          || this.lifecycle === 'destroyed'
+        ) {
+          return;
+        }
+
+        this.streamingUpdateCount += 1;
+        progressApplied = true;
+        this.applyStreamingProgress(viewer, progress);
+      },
     );
 
     if (
@@ -378,26 +410,40 @@ export class CopcLayerController {
       return;
     }
 
-    this.streamingUpdateCount += 1;
+    // Keep compatibility with custom/test managers that implement the
+    // original all-at-once update contract and do not emit progress.
+    if (!progressApplied) {
+      this.streamingUpdateCount += 1;
+      this.applyStreamingProgress(viewer, {
+        ...update,
+        completedBatchPointCount: update.loadedNodePoints.size,
+      });
+    }
+
+  }
+
+  private applyStreamingProgress(
+    viewer: Cesium.Viewer,
+    progress: StreamingProgress,
+  ): void {
+    const streamingState = this.streamingState;
+    if (!streamingState) {
+      return;
+    }
 
     this.selectedNodeKeys.clear();
-
-    for (const nodeKey of update.selectedNodeKeys) {
+    for (const nodeKey of progress.selectedNodeKeys) {
       this.selectedNodeKeys.add(nodeKey);
     }
 
-    for (const nodeKey of update.removedNodeKeys) {
-      const collection = this.pointCollections.get(nodeKey);
-
-      if (!collection) {
+    for (const nodeKey of progress.removedNodeKeys) {
+      if (this.isAncestorOfSelectedNode(nodeKey, progress.selectedNodeKeys, streamingState.nodes)) {
         continue;
       }
-
-      viewer.scene.primitives.remove(collection);
-      this.pointCollections.delete(nodeKey);
+      this.removePointCollection(viewer, nodeKey);
     }
 
-    for (const [nodeKey, points] of update.loadedNodePoints) {
+    for (const [nodeKey, points] of progress.loadedNodePoints) {
       if (this.viewer !== viewer || !this.selectedNodeKeys.has(nodeKey)) {
         continue;
       }
@@ -410,9 +456,86 @@ export class CopcLayerController {
         pointSize: this.options.pointSize ?? 3,
         colorMode: this.options.colorMode ?? 'fixed',
         elevationRange: this.getDatasetElevationRange(),
+        onPerformance: (stage, durationMs) => {
+          const metricStage = stage === 'geographicToCartesian'
+            ? 'geographicToCartesianDurationMs'
+            : stage === 'pointStylePreparation'
+              ? 'pointStylePreparationDurationMs'
+              : stage === 'pointCollectionCreation'
+                ? 'pointCollectionCreationDurationMs'
+                : 'pointAddDurationMs';
+          this.performanceRecorder.recordStage(metricStage, durationMs, true);
+        },
       });
       this.pointCollections.set(nodeKey, collection);
     }
+
+    this.removeReplacedCoarseNodes(viewer, streamingState.nodes);
+  }
+
+  private removeReplacedCoarseNodes(
+    viewer: Cesium.Viewer,
+    hierarchy: StreamingHierarchy,
+  ): void {
+    for (const nodeKey of this.pointCollections.keys()) {
+      if (this.selectedNodeKeys.has(nodeKey)) {
+        continue;
+      }
+
+      const selectedDescendants = [...this.selectedNodeKeys]
+        .filter((selectedNodeKey) => this.isAncestor(nodeKey, selectedNodeKey, hierarchy));
+
+      if (
+        selectedDescendants.length === 0
+        || selectedDescendants.every((selectedNodeKey) => this.pointCollections.has(selectedNodeKey))
+      ) {
+        this.removePointCollection(viewer, nodeKey);
+      }
+    }
+  }
+
+  private isAncestorOfSelectedNode(
+    ancestorKey: string,
+    selectedNodeKeys: readonly string[],
+    hierarchy: StreamingHierarchy,
+  ): boolean {
+    return selectedNodeKeys.some((nodeKey) => this.isAncestor(ancestorKey, nodeKey, hierarchy));
+  }
+
+  private isAncestor(
+    ancestorKey: string,
+    descendantKey: string,
+    hierarchy: StreamingHierarchy,
+  ): boolean {
+    if (ancestorKey === descendantKey) {
+      return false;
+    }
+
+    const visited = new Set<string>();
+    const pending = [...(hierarchy.get(ancestorKey)?.children ?? [])];
+    while (pending.length > 0) {
+      const nodeKey = pending.pop();
+      if (!nodeKey || visited.has(nodeKey)) {
+        continue;
+      }
+      if (nodeKey === descendantKey) {
+        return true;
+      }
+      visited.add(nodeKey);
+      pending.push(...(hierarchy.get(nodeKey)?.children ?? []));
+    }
+
+    return false;
+  }
+
+  private removePointCollection(viewer: Cesium.Viewer, nodeKey: string): void {
+    const collection = this.pointCollections.get(nodeKey);
+    if (!collection) {
+      return;
+    }
+
+    viewer.scene.primitives.remove(collection);
+    this.pointCollections.delete(nodeKey);
   }
 
   private async loadRenderableNodePoints(nodeKey: string): Promise<GeographicPointBuffer> {
@@ -428,7 +551,15 @@ export class CopcLayerController {
 
     const points = await this.loadPoints(streamingNode.node);
 
-    return transformPointBuffer(this.streamingState.metadata, points);
+    const transformStartedAt = performanceNow();
+    const transformed = transformPointBuffer(this.streamingState.metadata, points);
+    this.performanceRecorder.recordStage(
+      'crsTransformDurationMs',
+      performanceNow() - transformStartedAt,
+      true,
+    );
+
+    return transformed;
   }
 
   private async loadPoints(node: CopcHierarchyNode): Promise<CopcPointBuffer> {

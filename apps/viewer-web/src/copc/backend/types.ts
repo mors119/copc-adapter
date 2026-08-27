@@ -6,6 +6,7 @@ import type {
   CopcPointView,
 } from '../types/copc';
 import type { CopcPointFieldSelection } from '../points/fieldSelection';
+import type { CopcPerformanceObserver } from '../performance';
 
 /** An opened COPC resource expressed only in project-owned types. */
 export interface CopcSource extends CopcHierarchySource {
@@ -20,6 +21,7 @@ export interface CopcSource extends CopcHierarchySource {
     node: CopcHierarchyNode,
     fields: CopcPointFieldSelection,
   ): Promise<CopcPointBuffer>;
+  setPerformanceObserver?(observer: CopcPerformanceObserver | undefined): void;
 }
 
 /** Opens COPC resources without exposing the library used to read them. */

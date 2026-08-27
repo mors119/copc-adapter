@@ -27,7 +27,8 @@
 - Main-thread loading and decoding can affect responsiveness for larger data.
 - Intensity normalization currently uses each loaded node buffer's range.
 - The package is not published to npm yet.
-- The repository contains no owned screenshot, GIF, or hosted demo.
+- Repository-owned demo media is available in `docs/assets/`; there is no
+  hosted demo yet.
 
 ## Next Work
 
@@ -37,7 +38,6 @@
    the default backend.
 4. Explore scalable rendering approaches and dataset-global attribute statistics.
 5. Publish the library after broader consumer compatibility validation.
-6. Add repository-owned demo media when a reproducible capture is available.
 
 ## Submission State
 

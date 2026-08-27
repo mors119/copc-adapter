@@ -7,6 +7,7 @@ import type {
 import type { CopcMetadata, CopcPointBuffer, CopcPointAttributes } from './types/copc';
 import type { RandomAccessByteSource } from './range/types';
 import type { CopcPointFieldSelection } from './points/fieldSelection';
+import { performanceNow, type CopcPerformanceObserver } from './performance';
 
 const INITIAL_LAS_HEADER_LENGTH = 375;
 const MAX_METADATA_BYTES = 64 * 1024 * 1024;
@@ -233,6 +234,7 @@ export class RustCopcReader {
   readonly source: string;
   readonly header: RustCopcHeader;
   private readonly byteSource: RandomAccessByteSource;
+  private performanceObserver?: CopcPerformanceObserver;
 
   private constructor(byteSource: RandomAccessByteSource, header: RustCopcHeader) {
     this.byteSource = byteSource;
@@ -241,6 +243,25 @@ export class RustCopcReader {
   }
 
   private metadataBytes: Uint8Array | undefined;
+
+  setPerformanceObserver(observer: CopcPerformanceObserver | undefined): void {
+    this.performanceObserver = observer;
+  }
+
+  private async readRange(
+    offset: number,
+    length: number,
+    nodeKey?: string,
+  ): Promise<Uint8Array> {
+    const startedAt = performanceNow();
+    const bytes = await this.byteSource.readRange(offset, length);
+    this.performanceObserver?.({
+      stage: 'rangeFetch',
+      durationMs: performanceNow() - startedAt,
+      nodeKey,
+    });
+    return bytes;
+  }
 
   static async open(byteSource: RandomAccessByteSource): Promise<RustCopcReader> {
     const initialBytes = await byteSource.readRange(0, INITIAL_LAS_HEADER_LENGTH);
@@ -296,7 +317,7 @@ export class RustCopcReader {
     if (!Number.isSafeInteger(end)) {
       throw new RustCopcParseError('overflow', 'hierarchy page range exceeds JavaScript-safe integers');
     }
-    const bytes = await this.byteSource.readRange(pageOffset, pageLength);
+    const bytes = await this.readRange(pageOffset, pageLength);
     return toHierarchySubtree(await parseWithRust(
       bytes,
       (wasm, pointer, length) => wasm.parse_root_hierarchy_json(pointer, length),
@@ -337,7 +358,11 @@ export class RustCopcReader {
     if (!metadataBytes) {
       throw new RustCopcParseError('invalid-input', 'Rust COPC reader metadata is unavailable');
     }
-    const chunkBytes = await this.byteSource.readRange(node.pointDataOffset, node.pointDataLength);
+    const chunkBytes = await this.readRange(
+      node.pointDataOffset,
+      node.pointDataLength,
+      node.key,
+    );
     const wasm = await loadCopcWasm();
     const metadataPointer = wasm.alloc_bytes(metadataBytes.byteLength);
     const chunkPointer = wasm.alloc_bytes(chunkBytes.byteLength);
@@ -352,6 +377,7 @@ export class RustCopcReader {
       const memory = wasm.memory.buffer;
       new Uint8Array(memory, metadataPointer, metadataBytes.byteLength).set(metadataBytes);
       new Uint8Array(memory, chunkPointer, chunkBytes.byteLength).set(chunkBytes);
+      const decodeStartedAt = performanceNow();
       const responsePointer = wasm.decode_copc_node_json(
         metadataPointer,
         metadataBytes.byteLength,
@@ -366,6 +392,11 @@ export class RustCopcReader {
         greenPointer,
         bluePointer,
       );
+      this.performanceObserver?.({
+        stage: 'decode',
+        durationMs: performanceNow() - decodeStartedAt,
+        nodeKey: node.key,
+      });
       try {
         const response = JSON.parse(readCString(wasm.memory, responsePointer)) as RustParserResponse<RustDecodeValue>;
         if (!response.ok || response.value === undefined) {
