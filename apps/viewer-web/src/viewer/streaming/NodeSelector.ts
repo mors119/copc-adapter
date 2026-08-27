@@ -21,10 +21,16 @@ function calculateSurfaceDistanceMeters(
   const deltaLatitude = latitude2 - latitude1;
   const deltaLongitude = toRadians(endLongitude - startLongitude);
   const haversine =
-    (Math.sin(deltaLatitude / 2) ** 2) +
-    (Math.cos(latitude1) * Math.cos(latitude2) * (Math.sin(deltaLongitude / 2) ** 2));
+    Math.sin(deltaLatitude / 2) ** 2 +
+    Math.cos(latitude1) *
+      Math.cos(latitude2) *
+      Math.sin(deltaLongitude / 2) ** 2;
 
-  return 2 * earthRadiusMeters * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+  return (
+    2 *
+    earthRadiusMeters *
+    Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine))
+  );
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -50,9 +56,21 @@ export function calculateBoundsDistanceMeters(
   camera: StreamingCameraState,
   node: StreamingHierarchyNode,
 ): number {
-  const closestLongitude = clamp(camera.longitude, node.bounds.minX, node.bounds.maxX);
-  const closestLatitude = clamp(camera.latitude, node.bounds.minY, node.bounds.maxY);
-  const closestHeight = clamp(camera.height, node.bounds.minZ, node.bounds.maxZ);
+  const closestLongitude = clamp(
+    camera.longitude,
+    node.bounds.minX,
+    node.bounds.maxX,
+  );
+  const closestLatitude = clamp(
+    camera.latitude,
+    node.bounds.minY,
+    node.bounds.maxY,
+  );
+  const closestHeight = clamp(
+    camera.height,
+    node.bounds.minZ,
+    node.bounds.maxZ,
+  );
   const surfaceDistance = calculateSurfaceDistanceMeters(
     camera.latitude,
     camera.longitude,
@@ -70,10 +88,9 @@ function isNodeVisible(
   options: StreamingSelectionOptions,
 ): boolean {
   const boundsDistance = calculateBoundsDistanceMeters(camera, node);
-  const visibleDistance = Math.min(
-    options.maxRenderDistanceMeters,
-    camera.viewDistanceMeters,
-  ) + node.boundingRadiusMeters;
+  const visibleDistance =
+    Math.min(options.maxRenderDistanceMeters, camera.viewDistanceMeters) +
+    node.boundingRadiusMeters;
 
   return boundsDistance <= visibleDistance;
 }
@@ -88,7 +105,8 @@ function shouldRefine(
   }
 
   const distanceMeters = calculateDistanceMeters(camera, node);
-  const refineDistance = node.approximateSizeMeters * options.refineDistanceMultiplier;
+  const refineDistance =
+    node.approximateSizeMeters * options.refineDistanceMultiplier;
 
   return distanceMeters <= refineDistance;
 }
@@ -110,13 +128,13 @@ export class NodeSelector {
   ): StreamingHierarchyNode[] {
     const selected = new Map<string, StreamingHierarchyNode>();
 
-    const visit = (node: StreamingHierarchyNode): void => {
+    const visit = (node: StreamingHierarchyNode): boolean => {
       if (!isNodeVisible(camera, node, this.options)) {
-        return;
+        return false;
       }
 
       if (shouldRefine(camera, node, this.options)) {
-        let selectedChildCount = 0;
+        let descendantSelected = false;
 
         for (const childKey of node.children) {
           const child = hierarchy.get(childKey);
@@ -125,21 +143,24 @@ export class NodeSelector {
             continue;
           }
 
-          visit(child);
-
-          if (selected.has(child.node.key)) {
-            selectedChildCount += 1;
+          if (visit(child)) {
+            descendantSelected = true;
           }
         }
 
-        if (selectedChildCount > 0) {
-          return;
+        // Keep the parent out when any visible descendant represents it.
+        if (descendantSelected) {
+          return true;
         }
       }
 
       if (node.node.pointCount > 0) {
         selected.set(node.node.key, node);
+
+        return true;
       }
+
+      return false;
     };
 
     for (const rootNode of getRootNodes(hierarchy)) {
