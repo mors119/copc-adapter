@@ -189,6 +189,68 @@ test('NodeSelector selects child nodes when the camera is closer', () => {
   );
 });
 
+test('NodeSelector caps a refined selection at maxNodes', () => {
+  const selector = createSelector({ maxNodes: 1 });
+  const hierarchy = new Map([
+    ['0-0-0-0', createStreamingNode({
+      key: '0-0-0-0',
+      level: 0,
+      pointCount: 100,
+      children: ['1-0-0-0', '1-1-0-0'],
+      center: { longitude: -123, latitude: 44, height: 100 },
+      bounds: {
+        minX: -123.01,
+        minY: 43.99,
+        minZ: 50,
+        maxX: -122.99,
+        maxY: 44.01,
+        maxZ: 150,
+      },
+      approximateSizeMeters: 1200,
+      boundingRadiusMeters: 800,
+    })],
+    ['1-0-0-0', createStreamingNode({
+      key: '1-0-0-0',
+      level: 1,
+      pointCount: 60,
+      center: { longitude: -123.0008, latitude: 44, height: 100 },
+      bounds: {
+        minX: -123.001,
+        minY: 43.999,
+        minZ: 80,
+        maxX: -123.0006,
+        maxY: 44.001,
+        maxZ: 120,
+      },
+      approximateSizeMeters: 300,
+      boundingRadiusMeters: 120,
+    })],
+    ['1-1-0-0', createStreamingNode({
+      key: '1-1-0-0',
+      level: 1,
+      pointCount: 40,
+      center: { longitude: -122.9992, latitude: 44, height: 100 },
+      bounds: {
+        minX: -122.9994,
+        minY: 43.999,
+        minZ: 80,
+        maxX: -122.999,
+        maxY: 44.001,
+        maxZ: 120,
+      },
+      approximateSizeMeters: 300,
+      boundingRadiusMeters: 120,
+    })],
+  ]);
+
+  const selected = selector.selectVisibleNodes(
+    createCamera({ height: 1500, viewDistanceMeters: 6000 }),
+    hierarchy,
+  );
+
+  assert.equal(selected.length, 1);
+});
+
 test('NodeSelector does not select a parent when a deeper descendant is selected', () => {
   const selector = createSelector();
   const hierarchy = new Map([
