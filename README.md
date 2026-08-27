@@ -127,7 +127,7 @@ attribute is unavailable.
 
 ## Camera-Driven LoD and Streaming
 
-![COPC Adapter streaming demo](docs/assets/copc-demo.gif)
+![COPC Adapter streaming demo](docs/assets/copc-streaming.gif)
 
 Camera movement changes hierarchy selection. Coarse nodes provide useful
 coverage while higher-detail nodes are loaded, decoded, prepared, and
@@ -226,13 +226,19 @@ npm run build:library
 npm pack
 ```
 
-The v0.1.0 package has also been checked in a clean Vite + Cesium consumer:
-the generated `.tgz` was installed, built for production, and exercised in a
-browser with Rust/WASM initialization.
+The current npm release is `v0.1.1`. It corrects a packaging issue in `v0.1.0`
+where an existing `dist` directory could leave stale files in the published
+artifact. Library builds now clean `dist` first, `npm pack` rebuilds through
+`prepack`, and sample COPC data is excluded from the package.
+
+The generated `.tgz` is checked in a clean Vite + Cesium consumer by installing
+it, building for production, and exercising Rust/WASM initialization in a
+browser. The npm `latest` version and the package metadata are both `0.1.1`
+for this corrected release.
 
 ## Known Limitations
 
-These are the current v0.1.0 boundaries:
+These are the current v0.1.1 boundaries:
 
 - Hierarchy metadata is fully traversed before point streaming begins.
 - LoD uses distance and bounds heuristics rather than screen-space error.

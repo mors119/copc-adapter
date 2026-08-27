@@ -53,21 +53,15 @@ function assertIncluded(entries, entry) {
 }
 
 try {
-  console.log('Building the library package...');
-  await run(npmCommand(), ['run', 'build:library'], {
-    cwd: packageDirectory,
-    stdio: 'inherit',
-  });
-
-  const packResult = await run(
+  console.log('Packing a freshly built library package...');
+  await run(
     npmCommand(),
-    ['pack', '--pack-destination', packageOutputDirectory, '--json'],
+    ['pack', '--pack-destination', packageOutputDirectory],
     { cwd: packageDirectory },
   );
-  const packMetadata = JSON.parse(packResult.stdout);
-  const packedFilename =
-    packMetadata[0]?.filename ??
-    (await readdir(packageOutputDirectory)).find((entry) => entry.endsWith('.tgz'));
+  const packedFilename = (await readdir(packageOutputDirectory)).find((entry) =>
+    entry.endsWith('.tgz'),
+  );
 
   if (!packedFilename) {
     throw new Error('npm pack did not produce an adapter tarball');

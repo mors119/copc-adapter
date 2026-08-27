@@ -1,6 +1,6 @@
 {
   "name": "@frillab/copc-adapter",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Stream and visualize COPC point clouds directly in CesiumJS.",
   "license": "Apache-2.0",
@@ -16,12 +16,17 @@
   },
   "types": "./dist/index.d.ts",
   "files": [
-    "dist"
+    "dist",
+    "!dist/samples",
+    "!dist/samples/**",
+    "!dist/**/*.copc.laz"
   ],
   "scripts": {
     "dev": "npm run prepare-assets && vite",
     "build": "tsc && npm run prepare-assets && vite build",
-    "build:library": "npm run prepare-library-assets && vite build --config vite.lib.config.ts && tsc -p tsconfig.lib.json && npm run finalize-library-assets",
+    "clean:library": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
+    "build:library": "npm run clean:library && npm run prepare-library-assets && vite build --config vite.lib.config.ts && tsc -p tsconfig.lib.json && npm run finalize-library-assets",
+    "prepack": "npm run build:library",
     "typecheck": "tsc --noEmit",
     "test": "npm run prepare-copc-wasm && node --import tsx --test test/*.test.mjs",
     "test:e2e": "playwright test",
