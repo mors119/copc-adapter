@@ -123,26 +123,30 @@ function getState() {
 
 async function probeRustAttributes() {
   const source = await new RustCopcBackend().open(datasetUrl);
-  const rootPage = await source.loadHierarchyPage(source.getRootHierarchyPage());
-  const rootNode = rootPage.nodes.find((node) => node.key === '0-0-0-0') ?? rootPage.nodes[0];
-  const view = await source.loadPointDataView(
-    rootNode,
-    new Set(['position', 'intensity', 'classification', 'rgb']),
-  );
-  const sample = {};
-  for (const component of ['x', 'y', 'z', 'intensity', 'classification', 'red', 'green', 'blue']) {
-    if (component === 'x' || component === 'y' || component === 'z'
-      || view.availableFields.has(component === 'intensity'
-        ? 'intensity'
-        : component === 'classification' ? 'classification' : 'rgb')) {
-      sample[component] = view.getter(component)(0);
+  try {
+    const rootPage = await source.loadHierarchyPage(source.getRootHierarchyPage());
+    const rootNode = rootPage.nodes.find((node) => node.key === '0-0-0-0') ?? rootPage.nodes[0];
+    const view = await source.loadPointDataView(
+      rootNode,
+      new Set(['position', 'intensity', 'classification', 'rgb']),
+    );
+    const sample = {};
+    for (const component of ['x', 'y', 'z', 'intensity', 'classification', 'red', 'green', 'blue']) {
+      if (component === 'x' || component === 'y' || component === 'z'
+        || view.availableFields.has(component === 'intensity'
+          ? 'intensity'
+          : component === 'classification' ? 'classification' : 'rgb')) {
+        sample[component] = view.getter(component)(0);
+      }
     }
+    return {
+      pointCount: view.pointCount,
+      availableFields: [...view.availableFields].sort(),
+      sample,
+    };
+  } finally {
+    source.destroy?.();
   }
-  return {
-    pointCount: view.pointCount,
-    availableFields: [...view.availableFields].sort(),
-    sample,
-  };
 }
 
 window.__PACKED_CONSUMER__ = {

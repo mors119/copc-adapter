@@ -261,6 +261,7 @@ class CopcJsSource implements CopcSource {
         stage: 'decode',
         durationMs: Math.max(0, performanceNow() - startedAt - pointRangeDurationMs),
         nodeKey: hierarchyNode.key,
+        blocksMainThread: true,
       });
       return toCopcPointView(view, fields);
     } catch (error: unknown) {

@@ -22,6 +22,10 @@ export interface CopcSource extends CopcHierarchySource {
     fields: CopcPointFieldSelection,
   ): Promise<CopcPointBuffer>;
   setPerformanceObserver?(observer: CopcPerformanceObserver | undefined): void;
+  /** Drop queued decode work that cannot contribute to the current view. */
+  cancelPendingPointJobs?(): void;
+  /** Release source-owned worker/runtime resources. */
+  destroy?(): void;
 }
 
 /** Opens COPC resources without exposing the library used to read them. */

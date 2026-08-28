@@ -1,10 +1,14 @@
 import { loadCopcWasm } from '../wasm/copcWasm';
+import { decodeRustCopcNode, getRustPointFieldMask } from './rustCopcNodeDecoder';
+import {
+  RustCopcDecodeWorkerPool,
+} from './rustCopcDecodeWorkerPool';
 import type {
   CopcHierarchyNode,
   CopcHierarchyPage,
   CopcHierarchySubtree,
 } from './hierarchy/types';
-import type { CopcMetadata, CopcPointBuffer, CopcPointAttributes } from './types/copc';
+import type { CopcMetadata, CopcPointBuffer } from './types/copc';
 import type { RandomAccessByteSource } from './range/types';
 import type { CopcPointFieldSelection } from './points/fieldSelection';
 import { performanceNow, type CopcPerformanceObserver } from './performance';
@@ -15,9 +19,6 @@ const MAX_HIERARCHY_PAGE_BYTES = 64 * 1024 * 1024;
 const MAX_SAFE_INTEGER = Number.MAX_SAFE_INTEGER;
 const MAX_DECODE_POINTS = 5_000_000;
 const MAX_NODE_CHUNK_BYTES = 64 * 1024 * 1024;
-const FIELD_INTENSITY = 1 << 0;
-const FIELD_CLASSIFICATION = 1 << 1;
-const FIELD_RGB = 1 << 2;
 
 type RustHeaderValue = {
   version_major: number;
@@ -65,36 +66,9 @@ type RustParserResponse<T> = {
   };
 };
 
-type RustDecodeValue = {
-  point_count: number;
-  intensity: boolean;
-  classification: boolean;
-  rgb: boolean;
-};
-
-export type RustCopcParseErrorCode =
-  | 'invalid-input'
-  | 'truncated'
-  | 'invalid-header'
-  | 'unsupported-value'
-  | 'invalid-value'
-  | 'missing-copc-info'
-  | 'malformed-copc-info'
-  | 'malformed-wkt'
-  | 'invalid-hierarchy'
-  | 'overflow'
-  | string;
-
-/** Structured validation failure returned by the Rust COPC parser. */
-export class RustCopcParseError extends Error {
-  readonly code: RustCopcParseErrorCode;
-
-  constructor(code: RustCopcParseErrorCode, message: string, options?: ErrorOptions) {
-    super(message, options);
-    this.name = 'RustCopcParseError';
-    this.code = code;
-  }
-}
+export { RustCopcParseError } from './rustCopcErrors';
+export type { RustCopcParseErrorCode } from './rustCopcErrors';
+import { RustCopcParseError } from './rustCopcErrors';
 
 export type RustCopcHeader = RustHeaderValue;
 
@@ -234,12 +208,16 @@ export class RustCopcReader {
   readonly source: string;
   readonly header: RustCopcHeader;
   private readonly byteSource: RandomAccessByteSource;
+  private readonly decodeWorkerPool?: RustCopcDecodeWorkerPool;
   private performanceObserver?: CopcPerformanceObserver;
 
   private constructor(byteSource: RandomAccessByteSource, header: RustCopcHeader) {
     this.byteSource = byteSource;
     this.source = byteSource.source;
     this.header = header;
+    this.decodeWorkerPool = typeof Worker !== 'undefined'
+      ? new RustCopcDecodeWorkerPool()
+      : undefined;
   }
 
   private metadataBytes: Uint8Array | undefined;
@@ -275,6 +253,7 @@ export class RustCopcReader {
     );
     const reader = new RustCopcReader(byteSource, header);
     reader.metadataBytes = metadataBytes;
+    reader.decodeWorkerPool?.setMetadata(metadataBytes);
     return reader;
   }
 
@@ -351,9 +330,6 @@ export class RustCopcReader {
       );
     }
 
-    const requestedFields = (fields.has('intensity') ? FIELD_INTENSITY : 0)
-      | (fields.has('classification') ? FIELD_CLASSIFICATION : 0)
-      | (fields.has('rgb') ? FIELD_RGB : 0);
     const metadataBytes = this.metadataBytes;
     if (!metadataBytes) {
       throw new RustCopcParseError('invalid-input', 'Rust COPC reader metadata is unavailable');
@@ -363,88 +339,38 @@ export class RustCopcReader {
       node.pointDataLength,
       node.key,
     );
-    const wasm = await loadCopcWasm();
-    const metadataPointer = wasm.alloc_bytes(metadataBytes.byteLength);
-    const chunkPointer = wasm.alloc_bytes(chunkBytes.byteLength);
-    const coordinatesPointer = wasm.alloc_f64(coordinateLength);
-    const intensityPointer = fields.has('intensity') ? wasm.alloc_u16(pointCount) : 0;
-    const classificationPointer = fields.has('classification') ? wasm.alloc_u8(pointCount) : 0;
-    const redPointer = fields.has('rgb') ? wasm.alloc_u16(pointCount) : 0;
-    const greenPointer = fields.has('rgb') ? wasm.alloc_u16(pointCount) : 0;
-    const bluePointer = fields.has('rgb') ? wasm.alloc_u16(pointCount) : 0;
-
-    try {
-      const memory = wasm.memory.buffer;
-      new Uint8Array(memory, metadataPointer, metadataBytes.byteLength).set(metadataBytes);
-      new Uint8Array(memory, chunkPointer, chunkBytes.byteLength).set(chunkBytes);
-      const decodeStartedAt = performanceNow();
-      const responsePointer = wasm.decode_copc_node_json(
-        metadataPointer,
-        metadataBytes.byteLength,
-        chunkPointer,
-        chunkBytes.byteLength,
+    if (this.decodeWorkerPool) {
+      const decoded = await this.decodeWorkerPool.submit({
+        nodeKey: node.key,
         pointCount,
-        requestedFields,
-        coordinatesPointer,
-        intensityPointer,
-        classificationPointer,
-        redPointer,
-        greenPointer,
-        bluePointer,
-      );
+        requestedFields: getRustPointFieldMask(fields),
+        chunk: chunkBytes,
+      });
       this.performanceObserver?.({
         stage: 'decode',
-        durationMs: performanceNow() - decodeStartedAt,
+        durationMs: decoded.decodeDurationMs,
         nodeKey: node.key,
+        blocksMainThread: false,
       });
-      try {
-        const response = JSON.parse(readCString(wasm.memory, responsePointer)) as RustParserResponse<RustDecodeValue>;
-        if (!response.ok || response.value === undefined) {
-          throw new RustCopcParseError(
-            response.error?.code ?? 'invalid-input',
-            response.error?.message ?? 'Rust decoder returned an invalid error response',
-          );
-        }
-
-        const value = response.value;
-        if (value.point_count !== pointCount) {
-          throw new RustCopcParseError(
-            'chunk-length-mismatch',
-            `Rust decoder returned ${value.point_count} points; expected ${pointCount}`,
-          );
-        }
-        const coordinates = new Float64Array(coordinateLength);
-        coordinates.set(new Float64Array(wasm.memory.buffer, coordinatesPointer, coordinateLength));
-        const attributes: CopcPointAttributes = {
-          intensity: value.intensity
-            ? Uint16Array.from(new Uint16Array(wasm.memory.buffer, intensityPointer, pointCount))
-            : undefined,
-          classification: value.classification
-            ? Uint8Array.from(new Uint8Array(wasm.memory.buffer, classificationPointer, pointCount))
-            : undefined,
-          red: value.rgb ? Uint16Array.from(new Uint16Array(wasm.memory.buffer, redPointer, pointCount)) : undefined,
-          green: value.rgb ? Uint16Array.from(new Uint16Array(wasm.memory.buffer, greenPointer, pointCount)) : undefined,
-          blue: value.rgb ? Uint16Array.from(new Uint16Array(wasm.memory.buffer, bluePointer, pointCount)) : undefined,
-        };
-        return {
-          pointCount,
-          coordinates,
-          attributes: Object.values(attributes).some((values) => values !== undefined)
-            ? attributes
-            : undefined,
-        };
-      } finally {
-        wasm.free_parser_json(responsePointer);
-      }
-    } finally {
-      wasm.dealloc_bytes(metadataPointer, metadataBytes.byteLength);
-      wasm.dealloc_bytes(chunkPointer, chunkBytes.byteLength);
-      wasm.dealloc_f64(coordinatesPointer, coordinateLength);
-      if (intensityPointer) wasm.dealloc_u16(intensityPointer, pointCount);
-      if (classificationPointer) wasm.dealloc_u8(classificationPointer, pointCount);
-      if (redPointer) wasm.dealloc_u16(redPointer, pointCount);
-      if (greenPointer) wasm.dealloc_u16(greenPointer, pointCount);
-      if (bluePointer) wasm.dealloc_u16(bluePointer, pointCount);
+      const { decodeDurationMs: _decodeDurationMs, ...buffer } = decoded;
+      return buffer;
     }
+
+    const decoded = await decodeRustCopcNode(metadataBytes, chunkBytes, pointCount, fields);
+    this.performanceObserver?.({
+      stage: 'decode',
+      durationMs: decoded.durationMs,
+      nodeKey: node.key,
+      blocksMainThread: true,
+    });
+    return decoded.buffer;
+  }
+
+  cancelPendingPointJobs(): void {
+    this.decodeWorkerPool?.cancelQueued();
+  }
+
+  destroy(): void {
+    this.decodeWorkerPool?.destroy();
   }
 }

@@ -163,7 +163,11 @@ export class CopcLayerController {
     const stage = event.stage === 'rangeFetch'
       ? 'rangeFetchDurationMs'
       : 'decodeDurationMs';
-    this.performanceRecorder.recordStage(stage, event.durationMs, event.stage === 'decode');
+    this.performanceRecorder.recordStage(
+      stage,
+      event.durationMs,
+      event.blocksMainThread ?? event.stage === 'decode',
+    );
   };
   private streamingState?: StreamingState;
   private updateTimer?: number;
@@ -259,6 +263,7 @@ export class CopcLayerController {
     );
 
     if (!this.isCurrentLoad(loadGeneration)) {
+      context.destroy?.();
       return;
     }
 
@@ -266,6 +271,7 @@ export class CopcLayerController {
     const metadata = await loadCopcMetadata(context);
 
     if (!this.isCurrentLoad(loadGeneration)) {
+      context.destroy?.();
       return;
     }
 
@@ -282,6 +288,7 @@ export class CopcLayerController {
     }
 
     if (!this.isCurrentLoad(loadGeneration)) {
+      context.destroy?.();
       return;
     }
 
@@ -297,6 +304,7 @@ export class CopcLayerController {
         { ...STREAMING_OPTIONS, ...this.options.streaming },
         this.nodePointCache,
         this.performanceRecorder,
+        context.cancelPendingPointJobs?.bind(context),
       ),
     };
 
@@ -326,6 +334,7 @@ export class CopcLayerController {
     }
 
     this.streamingState?.manager.clear?.();
+    this.streamingState?.context.destroy?.();
     this.removePointCollections();
     this.selectedNodeKeys.clear();
     this.nodePointCache.clear();

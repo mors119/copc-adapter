@@ -13,3 +13,7 @@ export type {
   CopcBackendSelection,
 } from './selection';
 export type { CopcBackend, CopcSource } from './types';
+export {
+  RustCopcDecodeWorkerPool,
+  RustCopcWorkerError,
+} from '../rustCopcDecodeWorkerPool';

@@ -14,6 +14,7 @@ export type CopcBackendErrorCode =
   | 'laz-decode'
   | 'unsupported'
   | 'wasm'
+  | 'worker'
   | 'unknown';
 
 type CopcLoadErrorOptions = ErrorOptions & {
