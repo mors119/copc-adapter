@@ -859,6 +859,9 @@ test('StreamingManager uses cached nodes and loads missing nodes', async () => {
   const thirdUpdate = await manager.update(
     createCamera({ height: 1500, viewDistanceMeters: 6000 }),
   );
+  const fourthUpdate = await manager.update(
+    createCamera({ height: 40000, viewDistanceMeters: 12000 }),
+  );
 
   assert.deepEqual(firstUpdate.selectedNodeKeys, ['0-0-0-0']);
   assert.equal(firstUpdate.loadedNodePoints.size, 1);
@@ -866,6 +869,8 @@ test('StreamingManager uses cached nodes and loads missing nodes', async () => {
   assert.equal(loadCount, 2);
   assert.deepEqual(thirdUpdate.selectedNodeKeys, ['1-0-0-0']);
   assert.deepEqual(thirdUpdate.removedNodeKeys, ['0-0-0-0']);
+  assert.deepEqual(fourthUpdate.selectedNodeKeys, ['0-0-0-0']);
+  assert.equal(loadCount, 2);
 });
 
 test('StreamingManager.clear resets selection state and cache', async () => {

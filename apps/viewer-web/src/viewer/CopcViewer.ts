@@ -42,6 +42,10 @@ import {
   type StreamingProgress,
   type StreamingSelectionOptions,
 } from './streaming/index';
+import type {
+  NodePointCache,
+  NodePointCacheDiagnostics,
+} from './streaming/createNodePointCache';
 import type { ViewVector3 } from './streaming/index';
 import { performanceNow, type CopcPerformanceObserver } from '../copc/performance';
 import { StreamingPerformanceRecorder } from './streaming/performance';
@@ -55,6 +59,8 @@ export type CopcLayerOptions = {
   backend?: CopcBackendSelection;
   decoder?: CopcPointDecoder;
   renderer?: CopcPointRenderer;
+  /** Maximum retained decoded CPU point-buffer bytes. Defaults to 256 MiB. */
+  maxPointCacheBytes?: number;
 };
 
 type StreamingState = {
@@ -134,6 +140,7 @@ export type CopcLayerSnapshot = {
   attached: boolean;
   backend: CopcBackendName | 'custom';
   performance: ReturnType<StreamingManager['getPerformanceSnapshot']>;
+  pointCache: NodePointCacheDiagnostics;
 };
 
 const STREAMING_OPTIONS: StreamingSelectionOptions = {
@@ -145,6 +152,7 @@ const STREAMING_OPTIONS: StreamingSelectionOptions = {
   maxPointsPerBatch: 100000,
 };
 const MAX_CACHED_NODES = 48;
+const DEFAULT_POINT_CACHE_BYTES = 256 * 1024 * 1024;
 
 /**
  * Internal streaming controller used by the public CopcCesiumLayer facade.
@@ -154,10 +162,7 @@ export class CopcLayerController {
   private readonly options: CopcLayerOptions;
   private readonly pointRenderer: CopcPointRenderer;
   private readonly selectedNodeKeys = new Set<string>();
-  private readonly nodePointCache = createNodePointCache(async (nodeKey) =>
-    this.loadRenderableNodePoints(nodeKey),
-    { maxEntries: MAX_CACHED_NODES },
-  );
+  private readonly nodePointCache: NodePointCache<GeographicPointBuffer>;
   private readonly performanceRecorder = new StreamingPerformanceRecorder();
   private readonly performanceObserver: CopcPerformanceObserver = (event) => {
     const stage = event.stage === 'rangeFetch'
@@ -182,6 +187,13 @@ export class CopcLayerController {
   constructor(options: CopcLayerOptions) {
     this.options = options;
     this.pointRenderer = options.renderer ?? new PointPrimitiveRenderer();
+    this.nodePointCache = createNodePointCache(
+      async (nodeKey) => this.loadRenderableNodePoints(nodeKey),
+      {
+        maxEntries: MAX_CACHED_NODES,
+        maxBytes: options.maxPointCacheBytes ?? DEFAULT_POINT_CACHE_BYTES,
+      },
+    );
   }
 
   /**
@@ -375,11 +387,16 @@ export class CopcLayerController {
       attached: this.viewer !== undefined,
       backend: getCopcBackendName(this.options.backend),
       performance: this.performanceRecorder.getSnapshot(),
+      pointCache: this.nodePointCache.getDiagnostics(),
     };
   }
 
   getHierarchyDiagnostics() {
     return this.streamingState?.hierarchyLoader.getDiagnostics();
+  }
+
+  getPointCacheDiagnostics(): NodePointCacheDiagnostics {
+    return this.nodePointCache.getDiagnostics();
   }
 
   /**

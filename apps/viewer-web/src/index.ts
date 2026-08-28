@@ -85,3 +85,4 @@ export type {
   CopcPointRendererOptions,
   CopcPointRendererPerformanceStage,
 } from './cesium/render/CopcPointRenderer';
+export type { NodePointCacheDiagnostics } from './viewer/streaming/createNodePointCache';

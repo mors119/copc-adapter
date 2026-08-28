@@ -152,6 +152,16 @@ The current `copc.js` release still returns a complete point view internally,
 so `CopcJsBackend` enforces the selection by filtering the project-owned view.
 The Rust backend passes the same request to its selective LAZ decode path.
 
+`StreamingManager` owns the selected-node protection set for the decoded point
+cache, while `createNodePointCache` owns its byte accounting and eviction. A
+resolved entry is charged the sum of the actual `byteLength` values of its
+project-owned typed arrays (including coordinates and present attributes).
+Inactive entries are evicted least-recently-used when either the 48-node safety
+cap or configured `maxPointCacheBytes` budget is exceeded. Selected entries are
+protected; a single oversized selected entry is retained deterministically.
+The diagnostics describe decoded CPU point-buffer memory only, not exact
+Cesium/WebGL/browser memory.
+
 ## Random-Access Byte Source
 
 `apps/viewer-web/src/copc/range/` defines the project-owned

@@ -9,6 +9,7 @@ import type { CopcBackendSelection } from '../copc/backend/selection';
 import type { CopcPointDecoder } from '../copc/points/types';
 import type { CopcHierarchyDiagnostics } from '../copc/hierarchy/types';
 import type { CopcPointRenderer } from '../cesium/render/CopcPointRenderer';
+import type { NodePointCacheDiagnostics } from '../viewer/streaming/createNodePointCache';
 
 export type { CopcColorMode } from '../cesium/style/pointStyle';
 
@@ -39,6 +40,8 @@ export type CopcCesiumLayerOptions = {
   decoder?: CopcPointDecoder;
   /** Optional renderer implementation; the default uses Cesium point primitives. */
   renderer?: CopcPointRenderer;
+  /** Maximum retained decoded CPU point-buffer bytes. Defaults to 256 MiB. */
+  maxPointCacheBytes?: number;
 };
 export type CopcCesiumLayerSnapshot = CopcLayerSnapshot;
 
@@ -103,5 +106,10 @@ export class CopcCesiumLayer {
   /** Return hierarchy request/cache counters for diagnostics and tests. */
   getHierarchyDiagnostics(): CopcHierarchyDiagnostics | undefined {
     return this.controller.getHierarchyDiagnostics();
+  }
+
+  /** Return decoded CPU point-buffer cache counters for diagnostics and tests. */
+  getPointCacheDiagnostics(): NodePointCacheDiagnostics {
+    return this.controller.getPointCacheDiagnostics();
   }
 }
