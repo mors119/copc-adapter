@@ -4,6 +4,7 @@ import * as Cesium from 'cesium';
 
 import { CopcCesiumLayer, CopcSourceError } from '../src/index.ts';
 import { CopcLayerController } from '../src/viewer/CopcViewer.ts';
+import { PointPrimitiveRenderer } from '../src/cesium/render/CopcPointRenderer.ts';
 
 function createFakeViewer() {
   const removedCollections = [];
@@ -131,10 +132,11 @@ function createFakeBackend() {
 test('CopcLayerController destroy releases layer resources without destroying the attached viewer', () => {
   const originalWindow = globalThis.window;
   const fakeViewer = createFakeViewer();
+  const renderer = new PointPrimitiveRenderer();
   const viewer = new CopcLayerController({
     url: '/samples/autzen.copc.laz',
+    renderer,
   });
-  const existingCollection = new Cesium.PointPrimitiveCollection();
   let cleared = 0;
   let removedListener;
 
@@ -145,9 +147,13 @@ test('CopcLayerController destroy releases layer resources without destroying th
     removedListener = listener;
   };
 
+  renderer.attachTo(fakeViewer);
+  renderer.addOrUpdateNode('0-0-0-0', {
+    pointCount: 1,
+    coordinates: new Float64Array([-123, 44, 10]),
+  }, { pointSize: 2 });
   viewer.viewer = fakeViewer;
   viewer.updateTimer = 42;
-  viewer.pointCollections.set('0-0-0-0', existingCollection);
   viewer.selectedNodeKeys.add('0-0-0-0');
   viewer.nodePointCache.clear = () => {
     cleared += 1;
@@ -215,14 +221,20 @@ test('CopcCesiumLayer loads through an injected backend', async () => {
 
 test('CopcLayerController updateStreamingView removes stale nodes and renders newly loaded nodes', async () => {
   const fakeViewer = createFakeViewer();
+  const renderer = new PointPrimitiveRenderer();
   const viewer = new CopcLayerController({
     url: '/samples/autzen.copc.laz',
     colorMode: 'elevation',
+    renderer,
   });
-  const staleCollection = new Cesium.PointPrimitiveCollection();
 
+  renderer.attachTo(fakeViewer);
+  renderer.addOrUpdateNode('0-0-0-0', {
+    pointCount: 1,
+    coordinates: new Float64Array([-123, 44, 10]),
+  }, { pointSize: 2 });
+  const staleCollection = fakeViewer.addedCollections[0];
   viewer.viewer = fakeViewer;
-  viewer.pointCollections.set('0-0-0-0', staleCollection);
   viewer.streamingState = createStreamingState(async () => ({
     selectedNodeKeys: ['1-0-0-0'],
     removedNodeKeys: ['0-0-0-0'],
@@ -246,7 +258,7 @@ test('CopcLayerController updateStreamingView removes stale nodes and renders ne
   assert.deepEqual(viewer.getRenderedNodeKeys(), ['1-0-0-0']);
   assert.equal(fakeViewer.removedCollections[0], staleCollection);
   assert.equal(viewer.getRenderedPointCount(), 2);
-  const renderedCollection = viewer.pointCollections.get('1-0-0-0');
+  const renderedCollection = fakeViewer.addedCollections.at(-1);
   assert.notDeepEqual(
     renderedCollection.get(0).color,
     renderedCollection.get(1).color,
@@ -256,11 +268,12 @@ test('CopcLayerController updateStreamingView removes stale nodes and renders ne
 
 test('CopcLayerController retains a coarse parent until all selected replacements are ready', async () => {
   const fakeViewer = createFakeViewer();
+  const renderer = new PointPrimitiveRenderer();
   const viewer = new CopcLayerController({
     url: '/samples/autzen.copc.laz',
     colorMode: 'elevation',
+    renderer,
   });
-  const parentCollection = new Cesium.PointPrimitiveCollection();
   const parent = {
     node: { key: '0-0-0-0', level: 0, pointCount: 1 },
     children: ['1-0-0-0'],
@@ -275,8 +288,12 @@ test('CopcLayerController retains a coarse parent until all selected replacement
   ]);
   const namesDuringProgress = [];
 
+  renderer.attachTo(fakeViewer);
+  renderer.addOrUpdateNode('0-0-0-0', {
+    pointCount: 1,
+    coordinates: new Float64Array([-123, 44, 10]),
+  }, { pointSize: 2 });
   viewer.viewer = fakeViewer;
-  viewer.pointCollections.set(parent.node.key, parentCollection);
   viewer.streamingState = createStreamingState(async (_camera, onProgress) => {
     onProgress({
       selectedNodeKeys: ['1-0-0-0'],
@@ -345,13 +362,16 @@ test('CopcLayerController ignores loaded nodes after destroy during an in-flight
 
 test('CopcLayerController ignores an older streaming result after a newer camera update', async () => {
   const fakeViewer = createFakeViewer();
+  const renderer = new PointPrimitiveRenderer();
   const viewer = new CopcLayerController({
     url: '/samples/autzen.copc.laz',
+    renderer,
   });
   let callCount = 0;
   let resolveFirst;
   let resolveSecond;
 
+  renderer.attachTo(fakeViewer);
   viewer.viewer = fakeViewer;
   viewer.streamingState = createStreamingState(() => {
     callCount += 1;

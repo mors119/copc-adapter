@@ -1,5 +1,5 @@
 import * as Cesium from 'cesium';
-import { renderCopcPoints, toCartesian3Array } from '../cesium/render/renderPoints';
+import { PointPrimitiveRenderer, type CopcPointRenderer } from '../cesium/render/CopcPointRenderer';
 import {
   getCopcPointFieldSelection,
   type CopcColorMode,
@@ -30,7 +30,6 @@ import type {
   CopcPointBuffer,
   CopcMetadata,
   GeographicCamera,
-  GeographicPoint,
   GeographicPointBuffer,
 } from '../copc/types/copc';
 import {
@@ -59,6 +58,7 @@ export type CopcLayerOptions = {
   streaming?: Partial<StreamingSelectionOptions>;
   backend?: CopcBackendSelection;
   decoder?: CopcPointDecoder;
+  renderer?: CopcPointRenderer;
   /** Maximum retained decoded CPU point-buffer bytes. Defaults to 256 MiB. */
   maxPointCacheBytes?: number;
 };
@@ -160,7 +160,7 @@ const DEFAULT_POINT_CACHE_BYTES = 256 * 1024 * 1024;
 export class CopcLayerController {
   private viewer?: Cesium.Viewer;
   private readonly options: CopcLayerOptions;
-  private readonly pointCollections = new Map<string, Cesium.PointPrimitiveCollection>();
+  private readonly pointRenderer: CopcPointRenderer;
   private readonly selectedNodeKeys = new Set<string>();
   private readonly nodePointCache: NodePointCache<GeographicPointBuffer>;
   private readonly performanceRecorder = new StreamingPerformanceRecorder();
@@ -186,6 +186,7 @@ export class CopcLayerController {
    */
   constructor(options: CopcLayerOptions) {
     this.options = options;
+    this.pointRenderer = options.renderer ?? new PointPrimitiveRenderer();
     this.nodePointCache = createNodePointCache(
       async (nodeKey) => this.loadRenderableNodePoints(nodeKey),
       {
@@ -212,6 +213,7 @@ export class CopcLayerController {
     }
 
     this.viewer = viewer;
+    this.pointRenderer.attachTo(viewer);
     this.viewer.camera.percentageChanged = 0.02;
     this.viewer.camera.moveEnd.addEventListener(this.handleCameraMoveEnd);
     this.viewer.camera.changed?.addEventListener(this.handleCameraMoveEnd);
@@ -242,7 +244,7 @@ export class CopcLayerController {
 
     this.viewer.camera.moveEnd.removeEventListener(this.handleCameraMoveEnd);
     this.viewer.camera.changed?.removeEventListener(this.handleCameraMoveEnd);
-    this.removePointCollections();
+    this.pointRenderer.detachFrom();
     this.viewer = undefined;
     this.lifecycle = this.streamingState ? 'ready' : 'idle';
   }
@@ -338,7 +340,7 @@ export class CopcLayerController {
     }
 
     this.streamingState?.manager.clear?.();
-    this.removePointCollections();
+    this.pointRenderer.clear();
     this.selectedNodeKeys.clear();
     this.nodePointCache.clear();
     this.streamingState = undefined;
@@ -367,6 +369,7 @@ export class CopcLayerController {
 
     this.unload();
     this.detachFrom();
+    this.pointRenderer.destroy();
     this.lifecycle = 'destroyed';
   }
 
@@ -652,7 +655,7 @@ export class CopcLayerController {
       if (this.isAncestorOfSelectedNode(nodeKey, progress.selectedNodeKeys, streamingState.nodes)) {
         continue;
       }
-      this.removePointCollection(viewer, nodeKey);
+      this.removePointCollection(nodeKey);
     }
 
     for (const [nodeKey, points] of progress.loadedNodePoints) {
@@ -660,11 +663,11 @@ export class CopcLayerController {
         continue;
       }
 
-      if (this.pointCollections.has(nodeKey)) {
+      if (this.pointRenderer.hasNode(nodeKey)) {
         continue;
       }
 
-      const collection = renderCopcPoints(viewer, points, {
+      this.pointRenderer.addOrUpdateNode(nodeKey, points, {
         pointSize: this.options.pointSize ?? 3,
         colorMode: this.options.colorMode ?? 'fixed',
         elevationRange: this.getDatasetElevationRange(),
@@ -673,23 +676,25 @@ export class CopcLayerController {
             ? 'geographicToCartesianDurationMs'
             : stage === 'pointStylePreparation'
               ? 'pointStylePreparationDurationMs'
-              : stage === 'pointCollectionCreation'
-                ? 'pointCollectionCreationDurationMs'
-                : 'pointAddDurationMs';
+                : stage === 'pointCollectionCreation'
+                  ? 'pointCollectionCreationDurationMs'
+                  : stage === 'pointAdd'
+                    ? 'pointAddDurationMs'
+                    : stage === 'rendererPreparation'
+                      ? 'rendererPreparationDurationMs'
+                      : 'nodeRemovalDurationMs';
           this.performanceRecorder.recordStage(metricStage, durationMs, true);
         },
       });
-      this.pointCollections.set(nodeKey, collection);
     }
 
-    this.removeReplacedCoarseNodes(viewer, streamingState.nodes);
+    this.removeReplacedCoarseNodes(streamingState.nodes);
   }
 
   private removeReplacedCoarseNodes(
-    viewer: Cesium.Viewer,
     hierarchy: StreamingHierarchy,
   ): void {
-    for (const nodeKey of this.pointCollections.keys()) {
+    for (const nodeKey of this.pointRenderer.getRenderedNodeKeys()) {
       if (this.selectedNodeKeys.has(nodeKey)) {
         continue;
       }
@@ -699,9 +704,9 @@ export class CopcLayerController {
 
       if (
         selectedDescendants.length === 0
-        || selectedDescendants.every((selectedNodeKey) => this.pointCollections.has(selectedNodeKey))
+        || selectedDescendants.every((selectedNodeKey) => this.pointRenderer.hasNode(selectedNodeKey))
       ) {
-        this.removePointCollection(viewer, nodeKey);
+        this.removePointCollection(nodeKey);
       }
     }
   }
@@ -740,14 +745,8 @@ export class CopcLayerController {
     return false;
   }
 
-  private removePointCollection(viewer: Cesium.Viewer, nodeKey: string): void {
-    const collection = this.pointCollections.get(nodeKey);
-    if (!collection) {
-      return;
-    }
-
-    viewer.scene.primitives.remove(collection);
-    this.pointCollections.delete(nodeKey);
+  private removePointCollection(nodeKey: string): void {
+    this.pointRenderer.removeNode(nodeKey);
   }
 
   private async loadRenderableNodePoints(nodeKey: string): Promise<GeographicPointBuffer> {
@@ -804,17 +803,11 @@ export class CopcLayerController {
   }
 
   getRenderedNodeKeys(): string[] {
-    return [...this.pointCollections.keys()].sort();
+    return this.pointRenderer.getRenderedNodeKeys();
   }
 
   getRenderedPointCount(): number {
-    let total = 0;
-
-    for (const collection of this.pointCollections.values()) {
-      total += collection.length;
-    }
-
-    return total;
+    return this.pointRenderer.getRenderedPointCount();
   }
 
   getCurrentSelection(): string[] {
@@ -822,38 +815,7 @@ export class CopcLayerController {
   }
 
   getSelectionBoundingSphere(): Cesium.BoundingSphere | undefined {
-    if (this.pointCollections.size === 0) {
-      return undefined;
-    }
-
-    const positions = [...this.pointCollections.values()].flatMap((collection) => {
-      const points: GeographicPoint[] = [];
-
-      for (let index = 0; index < collection.length; index += 1) {
-        const primitive = collection.get(index);
-        const cartographic = Cesium.Cartographic.fromCartesian(primitive.position);
-
-        points.push({
-          longitude: Cesium.Math.toDegrees(cartographic.longitude),
-          latitude: Cesium.Math.toDegrees(cartographic.latitude),
-          height: cartographic.height,
-        });
-      }
-
-      return toCartesian3Array(points);
-    });
-
-    return Cesium.BoundingSphere.fromPoints(positions);
-  }
-
-  private removePointCollections(): void {
-    if (this.viewer) {
-      for (const collection of this.pointCollections.values()) {
-        this.viewer.scene.primitives.remove(collection);
-      }
-    }
-
-    this.pointCollections.clear();
+    return this.pointRenderer.getSelectionBoundingSphere();
   }
 
   private debug(message: string): void {
