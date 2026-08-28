@@ -926,6 +926,9 @@ test('buildStreamingHierarchy links children and computes node centers', async (
   ]);
   assert.ok(rootNode.approximateSizeMeters > childNode.approximateSizeMeters);
   assert.ok(rootNode.boundingRadiusMeters > childNode.boundingRadiusMeters);
+  assert.ok(rootNode.boundingSphere);
+  assert.ok(Number.isFinite(rootNode.boundingSphere.center.x));
+  assert.ok(rootNode.boundingSphere.radiusMeters > 0);
   assert.ok(rootNode.bounds.minX < rootNode.bounds.maxX);
   assert.ok(rootNode.bounds.minY < rootNode.bounds.maxY);
   assertClose(rootNode.center.longitude, -123.0664124403113, 1e-9);
@@ -1042,6 +1045,8 @@ test('CopcCesiumLayer snapshot exposes lifecycle and dataset info', () => {
       nodeSelectionMs: 0,
       selectedNodeCount: 0,
       estimatedSelectedPointCount: 0,
+      candidatesBeforeCulling: 0,
+      frustumCulledCount: 0,
       loadedNodeCount: 0,
       loadedPointCount: 0,
       rangeFetchDurationMs: 0,

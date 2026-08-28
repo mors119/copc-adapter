@@ -4,6 +4,9 @@ import type {
   GeographicPoint,
   GeographicPointBuffer,
 } from '../../copc/types/copc';
+import type { BoundingSphere, ViewFrustum } from './view';
+
+export type { BoundingSphere, ViewFrustum, ViewVector3 } from './view';
 
 export type BoundingBox = {
   minX: number;
@@ -16,6 +19,7 @@ export type BoundingBox = {
 
 export type StreamingCameraState = GeographicCamera & {
   viewDistanceMeters: number;
+  viewFrustum?: ViewFrustum;
 };
 
 export type StreamingSelectionOptions = {
@@ -34,6 +38,17 @@ export type StreamingHierarchyNode = {
   bounds: BoundingBox;
   approximateSizeMeters: number;
   boundingRadiusMeters: number;
+  boundingSphere?: BoundingSphere;
+};
+
+export type StreamingSelectionMetrics = {
+  candidatesBeforeCulling: number;
+  frustumCulledCount: number;
+};
+
+export type StreamingLevelRange = {
+  min: number;
+  max: number;
 };
 
 export type StreamingHierarchy = Map<string, StreamingHierarchyNode>;

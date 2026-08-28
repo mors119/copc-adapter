@@ -91,6 +91,22 @@ test('validates the packed Rust backend at the production release boundary', asy
   expect(near.selectedNodeKeys).not.toEqual(far.selectedNodeKeys);
   expect(near.hierarchy.pageRequests).toBeGreaterThanOrEqual(initial.hierarchy.pageRequests);
   expect(near.lastError).toBeUndefined();
+
+  const fixedPosition = near.cameraPosition;
+  await page.evaluate(() => window.__PACKED_CONSUMER__.setCameraOrientation(0, -45));
+  await expect.poll(async () => (await state(page)).streamingUpdateCount)
+    .toBeGreaterThan(near.streamingUpdateCount);
+  const beforeRotation = await state(page);
+  await page.evaluate(() => window.__PACKED_CONSUMER__.setCameraOrientation(180, -45));
+  await expect.poll(async () => (await state(page)).streamingUpdateCount)
+    .toBeGreaterThan(beforeRotation.streamingUpdateCount);
+  const rotated = await state(page);
+  expect(rotated.cameraPosition.longitude).toBeCloseTo(fixedPosition.longitude, 8);
+  expect(rotated.cameraPosition.latitude).toBeCloseTo(fixedPosition.latitude, 8);
+  expect(rotated.cameraPosition.height).toBeCloseTo(fixedPosition.height, 4);
+  expect(rotated.performance.cameraDirection).not.toEqual(beforeRotation.performance.cameraDirection);
+  expect(rotated.performance.candidatesBeforeCulling).toBeGreaterThan(0);
+  expect(rotated.performance.frustumCulledCount).toBeGreaterThan(0);
   expect(pageErrors).toEqual([]);
   expect(consoleErrors).toEqual([]);
 

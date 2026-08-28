@@ -95,6 +95,7 @@ function getState() {
   const snapshot = layer.getSnapshot();
   const metadata = layer.getMetadata();
   const diagnostics = renderedDiagnostics();
+  const cameraPosition = Cesium.Cartographic.fromCartesian(viewer.camera.positionWC);
   return {
     viewerCreatedByConsumer: true,
     viewerAlive: !viewer.isDestroyed(),
@@ -109,6 +110,11 @@ function getState() {
     renderedNodeKeys: snapshot.renderedNodeKeys,
     streamingUpdateCount: snapshot.streamingUpdateCount,
     cameraMoveEventCount,
+    cameraPosition: {
+      longitude: Cesium.Math.toDegrees(cameraPosition.longitude),
+      latitude: Cesium.Math.toDegrees(cameraPosition.latitude),
+      height: cameraPosition.height,
+    },
     performance: snapshot.performance,
     lastError,
     ...diagnostics,
@@ -146,6 +152,16 @@ window.__PACKED_CONSUMER__ = {
     const current = Cesium.Cartographic.fromCartesian(viewer.camera.positionWC);
     viewer.camera.setView({
       destination: Cesium.Cartesian3.fromRadians(current.longitude, current.latitude, height),
+    });
+    viewer.camera.moveEnd.raiseEvent();
+  },
+  setCameraOrientation(headingDegrees, pitchDegrees) {
+    viewer.camera.setView({
+      orientation: {
+        heading: Cesium.Math.toRadians(headingDegrees),
+        pitch: Cesium.Math.toRadians(pitchDegrees),
+        roll: viewer.camera.roll,
+      },
     });
     viewer.camera.moveEnd.raiseEvent();
   },

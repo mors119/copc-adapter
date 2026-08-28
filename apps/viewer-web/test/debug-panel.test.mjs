@@ -10,6 +10,12 @@ function createSnapshot(overrides = {}) {
     selectedNodeKeys: ['1-0-0-0', '1-1-0-0', '1-0-1-0'],
     renderedPointCount: 2345,
     streamingUpdateCount: 7,
+    performance: {
+      candidatesBeforeCulling: 12,
+      frustumCulledCount: 5,
+      visibleLevelRange: { min: 2, max: 5 },
+      cameraDirection: { x: 0, y: 0.5, z: -0.8660254 },
+    },
     datasetUrl: '/samples/autzen.copc.laz?cache=1',
     attached: true,
     ...overrides,
@@ -54,6 +60,10 @@ test('maps layer diagnostics and metadata into browser-visible values', () => {
   assert.equal(view.renderedNodeCount, '2');
   assert.equal(view.renderedPointCount, '2,345');
   assert.equal(view.streamingUpdateCount, '7');
+  assert.equal(view.candidatesBeforeCulling, '12');
+  assert.equal(view.frustumCulledCount, '5');
+  assert.equal(view.visibleLevelRange, '2–5');
+  assert.equal(view.cameraDirection, '0, 0.50000000, -0.86602540');
 });
 
 test('shows loading placeholders and gives runtime errors precedence', () => {
