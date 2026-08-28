@@ -8,6 +8,7 @@ import type { CopcColorMode } from '../cesium/style/pointStyle';
 import type { CopcBackendSelection } from '../copc/backend/selection';
 import type { CopcPointDecoder } from '../copc/points/types';
 import type { CopcHierarchyDiagnostics } from '../copc/hierarchy/types';
+import type { CopcPointRenderer } from '../cesium/render/CopcPointRenderer';
 
 export type { CopcColorMode } from '../cesium/style/pointStyle';
 
@@ -36,6 +37,8 @@ export type CopcCesiumLayerOptions = {
   backend?: CopcBackendSelection;
   /** Decoder used to convert point-data views into project point buffers. */
   decoder?: CopcPointDecoder;
+  /** Optional renderer implementation; the default uses Cesium point primitives. */
+  renderer?: CopcPointRenderer;
 };
 export type CopcCesiumLayerSnapshot = CopcLayerSnapshot;
 

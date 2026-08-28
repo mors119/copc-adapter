@@ -17,7 +17,8 @@ Browser-readable COPC URL
   -> streaming hierarchy and camera-based node selection
   -> selected project-owned point buffers
   -> coordinate transformation to WGS84
-  -> Cesium PointPrimitiveCollection
+  -> CopcPointRenderer boundary
+  -> PointPrimitiveRenderer (Cesium PointPrimitiveCollection compatibility path)
 ```
 
 The root hierarchy page is loaded before point streaming begins. Each camera
@@ -36,8 +37,9 @@ separate concern.
 | Coordinate transformation | `apps/viewer-web/src/coordinates/` | Convert COPC coordinates to WGS84 longitude, latitude, and height |
 | WASM decoder | `crates/copc-wasm/`, `apps/viewer-web/src/wasm/` | Convert XYZ values into an interleaved point buffer |
 | Streaming | `apps/viewer-web/src/viewer/streaming/` | Build selection data, choose nodes, and maintain the bounded point cache |
-| Cesium rendering | `apps/viewer-web/src/cesium/` | Create viewers and render point primitive collections |
-| Internal controller | `apps/viewer-web/src/viewer/CopcViewer.ts` | Coordinate loading, camera events, streaming, and primitive lifecycle |
+| Cesium rendering | `apps/viewer-web/src/cesium/` | Consume geographic point buffers through the renderer boundary; the baseline uses point primitive collections |
+| Renderer boundary | `apps/viewer-web/src/cesium/render/CopcPointRenderer.ts` | Own node add/update/remove/clear/destroy and optional point identity; no COPC or selection logic |
+| Internal controller | `apps/viewer-web/src/viewer/CopcViewer.ts` | Coordinate loading, camera events, streaming, selection, and renderer lifecycle decisions |
 | Public API | `apps/viewer-web/src/api/`, `apps/viewer-web/src/index.ts` | Expose `CopcCesiumLayer` and its public types |
 
 External `copc.js` types stay inside `copcJsBackend.ts`. The context, loaders,

@@ -18,6 +18,7 @@ type CopcDebugState = {
   backend: 'copc-js' | 'rust' | 'custom';
   performance: Record<string, number>;
   longestMainThreadTaskMs: number;
+  cesiumFrameDurationMs: number;
 };
 
 type CopcDebugAdapter = {
@@ -26,6 +27,7 @@ type CopcDebugAdapter = {
   setCameraHeight(height: number): void;
   setCameraPitch(pitchDegrees: number): void;
   recordError(error: unknown): void;
+  runSyntheticRendererPerformanceBenchmark(): Array<Record<string, unknown>>;
 };
 
 declare global {

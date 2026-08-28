@@ -5,6 +5,7 @@ import * as Cesium from 'cesium';
 import { CopcCesiumLayer, type CopcBackendName } from './index';
 import { createCesiumViewer } from './cesium/viewer/createViewer';
 import { createCopcDebugPanel } from './debug/CopcDebugPanel';
+import { runSyntheticRendererPerformanceBenchmark } from './cesium/render/rendererPerformanceBenchmark';
 
 const COPC_URL = '/samples/autzen.copc.laz';
 
@@ -26,6 +27,7 @@ type CopcDebugState = {
   backend: CopcBackendName | 'custom';
   performance: ReturnType<CopcCesiumLayer['getSnapshot']>['performance'];
   longestMainThreadTaskMs: number;
+  cesiumFrameDurationMs: number;
 };
 
 function isDebugPanelEnabled(): boolean {
@@ -40,6 +42,7 @@ type CopcDebugAdapter = {
   setCameraHeight(height: number): void;
   setCameraPitch(pitchDegrees: number): void;
   recordError(error: unknown): void;
+  runSyntheticRendererPerformanceBenchmark(): ReturnType<typeof runSyntheticRendererPerformanceBenchmark>;
 };
 
 function getRenderedPointDiagnostics(viewer: Cesium.Viewer): {
@@ -101,6 +104,8 @@ function installDebugAdapter(
   let cameraMoveEventCount = 0;
   let lastError: string | undefined;
   let longestMainThreadTaskMs = 0;
+  let cesiumFrameDurationMs = 0;
+  let cesiumFrameStartedAt = 0;
 
   if (typeof PerformanceObserver !== 'undefined') {
     try {
@@ -114,6 +119,15 @@ function installDebugAdapter(
       // Long Task API is optional in browsers and test environments.
     }
   }
+
+  viewer.scene.preRender.addEventListener(() => {
+    cesiumFrameStartedAt = performance.now();
+  });
+  viewer.scene.postRender.addEventListener(() => {
+    if (cesiumFrameStartedAt > 0) {
+      cesiumFrameDurationMs = performance.now() - cesiumFrameStartedAt;
+    }
+  });
 
   viewer.camera.moveEnd.addEventListener(() => {
     cameraMoveEventCount += 1;
@@ -150,6 +164,7 @@ function installDebugAdapter(
         backend: snapshot.backend,
         performance: snapshot.performance,
         longestMainThreadTaskMs,
+        cesiumFrameDurationMs,
         lastError,
       };
     },
@@ -179,6 +194,12 @@ function installDebugAdapter(
       viewer.camera.moveEnd.raiseEvent();
     },
     recordError,
+    runSyntheticRendererPerformanceBenchmark: () => runSyntheticRendererPerformanceBenchmark({
+      viewer,
+      pointCounts: [10_000, 50_000, 100_000],
+      repetitions: 5,
+      warmups: 2,
+    }),
   };
 
   if (exposeGlobally) {

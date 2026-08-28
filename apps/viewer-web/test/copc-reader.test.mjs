@@ -1063,6 +1063,8 @@ test('CopcCesiumLayer snapshot exposes lifecycle and dataset info', () => {
       pointStylePreparationDurationMs: 0,
       pointCollectionCreationDurationMs: 0,
       pointAddDurationMs: 0,
+      rendererPreparationDurationMs: 0,
+      nodeRemovalDurationMs: 0,
       longestMainThreadBlockingSectionMs: 0,
     },
   });

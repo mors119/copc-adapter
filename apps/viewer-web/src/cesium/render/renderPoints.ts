@@ -13,7 +13,11 @@ export type CopcPointRenderOptions = {
   pointSize: number;
   colorMode?: CopcColorMode;
   elevationRange?: CopcElevationRange;
-  onPerformance?: (stage: 'geographicToCartesian' | 'pointStylePreparation' | 'pointCollectionCreation' | 'pointAdd', durationMs: number) => void;
+  pointId?: (pointIndex: number) => unknown;
+  onPerformance?: (
+    stage: 'geographicToCartesian' | 'pointStylePreparation' | 'pointCollectionCreation' | 'pointAdd',
+    durationMs: number,
+  ) => void;
 };
 
 export function getPointBufferElevationRange(
@@ -142,6 +146,7 @@ export function renderCopcPoints(
       position: positions[index],
       pixelSize: options.pointSize,
       color: colors[index],
+      id: options.pointId?.(index),
     });
   }
   options.onPerformance?.('pointAdd', performanceNow() - addStartedAt);
