@@ -15,8 +15,12 @@ apps/viewer-web/*.tgz
 # Playwright
 test-results/
 
-# Repository-local integration fixtures are not tracked.
-/tests/
+# Generated integration output is not tracked, but the checked-in packed
+# consumer template is part of the release validation flow.
+/tests/*
+!/tests/environments/
+!/tests/environments/cesium-vite/
+!/tests/environments/cesium-vite/**
 
 # OS
 .DS_Store

@@ -1,0 +1,19 @@
+{
+  "name": "copc-adapter-packed-consumer",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "test:e2e": "playwright test",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "cesium": "1.142.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.55.0",
+    "vite": "8.0.16",
+    "vite-plugin-cesium": "1.2.23"
+  }
+}

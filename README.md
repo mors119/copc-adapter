@@ -237,10 +237,18 @@ where an existing `dist` directory could leave stale files in the published
 artifact. Library builds now clean `dist` first, `npm pack` rebuilds through
 `prepack`, and sample COPC data is excluded from the package.
 
-The generated `.tgz` is checked in a clean Vite + Cesium consumer by installing
-it, building for production, and exercising Rust/WASM initialization in a
-browser. The npm `latest` version and the package metadata are both `0.1.1`
-for this corrected release.
+`npm run test:pack` is the release-boundary gate for the generated `.tgz`. It
+builds Rust/WASM and the library, checks the tarball contents, installs it by
+package name into a disposable external Vite + Cesium consumer, builds and
+previews that consumer, and runs Chromium against the production bundle. The
+consumer verifies HTTP 206/Range traffic, package-local decoder assets,
+incremental hierarchy diagnostics, Rust backend selection without fallback,
+coordinate/attribute rendering, and continued `copc-js` operation. Its
+checked-in template is in `tests/environments/cesium-vite/`; the sample is
+staged only into the disposable consumer and is never packaged.
+
+The npm `latest` version and the package metadata are both `0.1.1` for this
+corrected release.
 
 ## Known Limitations
 
