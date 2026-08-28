@@ -43,6 +43,12 @@ jobs:
       - name: Run tests
         run: npm --prefix apps/viewer-web test
 
+      - name: Run backend conformance unit suite
+        run: npm --prefix apps/viewer-web run test:conformance:unit
+
+      - name: Run backend conformance integration suite
+        run: npm --prefix apps/viewer-web run test:conformance:integration
+
       - name: Generate coverage
         run: npm --prefix apps/viewer-web run coverage
 

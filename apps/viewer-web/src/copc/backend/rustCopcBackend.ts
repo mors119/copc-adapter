@@ -109,12 +109,14 @@ function rustErrorCategory(
     };
   }
 
+  if (operation === 'point' && error.code === 'invalid-value') {
+    return { stage: 'decode', code: 'unsupported' };
+  }
+
   if (operation === 'point') {
     return {
       stage: 'decode',
-      code: error.code === 'laz-decode' || error.code === 'chunk-length-mismatch'
-        ? 'laz-decode'
-        : 'unknown',
+      code: 'laz-decode',
     };
   }
 
