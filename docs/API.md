@@ -60,6 +60,12 @@ The Rust selector uses the same layer API; it does not create a Rust-only
 Viewer. Applications continue to create and own `Cesium.Viewer`, then call
 `layer.attachTo(viewer)`.
 
+In browsers, Rust point chunks are decoded by a per-source bounded Web Worker
+pool. Range requests stay on the main thread, queued work is superseded on a
+new streaming generation, and stale active results are ignored. Worker
+failures use `CopcBackendError` code `worker`; unloading or destroying a layer
+terminates the source-owned workers.
+
 ### Point field selection
 
 The public `CopcPointFieldSelection` is a `ReadonlySet` of project-owned
@@ -141,7 +147,7 @@ the Rust/WASM reader boundary. `RustCopcReader` and `RustCopcParseError` are
 also exported for callers that need to parse LAS/COPC metadata, the root
 hierarchy, and one LAS 1.4 point chunk through an injected random-access
 source. `CopcBackendError` maps Rust source, parser, hierarchy, point-chunk,
-LAZ, unsupported-format, and WASM failures into project-owned stage/category
+LAZ, unsupported-format, worker, and WASM failures into project-owned stage/category
 values while preserving `cause`.
 
 `CopcPointBuffer`와 `GeographicPointBuffer`는 optional `intensity`,
@@ -154,3 +160,7 @@ fallback한다.
 - `copc-wasm`: focused LAS 1.4 point 6/7/8 node decode and X/Y/Z interleaving
 - `viewer-web` decoder: available LAS attributes -> optional typed arrays
 - `viewer-web`: streaming selection, CRS transform, Cesium rendering
+
+Worker/WASM assets are resolved from the installed package build using the
+worker module's `import.meta.url`; consumers do not need to copy assets into
+`/public`.

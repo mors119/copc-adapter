@@ -28,7 +28,7 @@ async function loadRustPage(page, query = '?backend=rust&mode=rgb') {
         contentLength: Number(response.headers()['content-length'] ?? 0),
       });
     }
-    if (url.includes('copc_wasm') || url.includes('laz-perf')) {
+    if (url.includes('copc_wasm') || url.includes('laz-perf') || url.includes('rustCopcDecodeWorker')) {
       assetResponses.push({ url, status: response.status() });
     }
   });
@@ -118,6 +118,8 @@ test('validates the packed Rust backend at the production release boundary', asy
     .toBeLessThan(81123042);
   expect(copcResponses.some((response) => response.requestRange === 'bytes=0-374')).toBe(true);
   expect(assetResponses.some((response) => response.url.includes('copc_wasm') && response.status === 200))
+    .toBe(true);
+  expect(assetResponses.some((response) => response.url.includes('rustCopcDecodeWorker') && response.status === 200))
     .toBe(true);
   expect(assetResponses.some((response) => response.url.includes('laz-perf'))).toBe(false);
   expect(requestUrls.some((url) => /\/public\/|\/target\/|copc-adapter\/feature-/i.test(url))).toBe(false);

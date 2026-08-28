@@ -50,7 +50,8 @@ let wasmPromise: Promise<CopcWasmExports> | undefined;
 const bundledWasmUrl = new URL('./copc_wasm.wasm?no-inline', import.meta.url);
 
 function isBrowser(): boolean {
-  return typeof window !== 'undefined';
+  return typeof window !== 'undefined'
+    || (typeof self !== 'undefined' && typeof document === 'undefined');
 }
 
 async function loadWasmBinary(): Promise<Uint8Array> {

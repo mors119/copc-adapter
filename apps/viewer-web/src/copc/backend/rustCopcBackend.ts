@@ -18,6 +18,7 @@ import type {
 } from '../points/fieldSelection';
 import type { CopcBackend, CopcSource } from './types';
 import type { CopcPerformanceObserver } from '../performance';
+import { RustCopcWorkerError } from '../rustCopcDecodeWorkerPool';
 
 export type RustByteSourceFactory = (
   source: string,
@@ -155,6 +156,13 @@ function mapRustError(
     });
   }
 
+  if (error instanceof RustCopcWorkerError) {
+    return new CopcBackendError(source, 'decode', 'worker', error.message, {
+      cause: error,
+      nodeKey: error.nodeKey ?? nodeKey,
+    });
+  }
+
   if (error instanceof RustCopcParseError) {
     const category = rustErrorCategory(error, operation);
     return new CopcBackendError(source, category.stage, category.code, error.message, {
@@ -230,6 +238,14 @@ class RustCopcSource implements CopcSource {
 
   setPerformanceObserver(observer: CopcPerformanceObserver | undefined): void {
     this.reader.setPerformanceObserver(observer);
+  }
+
+  cancelPendingPointJobs(): void {
+    this.reader.cancelPendingPointJobs();
+  }
+
+  destroy(): void {
+    this.reader.destroy();
   }
 }
 

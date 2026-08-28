@@ -27,6 +27,11 @@ export type {
   RustCopcBackendOptions,
 } from './copc/backend';
 export type { CopcBackend, CopcSource } from './copc/backend/types';
+export type { CopcPerformanceEvent, CopcPerformanceObserver } from './copc/performance';
+export {
+  RustCopcDecodeWorkerPool,
+  RustCopcWorkerError,
+} from './copc/rustCopcDecodeWorkerPool';
 export type {
   CopcHierarchyBounds,
   CopcHierarchyDiagnostics,

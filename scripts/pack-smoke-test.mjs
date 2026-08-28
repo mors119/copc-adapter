@@ -95,6 +95,9 @@ try {
   ]) {
     assertIncluded(entries, requiredEntry);
   }
+  if (![...entries].some((entry) => entry.startsWith('package/dist/assets/rustCopcDecodeWorker-'))) {
+    throw new Error('Packed adapter is missing the Rust decode worker chunk');
+  }
 
   for (const forbiddenPrefix of [
     'package/target/',

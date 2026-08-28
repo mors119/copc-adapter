@@ -30,6 +30,8 @@ export class CopcContext implements CopcSource {
   readonly setPerformanceObserver?: (
     observer: CopcPerformanceObserver | undefined,
   ) => void;
+  readonly cancelPendingPointJobs?: () => void;
+  readonly destroy?: () => void;
 
   private constructor(delegate: CopcSource) {
     this.delegate = delegate;
@@ -38,6 +40,12 @@ export class CopcContext implements CopcSource {
     }
     if (delegate.setPerformanceObserver) {
       this.setPerformanceObserver = delegate.setPerformanceObserver.bind(delegate);
+    }
+    if (delegate.cancelPendingPointJobs) {
+      this.cancelPendingPointJobs = delegate.cancelPendingPointJobs.bind(delegate);
+    }
+    if (delegate.destroy) {
+      this.destroy = delegate.destroy.bind(delegate);
     }
   }
 

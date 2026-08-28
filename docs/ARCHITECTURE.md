@@ -48,6 +48,39 @@ Cesium types are
 used only by the rendering and public attachment boundary, not by core COPC
 domain types.
 
+## Rust Decode Worker Pool (#46)
+
+The existing Rust backend remains the only COPC loading pipeline. In a browser,
+`RustCopcReader` keeps ownership of exact byte-range requests on the main
+thread through `HttpRangeByteSource`; this preserves the established range
+semantics, request diagnostics, and source factories. It transfers the fetched
+metadata/chunk bytes to a worker pool only after the range has completed. The
+workers perform Rust/WASM LAZ decode and requested-field extraction, then return
+the same project-owned `CopcPointBuffer` contract.
+
+Each opened Rust source owns its own pool, so layer instances do not share WASM
+or queue state. The default pool is bounded to at most four workers and one
+fewer than `navigator.hardwareConcurrency` (with a minimum of one). Jobs enter
+a deterministic FIFO queue; callers may remove obsolete queued jobs or apply a
+priority comparator. An active WASM call is allowed to finish when it cannot be
+aborted, but its result is ignored when the streaming generation is stale.
+Worker failures become `CopcBackendError` values with `stage: 'decode'` and
+`code: 'worker'`. Unload/destroy terminates workers and rejects pending work.
+
+WASM is initialized lazily in each worker on its first assigned job. The worker
+imports the package's `copcWasm` module, which resolves the emitted WASM asset
+relative to the built worker module via `import.meta.url`; it never uses
+`/public`, `target/`, or repository-relative paths. Vite therefore emits both
+the worker chunk and its package-local WASM dependency for an installed
+consumer.
+
+Decode output uses transferable `ArrayBuffer`s for XYZ and each requested
+attribute (RGB remains three `Uint16Array`s, intensity `Uint16Array`, and
+classification `Uint8Array`). The pool copies a non-owned input view before
+transfer, so a detached sender buffer cannot be reused accidentally. No large
+point array is serialized through JSON; the only JSON crossing the worker is
+the small Rust status response inside the worker runtime.
+
 ## Backend Boundary
 
 `CopcBackend.open(url)` returns a reusable `CopcSource`. A source exposes only
@@ -210,9 +243,11 @@ structured parse errors.
 `RustCopcReader.loadPointDataBuffer()` is the focused node-decoding proof path.
 It requests only `pointDataOffset..pointDataOffset + pointDataLength` for one
 hierarchy entry and passes that exact chunk, together with the metadata bytes,
-to Rust. The Rust ABI returns project-owned XYZ, intensity, classification, and
-RGB buffers. LAS scale/offset is applied once in Rust while converting raw
-integer coordinates to the existing projected-coordinate contract.
+to the Rust decoder, either directly for non-browser runtimes or through the
+per-source worker pool in a browser. The Rust ABI returns project-owned XYZ,
+intensity, classification, and RGB buffers. LAS scale/offset is applied once
+in Rust while converting raw integer coordinates to the existing
+projected-coordinate contract.
 
 The decoder dependency is `laz 0.13.0`, used through its public layered
 point-record decompressor. It supports the COPC layered chunks used by LAS
