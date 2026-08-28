@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -19,6 +19,7 @@ import {
   assertRootHierarchyParity,
   openBackendPair,
 } from './support/backend-contract.mjs';
+import { HierarchyLoader } from '../src/copc/hierarchy/HierarchyLoader.ts';
 
 const samplePath = path.resolve(
   path.dirname(new URL(import.meta.url).pathname),
@@ -231,6 +232,84 @@ test('RustCopcBackend maps source, header, and point-chunk failures', async () =
       && error.code === 'point-chunk'
       && error.nodeKey === node.key
       && error.cause?.code === 'out-of-bounds',
+  );
+});
+
+test('Rust hierarchy queries fetch fewer pages than forced traversal', async () => {
+  const fixture = makeFixture();
+  const childOffset = 2000;
+  const bytes = new Uint8Array(Math.max(fixture.bytes.length, childOffset + 32));
+  bytes.set(fixture.bytes);
+  putI32(bytes, fixture.rootPageOffset + 88, 32);
+  putI32(bytes, childOffset, 1);
+  putI32(bytes, childOffset + 4, 1);
+  putI32(bytes, childOffset + 8, 0);
+  putI32(bytes, childOffset + 12, 0);
+  putI64(bytes, childOffset + 16, 3000);
+  putI32(bytes, childOffset + 24, 1);
+  putI32(bytes, childOffset + 28, 1);
+
+  const source = await new RustCopcBackend({
+    createByteSource: (requestedSource) => new InMemoryByteSource(bytes, requestedSource),
+  }).open('memory://paged-fixture');
+  const partial = new HierarchyLoader(source, source.getMetadata().cube);
+  const full = new HierarchyLoader(source, source.getMetadata().cube);
+
+  await partial.query({ bounds: source.getMetadata().cube, maxLevel: 0 });
+  await full.load();
+
+  assert.ok(partial.getDiagnostics().pageRequests < full.getDiagnostics().pageRequests);
+  assert.ok(
+    partial.getDiagnostics().hierarchyBytesFetched
+      < full.getDiagnostics().hierarchyBytesFetched,
+  );
+});
+
+test('Autzen partial queries expose fewer target-level entries from its single root page', async () => {
+  const bytes = await readFile(samplePath);
+  const source = await new RustCopcBackend({
+    createByteSource: (requestedSource) => new InMemoryByteSource(bytes, requestedSource),
+  }).open('memory://autzen');
+  const partial = new HierarchyLoader(source, source.getMetadata().cube);
+  const full = new HierarchyLoader(source, source.getMetadata().cube);
+  const partialTree = await partial.query({
+    bounds: {
+      minX: source.getMetadata().cube.minX,
+      minY: source.getMetadata().cube.minY,
+      minZ: source.getMetadata().cube.minZ,
+      maxX: source.getMetadata().cube.minX + 100,
+      maxY: source.getMetadata().cube.minY + 100,
+      maxZ: source.getMetadata().cube.maxZ,
+    },
+    maxLevel: 1,
+  });
+  const fullTree = await full.load();
+
+  assert.ok(partialTree.nodes.length < fullTree.nodes.length);
+  assert.equal(partial.getDiagnostics().pageRequests, 1);
+  assert.equal(
+    partial.getDiagnostics().hierarchyBytesFetched,
+    source.getRootHierarchyPage().pageLength,
+  );
+});
+
+test('Rust malformed child hierarchy pages remain structured backend errors', async () => {
+  const fixture = makeFixture();
+  const bytes = new Uint8Array(Math.max(fixture.bytes.length, 2031));
+  bytes.set(fixture.bytes);
+  putI32(bytes, fixture.rootPageOffset + 88, 31);
+  const source = await new RustCopcBackend({
+    createByteSource: (requestedSource) => new InMemoryByteSource(bytes, requestedSource),
+  }).open('memory://malformed-child');
+  const loader = new HierarchyLoader(source, source.getMetadata().cube);
+
+  await assert.rejects(
+    () => loader.query({ bounds: source.getMetadata().cube, maxLevel: 1 }),
+    (error) => error instanceof CopcBackendError
+      && error.stage === 'hierarchy'
+      && error.code === 'hierarchy'
+      && error.cause instanceof RustCopcParseError
+      && error.cause.code === 'invalid-hierarchy',
   );
 });
 

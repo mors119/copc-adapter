@@ -199,6 +199,17 @@ test('CopcCesiumLayer loads through an injected backend', async () => {
 
   assert.equal(layer.getSnapshot().lifecycle, 'ready');
   assert.equal(layer.getMetadata().pointCount, 1);
+  assert.deepEqual(layer.getHierarchyDiagnostics(), {
+    pageRequests: 1,
+    pageCacheHits: 0,
+    hierarchyBytesFetched: 10,
+    loadedPageCount: 1,
+    loadedEntryCount: 1,
+  });
+  layer.unload();
+  assert.equal(layer.getHierarchyDiagnostics(), undefined);
+  await layer.reload();
+  assert.equal(layer.getHierarchyDiagnostics()?.pageRequests, 1);
   layer.destroy();
 });
 

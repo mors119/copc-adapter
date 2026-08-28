@@ -14,12 +14,15 @@ import {
   type CopcBackendName,
 } from '../copc/backend/selection';
 import type { CopcPointDecoder } from '../copc/points/types';
-import { loadRootHierarchy } from '../copc/hierarchy/loadRootHierarchy';
+import { HierarchyLoader } from '../copc/hierarchy/HierarchyLoader';
+import type { CopcHierarchyBounds, CopcHierarchyQuery } from '../copc/hierarchy/types';
+import { CopcHierarchyLoadError, CopcLoadError } from '../copc/errors';
 import { loadCopcMetadata } from '../copc/metadata/loadMetadata';
 import { loadCopcPointBuffer } from '../copc/points/loadPointData';
 import { extractHorizontalUnitScale } from '../coordinates/crs/parseCopcWkt';
 import {
   createPointTransformer,
+  createProjectPointTransformer,
   transformPointBuffer,
 } from '../coordinates/transform/createPointTransformer';
 import type {
@@ -55,9 +58,62 @@ export type CopcLayerOptions = {
 type StreamingState = {
   context: CopcSource;
   metadata: CopcMetadata;
+  hierarchyLoader: HierarchyLoader;
   nodes: StreamingHierarchy;
   manager: StreamingManager;
 };
+
+function createViewBounds(
+  camera: StreamingCameraState,
+  radiusMeters: number,
+): CopcHierarchyBounds {
+  const latitudeRadius = radiusMeters / 111_320;
+  const longitudeRadius = radiusMeters /
+    (111_320 * Math.max(Math.cos((camera.latitude * Math.PI) / 180), 0.1));
+
+  return {
+    minX: camera.longitude - longitudeRadius,
+    minY: camera.latitude - latitudeRadius,
+    minZ: camera.height - radiusMeters,
+    maxX: camera.longitude + longitudeRadius,
+    maxY: camera.latitude + latitudeRadius,
+    maxZ: camera.height + radiusMeters,
+  };
+}
+
+function toProjectBounds(
+  metadata: CopcMetadata,
+  geographicBounds: CopcHierarchyBounds,
+): CopcHierarchyBounds {
+  const toProject = createProjectPointTransformer(metadata);
+  const corners = [
+    [geographicBounds.minX, geographicBounds.minY, geographicBounds.minZ],
+    [geographicBounds.minX, geographicBounds.minY, geographicBounds.maxZ],
+    [geographicBounds.minX, geographicBounds.maxY, geographicBounds.minZ],
+    [geographicBounds.minX, geographicBounds.maxY, geographicBounds.maxZ],
+    [geographicBounds.maxX, geographicBounds.minY, geographicBounds.minZ],
+    [geographicBounds.maxX, geographicBounds.minY, geographicBounds.maxZ],
+    [geographicBounds.maxX, geographicBounds.maxY, geographicBounds.minZ],
+    [geographicBounds.maxX, geographicBounds.maxY, geographicBounds.maxZ],
+  ].map(([longitude, latitude, height]) =>
+    toProject({ longitude, latitude, height }));
+
+  return corners.reduce<CopcHierarchyBounds>((bounds, point) => ({
+    minX: Math.min(bounds.minX, point.x),
+    minY: Math.min(bounds.minY, point.y),
+    minZ: Math.min(bounds.minZ, point.z),
+    maxX: Math.max(bounds.maxX, point.x),
+    maxY: Math.max(bounds.maxY, point.y),
+    maxZ: Math.max(bounds.maxZ, point.z),
+  }), {
+    minX: Number.POSITIVE_INFINITY,
+    minY: Number.POSITIVE_INFINITY,
+    minZ: Number.POSITIVE_INFINITY,
+    maxX: Number.NEGATIVE_INFINITY,
+    maxY: Number.NEGATIVE_INFINITY,
+    maxZ: Number.NEGATIVE_INFINITY,
+  });
+}
 
 export type CopcLayerLifecycleState =
   | 'idle'
@@ -208,17 +264,28 @@ export class CopcLayerController {
       return;
     }
 
-    const nodes = await loadRootHierarchy(context);
+    const hierarchyLoader = new HierarchyLoader(context, metadata.cube);
+    let rootHierarchy;
+    try {
+      rootHierarchy = await hierarchyLoader.loadRoot();
+    } catch (error: unknown) {
+      if (error instanceof CopcLoadError) {
+        throw error;
+      }
+
+      throw new CopcHierarchyLoadError(context.source, { cause: error });
+    }
 
     if (!this.isCurrentLoad(loadGeneration)) {
       return;
     }
 
-    const hierarchy = buildStreamingHierarchy(metadata, nodes);
+    const hierarchy = buildStreamingHierarchy(metadata, rootHierarchy.nodes);
 
     this.streamingState = {
       context,
       metadata,
+      hierarchyLoader,
       nodes: hierarchy,
       manager: new StreamingManager(
         hierarchy,
@@ -303,6 +370,10 @@ export class CopcLayerController {
     };
   }
 
+  getHierarchyDiagnostics() {
+    return this.streamingState?.hierarchyLoader.getDiagnostics();
+  }
+
   /**
    * Return the currently loaded COPC metadata if the dataset has been loaded.
    */
@@ -373,6 +444,26 @@ export class CopcLayerController {
     };
   }
 
+  private getHierarchyQuery(camera: StreamingCameraState): CopcHierarchyQuery {
+    const streamingOptions = { ...STREAMING_OPTIONS, ...this.options.streaming };
+    const metadata = this.streamingState?.metadata;
+    if (!metadata) {
+      throw new Error('Streaming state is not initialized');
+    }
+    const radiusMeters = Math.min(
+      camera.viewDistanceMeters,
+      streamingOptions.maxRenderDistanceMeters,
+    );
+
+    return {
+      bounds: toProjectBounds(
+        metadata,
+        createViewBounds(camera, radiusMeters),
+      ),
+      maxLevel: streamingOptions.maxDepth,
+    };
+  }
+
   private async updateStreamingView(): Promise<void> {
     const viewer = this.viewer;
     const streamingState = this.streamingState;
@@ -382,9 +473,19 @@ export class CopcLayerController {
     }
 
     const streamingGeneration = ++this.streamingGeneration;
+    const camera = this.getStreamingCameraState();
+    if (streamingState.hierarchyLoader) {
+      const availableHierarchy = await streamingState.hierarchyLoader.query(
+        this.getHierarchyQuery(camera),
+      );
+      const hierarchy = buildStreamingHierarchy(streamingState.metadata, availableHierarchy.nodes);
+      streamingState.nodes = hierarchy;
+      streamingState.manager.setHierarchy(hierarchy);
+    }
     let progressApplied = false;
+    let updateCounted = false;
     const update = await streamingState.manager.update(
-      this.getStreamingCameraState(),
+      camera,
       (progress) => {
         if (
           streamingGeneration !== this.streamingGeneration
@@ -395,8 +496,11 @@ export class CopcLayerController {
           return;
         }
 
-        this.streamingUpdateCount += 1;
         progressApplied = true;
+        if (progress.loadedNodePoints.size > 0 && !updateCounted) {
+          this.streamingUpdateCount += 1;
+          updateCounted = true;
+        }
         this.applyStreamingProgress(viewer, progress);
       },
     );
@@ -413,11 +517,14 @@ export class CopcLayerController {
     // Keep compatibility with custom/test managers that implement the
     // original all-at-once update contract and do not emit progress.
     if (!progressApplied) {
-      this.streamingUpdateCount += 1;
       this.applyStreamingProgress(viewer, {
         ...update,
         completedBatchPointCount: update.loadedNodePoints.size,
       });
+    }
+
+    if (!updateCounted) {
+      this.streamingUpdateCount += 1;
     }
 
   }

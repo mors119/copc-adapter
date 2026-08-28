@@ -10,6 +10,21 @@ export type CopcHierarchyNode = {
   children?: string[];
 };
 
+export type CopcHierarchyBounds = {
+  minX: number;
+  minY: number;
+  minZ: number;
+  maxX: number;
+  maxY: number;
+  maxZ: number;
+};
+
+/** Project-owned request for the hierarchy needed by one view update. */
+export type CopcHierarchyQuery = {
+  bounds: CopcHierarchyBounds;
+  maxLevel?: number;
+};
+
 export type CopcHierarchyPage = {
   key: string;
   pageOffset: number;
@@ -24,6 +39,14 @@ export type CopcHierarchySubtree = {
 export type CopcHierarchyTree = {
   nodes: CopcHierarchyNode[];
   pages: CopcHierarchyPage[];
+};
+
+export type CopcHierarchyDiagnostics = {
+  pageRequests: number;
+  pageCacheHits: number;
+  hierarchyBytesFetched: number;
+  loadedPageCount: number;
+  loadedEntryCount: number;
 };
 
 export interface CopcHierarchySource {
