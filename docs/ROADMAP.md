@@ -37,7 +37,7 @@
 2. Evaluate Web Workers for hierarchy, loading, and decoder work.
 3. Broaden Rust backend format and edge-case coverage before considering it for
    the default backend.
-4. Explore scalable rendering approaches and dataset-global attribute statistics.
+4. Explore measured scalable rendering approaches and dataset-global attribute statistics; the Issue #48 boundary and baseline are complete.
 5. Publish the library after broader consumer compatibility validation.
 
 ## Submission State

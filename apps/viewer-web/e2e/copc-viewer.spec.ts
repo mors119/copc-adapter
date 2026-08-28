@@ -17,7 +17,18 @@ type CopcDebugState = {
   lastError?: string;
   backend: 'copc-js' | 'rust' | 'custom';
   performance: Record<string, number>;
+  pointCache: {
+    cacheByteBudget: number;
+    currentCacheBytes: number;
+    cachedNodeCount: number;
+    hits: number;
+    misses: number;
+    evictionCount: number;
+    bytesEvicted: number;
+    largestCachedEntryBytes: number;
+  };
   longestMainThreadTaskMs: number;
+  cesiumFrameDurationMs: number;
 };
 
 type CopcDebugAdapter = {
@@ -26,6 +37,7 @@ type CopcDebugAdapter = {
   setCameraHeight(height: number): void;
   setCameraPitch(pitchDegrees: number): void;
   recordError(error: unknown): void;
+  runSyntheticRendererPerformanceBenchmark(): Array<Record<string, unknown>>;
 };
 
 declare global {
@@ -85,6 +97,8 @@ test('streams a COPC sample through the opt-in Rust backend in a real Cesium sce
     initialState.maxRenderedHeight! - initialState.minRenderedHeight!,
   ).toBeGreaterThan(1);
   expect(initialState.renderedColorCount).toBeGreaterThan(1);
+  expect(initialState.pointCache.cacheByteBudget).toBeGreaterThan(0);
+  expect(initialState.pointCache.currentCacheBytes).toBeGreaterThan(0);
 
   await page.evaluate(() => {
     window.__COPC_DEBUG__?.setCameraPitch(-35);

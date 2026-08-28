@@ -1063,13 +1063,91 @@ test('CopcCesiumLayer snapshot exposes lifecycle and dataset info', () => {
       pointStylePreparationDurationMs: 0,
       pointCollectionCreationDurationMs: 0,
       pointAddDurationMs: 0,
+      rendererPreparationDurationMs: 0,
+      nodeRemovalDurationMs: 0,
       longestMainThreadBlockingSectionMs: 0,
+    },
+    pointCache: {
+      cacheByteBudget: 256 * 1024 * 1024,
+      currentCacheBytes: 0,
+      cachedNodeCount: 0,
+      hits: 0,
+      misses: 0,
+      evictionCount: 0,
+      bytesEvicted: 0,
+      largestCachedEntryBytes: 0,
     },
   });
 
   layer.destroy();
 
   assert.equal(layer.getSnapshot().lifecycle, 'destroyed');
+});
+
+test('CopcCesiumLayer point-cache diagnostics reset across unload, reload, and destroy', async () => {
+  const node = {
+    key: '0-0-0-0',
+    level: 0,
+    x: 0,
+    y: 0,
+    z: 0,
+    pointCount: 1,
+    pointDataOffset: 0,
+    pointDataLength: 0,
+  };
+  const backend = {
+    async open(source) {
+      return {
+        source,
+        getMetadata() {
+          return {
+            pointCount: 1,
+            bounds: { minX: -123, minY: 44, minZ: 0, maxX: -123, maxY: 44, maxZ: 0 },
+            cube: { minX: -123, minY: 44, minZ: 0, maxX: -122, maxY: 45, maxZ: 1 },
+          };
+        },
+        getRootHierarchyPage() {
+          return { key: node.key, pageOffset: 0, pageLength: 1 };
+        },
+        async loadHierarchyPage() {
+          return { nodes: [node], pages: [] };
+        },
+        async loadPointDataView() {
+          return {
+            pointCount: 1,
+            availableFields: new Set(['position']),
+            getter: () => () => 0,
+          };
+        },
+      };
+    },
+  };
+  const layer = new CopcCesiumLayer({
+    url: 'memory://fake.copc.laz',
+    maxPointCacheBytes: 17,
+    backend,
+  });
+
+  assert.equal(layer.getPointCacheDiagnostics().cacheByteBudget, 17);
+  await layer.load();
+  assert.equal(layer.getPointCacheDiagnostics().cachedNodeCount, 0);
+
+  layer.unload();
+  assert.deepEqual(layer.getPointCacheDiagnostics(), {
+    cacheByteBudget: 17,
+    currentCacheBytes: 0,
+    cachedNodeCount: 0,
+    hits: 0,
+    misses: 0,
+    evictionCount: 0,
+    bytesEvicted: 0,
+    largestCachedEntryBytes: 0,
+  });
+
+  await layer.reload();
+  assert.equal(layer.getPointCacheDiagnostics().cacheByteBudget, 17);
+  layer.destroy();
+  assert.equal(layer.getPointCacheDiagnostics().cachedNodeCount, 0);
 });
 
 test('CopcCesiumLayer reports the selected backend without changing its viewer boundary', () => {

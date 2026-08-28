@@ -76,6 +76,16 @@ layer.destroy();
 viewer.destroy();
 ```
 
+The decoded point cache is bounded by `maxPointCacheBytes` (256 MiB by
+default), in addition to its node-count safety cap. Its diagnostics count the
+actual `TypedArray.byteLength` values for cached project-owned coordinates and
+attributes. They represent decoded CPU point-buffer memory, not exact browser,
+Cesium, or GPU memory:
+
+```ts
+console.log(layer.getPointCacheDiagnostics());
+```
+
 The COPC source must support HTTP Range requests. Cross-origin sources also
 need CORS headers that allow the consuming origin and expose the range
 response metadata used by the reader.
@@ -169,7 +179,9 @@ CRS transform → WGS84
   ↓
 NodeSelector / StreamingManager
   ↓
-Cesium PointPrimitiveCollection
+CopcPointRenderer
+  ↓
+PointPrimitiveRenderer → Cesium PointPrimitiveCollection
 ```
 
 The backend reads COPC data. The layer coordinates Cesium camera events, LoD,
@@ -227,6 +239,8 @@ npm --prefix apps/viewer-web run test
 npm --prefix apps/viewer-web run coverage
 npm --prefix apps/viewer-web run build
 npm --prefix apps/viewer-web run test:e2e
+npm --prefix apps/viewer-web run benchmark:renderer
+npm --prefix apps/viewer-web run test:e2e -- e2e/renderer-performance.spec.ts
 npm run test:pack
 cargo test --workspace
 ```
@@ -266,9 +280,9 @@ These are the current v0.1.1 boundaries:
 - Frustum and occlusion culling are not implemented yet.
 - Rust/WASM decode still runs on the main thread; worker decode is tracked in
   [#46](https://github.com/mors119/copc-adapter/issues/46).
-- Rendering currently uses `Cesium.PointPrimitiveCollection`; scalable
-  renderer work is tracked in
-  [#48](https://github.com/mors119/copc-adapter/issues/48).
+- Rendering uses the compatibility `PointPrimitiveRenderer` boundary backed by
+  `Cesium.PointPrimitiveCollection`; benchmark evidence is in the
+  [Issue #48 report](docs/benchmarks/issue-48-renderer.md).
 - Dense refinement workloads can take several seconds to finish progressively.
   The scheduler keeps the browser responsive while work is in progress;
   rendered-point budget and backpressure work is tracked in
@@ -283,7 +297,7 @@ Follow-up work includes:
 
 - View- and frustum-aware selection with screen-space-error refinement
 - Web Worker decode and loading ([#46](https://github.com/mors119/copc-adapter/issues/46))
-- Renderer scalability ([#48](https://github.com/mors119/copc-adapter/issues/48))
+- A measured renderer boundary is complete ([#48](https://github.com/mors119/copc-adapter/issues/48)); batched/custom rendering remains follow-up work only if needed
 - Rendered-point budget and streaming backpressure ([#59](https://github.com/mors119/copc-adapter/issues/59))
 
 See the [project roadmap](docs/ROADMAP.md) and the

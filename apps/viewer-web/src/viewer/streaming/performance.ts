@@ -28,6 +28,8 @@ export type StreamingPerformanceSnapshot = {
   pointStylePreparationDurationMs: number;
   pointCollectionCreationDurationMs: number;
   pointAddDurationMs: number;
+  rendererPreparationDurationMs: number;
+  nodeRemovalDurationMs: number;
   longestMainThreadBlockingSectionMs: number;
 };
 
@@ -51,6 +53,8 @@ function emptySnapshot(): StreamingPerformanceSnapshot {
     pointStylePreparationDurationMs: 0,
     pointCollectionCreationDurationMs: 0,
     pointAddDurationMs: 0,
+    rendererPreparationDurationMs: 0,
+    nodeRemovalDurationMs: 0,
     longestMainThreadBlockingSectionMs: 0,
   };
 }
@@ -107,6 +111,8 @@ export class StreamingPerformanceRecorder {
       | 'pointStylePreparationDurationMs'
       | 'pointCollectionCreationDurationMs'
       | 'pointAddDurationMs'
+      | 'rendererPreparationDurationMs'
+      | 'nodeRemovalDurationMs'
     >,
     durationMs: number,
     blocksMainThread = false,
