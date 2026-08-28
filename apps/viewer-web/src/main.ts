@@ -25,6 +25,7 @@ type CopcDebugState = {
   lastError?: string;
   backend: CopcBackendName | 'custom';
   performance: ReturnType<CopcCesiumLayer['getSnapshot']>['performance'];
+  pointCache: ReturnType<CopcCesiumLayer['getSnapshot']>['pointCache'];
   longestMainThreadTaskMs: number;
 };
 
@@ -149,6 +150,7 @@ function installDebugAdapter(
         ...pointDiagnostics,
         backend: snapshot.backend,
         performance: snapshot.performance,
+        pointCache: snapshot.pointCache,
         longestMainThreadTaskMs,
         lastError,
       };

@@ -76,6 +76,16 @@ layer.destroy();
 viewer.destroy();
 ```
 
+The decoded point cache is bounded by `maxPointCacheBytes` (256 MiB by
+default), in addition to its node-count safety cap. Its diagnostics count the
+actual `TypedArray.byteLength` values for cached project-owned coordinates and
+attributes. They represent decoded CPU point-buffer memory, not exact browser,
+Cesium, or GPU memory:
+
+```ts
+console.log(layer.getPointCacheDiagnostics());
+```
+
 The COPC source must support HTTP Range requests. Cross-origin sources also
 need CORS headers that allow the consuming origin and expose the range
 response metadata used by the reader.

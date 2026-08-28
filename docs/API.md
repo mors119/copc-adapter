@@ -17,8 +17,10 @@ consumers should import the generated `@frillab/copc-adapter` package.
 - `attachTo(viewer)`: caller-owned Cesium viewer에 primitives와 camera listener 연결
 - `detachFrom()`: Cesium viewer를 destroy하지 않고 primitives와 listener 분리
 - `destroy()`: layer resource 와 listener 정리
-- `getSnapshot()`: 현재 lifecycle, 선택 node, 렌더링 point 수 조회
+- `getSnapshot()`: 현재 lifecycle, 선택 node, 렌더링 point 수와 decoded CPU
+  point-cache metrics 조회
 - `getHierarchyDiagnostics()`: hierarchy page request/cache/byte counters 조회
+- `getPointCacheDiagnostics()`: decoded CPU point-buffer cache counters 조회
 
 `load()`와 `reload()`는 source/context 생성, metadata 및 CRS 검증,
 root hierarchy page 로딩 실패를 각각 project-owned `CopcLoadError`로 reject한다.
@@ -46,6 +48,9 @@ panel에 그대로 표시할 수 있다. `CopcSourceError`, `CopcMetadataError`,
 - `backend`: `'copc-js' | 'rust' | CopcBackend`; defaults to `'copc-js'`.
   Rust is opt-in and does not silently fall back to `copc-js`.
 - `decoder`: optional `CopcPointDecoder`; defaults to the Rust/WASM decoder
+- `maxPointCacheBytes`: decoded CPU point-buffer cache budget in bytes (default
+  `256 * 1024 * 1024`). This estimates project-owned typed-array storage and
+  does not measure exact Cesium/WebGL/browser memory.
 
 The Rust selector uses the same layer API; it does not create a Rust-only
 Viewer. Applications continue to create and own `Cesium.Viewer`, then call

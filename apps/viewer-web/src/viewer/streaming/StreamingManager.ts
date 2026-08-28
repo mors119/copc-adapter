@@ -73,9 +73,10 @@ export class StreamingManager {
       .filter((nodeKey) => !nextSelectedNodeKeys.has(nodeKey))
       .sort();
 
+    this.cache.setRequiredNodeKeys(nextSelectedNodeKeys);
+
     for (const nodeKey of removedNodeKeys) {
       this.selectedNodeKeys.delete(nodeKey);
-      this.cache.delete(nodeKey);
     }
 
     for (const nodeKey of nextSelectedNodeKeys) {

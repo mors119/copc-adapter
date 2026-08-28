@@ -21,6 +21,16 @@ function createSnapshot(overrides = {}) {
       visibleLevelRange: { min: 2, max: 5 },
       cameraDirection: { x: 0, y: 0.5, z: -0.8660254 },
     },
+    pointCache: {
+      cacheByteBudget: 1024,
+      currentCacheBytes: 768,
+      cachedNodeCount: 2,
+      hits: 4,
+      misses: 3,
+      evictionCount: 1,
+      bytesEvicted: 512,
+      largestCachedEntryBytes: 640,
+    },
     datasetUrl: '/samples/autzen.copc.laz?cache=1',
     attached: true,
     ...overrides,
@@ -73,6 +83,14 @@ test('maps layer diagnostics and metadata into browser-visible values', () => {
   assert.equal(view.keptNodeCount, '3');
   assert.equal(view.visibleLevelRange, '2–5');
   assert.equal(view.cameraDirection, '0, 0.50000000, -0.86602540');
+  assert.equal(view.pointCacheBudget, '1,024 B');
+  assert.equal(view.pointCacheBytes, '768 B');
+  assert.equal(view.cachedNodeCount, '2');
+  assert.equal(view.cacheHits, '4');
+  assert.equal(view.cacheMisses, '3');
+  assert.equal(view.cacheEvictionCount, '1');
+  assert.equal(view.cacheBytesEvicted, '512 B');
+  assert.equal(view.largestCachedEntryBytes, '640 B');
 });
 
 test('shows loading placeholders and gives runtime errors precedence', () => {
