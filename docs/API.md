@@ -18,9 +18,10 @@ consumers should import the generated `@frillab/copc-adapter` package.
 - `detachFrom()`: Cesium viewer를 destroy하지 않고 primitives와 listener 분리
 - `destroy()`: layer resource 와 listener 정리
 - `getSnapshot()`: 현재 lifecycle, 선택 node, 렌더링 point 수 조회
+- `getHierarchyDiagnostics()`: hierarchy page request/cache/byte counters 조회
 
 `load()`와 `reload()`는 source/context 생성, metadata 및 CRS 검증,
-hierarchy 로딩 실패를 각각 project-owned `CopcLoadError`로 reject한다.
+root hierarchy page 로딩 실패를 각각 project-owned `CopcLoadError`로 reject한다.
 `stage`는 `'source' | 'metadata' | 'hierarchy' | 'point-data' | 'decode' |
 'wasm'`, `source`는 원본 configured URL이며, 지원되는 runtime에서는 원래 오류가 `cause`에 보존된다. 표시용
 `message`에서는 URL credential, query, fragment가 제거되므로 demo/debug
@@ -76,6 +77,9 @@ const layer = new CopcCesiumLayer({
 
 await layer.load();
 layer.attachTo(viewer);
+
+// Optional request/cache diagnostics for incremental hierarchy loading.
+console.log(layer.getHierarchyDiagnostics());
 ```
 
 Install the package together with the Cesium version owned by the host app:

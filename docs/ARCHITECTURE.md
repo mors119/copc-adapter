@@ -13,16 +13,19 @@ converts those points into Cesium primitives in the browser.
 Browser-readable COPC URL
   -> project-owned CopcBackend / CopcSource boundary
   -> copc-js (default) or Rust/WASM (explicit opt-in)
-  -> metadata and recursive hierarchy loading
+  -> metadata and incremental hierarchy-page queries
   -> streaming hierarchy and camera-based node selection
   -> selected project-owned point buffers
   -> coordinate transformation to WGS84
   -> Cesium PointPrimitiveCollection
 ```
 
-The hierarchy is loaded before point streaming begins. The streaming manager
-then requests point chunks only for the nodes selected by the current camera
-state.
+The root hierarchy page is loaded before point streaming begins. Each camera
+update gives the stateful `HierarchyLoader` a project-owned bounds/max-level
+query. It fetches intersecting page references only, retains page promises and
+decoded entry metadata per layer/source instance, and exposes the currently
+available nodes to the streaming manager. Point-buffer caching remains a
+separate concern.
 
 ## Module Boundaries
 
@@ -72,11 +75,14 @@ There is intentionally no second placeholder production backend.
 `CopcCesiumLayer` accepts a COPC URL, optional point size, debug flag, and
 streaming overrides. It deliberately does not create or own a Cesium viewer.
 
-1. `load()` creates the COPC context, reads metadata, and traverses hierarchy
-   pages.
+1. `load()` creates the COPC context, reads metadata, and loads only the root
+   hierarchy page.
 2. `attachTo(viewer)` registers the camera listener, flies to the dataset once,
-   and starts a streaming update.
-3. Camera movement schedules further streaming updates.
+   and starts a streaming update. The adapter converts its camera envelope into
+   a project-coordinate hierarchy query and supplies the configured target
+   depth.
+3. Camera movement schedules another hierarchy query and streaming update;
+   previously loaded pages are reused and newly intersecting pages are added.
 4. `detachFrom()` removes this layer's primitives and listener but preserves
    loaded COPC state and the caller-owned viewer.
 5. `unload()` clears loaded state and cached point requests.
@@ -89,6 +95,13 @@ The current selection policy uses node bounds, camera distance, a maximum
 depth, and a render-distance limit. `StreamingManager` loads missing selected
 nodes and removes deselected primitives. The node cache is bounded and evicts
 least-recently-used entries.
+
+`CopcHierarchyQuery` contains only project-coordinate bounds and an optional
+`maxLevel`; it has no Cesium camera, culling, or screen-space-error types. The
+adapter owns the camera envelope and target-depth policy. `HierarchyLoader`
+owns page-reference traversal and its per-source page cache, while the Rust
+and copc.js sources own byte/page decoding. Hierarchy diagnostics report page
+requests, cache hits, fetched hierarchy bytes, and loaded entry counts.
 
 This is intentionally a basic streaming policy. It is not screen-space-error
 selection, worker-based loading, or a GPU-specific point-cloud renderer.

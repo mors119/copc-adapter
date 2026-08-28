@@ -5,8 +5,11 @@ export {
   CopcHierarchyTraversalError,
 } from './types';
 export type {
+  CopcHierarchyBounds,
+  CopcHierarchyDiagnostics,
   CopcHierarchyNode,
   CopcHierarchyPage,
+  CopcHierarchyQuery,
   CopcHierarchySource,
   CopcHierarchySubtree,
   CopcHierarchyTree,

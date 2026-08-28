@@ -54,6 +54,39 @@ export function createPointTransformer(
   };
 }
 
+/** Convert adapter/view coordinates back into the COPC source coordinate space. */
+export function createProjectPointTransformer(
+  metadata: CopcMetadata,
+): (point: GeographicPoint) => CopcPoint {
+  if (!metadata.wkt) {
+    if (hasGeographicBounds(metadata)) {
+      return (point: GeographicPoint): CopcPoint => ({
+        x: point.longitude,
+        y: point.latitude,
+        z: point.height,
+      });
+    }
+
+    throw new Error(
+      'COPC metadata WKT is required to transform projected view bounds',
+    );
+  }
+
+  const horizontalWkt = extractHorizontalWkt(metadata.wkt);
+  const verticalUnitScale = extractVerticalUnitScale(metadata.wkt);
+  const projection = proj4(horizontalWkt, 'WGS84');
+
+  return (point: GeographicPoint): CopcPoint => {
+    const [x, y] = projection.inverse([point.longitude, point.latitude]);
+
+    return {
+      x,
+      y,
+      z: point.height / verticalUnitScale,
+    };
+  };
+}
+
 export function transformPointBuffer(
   metadata: CopcMetadata,
   points: CopcPointBuffer,

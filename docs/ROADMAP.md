@@ -10,7 +10,7 @@
 | Area | Status | Current scope |
 | --- | --- | --- |
 | COPC source access | Implemented | Shared project-owned boundary with `copc.js` default and opt-in Rust/WASM backend |
-| Metadata and hierarchy | Implemented | Metadata loading plus recursive hierarchy-page traversal |
+| Metadata and hierarchy | Implemented | Metadata loading plus root-first incremental hierarchy-page queries |
 | Point data | Implemented | XYZ plus available intensity, classification, and RGB dimensions converted to project-owned typed buffers |
 | Coordinate transformation | Implemented | COPC CRS values transformed to WGS84 coordinates |
 | Cesium rendering | Implemented | Point primitive collections rendered in a Cesium viewer |

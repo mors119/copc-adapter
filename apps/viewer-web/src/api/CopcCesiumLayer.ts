@@ -7,6 +7,7 @@ import type { CopcMetadata } from '../copc/types/copc';
 import type { CopcColorMode } from '../cesium/style/pointStyle';
 import type { CopcBackendSelection } from '../copc/backend/selection';
 import type { CopcPointDecoder } from '../copc/points/types';
+import type { CopcHierarchyDiagnostics } from '../copc/hierarchy/types';
 
 export type { CopcColorMode } from '../cesium/style/pointStyle';
 
@@ -91,5 +92,10 @@ export class CopcCesiumLayer {
   /** Return loaded COPC metadata, if available. */
   getMetadata(): CopcMetadata | undefined {
     return this.controller.getMetadata();
+  }
+
+  /** Return hierarchy request/cache counters for diagnostics and tests. */
+  getHierarchyDiagnostics(): CopcHierarchyDiagnostics | undefined {
+    return this.controller.getHierarchyDiagnostics();
   }
 }

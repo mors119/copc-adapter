@@ -27,6 +27,11 @@ export type {
   RustCopcBackendOptions,
 } from './copc/backend';
 export type { CopcBackend, CopcSource } from './copc/backend/types';
+export type {
+  CopcHierarchyBounds,
+  CopcHierarchyDiagnostics,
+  CopcHierarchyQuery,
+} from './copc/hierarchy/types';
 export { RustCopcParseError, RustCopcReader } from './copc/rustCopcReader';
 export { CopcWasmError } from './wasm/copcWasm';
 export type {

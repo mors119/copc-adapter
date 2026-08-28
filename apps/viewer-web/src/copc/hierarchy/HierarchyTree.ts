@@ -33,8 +33,8 @@ function getNodeChildKeys(
 
 function assertPageShape(page: CopcHierarchyPage): void {
   if (
-    !Number.isFinite(page.pageOffset) ||
-    !Number.isFinite(page.pageLength) ||
+    !Number.isSafeInteger(page.pageOffset) ||
+    !Number.isSafeInteger(page.pageLength) ||
     page.pageOffset < 0 ||
     page.pageLength <= 0
   ) {
@@ -97,8 +97,10 @@ export function mergeHierarchySubtree(
 
 export function finalizeHierarchyTree(
   tree: MutableHierarchyTree,
+  maxLevel?: number,
 ): CopcHierarchyTree {
   const nodes = [...tree.nodeMap.values()]
+    .filter((node) => maxLevel === undefined || node.level <= maxLevel)
     .sort((left, right) => left.key.localeCompare(right.key))
     .map((node) => ({
       ...node,

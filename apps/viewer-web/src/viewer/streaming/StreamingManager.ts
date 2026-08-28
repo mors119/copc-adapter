@@ -16,7 +16,7 @@ export type StreamingNodePointLoader = (
 ) => Promise<GeographicPointBuffer>;
 
 export class StreamingManager {
-  private readonly hierarchy: StreamingHierarchy;
+  private hierarchy: StreamingHierarchy;
   private readonly selector: NodeSelector;
   private readonly cache: NodePointCache<GeographicPointBuffer>;
   private readonly performanceRecorder: StreamingPerformanceRecorder;
@@ -39,6 +39,10 @@ export class StreamingManager {
 
   getPerformanceSnapshot() {
     return this.performanceRecorder.getSnapshot();
+  }
+
+  setHierarchy(hierarchy: StreamingHierarchy): void {
+    this.hierarchy = hierarchy;
   }
 
   async update(
