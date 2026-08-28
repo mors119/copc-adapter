@@ -9,6 +9,12 @@ CesiumJS. The application keeps ownership of its own `Cesium.Viewer`.
 
 ![COPC Adapter demo](docs/assets/copc-main.gif)
 
+The repository-owned captures use the local Autzen Stadium sample
+(`/samples/autzen.copc.laz`) rendered in CesiumJS with the demo's `rgb` color
+mode. The streaming capture shows the same dataset while camera movement
+changes the distance/bounds-based LoD; the static styling examples below also
+include the `elevation` and `classification` modes.
+
 ## Why COPC Adapter
 
 Many point-cloud workflows look like this:
