@@ -3,7 +3,7 @@ import {
   type CopcBackendSelection,
 } from '../backend/selection';
 import type { CopcSource } from '../backend/types';
-import { CopcLoadError, CopcSourceError } from '../errors';
+import { CopcBackendError, CopcLoadError, CopcSourceError } from '../errors';
 import type { CopcHierarchySubtree } from '../hierarchy/types';
 import type {
   CopcHierarchyNode,
@@ -52,6 +52,9 @@ export class CopcContext implements CopcSource {
     try {
       return new CopcContext(await resolveCopcBackend(backend).open(source));
     } catch (error: unknown) {
+      if (error instanceof CopcBackendError && error.stage === 'source') {
+        throw new CopcSourceError(source, { cause: error });
+      }
       if (error instanceof CopcLoadError) {
         throw error;
       }
