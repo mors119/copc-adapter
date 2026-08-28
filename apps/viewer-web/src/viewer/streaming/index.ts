@@ -1,5 +1,8 @@
 export { buildStreamingHierarchy } from './buildStreamingHierarchy';
-export { createNodePointCache } from './createNodePointCache';
+export {
+  createNodePointCache,
+  estimateDecodedCpuPointBufferBytes,
+} from './createNodePointCache';
 export { NodeSelector } from './NodeSelector';
 export { calculateScreenSpaceErrorPixels } from './NodeSelector';
 export { StreamingManager } from './StreamingManager';
@@ -12,6 +15,10 @@ export {
   geographicToEcef,
   intersectsViewFrustum,
 } from './view';
+export type {
+  NodePointCacheDiagnostics,
+  NodePointCacheOptions,
+} from './createNodePointCache';
 export type {
   BoundingSphere,
   FrustumPlane,

@@ -77,3 +77,4 @@ export type {
   GeographicPoint,
   GeographicPointBuffer,
 } from './copc/types/copc';
+export type { NodePointCacheDiagnostics } from './viewer/streaming/createNodePointCache';

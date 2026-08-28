@@ -31,6 +31,14 @@ export type CopcDebugPanelView = {
   keptNodeCount: string;
   visibleLevelRange: string;
   cameraDirection: string;
+  pointCacheBudget: string;
+  pointCacheBytes: string;
+  cachedNodeCount: string;
+  cacheHits: string;
+  cacheMisses: string;
+  cacheEvictionCount: string;
+  cacheBytesEvicted: string;
+  largestCachedEntryBytes: string;
   error?: string;
 };
 
@@ -38,6 +46,10 @@ const numberFormatter = new Intl.NumberFormat('en-US');
 
 function formatNumber(value: number): string {
   return numberFormatter.format(value);
+}
+
+function formatBytes(value: number): string {
+  return `${formatNumber(value)} B`;
 }
 
 function formatCoordinate(value: number): string {
@@ -125,6 +137,14 @@ export function buildCopcDebugPanelView(
       ? `${snapshot.performance.visibleLevelRange.min}–${snapshot.performance.visibleLevelRange.max}`
       : '—',
     cameraDirection: formatVector(snapshot.performance?.cameraDirection),
+    pointCacheBudget: formatBytes(snapshot.pointCache?.cacheByteBudget ?? 0),
+    pointCacheBytes: formatBytes(snapshot.pointCache?.currentCacheBytes ?? 0),
+    cachedNodeCount: formatNumber(snapshot.pointCache?.cachedNodeCount ?? 0),
+    cacheHits: formatNumber(snapshot.pointCache?.hits ?? 0),
+    cacheMisses: formatNumber(snapshot.pointCache?.misses ?? 0),
+    cacheEvictionCount: formatNumber(snapshot.pointCache?.evictionCount ?? 0),
+    cacheBytesEvicted: formatBytes(snapshot.pointCache?.bytesEvicted ?? 0),
+    largestCachedEntryBytes: formatBytes(snapshot.pointCache?.largestCachedEntryBytes ?? 0),
     error: lastError,
   };
 }
@@ -165,6 +185,19 @@ export function createCopcDebugPanel(
       <div><dt>Nodes kept</dt><dd data-field="keptNodeCount"></dd></div>
       <div><dt>Visible levels</dt><dd data-field="visibleLevelRange"></dd></div>
     </dl>
+    <details>
+      <summary>Decoded CPU point cache</summary>
+      <dl>
+        <div><dt>Byte budget</dt><dd data-field="pointCacheBudget"></dd></div>
+        <div><dt>Cached bytes</dt><dd data-field="pointCacheBytes"></dd></div>
+        <div><dt>Cached nodes</dt><dd data-field="cachedNodeCount"></dd></div>
+        <div><dt>Hits / misses</dt><dd><span data-field="cacheHits"></span> / <span data-field="cacheMisses"></span></dd></div>
+        <div><dt>Evictions</dt><dd data-field="cacheEvictionCount"></dd></div>
+        <div><dt>Bytes evicted</dt><dd data-field="cacheBytesEvicted"></dd></div>
+        <div><dt>Largest entry</dt><dd data-field="largestCachedEntryBytes"></dd></div>
+      </dl>
+      <p>Typed-array bytes only; Cesium/WebGL memory is not measured.</p>
+    </details>
     <details open>
       <summary>Metadata</summary>
       <div class="copc-debug-panel__detail"><span>Bounds</span><code data-field="bounds"></code></div>
