@@ -5,10 +5,16 @@ import { fileURLToPath } from 'node:url';
 const appDirectory = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
+  // Keep asset URLs relative to the package entry when it is imported by a
+  // separate Vite application.
+  base: './',
   // The application public directory may contain a downloaded sample. It is
   // never part of the reusable library package.
   publicDir: false,
   build: {
+    // Keep decoder binaries as package assets so a packed consumer exercises
+    // the same URL resolution path as a published installation.
+    assetsInlineLimit: 0,
     lib: {
       entry: 'src/index.ts',
       formats: ['es'],

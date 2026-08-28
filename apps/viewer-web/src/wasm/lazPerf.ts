@@ -2,7 +2,7 @@ import createLazPerfModule from 'laz-perf/lib/web/laz-perf.js';
 
 type LazPerfModule = Awaited<ReturnType<typeof createLazPerfModule>>;
 
-const lazPerfWasmUrl = new URL('./laz-perf.wasm', import.meta.url);
+const lazPerfWasmUrl = new URL('./laz-perf.wasm?no-inline', import.meta.url);
 
 /** Browser LAZ decoder factory with its WASM binary resolved from this package. */
 async function createLazPerf(

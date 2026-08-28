@@ -44,7 +44,10 @@ export class CopcWasmError extends Error {
 
 let wasmPromise: Promise<CopcWasmExports> | undefined;
 
-const bundledWasmUrl = new URL('./copc_wasm.wasm', import.meta.url);
+// `?no-inline` is required for Vite library builds: otherwise the Rust
+// binary is embedded in dist/index.js and a packed consumer never exercises
+// the published asset URL.
+const bundledWasmUrl = new URL('./copc_wasm.wasm?no-inline', import.meta.url);
 
 function isBrowser(): boolean {
   return typeof window !== 'undefined';
@@ -67,8 +70,7 @@ async function loadWasmBinary(): Promise<Uint8Array> {
     import('node:url'),
   ]);
   const modulePath = pathModule.resolve(
-    pathModule.dirname(urlModule.fileURLToPath(import.meta.url)),
-    '../../../../target/wasm32-unknown-unknown/release/copc_wasm.wasm',
+    urlModule.fileURLToPath(new URL('./copc_wasm.wasm', bundledWasmUrl)),
   );
   return new Uint8Array(await readFile(modulePath));
 }
