@@ -13,6 +13,11 @@ function createSnapshot(overrides = {}) {
     performance: {
       candidatesBeforeCulling: 12,
       frustumCulledCount: 5,
+      maxScreenSpaceError: 8,
+      screenSpaceErrorMin: 2.5,
+      screenSpaceErrorMax: 18.75,
+      refinedNodeCount: 4,
+      keptNodeCount: 3,
       visibleLevelRange: { min: 2, max: 5 },
       cameraDirection: { x: 0, y: 0.5, z: -0.8660254 },
     },
@@ -62,6 +67,10 @@ test('maps layer diagnostics and metadata into browser-visible values', () => {
   assert.equal(view.streamingUpdateCount, '7');
   assert.equal(view.candidatesBeforeCulling, '12');
   assert.equal(view.frustumCulledCount, '5');
+  assert.equal(view.maxScreenSpaceError, '8 px');
+  assert.equal(view.representativeScreenSpaceError, '2.5000000–18.750000 px');
+  assert.equal(view.refinedNodeCount, '4');
+  assert.equal(view.keptNodeCount, '3');
   assert.equal(view.visibleLevelRange, '2–5');
   assert.equal(view.cameraDirection, '0, 0.50000000, -0.86602540');
 });

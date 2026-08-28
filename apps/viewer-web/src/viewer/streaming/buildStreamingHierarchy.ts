@@ -131,6 +131,10 @@ export function buildStreamingHierarchy(
       center: geographicCenter,
       bounds,
       approximateSizeMeters: nodeSide * horizontalUnitScale,
+      geometricErrorMeters: Math.max(
+        (metadata.spacing ?? cubeSide) * horizontalUnitScale / (2 ** node.level),
+        nodeSide * horizontalUnitScale / 2,
+      ),
       boundingRadiusMeters: (Math.sqrt(3) * nodeSide * horizontalUnitScale) / 2,
       boundingSphere: createBoundingSphereFromGeographicBounds(geographicCenter, bounds),
     });

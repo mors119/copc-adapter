@@ -14,6 +14,9 @@ export type { CopcColorMode } from '../cesium/style/pointStyle';
 export type CopcStreamingOptions = {
   maxNodes?: number;
   maxDepth?: number;
+  /** Maximum allowed projected replacement error in pixels. Defaults to 8. */
+  maxScreenSpaceError?: number;
+  /** @deprecated SSE refinement replaces the distance multiplier policy. */
   refineDistanceMultiplier?: number;
   maxRenderDistanceMeters?: number;
 };

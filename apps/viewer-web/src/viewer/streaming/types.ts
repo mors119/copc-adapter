@@ -25,7 +25,10 @@ export type StreamingCameraState = GeographicCamera & {
 export type StreamingSelectionOptions = {
   maxNodes: number;
   maxDepth: number;
-  refineDistanceMultiplier: number;
+  /** Refine while the estimated replacement error is greater than this. */
+  maxScreenSpaceError?: number;
+  /** @deprecated Retained for source compatibility; SSE no longer uses it. */
+  refineDistanceMultiplier?: number;
   maxRenderDistanceMeters: number;
   /** Internal release-safety bound; this is not a rendered-point API. */
   maxPointsPerBatch?: number;
@@ -37,6 +40,8 @@ export type StreamingHierarchyNode = {
   center: GeographicPoint;
   bounds: BoundingBox;
   approximateSizeMeters: number;
+  /** Conservative adapter-owned geometric error scale in metres. */
+  geometricErrorMeters: number;
   boundingRadiusMeters: number;
   boundingSphere?: BoundingSphere;
 };
@@ -44,6 +49,11 @@ export type StreamingHierarchyNode = {
 export type StreamingSelectionMetrics = {
   candidatesBeforeCulling: number;
   frustumCulledCount: number;
+  maxScreenSpaceError: number;
+  screenSpaceErrorMin?: number;
+  screenSpaceErrorMax?: number;
+  refinedNodeCount: number;
+  keptNodeCount: number;
 };
 
 export type StreamingLevelRange = {

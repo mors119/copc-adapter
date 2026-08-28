@@ -106,20 +106,60 @@ function isNodeFrustumVisible(
     || intersectsViewFrustum(camera.viewFrustum, node.boundingSphere);
 }
 
-function shouldRefine(
+const DEFAULT_MAX_SCREEN_SPACE_ERROR = 8;
+const DEFAULT_VERTICAL_FOV_RADIANS = Math.PI / 3;
+const DEFAULT_VIEWPORT_HEIGHT_PIXELS = 1080;
+
+function getGeometricErrorMeters(node: StreamingHierarchyNode): number {
+  return node.geometricErrorMeters ?? node.approximateSizeMeters / 2;
+}
+
+/**
+ * Estimate the pixel error of replacing a node with its children.
+ *
+ * SSE = geometricErrorMeters * viewportHeightPixels /
+ *       (2 * distanceMeters * tan(verticalFovRadians / 2))
+ *
+ * `geometricErrorMeters` is the adapter's conservative unresolved detail
+ * scale, `distanceMeters` is the camera-to-node-bounds distance, and the
+ * remaining values describe the current perspective projection. A fallback
+ * projection is used only for callers that cannot provide a perspective
+ * frustum (for example an older test/custom camera state).
+ */
+export function calculateScreenSpaceErrorPixels(
   camera: StreamingCameraState,
   node: StreamingHierarchyNode,
+): number {
+  const projection = camera.viewFrustum;
+  const viewportHeightPixels = projection?.viewportHeightPixels
+    ?? DEFAULT_VIEWPORT_HEIGHT_PIXELS;
+  const verticalFovRadians = projection?.verticalFovRadians
+    ?? DEFAULT_VERTICAL_FOV_RADIANS;
+  const geometricErrorMeters = Math.max(getGeometricErrorMeters(node), 0);
+  // A camera can be inside a node volume. Clamp the perspective distance to
+  // the node's detail scale rather than allowing a singular near-field SSE.
+  const distanceMeters = Math.max(
+    calculateBoundsDistanceMeters(camera, node),
+    geometricErrorMeters,
+    1e-6,
+  );
+
+  return geometricErrorMeters * viewportHeightPixels /
+    (2 * distanceMeters * Math.tan(verticalFovRadians / 2));
+}
+
+function shouldRefine(
+  node: StreamingHierarchyNode,
   options: StreamingSelectionOptions,
+  screenSpaceErrorPixels: number,
 ): boolean {
   if (node.children.length === 0 || node.node.level >= options.maxDepth) {
     return false;
   }
 
-  const distanceMeters = calculateDistanceMeters(camera, node);
-  const refineDistance =
-    node.approximateSizeMeters * options.refineDistanceMultiplier;
-
-  return distanceMeters <= refineDistance;
+  return screenSpaceErrorPixels > (
+    options.maxScreenSpaceError ?? DEFAULT_MAX_SCREEN_SPACE_ERROR
+  );
 }
 
 function getRootNodes(hierarchy: StreamingHierarchy): StreamingHierarchyNode[] {
@@ -142,10 +182,16 @@ export class NodeSelector {
   private lastSelectionMetrics: StreamingSelectionMetrics = {
     candidatesBeforeCulling: 0,
     frustumCulledCount: 0,
+    maxScreenSpaceError: DEFAULT_MAX_SCREEN_SPACE_ERROR,
+    refinedNodeCount: 0,
+    keptNodeCount: 0,
   };
 
   constructor(options: StreamingSelectionOptions) {
-    this.options = options;
+    this.options = {
+      ...options,
+      maxScreenSpaceError: options.maxScreenSpaceError ?? DEFAULT_MAX_SCREEN_SPACE_ERROR,
+    };
   }
 
   getSelectionMetrics(): StreamingSelectionMetrics {
@@ -159,6 +205,9 @@ export class NodeSelector {
     this.lastSelectionMetrics = {
       candidatesBeforeCulling: 0,
       frustumCulledCount: 0,
+      maxScreenSpaceError: this.options.maxScreenSpaceError ?? DEFAULT_MAX_SCREEN_SPACE_ERROR,
+      refinedNodeCount: 0,
+      keptNodeCount: 0,
     };
     const selected = new Map<string, StreamingHierarchyNode>();
 
@@ -174,7 +223,18 @@ export class NodeSelector {
         return false;
       }
 
-      if (shouldRefine(camera, node, this.options)) {
+      const screenSpaceErrorPixels = calculateScreenSpaceErrorPixels(camera, node);
+      this.lastSelectionMetrics.screenSpaceErrorMin = Math.min(
+        this.lastSelectionMetrics.screenSpaceErrorMin ?? Number.POSITIVE_INFINITY,
+        screenSpaceErrorPixels,
+      );
+      this.lastSelectionMetrics.screenSpaceErrorMax = Math.max(
+        this.lastSelectionMetrics.screenSpaceErrorMax ?? Number.NEGATIVE_INFINITY,
+        screenSpaceErrorPixels,
+      );
+
+      if (shouldRefine(node, this.options, screenSpaceErrorPixels)) {
+        this.lastSelectionMetrics.refinedNodeCount += 1;
         let descendantSelected = false;
 
         for (const childKey of node.children) {
@@ -194,6 +254,8 @@ export class NodeSelector {
           return true;
         }
       }
+
+      this.lastSelectionMetrics.keptNodeCount += 1;
 
       if (node.node.pointCount > 0) {
         selected.set(node.node.key, node);

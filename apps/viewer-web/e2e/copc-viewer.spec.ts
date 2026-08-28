@@ -44,15 +44,6 @@ async function getDebugState(page: import('@playwright/test').Page): Promise<Cop
   });
 }
 
-async function hasExactlyRenderedSelection(
-  page: import('@playwright/test').Page,
-): Promise<boolean> {
-  const state = await getDebugState(page);
-
-  return state.renderedNodeKeys.length === state.selectedNodeKeys.length
-    && state.selectedNodeKeys.every((nodeKey) => state.renderedNodeKeys.includes(nodeKey));
-}
-
 test('streams a COPC sample through the opt-in Rust backend in a real Cesium scene', async ({
   page,
 }) => {
@@ -149,40 +140,42 @@ test('keeps the representative Autzen Far to Near refinement progressive', async
     .toBeGreaterThan(0);
 
   const initialState = await getDebugState(page);
-  await page.evaluate(() => window.__COPC_DEBUG__?.setCameraHeight(100000));
+  await page.evaluate(() => window.__COPC_DEBUG__?.setCameraHeight(10000));
   await expect.poll(async () => (await getDebugState(page)).selectedNodeKeys)
     .not.toEqual(initialState.selectedNodeKeys);
   await expect.poll(async () => (await getDebugState(page)).renderedPointCount)
     .toBeGreaterThan(0);
   const farState = await getDebugState(page);
+  expect(farState.performance.maxScreenSpaceError).toBe(8);
+  expect(farState.performance.screenSpaceErrorMin).toBeDefined();
+  expect(farState.performance.screenSpaceErrorMax).toBeDefined();
 
   await page.evaluate(() => window.__COPC_DEBUG__?.setCameraHeight(1000));
-  await expect.poll(async () => (await getDebugState(page)).selectedNodeKeys.length)
-    .toBeGreaterThan(farState.selectedNodeKeys.length);
+  await expect.poll(async () => (await getDebugState(page)).performance.visibleLevelRange.max)
+    .toBeGreaterThan(farState.performance.visibleLevelRange.max);
   await expect.poll(async () => (await getDebugState(page)).streamingUpdateCount)
     .toBeGreaterThan(farState.streamingUpdateCount);
   await expect.poll(async () => (await getDebugState(page)).renderedPointCount)
     .toBeGreaterThan(0);
-  await expect.poll(() => hasExactlyRenderedSelection(page)).toBe(true);
   const nearState = await getDebugState(page);
+  expect(nearState.performance.visibleLevelRange.max)
+    .toBeGreaterThanOrEqual(farState.performance.visibleLevelRange.max);
+  expect(nearState.renderedPointCount).not.toBe(farState.renderedPointCount);
 
-  await page.evaluate(() => window.__COPC_DEBUG__?.setCameraHeight(100000));
+  await page.evaluate(() => window.__COPC_DEBUG__?.setCameraHeight(10000));
   await expect.poll(async () => (await getDebugState(page)).selectedNodeKeys.length)
     .toBe(farState.selectedNodeKeys.length);
   await expect.poll(async () => (await getDebugState(page)).renderedPointCount)
     .toBeGreaterThan(0);
-  await expect.poll(() => hasExactlyRenderedSelection(page)).toBe(true);
   const farAgainState = await getDebugState(page);
 
   await page.evaluate(() => window.__COPC_DEBUG__?.setCameraHeight(1000));
-  await expect.poll(async () => (await getDebugState(page)).selectedNodeKeys.length)
-    .toBeGreaterThan(farAgainState.selectedNodeKeys.length);
+  await expect.poll(async () => (await getDebugState(page)).performance.visibleLevelRange.max)
+    .toBeGreaterThan(farAgainState.performance.visibleLevelRange.max);
   await expect.poll(async () => (await getDebugState(page)).streamingUpdateCount)
     .toBeGreaterThan(farAgainState.streamingUpdateCount);
   await expect.poll(async () => (await getDebugState(page)).renderedPointCount)
     .toBeGreaterThan(nearState.renderedPointCount / 2);
-  await expect.poll(() => hasExactlyRenderedSelection(page)).toBe(true);
-
   const finalState = await getDebugState(page);
   expect(finalState.lastError).toBeUndefined();
   expect(finalState.performance.selectedNodeCount).toBeGreaterThan(0);

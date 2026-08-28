@@ -25,6 +25,10 @@ export type CopcDebugPanelView = {
   streamingUpdateCount: string;
   candidatesBeforeCulling: string;
   frustumCulledCount: string;
+  maxScreenSpaceError: string;
+  representativeScreenSpaceError: string;
+  refinedNodeCount: string;
+  keptNodeCount: string;
   visibleLevelRange: string;
   cameraDirection: string;
   error?: string;
@@ -109,6 +113,14 @@ export function buildCopcDebugPanelView(
     streamingUpdateCount: formatNumber(snapshot.streamingUpdateCount),
     candidatesBeforeCulling: formatNumber(snapshot.performance?.candidatesBeforeCulling ?? 0),
     frustumCulledCount: formatNumber(snapshot.performance?.frustumCulledCount ?? 0),
+    maxScreenSpaceError: `${formatCoordinate(snapshot.performance?.maxScreenSpaceError ?? 0)} px`,
+    representativeScreenSpaceError:
+      snapshot.performance?.screenSpaceErrorMin !== undefined
+      && snapshot.performance?.screenSpaceErrorMax !== undefined
+        ? `${formatCoordinate(snapshot.performance.screenSpaceErrorMin)}–${formatCoordinate(snapshot.performance.screenSpaceErrorMax)} px`
+        : '—',
+    refinedNodeCount: formatNumber(snapshot.performance?.refinedNodeCount ?? 0),
+    keptNodeCount: formatNumber(snapshot.performance?.keptNodeCount ?? 0),
     visibleLevelRange: snapshot.performance?.visibleLevelRange
       ? `${snapshot.performance.visibleLevelRange.min}–${snapshot.performance.visibleLevelRange.max}`
       : '—',
@@ -147,6 +159,10 @@ export function createCopcDebugPanel(
       <div><dt>Stream updates</dt><dd data-field="streamingUpdateCount"></dd></div>
       <div><dt>Before culling</dt><dd data-field="candidatesBeforeCulling"></dd></div>
       <div><dt>Frustum culled</dt><dd data-field="frustumCulledCount"></dd></div>
+      <div><dt>SSE threshold</dt><dd data-field="maxScreenSpaceError"></dd></div>
+      <div><dt>SSE observed</dt><dd data-field="representativeScreenSpaceError"></dd></div>
+      <div><dt>Nodes refined</dt><dd data-field="refinedNodeCount"></dd></div>
+      <div><dt>Nodes kept</dt><dd data-field="keptNodeCount"></dd></div>
       <div><dt>Visible levels</dt><dd data-field="visibleLevelRange"></dd></div>
     </dl>
     <details open>

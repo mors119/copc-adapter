@@ -31,6 +31,8 @@ export type ViewFrustum = {
   right: ViewVector3;
   planes: FrustumPlane[];
   verticalFovRadians: number;
+  /** Drawing-buffer height used to convert projected size to pixels. */
+  viewportHeightPixels: number;
   aspectRatio: number;
   nearMeters: number;
   farMeters: number;
@@ -42,6 +44,7 @@ export type PerspectiveViewInput = {
   up: ViewVector3;
   right: ViewVector3;
   verticalFovRadians: number;
+  viewportHeightPixels?: number;
   aspectRatio: number;
   nearMeters: number;
   farMeters: number;
@@ -96,7 +99,9 @@ function validateInput(input: PerspectiveViewInput): void {
     !Number.isFinite(input.nearMeters) ||
     input.nearMeters < 0 ||
     !Number.isFinite(input.farMeters) ||
-    input.farMeters <= input.nearMeters
+    input.farMeters <= input.nearMeters ||
+    (input.viewportHeightPixels !== undefined &&
+      (!Number.isFinite(input.viewportHeightPixels) || input.viewportHeightPixels <= 0))
   ) {
     throw new Error('Invalid perspective view parameters');
   }
@@ -132,6 +137,7 @@ export function createPerspectiveViewFrustum(
       plane(multiply(direction, -1), farPoint),
     ],
     verticalFovRadians: input.verticalFovRadians,
+    viewportHeightPixels: input.viewportHeightPixels ?? 1080,
     aspectRatio: input.aspectRatio,
     nearMeters: input.nearMeters,
     farMeters: input.farMeters,

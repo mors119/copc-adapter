@@ -205,9 +205,9 @@ function getLayerOptions(): ConstructorParameters<typeof CopcCesiumLayer>[0] {
       pointSize: 2,
       debug: true,
       streaming: {
-        maxNodes: 16,
+        maxNodes: 32,
         maxDepth: 6,
-        refineDistanceMultiplier: 1.5,
+        maxScreenSpaceError: 8,
         maxRenderDistanceMeters: 20_000,
       },
     };

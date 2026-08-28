@@ -12,6 +12,11 @@ export type StreamingPerformanceSnapshot = {
   estimatedSelectedPointCount: number;
   candidatesBeforeCulling: number;
   frustumCulledCount: number;
+  maxScreenSpaceError: number;
+  screenSpaceErrorMin?: number;
+  screenSpaceErrorMax?: number;
+  refinedNodeCount: number;
+  keptNodeCount: number;
   visibleLevelRange?: StreamingLevelRange;
   cameraDirection?: ViewVector3;
   loadedNodeCount: number;
@@ -34,6 +39,9 @@ function emptySnapshot(): StreamingPerformanceSnapshot {
     estimatedSelectedPointCount: 0,
     candidatesBeforeCulling: 0,
     frustumCulledCount: 0,
+    maxScreenSpaceError: 0,
+    refinedNodeCount: 0,
+    keptNodeCount: 0,
     loadedNodeCount: 0,
     loadedPointCount: 0,
     rangeFetchDurationMs: 0,
@@ -71,6 +79,11 @@ export class StreamingPerformanceRecorder {
     this.snapshot.nodeSelectionMs = durationMs;
     this.snapshot.candidatesBeforeCulling = metrics.candidatesBeforeCulling;
     this.snapshot.frustumCulledCount = metrics.frustumCulledCount;
+    this.snapshot.maxScreenSpaceError = metrics.maxScreenSpaceError;
+    this.snapshot.screenSpaceErrorMin = metrics.screenSpaceErrorMin;
+    this.snapshot.screenSpaceErrorMax = metrics.screenSpaceErrorMax;
+    this.snapshot.refinedNodeCount = metrics.refinedNodeCount;
+    this.snapshot.keptNodeCount = metrics.keptNodeCount;
     this.snapshot.visibleLevelRange = metrics.visibleLevelRange;
     this.snapshot.cameraDirection = metrics.cameraDirection;
     this.snapshot.longestMainThreadBlockingSectionMs = Math.max(
