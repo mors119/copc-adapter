@@ -14,6 +14,13 @@ function createSnapshot(overrides = {}) {
       candidatesBeforeCulling: 12,
       frustumCulledCount: 5,
       maxScreenSpaceError: 8,
+      configuredPointBudget: 250000,
+      candidateSelectedPointCount: 3456,
+      activeRenderedPointCount: 2345,
+      deferredNodeCount: 2,
+      deferredPointCount: 1111,
+      budgetDeferDropCount: 2,
+      budgetUtilizationPercent: 0.938,
       screenSpaceErrorMin: 2.5,
       screenSpaceErrorMax: 18.75,
       refinedNodeCount: 4,
@@ -74,6 +81,13 @@ test('maps layer diagnostics and metadata into browser-visible values', () => {
   assert.equal(view.selectedNodeKeys, '1-0-0-0, 1-1-0-0, 1-0-1-0');
   assert.equal(view.renderedNodeCount, '2');
   assert.equal(view.renderedPointCount, '2,345');
+  assert.equal(view.configuredPointBudget, '250,000');
+  assert.equal(view.candidateSelectedPointCount, '3,456');
+  assert.equal(view.activeRenderedPointCount, '2,345');
+  assert.equal(view.deferredNodeCount, '2');
+  assert.equal(view.deferredPointCount, '1,111');
+  assert.equal(view.budgetUtilization, '0.93800000%');
+  assert.equal(view.budgetDeferDropCount, '2');
   assert.equal(view.streamingUpdateCount, '7');
   assert.equal(view.candidatesBeforeCulling, '12');
   assert.equal(view.frustumCulledCount, '5');

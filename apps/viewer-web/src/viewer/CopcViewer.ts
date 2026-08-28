@@ -41,6 +41,7 @@ import {
   type StreamingHierarchy,
   type StreamingProgress,
   type StreamingSelectionOptions,
+  DEFAULT_MAX_RENDERED_POINTS,
 } from './streaming/index';
 import type {
   NodePointCache,
@@ -55,6 +56,7 @@ export type CopcLayerOptions = {
   pointSize?: number;
   colorMode?: CopcColorMode;
   debug?: boolean;
+  maxRenderedPoints?: number;
   streaming?: Partial<StreamingSelectionOptions>;
   backend?: CopcBackendSelection;
   decoder?: CopcPointDecoder;
@@ -149,6 +151,10 @@ const STREAMING_OPTIONS: StreamingSelectionOptions = {
   maxScreenSpaceError: 8,
   refineDistanceMultiplier: 6,
   maxRenderDistanceMeters: 12000,
+  // #48 measured ~30 ms renderer preparation at 100k points and severe
+  // near-view pressure around 418k points. This conservative first default
+  // is experimental workload backpressure, not a GPU-memory claim.
+  maxRenderedPoints: DEFAULT_MAX_RENDERED_POINTS,
   maxPointsPerBatch: 100000,
 };
 const MAX_CACHED_NODES = 48;
@@ -191,6 +197,7 @@ export class CopcLayerController {
   constructor(options: CopcLayerOptions) {
     this.options = options;
     this.pointRenderer = options.renderer ?? new PointPrimitiveRenderer();
+    this.performanceRecorder.setConfiguredPointBudget(this.getMaxRenderedPoints());
     this.nodePointCache = createNodePointCache(
       async (nodeKey) => this.loadRenderableNodePoints(nodeKey),
       {
@@ -315,7 +322,13 @@ export class CopcLayerController {
       nodes: hierarchy,
       manager: new StreamingManager(
         hierarchy,
-        { ...STREAMING_OPTIONS, ...this.options.streaming },
+        {
+          ...STREAMING_OPTIONS,
+          ...this.options.streaming,
+          ...(this.options.maxRenderedPoints === undefined
+            ? {}
+            : { maxRenderedPoints: this.options.maxRenderedPoints }),
+        },
         this.nodePointCache,
         this.performanceRecorder,
         context.cancelPendingPointJobs?.bind(context),
@@ -349,7 +362,6 @@ export class CopcLayerController {
 
     this.streamingState?.manager.clear?.();
     this.streamingState?.context.destroy?.();
-    this.removePointCollections();
     this.pointRenderer.clear();
     this.selectedNodeKeys.clear();
     this.nodePointCache.clear();
@@ -583,6 +595,9 @@ export class CopcLayerController {
     }
 
     const streamingGeneration = ++this.streamingGeneration;
+    // Stop queued worker decode as soon as a new camera generation starts,
+    // including while the hierarchy query for that generation is in flight.
+    streamingState.manager.invalidate?.();
     const camera = this.getStreamingCameraState();
     if (streamingState.hierarchyLoader) {
       const availableHierarchy = await streamingState.hierarchyLoader.query(
@@ -677,6 +692,33 @@ export class CopcLayerController {
         continue;
       }
 
+      const budget = this.getMaxRenderedPoints();
+      const replacedAncestors = this.pointRenderer.getRenderedNodeKeys()
+        .filter((renderedNodeKey) => this.isAncestor(
+          renderedNodeKey,
+          nodeKey,
+          streamingState.nodes,
+        ));
+      const replacedPointCount = replacedAncestors.reduce((total, ancestorKey) => {
+        const actualCount = this.pointRenderer.getRenderedNodePointCount?.(ancestorKey);
+        return total + (actualCount ?? streamingState.nodes.get(ancestorKey)?.node.pointCount ?? 0);
+      }, 0);
+      const projectedPointCount = this.pointRenderer.getRenderedPointCount()
+        - replacedPointCount
+        + points.pointCount;
+
+      if (projectedPointCount > budget) {
+        this.performanceRecorder.recordBudgetDrop(1, points.pointCount);
+        continue;
+      }
+
+      // Replace a rendered coarse ancestor immediately before adding its
+      // accepted child. Both operations are synchronous, so no frame can see
+      // the temporary overlap and the active renderer remains budgeted.
+      for (const ancestorKey of replacedAncestors) {
+        this.removePointCollection(ancestorKey);
+      }
+
       this.pointRenderer.addOrUpdateNode(nodeKey, points, {
         pointSize: this.options.pointSize ?? 3,
         colorMode: this.options.colorMode ?? 'fixed',
@@ -699,6 +741,16 @@ export class CopcLayerController {
     }
 
     this.removeReplacedCoarseNodes(streamingState.nodes);
+    this.performanceRecorder.setActiveRenderedPointCount(
+      this.pointRenderer.getRenderedPointCount(),
+    );
+  }
+
+  private getMaxRenderedPoints(): number {
+    return this.options.maxRenderedPoints
+      ?? this.options.streaming?.maxRenderedPoints
+      ?? STREAMING_OPTIONS.maxRenderedPoints
+      ?? DEFAULT_MAX_RENDERED_POINTS;
   }
 
   private removeReplacedCoarseNodes(

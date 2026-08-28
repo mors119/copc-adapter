@@ -42,6 +42,7 @@ type CopcDebugAdapter = {
   getLastError(): string | undefined;
   setCameraHeight(height: number): void;
   setCameraPitch(pitchDegrees: number): void;
+  setCameraHeading(headingDegrees: number): void;
   recordError(error: unknown): void;
   runSyntheticRendererPerformanceBenchmark(): ReturnType<typeof runSyntheticRendererPerformanceBenchmark>;
 };
@@ -195,6 +196,16 @@ function installDebugAdapter(
       });
       viewer.camera.moveEnd.raiseEvent();
     },
+    setCameraHeading(headingDegrees: number): void {
+      viewer.camera.setView({
+        orientation: {
+          heading: Cesium.Math.toRadians(headingDegrees),
+          pitch: viewer.camera.pitch,
+          roll: viewer.camera.roll,
+        },
+      });
+      viewer.camera.moveEnd.raiseEvent();
+    },
     recordError,
     runSyntheticRendererPerformanceBenchmark: () => runSyntheticRendererPerformanceBenchmark({
       viewer,
@@ -219,14 +230,19 @@ function getSelectedBackend(): CopcBackendName {
 
 function getLayerOptions(): ConstructorParameters<typeof CopcCesiumLayer>[0] {
   const params = new URLSearchParams(window.location.search);
+  const requestedBudget = Number(params.get('budget'));
+  const maxRenderedPoints = Number.isSafeInteger(requestedBudget) && requestedBudget > 0
+    ? requestedBudget
+    : undefined;
 
-  if (params.get('scenario') === 'issue61') {
+  if (params.get('scenario') === 'issue61' || params.get('scenario') === 'issue59') {
     return {
       url: COPC_URL,
       colorMode: 'elevation',
       backend: params.get('backend') === 'copc-js' ? 'copc-js' : 'rust',
       pointSize: 2,
       debug: true,
+      ...(maxRenderedPoints === undefined ? {} : { maxRenderedPoints }),
       streaming: {
         maxNodes: 32,
         maxDepth: 6,

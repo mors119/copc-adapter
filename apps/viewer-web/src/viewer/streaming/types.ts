@@ -30,8 +30,17 @@ export type StreamingSelectionOptions = {
   /** @deprecated Retained for source compatibility; SSE no longer uses it. */
   refineDistanceMultiplier?: number;
   maxRenderDistanceMeters: number;
+  /** Maximum estimated points allowed in the active current-view workload. */
+  maxRenderedPoints?: number;
   /** Internal release-safety bound; this is not a rendered-point API. */
   maxPointsPerBatch?: number;
+};
+
+export type StreamingSelectionContext = {
+  /** Nodes accepted by the previous view, used only as a tie-breaker. */
+  previousSelectedNodeKeys?: ReadonlySet<string>;
+  /** Cache availability is a secondary optimization, never the main priority. */
+  isNodeCached?: (nodeKey: string) => boolean;
 };
 
 export type StreamingHierarchyNode = {
@@ -54,6 +63,14 @@ export type StreamingSelectionMetrics = {
   screenSpaceErrorMax?: number;
   refinedNodeCount: number;
   keptNodeCount: number;
+  /** Estimated points in the maxNodes-limited selection before budgeting. */
+  candidateSelectedPointCount: number;
+  /** Estimated points accepted by the rendered-point budget. */
+  budgetedPointCount: number;
+  maxRenderedPoints: number;
+  deferredNodeCount: number;
+  deferredPointCount: number;
+  budgetDeferDropCount: number;
 };
 
 export type StreamingLevelRange = {

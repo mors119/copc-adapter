@@ -11,6 +11,7 @@ type BenchmarkState = {
 type BenchmarkDebugAdapter = {
   getState(): BenchmarkState;
   setCameraHeight(height: number): void;
+  setCameraHeading(headingDegrees: number): void;
   runSyntheticRendererPerformanceBenchmark(): Array<Record<string, unknown>>;
 };
 
@@ -138,4 +139,46 @@ test('prints repeatable synthetic and Autzen renderer performance evidence', asy
   expect(synthetic.length).toBe(3);
   expect(synthetic[2].pointCount).toBe(100_000);
   expect(scenarios.every((scenario) => scenario.state)).toBe(true);
+});
+
+test('keeps low/high rendered-point budgets bounded and reprioritises on rotation', async ({
+  browser,
+}) => {
+  const loadBudgetedState = async (budget: number) => {
+    const page = await browser.newPage();
+    await page.goto(`/?scenario=issue59&budget=${budget}&debugPanel=false`);
+    await expect.poll(async () => (await getState(page)).renderedPointCount)
+      .toBeGreaterThan(0);
+    await expect.poll(async () => (await getState(page)).performance.configuredPointBudget)
+      .toBe(budget);
+    return page;
+  };
+
+  const lowPage = await loadBudgetedState(100_000);
+  const lowState = await getState(lowPage);
+  expect(lowState.renderedPointCount).toBeLessThanOrEqual(100_000);
+  expect(lowState.performance.activeRenderedPointCount).toBeLessThanOrEqual(100_000);
+
+  const highPage = await loadBudgetedState(500_000);
+  await expect.poll(async () => (await getState(highPage)).renderedPointCount, {
+    timeout: 60_000,
+  }).toBeGreaterThan(lowState.renderedPointCount);
+  const highState = await getState(highPage);
+  expect(highState.renderedPointCount).toBeLessThanOrEqual(500_000);
+  expect(highState.performance.activeRenderedPointCount).toBeLessThanOrEqual(500_000);
+  expect(highState.renderedPointCount).toBeGreaterThan(lowState.renderedPointCount);
+
+  await highPage.evaluate(() => {
+    window.__COPC_DEBUG__?.setCameraPitch(-35);
+    window.__COPC_DEBUG__?.setCameraHeading(90);
+  });
+  await expect.poll(async () => (await getState(highPage)).streamingUpdateCount)
+    .toBeGreaterThan(highState.streamingUpdateCount);
+  const rotatedState = await getState(highPage);
+  expect(rotatedState.renderedPointCount).toBeLessThanOrEqual(500_000);
+  expect(rotatedState.selectedNodeKeys).not.toEqual(highState.selectedNodeKeys);
+  expect(rotatedState.lastError).toBeUndefined();
+
+  await lowPage.close();
+  await highPage.close();
 });

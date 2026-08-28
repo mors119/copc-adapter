@@ -22,6 +22,13 @@ export type CopcDebugPanelView = {
   selectedNodeKeys: string;
   renderedNodeCount: string;
   renderedPointCount: string;
+  configuredPointBudget: string;
+  candidateSelectedPointCount: string;
+  activeRenderedPointCount: string;
+  deferredNodeCount: string;
+  deferredPointCount: string;
+  budgetUtilization: string;
+  budgetDeferDropCount: string;
   streamingUpdateCount: string;
   candidatesBeforeCulling: string;
   frustumCulledCount: string;
@@ -122,6 +129,13 @@ export function buildCopcDebugPanelView(
       : '—',
     renderedNodeCount: formatNumber(snapshot.renderedNodeKeys.length),
     renderedPointCount: formatNumber(snapshot.renderedPointCount),
+    configuredPointBudget: formatNumber(snapshot.performance?.configuredPointBudget ?? 0),
+    candidateSelectedPointCount: formatNumber(snapshot.performance?.candidateSelectedPointCount ?? 0),
+    activeRenderedPointCount: formatNumber(snapshot.performance?.activeRenderedPointCount ?? snapshot.renderedPointCount),
+    deferredNodeCount: formatNumber(snapshot.performance?.deferredNodeCount ?? 0),
+    deferredPointCount: formatNumber(snapshot.performance?.deferredPointCount ?? 0),
+    budgetUtilization: `${formatCoordinate(snapshot.performance?.budgetUtilizationPercent ?? 0)}%`,
+    budgetDeferDropCount: formatNumber(snapshot.performance?.budgetDeferDropCount ?? 0),
     streamingUpdateCount: formatNumber(snapshot.streamingUpdateCount),
     candidatesBeforeCulling: formatNumber(snapshot.performance?.candidatesBeforeCulling ?? 0),
     frustumCulledCount: formatNumber(snapshot.performance?.frustumCulledCount ?? 0),
@@ -176,6 +190,13 @@ export function createCopcDebugPanel(
       <div><dt>Selected nodes</dt><dd data-field="selectedNodeCount"></dd></div>
       <div><dt>Rendered nodes</dt><dd data-field="renderedNodeCount"></dd></div>
       <div><dt>Rendered points</dt><dd data-field="renderedPointCount"></dd></div>
+      <div><dt>Point budget</dt><dd data-field="configuredPointBudget"></dd></div>
+      <div><dt>Candidate points</dt><dd data-field="candidateSelectedPointCount"></dd></div>
+      <div><dt>Active points</dt><dd data-field="activeRenderedPointCount"></dd></div>
+      <div><dt>Budget utilization</dt><dd data-field="budgetUtilization"></dd></div>
+      <div><dt>Deferred nodes</dt><dd data-field="deferredNodeCount"></dd></div>
+      <div><dt>Deferred points</dt><dd data-field="deferredPointCount"></dd></div>
+      <div><dt>Budget drops</dt><dd data-field="budgetDeferDropCount"></dd></div>
       <div><dt>Stream updates</dt><dd data-field="streamingUpdateCount"></dd></div>
       <div><dt>Before culling</dt><dd data-field="candidatesBeforeCulling"></dd></div>
       <div><dt>Frustum culled</dt><dd data-field="frustumCulledCount"></dd></div>

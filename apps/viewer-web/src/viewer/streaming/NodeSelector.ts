@@ -4,6 +4,7 @@ import type {
   StreamingCameraState,
   StreamingHierarchy,
   StreamingSelectionOptions,
+  StreamingSelectionContext,
 } from './types';
 
 function toRadians(value: number): number {
@@ -107,6 +108,11 @@ function isNodeFrustumVisible(
 }
 
 const DEFAULT_MAX_SCREEN_SPACE_ERROR = 8;
+/**
+ * Conservative first workload default, informed by the issue-48 renderer
+ * measurements. It is a point-pressure guard, not a GPU-memory limit.
+ */
+export const DEFAULT_MAX_RENDERED_POINTS = 250_000;
 const DEFAULT_VERTICAL_FOV_RADIANS = Math.PI / 3;
 const DEFAULT_VIEWPORT_HEIGHT_PIXELS = 1080;
 
@@ -166,6 +172,47 @@ function getRootNodes(hierarchy: StreamingHierarchy): StreamingHierarchyNode[] {
   return [...hierarchy.values()].filter((entry) => entry.node.level === 0);
 }
 
+function validateMaxRenderedPoints(value: number): number {
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new RangeError(
+      'Streaming maxRenderedPoints must be a positive safe integer',
+    );
+  }
+
+  return value;
+}
+
+function getNodePointCost(node: StreamingHierarchyNode): number {
+  return Number.isSafeInteger(node.node.pointCount) && node.node.pointCount > 0
+    ? node.node.pointCount
+    : 0;
+}
+
+type PrioritisedNode = {
+  node: StreamingHierarchyNode;
+  screenSpaceErrorPixels: number;
+};
+
+function compareBudgetPriority(
+  camera: StreamingCameraState,
+  context: StreamingSelectionContext,
+  left: PrioritisedNode,
+  right: PrioritisedNode,
+): number {
+  // Projected error is the primary signal. The remaining visual signals are
+  // deterministic tie-breakers; continuity/cache availability only prevent
+  // avoidable churn when visual priority is otherwise equal.
+  return right.screenSpaceErrorPixels - left.screenSpaceErrorPixels
+    || calculateBoundsDistanceMeters(camera, left.node) - calculateBoundsDistanceMeters(camera, right.node)
+    || right.node.node.level - left.node.node.level
+    || Number(context.previousSelectedNodeKeys?.has(right.node.node.key) ?? false)
+      - Number(context.previousSelectedNodeKeys?.has(left.node.node.key) ?? false)
+    || Number(context.isNodeCached?.(right.node.node.key) ?? false)
+      - Number(context.isNodeCached?.(left.node.node.key) ?? false)
+    || getNodePointCost(left.node) - getNodePointCost(right.node)
+    || left.node.node.key.localeCompare(right.node.node.key);
+}
+
 export function compareNodePriority(
   camera: StreamingCameraState,
   left: StreamingHierarchyNode,
@@ -185,12 +232,21 @@ export class NodeSelector {
     maxScreenSpaceError: DEFAULT_MAX_SCREEN_SPACE_ERROR,
     refinedNodeCount: 0,
     keptNodeCount: 0,
+    candidateSelectedPointCount: 0,
+    budgetedPointCount: 0,
+    maxRenderedPoints: DEFAULT_MAX_RENDERED_POINTS,
+    deferredNodeCount: 0,
+    deferredPointCount: 0,
+    budgetDeferDropCount: 0,
   };
 
   constructor(options: StreamingSelectionOptions) {
     this.options = {
       ...options,
       maxScreenSpaceError: options.maxScreenSpaceError ?? DEFAULT_MAX_SCREEN_SPACE_ERROR,
+      maxRenderedPoints: validateMaxRenderedPoints(
+        options.maxRenderedPoints ?? DEFAULT_MAX_RENDERED_POINTS,
+      ),
     };
   }
 
@@ -201,6 +257,7 @@ export class NodeSelector {
   selectVisibleNodes(
     camera: StreamingCameraState,
     hierarchy: StreamingHierarchy,
+    context: StreamingSelectionContext = {},
   ): StreamingHierarchyNode[] {
     this.lastSelectionMetrics = {
       candidatesBeforeCulling: 0,
@@ -208,6 +265,12 @@ export class NodeSelector {
       maxScreenSpaceError: this.options.maxScreenSpaceError ?? DEFAULT_MAX_SCREEN_SPACE_ERROR,
       refinedNodeCount: 0,
       keptNodeCount: 0,
+      candidateSelectedPointCount: 0,
+      budgetedPointCount: 0,
+      maxRenderedPoints: this.options.maxRenderedPoints ?? DEFAULT_MAX_RENDERED_POINTS,
+      deferredNodeCount: 0,
+      deferredPointCount: 0,
+      budgetDeferDropCount: 0,
     };
     const selected = new Map<string, StreamingHierarchyNode>();
 
@@ -284,8 +347,40 @@ export class NodeSelector {
       }
     }
 
-    return [...selected.values()]
+    const maxNodesSelected = [...selected.values()]
       .sort((left, right) => compareNodePriority(camera, left, right))
       .slice(0, this.options.maxNodes);
+
+    this.lastSelectionMetrics.candidateSelectedPointCount = maxNodesSelected.reduce(
+      (total, node) => total + getNodePointCost(node),
+      0,
+    );
+
+    const prioritised = maxNodesSelected
+      .map((node) => ({
+        node,
+        screenSpaceErrorPixels: calculateScreenSpaceErrorPixels(camera, node),
+      }))
+      .sort((left, right) => compareBudgetPriority(camera, context, left, right));
+    const budget = this.options.maxRenderedPoints ?? DEFAULT_MAX_RENDERED_POINTS;
+    const accepted: StreamingHierarchyNode[] = [];
+    let acceptedPointCount = 0;
+
+    for (const candidate of prioritised) {
+      const pointCost = getNodePointCost(candidate.node);
+      if (pointCost <= budget - acceptedPointCount) {
+        accepted.push(candidate.node);
+        acceptedPointCount += pointCost;
+        continue;
+      }
+
+      this.lastSelectionMetrics.deferredNodeCount += 1;
+      this.lastSelectionMetrics.deferredPointCount += pointCost;
+      this.lastSelectionMetrics.budgetDeferDropCount += 1;
+    }
+
+    this.lastSelectionMetrics.budgetedPointCount = acceptedPointCount;
+
+    return accepted;
   }
 }

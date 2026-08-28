@@ -39,6 +39,8 @@ export interface CopcPointRenderer {
   clear(): void;
   destroy(): void;
   hasNode(nodeKey: string): boolean;
+  /** Optional per-node count used by the controller's workload guard. */
+  getRenderedNodePointCount?(nodeKey: string): number | undefined;
   getRenderedNodeKeys(): string[];
   getRenderedPointCount(): number;
   getSelectionBoundingSphere(): Cesium.BoundingSphere | undefined;
@@ -124,6 +126,10 @@ export class PointPrimitiveRenderer implements CopcPointRenderer {
 
   hasNode(nodeKey: string): boolean {
     return this.pointCollections.has(nodeKey);
+  }
+
+  getRenderedNodePointCount(nodeKey: string): number | undefined {
+    return this.pointCollections.get(nodeKey)?.length;
   }
 
   getRenderedNodeKeys(): string[] {

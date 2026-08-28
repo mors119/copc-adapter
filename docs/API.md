@@ -40,8 +40,14 @@ panel에 그대로 표시할 수 있다. `CopcSourceError`, `CopcMetadataError`,
   `classification`은 categorical palette를 사용한다. 필요한 attribute가
   없으면 fixed cyan으로 fallback한다.
 - `debug`: lifecycle debug logging 활성화
+- `maxRenderedPoints`: maximum estimated points in the active current-view
+  workload. This is equivalent to `streaming.maxRenderedPoints` and is shown
+  separately because it is the primary render-pressure control.
 - `streaming`: `maxNodes`, `maxDepth`, `maxScreenSpaceError`,
-  `maxRenderDistanceMeters` overrides. `maxScreenSpaceError` is the maximum
+  `maxRenderDistanceMeters`, and `maxRenderedPoints` overrides.
+  `maxRenderedPoints` bounds the estimated active current-view point workload;
+  it is not GPU-memory accounting. The default is an experimental conservative
+  `250000`, informed by the issue-48 renderer benchmark. `maxScreenSpaceError` is the maximum
   projected replacement error in pixels and defaults to `8`. The former
   `refineDistanceMultiplier` remains accepted for source compatibility but is
   deprecated and no longer controls refinement.
