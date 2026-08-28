@@ -1,4 +1,5 @@
-import type { StreamingHierarchyNode } from './types';
+import { intersectsViewFrustum } from './view';
+import type { StreamingHierarchyNode, StreamingSelectionMetrics } from './types';
 import type {
   StreamingCameraState,
   StreamingHierarchy,
@@ -95,6 +96,16 @@ function isNodeVisible(
   return boundsDistance <= visibleDistance;
 }
 
+function isNodeFrustumVisible(
+  camera: StreamingCameraState,
+  node: StreamingHierarchyNode,
+): boolean {
+  // Nodes without a volume are retained so missing bounds can never create a
+  // false negative. Production hierarchy nodes always have one.
+  return !camera.viewFrustum || !node.boundingSphere
+    || intersectsViewFrustum(camera.viewFrustum, node.boundingSphere);
+}
+
 function shouldRefine(
   camera: StreamingCameraState,
   node: StreamingHierarchyNode,
@@ -128,18 +139,37 @@ export function compareNodePriority(
 
 export class NodeSelector {
   private readonly options: StreamingSelectionOptions;
+  private lastSelectionMetrics: StreamingSelectionMetrics = {
+    candidatesBeforeCulling: 0,
+    frustumCulledCount: 0,
+  };
 
   constructor(options: StreamingSelectionOptions) {
     this.options = options;
+  }
+
+  getSelectionMetrics(): StreamingSelectionMetrics {
+    return { ...this.lastSelectionMetrics };
   }
 
   selectVisibleNodes(
     camera: StreamingCameraState,
     hierarchy: StreamingHierarchy,
   ): StreamingHierarchyNode[] {
+    this.lastSelectionMetrics = {
+      candidatesBeforeCulling: 0,
+      frustumCulledCount: 0,
+    };
     const selected = new Map<string, StreamingHierarchyNode>();
 
     const visit = (node: StreamingHierarchyNode): boolean => {
+      this.lastSelectionMetrics.candidatesBeforeCulling += 1;
+
+      if (!isNodeFrustumVisible(camera, node)) {
+        this.lastSelectionMetrics.frustumCulledCount += 1;
+        return false;
+      }
+
       if (!isNodeVisible(camera, node, this.options)) {
         return false;
       }
@@ -178,7 +208,7 @@ export class NodeSelector {
       visit(rootNode);
     }
 
-    if (selected.size === 0) {
+    if (selected.size === 0 && !camera.viewFrustum) {
       const fallback = [...hierarchy.values()]
         .filter((entry) => entry.node.pointCount > 0)
         .sort(

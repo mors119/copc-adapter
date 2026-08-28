@@ -37,11 +37,13 @@ import {
   buildStreamingHierarchy,
   createNodePointCache,
   StreamingManager,
+  createPerspectiveViewFrustum,
   type StreamingCameraState,
   type StreamingHierarchy,
   type StreamingProgress,
   type StreamingSelectionOptions,
 } from './streaming/index';
+import type { ViewVector3 } from './streaming/index';
 import { performanceNow, type CopcPerformanceObserver } from '../copc/performance';
 import { StreamingPerformanceRecorder } from './streaming/performance';
 
@@ -199,6 +201,7 @@ export class CopcLayerController {
     this.viewer = viewer;
     this.viewer.camera.percentageChanged = 0.02;
     this.viewer.camera.moveEnd.addEventListener(this.handleCameraMoveEnd);
+    this.viewer.camera.changed?.addEventListener(this.handleCameraMoveEnd);
     this.lifecycle = this.streamingState ? 'ready' : 'mounted';
 
     if (this.streamingState) {
@@ -225,6 +228,7 @@ export class CopcLayerController {
     }
 
     this.viewer.camera.moveEnd.removeEventListener(this.handleCameraMoveEnd);
+    this.viewer.camera.changed?.removeEventListener(this.handleCameraMoveEnd);
     this.removePointCollections();
     this.viewer = undefined;
     this.lifecycle = this.streamingState ? 'ready' : 'idle';
@@ -437,11 +441,69 @@ export class CopcLayerController {
 
   private getStreamingCameraState(): StreamingCameraState {
     const camera = this.getCameraPosition();
+    const viewFrustum = this.getViewFrustum();
+    const frustumFar = viewFrustum?.farMeters;
 
     return {
       ...camera,
-      viewDistanceMeters: Math.max(camera.height * 6, 2000),
+      viewDistanceMeters: Number.isFinite(frustumFar)
+        ? Math.max(frustumFar as number, 2000)
+        : Math.max(camera.height * 6, 2000),
+      viewFrustum,
     };
+  }
+
+  private getViewFrustum(): StreamingCameraState['viewFrustum'] {
+    if (!this.viewer) {
+      return undefined;
+    }
+
+    const camera = this.viewer.camera;
+    const frustum = camera.frustum as unknown as {
+      fov?: number;
+      aspectRatio?: number;
+      near?: number;
+      far?: number;
+    } | undefined;
+    if (!frustum) {
+      return undefined;
+    }
+    const { fov, aspectRatio, near, far } = frustum;
+    const toVector = (value: Cesium.Cartesian3): ViewVector3 => ({
+      x: value.x,
+      y: value.y,
+      z: value.z,
+    });
+
+    if (
+      typeof fov !== 'number' ||
+      typeof aspectRatio !== 'number' ||
+      typeof near !== 'number' ||
+      typeof far !== 'number' ||
+      !Number.isFinite(fov) ||
+      !Number.isFinite(aspectRatio) ||
+      !Number.isFinite(near) ||
+      !Number.isFinite(far)
+    ) {
+      return undefined;
+    }
+
+    try {
+      return createPerspectiveViewFrustum({
+        position: toVector(camera.positionWC),
+        direction: toVector(camera.directionWC),
+        up: toVector(camera.upWC),
+        right: toVector(camera.rightWC),
+        verticalFovRadians: fov,
+        aspectRatio,
+        nearMeters: near,
+        farMeters: far,
+      });
+    } catch {
+      // Orthographic/custom frustums, or an incomplete camera during startup,
+      // fall back to the existing distance-only selection conservatively.
+      return undefined;
+    }
   }
 
   private getHierarchyQuery(camera: StreamingCameraState): CopcHierarchyQuery {
@@ -478,6 +540,14 @@ export class CopcLayerController {
       const availableHierarchy = await streamingState.hierarchyLoader.query(
         this.getHierarchyQuery(camera),
       );
+      if (
+        streamingGeneration !== this.streamingGeneration
+        || this.viewer !== viewer
+        || this.streamingState !== streamingState
+        || this.lifecycle === 'destroyed'
+      ) {
+        return;
+      }
       const hierarchy = buildStreamingHierarchy(streamingState.metadata, availableHierarchy.nodes);
       streamingState.nodes = hierarchy;
       streamingState.manager.setHierarchy(hierarchy);

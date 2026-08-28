@@ -23,6 +23,10 @@ export type CopcDebugPanelView = {
   renderedNodeCount: string;
   renderedPointCount: string;
   streamingUpdateCount: string;
+  candidatesBeforeCulling: string;
+  frustumCulledCount: string;
+  visibleLevelRange: string;
+  cameraDirection: string;
   error?: string;
 };
 
@@ -103,6 +107,12 @@ export function buildCopcDebugPanelView(
     renderedNodeCount: formatNumber(snapshot.renderedNodeKeys.length),
     renderedPointCount: formatNumber(snapshot.renderedPointCount),
     streamingUpdateCount: formatNumber(snapshot.streamingUpdateCount),
+    candidatesBeforeCulling: formatNumber(snapshot.performance?.candidatesBeforeCulling ?? 0),
+    frustumCulledCount: formatNumber(snapshot.performance?.frustumCulledCount ?? 0),
+    visibleLevelRange: snapshot.performance?.visibleLevelRange
+      ? `${snapshot.performance.visibleLevelRange.min}–${snapshot.performance.visibleLevelRange.max}`
+      : '—',
+    cameraDirection: formatVector(snapshot.performance?.cameraDirection),
     error: lastError,
   };
 }
@@ -135,12 +145,16 @@ export function createCopcDebugPanel(
       <div><dt>Rendered nodes</dt><dd data-field="renderedNodeCount"></dd></div>
       <div><dt>Rendered points</dt><dd data-field="renderedPointCount"></dd></div>
       <div><dt>Stream updates</dt><dd data-field="streamingUpdateCount"></dd></div>
+      <div><dt>Before culling</dt><dd data-field="candidatesBeforeCulling"></dd></div>
+      <div><dt>Frustum culled</dt><dd data-field="frustumCulledCount"></dd></div>
+      <div><dt>Visible levels</dt><dd data-field="visibleLevelRange"></dd></div>
     </dl>
     <details open>
       <summary>Metadata</summary>
       <div class="copc-debug-panel__detail"><span>Bounds</span><code data-field="bounds"></code></div>
       <div class="copc-debug-panel__detail"><span>Scale</span><code data-field="scale"></code></div>
       <div class="copc-debug-panel__detail"><span>Offset</span><code data-field="offset"></code></div>
+      <div class="copc-debug-panel__detail"><span>Camera direction (ECEF)</span><code data-field="cameraDirection"></code></div>
     </details>
     <details>
       <summary>Selected node keys</summary>

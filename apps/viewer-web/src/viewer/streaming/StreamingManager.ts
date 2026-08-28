@@ -53,10 +53,18 @@ export class StreamingManager {
     this.performanceRecorder.beginUpdate();
     const selectionStartedAt = performanceNow();
     const selectedNodes = this.selector.selectVisibleNodes(camera, this.hierarchy);
+    const levels = selectedNodes.map((entry) => entry.node.level);
     this.performanceRecorder.setSelection(
       selectedNodes.length,
       selectedNodes.reduce((total, entry) => total + entry.node.pointCount, 0),
       performanceNow() - selectionStartedAt,
+      {
+        ...this.selector.getSelectionMetrics(),
+        visibleLevelRange: levels.length > 0
+          ? { min: Math.min(...levels), max: Math.max(...levels) }
+          : undefined,
+        cameraDirection: camera.viewFrustum?.direction,
+      },
     );
     const nextSelectedNodeKeys = new Set(
       selectedNodes.map((entry) => entry.node.key),

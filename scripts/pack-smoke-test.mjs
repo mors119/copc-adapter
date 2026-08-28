@@ -173,7 +173,13 @@ try {
     ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
     : undefined;
   if (!systemChromium || !existsSync(systemChromium)) {
-    await run(npmCommand(), ['exec', '--', 'playwright', 'install', 'chromium'], {
+    const playwrightCommand = path.resolve(
+      consumerDirectory,
+      'node_modules',
+      '.bin',
+      process.platform === 'win32' ? 'playwright.cmd' : 'playwright',
+    );
+    await run(playwrightCommand, ['install', 'chromium'], {
       cwd: consumerDirectory,
       stdio: 'inherit',
     });

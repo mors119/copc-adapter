@@ -9,6 +9,10 @@ import {
   compareNodePriority,
   NodeSelector,
 } from '../src/viewer/streaming/NodeSelector.ts';
+import {
+  createPerspectiveViewFrustum,
+  intersectsViewFrustum,
+} from '../src/viewer/streaming/view.ts';
 import { StreamingManager } from '../src/viewer/streaming/StreamingManager.ts';
 import { createStreamingWorkBatches } from '../src/viewer/streaming/scheduler.ts';
 
@@ -20,6 +24,7 @@ function createStreamingNode({
   bounds,
   approximateSizeMeters,
   boundingRadiusMeters,
+  boundingSphere,
   children = [],
 }) {
   return {
@@ -39,6 +44,7 @@ function createStreamingNode({
     bounds,
     approximateSizeMeters,
     boundingRadiusMeters,
+    boundingSphere,
   };
 }
 
@@ -483,6 +489,86 @@ test('NodeSelector uses bounds to exclude nodes outside the current view range',
   assert.deepEqual(
     selected.map((entry) => entry.node.key),
     ['0-0-0-0'],
+  );
+});
+
+function createTestFrustum(direction = { x: 0, y: 0, z: 1 }) {
+  return createPerspectiveViewFrustum({
+    position: { x: 0, y: 0, z: 0 },
+    direction,
+    up: { x: 0, y: 1, z: 0 },
+    right: { x: 1, y: 0, z: 0 },
+    verticalFovRadians: Math.PI / 2,
+    aspectRatio: 1,
+    nearMeters: 1,
+    farMeters: 10,
+  });
+}
+
+function createFrustumNode(key, sphere) {
+  return createStreamingNode({
+    key,
+    level: 0,
+    pointCount: 1,
+    center: { longitude: -123, latitude: 44, height: 100 },
+    bounds: {
+      minX: -123.001,
+      minY: 43.999,
+      minZ: 99,
+      maxX: -122.999,
+      maxY: 44.001,
+      maxZ: 101,
+    },
+    approximateSizeMeters: 10,
+    boundingRadiusMeters: 1,
+    boundingSphere: sphere,
+  });
+}
+
+test('view frustum sphere culling retains inside and intersecting nodes', () => {
+  const frustum = createTestFrustum();
+
+  assert.equal(
+    intersectsViewFrustum(frustum, { center: { x: 0, y: 0, z: 5 }, radiusMeters: 0.1 }),
+    true,
+  );
+  assert.equal(
+    intersectsViewFrustum(frustum, { center: { x: 5.5, y: 0, z: 5 }, radiusMeters: 1 }),
+    true,
+  );
+  assert.equal(
+    intersectsViewFrustum(frustum, { center: { x: 0, y: 0, z: -5 }, radiusMeters: 0.1 }),
+    false,
+  );
+});
+
+test('NodeSelector responds to orientation with an unchanged camera position', () => {
+  const selector = createSelector({ maxRenderDistanceMeters: 100 });
+  const hierarchy = new Map([
+    ['forward', createFrustumNode('forward', {
+      center: { x: 0, y: 0, z: 5 },
+      radiusMeters: 0.1,
+    })],
+    ['backward', createFrustumNode('backward', {
+      center: { x: 0, y: 0, z: -5 },
+      radiusMeters: 0.1,
+    })],
+  ]);
+  const camera = createCamera({ height: 100, viewFrustum: createTestFrustum() });
+
+  assert.deepEqual(
+    selector.selectVisibleNodes(camera, hierarchy).map((entry) => entry.node.key),
+    ['forward'],
+  );
+  assert.equal(selector.getSelectionMetrics().frustumCulledCount, 1);
+
+  const rotatedCamera = {
+    ...camera,
+    viewFrustum: createTestFrustum({ x: 0, y: 0, z: -1 }),
+  };
+  assert.deepEqual(
+    selector.selectVisibleNodes(rotatedCamera, hierarchy).map((entry) => entry.node.key),
+    ['backward'],
   );
 });
 

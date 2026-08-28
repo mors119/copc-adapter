@@ -1,10 +1,19 @@
 import { performanceNow } from '../../copc/performance';
+import type {
+  StreamingLevelRange,
+  StreamingSelectionMetrics,
+  ViewVector3,
+} from './types';
 
 export type StreamingPerformanceSnapshot = {
   updateDurationMs: number;
   nodeSelectionMs: number;
   selectedNodeCount: number;
   estimatedSelectedPointCount: number;
+  candidatesBeforeCulling: number;
+  frustumCulledCount: number;
+  visibleLevelRange?: StreamingLevelRange;
+  cameraDirection?: ViewVector3;
   loadedNodeCount: number;
   loadedPointCount: number;
   rangeFetchDurationMs: number;
@@ -23,6 +32,8 @@ function emptySnapshot(): StreamingPerformanceSnapshot {
     nodeSelectionMs: 0,
     selectedNodeCount: 0,
     estimatedSelectedPointCount: 0,
+    candidatesBeforeCulling: 0,
+    frustumCulledCount: 0,
     loadedNodeCount: 0,
     loadedPointCount: 0,
     rangeFetchDurationMs: 0,
@@ -46,10 +57,22 @@ export class StreamingPerformanceRecorder {
     this.updateStartedAt = performanceNow();
   }
 
-  setSelection(selectedNodeCount: number, estimatedSelectedPointCount: number, durationMs: number): void {
+  setSelection(
+    selectedNodeCount: number,
+    estimatedSelectedPointCount: number,
+    durationMs: number,
+    metrics: StreamingSelectionMetrics & {
+      visibleLevelRange?: StreamingLevelRange;
+      cameraDirection?: ViewVector3;
+    },
+  ): void {
     this.snapshot.selectedNodeCount = selectedNodeCount;
     this.snapshot.estimatedSelectedPointCount = estimatedSelectedPointCount;
     this.snapshot.nodeSelectionMs = durationMs;
+    this.snapshot.candidatesBeforeCulling = metrics.candidatesBeforeCulling;
+    this.snapshot.frustumCulledCount = metrics.frustumCulledCount;
+    this.snapshot.visibleLevelRange = metrics.visibleLevelRange;
+    this.snapshot.cameraDirection = metrics.cameraDirection;
     this.snapshot.longestMainThreadBlockingSectionMs = Math.max(
       this.snapshot.longestMainThreadBlockingSectionMs,
       durationMs,

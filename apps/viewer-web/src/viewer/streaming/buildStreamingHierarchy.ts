@@ -9,6 +9,7 @@ import type {
   BoundingBox,
   StreamingHierarchy,
 } from './types';
+import { createBoundingSphereFromGeographicBounds } from './view';
 
 function createChildKey(parent: CopcHierarchyNode, childIndex: number): string {
   const level = parent.level + 1;
@@ -122,14 +123,16 @@ export function buildStreamingHierarchy(
     const nodeSide = cubeSide / (2 ** node.level);
     const center = getNodeCenter(metadata, node);
     const bounds = toGeographicBounds(transformPoint, getNodeBounds(metadata, node));
+    const geographicCenter = transformPoint(center);
 
     streamingNodes.set(node.key, {
       node,
       children,
-      center: transformPoint(center),
+      center: geographicCenter,
       bounds,
       approximateSizeMeters: nodeSide * horizontalUnitScale,
       boundingRadiusMeters: (Math.sqrt(3) * nodeSide * horizontalUnitScale) / 2,
+      boundingSphere: createBoundingSphereFromGeographicBounds(geographicCenter, bounds),
     });
   }
 
