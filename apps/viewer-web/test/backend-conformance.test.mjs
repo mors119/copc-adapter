@@ -353,6 +353,31 @@ test('Autzen range instrumentation proves the selected node uses its exact chunk
   assert.ok(byteSource.requests.reduce((total, { length }) => total + length, 0) < bytes.length);
 });
 
+test('copc-js keeps point validation scoped to each concurrent node load', {
+  skip: skipIntegration || !existsSync(samplePath),
+}, async () => {
+  const copcJs = await new CopcJsBackend().open(samplePath);
+  const metadata = copcJs.getMetadata();
+  const hierarchy = await new HierarchyLoader(copcJs, metadata.cube).query({
+    bounds: metadata.cube,
+    maxLevel: 5,
+  });
+  const nodes = hierarchy.nodes
+    .filter((node) => node.pointCount > 1000 && node.pointDataLength > 0)
+    .sort((left, right) => right.pointCount - left.pointCount)
+    .slice(0, 2);
+
+  assert.equal(nodes.length, 2);
+  const views = await Promise.all(
+    nodes.map((node) => copcJs.loadPointDataView(node, new Set(['position']))),
+  );
+
+  assert.deepEqual(
+    views.map((view) => view.pointCount),
+    nodes.map((node) => node.pointCount),
+  );
+});
+
 test('coordinate contract rejects axis, scale/offset, height, and projected-unit regressions', {
   skip: skipIntegration || !existsSync(samplePath),
 }, async () => {

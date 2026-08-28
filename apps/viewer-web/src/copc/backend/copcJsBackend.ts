@@ -128,12 +128,10 @@ export function toCopcPointView(
 /** The production source adapter backed by copc.js. */
 class CopcJsSource implements CopcSource {
   readonly source: string;
+  private readonly sourceGetter: ReturnType<typeof createCopcGetter>;
   private readonly getter: ReturnType<typeof createCopcGetter>;
   private readonly copc: Copc;
   private performanceObserver?: CopcPerformanceObserver;
-  private activeNodeKey?: string;
-  private activeNodePointCount?: number;
-  private pointRangeDurationMs = 0;
 
   constructor(
     source: string,
@@ -141,41 +139,47 @@ class CopcJsSource implements CopcSource {
     copc: Copc,
   ) {
     this.source = source;
-    this.getter = async (begin, end) => {
-      const rangeStartedAt = performanceNow();
-      const bytes = await getter(begin, end);
-      if (this.activeNodeKey && bytes.byteLength !== end - begin) {
+    this.sourceGetter = getter;
+    this.getter = (begin, end) => this.readRange(begin, end);
+    this.copc = copc;
+  }
+
+  private async readRange(
+    begin: number,
+    end: number,
+    nodeKey?: string,
+    nodePointCount?: number,
+  ): Promise<Uint8Array> {
+    const rangeStartedAt = performanceNow();
+    const bytes = await this.sourceGetter(begin, end);
+    if (nodeKey && bytes.byteLength !== end - begin) {
+      throw new Error(
+        `COPC point range returned ${bytes.byteLength} bytes; expected ${end - begin}`,
+      );
+    }
+    if (
+      nodeKey
+      && nodePointCount !== undefined
+      && bytes.byteLength >= this.copc.header.pointDataRecordLength + 4
+    ) {
+      const countOffset = this.copc.header.pointDataRecordLength;
+      const compressedPointCount = new DataView(
+        bytes.buffer,
+        bytes.byteOffset,
+        bytes.byteLength,
+      ).getUint32(countOffset, true);
+      if (compressedPointCount !== nodePointCount) {
         throw new Error(
-          `COPC point range returned ${bytes.byteLength} bytes; expected ${end - begin}`,
+          `COPC chunk point count ${compressedPointCount} does not match hierarchy count ${nodePointCount}`,
         );
       }
-      if (
-        this.activeNodeKey
-        && this.activeNodePointCount !== undefined
-        && bytes.byteLength >= this.copc.header.pointDataRecordLength + 4
-      ) {
-        const countOffset = this.copc.header.pointDataRecordLength;
-        const compressedPointCount = new DataView(
-          bytes.buffer,
-          bytes.byteOffset,
-          bytes.byteLength,
-        ).getUint32(countOffset, true);
-        if (compressedPointCount !== this.activeNodePointCount) {
-          throw new Error(
-            `COPC chunk point count ${compressedPointCount} does not match hierarchy count ${this.activeNodePointCount}`,
-          );
-        }
-      }
-      const durationMs = performanceNow() - rangeStartedAt;
-      this.pointRangeDurationMs += durationMs;
-      this.performanceObserver?.({
-        stage: 'rangeFetch',
-        durationMs,
-        nodeKey: this.activeNodeKey,
-      });
-      return bytes;
-    };
-    this.copc = copc;
+    }
+    this.performanceObserver?.({
+      stage: 'rangeFetch',
+      durationMs: performanceNow() - rangeStartedAt,
+      nodeKey,
+    });
+    return bytes;
   }
 
   getMetadata(): CopcMetadata {
@@ -231,13 +235,21 @@ class CopcJsSource implements CopcSource {
         hierarchyNode.key,
       );
     }
-    this.activeNodeKey = hierarchyNode.key;
-    this.activeNodePointCount = hierarchyNode.pointCount;
-    this.pointRangeDurationMs = 0;
+    let pointRangeDurationMs = 0;
     const startedAt = performanceNow();
     try {
       const view = await Copc.loadPointDataView(
-        this.getter,
+        async (begin, end) => {
+          const rangeStartedAt = performanceNow();
+          const bytes = await this.readRange(
+            begin,
+            end,
+            hierarchyNode.key,
+            hierarchyNode.pointCount,
+          );
+          pointRangeDurationMs += performanceNow() - rangeStartedAt;
+          return bytes;
+        },
         this.copc,
         hierarchyNode,
       );
@@ -247,16 +259,12 @@ class CopcJsSource implements CopcSource {
       // layers during decode.
       this.performanceObserver?.({
         stage: 'decode',
-        durationMs: Math.max(0, performanceNow() - startedAt - this.pointRangeDurationMs),
+        durationMs: Math.max(0, performanceNow() - startedAt - pointRangeDurationMs),
         nodeKey: hierarchyNode.key,
       });
       return toCopcPointView(view, fields);
     } catch (error: unknown) {
       throw mapCopcJsError(this.source, error, 'point', hierarchyNode.key);
-    } finally {
-      this.activeNodeKey = undefined;
-      this.activeNodePointCount = undefined;
-      this.pointRangeDurationMs = 0;
     }
   }
 
