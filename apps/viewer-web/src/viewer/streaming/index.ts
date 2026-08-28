@@ -1,6 +1,7 @@
 export { buildStreamingHierarchy } from './buildStreamingHierarchy';
 export { createNodePointCache } from './createNodePointCache';
 export { NodeSelector } from './NodeSelector';
+export { calculateScreenSpaceErrorPixels } from './NodeSelector';
 export { StreamingManager } from './StreamingManager';
 export { compareNodePriority } from './NodeSelector';
 export { createStreamingWorkBatches, yieldToBrowser } from './scheduler';

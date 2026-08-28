@@ -23,7 +23,8 @@
 ## Known Gaps
 
 - Hierarchy metadata is traversed before point streaming begins.
-- Selection is heuristic-based rather than screen-space-error-based.
+- Selection uses adapter-owned viewport-aware screen-space error with depth and
+  node-count safety caps.
 - Main-thread loading and decoding can affect responsiveness for larger data.
 - Intensity normalization currently uses each loaded node buffer's range.
 - The package is not published to npm yet.

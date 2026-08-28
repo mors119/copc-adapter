@@ -38,8 +38,11 @@ panel에 그대로 표시할 수 있다. `CopcSourceError`, `CopcMetadataError`,
   `classification`은 categorical palette를 사용한다. 필요한 attribute가
   없으면 fixed cyan으로 fallback한다.
 - `debug`: lifecycle debug logging 활성화
-- `streaming`: `maxNodes`, `maxDepth`, `refineDistanceMultiplier`,
-  `maxRenderDistanceMeters` overrides
+- `streaming`: `maxNodes`, `maxDepth`, `maxScreenSpaceError`,
+  `maxRenderDistanceMeters` overrides. `maxScreenSpaceError` is the maximum
+  projected replacement error in pixels and defaults to `8`. The former
+  `refineDistanceMultiplier` remains accepted for source compatibility but is
+  deprecated and no longer controls refinement.
 - `backend`: `'copc-js' | 'rust' | CopcBackend`; defaults to `'copc-js'`.
   Rust is opt-in and does not silently fall back to `copc-js`.
 - `decoder`: optional `CopcPointDecoder`; defaults to the Rust/WASM decoder

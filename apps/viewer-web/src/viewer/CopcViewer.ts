@@ -139,6 +139,7 @@ export type CopcLayerSnapshot = {
 const STREAMING_OPTIONS: StreamingSelectionOptions = {
   maxNodes: 24,
   maxDepth: 6,
+  maxScreenSpaceError: 8,
   refineDistanceMultiplier: 6,
   maxRenderDistanceMeters: 12000,
   maxPointsPerBatch: 100000,
@@ -461,6 +462,7 @@ export class CopcLayerController {
     const camera = this.viewer.camera;
     const frustum = camera.frustum as unknown as {
       fov?: number;
+      fovy?: number;
       aspectRatio?: number;
       near?: number;
       far?: number;
@@ -468,7 +470,10 @@ export class CopcLayerController {
     if (!frustum) {
       return undefined;
     }
-    const { fov, aspectRatio, near, far } = frustum;
+    const { fov, fovy, aspectRatio, near, far } = frustum;
+    const viewportHeightPixels = this.viewer.scene.drawingBufferHeight
+      || this.viewer.scene.canvas.clientHeight
+      || this.viewer.scene.canvas.height;
     const toVector = (value: Cesium.Cartesian3): ViewVector3 => ({
       x: value.x,
       y: value.y,
@@ -480,11 +485,22 @@ export class CopcLayerController {
       typeof aspectRatio !== 'number' ||
       typeof near !== 'number' ||
       typeof far !== 'number' ||
-      !Number.isFinite(fov) ||
+      !Number.isFinite(viewportHeightPixels) ||
+      viewportHeightPixels <= 0 ||
+      (typeof fovy !== 'number' && typeof fov !== 'number') ||
       !Number.isFinite(aspectRatio) ||
       !Number.isFinite(near) ||
       !Number.isFinite(far)
     ) {
+      return undefined;
+    }
+
+    const verticalFovRadians = typeof fovy === 'number' && Number.isFinite(fovy)
+      ? fovy
+      : aspectRatio! > 1
+        ? 2 * Math.atan(Math.tan(fov! / 2) / aspectRatio!)
+        : fov!;
+    if (!Number.isFinite(verticalFovRadians)) {
       return undefined;
     }
 
@@ -494,14 +510,16 @@ export class CopcLayerController {
         direction: toVector(camera.directionWC),
         up: toVector(camera.upWC),
         right: toVector(camera.rightWC),
-        verticalFovRadians: fov,
+        verticalFovRadians,
+        viewportHeightPixels,
         aspectRatio,
         nearMeters: near,
         farMeters: far,
       });
     } catch {
       // Orthographic/custom frustums, or an incomplete camera during startup,
-      // fall back to the existing distance-only selection conservatively.
+      // fall back to the selector's documented default projection
+      // conservatively.
       return undefined;
     }
   }

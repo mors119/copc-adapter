@@ -7,6 +7,7 @@ import {
   calculateBoundsDistanceMeters,
   calculateDistanceMeters,
   compareNodePriority,
+  calculateScreenSpaceErrorPixels,
   NodeSelector,
 } from '../src/viewer/streaming/NodeSelector.ts';
 import {
@@ -52,6 +53,7 @@ function createSelector(options = {}) {
   return new NodeSelector({
     maxNodes: 8,
     maxDepth: 4,
+    maxScreenSpaceError: 8,
     refineDistanceMultiplier: 6,
     maxRenderDistanceMeters: 12000,
     ...options,
@@ -499,11 +501,116 @@ function createTestFrustum(direction = { x: 0, y: 0, z: 1 }) {
     up: { x: 0, y: 1, z: 0 },
     right: { x: 1, y: 0, z: 0 },
     verticalFovRadians: Math.PI / 2,
+    viewportHeightPixels: 1000,
     aspectRatio: 1,
     nearMeters: 1,
     farMeters: 10,
   });
 }
+
+function createProjectionCamera(overrides = {}) {
+  return createCamera({
+    viewFrustum: createPerspectiveViewFrustum({
+      position: { x: 0, y: 0, z: 0 },
+      direction: { x: 0, y: 0, z: 1 },
+      up: { x: 0, y: 1, z: 0 },
+      right: { x: 1, y: 0, z: 0 },
+      verticalFovRadians: Math.PI / 3,
+      viewportHeightPixels: 1000,
+      aspectRatio: 1,
+      nearMeters: 1,
+      farMeters: 100000,
+    }),
+    ...overrides,
+  });
+}
+
+test('screen-space error responds monotonically to viewport, distance, and FOV', () => {
+  const node = createWorkNode('node', 100, 0);
+  const base = createProjectionCamera({ height: 1000 });
+  const largerViewport = {
+    ...base,
+    viewFrustum: { ...base.viewFrustum, viewportHeightPixels: 2000 },
+  };
+  const narrowerFov = {
+    ...base,
+    viewFrustum: { ...base.viewFrustum, verticalFovRadians: Math.PI / 4 },
+  };
+  const farther = createProjectionCamera({ height: 2000 });
+
+  const baseError = calculateScreenSpaceErrorPixels(base, node);
+  assert.ok(calculateScreenSpaceErrorPixels(largerViewport, node) > baseError);
+  assert.ok(calculateScreenSpaceErrorPixels(narrowerFov, node) > baseError);
+  assert.ok(calculateScreenSpaceErrorPixels(farther, node) < baseError);
+
+  const root = createWorkNode('root', 100, 0);
+  root.children = ['child'];
+  const child = createWorkNode('child', 50, 1);
+  const hierarchy = new Map([['root', root], ['child', child]]);
+  const selector = (viewportHeightPixels) => new NodeSelector({
+    maxNodes: 8,
+    maxDepth: 4,
+    maxScreenSpaceError: 60,
+    maxRenderDistanceMeters: 12000,
+  }).selectVisibleNodes({
+    ...base,
+    viewFrustum: { ...base.viewFrustum, viewportHeightPixels },
+  }, hierarchy);
+
+  assert.deepEqual(selector(1000).map((entry) => entry.node.key), ['root']);
+  assert.deepEqual(selector(2000).map((entry) => entry.node.key), ['child']);
+});
+
+test('stricter SSE thresholds never select less detail', () => {
+  const root = createWorkNode('0-0-0-0', 100, 0);
+  root.children = ['1-0-0-0'];
+  const child = createWorkNode('1-0-0-0', 50, 1);
+  child.children = ['2-0-0-0'];
+  const grandchild = createWorkNode('2-0-0-0', 25, 2);
+  const hierarchy = new Map([
+    [root.node.key, root],
+    [child.node.key, child],
+    [grandchild.node.key, grandchild],
+  ]);
+  const camera = createProjectionCamera({ height: 1000 });
+  const relaxed = new NodeSelector({
+    maxNodes: 8,
+    maxDepth: 4,
+    maxScreenSpaceError: 1000,
+    maxRenderDistanceMeters: 12000,
+  }).selectVisibleNodes(camera, hierarchy);
+  const strict = new NodeSelector({
+    maxNodes: 8,
+    maxDepth: 4,
+    maxScreenSpaceError: 1,
+    maxRenderDistanceMeters: 12000,
+  }).selectVisibleNodes(camera, hierarchy);
+
+  assert.ok(Math.max(...strict.map((node) => node.node.level))
+    >= Math.max(...relaxed.map((node) => node.node.level)));
+});
+
+test('frustum culling prevents a high-SSE out-of-view node from refining', () => {
+  const selector = createSelector({ maxRenderDistanceMeters: 100000 });
+  const root = createFrustumNode('root', {
+    center: { x: 100000, y: 0, z: 5 },
+    radiusMeters: 0.1,
+  });
+  root.children = ['child'];
+  const child = createFrustumNode('child', {
+    center: { x: 100000, y: 0, z: 5 },
+    radiusMeters: 0.1,
+  });
+  child.node.level = 1;
+  const selected = selector.selectVisibleNodes(
+    createCamera({ height: 100, viewFrustum: createTestFrustum() }),
+    new Map([['root', root], ['child', child]]),
+  );
+
+  assert.deepEqual(selected, []);
+  assert.equal(selector.getSelectionMetrics().refinedNodeCount, 0);
+  assert.equal(selector.getSelectionMetrics().frustumCulledCount, 1);
+});
 
 function createFrustumNode(key, sphere) {
   return createStreamingNode({

@@ -103,8 +103,25 @@ owns page-reference traversal and its per-source page cache, while the Rust
 and copc.js sources own byte/page decoding. Hierarchy diagnostics report page
 requests, cache hits, fetched hierarchy bytes, and loaded entry counts.
 
-This is intentionally a basic streaming policy. It is not screen-space-error
-selection, worker-based loading, or a GPU-specific point-cloud renderer.
+The selector uses a project-owned perspective screen-space-error policy. COPC
+`spacing` is the distance between points at the root level and halves at every
+octree level. Since COPC does not provide a per-node geometric-error field, the
+adapter uses `max(spacing / 2^level, nodeExtent / 2)` as a conservative detail
+scale in metres. For a visible node it projects that scale with:
+
+```text
+SSE_pixels = detailScaleMeters * viewportHeightPixels /
+             (2 * distanceToNodeBoundsMeters * tan(verticalFovRadians / 2))
+```
+
+The node refines when `SSE_pixels > maxScreenSpaceError` (default `8`). The
+distance is clamped to at least the node detail scale when the camera is
+inside a node volume, preventing a singular near-field projection.
+viewport height and vertical FOV come from the Cesium camera adapter; the
+selector consumes only plain project-owned values. Frustum filtering happens
+before SSE, and `maxDepth`/`maxNodes` remain safety caps. This is intentionally
+not a copy of Cesium3DTileset traversal or private SSE implementation, nor is
+it a worker-based loader or GPU-specific point-cloud renderer.
 
 ## Point Field Contract
 

@@ -142,8 +142,15 @@ coarse ancestors; a coarse node remains visible while its replacement is
 pending.
 
 Streaming updates yield between batches and invalidate stale asynchronous work
-after a newer camera update. The current policy is distance/bounds-based LoD,
-not screen-space-error refinement.
+after a newer camera update. The selector uses a viewport-aware projected-error
+policy. For a visible node, it estimates `SSE = geometricErrorMeters *
+viewportHeightPixels / (2 * distanceMeters * tan(verticalFovRadians / 2))` and
+refines while the result exceeds `streaming.maxScreenSpaceError` (default `8`
+pixels). The adapter's geometric scale is `max(rootSpacing / 2^level,
+nodeExtent / 2)` in metres: COPC defines root spacing as the space between
+points at level zero and halves it at each octree level; the extent term is a
+conservative proxy for unresolved geometry when no per-node error metadata
+exists. Frustum culling is applied before this decision.
 
 ## Architecture
 

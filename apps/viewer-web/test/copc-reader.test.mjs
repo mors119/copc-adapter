@@ -940,12 +940,16 @@ test('Autzen uses the projected linear unit for streaming size and refines', asy
   const nodes = await loadRootHierarchy(samplePath);
   const hierarchy = buildStreamingHierarchy(metadata, nodes);
   const rootNode = hierarchy.get('0-0-0-0');
+  const childNode = hierarchy.get('1-0-0-0');
 
   assert.ok(rootNode);
+  assert.ok(childNode);
   assert.equal(extractHorizontalUnitScale(metadata.wkt), 0.3048);
   assert.ok(rootNode.children.length > 0);
   assert.ok(rootNode.approximateSizeMeters > 1418);
   assert.ok(rootNode.approximateSizeMeters < 1420);
+  assert.ok(rootNode.geometricErrorMeters >= rootNode.approximateSizeMeters / 2);
+  assert.ok(rootNode.geometricErrorMeters > childNode.geometricErrorMeters);
 
   const selector = new NodeSelector({
     maxNodes: 24,
@@ -1047,6 +1051,9 @@ test('CopcCesiumLayer snapshot exposes lifecycle and dataset info', () => {
       estimatedSelectedPointCount: 0,
       candidatesBeforeCulling: 0,
       frustumCulledCount: 0,
+      maxScreenSpaceError: 0,
+      refinedNodeCount: 0,
+      keptNodeCount: 0,
       loadedNodeCount: 0,
       loadedPointCount: 0,
       rangeFetchDurationMs: 0,
