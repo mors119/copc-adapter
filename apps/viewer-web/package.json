@@ -46,7 +46,7 @@
     "@emnapi/runtime": "^1.11.2",
     "@playwright/test": "^1.55.0",
     "cesium": "^1.142.0",
-    "typescript": "~6.0.2",
+    "typescript": "~7.0.2",
     "vite": "^8.0.12",
     "vite-plugin-cesium": "^1.2.23",
     "vite-plugin-static-copy": "^4.1.1"
