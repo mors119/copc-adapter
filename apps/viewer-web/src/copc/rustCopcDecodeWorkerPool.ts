@@ -4,6 +4,7 @@ import type {
   RustCopcDecodeWorkerRequest,
   RustCopcDecodeWorkerResponse,
 } from './rustCopcDecodeWorkerProtocol';
+import type { CopcWorkerDiagnostics } from './backend/types';
 
 export type RustCopcDecodeWorkerLike = {
   onmessage: ((event: MessageEvent<RustCopcDecodeWorkerResponse>) => void) | null;
@@ -85,6 +86,12 @@ export class RustCopcDecodeWorkerPool {
   private metadata?: Uint8Array;
   private nextId = 1;
   private destroyed = false;
+  private submittedCount = 0;
+  private completedCount = 0;
+  private cancelledCount = 0;
+  private failedCount = 0;
+  private peakActiveCount = 0;
+  private peakQueuedCount = 0;
 
   constructor(options: RustCopcDecodeWorkerPoolOptions = {}) {
     const workerCount = options.workerCount ?? defaultWorkerCount();
@@ -114,8 +121,10 @@ export class RustCopcDecodeWorkerPool {
         resolve,
         reject,
       };
+      this.submittedCount += 1;
       this.queue.push(entry);
       this.entries.set(entry.id, entry);
+      this.recordPeaks();
       this.dispatch();
     });
   }
@@ -127,6 +136,7 @@ export class RustCopcDecodeWorkerPool {
       if (!predicate(entry.request)) continue;
       this.queue.splice(index, 1);
       this.entries.delete(entry.id);
+      this.cancelledCount += 1;
       entry.reject(new RustCopcWorkerError('worker-cancelled', 'Queued Rust COPC decode was superseded', {
         nodeKey: entry.request.nodeKey,
       }));
@@ -137,6 +147,21 @@ export class RustCopcDecodeWorkerPool {
   reprioritizeQueued(compare: (left: RustCopcDecodeRequest, right: RustCopcDecodeRequest) => number): void {
     this.queue.sort((left, right) => compare(left.request, right.request));
     this.dispatch();
+  }
+
+  getDiagnostics(): CopcWorkerDiagnostics {
+    const activeCount = this.workers.filter((slot) => slot.current !== undefined).length;
+    return {
+      workerCount: this.workerCount,
+      activeCount,
+      queuedCount: this.queue.length,
+      peakActiveCount: this.peakActiveCount,
+      peakQueuedCount: this.peakQueuedCount,
+      submittedCount: this.submittedCount,
+      completedCount: this.completedCount,
+      cancelledCount: this.cancelledCount,
+      failedCount: this.failedCount,
+    };
   }
 
   destroy(): void {
@@ -180,6 +205,7 @@ export class RustCopcDecodeWorkerPool {
       const entry = this.queue.shift();
       if (!entry) return;
       slot.current = entry;
+      this.recordPeaks();
       if (!slot.ready) {
         slot.phase = 'initializing';
         const metadata = this.metadata!.slice().buffer;
@@ -243,7 +269,9 @@ export class RustCopcDecodeWorkerPool {
     }
     slot.current = undefined;
     this.entries.delete(entry.id);
+    this.completedCount += 1;
     if (response.type === 'error') {
+      this.failedCount += 1;
       entry.reject(new RustCopcWorkerError('worker-failure', response.error.message, {
         nodeKey: response.nodeKey ?? entry.request.nodeKey,
         rustCode: response.error.code,
@@ -273,6 +301,7 @@ export class RustCopcDecodeWorkerPool {
     slot.current = undefined;
     if (entry) {
       this.entries.delete(entry.id);
+      this.failedCount += 1;
       entry.reject(new RustCopcWorkerError('worker-failure', message, {
         nodeKey: entry.request.nodeKey,
       }));
@@ -281,5 +310,13 @@ export class RustCopcDecodeWorkerPool {
     const index = this.workers.indexOf(slot);
     if (index >= 0) this.workers.splice(index, 1);
     this.dispatch();
+  }
+
+  private recordPeaks(): void {
+    this.peakActiveCount = Math.max(
+      this.peakActiveCount,
+      this.workers.filter((slot) => slot.current !== undefined).length,
+    );
+    this.peakQueuedCount = Math.max(this.peakQueuedCount, this.queue.length);
   }
 }

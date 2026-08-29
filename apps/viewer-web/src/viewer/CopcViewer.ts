@@ -7,7 +7,7 @@ import {
 import {
   createCopcContext,
 } from '../copc/context/createCopcContext';
-import type { CopcSource } from '../copc/backend/types';
+import type { CopcSource, CopcWorkerDiagnostics } from '../copc/backend/types';
 import {
   getCopcBackendName,
   type CopcBackendSelection,
@@ -143,6 +143,7 @@ export type CopcLayerSnapshot = {
   backend: CopcBackendName | 'custom';
   performance: ReturnType<StreamingManager['getPerformanceSnapshot']>;
   pointCache: NodePointCacheDiagnostics;
+  worker?: CopcWorkerDiagnostics;
 };
 
 const STREAMING_OPTIONS: StreamingSelectionOptions = {
@@ -178,6 +179,7 @@ export class CopcLayerController {
       stage,
       event.durationMs,
       event.blocksMainThread ?? event.stage === 'decode',
+      event.bytes,
     );
   };
   private streamingState?: StreamingState;
@@ -399,6 +401,7 @@ export class CopcLayerController {
    * Return public viewer state that callers can use for diagnostics or UI.
    */
   getSnapshot(): CopcLayerSnapshot {
+    const worker = this.streamingState?.context.getWorkerDiagnostics?.();
     return {
       lifecycle: this.lifecycle,
       renderedNodeKeys: this.getRenderedNodeKeys(),
@@ -410,6 +413,7 @@ export class CopcLayerController {
       backend: getCopcBackendName(this.options.backend),
       performance: this.performanceRecorder.getSnapshot(),
       pointCache: this.nodePointCache.getDiagnostics(),
+      ...(worker ? { worker } : {}),
     };
   }
 

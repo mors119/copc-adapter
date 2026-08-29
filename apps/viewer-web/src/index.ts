@@ -26,7 +26,11 @@ export type {
   RustByteSourceFactory,
   RustCopcBackendOptions,
 } from './copc/backend';
-export type { CopcBackend, CopcSource } from './copc/backend/types';
+export type {
+  CopcBackend,
+  CopcSource,
+  CopcWorkerDiagnostics,
+} from './copc/backend/types';
 export type { CopcPerformanceEvent, CopcPerformanceObserver } from './copc/performance';
 export {
   RustCopcDecodeWorkerPool,

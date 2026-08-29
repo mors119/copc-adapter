@@ -38,6 +38,17 @@ function createSnapshot(overrides = {}) {
       bytesEvicted: 512,
       largestCachedEntryBytes: 640,
     },
+    worker: {
+      workerCount: 4,
+      activeCount: 2,
+      queuedCount: 3,
+      peakActiveCount: 4,
+      peakQueuedCount: 5,
+      submittedCount: 12,
+      completedCount: 8,
+      cancelledCount: 4,
+      failedCount: 0,
+    },
     datasetUrl: '/samples/autzen.copc.laz?cache=1',
     attached: true,
     ...overrides,
@@ -71,6 +82,8 @@ test('maps layer diagnostics and metadata into browser-visible values', () => {
   });
 
   assert.equal(view.datasetName, 'autzen.copc.laz');
+  assert.equal(view.workerConcurrency, '2 / 4 active');
+  assert.equal(view.workerQueue, '3 queued (peak 5)');
   assert.equal(view.status, 'Ready');
   assert.equal(view.statusTone, 'ready');
   assert.equal(view.pointCount, '10,653,336');

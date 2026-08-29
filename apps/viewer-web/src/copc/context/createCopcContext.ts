@@ -14,6 +14,7 @@ import type {
 } from '../types/copc';
 import type { CopcPointFieldSelection } from '../points/fieldSelection';
 import type { CopcPerformanceObserver } from '../performance';
+import type { CopcWorkerDiagnostics } from '../backend/types';
 
 /**
  * Reusable project-owned context around an opened backend source.
@@ -31,6 +32,7 @@ export class CopcContext implements CopcSource {
     observer: CopcPerformanceObserver | undefined,
   ) => void;
   readonly cancelPendingPointJobs?: () => void;
+  readonly getWorkerDiagnostics?: () => CopcWorkerDiagnostics | undefined;
   readonly destroy?: () => void;
 
   private constructor(delegate: CopcSource) {
@@ -43,6 +45,9 @@ export class CopcContext implements CopcSource {
     }
     if (delegate.cancelPendingPointJobs) {
       this.cancelPendingPointJobs = delegate.cancelPendingPointJobs.bind(delegate);
+    }
+    if (delegate.getWorkerDiagnostics) {
+      this.getWorkerDiagnostics = delegate.getWorkerDiagnostics.bind(delegate);
     }
     if (delegate.destroy) {
       this.destroy = delegate.destroy.bind(delegate);

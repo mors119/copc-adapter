@@ -178,6 +178,7 @@ class CopcJsSource implements CopcSource {
       stage: 'rangeFetch',
       durationMs: performanceNow() - rangeStartedAt,
       nodeKey,
+      bytes: bytes.byteLength,
     });
     return bytes;
   }

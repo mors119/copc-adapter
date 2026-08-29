@@ -29,6 +29,7 @@ export type StreamingPerformanceSnapshot = {
   loadedNodeCount: number;
   loadedPointCount: number;
   rangeFetchDurationMs: number;
+  rangeFetchBytes: number;
   decodeDurationMs: number;
   crsTransformDurationMs: number;
   geographicToCartesianDurationMs: number;
@@ -61,6 +62,7 @@ function emptySnapshot(): StreamingPerformanceSnapshot {
     loadedNodeCount: 0,
     loadedPointCount: 0,
     rangeFetchDurationMs: 0,
+    rangeFetchBytes: 0,
     decodeDurationMs: 0,
     crsTransformDurationMs: 0,
     geographicToCartesianDurationMs: 0,
@@ -160,8 +162,12 @@ export class StreamingPerformanceRecorder {
     >,
     durationMs: number,
     blocksMainThread = false,
+    bytes = 0,
   ): void {
     this.snapshot[stage] += durationMs;
+    if (stage === 'rangeFetchDurationMs' && Number.isFinite(bytes) && bytes > 0) {
+      this.snapshot.rangeFetchBytes += Math.floor(bytes);
+    }
     if (blocksMainThread) {
       this.snapshot.longestMainThreadBlockingSectionMs = Math.max(
         this.snapshot.longestMainThreadBlockingSectionMs,
