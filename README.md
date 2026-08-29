@@ -312,3 +312,12 @@ scope and status.
 - [Roadmap](docs/ROADMAP.md)
 - [Sample datasets](samples/README.md)
 - [Issue #61 performance work](https://github.com/mors119/copc-adapter/issues/61)
+
+## Community and License
+
+- [Contributing guide](CONTRIBUTING.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Security policy](SECURITY.md)
+- [Support](SUPPORT.md)
+
+COPC Adapter is released under the [Apache License 2.0](LICENSE).
