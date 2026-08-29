@@ -25,7 +25,9 @@
 - Hierarchy metadata is traversed before point streaming begins.
 - Selection uses adapter-owned viewport-aware screen-space error with depth and
   node-count safety caps.
-- Main-thread loading and decoding can affect responsiveness for larger data.
+- Range loading and point preparation remain workload-dependent, but Rust
+  browser decode is worker-backed with bounded concurrency and streaming uses a
+  rendered-point budget with stale-work suppression.
 - Intensity normalization currently uses each loaded node buffer's range.
 - The package is not published to npm yet.
 - Repository-owned demo media is available in `docs/assets/`; there is no
@@ -33,11 +35,13 @@
 
 ## Next Work
 
-1. Improve LOD selection with screen-space error and viewport-aware metrics.
-2. Evaluate Web Workers for hierarchy, loading, and decoder work.
-3. Broaden Rust backend format and edge-case coverage before considering it for
-   the default backend.
-4. Explore measured scalable rendering approaches and dataset-global attribute statistics; the Issue #48 boundary and baseline are complete.
+1. Improve LOD selection and hierarchy loading for larger datasets.
+2. Broaden Rust backend format and edge-case coverage before considering it for
+  the default backend.
+3. Explore measured scalable rendering approaches and dataset-global attribute
+   statistics; the Issue #48 boundary and baseline are complete.
+4. Revisit occlusion culling only after a validation run quantifies hidden
+   in-frustum workload; see the Issue #68 report.
 5. Publish the library after broader consumer compatibility validation.
 
 ## Submission State

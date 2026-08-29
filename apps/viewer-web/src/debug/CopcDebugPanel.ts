@@ -46,6 +46,8 @@ export type CopcDebugPanelView = {
   cacheEvictionCount: string;
   cacheBytesEvicted: string;
   largestCachedEntryBytes: string;
+  workerConcurrency: string;
+  workerQueue: string;
   error?: string;
 };
 
@@ -159,6 +161,12 @@ export function buildCopcDebugPanelView(
     cacheEvictionCount: formatNumber(snapshot.pointCache?.evictionCount ?? 0),
     cacheBytesEvicted: formatBytes(snapshot.pointCache?.bytesEvicted ?? 0),
     largestCachedEntryBytes: formatBytes(snapshot.pointCache?.largestCachedEntryBytes ?? 0),
+    workerConcurrency: snapshot.worker
+      ? `${formatNumber(snapshot.worker.activeCount)} / ${formatNumber(snapshot.worker.workerCount)} active`
+      : '—',
+    workerQueue: snapshot.worker
+      ? `${formatNumber(snapshot.worker.queuedCount)} queued (peak ${formatNumber(snapshot.worker.peakQueuedCount)})`
+      : '—',
     error: lastError,
   };
 }
@@ -218,6 +226,13 @@ export function createCopcDebugPanel(
         <div><dt>Largest entry</dt><dd data-field="largestCachedEntryBytes"></dd></div>
       </dl>
       <p>Typed-array bytes only; Cesium/WebGL memory is not measured.</p>
+    </details>
+    <details>
+      <summary>Rust decode workers</summary>
+      <dl>
+        <div><dt>Concurrency</dt><dd data-field="workerConcurrency"></dd></div>
+        <div><dt>Queue</dt><dd data-field="workerQueue"></dd></div>
+      </dl>
     </details>
     <details open>
       <summary>Metadata</summary>

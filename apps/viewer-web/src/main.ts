@@ -27,6 +27,7 @@ type CopcDebugState = {
   backend: CopcBackendName | 'custom';
   performance: ReturnType<CopcCesiumLayer['getSnapshot']>['performance'];
   pointCache: ReturnType<CopcCesiumLayer['getSnapshot']>['pointCache'];
+  worker?: ReturnType<CopcCesiumLayer['getSnapshot']>['worker'];
   longestMainThreadTaskMs: number;
   cesiumFrameDurationMs: number;
 };
@@ -166,6 +167,7 @@ function installDebugAdapter(
         backend: snapshot.backend,
         performance: snapshot.performance,
         pointCache: snapshot.pointCache,
+        worker: snapshot.worker,
         longestMainThreadTaskMs,
         cesiumFrameDurationMs,
         lastError,
@@ -234,8 +236,15 @@ function getLayerOptions(): ConstructorParameters<typeof CopcCesiumLayer>[0] {
   const maxRenderedPoints = Number.isSafeInteger(requestedBudget) && requestedBudget > 0
     ? requestedBudget
     : undefined;
+  const cacheBytesParam = params.get('cacheBytes');
+  const requestedCacheBytes = cacheBytesParam === null ? undefined : Number(cacheBytesParam);
+  const maxPointCacheBytes = requestedCacheBytes !== undefined
+    && Number.isSafeInteger(requestedCacheBytes)
+    && requestedCacheBytes >= 0
+    ? requestedCacheBytes
+    : undefined;
 
-  if (params.get('scenario') === 'issue61' || params.get('scenario') === 'issue59') {
+  if (['issue61', 'issue59', 'issue68'].includes(params.get('scenario') ?? '')) {
     return {
       url: COPC_URL,
       colorMode: 'elevation',
@@ -243,6 +252,7 @@ function getLayerOptions(): ConstructorParameters<typeof CopcCesiumLayer>[0] {
       pointSize: 2,
       debug: true,
       ...(maxRenderedPoints === undefined ? {} : { maxRenderedPoints }),
+      ...(maxPointCacheBytes === undefined ? {} : { maxPointCacheBytes }),
       streaming: {
         maxNodes: 32,
         maxDepth: 6,

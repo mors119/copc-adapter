@@ -29,6 +29,7 @@
     "prepack": "npm run build:library",
     "typecheck": "tsc --noEmit",
     "benchmark:renderer": "node --import tsx scripts/renderer-performance-benchmark.mjs",
+    "benchmark:streaming": "playwright test e2e/streaming-performance.spec.ts --reporter=line",
     "test": "npm run prepare-copc-wasm && node --import tsx --test test/*.test.mjs",
     "test:conformance:unit": "npm run prepare-copc-wasm && CONFORMANCE_SKIP_INTEGRATION=1 node --import tsx --test test/backend-conformance.test.mjs",
     "test:conformance:integration": "npm run prepare-copc-wasm && node --import tsx --test test/backend-conformance.test.mjs",

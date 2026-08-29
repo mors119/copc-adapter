@@ -8,6 +8,18 @@ import type {
 import type { CopcPointFieldSelection } from '../points/fieldSelection';
 import type { CopcPerformanceObserver } from '../performance';
 
+export type CopcWorkerDiagnostics = {
+  workerCount: number;
+  activeCount: number;
+  queuedCount: number;
+  peakActiveCount: number;
+  peakQueuedCount: number;
+  submittedCount: number;
+  completedCount: number;
+  cancelledCount: number;
+  failedCount: number;
+};
+
 /** An opened COPC resource expressed only in project-owned types. */
 export interface CopcSource extends CopcHierarchySource {
   readonly source: string;
@@ -24,6 +36,8 @@ export interface CopcSource extends CopcHierarchySource {
   setPerformanceObserver?(observer: CopcPerformanceObserver | undefined): void;
   /** Drop queued decode work that cannot contribute to the current view. */
   cancelPendingPointJobs?(): void;
+  /** Optional decode-worker queue/concurrency diagnostics. */
+  getWorkerDiagnostics?(): CopcWorkerDiagnostics | undefined;
   /** Release source-owned worker/runtime resources. */
   destroy?(): void;
 }

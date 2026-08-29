@@ -101,7 +101,17 @@ test('Rust decode worker pool bounds concurrency and preserves FIFO order', asyn
     pool.submit(request('fourth', 4)),
   ]);
 
+  const diagnostics = pool.getDiagnostics();
   assert.equal(harness.stats().peak, 2);
+  assert.equal(diagnostics.workerCount, 2);
+  assert.equal(diagnostics.peakActiveCount, 2);
+  assert.equal(diagnostics.peakQueuedCount, 2);
+  assert.equal(diagnostics.activeCount, 0);
+  assert.equal(diagnostics.queuedCount, 0);
+  assert.equal(diagnostics.submittedCount, 4);
+  assert.equal(diagnostics.completedCount, 4);
+  assert.equal(diagnostics.cancelledCount, 0);
+  assert.equal(diagnostics.failedCount, 0);
   assert.deepEqual(harness.stats().order, ['first', 'second', 'third', 'fourth']);
   assert.deepEqual(results.map((result) => result.pointCount), [1, 2, 3, 4]);
   pool.destroy();

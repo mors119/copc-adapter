@@ -240,6 +240,7 @@ npm --prefix apps/viewer-web run coverage
 npm --prefix apps/viewer-web run build
 npm --prefix apps/viewer-web run test:e2e
 npm --prefix apps/viewer-web run benchmark:renderer
+npm --prefix apps/viewer-web run benchmark:streaming
 npm --prefix apps/viewer-web run test:e2e -- e2e/renderer-performance.spec.ts
 npm run test:pack
 cargo test --workspace
@@ -276,17 +277,18 @@ corrected release.
 These are the current v0.1.1 boundaries:
 
 - Hierarchy metadata is fully traversed before point streaming begins.
-- LoD uses distance and bounds heuristics rather than screen-space error.
-- Frustum and occlusion culling are not implemented yet.
-- Rust/WASM decode still runs on the main thread; worker decode is tracked in
-  [#46](https://github.com/mors119/copc-adapter/issues/46).
+- LoD uses adapter-owned screen-space error with bounds/frustum filtering and
+  depth/node-count safety caps; occlusion culling is not implemented yet.
+- Browser Rust/WASM point decode uses a bounded worker pool when `Worker` is
+  available; environments without workers use the documented main-thread
+  fallback. Worker queue/concurrency diagnostics are exposed in snapshots.
 - Rendering uses the compatibility `PointPrimitiveRenderer` boundary backed by
   `Cesium.PointPrimitiveCollection`; benchmark evidence is in the
   [Issue #48 report](docs/benchmarks/issue-48-renderer.md).
-- Dense refinement workloads can take several seconds to finish progressively.
-  The scheduler keeps the browser responsive while work is in progress;
-  rendered-point budget and backpressure work is tracked in
-  [#59](https://github.com/mors119/copc-adapter/issues/59).
+- Dense refinement workloads can take time to finish progressively. The
+  scheduler yields between bounded batches, stale generations are discarded,
+  and rendered-point budget/backpressure keeps active work bounded. See the
+  [Issue #68 validation report](docs/benchmarks/issue-68-streaming.md).
 - The Rust backend currently targets the supported LAS 1.4 point format
   subset, including point formats 6, 7, and 8.
 - Source URLs must support HTTP Range requests and appropriate CORS behavior.
@@ -295,10 +297,11 @@ These are the current v0.1.1 boundaries:
 
 Follow-up work includes:
 
-- View- and frustum-aware selection with screen-space-error refinement
-- Web Worker decode and loading ([#46](https://github.com/mors119/copc-adapter/issues/46))
+- Broader view-aware LOD and hierarchy loading for larger datasets
+- Worker-based hierarchy/loading and broader worker observability
 - A measured renderer boundary is complete ([#48](https://github.com/mors119/copc-adapter/issues/48)); batched/custom rendering remains follow-up work only if needed
-- Rendered-point budget and streaming backpressure ([#59](https://github.com/mors119/copc-adapter/issues/59))
+- Occlusion-culling investigation remains deferred pending measured hidden-node
+  evidence ([#60](https://github.com/mors119/copc-adapter/issues/60))
 
 See the [project roadmap](docs/ROADMAP.md) and the
 [GitHub issue tracker](https://github.com/mors119/copc-adapter/issues) for
@@ -312,6 +315,7 @@ scope and status.
 - [Roadmap](docs/ROADMAP.md)
 - [Sample datasets](samples/README.md)
 - [Issue #61 performance work](https://github.com/mors119/copc-adapter/issues/61)
+- [Issue #68 streaming validation report](docs/benchmarks/issue-68-streaming.md)
 
 ## Community and License
 

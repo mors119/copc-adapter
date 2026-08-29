@@ -175,8 +175,9 @@ completion is ignored. The controller also checks actual decoded point counts
 before renderer submission, so cache hits and custom sources cannot push the
 active renderer over the configured budget. Debug snapshots expose the
 configured budget, candidate and active points, deferred node/point counts,
-utilization, and budget defer/drop count. This is rendered workload
-backpressure, not a claim about exact Cesium/WebGL memory.
+utilization, budget defer/drop count, range bytes, stage timings, and Rust
+worker queue/concurrency metrics. This is rendered workload backpressure, not
+a claim about exact Cesium/WebGL memory.
 
 ## Point Field Contract
 

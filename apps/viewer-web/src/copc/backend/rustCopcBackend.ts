@@ -16,7 +16,7 @@ import type {
   CopcPointField,
   CopcPointFieldSelection,
 } from '../points/fieldSelection';
-import type { CopcBackend, CopcSource } from './types';
+import type { CopcBackend, CopcSource, CopcWorkerDiagnostics } from './types';
 import type { CopcPerformanceObserver } from '../performance';
 import { RustCopcWorkerError } from '../rustCopcDecodeWorkerPool';
 
@@ -242,6 +242,10 @@ class RustCopcSource implements CopcSource {
 
   cancelPendingPointJobs(): void {
     this.reader.cancelPendingPointJobs();
+  }
+
+  getWorkerDiagnostics(): CopcWorkerDiagnostics | undefined {
+    return this.reader.getWorkerDiagnostics();
   }
 
   destroy(): void {

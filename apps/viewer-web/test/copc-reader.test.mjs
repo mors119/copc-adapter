@@ -1064,6 +1064,7 @@ test('CopcCesiumLayer snapshot exposes lifecycle and dataset info', () => {
       loadedNodeCount: 0,
       loadedPointCount: 0,
       rangeFetchDurationMs: 0,
+      rangeFetchBytes: 0,
       decodeDurationMs: 0,
       crsTransformDurationMs: 0,
       geographicToCartesianDurationMs: 0,

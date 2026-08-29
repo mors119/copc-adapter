@@ -18,7 +18,7 @@ consumers should import the generated `@frillab/copc-adapter` package.
 - `detachFrom()`: Cesium viewer를 destroy하지 않고 primitives와 listener 분리
 - `destroy()`: layer resource 와 listener 정리
 - `getSnapshot()`: 현재 lifecycle, 선택 node, 렌더링 point 수와 decoded CPU
-  point-cache metrics 조회
+  point-cache, stage-timing, range-byte, and (Rust) worker queue metrics 조회
 - `getHierarchyDiagnostics()`: hierarchy page request/cache/byte counters 조회
 - `getPointCacheDiagnostics()`: decoded CPU point-buffer cache counters 조회
 
@@ -70,7 +70,10 @@ In browsers, Rust point chunks are decoded by a per-source bounded Web Worker
 pool. Range requests stay on the main thread, queued work is superseded on a
 new streaming generation, and stale active results are ignored. Worker
 failures use `CopcBackendError` code `worker`; unloading or destroying a layer
-terminates the source-owned workers.
+terminates the source-owned workers. `getSnapshot().worker`, when present,
+reports configured/active/queued counts, observed peaks, and submitted,
+completed, cancelled, and failed job counts. `getSnapshot().performance` reports
+range bytes alongside range, decode, CRS, and renderer timings.
 
 ### Point field selection
 

@@ -11,6 +11,7 @@ import type {
 import type { CopcMetadata, CopcPointBuffer } from './types/copc';
 import type { RandomAccessByteSource } from './range/types';
 import type { CopcPointFieldSelection } from './points/fieldSelection';
+import type { CopcWorkerDiagnostics } from './backend/types';
 import { performanceNow, type CopcPerformanceObserver } from './performance';
 
 const INITIAL_LAS_HEADER_LENGTH = 375;
@@ -237,6 +238,7 @@ export class RustCopcReader {
       stage: 'rangeFetch',
       durationMs: performanceNow() - startedAt,
       nodeKey,
+      bytes: bytes.byteLength,
     });
     return bytes;
   }
@@ -368,6 +370,10 @@ export class RustCopcReader {
 
   cancelPendingPointJobs(): void {
     this.decodeWorkerPool?.cancelQueued();
+  }
+
+  getWorkerDiagnostics(): CopcWorkerDiagnostics | undefined {
+    return this.decodeWorkerPool?.getDiagnostics();
   }
 
   destroy(): void {
