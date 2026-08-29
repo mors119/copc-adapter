@@ -349,7 +349,6 @@ export class CopcLayerController {
 
     this.streamingState?.manager.clear?.();
     this.streamingState?.context.destroy?.();
-    this.removePointCollections();
     this.pointRenderer.clear();
     this.selectedNodeKeys.clear();
     this.nodePointCache.clear();
