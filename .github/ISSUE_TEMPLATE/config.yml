@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation and examples
+    url: https://github.com/mors119/copc-adapter#readme
+    about: Check the README and project documentation before opening an issue.
+  - name: Security vulnerability
+    url: https://github.com/mors119/copc-adapter/security/advisories/new
+    about: Report security vulnerabilities privately; do not use a public issue.

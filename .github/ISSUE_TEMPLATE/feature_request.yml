@@ -1,0 +1,30 @@
+name: Feature request
+description: Suggest an improvement to COPC Adapter.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: What user need or limitation would this address?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the behavior or API you would like to see.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What workarounds or alternative approaches have you tried?
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add examples, links, or implementation notes that may help.
