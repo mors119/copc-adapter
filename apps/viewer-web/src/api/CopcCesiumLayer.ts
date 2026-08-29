@@ -21,6 +21,8 @@ export type CopcStreamingOptions = {
   /** @deprecated SSE refinement replaces the distance multiplier policy. */
   refineDistanceMultiplier?: number;
   maxRenderDistanceMeters?: number;
+  /** Maximum estimated points in the active current-view workload. */
+  maxRenderedPoints?: number;
 };
 
 export type CopcCesiumLayerOptions = {
@@ -32,6 +34,8 @@ export type CopcCesiumLayerOptions = {
   colorMode?: CopcColorMode;
   /** Emits COPC layer lifecycle messages through console.debug. */
   debug?: boolean;
+  /** Maximum estimated points in the active current-view workload. */
+  maxRenderedPoints?: number;
   /** Overrides for the default streaming selection limits. */
   streaming?: CopcStreamingOptions;
   /** Defaults to stable `copc-js`; `rust` is explicit opt-in. */

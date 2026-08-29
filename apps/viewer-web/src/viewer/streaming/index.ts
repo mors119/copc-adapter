@@ -3,7 +3,7 @@ export {
   createNodePointCache,
   estimateDecodedCpuPointBufferBytes,
 } from './createNodePointCache';
-export { NodeSelector } from './NodeSelector';
+export { DEFAULT_MAX_RENDERED_POINTS, NodeSelector } from './NodeSelector';
 export { calculateScreenSpaceErrorPixels } from './NodeSelector';
 export { StreamingManager } from './StreamingManager';
 export { compareNodePriority } from './NodeSelector';
@@ -33,6 +33,7 @@ export type {
   StreamingLevelRange,
   StreamingSelectionMetrics,
   StreamingSelectionOptions,
+  StreamingSelectionContext,
   StreamingUpdateResult,
   StreamingProgress,
 } from './types';

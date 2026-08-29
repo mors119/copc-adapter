@@ -10,6 +10,13 @@ export type StreamingPerformanceSnapshot = {
   nodeSelectionMs: number;
   selectedNodeCount: number;
   estimatedSelectedPointCount: number;
+  configuredPointBudget: number;
+  candidateSelectedPointCount: number;
+  activeRenderedPointCount: number;
+  deferredNodeCount: number;
+  deferredPointCount: number;
+  budgetDeferDropCount: number;
+  budgetUtilizationPercent: number;
   candidatesBeforeCulling: number;
   frustumCulledCount: number;
   maxScreenSpaceError: number;
@@ -39,6 +46,13 @@ function emptySnapshot(): StreamingPerformanceSnapshot {
     nodeSelectionMs: 0,
     selectedNodeCount: 0,
     estimatedSelectedPointCount: 0,
+    configuredPointBudget: 0,
+    candidateSelectedPointCount: 0,
+    activeRenderedPointCount: 0,
+    deferredNodeCount: 0,
+    deferredPointCount: 0,
+    budgetDeferDropCount: 0,
+    budgetUtilizationPercent: 0,
     candidatesBeforeCulling: 0,
     frustumCulledCount: 0,
     maxScreenSpaceError: 0,
@@ -63,10 +77,17 @@ function emptySnapshot(): StreamingPerformanceSnapshot {
 export class StreamingPerformanceRecorder {
   private snapshot = emptySnapshot();
   private updateStartedAt = 0;
+  private configuredPointBudget = 0;
 
   beginUpdate(): void {
     this.snapshot = emptySnapshot();
+    this.snapshot.configuredPointBudget = this.configuredPointBudget;
     this.updateStartedAt = performanceNow();
+  }
+
+  setConfiguredPointBudget(pointBudget: number): void {
+    this.configuredPointBudget = Math.max(0, pointBudget);
+    this.snapshot.configuredPointBudget = this.configuredPointBudget;
   }
 
   setSelection(
@@ -80,6 +101,16 @@ export class StreamingPerformanceRecorder {
   ): void {
     this.snapshot.selectedNodeCount = selectedNodeCount;
     this.snapshot.estimatedSelectedPointCount = estimatedSelectedPointCount;
+    this.snapshot.configuredPointBudget = metrics.maxRenderedPoints;
+    this.configuredPointBudget = metrics.maxRenderedPoints;
+    this.snapshot.candidateSelectedPointCount = metrics.candidateSelectedPointCount;
+    this.snapshot.activeRenderedPointCount = metrics.budgetedPointCount;
+    this.snapshot.deferredNodeCount = metrics.deferredNodeCount;
+    this.snapshot.deferredPointCount = metrics.deferredPointCount;
+    this.snapshot.budgetDeferDropCount = metrics.budgetDeferDropCount;
+    this.snapshot.budgetUtilizationPercent = metrics.maxRenderedPoints > 0
+      ? (metrics.budgetedPointCount / metrics.maxRenderedPoints) * 100
+      : 0;
     this.snapshot.nodeSelectionMs = durationMs;
     this.snapshot.candidatesBeforeCulling = metrics.candidatesBeforeCulling;
     this.snapshot.frustumCulledCount = metrics.frustumCulledCount;
@@ -99,6 +130,19 @@ export class StreamingPerformanceRecorder {
   recordLoadedNode(pointCount: number): void {
     this.snapshot.loadedNodeCount += 1;
     this.snapshot.loadedPointCount += pointCount;
+  }
+
+  setActiveRenderedPointCount(pointCount: number): void {
+    this.snapshot.activeRenderedPointCount = Math.max(0, pointCount);
+    this.snapshot.budgetUtilizationPercent = this.snapshot.configuredPointBudget > 0
+      ? (this.snapshot.activeRenderedPointCount / this.snapshot.configuredPointBudget) * 100
+      : 0;
+  }
+
+  recordBudgetDrop(nodeCount = 1, pointCount = 0): void {
+    this.snapshot.budgetDeferDropCount += Math.max(0, nodeCount);
+    this.snapshot.deferredNodeCount += Math.max(0, nodeCount);
+    this.snapshot.deferredPointCount += Math.max(0, pointCount);
   }
 
   recordStage(

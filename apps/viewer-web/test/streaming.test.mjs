@@ -316,6 +316,90 @@ test('NodeSelector caps a refined selection at maxNodes', () => {
   assert.equal(selected.length, 1);
 });
 
+test('NodeSelector accepts all candidates under the rendered-point budget', () => {
+  const selector = createSelector({ maxRenderedPoints: 100 });
+  const nodes = new Map([
+    ['0-a', createWorkNode('0-a', 30, 0)],
+    ['0-b', createWorkNode('0-b', 40, 0)],
+  ]);
+
+  const selected = selector.selectVisibleNodes(createCamera(), nodes);
+
+  assert.deepEqual(selected.map((node) => node.node.key), ['0-a', '0-b']);
+  assert.equal(selector.getSelectionMetrics().candidateSelectedPointCount, 70);
+  assert.equal(selector.getSelectionMetrics().budgetedPointCount, 70);
+  assert.equal(selector.getSelectionMetrics().deferredNodeCount, 0);
+});
+
+test('NodeSelector deterministically prioritises a bounded sparse subset by point cost', () => {
+  const selector = createSelector({ maxRenderedPoints: 100 });
+  const nodes = new Map([
+    ['0-a', createWorkNode('0-a', 70, 0)],
+    ['0-b', createWorkNode('0-b', 30, 0)],
+    ['0-c', createWorkNode('0-c', 40, 0)],
+  ]);
+
+  const selected = selector.selectVisibleNodes(createCamera(), nodes);
+
+  assert.deepEqual(selected.map((node) => node.node.key), ['0-b', '0-c']);
+  assert.equal(selector.getSelectionMetrics().candidateSelectedPointCount, 140);
+  assert.equal(selector.getSelectionMetrics().budgetedPointCount, 70);
+  assert.equal(selector.getSelectionMetrics().deferredNodeCount, 1);
+  assert.equal(selector.getSelectionMetrics().deferredPointCount, 70);
+});
+
+test('NodeSelector rejects an individual node that exceeds the rendered-point budget', () => {
+  const selector = createSelector({ maxRenderedPoints: 50 });
+  const nodes = new Map([
+    ['0-dense', createWorkNode('0-dense', 51, 0)],
+  ]);
+
+  assert.deepEqual(selector.selectVisibleNodes(createCamera(), nodes), []);
+  assert.equal(selector.getSelectionMetrics().deferredPointCount, 51);
+});
+
+test('NodeSelector reprioritises the budget when the camera moves', () => {
+  const selector = createSelector({ maxRenderedPoints: 40 });
+  const makePositionedNode = (key, longitude) => createStreamingNode({
+    key,
+    level: 0,
+    pointCount: 40,
+    center: { longitude, latitude: 44, height: 100 },
+    bounds: {
+      minX: longitude - 0.001,
+      minY: 43.999,
+      minZ: 80,
+      maxX: longitude + 0.001,
+      maxY: 44.001,
+      maxZ: 120,
+    },
+    approximateSizeMeters: 100,
+    boundingRadiusMeters: 20,
+  });
+  const hierarchy = new Map([
+    ['0-near', makePositionedNode('0-near', -123)],
+    ['0-far', makePositionedNode('0-far', -122.98)],
+  ]);
+
+  assert.deepEqual(
+    selector.selectVisibleNodes(createCamera({ longitude: -123 }), hierarchy)
+      .map((node) => node.node.key),
+    ['0-near'],
+  );
+  assert.deepEqual(
+    selector.selectVisibleNodes(createCamera({ longitude: -122.98 }), hierarchy)
+      .map((node) => node.node.key),
+    ['0-far'],
+  );
+});
+
+test('NodeSelector validates the rendered-point budget', () => {
+  assert.throws(
+    () => createSelector({ maxRenderedPoints: 0 }),
+    /maxRenderedPoints must be a positive safe integer/,
+  );
+});
+
 test('NodeSelector does not select a parent when a deeper descendant is selected', () => {
   const selector = createSelector();
   const hierarchy = new Map([
@@ -871,6 +955,40 @@ test('StreamingManager uses cached nodes and loads missing nodes', async () => {
   assert.deepEqual(thirdUpdate.removedNodeKeys, ['0-0-0-0']);
   assert.deepEqual(fourthUpdate.selectedNodeKeys, ['0-0-0-0']);
   assert.equal(loadCount, 2);
+});
+
+test('StreamingManager applies backpressure before loading deferred nodes', async () => {
+  const hierarchy = new Map([
+    ['0-a', createWorkNode('0-a', 30, 0)],
+    ['0-b', createWorkNode('0-b', 40, 0)],
+    ['0-c', createWorkNode('0-c', 70, 0)],
+  ]);
+  const loadedKeys = [];
+  const cache = createNodePointCache(
+    async (nodeKey) => {
+      loadedKeys.push(nodeKey);
+      const pointCount = hierarchy.get(nodeKey).node.pointCount;
+      return { pointCount, coordinates: new Float64Array(pointCount * 3) };
+    },
+    { maxEntries: 8 },
+  );
+  const manager = new StreamingManager(hierarchy, {
+    maxNodes: 8,
+    maxDepth: 4,
+    maxRenderDistanceMeters: 12000,
+    maxRenderedPoints: 100,
+  }, cache);
+
+  const update = await manager.update(createCamera());
+
+  assert.deepEqual(update.selectedNodeKeys, ['0-a', '0-b']);
+  assert.deepEqual(loadedKeys, ['0-a', '0-b']);
+  assert.equal(update.loadedNodePoints.size, 2);
+  assert.equal(
+    [...update.loadedNodePoints.values()].reduce((sum, points) => sum + points.pointCount, 0),
+    70,
+  );
+  assert.equal(manager.getPerformanceSnapshot().deferredNodeCount, 1);
 });
 
 test('StreamingManager.clear resets selection state and cache', async () => {

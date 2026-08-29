@@ -158,6 +158,26 @@ before SSE, and `maxDepth`/`maxNodes` remain safety caps. This is intentionally
 not a copy of Cesium3DTileset traversal or private SSE implementation, nor is
 it a worker-based loader or GPU-specific point-cloud renderer.
 
+After frustum/SSE selection, the adapter applies a rendered-point workload
+budget using each hierarchy node's `pointCount` as its estimated cost. The
+default `maxRenderedPoints` is an experimental conservative `250000`: the
+issue-48 benchmark measured roughly 30 ms of renderer preparation at 100k
+points and severe near-view pressure at 418k points. Budget priority is
+projected SSE, then bounds distance and level, with prior selection continuity
+and decoded-cache availability used only as deterministic tie-breakers. Nodes
+that do not fit are deferred before point fetch/decode begins; a single node is
+not partially rendered. `maxNodes` remains an independent node-count safety
+cap, and `maxDepth` remains the hierarchy traversal cap.
+
+`StreamingManager` processes only budgeted nodes in bounded sequential batches.
+Camera generations invalidate stale work and cancel queued worker decodes; stale
+completion is ignored. The controller also checks actual decoded point counts
+before renderer submission, so cache hits and custom sources cannot push the
+active renderer over the configured budget. Debug snapshots expose the
+configured budget, candidate and active points, deferred node/point counts,
+utilization, and budget defer/drop count. This is rendered workload
+backpressure, not a claim about exact Cesium/WebGL memory.
+
 ## Point Field Contract
 
 The project-owned `CopcPointFieldSelection` contains `position`, `intensity`,

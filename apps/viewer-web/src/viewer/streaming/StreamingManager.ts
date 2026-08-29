@@ -5,6 +5,7 @@ import type {
   StreamingCameraState,
   StreamingHierarchy,
   StreamingSelectionOptions,
+  StreamingHierarchyNode,
   StreamingUpdateResult,
 } from './types';
 import { performanceNow } from '../../copc/performance';
@@ -35,6 +36,7 @@ export class StreamingManager {
   private readonly onInvalidate?: () => void;
   private updateGeneration = 0;
   private readonly selectedNodeKeys = new Set<string>();
+  private readonly activeNodePointCounts = new Map<string, number>();
 
   constructor(
     hierarchy: StreamingHierarchy,
@@ -47,6 +49,9 @@ export class StreamingManager {
     this.selector = new NodeSelector(options);
     this.cache = cache;
     this.performanceRecorder = performanceRecorder;
+    this.performanceRecorder.setConfiguredPointBudget(
+      this.selector.getSelectionMetrics().maxRenderedPoints,
+    );
     this.maxPointsPerBatch = options.maxPointsPerBatch ?? 100_000;
     this.onInvalidate = onInvalidate;
   }
@@ -67,7 +72,10 @@ export class StreamingManager {
     this.onInvalidate?.();
     this.performanceRecorder.beginUpdate();
     const selectionStartedAt = performanceNow();
-    const selectedNodes = this.selector.selectVisibleNodes(camera, this.hierarchy);
+    const selectedNodes = this.selector.selectVisibleNodes(camera, this.hierarchy, {
+      previousSelectedNodeKeys: this.selectedNodeKeys,
+      isNodeCached: (nodeKey) => this.cache.has(nodeKey),
+    });
     const levels = selectedNodes.map((entry) => entry.node.level);
     this.performanceRecorder.setSelection(
       selectedNodes.length,
@@ -89,6 +97,12 @@ export class StreamingManager {
       .sort();
 
     this.cache.setRequiredNodeKeys(nextSelectedNodeKeys);
+
+    for (const nodeKey of this.activeNodePointCounts.keys()) {
+      if (!nextSelectedNodeKeys.has(nodeKey)) {
+        this.activeNodePointCounts.delete(nodeKey);
+      }
+    }
 
     for (const nodeKey of removedNodeKeys) {
       this.selectedNodeKeys.delete(nodeKey);
@@ -140,14 +154,15 @@ export class StreamingManager {
           return undefined;
         }
 
-        return { nodeKey, points };
+        return { node, nodeKey, points };
       }));
 
       for (const loaded of batchLoads) {
         if (!loaded || updateGeneration !== this.updateGeneration) {
           continue;
         }
-        if (this.selectedNodeKeys.has(loaded.nodeKey)) {
+        if (this.selectedNodeKeys.has(loaded.nodeKey)
+          && this.acceptLoadedNode(loaded.node, loaded.points.pointCount)) {
           loadedNodePoints.set(loaded.nodeKey, loaded.points);
           this.performanceRecorder.recordLoadedNode(loaded.points.pointCount);
           onProgress?.({
@@ -166,7 +181,9 @@ export class StreamingManager {
       await yieldToBrowser();
     }
 
-    this.performanceRecorder.finishUpdate();
+    if (updateGeneration === this.updateGeneration) {
+      this.performanceRecorder.finishUpdate();
+    }
 
     return {
       selectedNodeKeys: [...nextSelectedNodeKeys].sort(),
@@ -178,6 +195,7 @@ export class StreamingManager {
   clear(): void {
     this.invalidate();
     this.selectedNodeKeys.clear();
+    this.activeNodePointCounts.clear();
     this.cache.clear();
   }
 
@@ -185,5 +203,29 @@ export class StreamingManager {
   invalidate(): void {
     this.updateGeneration += 1;
     this.onInvalidate?.();
+  }
+
+  private acceptLoadedNode(
+    node: StreamingHierarchyNode,
+    actualPointCount: number,
+  ): boolean {
+    const pointCount = Number.isSafeInteger(actualPointCount) && actualPointCount >= 0
+      ? actualPointCount
+      : 0;
+    const budget = this.selector.getSelectionMetrics().maxRenderedPoints;
+    let currentPointCount = 0;
+    for (const count of this.activeNodePointCounts.values()) {
+      currentPointCount += count;
+    }
+    const previousPointCount = this.activeNodePointCounts.get(node.node.key) ?? 0;
+    const nextPointCount = currentPointCount - previousPointCount + pointCount;
+
+    if (nextPointCount > budget) {
+      this.performanceRecorder.recordBudgetDrop(1, pointCount);
+      return false;
+    }
+
+    this.activeNodePointCounts.set(node.node.key, pointCount);
+    return true;
   }
 }

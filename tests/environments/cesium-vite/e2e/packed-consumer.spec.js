@@ -43,6 +43,10 @@ async function loadRustPage(page, query = '?backend=rust&mode=rgb') {
     metadata: { pointCount: 10653336 },
   });
   await expect.poll(async () => (await state(page)).renderedPointCount).toBeGreaterThan(0);
+  await expect.poll(async () => {
+    const current = await state(page);
+    return (current.maxRenderedHeight ?? 0) - (current.minRenderedHeight ?? 0);
+  }).toBeGreaterThan(1);
   await expect.poll(async () => (await state(page)).hierarchy?.pageRequests ?? 0)
     .toBeGreaterThan(0);
 
