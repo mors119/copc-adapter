@@ -6,7 +6,22 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-- Fixed Rust/WASM asset resolution in Vite development consumers.
+## [0.2.1] - 2026-08-31
+
+### Fixed
+
+- Fixed Rust/WASM asset resolution in affected Vite development consumers
+  without requiring `optimizeDeps.exclude`.
+- Preserved package-owned Rust Worker decoding across dependency-optimized Vite
+  environments.
+- Fixed Rust Worker peak-activity diagnostics.
+
+### Compatibility note
+
+This release improves Rust/WASM compatibility in dependency-optimized Vite
+development environments and removes the workaround required by affected older
+Vite consumers. Modern Vite 8 releases also contain an upstream fix for the
+original asset-resolution behavior.
 
 ## [0.2.0] - 2026-08-30
 
@@ -26,5 +41,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Added packed-artifact smoke coverage for an external Cesium/Vite consumer.
 - Published the typed ESM library with package-local decoder runtime assets.
 
-[0.2.0]: https://github.com/mors119/copc-adapter/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/mors119/copc-adapter/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/mors119/copc-adapter/compare/v0.2.0...v0.2.1
+[0.2.0]: https://github.com/mors119/copc-adapter/compare/v0.1.1...v0.2.0
 [0.1.1]: https://www.npmjs.com/package/@frillab/copc-adapter/v/0.1.1
