@@ -2,7 +2,12 @@ import './style.css';
 import 'cesium/Build/Cesium/Widgets/widgets.css';
 
 import * as Cesium from 'cesium';
-import { CopcCesiumLayer, type CopcBackendName } from './index';
+import {
+  CopcCesiumLayer,
+  probeCopcSource,
+  type CopcBackendName,
+  type CopcSourceProbeResult,
+} from './index';
 import { createCesiumViewer } from './cesium/viewer/createViewer';
 import { createCopcDebugPanel } from './debug/CopcDebugPanel';
 import { runSyntheticRendererPerformanceBenchmark } from './cesium/render/rendererPerformanceBenchmark';
@@ -45,6 +50,7 @@ type CopcDebugAdapter = {
   setCameraPitch(pitchDegrees: number): void;
   setCameraHeading(headingDegrees: number): void;
   recordError(error: unknown): void;
+  probeSource(source: string): Promise<CopcSourceProbeResult>;
   runSyntheticRendererPerformanceBenchmark(): ReturnType<typeof runSyntheticRendererPerformanceBenchmark>;
 };
 
@@ -209,6 +215,7 @@ function installDebugAdapter(
       viewer.camera.moveEnd.raiseEvent();
     },
     recordError,
+    probeSource: probeCopcSource,
     runSyntheticRendererPerformanceBenchmark: () => runSyntheticRendererPerformanceBenchmark({
       viewer,
       pointCounts: [10_000, 50_000, 100_000],
@@ -286,10 +293,17 @@ async function main(): Promise<void> {
   const viewer = createCesiumViewer('cesium-container');
   const layer = new CopcCesiumLayer(getLayerOptions());
   const debugAdapter = installDebugAdapter(viewer, layer, import.meta.env.DEV);
+  let sourceProbe: CopcSourceProbeResult | undefined;
+  if (isDebugPanelEnabled()) {
+    void probeCopcSource(COPC_URL).then((result) => {
+      sourceProbe = result;
+    });
+  }
   const debugPanel = isDebugPanelEnabled()
     ? createCopcDebugPanel(() => ({
         snapshot: layer.getSnapshot(),
         metadata: layer.getMetadata(),
+        sourceProbe,
         lastError: debugAdapter.getLastError(),
       }))
     : undefined;

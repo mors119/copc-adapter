@@ -79,6 +79,21 @@ test('maps layer diagnostics and metadata into browser-visible values', () => {
         maxZ: 10,
       },
     },
+    sourceProbe: {
+      source: '/samples/autzen.copc.laz',
+      reachable: true,
+      rangeSupported: true,
+      status: 206,
+      partialStatus: 206,
+      requestedRange: { offset: 0, length: 1024 },
+      returnedRange: { offset: 0, length: 1024 },
+      contentLength: 1024,
+      contentRange: 'bytes 0-1023/1000000',
+      corsReadable: true,
+      copcDetected: true,
+      pointFormat: 7,
+      warnings: [],
+    },
   });
 
   assert.equal(view.datasetName, 'autzen.copc.laz');
@@ -118,6 +133,12 @@ test('maps layer diagnostics and metadata into browser-visible values', () => {
   assert.equal(view.cacheEvictionCount, '1');
   assert.equal(view.cacheBytesEvicted, '512 B');
   assert.equal(view.largestCachedEntryBytes, '640 B');
+  assert.equal(view.sourceReachable, '✓ Reachable');
+  assert.equal(view.sourceRange, '✓ HTTP Range / 206');
+  assert.equal(view.sourceCopc, '✓ COPC detected');
+  assert.equal(view.sourcePointFormat, 'PDRF 7');
+  assert.equal(view.sourceCors, '✓ Browser response readable');
+  assert.equal(view.sourceWarnings, '—');
 });
 
 test('shows loading placeholders and gives runtime errors precedence', () => {

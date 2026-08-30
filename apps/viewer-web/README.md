@@ -30,7 +30,10 @@ layer.attachTo(viewer);
 ```
 
 The COPC URL must be browser-readable, support byte Range requests, and
-provide compatible CORS headers. Supported color modes are `fixed`,
+provide compatible CORS headers. To inspect a source before loading a layer,
+call `probeCopcSource(url)`; it performs a bounded prefix probe and returns
+structured Range, CORS-observability, LAS/COPC, and warning fields without
+downloading the whole file. Supported color modes are `fixed`,
 `elevation`, `rgb`, `intensity`, and `classification`. Use
 `backend: 'rust'` to opt into the Rust/WASM path; the default is `copc-js`.
 

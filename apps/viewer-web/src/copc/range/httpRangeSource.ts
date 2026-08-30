@@ -6,17 +6,12 @@ import {
   type RandomAccessByteSource,
   validateByteRange,
 } from './types';
+import { validateContentRange } from './contentRange';
 
 export type HttpRangeByteSourceOptions = {
   readonly fetch?: RangeFetch;
   readonly headers?: HeadersInit;
   readonly size?: number;
-};
-
-type ParsedContentRange = {
-  readonly start: number;
-  readonly end: number;
-  readonly total?: number;
 };
 
 function rangeDetails(source: string, range: ByteRange, status?: number) {
@@ -26,51 +21,6 @@ function rangeDetails(source: string, range: ByteRange, status?: number) {
     length: range.length,
     status,
   };
-}
-
-function parseContentRange(
-  source: string,
-  range: ByteRange,
-  value: string | null,
-  status: number,
-): ParsedContentRange {
-  if (!value) {
-    throw new RangeSourceError(
-      'content-range',
-      'A 206 response must include a Content-Range header',
-      rangeDetails(source, range, status),
-    );
-  }
-
-  const match = /^bytes\s+(\d+)-(\d+)\/(\d+|\*)$/i.exec(value.trim());
-  if (!match) {
-    throw new RangeSourceError(
-      'content-range',
-      `Malformed Content-Range header: ${value}`,
-      rangeDetails(source, range, status),
-    );
-  }
-
-  const start = Number(match[1]);
-  const end = Number(match[2]);
-  const total = match[3] === '*' ? undefined : Number(match[3]);
-  const expectedEnd = range.offset + range.length - 1;
-  const valid = Number.isSafeInteger(start)
-    && Number.isSafeInteger(end)
-    && start === range.offset
-    && end === expectedEnd
-    && end >= start
-    && (total === undefined || (Number.isSafeInteger(total) && total > end));
-
-  if (!valid) {
-    throw new RangeSourceError(
-      'content-range',
-      `Content-Range does not match bytes=${range.offset}-${expectedEnd}: ${value}`,
-      rangeDetails(source, range, status),
-    );
-  }
-
-  return { start, end, total };
 }
 
 function isAbortError(error: unknown): boolean {
@@ -165,7 +115,7 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
       );
     }
 
-    const contentRange = parseContentRange(
+    const contentRange = validateContentRange(
       this.source,
       range,
       response.headers.get('Content-Range'),
