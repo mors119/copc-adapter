@@ -220,6 +220,7 @@ test('keeps the representative Autzen Far to Near refinement progressive', async
   expect(nearState.transition.activeReplacementGroupCount).toBe(0);
   expect(nearState.performance.acceptedRefinementCount)
     .toBeGreaterThanOrEqual(farState.performance.acceptedRefinementCount);
+  expect(nearState.performance.acceptedRefinementCount).toBeGreaterThan(0);
 
   const beforeRotation = await getDebugState(page);
   await page.evaluate(() => {
@@ -257,6 +258,8 @@ test('keeps the representative Autzen Far to Near refinement progressive', async
     .toBeGreaterThan(0);
   const farAgainState = await getDebugState(page);
   expect(farAgainState.transition.activeReplacementGroupCount).toBe(0);
+  expect(farAgainState.performance.visibleLevelRange.max)
+    .toBeLessThan(nearState.performance.visibleLevelRange.max);
   expect(farAgainState.renderedPointCount).toBeGreaterThan(0);
 
   await page.evaluate(() => window.__COPC_DEBUG__?.setCameraHeight(300));
