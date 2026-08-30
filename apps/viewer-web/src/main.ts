@@ -13,7 +13,12 @@ import { createCopcDebugPanel } from './debug/CopcDebugPanel';
 import { createCopcPointInspector } from './debug/CopcPointInspector';
 import { runSyntheticRendererPerformanceBenchmark } from './cesium/render/rendererPerformanceBenchmark';
 
-const COPC_URL = '/samples/autzen.copc.laz';
+const DEFAULT_COPC_URL = '/samples/autzen.copc.laz';
+
+function getCopcUrl(): string {
+  return new URLSearchParams(window.location.search).get('source')
+    ?? DEFAULT_COPC_URL;
+}
 
 type CopcDebugState = {
   viewerReady: boolean;
@@ -269,6 +274,7 @@ function getSelectedBackend(): CopcBackendName {
 
 function getLayerOptions(): ConstructorParameters<typeof CopcCesiumLayer>[0] {
   const params = new URLSearchParams(window.location.search);
+  const copcUrl = getCopcUrl();
   const requestedBudget = Number(params.get('budget'));
   const maxRenderedPoints = Number.isSafeInteger(requestedBudget) && requestedBudget > 0
     ? requestedBudget
@@ -283,7 +289,7 @@ function getLayerOptions(): ConstructorParameters<typeof CopcCesiumLayer>[0] {
 
   if (['issue61', 'issue59', 'issue68'].includes(params.get('scenario') ?? '')) {
     return {
-      url: COPC_URL,
+      url: copcUrl,
       colorMode: 'elevation',
       backend: params.get('backend') === 'copc-js' ? 'copc-js' : 'rust',
       pointSize: 2,
@@ -300,7 +306,7 @@ function getLayerOptions(): ConstructorParameters<typeof CopcCesiumLayer>[0] {
   }
 
   return {
-    url: COPC_URL,
+    url: copcUrl,
     colorMode: 'rgb',
     backend: getSelectedBackend(),
     debug: true,
@@ -325,7 +331,7 @@ async function main(): Promise<void> {
   const debugAdapter = installDebugAdapter(viewer, layer, import.meta.env.DEV);
   let sourceProbe: CopcSourceProbeResult | undefined;
   if (isDebugPanelEnabled()) {
-    void probeCopcSource(COPC_URL).then((result) => {
+    void probeCopcSource(getCopcUrl()).then((result) => {
       sourceProbe = result;
     });
   }

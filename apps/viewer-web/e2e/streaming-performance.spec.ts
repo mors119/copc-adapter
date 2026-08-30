@@ -70,7 +70,9 @@ async function loadScenario(
   page: import('@playwright/test').Page,
   query: string,
 ): Promise<void> {
-  await page.goto(`/?scenario=issue68&backend=rust&debugPanel=false&${query}`);
+  const source = process.env.COPC_VALIDATION_SOURCE;
+  const sourceQuery = source ? `&source=${encodeURIComponent(source)}` : '';
+  await page.goto(`/?scenario=issue68&backend=rust&debugPanel=false${sourceQuery}&${query}`);
   await expect.poll(() => getState(page), { timeout: 120_000 }).toMatchObject({
     layerLoaded: true,
     backend: 'rust',

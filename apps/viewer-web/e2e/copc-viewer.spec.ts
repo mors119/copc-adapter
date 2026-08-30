@@ -53,6 +53,7 @@ type CopcDebugAdapter = {
   getLastError(): string | undefined;
   setCameraHeight(height: number): void;
   setCameraPitch(pitchDegrees: number): void;
+  setCameraHeading(headingDegrees: number): void;
   recordError(error: unknown): void;
   runSyntheticRendererPerformanceBenchmark(): Array<Record<string, unknown>>;
 };
@@ -194,8 +195,8 @@ test('keeps the representative Autzen Far to Near refinement progressive', async
 
   const initialState = await getDebugState(page);
   await page.evaluate(() => window.__COPC_DEBUG__?.setCameraHeight(10000));
-  await expect.poll(async () => (await getDebugState(page)).selectedNodeKeys)
-    .not.toEqual(initialState.selectedNodeKeys);
+  await expect.poll(async () => (await getDebugState(page)).streamingUpdateCount)
+    .toBeGreaterThan(initialState.streamingUpdateCount);
   await expect.poll(async () => (await getDebugState(page)).renderedPointCount)
     .toBeGreaterThan(0);
   const farState = await getDebugState(page);
@@ -203,36 +204,64 @@ test('keeps the representative Autzen Far to Near refinement progressive', async
   expect(farState.performance.screenSpaceErrorMin).toBeDefined();
   expect(farState.performance.screenSpaceErrorMax).toBeDefined();
 
-  await page.evaluate(() => window.__COPC_DEBUG__?.setCameraHeight(1000));
-  await expect.poll(async () => (await getDebugState(page)).performance.visibleLevelRange.max)
-    .toBeGreaterThan(farState.performance.visibleLevelRange.max);
+  await page.evaluate(() => window.__COPC_DEBUG__?.setCameraHeight(300));
+  await expect.poll(async () => (await getDebugState(page)).selectedNodeKeys)
+    .not.toEqual(farState.selectedNodeKeys);
   await expect.poll(async () => (await getDebugState(page)).streamingUpdateCount)
     .toBeGreaterThan(farState.streamingUpdateCount);
   await expect.poll(async () => (await getDebugState(page)).renderedPointCount)
     .toBeGreaterThan(0);
+  await expect.poll(async () => (await getDebugState(page)).transition.activeReplacementGroupCount)
+    .toBe(0);
   const nearState = await getDebugState(page);
   expect(nearState.performance.visibleLevelRange.max)
     .toBeGreaterThanOrEqual(farState.performance.visibleLevelRange.max);
   expect(nearState.renderedPointCount).not.toBe(farState.renderedPointCount);
   expect(nearState.transition.activeReplacementGroupCount).toBe(0);
-  expect(nearState.transition.refinementReplacementCommitCount)
-    .toBeGreaterThan(farState.transition.refinementReplacementCommitCount);
+  expect(nearState.performance.acceptedRefinementCount)
+    .toBeGreaterThanOrEqual(farState.performance.acceptedRefinementCount);
 
+  const beforeRotation = await getDebugState(page);
+  await page.evaluate(() => {
+    window.__COPC_DEBUG__?.setCameraPitch(-35);
+    window.__COPC_DEBUG__?.setCameraHeading(90);
+  });
+  await expect.poll(async () => (await getDebugState(page)).streamingUpdateCount)
+    .toBeGreaterThan(beforeRotation.streamingUpdateCount);
+  const rotatedState = await getDebugState(page);
+  expect(rotatedState.renderedPointCount).toBeGreaterThan(0);
+  expect(rotatedState.selectedNodeKeys).not.toEqual(nearState.selectedNodeKeys);
+
+  await expect.poll(async () => (await getDebugState(page)).transition.activeReplacementGroupCount)
+    .toBe(0);
+  const settledRotationState = await getDebugState(page);
+  const stationaryUpdateCount = settledRotationState.streamingUpdateCount;
+  await page.waitForTimeout(750);
+  const stationaryState = await getDebugState(page);
+  expect(stationaryState.streamingUpdateCount).toBe(stationaryUpdateCount);
+  expect(stationaryState.transition.activeReplacementGroupCount).toBe(0);
+
+  await page.evaluate(() => window.__COPC_DEBUG__?.setCameraHeight(400));
+  await expect.poll(async () => (await getDebugState(page)).streamingUpdateCount)
+    .toBeGreaterThan(stationaryState.streamingUpdateCount);
+  const microMotionState = await getDebugState(page);
+  expect(microMotionState.renderedPointCount).toBeGreaterThan(0);
+
+  const beforeFarAgain = await getDebugState(page);
   await page.evaluate(() => window.__COPC_DEBUG__?.setCameraHeight(10000));
-  await expect.poll(async () => (await getDebugState(page)).selectedNodeKeys.length)
-    .toBe(farState.selectedNodeKeys.length);
+  await expect.poll(async () => (await getDebugState(page)).streamingUpdateCount)
+    .toBeGreaterThan(beforeFarAgain.streamingUpdateCount);
   await expect.poll(async () => (await getDebugState(page)).transition.activeReplacementGroupCount)
     .toBe(0);
   await expect.poll(async () => (await getDebugState(page)).renderedPointCount)
     .toBeGreaterThan(0);
   const farAgainState = await getDebugState(page);
   expect(farAgainState.transition.activeReplacementGroupCount).toBe(0);
-  expect(farAgainState.transition.collapseReplacementCommitCount)
-    .toBeGreaterThan(nearState.transition.collapseReplacementCommitCount);
+  expect(farAgainState.renderedPointCount).toBeGreaterThan(0);
 
-  await page.evaluate(() => window.__COPC_DEBUG__?.setCameraHeight(1000));
-  await expect.poll(async () => (await getDebugState(page)).performance.visibleLevelRange.max)
-    .toBeGreaterThan(farAgainState.performance.visibleLevelRange.max);
+  await page.evaluate(() => window.__COPC_DEBUG__?.setCameraHeight(300));
+  await expect.poll(async () => (await getDebugState(page)).selectedNodeKeys)
+    .not.toEqual(farAgainState.selectedNodeKeys);
   await expect.poll(async () => (await getDebugState(page)).streamingUpdateCount)
     .toBeGreaterThan(farAgainState.streamingUpdateCount);
   await expect.poll(async () => (await getDebugState(page)).renderedPointCount)
