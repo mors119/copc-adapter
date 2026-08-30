@@ -31,7 +31,8 @@
   browser decode is worker-backed with bounded concurrency and streaming uses a
   rendered-point budget with stale-work suppression.
 - Intensity normalization currently uses each loaded node buffer's range.
-- The package is not published to npm yet.
+- The `0.1.1` package is published to npm; broader consumer compatibility
+  validation remains future work.
 - Repository-owned demo media is available in `docs/assets/`; there is no
   hosted demo yet.
 
@@ -45,7 +46,8 @@
 4. Revisit occlusion culling only after a validation run quantifies hidden
    in-frustum workload; see the [Issue #60 investigation](benchmarks/issue-60-occlusion.md)
    and [Issue #68 report](benchmarks/issue-68-streaming.md).
-5. Publish the library after broader consumer compatibility validation.
+5. Continue broader consumer compatibility validation after the initial
+   `0.1.1` publication.
 
 ## Submission State
 
