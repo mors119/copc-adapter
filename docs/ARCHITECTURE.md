@@ -179,6 +179,15 @@ utilization, budget defer/drop count, range bytes, stage timings, and Rust
 worker queue/concurrency metrics. This is rendered workload backpressure, not
 a claim about exact Cesium/WebGL memory.
 
+Occlusion culling is intentionally not part of the current selection contract.
+The Issue #60 investigation found no stable public Cesium API that can prove a
+COPC node is fully hidden by terrain or arbitrary scene geometry. Depth and
+height sampling are incomplete whole-node evidence, and Cesium private depth
+internals are outside the supported boundary. Until a repeatable workload
+demonstrates a material hidden-node cost and supplies conservative visibility
+evidence, uncertain nodes follow the existing visible path. See
+[`docs/benchmarks/issue-60-occlusion.md`](benchmarks/issue-60-occlusion.md).
+
 ## Point Field Contract
 
 The project-owned `CopcPointFieldSelection` contains `position`, `intensity`,

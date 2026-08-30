@@ -41,7 +41,8 @@
 3. Explore measured scalable rendering approaches and dataset-global attribute
    statistics; the Issue #48 boundary and baseline are complete.
 4. Revisit occlusion culling only after a validation run quantifies hidden
-   in-frustum workload; see the Issue #68 report.
+   in-frustum workload; see the [Issue #60 investigation](benchmarks/issue-60-occlusion.md)
+   and [Issue #68 report](benchmarks/issue-68-streaming.md).
 5. Publish the library after broader consumer compatibility validation.
 
 ## Submission State
