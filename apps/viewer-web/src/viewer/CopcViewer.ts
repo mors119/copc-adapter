@@ -81,6 +81,13 @@ type StreamingState = {
   manager: StreamingManager;
 };
 
+let nextPickOwnerId = 0;
+
+function createPickOwnerId(): string {
+  nextPickOwnerId += 1;
+  return `copc-layer-${nextPickOwnerId}`;
+}
+
 function createViewBounds(
   camera: StreamingCameraState,
   radiusMeters: number,
@@ -199,6 +206,7 @@ export class CopcLayerController {
   private lifecycle: CopcLayerLifecycleState = 'idle';
   private selectedPointPickId?: CopcPointPickId;
   private pickHandler?: Cesium.ScreenSpaceEventHandler;
+  private readonly pickOwnerId = createPickOwnerId();
   private readonly handleCameraMoveEnd = (): void => {
     void this.scheduleStreamingUpdate();
   };
@@ -763,7 +771,11 @@ export class CopcLayerController {
         pointSize: this.options.pointSize ?? 3,
         colorMode: this.options.colorMode ?? 'fixed',
         elevationRange: this.getDatasetElevationRange(),
-        pointId: (pointIndex) => ({ nodeKey, pointIndex }),
+        pointId: (pointIndex) => ({
+          nodeKey,
+          pointIndex,
+          ownerId: this.pickOwnerId,
+        }),
         onPerformance: (stage, durationMs) => {
           const metricStage = stage === 'geographicToCartesian'
             ? 'geographicToCartesianDurationMs'
@@ -869,7 +881,8 @@ export class CopcLayerController {
 
   private handlePick(viewer: Cesium.Viewer, position: Cesium.Cartesian2): void {
     const picked = viewer.scene.pick(position) as { id?: unknown } | undefined;
-    if (!picked || !isCopcPointPickId(picked.id)) {
+    if (!picked || !isCopcPointPickId(picked.id)
+      || picked.id.ownerId !== this.pickOwnerId) {
       this.clearSelectedPoint();
       return;
     }

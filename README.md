@@ -89,7 +89,7 @@ console.log(layer.getPointCacheDiagnostics());
 
 Rendered points are picked with Cesium's normal `scene.pick` behavior. The
 layer keeps only a project-owned `{ nodeKey, pointIndex }` identity on each
-point and resolves it through the current decoded node buffer. Use
+point and a layer-local ownership token, then resolves it through the current decoded node buffer. Use
 `onPointPicked` or `layer.getSelectedPoint()` after a click to read transformed
 position/height, retained source XYZ, and RGB/intensity/classification when
 those fields were requested and decoded. Missing fields remain unavailable,

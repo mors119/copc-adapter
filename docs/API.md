@@ -170,8 +170,8 @@ fallback한다.
 
 ### Point picking and inspection
 
-Cesium point picks carry only the project-owned `{ nodeKey, pointIndex }`
-identity. `CopcCesiumLayer.getSelectedPoint()` resolves it through the current
+Cesium point picks carry only a project-owned `{ nodeKey, pointIndex }` identity
+plus a compact layer-local ownership token. `CopcCesiumLayer.getSelectedPoint()` resolves it through the current
 rendered node and decoded CPU cache, returning transformed position/height,
 retained source XYZ, node level, and available attributes. RGB, intensity, and
 classification remain unavailable when the active field selection did not

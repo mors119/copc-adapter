@@ -74,6 +74,7 @@ test('invalid identities and indices do not produce stale inspection data', () =
   assert.equal(isCopcPointPickId({ nodeKey: '', pointIndex: 0 }), false);
   assert.equal(isCopcPointPickId({ nodeKey: 'node', pointIndex: -1 }), false);
   assert.equal(isCopcPointPickId({ nodeKey: 'node', pointIndex: 0.5 }), false);
+  assert.equal(isCopcPointPickId({ nodeKey: 'node', pointIndex: 0, ownerId: 'layer-1' }), true);
   assert.equal(
     inspectCopcPoint({ nodeKey: 'node', pointIndex: 2 }, { level: 0 }, points, 'custom'),
     undefined,

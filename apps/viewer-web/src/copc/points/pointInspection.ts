@@ -5,6 +5,8 @@ import type { GeographicPointBuffer } from '../types/copc';
 export type CopcPointPickId = Readonly<{
   nodeKey: string;
   pointIndex: number;
+  /** Layer-local token used when multiple COPC layers share a viewer. */
+  ownerId?: string;
 }>;
 
 export type CopcPointInspection = {

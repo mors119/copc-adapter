@@ -299,7 +299,11 @@ test('CopcLayerController maps Cesium picks and clears unrelated, removed, and e
     manager: {},
   };
   controller.nodePointCache.get = () => points;
-  fakeViewer.scene.pick = () => ({ id: { nodeKey, pointIndex: 0 } });
+  fakeViewer.scene.pick = () => ({ id: {
+    nodeKey,
+    pointIndex: 0,
+    ownerId: controller.pickOwnerId,
+  } });
 
   controller.handlePick(fakeViewer, new Cesium.Cartesian2(10, 10));
   assert.equal(picked.length, 1);
@@ -311,12 +315,29 @@ test('CopcLayerController maps Cesium picks and clears unrelated, removed, and e
   assert.equal(controller.getSelectedPoint(), undefined);
   assert.equal(picked.at(-1), undefined);
 
-  fakeViewer.scene.pick = () => ({ id: { nodeKey, pointIndex: 0 } });
+  fakeViewer.scene.pick = () => ({ id: {
+    nodeKey,
+    pointIndex: 0,
+    ownerId: controller.pickOwnerId,
+  } });
   controller.handlePick(fakeViewer, new Cesium.Cartesian2(10, 10));
   controller.nodePointCache.get = () => undefined;
   assert.equal(controller.getSelectedPoint(), undefined);
 
   controller.nodePointCache.get = () => points;
+  fakeViewer.scene.pick = () => ({ id: {
+    nodeKey,
+    pointIndex: 0,
+    ownerId: 'copc-layer-foreign',
+  } });
+  controller.handlePick(fakeViewer, new Cesium.Cartesian2(10, 10));
+  assert.equal(controller.getSelectedPoint(), undefined);
+
+  fakeViewer.scene.pick = () => ({ id: {
+    nodeKey,
+    pointIndex: 0,
+    ownerId: controller.pickOwnerId,
+  } });
   controller.handlePick(fakeViewer, new Cesium.Cartesian2(10, 10));
   controller.removePointCollection(nodeKey);
   assert.equal(controller.getSelectedPoint(), undefined);
