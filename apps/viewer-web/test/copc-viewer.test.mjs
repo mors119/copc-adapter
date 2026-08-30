@@ -616,6 +616,88 @@ test('CopcLayerController cancels superseded replacement groups before stale dat
   assert.equal(controller.getSnapshot().transition.staleReplacementCancellationCount, 1);
 });
 
+test('CopcLayerController removes stale coverage when the desired frontier is already staged', async () => {
+  const fakeViewer = createFakeViewer();
+  const renderer = new PointPrimitiveRenderer();
+  const controller = new CopcLayerController({
+    url: '/samples/autzen.copc.laz',
+    renderer,
+    maxRenderedPoints: 100,
+  });
+  const parentKey = '0-parent';
+  const childKeys = ['1-a', '1-b', '1-c', '1-d'];
+  const makePoints = (pointCount, height) => ({
+    pointCount,
+    coordinates: new Float64Array(pointCount * 3).fill(height),
+  });
+  const replacementGroups = [{
+    kind: 'refinement',
+    oldNodeKeys: [parentKey],
+    newNodeKeys: childKeys,
+  }];
+  const updates = [];
+
+  renderer.attachTo(fakeViewer);
+  renderer.addOrUpdateNode(parentKey, makePoints(40, 10), { pointSize: 2 });
+  controller.viewer = fakeViewer;
+  controller.streamingState = createStreamingState(
+    (_camera, onProgress) => new Promise((resolve) => updates.push({ onProgress, resolve })),
+    new Map([
+      [parentKey, { node: { key: parentKey, level: 0, pointCount: 40 }, children: childKeys }],
+      ...childKeys.map((key) => [key, { node: { key, level: 1, pointCount: 25 }, children: [] }]),
+    ]),
+  );
+
+  const firstUpdate = controller.updateStreamingView();
+  await Promise.resolve();
+  updates[0].onProgress({
+    selectedNodeKeys: childKeys,
+    removedNodeKeys: [parentKey],
+    loadedNodePoints: new Map([
+      [childKeys[0], makePoints(25, 20)],
+      [childKeys[1], makePoints(25, 30)],
+    ]),
+    completedBatchPointCount: 50,
+    replacementGroups,
+    generation: 1,
+  });
+  updates[0].resolve({
+    selectedNodeKeys: childKeys,
+    removedNodeKeys: [parentKey],
+    loadedNodePoints: new Map(),
+    replacementGroups,
+    generation: 1,
+  });
+  await firstUpdate;
+  assert.deepEqual(controller.getRenderedNodeKeys(), [parentKey, childKeys[0], childKeys[1]]);
+
+  const secondUpdate = controller.updateStreamingView();
+  await Promise.resolve();
+  updates[1].onProgress({
+    // A/B are still the desired frontier and are already staged, while the
+    // old parent is absent from this generation's removedNodeKeys.
+    selectedNodeKeys: childKeys.slice(0, 2),
+    removedNodeKeys: childKeys.slice(2),
+    loadedNodePoints: new Map(),
+    completedBatchPointCount: 0,
+    replacementGroups: [],
+    generation: 2,
+  });
+  assert.deepEqual(controller.getRenderedNodeKeys(), childKeys.slice(0, 2));
+  updates[1].resolve({
+    selectedNodeKeys: childKeys.slice(0, 2),
+    removedNodeKeys: childKeys.slice(2),
+    loadedNodePoints: new Map(),
+    replacementGroups: [],
+    generation: 2,
+  });
+  await secondUpdate;
+
+  assert.deepEqual(controller.getRenderedNodeKeys(), childKeys.slice(0, 2));
+  assert.equal(controller.getSnapshot().transition.activeReplacementGroupCount, 0);
+  assert.equal(controller.getSnapshot().transition.coarseNodesRetainedForCoverageCount, 0);
+});
+
 test('CopcLayerController ignores loaded nodes after destroy during an in-flight update', async () => {
   const fakeViewer = createFakeViewer();
   const viewer = new CopcLayerController({

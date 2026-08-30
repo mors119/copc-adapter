@@ -865,6 +865,20 @@ export class CopcLayerController {
     const desiredNewNodeKeys = [...desiredNodeKeys]
       .filter((nodeKey) => !this.pointRenderer.hasNode(nodeKey))
       .sort();
+
+    // If the newest desired frontier is already fully renderer-ready, any
+    // rendered node outside that frontier is obsolete coverage. This can
+    // happen after a superseded transition when the old parent was omitted
+    // from the newest manager diff, so it cannot be cleaned up through
+    // removedNodeKeys. There is no coverage-safe staging work left in this
+    // case: the desired nodes are already present, so remove the stale
+    // coverage immediately.
+    if (renderedOldNodeKeys.length > 0 && desiredNewNodeKeys.length === 0) {
+      for (const nodeKey of renderedOldNodeKeys) {
+        this.removePointCollection(nodeKey);
+      }
+    }
+
     const incomingOldNodeKeys = new Set(
       replacementGroups.flatMap((group) => group.oldNodeKeys),
     );
