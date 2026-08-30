@@ -39,6 +39,7 @@ type CopcDebugState = {
   backend: CopcBackendName | 'custom';
   performance: ReturnType<CopcCesiumLayer['getSnapshot']>['performance'];
   pointCache: ReturnType<CopcCesiumLayer['getSnapshot']>['pointCache'];
+  hierarchy: ReturnType<CopcCesiumLayer['getHierarchyDiagnostics']>;
   worker?: ReturnType<CopcCesiumLayer['getSnapshot']>['worker'];
   longestMainThreadTaskMs: number;
   cesiumFrameDurationMs: number;
@@ -183,6 +184,7 @@ function installDebugAdapter(
         backend: snapshot.backend,
         performance: snapshot.performance,
         pointCache: snapshot.pointCache,
+        hierarchy: layer.getHierarchyDiagnostics(),
         worker: snapshot.worker,
         longestMainThreadTaskMs,
         cesiumFrameDurationMs,
@@ -287,7 +289,15 @@ function getLayerOptions(): ConstructorParameters<typeof CopcCesiumLayer>[0] {
     ? requestedCacheBytes
     : undefined;
 
-  if (['issue61', 'issue59', 'issue68'].includes(params.get('scenario') ?? '')) {
+  const scenario = params.get('scenario');
+  if (['issue61', 'issue59', 'issue68', 'issue128'].includes(scenario ?? '')) {
+    const issue128 = scenario === 'issue128';
+    const requestedDistance = Number(params.get('distance'));
+    const maxRenderDistanceMeters = issue128
+      && Number.isFinite(requestedDistance)
+      && requestedDistance > 0
+      ? requestedDistance
+      : issue128 ? 100 : 20_000;
     return {
       url: copcUrl,
       colorMode: 'elevation',
@@ -297,10 +307,10 @@ function getLayerOptions(): ConstructorParameters<typeof CopcCesiumLayer>[0] {
       ...(maxRenderedPoints === undefined ? {} : { maxRenderedPoints }),
       ...(maxPointCacheBytes === undefined ? {} : { maxPointCacheBytes }),
       streaming: {
-        maxNodes: 32,
-        maxDepth: 6,
+        maxNodes: issue128 ? 16 : 32,
+        maxDepth: issue128 ? 4 : 6,
         maxScreenSpaceError: 8,
-        maxRenderDistanceMeters: 20_000,
+        maxRenderDistanceMeters,
       },
     };
   }

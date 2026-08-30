@@ -43,6 +43,7 @@ import {
   createNodePointCache,
   StreamingManager,
   createPerspectiveViewFrustum,
+  createStreamingViewBounds,
   type StreamingCameraState,
   type StreamingHierarchy,
   type StreamingProgress,
@@ -88,24 +89,6 @@ let nextPickOwnerId = 0;
 function createPickOwnerId(): string {
   nextPickOwnerId += 1;
   return `copc-layer-${nextPickOwnerId}`;
-}
-
-function createViewBounds(
-  camera: StreamingCameraState,
-  radiusMeters: number,
-): CopcHierarchyBounds {
-  const latitudeRadius = radiusMeters / 111_320;
-  const longitudeRadius = radiusMeters /
-    (111_320 * Math.max(Math.cos((camera.latitude * Math.PI) / 180), 0.1));
-
-  return {
-    minX: camera.longitude - longitudeRadius,
-    minY: camera.latitude - latitudeRadius,
-    minZ: camera.height - radiusMeters,
-    maxX: camera.longitude + longitudeRadius,
-    maxY: camera.latitude + latitudeRadius,
-    maxZ: camera.height + radiusMeters,
-  };
 }
 
 function toProjectBounds(
@@ -653,15 +636,17 @@ export class CopcLayerController {
     if (!metadata) {
       throw new Error('Streaming state is not initialized');
     }
-    const radiusMeters = Math.min(
-      camera.viewDistanceMeters,
-      streamingOptions.maxRenderDistanceMeters,
-    );
+    const viewBounds = createStreamingViewBounds({
+      camera,
+      viewDistanceMeters: camera.viewDistanceMeters,
+      maxRenderDistanceMeters: streamingOptions.maxRenderDistanceMeters,
+      viewFrustum: camera.viewFrustum,
+    });
 
     return {
       bounds: toProjectBounds(
         metadata,
-        createViewBounds(camera, radiusMeters),
+        viewBounds.bounds,
       ),
       maxLevel: streamingOptions.maxDepth,
     };

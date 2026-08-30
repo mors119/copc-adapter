@@ -50,6 +50,32 @@ export type PerspectiveViewInput = {
   farMeters: number;
 };
 
+export type GeographicViewBounds = {
+  minX: number;
+  minY: number;
+  minZ: number;
+  maxX: number;
+  maxY: number;
+  maxZ: number;
+};
+
+export type StreamingViewBoundsInput = {
+  camera: {
+    longitude: number;
+    latitude: number;
+    height: number;
+  };
+  viewDistanceMeters: number;
+  maxRenderDistanceMeters: number;
+  viewFrustum?: ViewFrustum;
+};
+
+export type StreamingViewBounds = {
+  bounds: GeographicViewBounds;
+  mode: 'frustum' | 'camera-fallback';
+  effectiveFarMeters: number;
+};
+
 const WGS84_SEMI_MAJOR_AXIS_METERS = 6378137;
 const WGS84_FIRST_ECCENTRICITY_SQUARED = 6.6943799901413165e-3;
 
@@ -177,6 +203,236 @@ export function geographicToEcef(point: {
     x: horizontalRadius * cosLatitude * Math.cos(longitude),
     y: horizontalRadius * cosLatitude * Math.sin(longitude),
     z: polarRadius * sinLatitude,
+  };
+}
+
+/** Convert WGS84 Earth-centered, Earth-fixed metres to geographic coordinates. */
+export function ecefToGeographic(point: ViewVector3): {
+  longitude: number;
+  latitude: number;
+  height: number;
+} {
+  if (![point.x, point.y, point.z].every(Number.isFinite)) {
+    throw new Error('ECEF point must have finite coordinates');
+  }
+
+  const semiMinorAxis = WGS84_SEMI_MAJOR_AXIS_METERS * Math.sqrt(
+    1 - WGS84_FIRST_ECCENTRICITY_SQUARED,
+  );
+  const secondEccentricitySquared = (
+    WGS84_SEMI_MAJOR_AXIS_METERS ** 2 - semiMinorAxis ** 2
+  ) / semiMinorAxis ** 2;
+  const horizontalDistance = Math.hypot(point.x, point.y);
+  const longitude = Math.atan2(point.y, point.x);
+
+  if (horizontalDistance < 1e-10) {
+    const latitude = point.z >= 0 ? Math.PI / 2 : -Math.PI / 2;
+    const height = Math.abs(point.z) - semiMinorAxis;
+    return {
+      longitude: 0,
+      latitude: (latitude * 180) / Math.PI,
+      height,
+    };
+  }
+
+  const theta = Math.atan2(
+    WGS84_SEMI_MAJOR_AXIS_METERS * point.z,
+    semiMinorAxis * horizontalDistance,
+  );
+  const sinTheta = Math.sin(theta);
+  const cosTheta = Math.cos(theta);
+  const latitude = Math.atan2(
+    point.z + secondEccentricitySquared * semiMinorAxis * sinTheta ** 3,
+    horizontalDistance - WGS84_FIRST_ECCENTRICITY_SQUARED
+      * WGS84_SEMI_MAJOR_AXIS_METERS * cosTheta ** 3,
+  );
+  const sinLatitude = Math.sin(latitude);
+  const radiusOfCurvature = WGS84_SEMI_MAJOR_AXIS_METERS / Math.sqrt(
+    1 - WGS84_FIRST_ECCENTRICITY_SQUARED * sinLatitude ** 2,
+  );
+  const height = horizontalDistance / Math.cos(latitude) - radiusOfCurvature;
+
+  return {
+    longitude: (longitude * 180) / Math.PI,
+    latitude: (latitude * 180) / Math.PI,
+    height,
+  };
+}
+
+function isFiniteVector(vector: ViewVector3 | undefined): vector is ViewVector3 {
+  return vector !== undefined
+    && Number.isFinite(vector.x)
+    && Number.isFinite(vector.y)
+    && Number.isFinite(vector.z);
+}
+
+function addBoundsPoint(
+  bounds: GeographicViewBounds,
+  point: { longitude: number; latitude: number; height: number },
+): void {
+  bounds.minX = Math.min(bounds.minX, point.longitude);
+  bounds.minY = Math.min(bounds.minY, point.latitude);
+  bounds.minZ = Math.min(bounds.minZ, point.height);
+  bounds.maxX = Math.max(bounds.maxX, point.longitude);
+  bounds.maxY = Math.max(bounds.maxY, point.latitude);
+  bounds.maxZ = Math.max(bounds.maxZ, point.height);
+}
+
+function createEmptyGeographicBounds(): GeographicViewBounds {
+  return {
+    minX: Number.POSITIVE_INFINITY,
+    minY: Number.POSITIVE_INFINITY,
+    minZ: Number.POSITIVE_INFINITY,
+    maxX: Number.NEGATIVE_INFINITY,
+    maxY: Number.NEGATIVE_INFINITY,
+    maxZ: Number.NEGATIVE_INFINITY,
+  };
+}
+
+function isUsablePerspectiveFrustum(frustum: ViewFrustum | undefined): frustum is ViewFrustum {
+  return frustum?.coordinateSystem === 'wgs84-ecef-meters'
+    && isFiniteVector(frustum.position)
+    && isFiniteVector(frustum.direction)
+    && isFiniteVector(frustum.up)
+    && isFiniteVector(frustum.right)
+    && Number.isFinite(frustum.verticalFovRadians)
+    && frustum.verticalFovRadians > 0
+    && frustum.verticalFovRadians < Math.PI
+    && Number.isFinite(frustum.aspectRatio)
+    && frustum.aspectRatio > 0
+    && Number.isFinite(frustum.nearMeters)
+    && frustum.nearMeters >= 0
+    && Number.isFinite(frustum.farMeters)
+    && frustum.farMeters > frustum.nearMeters;
+}
+
+function createCameraFallbackBounds(
+  input: StreamingViewBoundsInput,
+  radiusMeters: number,
+): GeographicViewBounds {
+  const longitude = Number.isFinite(input.camera.longitude) ? input.camera.longitude : 0;
+  const latitude = Number.isFinite(input.camera.latitude) ? input.camera.latitude : 0;
+  const height = Number.isFinite(input.camera.height) ? input.camera.height : 0;
+  const safeRadius = Number.isFinite(radiusMeters) ? Math.max(radiusMeters, 0) : 0;
+  const latitudeRadius = safeRadius / 111_320;
+  const longitudeRadius = safeRadius /
+    (111_320 * Math.max(Math.cos((latitude * Math.PI) / 180), 0.1));
+
+  return {
+    minX: longitude - longitudeRadius,
+    minY: latitude - latitudeRadius,
+    minZ: height - safeRadius,
+    maxX: longitude + longitudeRadius,
+    maxY: latitude + latitudeRadius,
+    maxZ: height + safeRadius,
+  };
+}
+
+/**
+ * Create a conservative geographic envelope for the hierarchy required by a
+ * streaming view. A valid perspective view is padded around its truncated
+ * frustum; callers without one retain the historical camera-radius query.
+ */
+export function createStreamingViewBounds(
+  input: StreamingViewBoundsInput,
+): StreamingViewBounds {
+  const fallbackDistance = Math.min(
+    Number.isFinite(input.viewDistanceMeters) ? Math.max(input.viewDistanceMeters, 0) : 0,
+    Number.isFinite(input.maxRenderDistanceMeters)
+      ? Math.max(input.maxRenderDistanceMeters, 0)
+      : 0,
+  );
+
+  if (!isUsablePerspectiveFrustum(input.viewFrustum)) {
+    return {
+      bounds: createCameraFallbackBounds(input, fallbackDistance),
+      mode: 'camera-fallback',
+      effectiveFarMeters: fallbackDistance,
+    };
+  }
+
+  const frustum = input.viewFrustum;
+  const effectiveFarMeters = Math.min(
+    frustum.farMeters,
+    Number.isFinite(input.viewDistanceMeters)
+      ? Math.max(input.viewDistanceMeters, 0)
+      : frustum.farMeters,
+    Number.isFinite(input.maxRenderDistanceMeters)
+      ? Math.max(input.maxRenderDistanceMeters, 0)
+      : frustum.farMeters,
+  );
+  // Keep the near plane represented when a caller configures a distance below
+  // it. This may over-query a thin slice, but never creates an invalid query.
+  const far = Math.max(effectiveFarMeters, frustum.nearMeters);
+  const verticalTangent = Math.tan(frustum.verticalFovRadians / 2);
+  const horizontalTangent = verticalTangent * frustum.aspectRatio;
+  const position = frustum.position;
+  const direction = normalize(frustum.direction);
+  const up = normalize(frustum.up);
+  const right = normalize(frustum.right);
+  const distances = [frustum.nearMeters, far];
+  const ecefBounds = {
+    minX: Number.POSITIVE_INFINITY,
+    minY: Number.POSITIVE_INFINITY,
+    minZ: Number.POSITIVE_INFINITY,
+    maxX: Number.NEGATIVE_INFINITY,
+    maxY: Number.NEGATIVE_INFINITY,
+    maxZ: Number.NEGATIVE_INFINITY,
+  };
+
+  for (const distance of distances) {
+    const center = add(position, multiply(direction, distance));
+    const halfHeight = verticalTangent * distance;
+    const halfWidth = horizontalTangent * distance;
+    for (const horizontal of [-1, 1]) {
+      for (const vertical of [-1, 1]) {
+        const corner = add(
+          add(center, multiply(right, horizontal * halfWidth)),
+          multiply(up, vertical * halfHeight),
+        );
+        ecefBounds.minX = Math.min(ecefBounds.minX, corner.x);
+        ecefBounds.minY = Math.min(ecefBounds.minY, corner.y);
+        ecefBounds.minZ = Math.min(ecefBounds.minZ, corner.z);
+        ecefBounds.maxX = Math.max(ecefBounds.maxX, corner.x);
+        ecefBounds.maxY = Math.max(ecefBounds.maxY, corner.y);
+        ecefBounds.maxZ = Math.max(ecefBounds.maxZ, corner.z);
+      }
+    }
+  }
+
+  // The AABB is only a coarse page filter. A 0.1% depth cushion keeps
+  // hierarchy cells touching a frustum edge from being lost to rounding or
+  // the selector's bounding-volume tolerance without loading the full tree.
+  const edgeCushionMeters = Math.max(1, far * 1e-3);
+  ecefBounds.minX -= edgeCushionMeters;
+  ecefBounds.minY -= edgeCushionMeters;
+  ecefBounds.minZ -= edgeCushionMeters;
+  ecefBounds.maxX += edgeCushionMeters;
+  ecefBounds.maxY += edgeCushionMeters;
+  ecefBounds.maxZ += edgeCushionMeters;
+
+  const bounds = createEmptyGeographicBounds();
+  for (const x of [ecefBounds.minX, ecefBounds.maxX]) {
+    for (const y of [ecefBounds.minY, ecefBounds.maxY]) {
+      for (const z of [ecefBounds.minZ, ecefBounds.maxZ]) {
+        addBoundsPoint(bounds, ecefToGeographic({ x, y, z }));
+      }
+    }
+  }
+
+  // CopcHierarchyQuery currently accepts one AABB, so a longitude interval
+  // crossing the antimeridian cannot be represented as two narrow ranges.
+  // Widen only that axis to preserve correctness for dateline views; this is
+  // preferable to excluding the visible side of the dataset.
+  if (bounds.maxX - bounds.minX > 180) {
+    bounds.minX = -180;
+    bounds.maxX = 180;
+  }
+
+  return {
+    bounds,
+    mode: 'frustum',
+    effectiveFarMeters: far,
   };
 }
 
