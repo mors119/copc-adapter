@@ -12,8 +12,12 @@ import {
   RustCopcBackend,
 } from '../src/index.ts';
 import { HierarchyLoader } from '../src/copc/hierarchy/HierarchyLoader.ts';
-import { createPointTransformer } from '../src/coordinates/transform/createPointTransformer.ts';
+import {
+  createPointTransformer,
+  transformPointBuffer,
+} from '../src/coordinates/transform/createPointTransformer.ts';
 import { extractHorizontalUnitScale } from '../src/coordinates/crs/parseCopcWkt.ts';
+import { inspectCopcPoint } from '../src/copc/points/pointInspection.ts';
 import {
   assertHierarchyParity,
   assertMetadataParity,
@@ -318,6 +322,7 @@ test('Autzen backend contract compares metadata, hierarchy, and sampled point at
 
   const allFields = new Set(['position', 'intensity', 'classification', 'rgb']);
   const rustBuffer = await rust.loadPointDataBuffer(rootNode, allFields);
+  const copcJsBuffer = await copcJs.loadPointDataBuffer(rootNode, allFields);
   assert.equal(rustBuffer.pointCount, rootNode.pointCount);
   assert.equal(rustBuffer.coordinates.length, rootNode.pointCount * 3);
   assert.equal(rustBuffer.attributes.intensity.length, rootNode.pointCount);
@@ -325,6 +330,23 @@ test('Autzen backend contract compares metadata, hierarchy, and sampled point at
   assert.equal(rustBuffer.attributes.red.length, rootNode.pointCount);
   assert.equal(rustBuffer.attributes.green.length, rootNode.pointCount);
   assert.equal(rustBuffer.attributes.blue.length, rootNode.pointCount);
+
+  const rustInspection = inspectCopcPoint(
+    { nodeKey: rootNode.key, pointIndex: 0 },
+    rootNode,
+    transformPointBuffer(rust.getMetadata(), rustBuffer),
+    'rust',
+  );
+  const copcJsInspection = inspectCopcPoint(
+    { nodeKey: rootNode.key, pointIndex: 0 },
+    rootNode,
+    transformPointBuffer(copcJs.getMetadata(), copcJsBuffer),
+    'copc-js',
+  );
+  assert.deepEqual(
+    { ...rustInspection, backend: undefined },
+    { ...copcJsInspection, backend: undefined },
+  );
 });
 
 test('Autzen range instrumentation proves the selected node uses its exact chunk range', {

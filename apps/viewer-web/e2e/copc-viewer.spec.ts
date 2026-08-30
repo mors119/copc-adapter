@@ -14,6 +14,15 @@ type CopcDebugState = {
   minRenderedHeight?: number;
   maxRenderedHeight?: number;
   renderedColorCount: number;
+  selectedPoint?: {
+    nodeKey: string;
+    level: number;
+    pointIndex: number;
+    longitude: number;
+    latitude: number;
+    height: number;
+    rgb?: { red: number; green: number; blue: number };
+  };
   lastError?: string;
   backend: 'copc-js' | 'rust' | 'custom';
   performance: Record<string, number>;
@@ -86,6 +95,26 @@ test('streams a COPC sample through the opt-in Rust backend in a real Cesium sce
   await expect(debugPanel.getByText('Ready', { exact: true })).toBeVisible();
   await expect(debugPanel.locator('details').filter({ hasText: 'Metadata' }))
     .toHaveAttribute('open', '');
+
+  const pointInspector = page.getByRole('complementary', {
+    name: 'COPC point inspector',
+  });
+  await expect(pointInspector).toBeVisible();
+  await expect(pointInspector.getByText('Click a rendered point', { exact: true }))
+    .toBeVisible();
+  await expect.poll(async () => page.evaluate(() =>
+    window.__COPC_DEBUG__?.getPickablePointScreenPosition())).toBeTruthy();
+  const pointPosition = await page.evaluate(() =>
+    window.__COPC_DEBUG__?.getPickablePointScreenPosition());
+  if (!pointPosition) {
+    throw new Error('No visible rendered COPC point was available for picking');
+  }
+  await page.mouse.click(pointPosition.x, pointPosition.y);
+  await expect.poll(async () => (await getDebugState(page)).selectedPoint)
+    .toMatchObject({ nodeKey: expect.any(String), pointIndex: expect.any(Number) });
+  const selectedPoint = await page.evaluate(() => window.__COPC_DEBUG__?.getState().selectedPoint);
+  expect(selectedPoint?.rgb).toBeDefined();
+  await expect(pointInspector.locator('[data-field="rgb"]')).not.toHaveText('Unavailable');
 
   const initialState = await getDebugState(page);
   expect(initialState.renderedNodeKeys).not.toEqual([]);

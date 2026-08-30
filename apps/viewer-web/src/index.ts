@@ -87,6 +87,14 @@ export type {
   GeographicPointBuffer,
 } from './copc/types/copc';
 export {
+  inspectCopcPoint,
+  isCopcPointPickId,
+} from './copc/points/pointInspection';
+export type {
+  CopcPointInspection,
+  CopcPointPickId,
+} from './copc/points/pointInspection';
+export {
   PointPrimitiveRenderer,
 } from './cesium/render/CopcPointRenderer';
 export type {

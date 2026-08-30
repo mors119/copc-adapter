@@ -82,6 +82,23 @@ test('PointPrimitiveRenderer preserves node lifecycle and optional pick identity
   );
 });
 
+test('PointPrimitiveRenderer carries only the compact project-owned pick id', () => {
+  const viewer = createViewer();
+  const renderer = new PointPrimitiveRenderer();
+  renderer.attachTo(viewer);
+
+  renderer.addOrUpdateNode('4-12-7-3', createPoints(), {
+    pointSize: 4,
+    pointId: (pointIndex) => ({ nodeKey: '4-12-7-3', pointIndex }),
+  });
+
+  assert.deepEqual(viewer.added[0].get(1).id, {
+    nodeKey: '4-12-7-3',
+    pointIndex: 1,
+  });
+  assert.equal(Object.keys(viewer.added[0].get(1).id).length, 2);
+});
+
 test('PointPrimitiveRenderer forwards every supported style mode through the boundary', () => {
   const viewer = createViewer();
   const renderer = new PointPrimitiveRenderer();

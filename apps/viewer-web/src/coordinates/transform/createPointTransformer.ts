@@ -110,6 +110,7 @@ export function transformPointBuffer(
   return {
     pointCount: points.pointCount,
     coordinates,
+    sourceCoordinates: points.coordinates.slice(),
     attributes: points.attributes,
   };
 }

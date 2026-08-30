@@ -84,12 +84,14 @@ test('inactive least-recently-used entries evict before active entries', async (
   );
 
   await cache.load('a');
+  assert.equal(cache.get('a'), values.get('a'));
   await cache.load('b');
   await cache.load('a');
   cache.setRequiredNodeKeys(['b']);
   await cache.load('c');
 
   assert.equal(cache.has('a'), false);
+  assert.equal(cache.get('a'), undefined);
   assert.equal(cache.has('b'), true);
   assert.equal(cache.has('c'), true);
 });
@@ -111,6 +113,7 @@ test('cache hits reuse the pending or resolved value without another load', asyn
   assert.equal(loadCount, 1);
   assert.equal(first, second);
   assert.equal(second, third);
+  assert.equal(cache.get('a'), value);
   assert.deepEqual(cache.getDiagnostics(), {
     cacheByteBudget: value.coordinates.byteLength,
     currentCacheBytes: value.coordinates.byteLength,
