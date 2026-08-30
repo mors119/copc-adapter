@@ -128,6 +128,7 @@ export function buildStreamingHierarchy(
     streamingNodes.set(node.key, {
       node,
       children,
+      childrenComplete: node.childrenComplete === true,
       center: geographicCenter,
       bounds,
       approximateSizeMeters: nodeSide * horizontalUnitScale,

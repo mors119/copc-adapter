@@ -160,6 +160,7 @@ export class HierarchyLoader {
   private tree: MutableHierarchyTree = createHierarchyTree();
   private readonly pageCache = new Map<string, Promise<CopcHierarchySubtree>>();
   private readonly pageChildren = new Map<string, string[]>();
+  private readonly loadedPageKeys = new Set<string>();
   private pageRequests = 0;
   private pageCacheHits = 0;
   private hierarchyBytesFetched = 0;
@@ -181,7 +182,7 @@ export class HierarchyLoader {
   /** Load only the root page and retain its child page references. */
   async loadRoot(): Promise<CopcHierarchyTree> {
     await this.loadPage(this.source.getRootHierarchyPage());
-    return finalizeHierarchyTree(this.tree);
+    return finalizeHierarchyTree(this.tree, undefined, this.loadedPageKeys);
   }
 
   /**
@@ -220,7 +221,7 @@ export class HierarchyLoader {
     }
 
     assertNoPageCycles(this.pageChildren);
-    return finalizeHierarchyTree(this.tree, query.maxLevel);
+    return finalizeHierarchyTree(this.tree, query.maxLevel, this.loadedPageKeys);
   }
 
   getDiagnostics(): CopcHierarchyDiagnostics {
@@ -238,6 +239,7 @@ export class HierarchyLoader {
     this.tree = createHierarchyTree();
     this.pageCache.clear();
     this.pageChildren.clear();
+    this.loadedPageKeys.clear();
     this.pageRequests = 0;
     this.pageCacheHits = 0;
     this.hierarchyBytesFetched = 0;
@@ -249,7 +251,9 @@ export class HierarchyLoader {
     const cached = this.pageCache.get(cacheKey);
     if (cached) {
       this.pageCacheHits += 1;
-      return cached;
+      const subtree = await cached;
+      this.loadedPageKeys.add(page.key);
+      return subtree;
     }
 
     this.pageRequests += 1;
@@ -257,6 +261,7 @@ export class HierarchyLoader {
     const request = this.source.loadHierarchyPage(page)
       .then((subtree) => {
         mergeHierarchySubtree(this.tree, subtree);
+        this.loadedPageKeys.add(page.key);
         this.pageChildren.set(page.key, subtree.pages.map((child) => child.key));
         return subtree;
       })

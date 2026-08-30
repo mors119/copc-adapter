@@ -26,6 +26,7 @@ function createStreamingNode({
   approximateSizeMeters,
   boundingRadiusMeters,
   boundingSphere,
+  childrenComplete = true,
   children = [],
 }) {
   return {
@@ -45,6 +46,7 @@ function createStreamingNode({
     bounds,
     approximateSizeMeters,
     boundingRadiusMeters,
+    childrenComplete,
     boundingSphere,
   };
 }
@@ -87,6 +89,25 @@ function createWorkNode(key, pointCount, level = 1) {
     approximateSizeMeters: 100,
     boundingRadiusMeters: 20,
   });
+}
+
+function createRefinementHierarchy(
+  parentPointCount = 10,
+  childPointCounts = [3, 3, 3],
+  parentKey = '0-root',
+) {
+  const parent = createWorkNode(parentKey, parentPointCount, 0);
+  const children = childPointCounts.map((pointCount, index) => {
+    const key = `1-${parentKey}-${index}`;
+    return createWorkNode(key, pointCount, 1);
+  });
+  parent.children = children.map((child) => child.node.key);
+  parent.node.children = parent.children;
+
+  return new Map([
+    [parent.node.key, parent],
+    ...children.map((child) => [child.node.key, child]),
+  ]);
 }
 
 test('streaming work batches enforce a deterministic point bound', () => {
@@ -254,7 +275,7 @@ test('NodeSelector prioritises finer LoD before a closer coarse fallback', () =>
   assert.ok(compareNodePriority(camera, fine, coarse) < 0);
 });
 
-test('NodeSelector caps a refined selection at maxNodes', () => {
+test('NodeSelector keeps the parent when refinement cannot fit maxNodes', () => {
   const selector = createSelector({ maxNodes: 1 });
   const hierarchy = new Map([
     ['0-0-0-0', createStreamingNode({
@@ -313,7 +334,7 @@ test('NodeSelector caps a refined selection at maxNodes', () => {
     hierarchy,
   );
 
-  assert.equal(selected.length, 1);
+  assert.deepEqual(selected.map((entry) => entry.node.key), ['0-0-0-0']);
 });
 
 test('NodeSelector accepts all candidates under the rendered-point budget', () => {
@@ -331,7 +352,7 @@ test('NodeSelector accepts all candidates under the rendered-point budget', () =
   assert.equal(selector.getSelectionMetrics().deferredNodeCount, 0);
 });
 
-test('NodeSelector deterministically prioritises a bounded sparse subset by point cost', () => {
+test('NodeSelector deterministically bounds an impossible minimum frontier by point cost', () => {
   const selector = createSelector({ maxRenderedPoints: 100 });
   const nodes = new Map([
     ['0-a', createWorkNode('0-a', 70, 0)],
@@ -346,6 +367,138 @@ test('NodeSelector deterministically prioritises a bounded sparse subset by poin
   assert.equal(selector.getSelectionMetrics().budgetedPointCount, 70);
   assert.equal(selector.getSelectionMetrics().deferredNodeCount, 1);
   assert.equal(selector.getSelectionMetrics().deferredPointCount, 70);
+});
+
+test('point-budget refinement rejection preserves the parent', () => {
+  const selector = createSelector({ maxRenderedPoints: 50 });
+  const hierarchy = createRefinementHierarchy(10, [30, 30, 30]);
+
+  assert.deepEqual(
+    selector.selectVisibleNodes(createCamera(), hierarchy).map((node) => node.node.key),
+    ['0-root'],
+  );
+  assert.equal(selector.getSelectionMetrics().refinementRejectedByPointBudgetCount, 1);
+  assert.equal(selector.getSelectionMetrics().frontierPointCount, 10);
+});
+
+test('node-budget refinement rejection preserves the parent', () => {
+  const selector = createSelector({ maxNodes: 2, maxRenderedPoints: 100 });
+  const hierarchy = createRefinementHierarchy(10, [3, 3, 3]);
+
+  assert.deepEqual(
+    selector.selectVisibleNodes(createCamera(), hierarchy).map((node) => node.node.key),
+    ['0-root'],
+  );
+  assert.equal(selector.getSelectionMetrics().refinementRejectedByNodeBudgetCount, 1);
+});
+
+test('affordable refinement replaces the parent atomically', () => {
+  const selector = createSelector({ maxNodes: 8, maxRenderedPoints: 100 });
+  const hierarchy = createRefinementHierarchy(10, [3, 3, 3]);
+
+  assert.deepEqual(
+    selector.selectVisibleNodes(createCamera(), hierarchy).map((node) => node.node.key),
+    ['1-0-root-0', '1-0-root-1', '1-0-root-2'],
+  );
+  assert.equal(selector.getSelectionMetrics().acceptedRefinementCount, 1);
+});
+
+test('incomplete replacement hierarchy keeps the parent', () => {
+  const selector = createSelector({ maxRenderedPoints: 100 });
+  const hierarchy = createRefinementHierarchy(10, [3, 3, 3]);
+  hierarchy.get('0-root').childrenComplete = false;
+
+  assert.deepEqual(
+    selector.selectVisibleNodes(createCamera(), hierarchy).map((node) => node.node.key),
+    ['0-root'],
+  );
+  assert.equal(selector.getSelectionMetrics().refinementDeferredByIncompleteHierarchyCount, 1);
+});
+
+test('a sparse but complete child set can refine', () => {
+  const selector = createSelector({ maxRenderedPoints: 100 });
+  const hierarchy = createRefinementHierarchy(10, [3]);
+
+  assert.deepEqual(
+    selector.selectVisibleNodes(createCamera(), hierarchy).map((node) => node.node.key),
+    ['1-0-root-0'],
+  );
+});
+
+test('mixed-LoD refinement preserves coarse sibling coverage', () => {
+  const selector = createSelector({ maxNodes: 3, maxRenderedPoints: 120 });
+  const first = createRefinementHierarchy(20, [40, 40], '0-a');
+  const second = createRefinementHierarchy(20, [40, 40], '0-b');
+  const hierarchy = new Map([...first, ...second]);
+
+  const selected = selector.selectVisibleNodes(createCamera(), hierarchy);
+
+  assert.deepEqual(
+    selected.map((node) => node.node.key),
+    ['1-0-a-0', '1-0-a-1', '0-b'],
+  );
+  assert.equal(selector.getSelectionMetrics().acceptedRefinementCount, 1);
+  assert.equal(selector.getSelectionMetrics().refinementRejectedByNodeBudgetCount, 1);
+});
+
+test('far to near refines branches without dropping unrefined coverage', () => {
+  const selector = createSelector({
+    maxNodes: 3,
+    maxRenderedPoints: 120,
+    maxRenderDistanceMeters: 100000,
+  });
+  const first = createRefinementHierarchy(20, [40, 40], '0-a');
+  const second = createRefinementHierarchy(20, [40, 40], '0-b');
+  const hierarchy = new Map([...first, ...second]);
+
+  const far = selector.selectVisibleNodes(
+    createCamera({ height: 40000, viewDistanceMeters: 100000 }),
+    hierarchy,
+  );
+  const near = selector.selectVisibleNodes(createCamera(), hierarchy);
+
+  assert.deepEqual(far.map((node) => node.node.key), ['0-a', '0-b']);
+  assert.deepEqual(near.map((node) => node.node.key), ['1-0-a-0', '1-0-a-1', '0-b']);
+});
+
+test('near to far collapses the frontier to coarse roots', () => {
+  const selector = createSelector({ maxNodes: 8, maxRenderedPoints: 100 });
+  const hierarchy = createRefinementHierarchy(10, [3, 3, 3]);
+
+  assert.equal(selector.selectVisibleNodes(createCamera(), hierarchy)[0].node.level, 1);
+  assert.deepEqual(
+    selector.selectVisibleNodes(createCamera({ height: 40000 }), hierarchy)
+      .map((node) => node.node.key),
+    ['0-root'],
+  );
+});
+
+test('identical selection inputs produce identical ordering', () => {
+  const selector = createSelector({ maxNodes: 3, maxRenderedPoints: 120 });
+  const first = createRefinementHierarchy(20, [40, 40], '0-a');
+  const second = createRefinementHierarchy(20, [40, 40], '0-b');
+  const hierarchy = new Map([...first, ...second]);
+  const camera = createCamera();
+
+  const firstSelection = selector.selectVisibleNodes(camera, hierarchy).map((node) => node.node.key);
+  const secondSelection = selector.selectVisibleNodes(camera, hierarchy).map((node) => node.node.key);
+
+  assert.deepEqual(firstSelection, secondSelection);
+});
+
+test('impossible minimum frontier stays within hard budgets and is recorded', () => {
+  const selector = createSelector({ maxNodes: 1, maxRenderedPoints: 100 });
+  const hierarchy = new Map([
+    ['0-a', createWorkNode('0-a', 60, 0)],
+    ['0-b', createWorkNode('0-b', 60, 0)],
+  ]);
+
+  const selected = selector.selectVisibleNodes(createCamera(), hierarchy);
+
+  assert.equal(selected.length, 1);
+  assert.ok(selected[0].node.pointCount <= 100);
+  assert.equal(selector.getSelectionMetrics().minimumFrontierExceedsNodeBudget, true);
+  assert.equal(selector.getSelectionMetrics().minimumFrontierExceedsPointBudget, true);
 });
 
 test('NodeSelector rejects an individual node that exceeds the rendered-point budget', () => {

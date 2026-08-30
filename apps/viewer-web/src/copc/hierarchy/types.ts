@@ -8,6 +8,8 @@ export type CopcHierarchyNode = {
   pointDataOffset: number;
   pointDataLength: number;
   children?: string[];
+  /** True only when the loader has proved that this node's direct child set is complete. */
+  childrenComplete?: boolean;
 };
 
 export type CopcHierarchyBounds = {

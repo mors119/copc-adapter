@@ -472,6 +472,7 @@ test('loadRootHierarchy returns traversed sample hierarchy nodes', async () => {
     pointDataOffset: 79462688,
     pointDataLength: 763258,
     children: ['1-0-0-0', '1-1-0-0', '1-0-1-0', '1-1-1-0'],
+    childrenComplete: true,
   });
 });
 
@@ -602,7 +603,7 @@ test('a fake backend source covers metadata, hierarchy, and point paths', async 
 
   assert.deepEqual(opened, ['memory://fake.copc.laz']);
   assert.equal(metadata.pointCount, 1);
-  assert.deepEqual(nodes, [{ ...node, children: [] }]);
+  assert.deepEqual(nodes, [{ ...node, children: [], childrenComplete: true }]);
   assert.equal(pointView, view);
   assert.deepEqual(Array.from(buffer.coordinates), [-123, 44, 10]);
 });
@@ -1061,6 +1062,14 @@ test('CopcCesiumLayer snapshot exposes lifecycle and dataset info', () => {
       maxScreenSpaceError: 0,
       refinedNodeCount: 0,
       keptNodeCount: 0,
+      frontierNodeCount: 0,
+      frontierPointCount: 0,
+      acceptedRefinementCount: 0,
+      refinementRejectedByNodeBudgetCount: 0,
+      refinementRejectedByPointBudgetCount: 0,
+      refinementDeferredByIncompleteHierarchyCount: 0,
+      minimumFrontierExceedsNodeBudget: false,
+      minimumFrontierExceedsPointBudget: false,
       loadedNodeCount: 0,
       loadedPointCount: 0,
       rangeFetchDurationMs: 0,

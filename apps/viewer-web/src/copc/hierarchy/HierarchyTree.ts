@@ -31,6 +31,16 @@ function getNodeChildKeys(
   return childKeys;
 }
 
+function getParentKey(key: string): string | undefined {
+  const [level, x, y, z] = key.split('-').map(Number);
+  if (!Number.isSafeInteger(level) || level <= 0
+    || !Number.isSafeInteger(x) || !Number.isSafeInteger(y) || !Number.isSafeInteger(z)) {
+    return undefined;
+  }
+
+  return `${level - 1}-${Math.floor(x / 2)}-${Math.floor(y / 2)}-${Math.floor(z / 2)}`;
+}
+
 function assertPageShape(page: CopcHierarchyPage): void {
   if (
     !Number.isSafeInteger(page.pageOffset) ||
@@ -98,14 +108,26 @@ export function mergeHierarchySubtree(
 export function finalizeHierarchyTree(
   tree: MutableHierarchyTree,
   maxLevel?: number,
+  loadedPageKeys: ReadonlySet<string> = new Set(),
 ): CopcHierarchyTree {
+  // A page reference is keyed by the first node in the referenced subtree.
+  // Track only references that were actually discovered; absent octants are
+  // valid sparse COPC topology and do not make a node incomplete.
+  const incompleteParentKeys = new Set(
+    [...tree.pageMap.keys()]
+      .filter((pageKey) => !loadedPageKeys.has(pageKey))
+      .map(getParentKey)
+      .filter((parentKey): parentKey is string => parentKey !== undefined),
+  );
   const nodes = [...tree.nodeMap.values()]
     .filter((node) => maxLevel === undefined || node.level <= maxLevel)
     .sort((left, right) => left.key.localeCompare(right.key))
-    .map((node) => ({
-      ...node,
-      children: getNodeChildKeys(node, tree.nodeMap),
-    }));
+    .map((node) => {
+      const children = getNodeChildKeys(node, tree.nodeMap);
+      const childrenComplete = !incompleteParentKeys.has(node.key);
+
+      return { ...node, children, childrenComplete };
+    });
   const pages = [...tree.pageMap.values()].sort((left, right) =>
     left.key.localeCompare(right.key),
   );

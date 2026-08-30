@@ -117,6 +117,7 @@ test('shared backend contract covers incremental hierarchy discovery from #41', 
     })));
     for (const tree of shallowTrees) {
       assert.deepEqual(tree.nodes.map((node) => node.key), ['0-0-0-0']);
+      assert.equal(tree.nodes[0].childrenComplete, false);
       assert.equal(tree.pages.length, 1);
     }
     assert.deepEqual(
@@ -143,6 +144,10 @@ test('shared backend contract covers incremental hierarchy discovery from #41', 
         ['0-0-0-0', '1-0-0-0', '1-1-0-0', '2-3-0-0'],
         ['0-0-0-0', '1-0-0-0', '1-1-0-0', '2-3-0-0'],
       ],
+    );
+    assert.deepEqual(
+      deepTrees.map((tree) => tree.nodes.find((node) => node.key === '0-0-0-0')?.childrenComplete),
+      [true, true],
     );
     assert.deepEqual(
       loaders.map((loader) => loader.getDiagnostics().pageRequests),
