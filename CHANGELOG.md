@@ -4,6 +4,10 @@ All notable changes to COPC Adapter are documented here. The project follows
 the principles of [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+- Fixed Rust/WASM asset resolution in Vite development consumers.
+
 ## [0.2.0] - 2026-08-30
 
 - Added incremental, view-aware hierarchy loading with frustum and

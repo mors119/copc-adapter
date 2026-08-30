@@ -29,7 +29,11 @@ async function loadRustPage(page, query = '?backend=rust&mode=rgb') {
       });
     }
     if (url.includes('copc_wasm') || url.includes('laz-perf') || url.includes('rustCopcDecodeWorker')) {
-      assetResponses.push({ url, status: response.status() });
+      assetResponses.push({
+        url,
+        status: response.status(),
+        contentType: response.headers()['content-type'],
+      });
     }
   });
 
@@ -53,7 +57,7 @@ async function loadRustPage(page, query = '?backend=rust&mode=rgb') {
   return { pageErrors, consoleErrors, requestUrls, copcResponses, assetResponses };
 }
 
-test('validates the packed Rust backend at the production release boundary', async ({ page }) => {
+test('validates the packed Rust backend in an external Vite consumer', async ({ page }) => {
   const {
     pageErrors,
     consoleErrors,
@@ -123,8 +127,11 @@ test('validates the packed Rust backend at the production release boundary', asy
   expect(copcResponses.some((response) => response.requestRange === 'bytes=0-374')).toBe(true);
   expect(assetResponses.some((response) => response.url.includes('copc_wasm') && response.status === 200))
     .toBe(true);
-  expect(assetResponses.some((response) => response.url.includes('rustCopcDecodeWorker') && response.status === 200))
-    .toBe(true);
+  const copcWasmResponses = assetResponses.filter((response) => /copc_wasm[^/]*\.wasm(?:$|\?)/i.test(response.url));
+  expect(copcWasmResponses.length).toBeGreaterThan(0);
+  expect(copcWasmResponses.every((response) => response.status === 200)).toBe(true);
+  expect(copcWasmResponses.every((response) => !response.url.includes('/.vite/deps/'))).toBe(true);
+  expect(initial.worker?.completedCount).toBeGreaterThan(0);
   expect(assetResponses.some((response) => response.url.includes('laz-perf'))).toBe(false);
   expect(requestUrls.some((url) => /\/public\/|\/target\/|copc-adapter\/feature-/i.test(url))).toBe(false);
 });

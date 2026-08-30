@@ -358,7 +358,13 @@ export class RustCopcReader {
       return buffer;
     }
 
-    const decoded = await decodeRustCopcNode(metadataBytes, chunkBytes, pointCount, fields);
+    const decoded = await decodeRustCopcNode(
+      metadataBytes,
+      chunkBytes,
+      pointCount,
+      fields,
+      loadCopcWasm,
+    );
     this.performanceObserver?.({
       stage: 'decode',
       durationMs: decoded.durationMs,

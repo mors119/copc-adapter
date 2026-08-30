@@ -4,7 +4,7 @@ import type {
 } from './types/copc';
 import type { CopcPointFieldSelection } from './points/fieldSelection';
 import { performanceNow } from './performance';
-import { loadCopcWasm } from '../wasm/copcWasm';
+import type { CopcWasmExports } from '../wasm/copcWasm';
 import { RustCopcParseError } from './rustCopcErrors';
 
 const FIELD_INTENSITY = 1 << 0;
@@ -53,10 +53,11 @@ export async function decodeRustCopcNode(
   chunkBytes: Uint8Array,
   pointCount: number,
   fields: CopcPointFieldSelection,
+  loadWasm: () => Promise<CopcWasmExports>,
 ): Promise<RustCopcNodeDecodeResult> {
   const requestedFields = getRustPointFieldMask(fields);
   const coordinateLength = pointCount * 3;
-  const wasm = await loadCopcWasm();
+  const wasm = await loadWasm();
   const metadataPointer = wasm.alloc_bytes(metadataBytes.byteLength);
   const chunkPointer = wasm.alloc_bytes(chunkBytes.byteLength);
   const coordinatesPointer = wasm.alloc_f64(coordinateLength);

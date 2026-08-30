@@ -116,6 +116,7 @@ function getState() {
       height: cameraPosition.height,
     },
     performance: snapshot.performance,
+    worker: snapshot.worker,
     lastError,
     ...diagnostics,
   };

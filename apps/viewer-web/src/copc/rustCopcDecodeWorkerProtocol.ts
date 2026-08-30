@@ -1,6 +1,7 @@
 export type RustCopcDecodeWorkerInit = {
   type: 'init';
   metadata: ArrayBuffer;
+  wasm: ArrayBuffer;
 };
 
 export type RustCopcDecodeWorkerJob = {
