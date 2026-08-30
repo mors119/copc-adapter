@@ -32,6 +32,14 @@ export type StreamingPerformanceSnapshot = {
   refinementDeferredByIncompleteHierarchyCount: number;
   minimumFrontierExceedsNodeBudget: boolean;
   minimumFrontierExceedsPointBudget: boolean;
+  centerWeightMin?: number;
+  centerWeightMax?: number;
+  acceptedRefinementPriorityMin?: number;
+  acceptedRefinementPriorityMax?: number;
+  candidatesWithCenterBoostCount?: number;
+  hysteresisHoldCount?: number;
+  refineDecisionCount?: number;
+  collapseDecisionCount?: number;
   visibleLevelRange?: StreamingLevelRange;
   cameraDirection?: ViewVector3;
   loadedNodeCount: number;
@@ -145,6 +153,14 @@ export class StreamingPerformanceRecorder {
     this.snapshot.refinementDeferredByIncompleteHierarchyCount = metrics.refinementDeferredByIncompleteHierarchyCount ?? 0;
     this.snapshot.minimumFrontierExceedsNodeBudget = metrics.minimumFrontierExceedsNodeBudget ?? false;
     this.snapshot.minimumFrontierExceedsPointBudget = metrics.minimumFrontierExceedsPointBudget ?? false;
+    this.snapshot.centerWeightMin = metrics.centerWeightMin;
+    this.snapshot.centerWeightMax = metrics.centerWeightMax;
+    this.snapshot.acceptedRefinementPriorityMin = metrics.acceptedRefinementPriorityMin;
+    this.snapshot.acceptedRefinementPriorityMax = metrics.acceptedRefinementPriorityMax;
+    this.snapshot.candidatesWithCenterBoostCount = metrics.candidatesWithCenterBoostCount ?? 0;
+    this.snapshot.hysteresisHoldCount = metrics.hysteresisHoldCount ?? 0;
+    this.snapshot.refineDecisionCount = metrics.refineDecisionCount ?? 0;
+    this.snapshot.collapseDecisionCount = metrics.collapseDecisionCount ?? 0;
     this.snapshot.visibleLevelRange = metrics.visibleLevelRange;
     this.snapshot.cameraDirection = metrics.cameraDirection;
     this.snapshot.longestMainThreadBlockingSectionMs = Math.max(

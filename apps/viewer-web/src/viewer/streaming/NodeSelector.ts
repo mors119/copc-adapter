@@ -5,6 +5,8 @@ import type {
   StreamingHierarchy,
   StreamingSelectionOptions,
   StreamingSelectionContext,
+  ViewFrustum,
+  ViewVector3,
 } from './types';
 
 function toRadians(value: number): number {
@@ -103,11 +105,16 @@ function isNodeFrustumVisible(
 ): boolean {
   // Nodes without a volume are retained so missing bounds can never create a
   // false negative. Production hierarchy nodes always have one.
-  return !camera.viewFrustum || !node.boundingSphere
+  return !camera.viewFrustum
+    || !Array.isArray(camera.viewFrustum.planes)
+    || !node.boundingSphere
     || intersectsViewFrustum(camera.viewFrustum, node.boundingSphere);
 }
 
 const DEFAULT_MAX_SCREEN_SPACE_ERROR = 8;
+const DEFAULT_SCREEN_SPACE_ERROR_HYSTERESIS_FRACTION = 0.125;
+/** Maximum additional refinement priority available to a screen-center node. */
+export const DEFAULT_CENTER_PRIORITY_BOOST = 0.25;
 /**
  * Conservative first workload default, informed by the issue-48 renderer
  * measurements. It is a point-pressure guard, not a GPU-memory limit.
@@ -115,6 +122,131 @@ const DEFAULT_MAX_SCREEN_SPACE_ERROR = 8;
 export const DEFAULT_MAX_RENDERED_POINTS = 250_000;
 const DEFAULT_VERTICAL_FOV_RADIANS = Math.PI / 3;
 const DEFAULT_VIEWPORT_HEIGHT_PIXELS = 1080;
+
+type GazeProjection = {
+  position: ViewVector3;
+  direction: ViewVector3;
+  up: ViewVector3;
+  right: ViewVector3;
+  verticalTangent: number;
+  horizontalTangent: number;
+};
+
+function isFiniteVector(vector: ViewVector3 | undefined): vector is ViewVector3 {
+  return vector !== undefined
+    && Number.isFinite(vector.x)
+    && Number.isFinite(vector.y)
+    && Number.isFinite(vector.z);
+}
+
+function normalizeVector(vector: ViewVector3): ViewVector3 | undefined {
+  const magnitude = Math.hypot(vector.x, vector.y, vector.z);
+  if (!Number.isFinite(magnitude) || magnitude <= 0) {
+    return undefined;
+  }
+
+  return {
+    x: vector.x / magnitude,
+    y: vector.y / magnitude,
+    z: vector.z / magnitude,
+  };
+}
+
+function createGazeProjection(frustum: ViewFrustum | undefined): GazeProjection | undefined {
+  if (!frustum
+    || !Array.isArray(frustum.planes)
+    || !isFiniteVector(frustum.position)
+    || !isFiniteVector(frustum.direction)
+    || !isFiniteVector(frustum.up)
+    || !isFiniteVector(frustum.right)
+    || !Number.isFinite(frustum.verticalFovRadians)
+    || frustum.verticalFovRadians <= 0
+    || frustum.verticalFovRadians >= Math.PI
+    || !Number.isFinite(frustum.aspectRatio)
+    || frustum.aspectRatio <= 0) {
+    return undefined;
+  }
+
+  const direction = normalizeVector(frustum.direction);
+  const up = normalizeVector(frustum.up);
+  const right = normalizeVector(frustum.right);
+  const verticalTangent = Math.tan(frustum.verticalFovRadians / 2);
+  const horizontalTangent = verticalTangent * frustum.aspectRatio;
+  if (!direction || !up || !right
+    || !Number.isFinite(verticalTangent)
+    || verticalTangent <= 0
+    || !Number.isFinite(horizontalTangent)
+    || horizontalTangent <= 0) {
+    return undefined;
+  }
+
+  return {
+    position: frustum.position,
+    direction,
+    up,
+    right,
+    verticalTangent,
+    horizontalTangent,
+  };
+}
+
+function dot(left: ViewVector3, right: ViewVector3): number {
+  return left.x * right.x + left.y * right.y + left.z * right.z;
+}
+
+function calculateCenterWeightForProjection(
+  node: StreamingHierarchyNode,
+  projection: GazeProjection | undefined,
+): number {
+  if (!projection || !node.boundingSphere || !isFiniteVector(node.boundingSphere.center)) {
+    return 0;
+  }
+
+  const vector = {
+    x: node.boundingSphere.center.x - projection.position.x,
+    y: node.boundingSphere.center.y - projection.position.y,
+    z: node.boundingSphere.center.z - projection.position.z,
+  };
+  const forward = dot(vector, projection.direction);
+  if (!Number.isFinite(forward) || forward <= 0) {
+    return 0;
+  }
+
+  const horizontalDisplacement = Math.abs(dot(vector, projection.right)) /
+    (forward * projection.horizontalTangent);
+  const verticalDisplacement = Math.abs(dot(vector, projection.up)) /
+    (forward * projection.verticalTangent);
+  if (!Number.isFinite(horizontalDisplacement) || !Number.isFinite(verticalDisplacement)) {
+    return 0;
+  }
+
+  // Treat the sphere's angular extent conservatively: a large sphere gets
+  // credit when its visible extent reaches toward the screen centre, while a
+  // sphere whose centre is behind the camera never receives a bonus.
+  const radius = Number.isFinite(node.boundingSphere.radiusMeters)
+    ? Math.max(node.boundingSphere.radiusMeters, 0)
+    : 0;
+  const angularRadius = radius / Math.max(forward, 1e-6) /
+    Math.min(projection.horizontalTangent, projection.verticalTangent);
+  const normalizedScreenRadius = Math.hypot(
+    horizontalDisplacement,
+    verticalDisplacement,
+  );
+
+  return clamp(
+    1 - Math.max(0, normalizedScreenRadius - angularRadius),
+    0,
+    1,
+  );
+}
+
+/** Calculate the bounded screen-centre relevance for a project-owned view. */
+export function calculateGazeCenterWeight(
+  camera: StreamingCameraState,
+  node: StreamingHierarchyNode,
+): number {
+  return calculateCenterWeightForProjection(node, createGazeProjection(camera.viewFrustum));
+}
 
 function getGeometricErrorMeters(node: StreamingHierarchyNode): number {
   return node.geometricErrorMeters ?? node.approximateSizeMeters / 2;
@@ -137,10 +269,17 @@ export function calculateScreenSpaceErrorPixels(
   node: StreamingHierarchyNode,
 ): number {
   const projection = camera.viewFrustum;
-  const viewportHeightPixels = projection?.viewportHeightPixels
-    ?? DEFAULT_VIEWPORT_HEIGHT_PIXELS;
-  const verticalFovRadians = projection?.verticalFovRadians
-    ?? DEFAULT_VERTICAL_FOV_RADIANS;
+  const viewportHeightPixels = projection
+    && Number.isFinite(projection.viewportHeightPixels)
+    && projection.viewportHeightPixels > 0
+    ? projection.viewportHeightPixels
+    : DEFAULT_VIEWPORT_HEIGHT_PIXELS;
+  const verticalFovRadians = projection
+    && Number.isFinite(projection.verticalFovRadians)
+    && projection.verticalFovRadians > 0
+    && projection.verticalFovRadians < Math.PI
+    ? projection.verticalFovRadians
+    : DEFAULT_VERTICAL_FOV_RADIANS;
   const geometricErrorMeters = Math.max(getGeometricErrorMeters(node), 0);
   // A camera can be inside a node volume. Clamp the perspective distance to
   // the node's detail scale rather than allowing a singular near-field SSE.
@@ -158,14 +297,29 @@ function shouldRefine(
   node: StreamingHierarchyNode,
   options: StreamingSelectionOptions,
   screenSpaceErrorPixels: number,
-): boolean {
+  wasPreviouslyRefined: boolean,
+): 'refine' | 'hold' | 'collapse' {
   if (node.children.length === 0 || node.node.level >= options.maxDepth) {
-    return false;
+    return 'hold';
   }
 
-  return screenSpaceErrorPixels > (
-    options.maxScreenSpaceError ?? DEFAULT_MAX_SCREEN_SPACE_ERROR
-  );
+  const nominalThreshold = options.maxScreenSpaceError
+    ?? DEFAULT_MAX_SCREEN_SPACE_ERROR;
+  const hysteresis = options.screenSpaceErrorHysteresis ?? 0;
+  const refineThreshold = nominalThreshold + hysteresis;
+  const collapseThreshold = Math.max(0, nominalThreshold - hysteresis);
+
+  if (wasPreviouslyRefined) {
+    if (screenSpaceErrorPixels < collapseThreshold) {
+      return 'collapse';
+    }
+    if (screenSpaceErrorPixels <= refineThreshold) {
+      return 'hold';
+    }
+    return 'refine';
+  }
+
+  return screenSpaceErrorPixels > refineThreshold ? 'refine' : 'hold';
 }
 
 function getRootNodes(hierarchy: StreamingHierarchy): StreamingHierarchyNode[] {
@@ -191,8 +345,11 @@ function getNodePointCost(node: StreamingHierarchyNode): number {
 type PrioritisedNode = {
   node: StreamingHierarchyNode;
   screenSpaceErrorPixels: number;
+  centerWeight: number;
+  priority: number;
   boundsDistanceMeters: number;
   wasPreviouslySelected: boolean;
+  wasPreviouslyRefined: boolean;
   isCached: boolean;
   pointCost: number;
 };
@@ -201,13 +358,16 @@ function compareBudgetPriority(
   left: PrioritisedNode,
   right: PrioritisedNode,
 ): number {
-  // Projected error is the primary signal. The remaining visual signals are
-  // deterministic tie-breakers; continuity/cache availability only prevent
-  // avoidable churn when visual priority is otherwise equal. All values are
-  // precomputed when a refinement enters the frontier queue.
-  return right.screenSpaceErrorPixels - left.screenSpaceErrorPixels
+  // Projected error remains primary through the bounded priority multiplier.
+  // The remaining visual signals are deterministic tie-breakers; continuity
+  // and cache availability only prevent avoidable churn when visual priority
+  // is otherwise equal. All values are precomputed before sorting.
+  return right.priority - left.priority
+    || right.screenSpaceErrorPixels - left.screenSpaceErrorPixels
+    || right.centerWeight - left.centerWeight
     || left.boundsDistanceMeters - right.boundsDistanceMeters
     || right.node.node.level - left.node.node.level
+    || Number(right.wasPreviouslyRefined) - Number(left.wasPreviouslyRefined)
     || Number(right.wasPreviouslySelected) - Number(left.wasPreviouslySelected)
     || Number(right.isCached) - Number(left.isCached)
     || left.pointCost - right.pointCost
@@ -243,6 +403,10 @@ function createSelectionMetrics(
     refinementDeferredByIncompleteHierarchyCount: 0,
     minimumFrontierExceedsNodeBudget: false,
     minimumFrontierExceedsPointBudget: false,
+    candidatesWithCenterBoostCount: 0,
+    hysteresisHoldCount: 0,
+    refineDecisionCount: 0,
+    collapseDecisionCount: 0,
   };
 }
 
@@ -265,9 +429,20 @@ export class NodeSelector {
   );
 
   constructor(options: StreamingSelectionOptions) {
+    const maxScreenSpaceError = options.maxScreenSpaceError
+      ?? DEFAULT_MAX_SCREEN_SPACE_ERROR;
+    const screenSpaceErrorHysteresis = options.screenSpaceErrorHysteresis
+      ?? Math.max(maxScreenSpaceError, 0) * DEFAULT_SCREEN_SPACE_ERROR_HYSTERESIS_FRACTION;
+    if (!Number.isFinite(screenSpaceErrorHysteresis) || screenSpaceErrorHysteresis < 0) {
+      throw new RangeError(
+        'Streaming screenSpaceErrorHysteresis must be a non-negative finite number',
+      );
+    }
+
     this.options = {
       ...options,
-      maxScreenSpaceError: options.maxScreenSpaceError ?? DEFAULT_MAX_SCREEN_SPACE_ERROR,
+      maxScreenSpaceError,
+      screenSpaceErrorHysteresis,
       maxRenderedPoints: validateMaxRenderedPoints(
         options.maxRenderedPoints ?? DEFAULT_MAX_RENDERED_POINTS,
       ),
@@ -289,6 +464,7 @@ export class NodeSelector {
     this.lastSelectionMetrics = createSelectionMetrics(maxScreenSpaceError, budget);
 
     const frontier = new Map<string, StreamingHierarchyNode>();
+    const gazeProjection = createGazeProjection(camera.viewFrustum);
     const evaluations = new Map<string, {
       visible: boolean;
       screenSpaceErrorPixels: number;
@@ -362,13 +538,48 @@ export class NodeSelector {
     this.lastSelectionMetrics.minimumFrontierExceedsNodeBudget = exceedsNodeBudget;
     this.lastSelectionMetrics.minimumFrontierExceedsPointBudget = exceedsPointBudget;
 
+    const previousRefinementMemo = new Map<string, boolean>();
+    const hasPreviouslyRefinedDescendant = (
+      node: StreamingHierarchyNode,
+      ancestors = new Set<string>(),
+    ): boolean => {
+      const memoized = previousRefinementMemo.get(node.node.key);
+      if (memoized !== undefined) {
+        return memoized;
+      }
+      if (ancestors.has(node.node.key)) {
+        return false;
+      }
+
+      const nextAncestors = new Set(ancestors).add(node.node.key);
+      for (const childKey of node.children) {
+        if (context.previousSelectedNodeKeys?.has(childKey)) {
+          previousRefinementMemo.set(node.node.key, true);
+          return true;
+        }
+        const child = hierarchy.get(childKey);
+        if (child && hasPreviouslyRefinedDescendant(child, nextAncestors)) {
+          previousRefinementMemo.set(node.node.key, true);
+          return true;
+        }
+      }
+
+      previousRefinementMemo.set(node.node.key, false);
+      return false;
+    };
+
     const toPrioritised = (node: StreamingHierarchyNode): PrioritisedNode => {
       const evaluation = evaluations.get(node.node.key) ?? evaluate(node);
+      const centerWeight = calculateCenterWeightForProjection(node, gazeProjection);
       return {
         node,
         screenSpaceErrorPixels: evaluation.screenSpaceErrorPixels,
+        centerWeight,
+        priority: evaluation.screenSpaceErrorPixels *
+          (1 + DEFAULT_CENTER_PRIORITY_BOOST * centerWeight),
         boundsDistanceMeters: calculateBoundsDistanceMeters(camera, node),
         wasPreviouslySelected: context.previousSelectedNodeKeys?.has(node.node.key) ?? false,
+        wasPreviouslyRefined: hasPreviouslyRefinedDescendant(node),
         isCached: context.isNodeCached?.(node.node.key) ?? false,
         pointCost: getNodePointCost(node),
       };
@@ -382,11 +593,53 @@ export class NodeSelector {
         }
 
         const evaluation = evaluations.get(parent.node.key) ?? evaluate(parent);
-        if (!evaluation.visible || !shouldRefine(parent, this.options, evaluation.screenSpaceErrorPixels)) {
+        if (!evaluation.visible) {
+          return;
+        }
+        if (parent.children.length === 0 || parent.node.level >= this.options.maxDepth) {
+          return;
+        }
+
+        const prioritised = toPrioritised(parent);
+        const decision = shouldRefine(
+          parent,
+          this.options,
+          evaluation.screenSpaceErrorPixels,
+          prioritised.wasPreviouslyRefined,
+        );
+        const hasPreviousState = prioritised.wasPreviouslySelected
+          || prioritised.wasPreviouslyRefined;
+        if (decision === 'hold' && hasPreviousState) {
+          this.lastSelectionMetrics.hysteresisHoldCount =
+            (this.lastSelectionMetrics.hysteresisHoldCount ?? 0) + 1;
+        }
+        if (decision === 'collapse') {
+          this.lastSelectionMetrics.collapseDecisionCount =
+            (this.lastSelectionMetrics.collapseDecisionCount ?? 0) + 1;
+          return;
+        }
+        if (decision === 'hold' && !prioritised.wasPreviouslyRefined) {
           return;
         }
 
         this.lastSelectionMetrics.refinedNodeCount += 1;
+        if (decision === 'refine') {
+          this.lastSelectionMetrics.refineDecisionCount =
+            (this.lastSelectionMetrics.refineDecisionCount ?? 0) + 1;
+        }
+        this.lastSelectionMetrics.centerWeightMin = Math.min(
+          this.lastSelectionMetrics.centerWeightMin ?? Number.POSITIVE_INFINITY,
+          prioritised.centerWeight,
+        );
+        this.lastSelectionMetrics.centerWeightMax = Math.max(
+          this.lastSelectionMetrics.centerWeightMax ?? Number.NEGATIVE_INFINITY,
+          prioritised.centerWeight,
+        );
+        if (prioritised.centerWeight > 0) {
+          this.lastSelectionMetrics.candidatesWithCenterBoostCount =
+            (this.lastSelectionMetrics.candidatesWithCenterBoostCount ?? 0) + 1;
+        }
+
         if (parent.childrenComplete !== true) {
           this.lastSelectionMetrics.refinementDeferredByIncompleteHierarchyCount =
             (this.lastSelectionMetrics.refinementDeferredByIncompleteHierarchyCount ?? 0) + 1;
@@ -412,7 +665,6 @@ export class NodeSelector {
           return;
         }
 
-        const prioritised = toPrioritised(parent);
         pending.set(parent.node.key, {
           ...prioritised,
           replacement,
@@ -469,6 +721,14 @@ export class NodeSelector {
         frontierPointCount = nextPointCount;
         this.lastSelectionMetrics.acceptedRefinementCount =
           (this.lastSelectionMetrics.acceptedRefinementCount ?? 0) + 1;
+        this.lastSelectionMetrics.acceptedRefinementPriorityMin = Math.min(
+          this.lastSelectionMetrics.acceptedRefinementPriorityMin ?? Number.POSITIVE_INFINITY,
+          candidate.priority,
+        );
+        this.lastSelectionMetrics.acceptedRefinementPriorityMax = Math.max(
+          this.lastSelectionMetrics.acceptedRefinementPriorityMax ?? Number.NEGATIVE_INFINITY,
+          candidate.priority,
+        );
 
         for (const child of candidate.replacement) {
           enqueue(child);

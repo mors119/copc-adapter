@@ -4,7 +4,11 @@ export {
   estimateDecodedCpuPointBufferBytes,
 } from './createNodePointCache';
 export { DEFAULT_MAX_RENDERED_POINTS, NodeSelector } from './NodeSelector';
-export { calculateScreenSpaceErrorPixels } from './NodeSelector';
+export {
+  calculateGazeCenterWeight,
+  calculateScreenSpaceErrorPixels,
+  DEFAULT_CENTER_PRIORITY_BOOST,
+} from './NodeSelector';
 export { StreamingManager } from './StreamingManager';
 export { compareNodePriority } from './NodeSelector';
 export { createStreamingWorkBatches, yieldToBrowser } from './scheduler';

@@ -27,6 +27,11 @@ export type StreamingSelectionOptions = {
   maxDepth: number;
   /** Refine while the estimated replacement error is greater than this. */
   maxScreenSpaceError?: number;
+  /**
+   * Half-width of the state-aware SSE hold band, in pixels. When omitted,
+   * the selector derives a conservative band from maxScreenSpaceError.
+   */
+  screenSpaceErrorHysteresis?: number;
   /** @deprecated Retained for source compatibility; SSE no longer uses it. */
   refineDistanceMultiplier?: number;
   maxRenderDistanceMeters: number;
@@ -37,7 +42,7 @@ export type StreamingSelectionOptions = {
 };
 
 export type StreamingSelectionContext = {
-  /** Nodes accepted by the previous view, used only as a tie-breaker. */
+  /** Nodes accepted by the previous view, including LoD hysteresis state. */
   previousSelectedNodeKeys?: ReadonlySet<string>;
   /** Cache availability is a secondary optimization, never the main priority. */
   isNodeCached?: (nodeKey: string) => boolean;
@@ -82,6 +87,14 @@ export type StreamingSelectionMetrics = {
   refinementDeferredByIncompleteHierarchyCount?: number;
   minimumFrontierExceedsNodeBudget?: boolean;
   minimumFrontierExceedsPointBudget?: boolean;
+  centerWeightMin?: number;
+  centerWeightMax?: number;
+  acceptedRefinementPriorityMin?: number;
+  acceptedRefinementPriorityMax?: number;
+  candidatesWithCenterBoostCount?: number;
+  hysteresisHoldCount?: number;
+  refineDecisionCount?: number;
+  collapseDecisionCount?: number;
 };
 
 export type StreamingLevelRange = {

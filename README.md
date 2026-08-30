@@ -208,7 +208,11 @@ after a newer camera update. The selector uses a viewport-aware projected-error
 policy. For a visible node, it estimates `SSE = geometricErrorMeters *
 viewportHeightPixels / (2 * distanceMeters * tan(verticalFovRadians / 2))` and
 refines while the result exceeds `streaming.maxScreenSpaceError` (default `8`
-pixels). The adapter's geometric scale is `max(rootSpacing / 2^level,
+pixels). The default state-aware hold band is 7–9 pixels: a previously coarse
+branch waits for 9 pixels before refining, while a previously refined branch
+is retained until its error falls below 7 pixels. Screen-centre relevance adds
+at most a bounded 25% priority boost after SSE, so a large peripheral error can
+still win. The adapter's geometric scale is `max(rootSpacing / 2^level,
 nodeExtent / 2)` in metres: COPC defines root spacing as the space between
 points at level zero and halves it at each octree level; the extent term is a
 conservative proxy for unresolved geometry when no per-node error metadata
