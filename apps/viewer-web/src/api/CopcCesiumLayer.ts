@@ -19,6 +19,8 @@ export type CopcStreamingOptions = {
   maxDepth?: number;
   /** Maximum allowed projected replacement error in pixels. Defaults to 8. */
   maxScreenSpaceError?: number;
+  /** Half-width of the state-aware SSE hold band in pixels. */
+  screenSpaceErrorHysteresis?: number;
   /** @deprecated SSE refinement replaces the distance multiplier policy. */
   refineDistanceMultiplier?: number;
   maxRenderDistanceMeters?: number;
