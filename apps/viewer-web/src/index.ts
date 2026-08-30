@@ -54,6 +54,12 @@ export {
   RangeSourceError,
   validateByteRange,
 } from './copc/range';
+export { probeCopcSource } from './copc/sourceProbe';
+export type {
+  CopcSourceProbeOptions,
+  CopcSourceProbeResult,
+  ProbeTruth,
+} from './copc/sourceProbe';
 export type {
   ByteRange,
   RangeFetch,

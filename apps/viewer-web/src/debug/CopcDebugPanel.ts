@@ -2,10 +2,12 @@ import type {
   CopcCesiumLayerSnapshot,
   CopcMetadata,
 } from '../index';
+import type { CopcSourceProbeResult, ProbeTruth } from '../copc/sourceProbe';
 
 export type CopcDebugPanelState = {
   snapshot: CopcCesiumLayerSnapshot;
   metadata?: CopcMetadata;
+  sourceProbe?: CopcSourceProbeResult;
   lastError?: string;
 };
 
@@ -48,6 +50,12 @@ export type CopcDebugPanelView = {
   largestCachedEntryBytes: string;
   workerConcurrency: string;
   workerQueue: string;
+  sourceReachable: string;
+  sourceRange: string;
+  sourceCopc: string;
+  sourcePointFormat: string;
+  sourceCors: string;
+  sourceWarnings: string;
   error?: string;
 };
 
@@ -73,6 +81,11 @@ function formatVector(vector?: { x: number; y: number; z: number }): string {
   return [vector.x, vector.y, vector.z].map(formatCoordinate).join(', ');
 }
 
+function formatProbeTruth(value: ProbeTruth, label: string): string {
+  const mark = value === true ? '✓' : value === false ? '✕' : '?';
+  return `${mark} ${label}`;
+}
+
 function getDatasetName(datasetUrl: string): string {
   const withoutQuery = datasetUrl.split(/[?#]/, 1)[0];
   const encodedName = withoutQuery.split('/').filter(Boolean).at(-1);
@@ -91,7 +104,7 @@ function getDatasetName(datasetUrl: string): string {
 export function buildCopcDebugPanelView(
   state: CopcDebugPanelState,
 ): CopcDebugPanelView {
-  const { snapshot, metadata, lastError } = state;
+  const { snapshot, metadata, sourceProbe, lastError } = state;
   const status = lastError
     ? 'Error'
     : snapshot.lifecycle === 'ready'
@@ -167,6 +180,24 @@ export function buildCopcDebugPanelView(
     workerQueue: snapshot.worker
       ? `${formatNumber(snapshot.worker.queuedCount)} queued (peak ${formatNumber(snapshot.worker.peakQueuedCount)})`
       : '—',
+    sourceReachable: sourceProbe
+      ? formatProbeTruth(sourceProbe.reachable, 'Reachable')
+      : '—',
+    sourceRange: sourceProbe
+      ? formatProbeTruth(sourceProbe.rangeSupported, 'HTTP Range / 206')
+      : '—',
+    sourceCopc: sourceProbe
+      ? formatProbeTruth(sourceProbe.copcDetected, 'COPC detected')
+      : '—',
+    sourcePointFormat: sourceProbe?.pointFormat === undefined
+      ? '—'
+      : `PDRF ${sourceProbe.pointFormat}`,
+    sourceCors: sourceProbe
+      ? formatProbeTruth(sourceProbe.corsReadable, 'Browser response readable')
+      : '—',
+    sourceWarnings: sourceProbe && sourceProbe.warnings.length > 0
+      ? sourceProbe.warnings.join(' ')
+      : '—',
     error: lastError,
   };
 }
@@ -193,6 +224,17 @@ export function createCopcDebugPanel(
     </header>
     <div class="copc-debug-panel__url" data-field="datasetUrl"></div>
     <div class="copc-debug-panel__status" data-field="status"></div>
+    <details open>
+      <summary>Source</summary>
+      <dl>
+        <div><dt>Reachability</dt><dd data-field="sourceReachable"></dd></div>
+        <div><dt>Range</dt><dd data-field="sourceRange"></dd></div>
+        <div><dt>Format</dt><dd data-field="sourceCopc"></dd></div>
+        <div><dt>Point format</dt><dd data-field="sourcePointFormat"></dd></div>
+        <div><dt>CORS</dt><dd data-field="sourceCors"></dd></div>
+      </dl>
+      <p class="copc-debug-panel__source-warning" data-field="sourceWarnings"></p>
+    </details>
     <dl>
       <div><dt>Points</dt><dd data-field="pointCount"></dd></div>
       <div><dt>Selected nodes</dt><dd data-field="selectedNodeCount"></dd></div>

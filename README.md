@@ -97,8 +97,50 @@ and picking never forces full-field decoding. The demo includes a compact
 lower-right inspector.
 
 The COPC source must support HTTP Range requests. Cross-origin sources also
-need CORS headers that allow the consuming origin and expose the range
-response metadata used by the reader.
+need CORS headers that allow the consuming origin, allow the browser's `Range`
+request header, and expose `Content-Range` so the reader can validate each
+partial response.
+
+### Diagnose a COPC source
+
+COPC stores hierarchy pages and compressed point chunks at different byte
+offsets, so browser streaming needs reliable random access. Use the small
+project-owned probe before reporting a load failure:
+
+```ts
+import { probeCopcSource } from '@frillab/copc-adapter';
+
+const source = await probeCopcSource('https://example.com/data.copc.laz');
+console.table(source);
+```
+
+The probe requests only bytes `0-1023`, reads a bounded response prefix, and
+may request the remainder of the LAS VLR area when that metadata is not in the
+first prefix. It does not download the whole file. A healthy result has
+`reachable: true`, `rangeSupported: true`, HTTP `206`, a returned range that
+matches the request, and `copcDetected: true`. `pointFormat` is the LAS point
+data record format when the header is observable.
+
+`rangeSupported: false` means the browser observed an unusable response, such
+as HTTP `200` when the server ignored Range, a mismatched `Content-Range`, or a
+short body. `corsReadable: true` means the response could be inspected. A
+browser fetch failure can be caused by CORS, DNS, TLS, an offline client, or
+another network condition, so the probe reports that state as `unknown` and
+suggests checking both network availability and CORS policy.
+
+Range and CORS are separate concerns: a response can be CORS-readable but
+still return `200` or invalid partial content, and a server can implement
+correct ranges while the browser is unable to read them cross-origin. Common
+deployment problems include an object-storage gateway, CDN, or reverse proxy
+stripping the `Range` request, converting `206` to `200`, changing
+`Content-Range`, or omitting the CORS rules for the application origin and
+`Range`/`Content-Range`. The server should preserve the requested byte range,
+return exactly that body, and make `Content-Range` readable to the browser.
+
+The development viewer runs this probe once when its debug panel is enabled
+and displays reachability, Range/206, CORS observability, COPC detection, point
+format, and warnings. Normal `CopcCesiumLayer.load()` does not add a separate
+diagnostic request.
 
 ## Rust / WASM Backend
 

@@ -31,6 +31,42 @@ root hierarchy page 로딩 실패를 각각 project-owned `CopcLoadError`로 rej
 panel에 그대로 표시할 수 있다. `CopcSourceError`, `CopcMetadataError`,
 `CopcHierarchyLoadError`도 public entrypoint에서 export된다.
 
+### `probeCopcSource(url)`
+
+`probeCopcSource(url)` is a low-cost browser diagnostic for a remote source.
+It is independent of `CopcCesiumLayer.load()` and is not run automatically by
+the library's normal loading path.
+
+```ts
+import { probeCopcSource } from '@frillab/copc-adapter';
+
+const result = await probeCopcSource(url);
+```
+
+The returned `CopcSourceProbeResult` is project-owned and contains the
+observed HTTP status, requested and returned ranges, known resource length
+and `Content-Range` when available, `reachable`, `rangeSupported`,
+`corsReadable`, `copcDetected`, optional LAS `pointFormat`, and actionable
+`warnings`. Boolean capability fields use `true`, `false`, or `'unknown'`
+where a browser cannot distinguish a network failure from a CORS block.
+
+The default request is `bytes=0-1023`. The response body is bounded; if the
+LAS header says its VLR metadata extends beyond that prefix, the probe can
+request only the missing metadata bytes. A healthy response is HTTP `206`,
+has a `Content-Range` matching the requested bytes, and contains exactly the
+requested body length. HTTP `200`, malformed or mismatched `Content-Range`,
+short bodies, `404`, `416`, and network failures are retained as structured
+diagnostic outcomes rather than raw `Response` objects.
+
+For cross-origin resources, CORS and Range should be diagnosed separately. A
+readable response with bad range semantics reports `corsReadable: true` and
+`rangeSupported: false`. When the browser rejects the fetch before exposing a
+response, both reachability of the resource and the precise cause are not
+provable; the result uses `corsReadable: 'unknown'` and points to network and
+CORS checks in `warnings`. The current reader requires the browser to send a
+`Range` request and read `Content-Range`; it does not depend on
+`Content-Length` being exposed.
+
 ### `CopcCesiumLayerOptions`
 
 - `url`: HTTP range request를 지원하는 browser-readable COPC URL

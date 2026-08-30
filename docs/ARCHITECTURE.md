@@ -243,6 +243,12 @@ range, and network failure become a structured `RangeSourceError`; a server
 that ignores Range is never counted as efficient streaming. `Content-Range`
 also supplies a cached total size when available.
 
+`probeCopcSource()` builds diagnostics on the same content-range parser and
+exact body-length contract. It requests a bounded prefix, optionally reads
+only the missing LAS VLR bytes, and never participates in normal layer loads.
+Its result is a project-owned summary for application diagnostics and the demo
+debug panel; the panel does not own networking.
+
 Callers pass an `AbortSignal` for cancellation. The camera/streaming owner can
 create a controller per generation and abort the previous generation when a
 new camera state supersedes it; the source does not retain camera or Cesium
