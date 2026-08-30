@@ -38,6 +38,12 @@ export type CopcDebugPanelView = {
   representativeScreenSpaceError: string;
   refinedNodeCount: string;
   keptNodeCount: string;
+  frontierNodeCount: string;
+  frontierPointCount: string;
+  acceptedRefinementCount: string;
+  refinementRejectedByBudget: string;
+  refinementDeferredByIncompleteHierarchyCount: string;
+  impossibleMinimumFrontier: string;
   visibleLevelRange: string;
   cameraDirection: string;
   pointCacheBudget: string;
@@ -162,6 +168,21 @@ export function buildCopcDebugPanelView(
         : '—',
     refinedNodeCount: formatNumber(snapshot.performance?.refinedNodeCount ?? 0),
     keptNodeCount: formatNumber(snapshot.performance?.keptNodeCount ?? 0),
+    frontierNodeCount: formatNumber(snapshot.performance?.frontierNodeCount ?? 0),
+    frontierPointCount: formatNumber(snapshot.performance?.frontierPointCount ?? 0),
+    acceptedRefinementCount: formatNumber(snapshot.performance?.acceptedRefinementCount ?? 0),
+    refinementRejectedByBudget: formatNumber(
+      (snapshot.performance?.refinementRejectedByNodeBudgetCount ?? 0)
+      + (snapshot.performance?.refinementRejectedByPointBudgetCount ?? 0),
+    ),
+    refinementDeferredByIncompleteHierarchyCount: formatNumber(
+      snapshot.performance?.refinementDeferredByIncompleteHierarchyCount ?? 0,
+    ),
+    impossibleMinimumFrontier:
+      snapshot.performance?.minimumFrontierExceedsNodeBudget
+      || snapshot.performance?.minimumFrontierExceedsPointBudget
+        ? 'yes'
+        : 'no',
     visibleLevelRange: snapshot.performance?.visibleLevelRange
       ? `${snapshot.performance.visibleLevelRange.min}–${snapshot.performance.visibleLevelRange.max}`
       : '—',
@@ -254,6 +275,12 @@ export function createCopcDebugPanel(
       <div><dt>SSE observed</dt><dd data-field="representativeScreenSpaceError"></dd></div>
       <div><dt>Nodes refined</dt><dd data-field="refinedNodeCount"></dd></div>
       <div><dt>Nodes kept</dt><dd data-field="keptNodeCount"></dd></div>
+      <div><dt>Frontier nodes</dt><dd data-field="frontierNodeCount"></dd></div>
+      <div><dt>Frontier points</dt><dd data-field="frontierPointCount"></dd></div>
+      <div><dt>Refinements accepted</dt><dd data-field="acceptedRefinementCount"></dd></div>
+      <div><dt>Refinements rejected</dt><dd data-field="refinementRejectedByBudget"></dd></div>
+      <div><dt>Hierarchy deferred</dt><dd data-field="refinementDeferredByIncompleteHierarchyCount"></dd></div>
+      <div><dt>Minimum frontier over budget</dt><dd data-field="impossibleMinimumFrontier"></dd></div>
       <div><dt>Visible levels</dt><dd data-field="visibleLevelRange"></dd></div>
     </dl>
     <details>

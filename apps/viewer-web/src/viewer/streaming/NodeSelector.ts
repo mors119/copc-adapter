@@ -191,26 +191,59 @@ function getNodePointCost(node: StreamingHierarchyNode): number {
 type PrioritisedNode = {
   node: StreamingHierarchyNode;
   screenSpaceErrorPixels: number;
+  boundsDistanceMeters: number;
+  wasPreviouslySelected: boolean;
+  isCached: boolean;
+  pointCost: number;
 };
 
 function compareBudgetPriority(
-  camera: StreamingCameraState,
-  context: StreamingSelectionContext,
   left: PrioritisedNode,
   right: PrioritisedNode,
 ): number {
   // Projected error is the primary signal. The remaining visual signals are
   // deterministic tie-breakers; continuity/cache availability only prevent
-  // avoidable churn when visual priority is otherwise equal.
+  // avoidable churn when visual priority is otherwise equal. All values are
+  // precomputed when a refinement enters the frontier queue.
   return right.screenSpaceErrorPixels - left.screenSpaceErrorPixels
-    || calculateBoundsDistanceMeters(camera, left.node) - calculateBoundsDistanceMeters(camera, right.node)
+    || left.boundsDistanceMeters - right.boundsDistanceMeters
     || right.node.node.level - left.node.node.level
-    || Number(context.previousSelectedNodeKeys?.has(right.node.node.key) ?? false)
-      - Number(context.previousSelectedNodeKeys?.has(left.node.node.key) ?? false)
-    || Number(context.isNodeCached?.(right.node.node.key) ?? false)
-      - Number(context.isNodeCached?.(left.node.node.key) ?? false)
-    || getNodePointCost(left.node) - getNodePointCost(right.node)
+    || Number(right.wasPreviouslySelected) - Number(left.wasPreviouslySelected)
+    || Number(right.isCached) - Number(left.isCached)
+    || left.pointCost - right.pointCost
     || left.node.node.key.localeCompare(right.node.node.key);
+}
+
+type RefinementCandidate = PrioritisedNode & {
+  replacement: StreamingHierarchyNode[];
+  replacementPointCost: number;
+};
+
+function createSelectionMetrics(
+  maxScreenSpaceError: number,
+  maxRenderedPoints: number,
+): StreamingSelectionMetrics {
+  return {
+    candidatesBeforeCulling: 0,
+    frustumCulledCount: 0,
+    maxScreenSpaceError,
+    refinedNodeCount: 0,
+    keptNodeCount: 0,
+    candidateSelectedPointCount: 0,
+    budgetedPointCount: 0,
+    maxRenderedPoints,
+    deferredNodeCount: 0,
+    deferredPointCount: 0,
+    budgetDeferDropCount: 0,
+    frontierNodeCount: 0,
+    frontierPointCount: 0,
+    acceptedRefinementCount: 0,
+    refinementRejectedByNodeBudgetCount: 0,
+    refinementRejectedByPointBudgetCount: 0,
+    refinementDeferredByIncompleteHierarchyCount: 0,
+    minimumFrontierExceedsNodeBudget: false,
+    minimumFrontierExceedsPointBudget: false,
+  };
 }
 
 export function compareNodePriority(
@@ -226,19 +259,10 @@ export function compareNodePriority(
 
 export class NodeSelector {
   private readonly options: StreamingSelectionOptions;
-  private lastSelectionMetrics: StreamingSelectionMetrics = {
-    candidatesBeforeCulling: 0,
-    frustumCulledCount: 0,
-    maxScreenSpaceError: DEFAULT_MAX_SCREEN_SPACE_ERROR,
-    refinedNodeCount: 0,
-    keptNodeCount: 0,
-    candidateSelectedPointCount: 0,
-    budgetedPointCount: 0,
-    maxRenderedPoints: DEFAULT_MAX_RENDERED_POINTS,
-    deferredNodeCount: 0,
-    deferredPointCount: 0,
-    budgetDeferDropCount: 0,
-  };
+  private lastSelectionMetrics: StreamingSelectionMetrics = createSelectionMetrics(
+    DEFAULT_MAX_SCREEN_SPACE_ERROR,
+    DEFAULT_MAX_RENDERED_POINTS,
+  );
 
   constructor(options: StreamingSelectionOptions) {
     this.options = {
@@ -259,31 +283,35 @@ export class NodeSelector {
     hierarchy: StreamingHierarchy,
     context: StreamingSelectionContext = {},
   ): StreamingHierarchyNode[] {
-    this.lastSelectionMetrics = {
-      candidatesBeforeCulling: 0,
-      frustumCulledCount: 0,
-      maxScreenSpaceError: this.options.maxScreenSpaceError ?? DEFAULT_MAX_SCREEN_SPACE_ERROR,
-      refinedNodeCount: 0,
-      keptNodeCount: 0,
-      candidateSelectedPointCount: 0,
-      budgetedPointCount: 0,
-      maxRenderedPoints: this.options.maxRenderedPoints ?? DEFAULT_MAX_RENDERED_POINTS,
-      deferredNodeCount: 0,
-      deferredPointCount: 0,
-      budgetDeferDropCount: 0,
-    };
-    const selected = new Map<string, StreamingHierarchyNode>();
+    const maxScreenSpaceError = this.options.maxScreenSpaceError
+      ?? DEFAULT_MAX_SCREEN_SPACE_ERROR;
+    const budget = this.options.maxRenderedPoints ?? DEFAULT_MAX_RENDERED_POINTS;
+    this.lastSelectionMetrics = createSelectionMetrics(maxScreenSpaceError, budget);
 
-    const visit = (node: StreamingHierarchyNode): boolean => {
+    const frontier = new Map<string, StreamingHierarchyNode>();
+    const evaluations = new Map<string, {
+      visible: boolean;
+      screenSpaceErrorPixels: number;
+    }>();
+
+    const evaluate = (node: StreamingHierarchyNode) => {
+      const existing = evaluations.get(node.node.key);
+      if (existing) {
+        return existing;
+      }
+
       this.lastSelectionMetrics.candidatesBeforeCulling += 1;
-
       if (!isNodeFrustumVisible(camera, node)) {
         this.lastSelectionMetrics.frustumCulledCount += 1;
-        return false;
+        const result = { visible: false, screenSpaceErrorPixels: 0 };
+        evaluations.set(node.node.key, result);
+        return result;
       }
 
       if (!isNodeVisible(camera, node, this.options)) {
-        return false;
+        const result = { visible: false, screenSpaceErrorPixels: 0 };
+        evaluations.set(node.node.key, result);
+        return result;
       }
 
       const screenSpaceErrorPixels = calculateScreenSpaceErrorPixels(camera, node);
@@ -295,92 +323,193 @@ export class NodeSelector {
         this.lastSelectionMetrics.screenSpaceErrorMax ?? Number.NEGATIVE_INFINITY,
         screenSpaceErrorPixels,
       );
-
-      if (shouldRefine(node, this.options, screenSpaceErrorPixels)) {
-        this.lastSelectionMetrics.refinedNodeCount += 1;
-        let descendantSelected = false;
-
-        for (const childKey of node.children) {
-          const child = hierarchy.get(childKey);
-
-          if (!child || child.node.pointCount <= 0) {
-            continue;
-          }
-
-          if (visit(child)) {
-            descendantSelected = true;
-          }
-        }
-
-        // Keep the parent out when any visible descendant represents it.
-        if (descendantSelected) {
-          return true;
-        }
-      }
-
-      this.lastSelectionMetrics.keptNodeCount += 1;
-
-      if (node.node.pointCount > 0) {
-        selected.set(node.node.key, node);
-
-        return true;
-      }
-
-      return false;
+      const result = { visible: true, screenSpaceErrorPixels };
+      evaluations.set(node.node.key, result);
+      return result;
     };
 
-    for (const rootNode of getRootNodes(hierarchy)) {
-      visit(rootNode);
+    for (const rootNode of getRootNodes(hierarchy).sort((left, right) =>
+      left.node.key.localeCompare(right.node.key))) {
+      const evaluation = evaluate(rootNode);
+      if (evaluation.visible && rootNode.node.pointCount > 0) {
+        frontier.set(rootNode.node.key, rootNode);
+      }
     }
 
-    if (selected.size === 0 && !camera.viewFrustum) {
+    let fallbackUsed = false;
+    if (frontier.size === 0 && !camera.viewFrustum) {
       const fallback = [...hierarchy.values()]
         .filter((entry) => entry.node.pointCount > 0)
-        .sort(
-          (left, right) =>
-            calculateBoundsDistanceMeters(camera, left) -
-            calculateBoundsDistanceMeters(camera, right),
+        .sort((left, right) =>
+          calculateBoundsDistanceMeters(camera, left) -
+          calculateBoundsDistanceMeters(camera, right)
+          || left.node.key.localeCompare(right.node.key),
         )[0];
 
       if (fallback) {
-        selected.set(fallback.node.key, fallback);
+        frontier.set(fallback.node.key, fallback);
+        fallbackUsed = true;
       }
     }
 
-    const maxNodesSelected = [...selected.values()]
-      .sort((left, right) => compareNodePriority(camera, left, right))
-      .slice(0, this.options.maxNodes);
-
-    this.lastSelectionMetrics.candidateSelectedPointCount = maxNodesSelected.reduce(
+    const initialFrontier = [...frontier.values()];
+    const initialPointCount = initialFrontier.reduce(
       (total, node) => total + getNodePointCost(node),
       0,
     );
+    const exceedsNodeBudget = initialFrontier.length > this.options.maxNodes;
+    const exceedsPointBudget = initialPointCount > budget;
+    this.lastSelectionMetrics.minimumFrontierExceedsNodeBudget = exceedsNodeBudget;
+    this.lastSelectionMetrics.minimumFrontierExceedsPointBudget = exceedsPointBudget;
 
-    const prioritised = maxNodesSelected
-      .map((node) => ({
+    const toPrioritised = (node: StreamingHierarchyNode): PrioritisedNode => {
+      const evaluation = evaluations.get(node.node.key) ?? evaluate(node);
+      return {
         node,
-        screenSpaceErrorPixels: calculateScreenSpaceErrorPixels(camera, node),
-      }))
-      .sort((left, right) => compareBudgetPriority(camera, context, left, right));
-    const budget = this.options.maxRenderedPoints ?? DEFAULT_MAX_RENDERED_POINTS;
-    const accepted: StreamingHierarchyNode[] = [];
-    let acceptedPointCount = 0;
+        screenSpaceErrorPixels: evaluation.screenSpaceErrorPixels,
+        boundsDistanceMeters: calculateBoundsDistanceMeters(camera, node),
+        wasPreviouslySelected: context.previousSelectedNodeKeys?.has(node.node.key) ?? false,
+        isCached: context.isNodeCached?.(node.node.key) ?? false,
+        pointCost: getNodePointCost(node),
+      };
+    };
 
-    for (const candidate of prioritised) {
-      const pointCost = getNodePointCost(candidate.node);
-      if (pointCost <= budget - acceptedPointCount) {
-        accepted.push(candidate.node);
-        acceptedPointCount += pointCost;
-        continue;
+    // A minimum frontier that cannot fit is the one explicit exception to
+    // atomic refinement. Keep the existing hard-safety behavior by returning
+    // a deterministic bounded subset and recording that coverage is impossible
+    // under the configured limits.
+    if (exceedsNodeBudget || exceedsPointBudget) {
+      const accepted: StreamingHierarchyNode[] = [];
+      let acceptedPointCount = 0;
+      for (const candidate of initialFrontier
+        .map(toPrioritised)
+        .sort(compareBudgetPriority)) {
+        const canFitNodeBudget = accepted.length < this.options.maxNodes;
+        const canFitPointBudget = candidate.pointCost <= budget - acceptedPointCount;
+        if (canFitNodeBudget && canFitPointBudget) {
+          accepted.push(candidate.node);
+          acceptedPointCount += candidate.pointCost;
+        } else {
+          this.lastSelectionMetrics.deferredNodeCount += 1;
+          this.lastSelectionMetrics.deferredPointCount += candidate.pointCost;
+          this.lastSelectionMetrics.budgetDeferDropCount += 1;
+        }
       }
 
-      this.lastSelectionMetrics.deferredNodeCount += 1;
-      this.lastSelectionMetrics.deferredPointCount += pointCost;
-      this.lastSelectionMetrics.budgetDeferDropCount += 1;
+      this.recordFrontierMetrics(accepted, initialPointCount, acceptedPointCount);
+      return accepted.sort((left, right) => compareNodePriority(camera, left, right));
     }
 
-    this.lastSelectionMetrics.budgetedPointCount = acceptedPointCount;
+    if (!fallbackUsed) {
+      const pending = new Map<string, RefinementCandidate>();
+      const enqueue = (parent: StreamingHierarchyNode): void => {
+        if (pending.has(parent.node.key)) {
+          return;
+        }
 
-    return accepted;
+        const evaluation = evaluations.get(parent.node.key) ?? evaluate(parent);
+        if (!evaluation.visible || !shouldRefine(parent, this.options, evaluation.screenSpaceErrorPixels)) {
+          return;
+        }
+
+        this.lastSelectionMetrics.refinedNodeCount += 1;
+        if (parent.childrenComplete !== true) {
+          this.lastSelectionMetrics.refinementDeferredByIncompleteHierarchyCount =
+            (this.lastSelectionMetrics.refinementDeferredByIncompleteHierarchyCount ?? 0) + 1;
+          return;
+        }
+
+        const replacement: StreamingHierarchyNode[] = [];
+        for (const childKey of [...parent.children].sort()) {
+          const child = hierarchy.get(childKey);
+          if (!child) {
+            this.lastSelectionMetrics.refinementDeferredByIncompleteHierarchyCount =
+              (this.lastSelectionMetrics.refinementDeferredByIncompleteHierarchyCount ?? 0) + 1;
+            return;
+          }
+
+          const childEvaluation = evaluate(child);
+          if (childEvaluation.visible && child.node.pointCount > 0) {
+            replacement.push(child);
+          }
+        }
+
+        if (replacement.length === 0) {
+          return;
+        }
+
+        const prioritised = toPrioritised(parent);
+        pending.set(parent.node.key, {
+          ...prioritised,
+          replacement,
+          replacementPointCost: replacement.reduce(
+            (total, child) => total + getNodePointCost(child),
+            0,
+          ),
+        });
+      };
+
+      for (const node of frontier.values()) {
+        enqueue(node);
+      }
+
+      let frontierPointCount = initialPointCount;
+      while (pending.size > 0) {
+        const candidate = [...pending.values()]
+          .sort(compareBudgetPriority)[0];
+        pending.delete(candidate.node.node.key);
+
+        if (!frontier.has(candidate.node.node.key)) {
+          continue;
+        }
+
+        const nextNodeCount = frontier.size - 1 + candidate.replacement.length;
+        const nextPointCount = frontierPointCount
+          - candidate.pointCost
+          + candidate.replacementPointCost;
+        if (nextNodeCount > this.options.maxNodes) {
+          this.lastSelectionMetrics.refinementRejectedByNodeBudgetCount =
+            (this.lastSelectionMetrics.refinementRejectedByNodeBudgetCount ?? 0) + 1;
+          continue;
+        }
+        if (nextPointCount > budget) {
+          this.lastSelectionMetrics.refinementRejectedByPointBudgetCount =
+            (this.lastSelectionMetrics.refinementRejectedByPointBudgetCount ?? 0) + 1;
+          continue;
+        }
+
+        frontier.delete(candidate.node.node.key);
+        for (const child of candidate.replacement) {
+          frontier.set(child.node.key, child);
+        }
+        frontierPointCount = nextPointCount;
+        this.lastSelectionMetrics.acceptedRefinementCount =
+          (this.lastSelectionMetrics.acceptedRefinementCount ?? 0) + 1;
+
+        for (const child of candidate.replacement) {
+          enqueue(child);
+        }
+      }
+
+      const selected = [...frontier.values()]
+        .sort((left, right) => compareNodePriority(camera, left, right));
+      this.recordFrontierMetrics(selected, initialPointCount, frontierPointCount);
+      return selected;
+    }
+
+    this.recordFrontierMetrics(initialFrontier, initialPointCount, initialPointCount);
+    return initialFrontier.sort((left, right) => compareNodePriority(camera, left, right));
+  }
+
+  private recordFrontierMetrics(
+    frontier: readonly StreamingHierarchyNode[],
+    candidatePointCount: number,
+    frontierPointCount: number,
+  ): void {
+    this.lastSelectionMetrics.frontierNodeCount = frontier.length;
+    this.lastSelectionMetrics.frontierPointCount = frontierPointCount;
+    this.lastSelectionMetrics.keptNodeCount = frontier.length;
+    this.lastSelectionMetrics.candidateSelectedPointCount = candidatePointCount;
+    this.lastSelectionMetrics.budgetedPointCount = frontierPointCount;
   }
 }

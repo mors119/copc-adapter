@@ -24,6 +24,14 @@ export type StreamingPerformanceSnapshot = {
   screenSpaceErrorMax?: number;
   refinedNodeCount: number;
   keptNodeCount: number;
+  frontierNodeCount: number;
+  frontierPointCount: number;
+  acceptedRefinementCount: number;
+  refinementRejectedByNodeBudgetCount: number;
+  refinementRejectedByPointBudgetCount: number;
+  refinementDeferredByIncompleteHierarchyCount: number;
+  minimumFrontierExceedsNodeBudget: boolean;
+  minimumFrontierExceedsPointBudget: boolean;
   visibleLevelRange?: StreamingLevelRange;
   cameraDirection?: ViewVector3;
   loadedNodeCount: number;
@@ -59,6 +67,14 @@ function emptySnapshot(): StreamingPerformanceSnapshot {
     maxScreenSpaceError: 0,
     refinedNodeCount: 0,
     keptNodeCount: 0,
+    frontierNodeCount: 0,
+    frontierPointCount: 0,
+    acceptedRefinementCount: 0,
+    refinementRejectedByNodeBudgetCount: 0,
+    refinementRejectedByPointBudgetCount: 0,
+    refinementDeferredByIncompleteHierarchyCount: 0,
+    minimumFrontierExceedsNodeBudget: false,
+    minimumFrontierExceedsPointBudget: false,
     loadedNodeCount: 0,
     loadedPointCount: 0,
     rangeFetchDurationMs: 0,
@@ -121,6 +137,14 @@ export class StreamingPerformanceRecorder {
     this.snapshot.screenSpaceErrorMax = metrics.screenSpaceErrorMax;
     this.snapshot.refinedNodeCount = metrics.refinedNodeCount;
     this.snapshot.keptNodeCount = metrics.keptNodeCount;
+    this.snapshot.frontierNodeCount = metrics.frontierNodeCount ?? 0;
+    this.snapshot.frontierPointCount = metrics.frontierPointCount ?? 0;
+    this.snapshot.acceptedRefinementCount = metrics.acceptedRefinementCount ?? 0;
+    this.snapshot.refinementRejectedByNodeBudgetCount = metrics.refinementRejectedByNodeBudgetCount ?? 0;
+    this.snapshot.refinementRejectedByPointBudgetCount = metrics.refinementRejectedByPointBudgetCount ?? 0;
+    this.snapshot.refinementDeferredByIncompleteHierarchyCount = metrics.refinementDeferredByIncompleteHierarchyCount ?? 0;
+    this.snapshot.minimumFrontierExceedsNodeBudget = metrics.minimumFrontierExceedsNodeBudget ?? false;
+    this.snapshot.minimumFrontierExceedsPointBudget = metrics.minimumFrontierExceedsPointBudget ?? false;
     this.snapshot.visibleLevelRange = metrics.visibleLevelRange;
     this.snapshot.cameraDirection = metrics.cameraDirection;
     this.snapshot.longestMainThreadBlockingSectionMs = Math.max(

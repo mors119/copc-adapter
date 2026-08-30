@@ -46,6 +46,8 @@ export type StreamingSelectionContext = {
 export type StreamingHierarchyNode = {
   node: CopcHierarchyNode;
   children: string[];
+  /** True only when hierarchy loading proved that all direct child topology is known. */
+  childrenComplete?: boolean;
   center: GeographicPoint;
   bounds: BoundingBox;
   approximateSizeMeters: number;
@@ -63,14 +65,23 @@ export type StreamingSelectionMetrics = {
   screenSpaceErrorMax?: number;
   refinedNodeCount: number;
   keptNodeCount: number;
-  /** Estimated points in the maxNodes-limited selection before budgeting. */
+  /** Estimated points in the minimum coarse frontier before impossible-budget handling. */
   candidateSelectedPointCount: number;
-  /** Estimated points accepted by the rendered-point budget. */
+  /** Estimated points in the returned frontier, bounded by the rendered-point budget. */
   budgetedPointCount: number;
   maxRenderedPoints: number;
   deferredNodeCount: number;
   deferredPointCount: number;
   budgetDeferDropCount: number;
+  /** Number and estimated point cost of the settled selected frontier. */
+  frontierNodeCount?: number;
+  frontierPointCount?: number;
+  acceptedRefinementCount?: number;
+  refinementRejectedByNodeBudgetCount?: number;
+  refinementRejectedByPointBudgetCount?: number;
+  refinementDeferredByIncompleteHierarchyCount?: number;
+  minimumFrontierExceedsNodeBudget?: boolean;
+  minimumFrontierExceedsPointBudget?: boolean;
 };
 
 export type StreamingLevelRange = {
