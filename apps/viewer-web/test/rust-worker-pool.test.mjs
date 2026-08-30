@@ -118,6 +118,20 @@ test('Rust decode worker pool bounds concurrency and preserves FIFO order', asyn
   assert.equal(harness.workers.every((worker) => worker.terminated), true);
 });
 
+test('Rust decode worker pool records activity for newly created slots', async () => {
+  const harness = createFakeWorkerHarness();
+  const pool = new RustCopcDecodeWorkerPool({ workerCount: 2, workerFactory: harness.factory });
+  pool.setMetadata(new Uint8Array([9, 8, 7]));
+
+  await Promise.all([
+    pool.submit(request('first', 1)),
+    pool.submit(request('second', 2)),
+  ]);
+
+  assert.equal(pool.getDiagnostics().peakActiveCount, 2);
+  pool.destroy();
+});
+
 test('Rust decode worker pool transfers project-owned XYZ and attributes', async () => {
   const harness = createFakeWorkerHarness();
   const pool = new RustCopcDecodeWorkerPool({ workerCount: 1, workerFactory: harness.factory });

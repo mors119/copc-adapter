@@ -206,6 +206,7 @@ export class RustCopcDecodeWorkerPool {
           }
           this.workers.push(createdSlot);
           createdSlot.current = entry;
+          this.recordPeaks();
           void this.initializeSlot(createdSlot, entry);
           this.dispatch();
         }).catch((error: unknown) => {
