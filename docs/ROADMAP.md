@@ -22,9 +22,9 @@
 
 ## Known Gaps
 
-- Hierarchy pages are loaded incrementally from the root and relevant visible
-  bounds; larger datasets may still require additional requests as the camera
-  moves.
+- Hierarchy loading starts with the root page and follows relevant intersecting
+  pages for the current project-coordinate bounds and target level. Broader
+  optimization for very large datasets remains future work.
 - Selection uses adapter-owned viewport-aware screen-space error with depth and
   node-count safety caps.
 - Range loading and point preparation remain workload-dependent, but Rust
@@ -38,7 +38,7 @@
 
 ## Next Work
 
-1. Improve LoD selection and hierarchy loading for larger datasets.
+1. Improve view-aware LOD selection and hierarchy loading for larger datasets.
 2. Broaden Rust backend format and edge-case coverage before considering it for
   the default backend.
 3. Explore measured scalable rendering approaches and dataset-global attribute

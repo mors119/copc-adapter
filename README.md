@@ -306,10 +306,11 @@ npm run build:library
 npm pack
 ```
 
-The current npm release is `v0.1.1`. It corrects a packaging issue in `v0.1.0`
-where an existing `dist` directory could leave stale files in the published
-artifact. Library builds now clean `dist` first, `npm pack` rebuilds through
-`prepack`, and sample COPC data is excluded from the package.
+The current npm release is `v0.1.1`. The next minor candidate is `v0.2.0`; it
+adds the view-aware streaming, opt-in Rust/WASM, worker, cache, inspection,
+and source-diagnostics work described in the changelog. Library builds clean
+`dist` first, `npm pack` rebuilds through `prepack`, and sample COPC data is
+excluded from the package.
 
 `npm run test:pack` is the release-boundary gate for the generated `.tgz`. It
 builds Rust/WASM and the library, checks the tarball contents, installs it by
@@ -321,16 +322,16 @@ coordinate/attribute rendering, and continued `copc-js` operation. Its
 checked-in template is in `tests/environments/cesium-vite/`; the sample is
 staged only into the disposable consumer and is never packaged.
 
-The npm `latest` version and the package metadata are both `0.1.1` for this
-corrected release.
+The npm `latest` version remains `0.1.1` until the `v0.2.0` candidate is
+published. The candidate package metadata is `0.2.0`.
 
 ## Known Limitations
 
-These are the current v0.1.1 boundaries:
+These are the current v0.2.0 candidate boundaries:
 
-- Hierarchy pages are loaded incrementally from the root and relevant visible
-  bounds; larger datasets may still require additional hierarchy requests as
-  the camera moves.
+- Hierarchy loading starts with the root page and follows only relevant
+  intersecting pages for the current project-coordinate bounds and target
+  level; broader hierarchy/loading optimization remains future work.
 - LoD uses adapter-owned screen-space error with bounds/frustum filtering and
   depth/node-count safety caps; occlusion culling is not implemented yet.
 - Browser Rust/WASM point decode uses a bounded worker pool when `Worker` is
