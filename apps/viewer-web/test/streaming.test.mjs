@@ -381,6 +381,18 @@ test('point-budget refinement rejection preserves the parent', () => {
   assert.equal(selector.getSelectionMetrics().frontierPointCount, 10);
 });
 
+test('budget-reducing refinement rescues an oversized coarse frontier', () => {
+  const selector = createSelector({ maxRenderedPoints: 50 });
+  const hierarchy = createRefinementHierarchy(100, [20, 20]);
+
+  assert.deepEqual(
+    selector.selectVisibleNodes(createCamera(), hierarchy).map((node) => node.node.key),
+    ['1-0-root-0', '1-0-root-1'],
+  );
+  assert.equal(selector.getSelectionMetrics().acceptedRefinementCount, 1);
+  assert.equal(selector.getSelectionMetrics().frontierPointCount, 40);
+});
+
 test('node-budget refinement rejection preserves the parent', () => {
   const selector = createSelector({ maxNodes: 2, maxRenderedPoints: 100 });
   const hierarchy = createRefinementHierarchy(10, [3, 3, 3]);

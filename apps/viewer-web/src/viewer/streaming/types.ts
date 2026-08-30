@@ -46,7 +46,7 @@ export type StreamingSelectionContext = {
 export type StreamingHierarchyNode = {
   node: CopcHierarchyNode;
   children: string[];
-  /** True only when hierarchy loading proved that all direct child topology is known. */
+  /** True only when hierarchy loading proved that all query-relevant direct child topology is known. */
   childrenComplete?: boolean;
   center: GeographicPoint;
   bounds: BoundingBox;

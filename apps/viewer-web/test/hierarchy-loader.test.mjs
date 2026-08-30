@@ -387,6 +387,19 @@ test('HierarchyLoader follows intersecting pages but skips a sibling', async () 
   assert.deepEqual(calls, ['0-0-0-0', '1-0-0-0']);
 });
 
+test('HierarchyLoader does not let an out-of-query page block visible refinement', async () => {
+  const { source } = createIncrementalSource();
+  const loader = new HierarchyLoader(source, cubeBounds);
+
+  const tree = await loader.query({
+    bounds: { ...cubeBounds, maxX: 3.9 },
+    maxLevel: 1,
+  });
+
+  assert.deepEqual(tree.nodes.map((node) => node.key), ['0-0-0-0', '1-0-0-0']);
+  assert.equal(tree.nodes.find((node) => node.key === '0-0-0-0')?.childrenComplete, true);
+});
+
 test('HierarchyLoader reuses pages and loads more when maxLevel increases', async () => {
   const { source, calls } = createIncrementalSource();
   const loader = new HierarchyLoader(source, cubeBounds);
