@@ -21,6 +21,7 @@ consumers should import the generated `@frillab/copc-adapter` package.
   point-cache, stage-timing, range-byte, and (Rust) worker queue metrics 조회
 - `getHierarchyDiagnostics()`: hierarchy page request/cache/byte counters 조회
 - `getPointCacheDiagnostics()`: decoded CPU point-buffer cache counters 조회
+- `getSelectedPoint()`: 현재 live decoded buffer에서 선택된 point inspection 조회
 
 `load()`와 `reload()`는 source/context 생성, metadata 및 CRS 검증,
 root hierarchy page 로딩 실패를 각각 project-owned `CopcLoadError`로 reject한다.
@@ -61,6 +62,8 @@ panel에 그대로 표시할 수 있다. `CopcSourceError`, `CopcMetadataError`,
 - `maxPointCacheBytes`: decoded CPU point-buffer cache budget in bytes (default
   `256 * 1024 * 1024`). This estimates project-owned typed-array storage and
   does not measure exact Cesium/WebGL/browser memory.
+- `onPointPicked`: optional callback receiving the current point inspection, or
+  `undefined` when a non-COPC/empty pick or lifecycle change clears selection.
 
 The Rust selector uses the same layer API; it does not create a Rust-only
 Viewer. Applications continue to create and own `Cesium.Viewer`, then call
@@ -164,6 +167,16 @@ values while preserving `cause`.
 format에 없는 attribute는 생성하지 않는다. RGB/intensity/classification
 style은 해당 typed arrays를 직접 사용하며, attribute 누락 시 fixed color로
 fallback한다.
+
+### Point picking and inspection
+
+Cesium point picks carry only a project-owned `{ nodeKey, pointIndex }` identity
+plus a compact layer-local ownership token. `CopcCesiumLayer.getSelectedPoint()` resolves it through the current
+rendered node and decoded CPU cache, returning transformed position/height,
+retained source XYZ, node level, and available attributes. RGB, intensity, and
+classification remain unavailable when the active field selection did not
+request or decode them. Picking does not force unconditional full-field
+decoding; removed or evicted nodes clear stale selection safely.
 
 - `copc.js`: metadata, hierarchy, point view 로딩
 - `copc-wasm`: focused LAS 1.4 point 6/7/8 node decode and X/Y/Z interleaving

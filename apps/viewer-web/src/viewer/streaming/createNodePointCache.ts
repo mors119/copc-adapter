@@ -13,6 +13,8 @@ export type NodePointCacheDiagnostics = {
 
 export type NodePointCache<TValue> = {
   load(nodeKey: string): Promise<TValue>;
+  /** Return a resolved value without changing cache recency. */
+  get(nodeKey: string): TValue | undefined;
   delete(nodeKey: string): void;
   has(nodeKey: string): boolean;
   getSize(): number;
@@ -34,6 +36,7 @@ const MAX_SAFE_COUNTER = Number.MAX_SAFE_INTEGER;
 type CacheEntry<TValue> = {
   value: Promise<TValue>;
   bytes: number;
+  resolved?: TValue;
 };
 
 function validateMaxEntries(maxEntries: number): void {
@@ -182,6 +185,7 @@ export function createNodePointCache<TValue>(
           // that case its result remains usable by the caller but is not
           // reinserted into the cache or its byte counters.
           if (cache.get(nodeKey) === entry) {
+            entry.resolved = value;
             entry.bytes = normalizeByteCount(estimateBytes(value));
             currentCacheBytes = saturatingAdd(currentCacheBytes, entry.bytes);
             evictIfNeeded();
@@ -198,6 +202,9 @@ export function createNodePointCache<TValue>(
       evictIfNeeded();
 
       return pending;
+    },
+    get(nodeKey: string): TValue | undefined {
+      return cache.get(nodeKey)?.resolved;
     },
     delete(nodeKey: string): void {
       removeEntry(nodeKey);

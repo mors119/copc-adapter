@@ -37,6 +37,7 @@ await layer.load();
 layer.attachTo(viewer);
 
 console.log(layer.getSnapshot());
+console.log(layer.getSelectedPoint()); // undefined until a rendered point is picked
 
 layer.detachFrom();
 layer.destroy();

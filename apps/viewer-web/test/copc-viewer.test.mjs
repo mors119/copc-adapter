@@ -266,6 +266,86 @@ test('CopcLayerController updateStreamingView removes stale nodes and renders ne
   assert.ok(viewer.getSelectionBoundingSphere());
 });
 
+test('CopcLayerController maps Cesium picks and clears unrelated, removed, and evicted selections', () => {
+  const fakeViewer = createFakeViewer();
+  const nodeKey = '4-12-7-3';
+  const points = {
+    pointCount: 1,
+    coordinates: new Float64Array([-123, 44, 132.42]),
+    sourceCoordinates: new Float64Array([500000, 4870000, 434]),
+    attributes: {
+      intensity: new Uint16Array([8241]),
+      classification: new Uint8Array([5]),
+      red: new Uint16Array([12341]),
+      green: new Uint16Array([24211]),
+      blue: new Uint16Array([9841]),
+    },
+  };
+  const renderer = new PointPrimitiveRenderer();
+  renderer.attachTo(fakeViewer);
+  renderer.addOrUpdateNode(nodeKey, points, { pointSize: 3 });
+  const picked = [];
+  const controller = new CopcLayerController({
+    url: 'memory://pick.copc.laz',
+    renderer,
+    onPointPicked: (point) => picked.push(point),
+    backend: 'rust',
+  });
+  controller.streamingState = {
+    nodes: new Map([[nodeKey, {
+      node: { key: nodeKey, level: 4 },
+    }]]),
+    context: {},
+    manager: {},
+  };
+  controller.nodePointCache.get = () => points;
+  fakeViewer.scene.pick = () => ({ id: {
+    nodeKey,
+    pointIndex: 0,
+    ownerId: controller.pickOwnerId,
+  } });
+
+  controller.handlePick(fakeViewer, new Cesium.Cartesian2(10, 10));
+  assert.equal(picked.length, 1);
+  assert.equal(controller.getSelectedPoint().classificationLabel, 'High Vegetation');
+  assert.equal(controller.getSelectedPoint().backend, 'rust');
+
+  fakeViewer.scene.pick = () => ({ id: { unrelated: true } });
+  controller.handlePick(fakeViewer, new Cesium.Cartesian2(10, 10));
+  assert.equal(controller.getSelectedPoint(), undefined);
+  assert.equal(picked.at(-1), undefined);
+
+  fakeViewer.scene.pick = () => ({ id: {
+    nodeKey,
+    pointIndex: 0,
+    ownerId: controller.pickOwnerId,
+  } });
+  controller.handlePick(fakeViewer, new Cesium.Cartesian2(10, 10));
+  controller.nodePointCache.get = () => undefined;
+  assert.equal(controller.getSelectedPoint(), undefined);
+
+  controller.nodePointCache.get = () => points;
+  fakeViewer.scene.pick = () => ({ id: {
+    nodeKey,
+    pointIndex: 0,
+    ownerId: 'copc-layer-foreign',
+  } });
+  controller.handlePick(fakeViewer, new Cesium.Cartesian2(10, 10));
+  assert.equal(controller.getSelectedPoint(), undefined);
+
+  fakeViewer.scene.pick = () => ({ id: {
+    nodeKey,
+    pointIndex: 0,
+    ownerId: controller.pickOwnerId,
+  } });
+  controller.handlePick(fakeViewer, new Cesium.Cartesian2(10, 10));
+  controller.removePointCollection(nodeKey);
+  assert.equal(controller.getSelectedPoint(), undefined);
+
+  controller.unload();
+  assert.equal(controller.getSelectedPoint(), undefined);
+});
+
 test('CopcLayerController retains a coarse parent until all selected replacements are ready', async () => {
   const fakeViewer = createFakeViewer();
   const renderer = new PointPrimitiveRenderer();

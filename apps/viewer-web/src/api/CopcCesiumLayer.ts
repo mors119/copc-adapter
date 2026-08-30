@@ -9,6 +9,7 @@ import type { CopcBackendSelection } from '../copc/backend/selection';
 import type { CopcPointDecoder } from '../copc/points/types';
 import type { CopcHierarchyDiagnostics } from '../copc/hierarchy/types';
 import type { CopcPointRenderer } from '../cesium/render/CopcPointRenderer';
+import type { CopcPointInspection } from '../copc/points/pointInspection';
 import type { NodePointCacheDiagnostics } from '../viewer/streaming/createNodePointCache';
 
 export type { CopcColorMode } from '../cesium/style/pointStyle';
@@ -44,6 +45,8 @@ export type CopcCesiumLayerOptions = {
   decoder?: CopcPointDecoder;
   /** Optional renderer implementation; the default uses Cesium point primitives. */
   renderer?: CopcPointRenderer;
+  /** Called when a rendered COPC point is selected or selection is cleared. */
+  onPointPicked?: (point: CopcPointInspection | undefined) => void;
   /** Maximum retained decoded CPU point-buffer bytes. Defaults to 256 MiB. */
   maxPointCacheBytes?: number;
 };
@@ -115,5 +118,10 @@ export class CopcCesiumLayer {
   /** Return decoded CPU point-buffer cache counters for diagnostics and tests. */
   getPointCacheDiagnostics(): NodePointCacheDiagnostics {
     return this.controller.getPointCacheDiagnostics();
+  }
+
+  /** Return the selected point while its node and decoded buffer are live. */
+  getSelectedPoint(): CopcPointInspection | undefined {
+    return this.controller.getSelectedPoint();
   }
 }

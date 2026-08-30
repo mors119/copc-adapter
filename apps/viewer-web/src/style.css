@@ -28,6 +28,62 @@ body,
   backdrop-filter: blur(10px);
 }
 
+.copc-point-inspector {
+  position: fixed;
+  z-index: 10;
+  right: 14px;
+  bottom: 14px;
+  box-sizing: border-box;
+  width: min(330px, calc(100vw - 28px));
+  padding: 14px;
+  color: #f7f8fa;
+  border: 1px solid rgb(255 255 255 / 16%);
+  border-radius: 10px;
+  background: rgb(15 20 27 / 92%);
+  box-shadow: 0 8px 30px rgb(0 0 0 / 35%);
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  backdrop-filter: blur(10px);
+}
+
+.copc-point-inspector__eyebrow {
+  margin-bottom: 8px;
+  color: #ffca5c;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.copc-point-inspector__empty {
+  color: #98a2b3;
+}
+
+.copc-point-inspector dl {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 10%);
+  border-radius: 7px;
+  background: rgb(255 255 255 / 10%);
+}
+
+.copc-point-inspector dl div {
+  padding: 6px 8px;
+  background: rgb(8 12 18 / 75%);
+}
+
+.copc-point-inspector dt {
+  color: #98a2b3;
+  font-size: 10px;
+}
+
+.copc-point-inspector dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+  color: #fff;
+}
+
 .copc-debug-panel[hidden] {
   display: none;
 }

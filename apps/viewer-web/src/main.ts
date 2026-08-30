@@ -5,6 +5,7 @@ import * as Cesium from 'cesium';
 import { CopcCesiumLayer, type CopcBackendName } from './index';
 import { createCesiumViewer } from './cesium/viewer/createViewer';
 import { createCopcDebugPanel } from './debug/CopcDebugPanel';
+import { createCopcPointInspector } from './debug/CopcPointInspector';
 import { runSyntheticRendererPerformanceBenchmark } from './cesium/render/rendererPerformanceBenchmark';
 
 const COPC_URL = '/samples/autzen.copc.laz';
@@ -30,6 +31,7 @@ type CopcDebugState = {
   worker?: ReturnType<CopcCesiumLayer['getSnapshot']>['worker'];
   longestMainThreadTaskMs: number;
   cesiumFrameDurationMs: number;
+  selectedPoint?: ReturnType<CopcCesiumLayer['getSelectedPoint']>;
 };
 
 function isDebugPanelEnabled(): boolean {
@@ -46,6 +48,7 @@ type CopcDebugAdapter = {
   setCameraHeading(headingDegrees: number): void;
   recordError(error: unknown): void;
   runSyntheticRendererPerformanceBenchmark(): ReturnType<typeof runSyntheticRendererPerformanceBenchmark>;
+  getPickablePointScreenPosition(): { x: number; y: number } | undefined;
 };
 
 function getRenderedPointDiagnostics(viewer: Cesium.Viewer): {
@@ -170,6 +173,7 @@ function installDebugAdapter(
         worker: snapshot.worker,
         longestMainThreadTaskMs,
         cesiumFrameDurationMs,
+        selectedPoint: layer.getSelectedPoint(),
         lastError,
       };
     },
@@ -215,6 +219,30 @@ function installDebugAdapter(
       repetitions: 5,
       warmups: 2,
     }),
+    getPickablePointScreenPosition(): { x: number; y: number } | undefined {
+      for (let collectionIndex = 0;
+        collectionIndex < viewer.scene.primitives.length;
+        collectionIndex += 1) {
+        const collection = viewer.scene.primitives.get(collectionIndex);
+        if (!(collection instanceof Cesium.PointPrimitiveCollection)) continue;
+        for (let pointIndex = 0; pointIndex < collection.length; pointIndex += 1) {
+          const position = Cesium.SceneTransforms.worldToWindowCoordinates(
+            viewer.scene,
+            collection.get(pointIndex).position,
+          );
+          if (
+            position
+            && position.x >= 380
+            && position.x <= viewer.scene.canvas.clientWidth - 4
+            && position.y >= 4
+            && position.y <= viewer.scene.canvas.clientHeight - 4
+          ) {
+            return { x: position.x, y: position.y };
+          }
+        }
+      }
+      return undefined;
+    },
   };
 
   if (exposeGlobally) {
@@ -293,8 +321,12 @@ async function main(): Promise<void> {
         lastError: debugAdapter.getLastError(),
       }))
     : undefined;
+  const pointInspector = createCopcPointInspector(() => layer.getSelectedPoint());
 
-  window.addEventListener('pagehide', () => debugPanel?.destroy(), { once: true });
+  window.addEventListener('pagehide', () => {
+    debugPanel?.destroy();
+    pointInspector.destroy();
+  }, { once: true });
 
   try {
     await layer.load();

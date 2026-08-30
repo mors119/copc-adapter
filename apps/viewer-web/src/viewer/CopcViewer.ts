@@ -14,6 +14,12 @@ import {
   type CopcBackendName,
 } from '../copc/backend/selection';
 import type { CopcPointDecoder } from '../copc/points/types';
+import {
+  inspectCopcPoint,
+  isCopcPointPickId,
+  type CopcPointInspection,
+  type CopcPointPickId,
+} from '../copc/points/pointInspection';
 import { HierarchyLoader } from '../copc/hierarchy/HierarchyLoader';
 import type { CopcHierarchyBounds, CopcHierarchyQuery } from '../copc/hierarchy/types';
 import { CopcHierarchyLoadError, CopcLoadError } from '../copc/errors';
@@ -61,6 +67,8 @@ export type CopcLayerOptions = {
   backend?: CopcBackendSelection;
   decoder?: CopcPointDecoder;
   renderer?: CopcPointRenderer;
+  /** Called when a rendered COPC point is selected or selection is cleared. */
+  onPointPicked?: (point: CopcPointInspection | undefined) => void;
   /** Maximum retained decoded CPU point-buffer bytes. Defaults to 256 MiB. */
   maxPointCacheBytes?: number;
 };
@@ -72,6 +80,13 @@ type StreamingState = {
   nodes: StreamingHierarchy;
   manager: StreamingManager;
 };
+
+let nextPickOwnerId = 0;
+
+function createPickOwnerId(): string {
+  nextPickOwnerId += 1;
+  return `copc-layer-${nextPickOwnerId}`;
+}
 
 function createViewBounds(
   camera: StreamingCameraState,
@@ -189,6 +204,9 @@ export class CopcLayerController {
   private streamingUpdateCount = 0;
   private hasFlownToDataset = false;
   private lifecycle: CopcLayerLifecycleState = 'idle';
+  private selectedPointPickId?: CopcPointPickId;
+  private pickHandler?: Cesium.ScreenSpaceEventHandler;
+  private readonly pickOwnerId = createPickOwnerId();
   private readonly handleCameraMoveEnd = (): void => {
     void this.scheduleStreamingUpdate();
   };
@@ -230,6 +248,7 @@ export class CopcLayerController {
     this.viewer.camera.percentageChanged = 0.02;
     this.viewer.camera.moveEnd.addEventListener(this.handleCameraMoveEnd);
     this.viewer.camera.changed?.addEventListener(this.handleCameraMoveEnd);
+    this.attachPickHandler(this.viewer);
     this.lifecycle = this.streamingState ? 'ready' : 'mounted';
 
     if (this.streamingState) {
@@ -257,7 +276,9 @@ export class CopcLayerController {
 
     this.viewer.camera.moveEnd.removeEventListener(this.handleCameraMoveEnd);
     this.viewer.camera.changed?.removeEventListener(this.handleCameraMoveEnd);
+    this.detachPickHandler();
     this.pointRenderer.detachFrom();
+    this.clearSelectedPoint();
     this.viewer = undefined;
     this.lifecycle = this.streamingState ? 'ready' : 'idle';
   }
@@ -365,6 +386,7 @@ export class CopcLayerController {
     this.streamingState?.manager.clear?.();
     this.streamingState?.context.destroy?.();
     this.pointRenderer.clear();
+    this.clearSelectedPoint();
     this.selectedNodeKeys.clear();
     this.nodePointCache.clear();
     this.streamingState = undefined;
@@ -423,6 +445,28 @@ export class CopcLayerController {
 
   getPointCacheDiagnostics(): NodePointCacheDiagnostics {
     return this.nodePointCache.getDiagnostics();
+  }
+
+  /** Return the selected point if its node and decoded buffer are still live. */
+  getSelectedPoint(): CopcPointInspection | undefined {
+    const pickId = this.selectedPointPickId;
+    const streamingState = this.streamingState;
+    if (!pickId || !streamingState || !this.pointRenderer.hasNode(pickId.nodeKey)) {
+      if (pickId) {
+        this.clearSelectedPoint();
+      }
+      return undefined;
+    }
+
+    const node = streamingState.nodes.get(pickId.nodeKey);
+    const points = this.nodePointCache.get(pickId.nodeKey);
+    const inspection = node && points
+      ? inspectCopcPoint(pickId, node.node, points, getCopcBackendName(this.options.backend))
+      : undefined;
+    if (!inspection) {
+      this.clearSelectedPoint();
+    }
+    return inspection;
   }
 
   /**
@@ -727,6 +771,11 @@ export class CopcLayerController {
         pointSize: this.options.pointSize ?? 3,
         colorMode: this.options.colorMode ?? 'fixed',
         elevationRange: this.getDatasetElevationRange(),
+        pointId: (pointIndex) => ({
+          nodeKey,
+          pointIndex,
+          ownerId: this.pickOwnerId,
+        }),
         onPerformance: (stage, durationMs) => {
           const metricStage = stage === 'geographicToCartesian'
             ? 'geographicToCartesianDurationMs'
@@ -812,7 +861,65 @@ export class CopcLayerController {
   }
 
   private removePointCollection(nodeKey: string): void {
+    if (this.selectedPointPickId?.nodeKey === nodeKey) {
+      this.clearSelectedPoint();
+    }
     this.pointRenderer.removeNode(nodeKey);
+  }
+
+  private attachPickHandler(viewer: Cesium.Viewer): void {
+    const canvas = viewer.scene.canvas;
+    if (!canvas) {
+      return;
+    }
+
+    this.pickHandler = new Cesium.ScreenSpaceEventHandler(canvas);
+    this.pickHandler.setInputAction((movement: { position: Cesium.Cartesian2 }) => {
+      this.handlePick(viewer, movement.position);
+    }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+  }
+
+  private handlePick(viewer: Cesium.Viewer, position: Cesium.Cartesian2): void {
+    const picked = viewer.scene.pick(position) as { id?: unknown } | undefined;
+    if (!picked || !isCopcPointPickId(picked.id)
+      || picked.id.ownerId !== this.pickOwnerId) {
+      this.clearSelectedPoint();
+      return;
+    }
+
+    const pickId = picked.id;
+    const node = this.streamingState?.nodes.get(pickId.nodeKey);
+    const points = this.nodePointCache.get(pickId.nodeKey);
+    const inspection = node && points
+      ? inspectCopcPoint(
+        pickId,
+        node.node,
+        points,
+        getCopcBackendName(this.options.backend),
+      )
+      : undefined;
+
+    if (!inspection || !this.pointRenderer.hasNode(pickId.nodeKey)) {
+      this.clearSelectedPoint();
+      return;
+    }
+
+    this.selectedPointPickId = pickId;
+    this.options.onPointPicked?.(inspection);
+  }
+
+  private detachPickHandler(): void {
+    this.pickHandler?.destroy();
+    this.pickHandler = undefined;
+  }
+
+  private clearSelectedPoint(): void {
+    if (!this.selectedPointPickId) {
+      return;
+    }
+
+    this.selectedPointPickId = undefined;
+    this.options.onPointPicked?.(undefined);
   }
 
   private async loadRenderableNodePoints(nodeKey: string): Promise<GeographicPointBuffer> {

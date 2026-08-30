@@ -77,6 +77,8 @@ export type GeographicCamera = GeographicPoint;
 export type GeographicPointBuffer = {
   pointCount: number;
   coordinates: Float64Array;
+  /** Source-coordinate XYZ retained when a buffer was transformed for Cesium. */
+  sourceCoordinates?: Float64Array;
   attributes?: CopcPointAttributes;
 };
 

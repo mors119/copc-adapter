@@ -43,6 +43,7 @@ data without a separate conversion step.
 - Stable `copc-js` backend and opt-in Rust/WASM backend
 - Fixed, RGB, elevation, intensity, and classification styling
 - Typed TypeScript API and explicit layer lifecycle
+- Public point picking with a compact node/index identity and demo inspector
 - Packed npm artifact with declarations and decoder runtime assets
 
 ## Quick Start
@@ -85,6 +86,15 @@ Cesium, or GPU memory:
 ```ts
 console.log(layer.getPointCacheDiagnostics());
 ```
+
+Rendered points are picked with Cesium's normal `scene.pick` behavior. The
+layer keeps only a project-owned `{ nodeKey, pointIndex }` identity on each
+point and a layer-local ownership token, then resolves it through the current decoded node buffer. Use
+`onPointPicked` or `layer.getSelectedPoint()` after a click to read transformed
+position/height, retained source XYZ, and RGB/intensity/classification when
+those fields were requested and decoded. Missing fields remain unavailable,
+and picking never forces full-field decoding. The demo includes a compact
+lower-right inspector.
 
 The COPC source must support HTTP Range requests. Cross-origin sources also
 need CORS headers that allow the consuming origin and expose the range
