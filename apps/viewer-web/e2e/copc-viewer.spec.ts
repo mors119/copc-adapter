@@ -8,6 +8,14 @@ type CopcDebugState = {
   scenePointCollectionCount: number;
   renderedNodeKeys: string[];
   selectedNodeKeys: string[];
+  transition: {
+    activeReplacementGroupCount: number;
+    replacementGroupsWaitingCount: number;
+    refinementReplacementCommitCount: number;
+    collapseReplacementCommitCount: number;
+    staleReplacementCancellationCount: number;
+    coarseNodesRetainedForCoverageCount: number;
+  };
   streamingUpdateCount: number;
   cameraMoveEventCount: number;
   cameraPitchDegrees: number;
@@ -147,6 +155,8 @@ test('streams a COPC sample through the opt-in Rust backend in a real Cesium sce
   });
   await expect.poll(async () => (await getDebugState(page)).streamingUpdateCount)
     .toBeGreaterThan(farState.streamingUpdateCount);
+  await expect.poll(async () => (await getDebugState(page)).transition.activeReplacementGroupCount)
+    .toBe(0);
   const nearState = await getDebugState(page);
 
   expect(nearState.cameraMoveEventCount).toBeGreaterThanOrEqual(2);
@@ -204,13 +214,21 @@ test('keeps the representative Autzen Far to Near refinement progressive', async
   expect(nearState.performance.visibleLevelRange.max)
     .toBeGreaterThanOrEqual(farState.performance.visibleLevelRange.max);
   expect(nearState.renderedPointCount).not.toBe(farState.renderedPointCount);
+  expect(nearState.transition.activeReplacementGroupCount).toBe(0);
+  expect(nearState.transition.refinementReplacementCommitCount)
+    .toBeGreaterThan(farState.transition.refinementReplacementCommitCount);
 
   await page.evaluate(() => window.__COPC_DEBUG__?.setCameraHeight(10000));
   await expect.poll(async () => (await getDebugState(page)).selectedNodeKeys.length)
     .toBe(farState.selectedNodeKeys.length);
+  await expect.poll(async () => (await getDebugState(page)).transition.activeReplacementGroupCount)
+    .toBe(0);
   await expect.poll(async () => (await getDebugState(page)).renderedPointCount)
     .toBeGreaterThan(0);
   const farAgainState = await getDebugState(page);
+  expect(farAgainState.transition.activeReplacementGroupCount).toBe(0);
+  expect(farAgainState.transition.collapseReplacementCommitCount)
+    .toBeGreaterThan(nearState.transition.collapseReplacementCommitCount);
 
   await page.evaluate(() => window.__COPC_DEBUG__?.setCameraHeight(1000));
   await expect.poll(async () => (await getDebugState(page)).performance.visibleLevelRange.max)

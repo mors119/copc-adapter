@@ -404,6 +404,218 @@ test('CopcLayerController retains a coarse parent until all selected replacement
   assert.deepEqual(viewer.getRenderedNodeKeys(), ['1-0-0-0']);
 });
 
+test('CopcLayerController commits complete refinement and collapse groups coverage-safely', async () => {
+  const fakeViewer = createFakeViewer();
+  const renderer = new PointPrimitiveRenderer();
+  const controller = new CopcLayerController({
+    url: '/samples/autzen.copc.laz',
+    renderer,
+    maxRenderedPoints: 100,
+  });
+  const parentKey = '0-parent';
+  const childKeys = ['1-a', '1-b', '1-c', '1-d'];
+  const parent = { node: { key: parentKey, level: 0, pointCount: 40 }, children: childKeys };
+  const nodes = new Map([
+    [parentKey, parent],
+    ...childKeys.map((key) => [key, { node: { key, level: 1, pointCount: 25 }, children: [] }]),
+  ]);
+  const replacementGroups = [{
+    kind: 'refinement',
+    oldNodeKeys: [parentKey],
+    newNodeKeys: childKeys,
+  }];
+  const collapseGroup = [{
+    kind: 'collapse',
+    oldNodeKeys: childKeys,
+    newNodeKeys: [parentKey],
+  }];
+  const makePoints = (pointCount, height) => ({
+    pointCount,
+    coordinates: new Float64Array(pointCount * 3).fill(height),
+  });
+  const renderedAtProgress = [];
+  let updateCount = 0;
+
+  renderer.attachTo(fakeViewer);
+  renderer.addOrUpdateNode(parentKey, makePoints(40, 10), { pointSize: 2 });
+  controller.viewer = fakeViewer;
+  controller.streamingState = createStreamingState(async (_camera, onProgress) => {
+    updateCount += 1;
+    if (updateCount === 1) {
+      onProgress({
+        selectedNodeKeys: childKeys,
+        removedNodeKeys: [parentKey],
+        loadedNodePoints: new Map(),
+        completedBatchPointCount: 0,
+        replacementGroups,
+        generation: 1,
+      });
+      onProgress({
+        selectedNodeKeys: childKeys,
+        removedNodeKeys: [parentKey],
+        loadedNodePoints: new Map([
+          [childKeys[0], makePoints(25, 20)],
+          [childKeys[1], makePoints(25, 30)],
+        ]),
+        completedBatchPointCount: 50,
+        replacementGroups,
+        generation: 1,
+      });
+      renderedAtProgress.push(controller.getRenderedNodeKeys());
+      onProgress({
+        selectedNodeKeys: childKeys,
+        removedNodeKeys: [parentKey],
+        loadedNodePoints: new Map([
+          [childKeys[2], makePoints(25, 40)],
+          [childKeys[3], makePoints(25, 50)],
+        ]),
+        completedBatchPointCount: 50,
+        replacementGroups,
+        generation: 1,
+      });
+      return {
+        selectedNodeKeys: childKeys,
+        removedNodeKeys: [parentKey],
+        loadedNodePoints: new Map(),
+        replacementGroups,
+        generation: 1,
+      };
+    }
+
+    onProgress({
+      selectedNodeKeys: [parentKey],
+      removedNodeKeys: childKeys,
+      loadedNodePoints: new Map(),
+      completedBatchPointCount: 0,
+      replacementGroups: collapseGroup,
+      generation: 2,
+    });
+    renderedAtProgress.push(controller.getRenderedNodeKeys());
+    onProgress({
+      selectedNodeKeys: [parentKey],
+      removedNodeKeys: childKeys,
+      loadedNodePoints: new Map([[parentKey, makePoints(40, 60)]]),
+      completedBatchPointCount: 40,
+      replacementGroups: collapseGroup,
+      generation: 2,
+    });
+    return {
+      selectedNodeKeys: [parentKey],
+      removedNodeKeys: childKeys,
+      loadedNodePoints: new Map(),
+      replacementGroups: collapseGroup,
+      generation: 2,
+    };
+  }, nodes);
+  let cacheDeletes = 0;
+  const originalCacheDelete = controller.nodePointCache.delete;
+  controller.nodePointCache.delete = (nodeKey) => {
+    cacheDeletes += 1;
+    originalCacheDelete(nodeKey);
+  };
+
+  await controller.updateStreamingView();
+  assert.deepEqual(renderedAtProgress[0], [parentKey, childKeys[0], childKeys[1]]);
+  assert.deepEqual(controller.getRenderedNodeKeys(), childKeys);
+  assert.equal(controller.getSnapshot().transition.refinementReplacementCommitCount, 1);
+  assert.equal(controller.getSnapshot().transition.activeReplacementGroupCount, 0);
+
+  await controller.updateStreamingView();
+  assert.deepEqual(renderedAtProgress[1], childKeys);
+  assert.deepEqual(controller.getRenderedNodeKeys(), [parentKey]);
+  assert.equal(controller.getSnapshot().transition.collapseReplacementCommitCount, 1);
+  assert.equal(cacheDeletes, 0);
+});
+
+test('CopcLayerController cancels superseded replacement groups before stale data arrives', async () => {
+  const fakeViewer = createFakeViewer();
+  const renderer = new PointPrimitiveRenderer();
+  const controller = new CopcLayerController({
+    url: '/samples/autzen.copc.laz',
+    renderer,
+    maxRenderedPoints: 100,
+  });
+  const parentKey = '0-parent';
+  const oldChildKeys = ['1-a', '1-b', '1-c', '1-d'];
+  const newChildKeys = ['1-e', '1-f'];
+  const makePoints = (pointCount, height) => ({
+    pointCount,
+    coordinates: new Float64Array(pointCount * 3).fill(height),
+  });
+  const updates = [];
+  const refinement = [{
+    kind: 'refinement',
+    oldNodeKeys: [parentKey],
+    newNodeKeys: oldChildKeys,
+  }];
+  const retarget = [{
+    kind: 'retarget',
+    oldNodeKeys: ['1-a', '1-b'],
+    newNodeKeys: newChildKeys,
+  }];
+
+  renderer.attachTo(fakeViewer);
+  renderer.addOrUpdateNode(parentKey, makePoints(40, 10), { pointSize: 2 });
+  controller.viewer = fakeViewer;
+  controller.streamingState = createStreamingState((_camera, onProgress) =>
+    new Promise((resolve) => updates.push({ onProgress, resolve })), new Map());
+
+  const firstUpdate = controller.updateStreamingView();
+  await Promise.resolve();
+  updates[0].onProgress({
+    selectedNodeKeys: oldChildKeys,
+    removedNodeKeys: [parentKey],
+    loadedNodePoints: new Map([['1-a', makePoints(20, 20)]]),
+    completedBatchPointCount: 20,
+    replacementGroups: refinement,
+    generation: 1,
+  });
+  assert.deepEqual(controller.getRenderedNodeKeys(), [parentKey, '1-a']);
+
+  const secondUpdate = controller.updateStreamingView();
+  await Promise.resolve();
+  updates[1].onProgress({
+    selectedNodeKeys: newChildKeys,
+    removedNodeKeys: oldChildKeys,
+    loadedNodePoints: new Map([
+      ['1-e', makePoints(30, 30)],
+      ['1-f', makePoints(30, 40)],
+    ]),
+    completedBatchPointCount: 60,
+    replacementGroups: retarget,
+    generation: 2,
+  });
+  updates[1].resolve({
+    selectedNodeKeys: newChildKeys,
+    removedNodeKeys: oldChildKeys,
+    loadedNodePoints: new Map(),
+    replacementGroups: retarget,
+    generation: 2,
+  });
+  await secondUpdate;
+
+  updates[0].onProgress({
+    selectedNodeKeys: oldChildKeys,
+    removedNodeKeys: [parentKey],
+    loadedNodePoints: new Map([['1-d', makePoints(20, 50)]]),
+    completedBatchPointCount: 20,
+    replacementGroups: refinement,
+    generation: 1,
+  });
+  updates[0].resolve({
+    selectedNodeKeys: oldChildKeys,
+    removedNodeKeys: [parentKey],
+    loadedNodePoints: new Map(),
+    replacementGroups: refinement,
+    generation: 1,
+  });
+  await firstUpdate;
+
+  assert.deepEqual(controller.getCurrentSelection(), newChildKeys);
+  assert.deepEqual(controller.getRenderedNodeKeys(), newChildKeys);
+  assert.equal(controller.getSnapshot().transition.staleReplacementCancellationCount, 1);
+});
+
 test('CopcLayerController ignores loaded nodes after destroy during an in-flight update', async () => {
   const fakeViewer = createFakeViewer();
   const viewer = new CopcLayerController({

@@ -6,6 +6,7 @@ import type {
   StreamingHierarchy,
   StreamingSelectionOptions,
   StreamingHierarchyNode,
+  StreamingReplacementGroup,
   StreamingUpdateResult,
 } from './types';
 import { performanceNow } from '../../copc/performance';
@@ -25,6 +26,98 @@ function isQueuedDecodeCancellation(error: unknown): boolean {
     && cause !== null
     && 'workerCode' in cause
     && cause.workerCode === 'worker-cancelled';
+}
+
+function isAncestor(
+  ancestorKey: string,
+  descendantKey: string,
+  hierarchy: StreamingHierarchy,
+): boolean {
+  if (ancestorKey === descendantKey) {
+    return false;
+  }
+
+  const visited = new Set<string>();
+  const pending = [...(hierarchy.get(ancestorKey)?.children ?? [])];
+  while (pending.length > 0) {
+    const nodeKey = pending.pop();
+    if (!nodeKey || visited.has(nodeKey)) {
+      continue;
+    }
+    if (nodeKey === descendantKey) {
+      return true;
+    }
+    visited.add(nodeKey);
+    pending.push(...(hierarchy.get(nodeKey)?.children ?? []));
+  }
+
+  return false;
+}
+
+function createReplacementGroups(
+  previousNodeKeys: readonly string[],
+  nextNodeKeys: readonly string[],
+  hierarchy: StreamingHierarchy,
+): StreamingReplacementGroup[] {
+  const previous = [...previousNodeKeys].sort();
+  const next = [...nextNodeKeys].sort();
+  const removed = previous.filter((nodeKey) => !next.includes(nodeKey));
+  const added = next.filter((nodeKey) => !previous.includes(nodeKey));
+  const usedOld = new Set<string>();
+  const usedNew = new Set<string>();
+  const groups: StreamingReplacementGroup[] = [];
+
+  for (const oldNodeKey of removed) {
+    const descendants = added.filter((nodeKey) =>
+      isAncestor(oldNodeKey, nodeKey, hierarchy));
+    if (descendants.length === 0) {
+      continue;
+    }
+
+    groups.push({
+      kind: 'refinement',
+      oldNodeKeys: [oldNodeKey],
+      newNodeKeys: descendants,
+    });
+    usedOld.add(oldNodeKey);
+    for (const nodeKey of descendants) {
+      usedNew.add(nodeKey);
+    }
+  }
+
+  for (const newNodeKey of added) {
+    if (usedNew.has(newNodeKey)) {
+      continue;
+    }
+
+    const descendants = removed.filter((nodeKey) =>
+      !usedOld.has(nodeKey) && isAncestor(newNodeKey, nodeKey, hierarchy));
+    if (descendants.length === 0) {
+      continue;
+    }
+
+    groups.push({
+      kind: 'collapse',
+      oldNodeKeys: descendants,
+      newNodeKeys: [newNodeKey],
+    });
+    for (const nodeKey of descendants) {
+      usedOld.add(nodeKey);
+    }
+    usedNew.add(newNodeKey);
+  }
+
+  const remainingOld = removed.filter((nodeKey) => !usedOld.has(nodeKey));
+  const remainingNew = added.filter((nodeKey) => !usedNew.has(nodeKey));
+  if (remainingOld.length > 0 && remainingNew.length > 0) {
+    groups.push({
+      kind: 'retarget',
+      oldNodeKeys: remainingOld,
+      newNodeKeys: remainingNew,
+    });
+  }
+
+  return groups;
 }
 
 export class StreamingManager {
@@ -92,6 +185,11 @@ export class StreamingManager {
     const nextSelectedNodeKeys = new Set(
       selectedNodes.map((entry) => entry.node.key),
     );
+    const replacementGroups = createReplacementGroups(
+      [...this.selectedNodeKeys],
+      [...nextSelectedNodeKeys],
+      this.hierarchy,
+    );
     const removedNodeKeys = [...this.selectedNodeKeys]
       .filter((nodeKey) => !nextSelectedNodeKeys.has(nodeKey))
       .sort();
@@ -117,6 +215,8 @@ export class StreamingManager {
       removedNodeKeys,
       loadedNodePoints: new Map(),
       completedBatchPointCount: 0,
+      replacementGroups,
+      generation: updateGeneration,
     });
 
     const loadedNodePoints = new Map<string, GeographicPointBuffer>();
@@ -170,6 +270,8 @@ export class StreamingManager {
             removedNodeKeys,
             loadedNodePoints: new Map([[loaded.nodeKey, loaded.points]]),
             completedBatchPointCount: loaded.points.pointCount,
+            replacementGroups,
+            generation: updateGeneration,
           });
         }
       }
@@ -189,6 +291,8 @@ export class StreamingManager {
       selectedNodeKeys: [...nextSelectedNodeKeys].sort(),
       removedNodeKeys,
       loadedNodePoints,
+      replacementGroups,
+      generation: updateGeneration,
     };
   }
 

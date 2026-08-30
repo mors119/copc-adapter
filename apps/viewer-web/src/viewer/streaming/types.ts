@@ -91,10 +91,24 @@ export type StreamingLevelRange = {
 
 export type StreamingHierarchy = Map<string, StreamingHierarchyNode>;
 
+export type StreamingReplacementKind = 'refinement' | 'collapse' | 'retarget';
+
+/**
+ * A logical visible-coverage transition. The old nodes remain valid coverage
+ * until every new node has been prepared by the renderer.
+ */
+export type StreamingReplacementGroup = {
+  kind: StreamingReplacementKind;
+  oldNodeKeys: string[];
+  newNodeKeys: string[];
+};
+
 export type StreamingUpdateResult = {
   selectedNodeKeys: string[];
   removedNodeKeys: string[];
   loadedNodePoints: Map<string, GeographicPointBuffer>;
+  replacementGroups: StreamingReplacementGroup[];
+  generation: number;
 };
 
 export type StreamingProgress = {
@@ -102,4 +116,6 @@ export type StreamingProgress = {
   removedNodeKeys: string[];
   loadedNodePoints: Map<string, GeographicPointBuffer>;
   completedBatchPointCount: number;
+  replacementGroups: StreamingReplacementGroup[];
+  generation: number;
 };

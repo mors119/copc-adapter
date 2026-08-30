@@ -1084,6 +1084,14 @@ test('CopcCesiumLayer snapshot exposes lifecycle and dataset info', () => {
       nodeRemovalDurationMs: 0,
       longestMainThreadBlockingSectionMs: 0,
     },
+    transition: {
+      activeReplacementGroupCount: 0,
+      replacementGroupsWaitingCount: 0,
+      refinementReplacementCommitCount: 0,
+      collapseReplacementCommitCount: 0,
+      staleReplacementCancellationCount: 0,
+      coarseNodesRetainedForCoverageCount: 0,
+    },
     pointCache: {
       cacheByteBudget: 256 * 1024 * 1024,
       currentCacheBytes: 0,

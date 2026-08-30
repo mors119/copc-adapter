@@ -4,6 +4,14 @@ type DebugState = {
   layerLoaded: boolean;
   renderedPointCount: number;
   selectedNodeKeys: string[];
+  transition: {
+    activeReplacementGroupCount: number;
+    replacementGroupsWaitingCount: number;
+    refinementReplacementCommitCount: number;
+    collapseReplacementCommitCount: number;
+    staleReplacementCancellationCount: number;
+    coarseNodesRetainedForCoverageCount: number;
+  };
   streamingUpdateCount: number;
   backend: string;
   performance: Record<string, number> & {
@@ -81,7 +89,9 @@ async function waitForIdle(page: import('@playwright/test').Page): Promise<Debug
     const current = await getState(page);
     const workerIdle = !current.worker
       || (current.worker.activeCount === 0 && current.worker.queuedCount === 0);
-    if (workerIdle && current.streamingUpdateCount === previous.streamingUpdateCount) {
+    if (workerIdle
+      && current.transition.activeReplacementGroupCount === 0
+      && current.streamingUpdateCount === previous.streamingUpdateCount) {
       stableSamples += 1;
       if (stableSamples >= 2) return current;
     } else {
@@ -130,6 +140,7 @@ function summarize(state: DebugState): Record<string, unknown> {
     renderedPointCount: state.renderedPointCount,
     selectedNodeCount: state.selectedNodeKeys.length,
     streamingUpdateCount: state.streamingUpdateCount,
+    transition: state.transition,
     performance: state.performance,
     pointCache: state.pointCache,
     worker: state.worker,
@@ -212,6 +223,7 @@ test('records the Autzen Far/Near, rotation, and stale-work streaming gate', asy
   expect(staleWork.lastError).toBeUndefined();
   expect(staleWork.renderedPointCount).toBeLessThanOrEqual(250_000);
   expect(staleWork.performance.activeRenderedPointCount).toBeLessThanOrEqual(250_000);
+  expect(staleWork.transition.activeReplacementGroupCount).toBe(0);
   expect(staleWork.worker).toBeDefined();
   expect(staleWork.worker!.activeCount).toBeLessThanOrEqual(staleWork.worker!.workerCount);
   expect(staleWork.worker!.queuedCount).toBe(0);

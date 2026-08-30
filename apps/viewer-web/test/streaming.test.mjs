@@ -1158,7 +1158,17 @@ test('StreamingManager uses cached nodes and loads missing nodes', async () => {
   assert.equal(loadCount, 2);
   assert.deepEqual(thirdUpdate.selectedNodeKeys, ['1-0-0-0']);
   assert.deepEqual(thirdUpdate.removedNodeKeys, ['0-0-0-0']);
+  assert.deepEqual(thirdUpdate.replacementGroups, [{
+    kind: 'refinement',
+    oldNodeKeys: ['0-0-0-0'],
+    newNodeKeys: ['1-0-0-0'],
+  }]);
   assert.deepEqual(fourthUpdate.selectedNodeKeys, ['0-0-0-0']);
+  assert.deepEqual(fourthUpdate.replacementGroups, [{
+    kind: 'collapse',
+    oldNodeKeys: ['1-0-0-0'],
+    newNodeKeys: ['0-0-0-0'],
+  }]);
   assert.equal(loadCount, 2);
 });
 

@@ -36,4 +36,6 @@ export type {
   StreamingSelectionContext,
   StreamingUpdateResult,
   StreamingProgress,
+  StreamingReplacementGroup,
+  StreamingReplacementKind,
 } from './types';
