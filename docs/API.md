@@ -87,7 +87,11 @@ CORS checks in `warnings`. The current reader requires the browser to send a
   `250000`, informed by the issue-48 renderer benchmark. `maxScreenSpaceError` is the maximum
   projected replacement error in pixels and defaults to `8`. The former
   `refineDistanceMultiplier` remains accepted for source compatibility but is
-  deprecated and no longer controls refinement.
+  deprecated and no longer controls refinement. `maxRenderDistanceMeters` is
+  applied to the existing camera-to-node-bounds visibility test. When a valid
+  perspective view is available, hierarchy discovery uses the same effective
+  distance as the far extent of a conservative view-frustum query; it does not
+  redefine the option as a spherical or geographic camera-radius box.
 - `backend`: `'copc-js' | 'rust' | CopcBackend`; defaults to `'copc-js'`.
   Rust is opt-in and does not silently fall back to `copc-js`.
 - `decoder`: optional `CopcPointDecoder`; defaults to the Rust/WASM decoder

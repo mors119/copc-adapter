@@ -16,6 +16,8 @@ export { StreamingPerformanceRecorder } from './performance';
 export {
   createBoundingSphereFromGeographicBounds,
   createPerspectiveViewFrustum,
+  createStreamingViewBounds,
+  ecefToGeographic,
   geographicToEcef,
   intersectsViewFrustum,
 } from './view';
@@ -26,6 +28,9 @@ export type {
 export type {
   BoundingSphere,
   FrustumPlane,
+  GeographicViewBounds,
+  StreamingViewBounds,
+  StreamingViewBoundsInput,
   ViewFrustum,
   ViewVector3,
 } from './view';

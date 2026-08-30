@@ -44,6 +44,13 @@ type CopcDebugState = {
     bytesEvicted: number;
     largestCachedEntryBytes: number;
   };
+  hierarchy: {
+    pageRequests: number;
+    pageCacheHits: number;
+    hierarchyBytesFetched: number;
+    loadedPageCount: number;
+    loadedEntryCount: number;
+  };
   longestMainThreadTaskMs: number;
   cesiumFrameDurationMs: number;
 };
@@ -274,4 +281,101 @@ test('keeps the representative Autzen Far to Near refinement progressive', async
   expect(finalState.performance.selectedNodeCount).toBeGreaterThan(0);
   expect(finalState.performance.estimatedSelectedPointCount).toBeGreaterThan(0);
   expect(finalState.longestMainThreadTaskMs).toBeLessThan(60000);
+});
+
+test('keeps constrained oblique hierarchy coverage aligned with camera direction', async ({
+  page,
+}) => {
+  await page.goto('/?scenario=issue128&backend=rust&debugPanel=false');
+
+  await expect.poll(() => getDebugState(page), { timeout: 120_000 }).toMatchObject({
+    viewerReady: true,
+    layerLoaded: true,
+    backend: 'rust',
+  });
+  await expect.poll(async () => (await getDebugState(page)).renderedPointCount, {
+    timeout: 120_000,
+  }).toBeGreaterThan(0);
+
+  const overview = await getDebugState(page);
+  expect(overview.hierarchy?.pageRequests).toBeGreaterThan(0);
+
+  await page.evaluate(() => {
+    window.__COPC_DEBUG__?.setCameraPitch(-35);
+    window.__COPC_DEBUG__?.setCameraHeading(90);
+  });
+  await expect.poll(async () => (await getDebugState(page)).streamingUpdateCount, {
+    timeout: 120_000,
+  }).toBeGreaterThan(overview.streamingUpdateCount);
+  await expect.poll(async () => (await getDebugState(page)).transition.activeReplacementGroupCount)
+    .toBe(0);
+  const nearOblique = await getDebugState(page);
+
+  await page.evaluate(() => window.__COPC_DEBUG__?.setCameraHeading(270));
+  await expect.poll(async () => (await getDebugState(page)).streamingUpdateCount, {
+    timeout: 120_000,
+  }).toBeGreaterThan(nearOblique.streamingUpdateCount);
+  await expect.poll(async () => (await getDebugState(page)).transition.activeReplacementGroupCount)
+    .toBe(0);
+  const farOblique = await getDebugState(page);
+
+  expect(nearOblique.renderedPointCount).toBeGreaterThan(0);
+  expect(farOblique.renderedPointCount).toBeGreaterThan(0);
+  expect(nearOblique.selectedNodeKeys).not.toEqual([]);
+  expect(farOblique.selectedNodeKeys).not.toEqual([]);
+  expect(farOblique.hierarchy?.pageRequests).toBeGreaterThanOrEqual(
+    nearOblique.hierarchy?.pageRequests ?? 0,
+  );
+  expect(farOblique.hierarchy?.pageCacheHits).toBeGreaterThan(
+    overview.hierarchy?.pageCacheHits ?? 0,
+  );
+  expect(farOblique.lastError).toBeUndefined();
+
+  const stationaryHierarchyRequestCount = farOblique.hierarchy?.pageRequests;
+  await page.waitForTimeout(750);
+  expect((await getDebugState(page)).hierarchy?.pageRequests)
+    .toBe(stationaryHierarchyRequestCount);
+
+  await page.goto('/?scenario=issue128&distance=12000&backend=rust&debugPanel=false');
+  await expect.poll(() => getDebugState(page), { timeout: 120_000 }).toMatchObject({
+    viewerReady: true,
+    layerLoaded: true,
+    backend: 'rust',
+  });
+  await expect.poll(async () => (await getDebugState(page)).renderedPointCount, {
+    timeout: 120_000,
+  }).toBeGreaterThan(0);
+  const largeDistance = await getDebugState(page);
+  expect(largeDistance.lastError).toBeUndefined();
+  expect(largeDistance.hierarchy?.pageRequests).toBeGreaterThan(0);
+});
+
+test('uses the same constrained view hierarchy policy with copc-js', async ({ page }) => {
+  await page.goto('/?scenario=issue128&backend=copc-js&debugPanel=false');
+
+  await expect.poll(() => getDebugState(page), { timeout: 120_000 }).toMatchObject({
+    viewerReady: true,
+    layerLoaded: true,
+    backend: 'copc-js',
+  });
+  await expect.poll(async () => (await getDebugState(page)).renderedPointCount, {
+    timeout: 120_000,
+  }).toBeGreaterThan(0);
+
+  const beforeRotation = await getDebugState(page);
+  await page.evaluate(() => {
+    window.__COPC_DEBUG__?.setCameraPitch(-35);
+    window.__COPC_DEBUG__?.setCameraHeading(90);
+  });
+  await expect.poll(async () => (await getDebugState(page)).streamingUpdateCount, {
+    timeout: 120_000,
+  }).toBeGreaterThan(beforeRotation.streamingUpdateCount);
+  const rotated = await getDebugState(page);
+
+  expect(rotated.renderedPointCount).toBeGreaterThan(0);
+  expect(rotated.hierarchy?.pageRequests).toBeGreaterThan(0);
+  expect(rotated.hierarchy?.pageCacheHits).toBeGreaterThan(
+    beforeRotation.hierarchy?.pageCacheHits ?? 0,
+  );
+  expect(rotated.lastError).toBeUndefined();
 });
