@@ -306,11 +306,10 @@ npm run build:library
 npm pack
 ```
 
-The current npm release is `v0.1.1`. The next minor candidate is `v0.2.0`; it
-adds the view-aware streaming, opt-in Rust/WASM, worker, cache, inspection,
-and source-diagnostics work described in the changelog. Library builds clean
-`dist` first, `npm pack` rebuilds through `prepack`, and sample COPC data is
-excluded from the package.
+The `v0.2.0` release adds view-aware streaming, opt-in Rust/WASM, worker,
+cache, inspection, and source-diagnostics work described in the changelog.
+Library builds clean `dist` first, `npm pack` rebuilds through `prepack`, and
+sample COPC data is excluded from the package.
 
 `npm run test:pack` is the release-boundary gate for the generated `.tgz`. It
 builds Rust/WASM and the library, checks the tarball contents, installs it by
@@ -322,12 +321,11 @@ coordinate/attribute rendering, and continued `copc-js` operation. Its
 checked-in template is in `tests/environments/cesium-vite/`; the sample is
 staged only into the disposable consumer and is never packaged.
 
-The npm `latest` version remains `0.1.1` until the `v0.2.0` candidate is
-published. The candidate package metadata is `0.2.0`.
+The package metadata for this release is `0.2.0`.
 
 ## Known Limitations
 
-These are the current v0.2.0 candidate boundaries:
+These are the documented v0.2.0 boundaries:
 
 - Hierarchy loading starts with the root page and follows only relevant
   intersecting pages for the current project-coordinate bounds and target
