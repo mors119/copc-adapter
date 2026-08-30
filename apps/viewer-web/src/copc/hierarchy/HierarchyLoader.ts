@@ -221,7 +221,13 @@ export class HierarchyLoader {
     }
 
     assertNoPageCycles(this.pageChildren);
-    return finalizeHierarchyTree(this.tree, query.maxLevel, this.loadedPageKeys);
+    return finalizeHierarchyTree(
+      this.tree,
+      query.maxLevel,
+      this.loadedPageKeys,
+      query.bounds,
+      this.cubeBounds,
+    );
   }
 
   getDiagnostics(): CopcHierarchyDiagnostics {

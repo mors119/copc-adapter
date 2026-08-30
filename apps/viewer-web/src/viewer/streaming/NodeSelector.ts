@@ -374,32 +374,6 @@ export class NodeSelector {
       };
     };
 
-    // A minimum frontier that cannot fit is the one explicit exception to
-    // atomic refinement. Keep the existing hard-safety behavior by returning
-    // a deterministic bounded subset and recording that coverage is impossible
-    // under the configured limits.
-    if (exceedsNodeBudget || exceedsPointBudget) {
-      const accepted: StreamingHierarchyNode[] = [];
-      let acceptedPointCount = 0;
-      for (const candidate of initialFrontier
-        .map(toPrioritised)
-        .sort(compareBudgetPriority)) {
-        const canFitNodeBudget = accepted.length < this.options.maxNodes;
-        const canFitPointBudget = candidate.pointCost <= budget - acceptedPointCount;
-        if (canFitNodeBudget && canFitPointBudget) {
-          accepted.push(candidate.node);
-          acceptedPointCount += candidate.pointCost;
-        } else {
-          this.lastSelectionMetrics.deferredNodeCount += 1;
-          this.lastSelectionMetrics.deferredPointCount += candidate.pointCost;
-          this.lastSelectionMetrics.budgetDeferDropCount += 1;
-        }
-      }
-
-      this.recordFrontierMetrics(accepted, initialPointCount, acceptedPointCount);
-      return accepted.sort((left, right) => compareNodePriority(camera, left, right));
-    }
-
     if (!fallbackUsed) {
       const pending = new Map<string, RefinementCandidate>();
       const enqueue = (parent: StreamingHierarchyNode): void => {
@@ -467,14 +441,24 @@ export class NodeSelector {
         const nextPointCount = frontierPointCount
           - candidate.pointCost
           + candidate.replacementPointCost;
-        if (nextNodeCount > this.options.maxNodes) {
-          this.lastSelectionMetrics.refinementRejectedByNodeBudgetCount =
-            (this.lastSelectionMetrics.refinementRejectedByNodeBudgetCount ?? 0) + 1;
-          continue;
-        }
-        if (nextPointCount > budget) {
-          this.lastSelectionMetrics.refinementRejectedByPointBudgetCount =
-            (this.lastSelectionMetrics.refinementRejectedByPointBudgetCount ?? 0) + 1;
+        const fitsBudgets = nextNodeCount <= this.options.maxNodes
+          && nextPointCount <= budget;
+        // An initially oversized point frontier may need more than one
+        // refinement before it fits. Permit only a strictly point-reducing
+        // intermediate transaction, and never let the internal frontier
+        // exceed the node budget. The returned frontier is still hard-bounded.
+        const isBudgetReducingPointStep = frontier.size <= this.options.maxNodes
+          && frontierPointCount > budget
+          && nextNodeCount <= this.options.maxNodes
+          && nextPointCount < frontierPointCount;
+        if (!fitsBudgets && !isBudgetReducingPointStep) {
+          if (nextNodeCount > this.options.maxNodes) {
+            this.lastSelectionMetrics.refinementRejectedByNodeBudgetCount =
+              (this.lastSelectionMetrics.refinementRejectedByNodeBudgetCount ?? 0) + 1;
+          } else {
+            this.lastSelectionMetrics.refinementRejectedByPointBudgetCount =
+              (this.lastSelectionMetrics.refinementRejectedByPointBudgetCount ?? 0) + 1;
+          }
           continue;
         }
 
@@ -493,8 +477,53 @@ export class NodeSelector {
 
       const selected = [...frontier.values()]
         .sort((left, right) => compareNodePriority(camera, left, right));
+
+      // A refinement can reduce the workload of an initially oversized
+      // frontier (for example, a 100-point parent replaced by two 20-point
+      // children). Try those atomic replacements before applying the existing
+      // deterministic hard-safety fallback. The fallback is only needed when
+      // no complete refinement sequence can bring the minimum visible
+      // frontier under the configured limits.
+      if (
+        (frontier.size > this.options.maxNodes || frontierPointCount > budget)
+        && (exceedsNodeBudget || exceedsPointBudget)
+      ) {
+        const accepted: StreamingHierarchyNode[] = [];
+        let acceptedPointCount = 0;
+        for (const candidate of initialFrontier
+          .map(toPrioritised)
+          .sort(compareBudgetPriority)) {
+          const canFitNodeBudget = accepted.length < this.options.maxNodes;
+          const canFitPointBudget = candidate.pointCost <= budget - acceptedPointCount;
+          if (canFitNodeBudget && canFitPointBudget) {
+            accepted.push(candidate.node);
+            acceptedPointCount += candidate.pointCost;
+          } else {
+            this.lastSelectionMetrics.deferredNodeCount += 1;
+            this.lastSelectionMetrics.deferredPointCount += candidate.pointCost;
+            this.lastSelectionMetrics.budgetDeferDropCount += 1;
+          }
+        }
+
+        this.recordFrontierMetrics(accepted, initialPointCount, acceptedPointCount);
+        return accepted.sort((left, right) => compareNodePriority(camera, left, right));
+      }
+
       this.recordFrontierMetrics(selected, initialPointCount, frontierPointCount);
       return selected;
+    }
+
+    if (fallbackUsed) {
+      const fallback = [...frontier.values()][0];
+      if (!fallback || this.options.maxNodes < 1 || getNodePointCost(fallback) > budget) {
+        if (fallback) {
+          this.lastSelectionMetrics.deferredNodeCount += 1;
+          this.lastSelectionMetrics.deferredPointCount += getNodePointCost(fallback);
+          this.lastSelectionMetrics.budgetDeferDropCount += 1;
+        }
+        this.recordFrontierMetrics([], initialPointCount, 0);
+        return [];
+      }
     }
 
     this.recordFrontierMetrics(initialFrontier, initialPointCount, initialPointCount);

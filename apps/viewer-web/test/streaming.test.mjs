@@ -381,6 +381,42 @@ test('point-budget refinement rejection preserves the parent', () => {
   assert.equal(selector.getSelectionMetrics().frontierPointCount, 10);
 });
 
+test('budget-reducing refinement rescues an oversized coarse frontier', () => {
+  const selector = createSelector({ maxRenderedPoints: 50 });
+  const hierarchy = createRefinementHierarchy(100, [20, 20]);
+
+  assert.deepEqual(
+    selector.selectVisibleNodes(createCamera(), hierarchy).map((node) => node.node.key),
+    ['1-0-root-0', '1-0-root-1'],
+  );
+  assert.equal(selector.getSelectionMetrics().acceptedRefinementCount, 1);
+  assert.equal(selector.getSelectionMetrics().frontierPointCount, 40);
+});
+
+test('multi-step budget-reducing refinement reaches an affordable frontier', () => {
+  const selector = createSelector({ maxRenderedPoints: 50 });
+  const root = createWorkNode('0-root', 100, 0);
+  const child = createWorkNode('1-child', 80, 1);
+  const grandchildren = [20, 20].map((pointCount, index) =>
+    createWorkNode(`2-grandchild-${index}`, pointCount, 2));
+  root.children = [child.node.key];
+  root.node.children = root.children;
+  child.children = grandchildren.map((node) => node.node.key);
+  child.node.children = child.children;
+  const hierarchy = new Map([
+    [root.node.key, root],
+    [child.node.key, child],
+    ...grandchildren.map((node) => [node.node.key, node]),
+  ]);
+
+  assert.deepEqual(
+    selector.selectVisibleNodes(createCamera(), hierarchy).map((node) => node.node.key),
+    ['2-grandchild-0', '2-grandchild-1'],
+  );
+  assert.equal(selector.getSelectionMetrics().acceptedRefinementCount, 2);
+  assert.equal(selector.getSelectionMetrics().frontierPointCount, 40);
+});
+
 test('node-budget refinement rejection preserves the parent', () => {
   const selector = createSelector({ maxNodes: 2, maxRenderedPoints: 100 });
   const hierarchy = createRefinementHierarchy(10, [3, 3, 3]);
@@ -509,6 +545,22 @@ test('NodeSelector rejects an individual node that exceeds the rendered-point bu
 
   assert.deepEqual(selector.selectVisibleNodes(createCamera(), nodes), []);
   assert.equal(selector.getSelectionMetrics().deferredPointCount, 51);
+});
+
+test('NodeSelector enforces the rendered-point budget for distance fallback', () => {
+  const selector = createSelector({ maxRenderedPoints: 50 });
+  const fallback = createWorkNode('0-fallback', 51, 0);
+  const hierarchy = new Map([['0-fallback', fallback]]);
+
+  assert.deepEqual(
+    selector.selectVisibleNodes(
+      createCamera({ longitude: -122, viewDistanceMeters: 1 }),
+      hierarchy,
+    ),
+    [],
+  );
+  assert.equal(selector.getSelectionMetrics().deferredPointCount, 51);
+  assert.equal(selector.getSelectionMetrics().budgetDeferDropCount, 1);
 });
 
 test('NodeSelector reprioritises the budget when the camera moves', () => {

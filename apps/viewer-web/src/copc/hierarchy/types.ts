@@ -8,7 +8,10 @@ export type CopcHierarchyNode = {
   pointDataOffset: number;
   pointDataLength: number;
   children?: string[];
-  /** True only when the loader has proved that this node's direct child set is complete. */
+  /**
+   * True only when the loader has proved that all direct child topology
+   * relevant to the query is complete.
+   */
   childrenComplete?: boolean;
 };
 
