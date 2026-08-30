@@ -420,6 +420,15 @@ export function createStreamingViewBounds(
     }
   }
 
+  // CopcHierarchyQuery currently accepts one AABB, so a longitude interval
+  // crossing the antimeridian cannot be represented as two narrow ranges.
+  // Widen only that axis to preserve correctness for dateline views; this is
+  // preferable to excluding the visible side of the dataset.
+  if (bounds.maxX - bounds.minX > 180) {
+    bounds.minX = -180;
+    bounds.maxX = 180;
+  }
+
   return {
     bounds,
     mode: 'frustum',

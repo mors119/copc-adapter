@@ -172,6 +172,34 @@ test('invalid or missing frustums use a finite deterministic camera fallback', (
   assertFiniteBounds(missing.bounds);
 });
 
+test('dateline-crossing view bounds remain conservative with the single-AABB query contract', () => {
+  const position = geographicToEcef({
+    longitude: 179.999,
+    latitude: 0,
+    height: 1000,
+  });
+  const viewFrustum = createPerspectiveViewFrustum({
+    position,
+    direction: { x: 0, y: -1, z: 0 },
+    up: { x: 0, y: 0, z: 1 },
+    right: { x: 1, y: 0, z: 0 },
+    verticalFovRadians: Math.PI / 6,
+    aspectRatio: 1,
+    nearMeters: 10,
+    farMeters: 1000,
+  });
+  const result = createStreamingViewBounds({
+    camera: { longitude: 179.999, latitude: 0, height: 1000 },
+    viewDistanceMeters: 2000,
+    maxRenderDistanceMeters: 1000,
+    viewFrustum,
+  });
+
+  assert.equal(result.bounds.minX, -180);
+  assert.equal(result.bounds.maxX, 180);
+  assertFiniteBounds(result.bounds);
+});
+
 function createPagedSource() {
   const calls = [];
   const pages = {
