@@ -72,7 +72,9 @@ async function withFixture(mode, callback) {
       ? 'not-a-content-range'
       : mode === 'mismatch'
         ? `bytes ${range.start + 1}-${range.end + 1}/${bytes.byteLength}`
-        : `bytes ${range.start}-${range.end}/${bytes.byteLength}`;
+        : mode === 'unknown-total'
+          ? `bytes ${range.start}-${range.end}/*`
+          : `bytes ${range.start}-${range.end}/${bytes.byteLength}`;
     const headers = {
       'Content-Length': body.byteLength,
       ...(mode === 'missing' ? {} : { 'Content-Range': contentRange }),
@@ -130,15 +132,20 @@ test('probe detects a server that ignores Range and reads only a bounded prefix'
   });
 });
 
-test('probe reports invalid, mismatched, missing, and short partial responses', async () => {
-  for (const mode of ['invalid', 'mismatch', 'missing', 'short']) {
+test('probe reports invalid, mismatched, missing, unknown-total, and short partial responses', async () => {
+  for (const mode of ['invalid', 'mismatch', 'missing', 'unknown-total', 'short']) {
     await withFixture(mode, async ({ url }) => {
       const result = await probeCopcSource(url);
 
       assert.equal(result.reachable, true, mode);
-      assert.equal(result.rangeSupported, false, mode);
+      assert.equal(result.rangeSupported, mode === 'unknown-total', mode);
       assert.equal(result.status, 206, mode);
-      assert.ok(result.warnings.length > 0, mode);
+      if (mode !== 'unknown-total') {
+        assert.ok(result.warnings.length > 0, mode);
+      }
+      if (['invalid', 'missing', 'unknown-total'].includes(mode)) {
+        assert.equal(result.contentLength, undefined, mode);
+      }
       if (mode === 'missing') {
         assert.match(result.warnings.join(' '), /Content-Range/);
       }
@@ -150,6 +157,57 @@ test('probe reports invalid, mismatched, missing, and short partial responses', 
         assert.match(result.warnings.join(' '), /expected exactly 1024/);
       }
     });
+  }
+});
+
+test('probe marks a failed metadata range as unsupported', async () => {
+  for (const mode of ['200', 'invalid', 'short', 'network']) {
+    const prefix = new Uint8Array(1200);
+    prefix.set([76, 65, 83, 70]); // LASF
+    const view = new DataView(prefix.buffer);
+    view.setUint16(94, 375, true);
+    view.setUint32(96, 1200, true);
+    view.setUint32(100, 0, true);
+    prefix[104] = 7;
+    const requests = [];
+    const fetch = async (_source, init) => {
+      const range = /^bytes=(\d+)-(\d+)$/.exec(init.headers.get('Range'));
+      requests.push({ start: Number(range[1]), end: Number(range[2]) });
+      if (requests.length === 1) {
+        return new Response(prefix.subarray(0, 1024), {
+          status: 206,
+          headers: {
+            'Content-Length': '1024',
+            'Content-Range': 'bytes 0-1023/1200',
+          },
+        });
+      }
+      if (mode === 'network') {
+        throw new TypeError('Failed to fetch');
+      }
+      const extension = prefix.subarray(1024);
+      if (mode === '200') {
+        return new Response(extension, {
+          status: 200,
+          headers: { 'Content-Length': String(extension.byteLength) },
+        });
+      }
+      return new Response(mode === 'short' ? extension.subarray(0, extension.byteLength - 1) : extension, {
+        status: 206,
+        headers: {
+          'Content-Length': String(mode === 'short' ? extension.byteLength - 1 : extension.byteLength),
+          'Content-Range': mode === 'invalid' ? 'not-a-content-range' : 'bytes 1024-1199/1200',
+        },
+      });
+    };
+
+    const result = await probeCopcSource('https://example.test/large-metadata.copc.laz', { fetch });
+
+    assert.equal(result.rangeSupported, false, mode);
+    assert.deepEqual(requests, [
+      { start: 0, end: 1023 },
+      { start: 1024, end: 1199 },
+    ], mode);
   }
 });
 

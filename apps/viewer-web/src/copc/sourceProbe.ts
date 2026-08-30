@@ -309,7 +309,10 @@ export async function probeCopcSource(
     rangeSupported: false,
     status: response.status,
     partialStatus: response.status,
-    contentLength: first.parsedContentRange?.total ?? readContentLength(response),
+    // A 206 Content-Length describes only the returned partial body. Treat the
+    // resource length as known only when Content-Range supplies a valid total.
+    contentLength: first.parsedContentRange?.total
+      ?? (response.status === 200 ? readContentLength(response) : undefined),
     ...(first.contentRange === undefined ? {} : { contentRange: first.contentRange }),
     ...(first.parsedContentRange
       ? {
@@ -327,6 +330,7 @@ export async function probeCopcSource(
   const inspection = inspectHeader(first.bytes);
   let metadataBytes = first.bytes;
   let extraWarnings: string[] = [...inspection.warnings];
+  let metadataRangeSupported = true;
   if (first.bodyReadError) {
     extraWarnings.push(first.bodyReadError);
   }
@@ -380,6 +384,7 @@ export async function probeCopcSource(
           || extension.parsedContentRange.end !== extensionRange.offset + extensionRange.length - 1
           || extension.bytes.byteLength !== extensionRange.length
         ) {
+          metadataRangeSupported = false;
           extraWarnings.push('The additional metadata range did not satisfy the exact partial-response contract.');
         } else {
           const combined = new Uint8Array(first.bytes.byteLength + extension.bytes.byteLength);
@@ -390,6 +395,7 @@ export async function probeCopcSource(
             !warning.startsWith('COPC metadata extends to byte'));
         }
       } catch (error: unknown) {
+        metadataRangeSupported = false;
         const detail = error instanceof Error ? error.message : String(error);
         extraWarnings.push(`COPC metadata could not be inspected from the additional range (${detail}).`);
       }
@@ -430,7 +436,10 @@ export async function probeCopcSource(
   return withWarnings(
     {
       ...result,
-      rangeSupported: response.status === 206 && bodyWasExact && contentRangeWasExact,
+      rangeSupported: response.status === 206
+        && bodyWasExact
+        && contentRangeWasExact
+        && metadataRangeSupported,
       copcDetected: finalInspection.copcDetected,
       ...(finalInspection.pointFormat === undefined
         ? {}
