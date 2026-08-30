@@ -5,6 +5,7 @@ import type {
   RustCopcDecodeWorkerResponse,
 } from './rustCopcDecodeWorkerProtocol';
 import type { CopcWorkerDiagnostics } from './backend/types';
+import { getCopcWasmBinary } from '../wasm/copcWasm';
 
 export type RustCopcDecodeWorkerLike = {
   onmessage: ((event: MessageEvent<RustCopcDecodeWorkerResponse>) => void) | null;
@@ -16,7 +17,7 @@ export type RustCopcDecodeWorkerLike = {
 
 export type RustCopcDecodeWorkerPoolOptions = {
   workerCount?: number;
-  workerFactory?: () => RustCopcDecodeWorkerLike;
+  workerFactory?: () => RustCopcDecodeWorkerLike | Promise<RustCopcDecodeWorkerLike>;
 };
 
 export type RustCopcDecodeRequest = {
@@ -65,10 +66,9 @@ function defaultWorkerCount(): number {
   return Math.min(4, Math.max(1, hardwareConcurrency - 1));
 }
 
-function defaultWorkerFactory(): RustCopcDecodeWorkerLike {
-  return new Worker(new URL('./rustCopcDecodeWorker.ts', import.meta.url), {
-    type: 'module',
-  });
+async function defaultWorkerFactory(): Promise<RustCopcDecodeWorkerLike> {
+  const { default: createWorker } = await import('./rustCopcWorkerFactory');
+  return createWorker();
 }
 
 function bufferFrom(value: ArrayBuffer | undefined, type: 'u16' | 'u8'): Uint16Array | Uint8Array | undefined {
@@ -79,10 +79,12 @@ function bufferFrom(value: ArrayBuffer | undefined, type: 'u16' | 'u8'): Uint16A
 /** Bounded, FIFO Rust/WASM decode queue owned by one COPC source instance. */
 export class RustCopcDecodeWorkerPool {
   readonly workerCount: number;
-  private readonly workerFactory: () => RustCopcDecodeWorkerLike;
+  private readonly workerFactory: () => RustCopcDecodeWorkerLike | Promise<RustCopcDecodeWorkerLike>;
   private readonly workers: WorkerSlot[] = [];
   private readonly queue: QueueEntry[] = [];
   private readonly entries = new Map<number, QueueEntry>();
+  private readonly creatingEntries = new Set<QueueEntry>();
+  private creatingSlots = 0;
   private metadata?: Uint8Array;
   private nextId = 1;
   private destroyed = false;
@@ -172,6 +174,11 @@ export class RustCopcDecodeWorkerPool {
       this.entries.delete(entry.id);
       entry.reject(error);
     }
+    for (const entry of this.creatingEntries) {
+      this.entries.delete(entry.id);
+      entry.reject(error);
+    }
+    this.creatingEntries.clear();
     for (const slot of this.workers.splice(0)) {
       if (slot.current) {
         this.entries.delete(slot.current.id);
@@ -185,53 +192,71 @@ export class RustCopcDecodeWorkerPool {
     if (this.destroyed) return;
     while (this.queue.length > 0) {
       let slot = this.workers.find((candidate) => !candidate.current);
-      if (!slot && this.workers.length < this.workerCount) {
-        try {
-          slot = this.createSlot();
-        } catch (error: unknown) {
-          const entry = this.queue.shift();
-          if (entry) {
-            this.entries.delete(entry.id);
-            entry.reject(new RustCopcWorkerError(
-              'worker-failure',
-              error instanceof Error ? error.message : String(error),
-              { nodeKey: entry.request.nodeKey },
-            ));
+      if (!slot && this.workers.length + this.creatingSlots < this.workerCount) {
+        const entry = this.queue.shift();
+        if (!entry) return;
+        this.creatingSlots += 1;
+        this.creatingEntries.add(entry);
+        void this.createSlot().then((createdSlot) => {
+          this.creatingSlots -= 1;
+          this.creatingEntries.delete(entry);
+          if (this.destroyed) {
+            void createdSlot.worker.terminate();
+            return;
           }
-          continue;
-        }
+          this.workers.push(createdSlot);
+          createdSlot.current = entry;
+          void this.initializeSlot(createdSlot, entry);
+          this.dispatch();
+        }).catch((error: unknown) => {
+          this.creatingSlots -= 1;
+          this.creatingEntries.delete(entry);
+          this.entries.delete(entry.id);
+          entry.reject(new RustCopcWorkerError(
+            'worker-failure',
+            error instanceof Error ? error.message : String(error),
+            { nodeKey: entry.request.nodeKey },
+          ));
+          this.dispatch();
+        });
+        continue;
       }
       if (!slot) return;
       const entry = this.queue.shift();
       if (!entry) return;
       slot.current = entry;
       this.recordPeaks();
-      if (!slot.ready) {
-        slot.phase = 'initializing';
-        const metadata = this.metadata!.slice().buffer;
-        try {
-          slot.worker.postMessage({ type: 'init', metadata }, [metadata]);
-        } catch (error: unknown) {
-          this.handleWorkerFailure(
-            slot,
-            error instanceof Error ? error.message : String(error),
-          );
-        }
-      } else {
-        this.postJob(slot, entry);
-      }
+      void this.initializeSlot(slot, entry);
     }
   }
 
-  private createSlot(): WorkerSlot {
-    const worker = this.workerFactory();
+  private async initializeSlot(slot: WorkerSlot, entry: QueueEntry): Promise<void> {
+    if (!slot.ready) {
+      slot.phase = 'initializing';
+      try {
+        const metadata = this.metadata!.slice().buffer;
+        const wasm = (await getCopcWasmBinary()).slice().buffer;
+        if (this.destroyed || slot.current !== entry) return;
+        slot.worker.postMessage({ type: 'init', metadata, wasm }, [metadata, wasm]);
+      } catch (error: unknown) {
+        this.handleWorkerFailure(
+          slot,
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    } else {
+      this.postJob(slot, entry);
+    }
+  }
+
+  private async createSlot(): Promise<WorkerSlot> {
+    const worker = await this.workerFactory();
     const slot: WorkerSlot = { worker, ready: false, phase: 'initializing' };
     worker.onmessage = (event) => this.handleMessage(slot, event.data);
     worker.onerror = (event) => this.handleWorkerFailure(slot, event.message || 'Rust COPC worker failed');
     if (worker.onmessageerror !== undefined) {
       worker.onmessageerror = () => this.handleWorkerFailure(slot, 'Rust COPC worker message failed');
     }
-    this.workers.push(slot);
     return slot;
   }
 

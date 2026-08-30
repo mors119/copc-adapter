@@ -1,4 +1,4 @@
-import { cp, mkdir, mkdtemp, readdir, rm } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import os from 'node:os';
@@ -27,6 +27,7 @@ function run(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       ...options,
+      env: { ...process.env, ...options.env },
       stdio: options.stdio ?? ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';
@@ -90,13 +91,21 @@ try {
     'package/LICENSE',
     'package/dist/index.js',
     'package/dist/index.d.ts',
-    'package/dist/wasm/copc_wasm.wasm',
+    'package/dist/copc_wasm.wasm',
     'package/dist/laz-perf.wasm',
+    'package/dist/copcWasmAsset.js',
+    'package/dist/lazPerfAsset.js',
   ]) {
     assertIncluded(entries, requiredEntry);
   }
-  if (![...entries].some((entry) => entry.startsWith('package/dist/assets/rustCopcDecodeWorker-'))) {
-    throw new Error('Packed adapter is missing the Rust decode worker chunk');
+  if ([...entries].some((entry) => entry.startsWith('package/dist/assets/rustCopcDecodeWorker-'))) {
+    throw new Error('Packed adapter contains the retired external Rust decode worker chunk');
+  }
+  if (!entries.has('package/dist/copcWasmAsset.js')) {
+    throw new Error('Packed adapter is missing the main-thread Rust WASM asset module');
+  }
+  if (entries.has('package/dist/wasm/copc_wasm.wasm')) {
+    throw new Error('Packed adapter contains the retired duplicate dist/wasm asset');
   }
 
   for (const forbiddenPrefix of [
@@ -125,6 +134,16 @@ try {
     }
   }
 
+  const wasmEntries = [...entries].filter((entry) => entry.endsWith('.wasm'));
+  const expectedWasmEntries = new Set([
+    'package/dist/copc_wasm.wasm',
+    'package/dist/laz-perf.wasm',
+  ]);
+  if (wasmEntries.length !== expectedWasmEntries.size
+    || wasmEntries.some((entry) => !expectedWasmEntries.has(entry))) {
+    throw new Error(`Packed adapter has an unexpected WASM asset graph: ${wasmEntries.join(', ')}`);
+  }
+
   if ([...entries].some((entry) => /\.copc\.laz$/i.test(entry))) {
     throw new Error('Packed adapter contains a COPC sample dataset');
   }
@@ -132,6 +151,13 @@ try {
   console.log(`Pack contents passed: ${path.basename(packagePath)}`);
 
   await cp(consumerTemplateDirectory, consumerDirectory, { recursive: true });
+  const consumerViteConfig = await readFile(
+    path.resolve(consumerDirectory, 'vite.config.js'),
+    'utf8',
+  );
+  if (/optimizeDeps|exclude\s*:/u.test(consumerViteConfig)) {
+    throw new Error('Packed consumer must exercise default Vite dependency optimization');
+  }
   await mkdir(path.resolve(consumerDirectory, 'public/samples'), { recursive: true });
   await cp(
     path.resolve(repositoryDirectory, 'samples/local/autzen.copc.laz'),
@@ -189,6 +215,14 @@ try {
   }
   await run(npmCommand(), ['run', 'test:e2e'], {
     cwd: consumerDirectory,
+    env: { CONSUMER_MODE: 'production', CONSUMER_PORT: '4174' },
+    stdio: 'inherit',
+  });
+
+  console.log('Serving the development bundle with Vite dependency optimization and running Chromium E2E...');
+  await run(npmCommand(), ['run', 'test:e2e'], {
+    cwd: consumerDirectory,
+    env: { CONSUMER_MODE: 'dev', CONSUMER_PORT: '4175' },
     stdio: 'inherit',
   });
 

@@ -40,7 +40,7 @@
     "prepare-copc-wasm": "node scripts/build-copc-wasm.mjs",
     "prepare-laz-perf": "cp node_modules/laz-perf/lib/laz-perf.wasm public/laz-perf.wasm",
     "prepare-library-assets": "npm run prepare-copc-wasm && cp node_modules/laz-perf/lib/web/laz-perf.wasm src/wasm/laz-perf.wasm",
-    "finalize-library-assets": "mkdir -p dist/wasm && cp src/wasm/copc_wasm.wasm dist/wasm/copc_wasm.wasm && cp src/wasm/laz-perf.wasm dist/laz-perf.wasm"
+    "finalize-library-assets": "node scripts/finalize-library-assets.mjs"
   },
   "devDependencies": {
     "@emnapi/core": "^1.11.2",

@@ -2,13 +2,22 @@ import createLazPerfModule from 'laz-perf/lib/web/laz-perf.js';
 
 type LazPerfModule = Awaited<ReturnType<typeof createLazPerfModule>>;
 
-const lazPerfWasmUrl = new URL('./laz-perf.wasm?no-inline', import.meta.url);
+let lazPerfWasmUrlPromise: Promise<URL> | undefined;
+
+async function getLazPerfWasmUrl(): Promise<URL> {
+  if (!lazPerfWasmUrlPromise) {
+    lazPerfWasmUrlPromise = import('./laz-perf.wasm?url&no-inline').then(
+      ({ default: assetUrl }) => new URL(assetUrl, import.meta.url),
+    );
+  }
+  return lazPerfWasmUrlPromise;
+}
 
 /** Browser LAZ decoder factory with its WASM binary resolved from this package. */
 async function createLazPerf(
   options: Parameters<typeof createLazPerfModule>[0] = undefined,
 ): Promise<LazPerfModule> {
-  const response = await fetch(lazPerfWasmUrl);
+  const response = await fetch(await getLazPerfWasmUrl());
 
   if (!response.ok) {
     throw new Error(`Failed to fetch LAZ decoder WASM: ${response.status}`);

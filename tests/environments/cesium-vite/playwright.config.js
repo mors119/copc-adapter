@@ -2,7 +2,11 @@ import { defineConfig } from '@playwright/test';
 import fs from 'node:fs';
 
 const systemChromium = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const consumerPort = process.env.CONSUMER_PORT ?? '4174';
+const consumerMode = process.env.CONSUMER_MODE ?? 'production';
+const consumerPort = process.env.CONSUMER_PORT ?? (consumerMode === 'dev' ? '4175' : '4174');
+const serverCommand = consumerMode === 'dev'
+  ? `npm run dev -- --host 127.0.0.1 --port ${consumerPort} --force`
+  : `npm run preview -- --host 127.0.0.1 --port ${consumerPort}`;
 
 export default defineConfig({
   testDir: './e2e',
@@ -19,7 +23,7 @@ export default defineConfig({
     },
   },
   webServer: {
-    command: `npm run preview -- --host 127.0.0.1 --port ${consumerPort}`,
+    command: serverCommand,
     url: `http://127.0.0.1:${consumerPort}`,
     reuseExistingServer: false,
     timeout: 120_000,

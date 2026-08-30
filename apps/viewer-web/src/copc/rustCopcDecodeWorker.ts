@@ -1,10 +1,12 @@
 import { decodeRustCopcNode } from './rustCopcNodeDecoder';
+import { loadCopcWasmWorker } from '../wasm/copcWasmWorker';
 import { createCopcPointFieldSelection } from './points/fieldSelection';
 import type {
   RustCopcDecodeWorkerRequest,
 } from './rustCopcDecodeWorkerProtocol';
 
 let metadataBytes: Uint8Array | undefined;
+let wasmBinary: Uint8Array | undefined;
 const workerScope = self as unknown as {
   onmessage: (event: MessageEvent<RustCopcDecodeWorkerRequest>) => void;
   postMessage(message: unknown, transfer?: Transferable[]): void;
@@ -15,6 +17,7 @@ workerScope.onmessage = async (event: MessageEvent<RustCopcDecodeWorkerRequest>)
   try {
     if (request.type === 'init') {
       metadataBytes = new Uint8Array(request.metadata);
+      wasmBinary = new Uint8Array(request.wasm);
       workerScope.postMessage({ type: 'ready' });
       return;
     }
@@ -29,11 +32,13 @@ workerScope.onmessage = async (event: MessageEvent<RustCopcDecodeWorkerRequest>)
       ...(request.requestedFields & 2 ? ['classification' as const] : []),
       ...(request.requestedFields & 4 ? ['rgb' as const] : []),
     ]);
+    if (!wasmBinary) throw new Error('Rust COPC decode worker WASM was not initialized');
     const result = await decodeRustCopcNode(
       metadataBytes,
       new Uint8Array(request.chunk),
       request.pointCount,
       fields,
+      () => loadCopcWasmWorker(wasmBinary!),
     );
     const attributes = result.buffer.attributes;
     const response = {
