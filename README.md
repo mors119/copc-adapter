@@ -328,7 +328,9 @@ corrected release.
 
 These are the current v0.1.1 boundaries:
 
-- Hierarchy metadata is fully traversed before point streaming begins.
+- Hierarchy pages are loaded incrementally from the root and relevant visible
+  bounds; larger datasets may still require additional hierarchy requests as
+  the camera moves.
 - LoD uses adapter-owned screen-space error with bounds/frustum filtering and
   depth/node-count safety caps; occlusion culling is not implemented yet.
 - Browser Rust/WASM point decode uses a bounded worker pool when `Worker` is
