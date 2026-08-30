@@ -6,8 +6,10 @@ import { createNodePointCache } from '../src/viewer/streaming/createNodePointCac
 import {
   calculateBoundsDistanceMeters,
   calculateDistanceMeters,
+  calculateGazeCenterWeight,
   compareNodePriority,
   calculateScreenSpaceErrorPixels,
+  DEFAULT_CENTER_PRIORITY_BOOST,
   NodeSelector,
 } from '../src/viewer/streaming/NodeSelector.ts';
 import {
@@ -921,6 +923,59 @@ function createFrustumNode(key, sphere) {
   });
 }
 
+function createGazeRefinementHierarchy() {
+  const peripheral = createFrustumNode('0-peripheral', {
+    center: { x: 2.5, y: 0, z: 5 },
+    radiusMeters: 0.1,
+  });
+  const peripheralChildren = [0, 1].map((index) => {
+    const child = createFrustumNode(`1-peripheral-${index}`, {
+      center: { x: 2.5, y: 0, z: 5 },
+      radiusMeters: 0.1,
+    });
+    child.node.level = 1;
+    return child;
+  });
+  peripheral.children = peripheralChildren.map((child) => child.node.key);
+  peripheral.geometricErrorMeters = 21;
+
+  const centre = createFrustumNode('0-centre', {
+    center: { x: 0, y: 0, z: 5 },
+    radiusMeters: 0.1,
+  });
+  const centreChildren = [0, 1].map((index) => {
+    const child = createFrustumNode(`1-centre-${index}`, {
+      center: { x: 0, y: 0, z: 5 },
+      radiusMeters: 0.1,
+    });
+    child.node.level = 1;
+    return child;
+  });
+  centre.children = centreChildren.map((child) => child.node.key);
+  centre.geometricErrorMeters = 20;
+
+  return new Map([
+    [peripheral.node.key, peripheral],
+    ...peripheralChildren.map((child) => [child.node.key, child]),
+    [centre.node.key, centre],
+    ...centreChildren.map((child) => [child.node.key, child]),
+  ]);
+}
+
+function createThresholdHierarchy(desiredSse, camera) {
+  const root = createWorkNode('0-threshold-root', 100, 0);
+  root.children = ['1-threshold-child'];
+  const child = createWorkNode('1-threshold-child', 40, 1);
+  const unitErrorNode = createWorkNode('0-unit-error', 1, 0);
+  unitErrorNode.geometricErrorMeters = 1;
+  const unitSse = calculateScreenSpaceErrorPixels(camera, unitErrorNode);
+  root.geometricErrorMeters = desiredSse / unitSse;
+  return new Map([
+    [root.node.key, root],
+    [child.node.key, child],
+  ]);
+}
+
 test('view frustum sphere culling retains inside and intersecting nodes', () => {
   const frustum = createTestFrustum();
 
@@ -966,6 +1021,278 @@ test('NodeSelector responds to orientation with an unchanged camera position', (
     selector.selectVisibleNodes(rotatedCamera, hierarchy).map((entry) => entry.node.key),
     ['backward'],
   );
+});
+
+test('gaze priority lets a centre candidate beat a modestly stronger peripheral candidate', () => {
+  const selector = createSelector({
+    maxNodes: 3,
+    maxRenderedPoints: 10,
+    maxRenderDistanceMeters: 100000,
+  });
+  const hierarchy = createGazeRefinementHierarchy();
+  const selected = selector.selectVisibleNodes(
+    createProjectionCamera({ height: 1000 }),
+    hierarchy,
+  );
+
+  assert.deepEqual(
+    selected.map((node) => node.node.key),
+    ['1-centre-0', '1-centre-1', '0-peripheral'],
+  );
+  assert.equal(selector.getSelectionMetrics().acceptedRefinementCount, 1);
+  assert.equal(selector.getSelectionMetrics().candidatesWithCenterBoostCount, 2);
+  assert.equal(DEFAULT_CENTER_PRIORITY_BOOST, 0.25);
+});
+
+test('a very large peripheral SSE still beats a low-error centre candidate', () => {
+  const selector = createSelector({
+    maxNodes: 3,
+    maxRenderedPoints: 10,
+    maxRenderDistanceMeters: 100000,
+    screenSpaceErrorHysteresis: 0,
+  });
+  const hierarchy = createGazeRefinementHierarchy();
+  hierarchy.get('0-peripheral').geometricErrorMeters = 100;
+  hierarchy.get('0-centre').geometricErrorMeters = 16;
+
+  const selected = selector.selectVisibleNodes(
+    createProjectionCamera({ height: 1000 }),
+    hierarchy,
+  );
+
+  assert.deepEqual(
+    selected.map((node) => node.node.key),
+    ['1-peripheral-0', '1-peripheral-1', '0-centre'],
+  );
+});
+
+test('equal gaze and visual scores use deterministic key tie-breakers', () => {
+  const selector = createSelector({ maxNodes: 1 });
+  const first = createFrustumNode('0-a', {
+    center: { x: 0, y: 0, z: 5 },
+    radiusMeters: 0.1,
+  });
+  const second = createFrustumNode('0-b', {
+    center: { x: 0, y: 0, z: 5 },
+    radiusMeters: 0.1,
+  });
+
+  assert.deepEqual(
+    selector.selectVisibleNodes(
+      createProjectionCamera({ height: 1000 }),
+      new Map([[first.node.key, first], [second.node.key, second]]),
+    ).map((node) => node.node.key),
+    ['0-a'],
+  );
+});
+
+test('a behind-camera sphere receives no centre bonus', () => {
+  const node = createFrustumNode('behind', {
+    center: { x: 0, y: 0, z: -5 },
+    radiusMeters: 0.1,
+  });
+
+  assert.equal(
+    calculateGazeCenterWeight(createProjectionCamera(), node),
+    0,
+  );
+});
+
+test('missing perspective data falls back to finite deterministic SSE priority', () => {
+  const selector = createSelector({ maxRenderedPoints: 100 });
+  const hierarchy = createRefinementHierarchy(10, [3, 3]);
+  const selected = selector.selectVisibleNodes(createCamera(), hierarchy);
+  const metrics = selector.getSelectionMetrics();
+
+  assert.deepEqual(
+    selected.map((node) => node.node.key),
+    ['1-0-root-0', '1-0-root-1'],
+  );
+  assert.equal(metrics.centerWeightMin, 0);
+  assert.equal(metrics.centerWeightMax, 0);
+  assert.equal(metrics.candidatesWithCenterBoostCount, 0);
+  assert.ok(Number.isFinite(metrics.frontierPointCount));
+});
+
+test('invalid perspective values fall back without producing NaN priority', () => {
+  const selector = createSelector({ maxRenderedPoints: 100 });
+  const hierarchy = createRefinementHierarchy(10, [3, 3]);
+  const malformedFrustum = {
+    ...createTestFrustum(),
+    verticalFovRadians: Number.NaN,
+  };
+
+  assert.doesNotThrow(() => selector.selectVisibleNodes(
+    createCamera({ viewFrustum: malformedFrustum }),
+    hierarchy,
+  ));
+  const metrics = selector.getSelectionMetrics();
+  assert.ok(Number.isFinite(metrics.screenSpaceErrorMin));
+  assert.ok(Number.isFinite(metrics.screenSpaceErrorMax));
+  assert.equal(metrics.centerWeightMin, 0);
+  assert.equal(metrics.centerWeightMax, 0);
+});
+
+test('camera rotation moves refinement focus while retaining a valid frontier', () => {
+  const selector = createSelector({
+    maxNodes: 3,
+    maxRenderedPoints: 10,
+    maxRenderDistanceMeters: 100000,
+  });
+  const forward = createFrustumNode('0-forward', {
+    center: { x: 0, y: 0, z: 5 },
+    radiusMeters: 0.1,
+  });
+  const forwardChild = createFrustumNode('1-forward', {
+    center: { x: 0, y: 0, z: 5 },
+    radiusMeters: 0.1,
+  });
+  forwardChild.node.level = 1;
+  forward.children = [forwardChild.node.key];
+  forward.geometricErrorMeters = 20;
+  const right = createFrustumNode('0-right', {
+    center: { x: 5, y: 0, z: 0 },
+    radiusMeters: 0.1,
+  });
+  const rightChild = createFrustumNode('1-right', {
+    center: { x: 5, y: 0, z: 0 },
+    radiusMeters: 0.1,
+  });
+  rightChild.node.level = 1;
+  right.children = [rightChild.node.key];
+  right.geometricErrorMeters = 20;
+  const hierarchy = new Map([
+    [forward.node.key, forward],
+    [forwardChild.node.key, forwardChild],
+    [right.node.key, right],
+    [rightChild.node.key, rightChild],
+  ]);
+  const camera = createProjectionCamera({
+    height: 1000,
+    viewFrustum: createPerspectiveViewFrustum({
+      position: { x: 0, y: 0, z: 0 },
+      direction: { x: 0, y: 0, z: 1 },
+      up: { x: 0, y: 1, z: 0 },
+      right: { x: 1, y: 0, z: 0 },
+      verticalFovRadians: Math.PI / 2,
+      viewportHeightPixels: 1000,
+      aspectRatio: 1,
+      nearMeters: 1,
+      farMeters: 100,
+    }),
+  });
+  const rotatedCamera = {
+    ...camera,
+    viewFrustum: createPerspectiveViewFrustum({
+      position: { x: 0, y: 0, z: 0 },
+      direction: { x: 1, y: 0, z: 0 },
+      up: { x: 0, y: 1, z: 0 },
+      right: { x: 0, y: 0, z: -1 },
+      verticalFovRadians: Math.PI / 2,
+      viewportHeightPixels: 1000,
+      aspectRatio: 1,
+      nearMeters: 1,
+      farMeters: 100,
+    }),
+  };
+
+  assert.deepEqual(
+    selector.selectVisibleNodes(camera, hierarchy).map((node) => node.node.key),
+    ['1-forward'],
+  );
+  assert.deepEqual(
+    selector.selectVisibleNodes(rotatedCamera, hierarchy).map((node) => node.node.key),
+    ['1-right'],
+  );
+  assert.equal(selector.getSelectionMetrics().frontierNodeCount, 1);
+});
+
+test('default hysteresis refines above 9px and keeps the coarse state below it', () => {
+  const camera = createProjectionCamera({ height: 1000 });
+  const selector = createSelector({ maxRenderedPoints: 200 });
+
+  assert.deepEqual(
+    selector.selectVisibleNodes(camera, createThresholdHierarchy(8.5, camera))
+      .map((node) => node.node.key),
+    ['0-threshold-root'],
+  );
+  assert.deepEqual(
+    selector.selectVisibleNodes(camera, createThresholdHierarchy(9.1, camera))
+      .map((node) => node.node.key),
+    ['1-threshold-child'],
+  );
+});
+
+test('coarse frontier holds inside the hysteresis band', () => {
+  const camera = createProjectionCamera({ height: 1000 });
+  const selector = createSelector({ maxRenderedPoints: 200 });
+  const hierarchy = createThresholdHierarchy(8.5, camera);
+
+  assert.deepEqual(selector.selectVisibleNodes(camera, hierarchy)
+    .map((node) => node.node.key), ['0-threshold-root']);
+  assert.deepEqual(selector.selectVisibleNodes(camera, hierarchy, {
+    previousSelectedNodeKeys: new Set(['0-threshold-root']),
+  }).map((node) => node.node.key), ['0-threshold-root']);
+  assert.equal(selector.getSelectionMetrics().hysteresisHoldCount, 1);
+});
+
+test('fine frontier holds inside the hysteresis band and collapses below 7px', () => {
+  const camera = createProjectionCamera({ height: 1000 });
+  const selector = createSelector({ maxRenderedPoints: 200 });
+  const fineHierarchy = createThresholdHierarchy(9.1, camera);
+
+  assert.deepEqual(selector.selectVisibleNodes(camera, fineHierarchy)
+    .map((node) => node.node.key), ['1-threshold-child']);
+  assert.deepEqual(selector.selectVisibleNodes(
+    camera,
+    createThresholdHierarchy(8.5, camera),
+    { previousSelectedNodeKeys: new Set(['1-threshold-child']) },
+  ).map((node) => node.node.key), ['1-threshold-child']);
+  assert.equal(selector.getSelectionMetrics().hysteresisHoldCount, 1);
+
+  assert.deepEqual(selector.selectVisibleNodes(
+    camera,
+    createThresholdHierarchy(6.9, camera),
+    { previousSelectedNodeKeys: new Set(['1-threshold-child']) },
+  ).map((node) => node.node.key), ['0-threshold-root']);
+  assert.equal(selector.getSelectionMetrics().collapseDecisionCount, 1);
+});
+
+test('repeated threshold noise does not flap a previously fine frontier', () => {
+  const camera = createProjectionCamera({ height: 1000 });
+  const selector = createSelector({ maxRenderedPoints: 200 });
+  const fineHierarchy = createThresholdHierarchy(9.1, camera);
+  assert.deepEqual(selector.selectVisibleNodes(camera, fineHierarchy)
+    .map((node) => node.node.key), ['1-threshold-child']);
+
+  for (const sse of [7.9, 8.1, 7.95, 8.05, 7.98, 8.02]) {
+    assert.deepEqual(selector.selectVisibleNodes(
+      camera,
+      createThresholdHierarchy(sse, camera),
+      { previousSelectedNodeKeys: new Set(['1-threshold-child']) },
+    ).map((node) => node.node.key), ['1-threshold-child']);
+  }
+  assert.equal(selector.getSelectionMetrics().collapseDecisionCount, 0);
+});
+
+test('clear approach and retreat cross the hysteresis boundaries', () => {
+  const camera = createProjectionCamera({ height: 1000 });
+  const selector = createSelector({ maxRenderedPoints: 200 });
+
+  assert.deepEqual(selector.selectVisibleNodes(
+    camera,
+    createThresholdHierarchy(9.5, camera),
+  ).map((node) => node.node.key), ['1-threshold-child']);
+  assert.deepEqual(selector.selectVisibleNodes(
+    camera,
+    createThresholdHierarchy(6.5, camera),
+    { previousSelectedNodeKeys: new Set(['1-threshold-child']) },
+  ).map((node) => node.node.key), ['0-threshold-root']);
+  assert.deepEqual(selector.selectVisibleNodes(
+    camera,
+    createThresholdHierarchy(9.5, camera),
+    { previousSelectedNodeKeys: new Set(['0-threshold-root']) },
+  ).map((node) => node.node.key), ['1-threshold-child']);
 });
 
 test('NodeSelector falls back to the nearest node when nothing is visible', () => {
