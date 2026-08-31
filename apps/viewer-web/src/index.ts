@@ -38,8 +38,10 @@ export {
 } from './copc/rustCopcDecodeWorkerPool';
 export type {
   CopcHierarchyBounds,
+  CopcHierarchyQueryBounds,
   CopcHierarchyDiagnostics,
   CopcHierarchyQuery,
+  CopcProjectBounds,
 } from './copc/hierarchy/types';
 export { RustCopcParseError, RustCopcReader } from './copc/rustCopcReader';
 export { CopcWasmError } from './wasm/copcWasm';
@@ -89,9 +91,28 @@ export type {
   CopcPoint,
   CopcPointAttributes,
   CopcPointBuffer,
+  CopcPointData,
   GeographicPoint,
   GeographicPointBuffer,
 } from './copc/types/copc';
+export type {
+  CoordinateBounds,
+  CoordinateBuffer,
+  CoordinateSystem,
+  CoordinateVector3,
+  RendererLocalPoint,
+  Wgs84EcefBounds,
+  Wgs84EcefPoint,
+  Wgs84GeographicBounds,
+  Wgs84GeographicPoint,
+} from './coordinates/types';
+export {
+  transformPointBufferToPointData,
+} from './coordinates/transform/createPointTransformer';
+export {
+  worldBufferToLocal,
+  worldToLocal,
+} from './coordinates/transform/worldCoordinates';
 export {
   inspectCopcPoint,
   isCopcPointPickId,
@@ -131,6 +152,7 @@ export type {
 } from './viewer/streaming/CopcStreamingController';
 export type {
   BoundingSphere,
+  BoundingSphereInput,
   ViewFrustum,
   ViewVector3,
   StreamingCameraState,
