@@ -6,6 +6,30 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-31
+
+### Added
+
+- Added a coverage-preserving mixed-LoD frontier that treats node and point
+  budgets as refinement constraints.
+- Added gaze-aware refinement priority and screen-space-error hysteresis.
+- Added coverage-safe coarse-to-fine and fine-to-coarse renderer transitions,
+  including stale-generation protection.
+
+### Changed
+
+- Changed hierarchy discovery to follow the active perspective view with a
+  conservative view-driven query instead of relying on a camera-position-
+  centered spatial query.
+- Improved deterministic and browser validation for mixed-LoD coverage,
+  oblique views, and transition stability.
+
+### Fixed
+
+- Fixed oblique-view hierarchy coverage gaps caused by bounded hierarchy
+  queries being centered around the camera position instead of the active
+  visible view.
+
 ## [0.2.1] - 2026-08-31
 
 ### Fixed
@@ -41,7 +65,8 @@ original asset-resolution behavior.
 - Added packed-artifact smoke coverage for an external Cesium/Vite consumer.
 - Published the typed ESM library with package-local decoder runtime assets.
 
-[Unreleased]: https://github.com/mors119/copc-adapter/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/mors119/copc-adapter/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/mors119/copc-adapter/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/mors119/copc-adapter/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/mors119/copc-adapter/compare/v0.1.1...v0.2.0
 [0.1.1]: https://www.npmjs.com/package/@frillab/copc-adapter/v/0.1.1

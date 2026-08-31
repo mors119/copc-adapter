@@ -79,19 +79,32 @@ CORS checks in `warnings`. The current reader requires the browser to send a
 - `debug`: lifecycle debug logging 활성화
 - `maxRenderedPoints`: maximum estimated points in the active current-view
   workload. This is equivalent to `streaming.maxRenderedPoints` and is shown
-  separately because it is the primary render-pressure control.
-- `streaming`: `maxNodes`, `maxDepth`, `maxScreenSpaceError`,
-  `maxRenderDistanceMeters`, and `maxRenderedPoints` overrides.
-  `maxRenderedPoints` bounds the estimated active current-view point workload;
-  it is not GPU-memory accounting. The default is an experimental conservative
-  `250000`, informed by the issue-48 renderer benchmark. `maxScreenSpaceError` is the maximum
-  projected replacement error in pixels and defaults to `8`. The former
-  `refineDistanceMultiplier` remains accepted for source compatibility but is
-  deprecated and no longer controls refinement. `maxRenderDistanceMeters` is
-  applied to the existing camera-to-node-bounds visibility test. When a valid
-  perspective view is available, hierarchy discovery uses the same effective
-  distance as the far extent of a conservative view-frustum query; it does not
-  redefine the option as a spherical or geographic camera-radius box.
+  separately because it is the primary render-pressure control. The default is
+  `250000`; this is workload backpressure, not GPU-memory accounting.
+- `streaming`: overrides for the following selection limits:
+  - `maxNodes` (default `24`): maximum selected frontier nodes and a hard
+    refinement constraint.
+  - `maxDepth` (default `6`): deepest hierarchy level considered for selection
+    and view-driven hierarchy loading.
+  - `maxScreenSpaceError` (default `8` pixels): projected-detail threshold
+    used by LoD refinement. A visible node's estimated geometric error is
+    projected into pixels using the active perspective view when available.
+  - `screenSpaceErrorHysteresis` (default `12.5%` of
+    `maxScreenSpaceError`, or `1` pixel at the default threshold): half-width
+    of the state-aware refinement/collapse band. With the defaults, a coarse
+    branch refines above `9` pixels, a refined branch collapses below `7`, and
+    the previous frontier is retained inside the band.
+  - `maxRenderDistanceMeters` (default `12000`): maximum selector visibility
+    distance measured from the camera to a node's bounds, combined with the
+    current camera view distance. It is not a geographic-radius box. When a
+    valid perspective view is available, hierarchy discovery follows a
+    conservative envelope of that active view using an effective far distance
+    bounded by the view distance, this option, and the frustum far plane.
+  - `maxRenderedPoints` (default `250000`): maximum estimated point workload
+    for the active current-view frontier. Refinement is deferred when a complete
+    parent-to-child replacement would exceed the node or point budget.
+  The former `refineDistanceMultiplier` remains accepted for source
+  compatibility but is deprecated and no longer controls refinement.
 - `backend`: `'copc-js' | 'rust' | CopcBackend`; defaults to `'copc-js'`.
   Rust is opt-in and does not silently fall back to `copc-js`.
 - `decoder`: optional `CopcPointDecoder`; defaults to the Rust/WASM decoder
@@ -108,6 +121,25 @@ CORS checks in `warnings`. The current reader requires the browser to send a
 The Rust selector uses the same layer API; it does not create a Rust-only
 Viewer. Applications continue to create and own `Cesium.Viewer`, then call
 `layer.attachTo(viewer)`.
+
+### Diagnostics
+
+`getSnapshot()` returns the current lifecycle, selected and rendered nodes,
+rendered point count, backend, and public streaming diagnostics. Its
+`performance` member includes selection, frustum, SSE, frontier, budget,
+hierarchy/render timing, and range-byte metrics. Its `transition` member
+reports active/waiting replacement groups, refinement and collapse commits,
+stale replacement cancellations, and coarse nodes retained for coverage. Its
+`pointCache` member reports decoded CPU cache budget, size, hits, misses, and
+evictions. When Rust decoding is active, `worker` reports bounded queue and
+worker activity counters.
+
+`getHierarchyDiagnostics()` reports hierarchy page requests, cache hits, bytes
+fetched, loaded pages, and loaded entries while data is available.
+`getPointCacheDiagnostics()` returns the decoded CPU point-buffer cache
+diagnostics independently of rendered membership. These values describe
+project-owned work and buffers; they are not exact Cesium, WebGL, browser, or
+GPU memory measurements.
 
 In browsers, Rust point chunks are decoded by a per-source bounded Web Worker
 pool. Range requests stay on the main thread, queued work is superseded on a
