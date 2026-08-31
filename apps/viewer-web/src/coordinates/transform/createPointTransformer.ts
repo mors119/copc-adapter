@@ -35,7 +35,7 @@ export function createPointTransformer(
     }
 
     throw new Error(
-      'COPC metadata WKT is required to transform projected coordinates for Cesium rendering',
+      'COPC metadata WKT is required to transform projected coordinates for geographic rendering',
     );
   }
 

@@ -1,12 +1,13 @@
 import * as Cesium from 'cesium';
 import type { GeographicPoint, GeographicPointBuffer } from '../../copc/types/copc';
 import { performanceNow } from '../../copc/performance';
-import {
-  renderCopcPoints,
-  type CopcPointRenderOptions,
-} from './renderPoints';
+import type {
+  CopcPointRenderer,
+  CopcPointRendererOptions as NeutralCopcPointRendererOptions,
+} from '../../viewer/streaming/renderer';
+import { renderCopcPoints } from './renderPoints';
 
-export type CopcPointRendererPerformanceStage =
+export type CopcCesiumPointRendererPerformanceStage =
   | 'geographicToCartesian'
   | 'pointStylePreparation'
   | 'pointCollectionCreation'
@@ -14,40 +15,38 @@ export type CopcPointRendererPerformanceStage =
   | 'rendererPreparation'
   | 'nodeRemoval';
 
-export type CopcPointRendererOptions = Omit<CopcPointRenderOptions, 'onPerformance'> & {
+export type CopcCesiumPointRendererOptions = NeutralCopcPointRendererOptions & {
   onPerformance?: (
-    stage: CopcPointRendererPerformanceStage,
+    stage: CopcCesiumPointRendererPerformanceStage,
     durationMs: number,
     pointCount: number,
   ) => void;
 };
 
-/**
- * The project-owned renderer boundary. It receives already decoded and
- * geographically transformed point buffers; loading and selection stay with
- * the streaming controller.
- */
-export interface CopcPointRenderer {
+/** @deprecated Use `CopcCesiumPointRendererPerformanceStage`. */
+export type CopcPointRendererPerformanceStage = CopcCesiumPointRendererPerformanceStage;
+
+/** @deprecated Use the renderer-neutral options from `viewer/streaming/renderer`. */
+export type { CopcPointRendererOptions } from '../../viewer/streaming/renderer';
+export type { CopcPointRenderer } from '../../viewer/streaming/renderer';
+
+/** Cesium-only part of the renderer boundary. */
+export interface CesiumPointRenderer extends CopcPointRenderer {
   attachTo(viewer: Cesium.Viewer): void;
   detachFrom(): void;
   addOrUpdateNode(
     nodeKey: string,
     points: GeographicPointBuffer,
-    options: CopcPointRendererOptions,
+    options: CopcCesiumPointRendererOptions,
   ): void;
-  removeNode(nodeKey: string): void;
-  clear(): void;
-  destroy(): void;
-  hasNode(nodeKey: string): boolean;
-  /** Optional per-node count used by the controller's workload guard. */
-  getRenderedNodePointCount?(nodeKey: string): number | undefined;
-  getRenderedNodeKeys(): string[];
-  getRenderedPointCount(): number;
   getSelectionBoundingSphere(): Cesium.BoundingSphere | undefined;
 }
 
+/** Explicit name for the Cesium adapter-side renderer contract. */
+export type CopcCesiumPointRenderer = CesiumPointRenderer;
+
 /** Compatibility renderer backed by Cesium.PointPrimitiveCollection. */
-export class PointPrimitiveRenderer implements CopcPointRenderer {
+export class PointPrimitiveRenderer implements CesiumPointRenderer {
   private viewer?: Cesium.Viewer;
   private readonly pointCollections = new Map<string, Cesium.PointPrimitiveCollection>();
 
@@ -68,7 +67,7 @@ export class PointPrimitiveRenderer implements CopcPointRenderer {
   addOrUpdateNode(
     nodeKey: string,
     points: GeographicPointBuffer,
-    options: CopcPointRendererOptions,
+    options: CopcCesiumPointRendererOptions,
   ): void {
     if (!this.viewer) {
       throw new Error('PointPrimitiveRenderer is not attached to a Cesium viewer');
@@ -177,14 +176,14 @@ export class PointPrimitiveRenderer implements CopcPointRenderer {
 
   private readonly nodePerformanceObservers = new Map<
     string,
-    NonNullable<CopcPointRendererOptions['onPerformance']>
+    NonNullable<CopcCesiumPointRendererOptions['onPerformance']>
   >();
 
   // Keep observer registration beside the node lifecycle without making the
   // renderer API expose collection objects or Cesium implementation details.
   private rememberPerformanceObserver(
     nodeKey: string,
-    observer: CopcPointRendererOptions['onPerformance'],
+    observer: CopcCesiumPointRendererOptions['onPerformance'],
   ): void {
     if (observer) {
       this.nodePerformanceObservers.set(nodeKey, observer);

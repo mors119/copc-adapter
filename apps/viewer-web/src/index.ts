@@ -104,10 +104,17 @@ export {
   PointPrimitiveRenderer,
 } from './cesium/render/CopcPointRenderer';
 export type {
-  CopcPointRenderer,
-  CopcPointRendererOptions,
+  CesiumPointRenderer,
+  CopcCesiumPointRenderer,
+  CopcCesiumPointRendererOptions,
+  CopcCesiumPointRendererPerformanceStage,
   CopcPointRendererPerformanceStage,
 } from './cesium/render/CopcPointRenderer';
+export type {
+  CopcPointRenderer,
+  CopcPointRendererOptions,
+  CopcValueRange,
+} from './viewer/streaming/renderer';
 export type { NodePointCacheDiagnostics } from './viewer/streaming/createNodePointCache';
 export {
   CopcStreamingCore,

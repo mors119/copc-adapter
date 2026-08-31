@@ -38,17 +38,23 @@ separate concern.
 | Coordinate transformation | `apps/viewer-web/src/coordinates/` | Convert COPC coordinates to WGS84 longitude, latitude, and height |
 | WASM decoder | `crates/copc-wasm/`, `apps/viewer-web/src/wasm/` | Convert XYZ values into an interleaved point buffer |
 | Streaming core | `apps/viewer-web/src/viewer/streaming/` | Own source/context, metadata and hierarchy lifecycle, view-driven selection, generations, point loading, update intents, diagnostics, and the bounded point cache |
-| Cesium rendering | `apps/viewer-web/src/cesium/` | Consume geographic point buffers through the renderer boundary; the baseline uses point primitive collections |
-| Renderer boundary | `apps/viewer-web/src/cesium/render/CopcPointRenderer.ts` | Own node add/update/remove/clear/destroy and optional point identity; no COPC or selection logic |
+| Cesium rendering | `apps/viewer-web/src/cesium/render/` | Implement the neutral renderer contract with Cesium primitives; keep viewer attachment, Cesium geometry, styling details, and engine diagnostics here |
+| Renderer-neutral contract | `apps/viewer-web/src/viewer/streaming/renderer.ts` | Own the minimal node add/update/remove/clear/destroy/count contract and project-owned point options; no scene, camera, engine geometry, COPC, or selection logic |
 | Renderer-neutral controller | `apps/viewer-web/src/viewer/streaming/CopcStreamingController.ts` | Coordinate loading, hierarchy queries, selection, point streaming, lifecycle, generations, and engine-independent diagnostics |
 | Cesium compatibility controller | `apps/viewer-web/src/viewer/CopcViewer.ts` | Existing Cesium attachment, camera conversion, point rendering, picking, and coverage-safe renderer reconciliation; migration to the shared core is the follow-up adapter work |
 | Public API | `apps/viewer-web/src/api/`, `apps/viewer-web/src/index.ts` | Expose `CopcCesiumLayer` and its public types |
 
 External `copc.js` types stay inside `copcJsBackend.ts`. The context, loaders,
 streaming controller, and decoder communicate through project-owned interfaces.
-Cesium types are
-used only by the rendering and public attachment boundary, not by core COPC
-domain types.
+Cesium types are used only by the rendering and public attachment boundary, not
+by the neutral renderer contract, streaming core, or core COPC domain types.
+
+The neutral renderer contract is intentionally smaller than the Cesium
+implementation. `CopcPointRenderer` exposes node lifecycle and rendered
+counts only. `CesiumPointRenderer` adds `attachTo`, `detachFrom`, and the
+Cesium-only selection bounding sphere used by the compatibility controller.
+That keeps engine attachment and `Cesium.BoundingSphere` out of shared
+streaming state while preserving the existing Cesium API.
 
 ## Renderer-neutral streaming core (#132)
 
