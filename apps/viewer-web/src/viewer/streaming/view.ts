@@ -1,3 +1,13 @@
+import {
+  ecefToGeographic,
+  geographicToEcef,
+} from '../../coordinates/transform/worldCoordinates';
+
+export {
+  ecefToGeographic,
+  geographicToEcef,
+} from '../../coordinates/transform/worldCoordinates';
+
 /** A small, serializable vector used at the renderer/streaming boundary. */
 export type ViewVector3 = {
   x: number;
@@ -6,6 +16,8 @@ export type ViewVector3 = {
 };
 
 export type BoundingSphere = {
+  /** Bounding sphere coordinates are WGS84 ECEF metres, never renderer-local. */
+  coordinateSystem: 'wgs84-ecef-meters';
   center: ViewVector3;
   radiusMeters: number;
 };
@@ -75,9 +87,6 @@ export type StreamingViewBounds = {
   mode: 'frustum' | 'camera-fallback';
   effectiveFarMeters: number;
 };
-
-const WGS84_SEMI_MAJOR_AXIS_METERS = 6378137;
-const WGS84_FIRST_ECCENTRICITY_SQUARED = 6.6943799901413165e-3;
 
 function dot(left: ViewVector3, right: ViewVector3): number {
   return left.x * right.x + left.y * right.y + left.z * right.z;
@@ -175,88 +184,21 @@ export function intersectsViewFrustum(
   frustum: ViewFrustum,
   sphere: BoundingSphere,
 ): boolean {
+  // Accept unlabeled legacy test/custom objects, but never compare spheres
+  // explicitly labeled in a different coordinate space.
+  if (
+    'coordinateSystem' in sphere
+    && sphere.coordinateSystem !== frustum.coordinateSystem
+  ) {
+    return false;
+  }
+
   // The tolerance intentionally biases toward retaining edge-touching nodes.
   const edgeTolerance = Math.max(1, sphere.radiusMeters * 1e-6);
 
   return frustum.planes.every((currentPlane) =>
     dot(currentPlane.normal, sphere.center) + currentPlane.distance
       >= -sphere.radiusMeters - edgeTolerance);
-}
-
-/** Convert WGS84 longitude/latitude/ellipsoidal height to ECEF metres. */
-export function geographicToEcef(point: {
-  longitude: number;
-  latitude: number;
-  height: number;
-}): ViewVector3 {
-  const longitude = (point.longitude * Math.PI) / 180;
-  const latitude = (point.latitude * Math.PI) / 180;
-  const sinLatitude = Math.sin(latitude);
-  const cosLatitude = Math.cos(latitude);
-  const radiusOfCurvature = WGS84_SEMI_MAJOR_AXIS_METERS /
-    Math.sqrt(1 - WGS84_FIRST_ECCENTRICITY_SQUARED * sinLatitude ** 2);
-  const horizontalRadius = radiusOfCurvature + point.height;
-  const polarRadius = radiusOfCurvature * (1 - WGS84_FIRST_ECCENTRICITY_SQUARED)
-    + point.height;
-
-  return {
-    x: horizontalRadius * cosLatitude * Math.cos(longitude),
-    y: horizontalRadius * cosLatitude * Math.sin(longitude),
-    z: polarRadius * sinLatitude,
-  };
-}
-
-/** Convert WGS84 Earth-centered, Earth-fixed metres to geographic coordinates. */
-export function ecefToGeographic(point: ViewVector3): {
-  longitude: number;
-  latitude: number;
-  height: number;
-} {
-  if (![point.x, point.y, point.z].every(Number.isFinite)) {
-    throw new Error('ECEF point must have finite coordinates');
-  }
-
-  const semiMinorAxis = WGS84_SEMI_MAJOR_AXIS_METERS * Math.sqrt(
-    1 - WGS84_FIRST_ECCENTRICITY_SQUARED,
-  );
-  const secondEccentricitySquared = (
-    WGS84_SEMI_MAJOR_AXIS_METERS ** 2 - semiMinorAxis ** 2
-  ) / semiMinorAxis ** 2;
-  const horizontalDistance = Math.hypot(point.x, point.y);
-  const longitude = Math.atan2(point.y, point.x);
-
-  if (horizontalDistance < 1e-10) {
-    const latitude = point.z >= 0 ? Math.PI / 2 : -Math.PI / 2;
-    const height = Math.abs(point.z) - semiMinorAxis;
-    return {
-      longitude: 0,
-      latitude: (latitude * 180) / Math.PI,
-      height,
-    };
-  }
-
-  const theta = Math.atan2(
-    WGS84_SEMI_MAJOR_AXIS_METERS * point.z,
-    semiMinorAxis * horizontalDistance,
-  );
-  const sinTheta = Math.sin(theta);
-  const cosTheta = Math.cos(theta);
-  const latitude = Math.atan2(
-    point.z + secondEccentricitySquared * semiMinorAxis * sinTheta ** 3,
-    horizontalDistance - WGS84_FIRST_ECCENTRICITY_SQUARED
-      * WGS84_SEMI_MAJOR_AXIS_METERS * cosTheta ** 3,
-  );
-  const sinLatitude = Math.sin(latitude);
-  const radiusOfCurvature = WGS84_SEMI_MAJOR_AXIS_METERS / Math.sqrt(
-    1 - WGS84_FIRST_ECCENTRICITY_SQUARED * sinLatitude ** 2,
-  );
-  const height = horizontalDistance / Math.cos(latitude) - radiusOfCurvature;
-
-  return {
-    longitude: (longitude * 180) / Math.PI,
-    latitude: (latitude * 180) / Math.PI,
-    height,
-  };
 }
 
 function isFiniteVector(vector: ViewVector3 | undefined): vector is ViewVector3 {
@@ -467,6 +409,7 @@ export function createBoundingSphereFromGeographicBounds(
   }
 
   return {
+    coordinateSystem: 'wgs84-ecef-meters',
     center: sphereCenter,
     // Keep a small numerical cushion for transformed/projected boxes and
     // camera planes that meet exactly at a frustum edge.

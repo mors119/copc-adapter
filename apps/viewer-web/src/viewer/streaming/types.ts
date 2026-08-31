@@ -9,6 +9,8 @@ import type { BoundingSphere, ViewFrustum } from './view';
 export type { BoundingSphere, ViewFrustum, ViewVector3 } from './view';
 
 export type BoundingBox = {
+  /** Node bounds are geographic longitude/latitude/height, not local XYZ. */
+  coordinateSystem: 'wgs84-geographic';
   minX: number;
   minY: number;
   minZ: number;

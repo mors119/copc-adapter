@@ -17,6 +17,12 @@ export type CopcPointInspection = {
   latitude: number;
   height: number;
   source?: { x: number; y: number; z: number };
+  world?: {
+    coordinateSystem: 'wgs84-ecef-meters';
+    x: number;
+    y: number;
+    z: number;
+  };
   intensity?: number;
   classification?: number;
   classificationLabel?: string;
@@ -85,6 +91,15 @@ export function inspectCopcPoint(
       x: points.sourceCoordinates[offset],
       y: points.sourceCoordinates[offset + 1],
       z: points.sourceCoordinates[offset + 2],
+    };
+  }
+
+  if (points.worldCoordinates && points.worldCoordinates.length >= offset + 3) {
+    inspection.world = {
+      coordinateSystem: 'wgs84-ecef-meters',
+      x: points.worldCoordinates[offset],
+      y: points.worldCoordinates[offset + 1],
+      z: points.worldCoordinates[offset + 2],
     };
   }
 

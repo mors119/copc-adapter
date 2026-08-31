@@ -11,6 +11,10 @@ import type {
 } from './types';
 import { createBoundingSphereFromGeographicBounds } from './view';
 
+type CopcSourceBounds = Omit<BoundingBox, 'coordinateSystem'> & {
+  coordinateSystem: 'copc-source';
+};
+
 function createChildKey(parent: CopcHierarchyNode, childIndex: number): string {
   const level = parent.level + 1;
   const x = parent.x * 2 + (childIndex & 1);
@@ -62,11 +66,12 @@ function getNodeCenter(
 function getNodeBounds(
   metadata: CopcMetadata,
   node: CopcHierarchyNode,
-): BoundingBox {
+): CopcSourceBounds {
   const cubeSide = getCubeSideLength(metadata);
   const nodeSide = cubeSide / (2 ** node.level);
 
   return {
+    coordinateSystem: 'copc-source',
     minX: metadata.cube.minX + (node.x * nodeSide),
     minY: metadata.cube.minY + (node.y * nodeSide),
     minZ: metadata.cube.minZ + (node.z * nodeSide),
@@ -78,7 +83,7 @@ function getNodeBounds(
 
 function toGeographicBounds(
   transformPoint: (point: { x: number; y: number; z: number }) => GeographicPoint,
-  bounds: BoundingBox,
+  bounds: CopcSourceBounds,
 ): BoundingBox {
   const corners = [
     transformPoint({ x: bounds.minX, y: bounds.minY, z: bounds.minZ }),
@@ -92,6 +97,7 @@ function toGeographicBounds(
   ];
 
   return corners.reduce<BoundingBox>((accumulator, corner) => ({
+    coordinateSystem: 'wgs84-geographic',
     minX: Math.min(accumulator.minX, corner.longitude),
     minY: Math.min(accumulator.minY, corner.latitude),
     minZ: Math.min(accumulator.minZ, corner.height),
@@ -99,6 +105,7 @@ function toGeographicBounds(
     maxY: Math.max(accumulator.maxY, corner.latitude),
     maxZ: Math.max(accumulator.maxZ, corner.height),
   }), {
+    coordinateSystem: 'wgs84-geographic',
     minX: Number.POSITIVE_INFINITY,
     minY: Number.POSITIVE_INFINITY,
     minZ: Number.POSITIVE_INFINITY,

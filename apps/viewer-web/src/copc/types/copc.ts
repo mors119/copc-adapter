@@ -13,6 +13,7 @@ import type {
   CopcPointComponent,
   CopcPointFieldSelection,
 } from '../points/fieldSelection';
+import type { CoordinateBuffer } from '../../coordinates/types';
 
 export type CopcMetadata = {
   pointCount: number;
@@ -77,8 +78,29 @@ export type GeographicCamera = GeographicPoint;
 export type GeographicPointBuffer = {
   pointCount: number;
   coordinates: Float64Array;
-  /** Source-coordinate XYZ retained when a buffer was transformed for Cesium. */
+  /** Geographic triples; retained as `coordinates` for Cesium compatibility. */
+  coordinateSystem?: 'wgs84-geographic';
+  /** Source/project-coordinate XYZ retained after the shared transform. */
   sourceCoordinates?: Float64Array;
+  sourceCoordinateSystem?: 'copc-source';
+  /** WGS84 Earth-centered, Earth-fixed metres from the same shared transform. */
+  worldCoordinates?: Float64Array;
+  worldCoordinateSystem?: 'wgs84-ecef-meters';
+  attributes?: CopcPointAttributes;
+};
+
+/**
+ * Shared point data produced after decoding and CRS transformation.
+ *
+ * All coordinate arrays stay Float64 until a renderer deliberately chooses a
+ * presentation format. The `geographic` member is also represented by the
+ * legacy `GeographicPointBuffer` returned by `transformPointBuffer`.
+ */
+export type CopcPointData = {
+  pointCount: number;
+  source: CoordinateBuffer<'copc-source'>;
+  geographic: CoordinateBuffer<'wgs84-geographic'>;
+  world: CoordinateBuffer<'wgs84-ecef-meters'>;
   attributes?: CopcPointAttributes;
 };
 

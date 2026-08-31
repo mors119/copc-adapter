@@ -22,6 +22,36 @@ Browser-readable COPC URL
   -> PointPrimitiveRenderer (Cesium PointPrimitiveCollection compatibility path)
 ```
 
+## Coordinate and render-output boundary (#134)
+
+COPC XYZ values remain the authoritative source/project coordinates owned by
+the shared decode path. The shared CRS transform may additionally produce
+WGS84 geographic longitude/latitude/height and WGS84 ECEF metres. These values
+are retained as `Float64Array`s in project-owned point data; no renderer or GPU
+precision is selected at this boundary.
+
+```text
+COPC/source XYZ (`copc-source`)
+        ↓ shared decode + CRS transform
+WGS84 geographic (`wgs84-geographic`) + WGS84 ECEF world (`wgs84-ecef-meters`)
+        ↓ renderer chooses an origin
+renderer-local XYZ (`renderer-local`)
+        ↓ renderer chooses its GPU representation
+```
+
+`GeographicPointBuffer.coordinates` remains the Cesium-compatible geographic
+view, while `sourceCoordinates` and `worldCoordinates` retain the source and
+ECEF values from the same transform. New adapters should use the explicit
+coordinate metadata and choose a local origin with `worldToLocal()` before any
+Float32 conversion. The shared `CopcPointData` representation exposes the
+three coordinate buffers directly for adapters that do not use the legacy
+geographic view.
+
+Hierarchy query bounds are labeled `copc-source`. Streaming node boxes are
+labeled `wgs84-geographic`, and node bounding spheres/frusta are labeled
+`wgs84-ecef-meters`; none of these shared geometry values are renderer-local or
+Cesium-native.
+
 The root hierarchy page is loaded before point streaming begins. Each camera
 update gives the stateful `HierarchyLoader` a project-owned bounds/max-level
 query. It fetches intersecting page references only, retains page promises and

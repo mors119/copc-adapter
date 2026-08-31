@@ -48,7 +48,14 @@ function assertPageIsValid(page: CopcHierarchyPage): void {
 }
 
 function assertBounds(bounds: CopcHierarchyBounds, name: string): void {
-  const values = Object.values(bounds);
+  const values = [
+    bounds.minX,
+    bounds.minY,
+    bounds.minZ,
+    bounds.maxX,
+    bounds.maxY,
+    bounds.maxZ,
+  ];
   if (
     values.some((value) => !Number.isFinite(value)) ||
     bounds.minX > bounds.maxX ||
@@ -60,6 +67,17 @@ function assertBounds(bounds: CopcHierarchyBounds, name: string): void {
 }
 
 function assertQuery(query: CopcHierarchyQuery): void {
+  // The optional runtime check keeps JavaScript callers from accidentally
+  // sending a geographic or renderer-local envelope to the source-space
+  // hierarchy traversal. Missing labels remain accepted for old callers.
+  if (
+    'coordinateSystem' in query.bounds
+    && query.bounds.coordinateSystem !== 'copc-source'
+  ) {
+    throw new CopcHierarchyError(
+      'Hierarchy query bounds must use the copc-source coordinate system',
+    );
+  }
   assertBounds(query.bounds, 'hierarchy query');
   if (
     query.maxLevel !== undefined &&
@@ -176,7 +194,12 @@ export class HierarchyLoader {
 
   /** Compatibility path for callers that explicitly need a full traversal. */
   async load(): Promise<CopcHierarchyTree> {
-    return this.query({ bounds: this.cubeBounds });
+    return this.query({
+      bounds: {
+        ...this.cubeBounds,
+        coordinateSystem: 'copc-source',
+      },
+    });
   }
 
   /** Load only the root page and retain its child page references. */

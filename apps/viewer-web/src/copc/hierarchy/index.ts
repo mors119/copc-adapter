@@ -6,6 +6,7 @@ export {
 } from './types';
 export type {
   CopcHierarchyBounds,
+  CopcProjectBounds,
   CopcHierarchyDiagnostics,
   CopcHierarchyNode,
   CopcHierarchyPage,

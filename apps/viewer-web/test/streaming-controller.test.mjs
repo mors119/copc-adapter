@@ -279,6 +279,8 @@ test('same-position views with different directions produce different hierarchy 
   const firstQuery = controller.getHierarchyQuery(firstView);
   const secondQuery = controller.getHierarchyQuery(secondView);
 
+  assert.equal(firstQuery.bounds.coordinateSystem, 'copc-source');
+  assert.equal(secondQuery.bounds.coordinateSystem, 'copc-source');
   assert.notDeepEqual(firstQuery.bounds, secondQuery.bounds);
 });
 
