@@ -1,5 +1,7 @@
 # COPC Adapter
 
+[![npm](https://img.shields.io/npm/v/@frillab/copc-adapter.svg)](https://www.npmjs.com/package/@frillab/copc-adapter) [![CI](https://github.com/mors119/copc-adapter/actions/workflows/ci.yml/badge.svg)](https://github.com/mors119/copc-adapter/actions/workflows/ci.yml) [![License](https://img.shields.io/github/license/mors119/copc-adapter.svg)](https://github.com/mors119/copc-adapter/blob/main/LICENSE) [![GitHub release](https://img.shields.io/github/v/release/mors119/copc-adapter.svg)](https://github.com/mors119/copc-adapter/releases)
+
 Stream and visualize Cloud Optimized Point Cloud (COPC) data directly in
 CesiumJS without preprocessing or converting it to Cesium-specific tiles.
 
@@ -12,7 +14,7 @@ CesiumJS. The application keeps ownership of its own `Cesium.Viewer`.
 The repository-owned captures use the local Autzen Stadium sample
 (`/samples/autzen.copc.laz`) rendered in CesiumJS with the demo's `rgb` color
 mode. The streaming capture shows the same dataset while camera movement
-changes the distance/bounds-based LoD; the static styling examples below also
+drives view-aware LoD refinement; the static styling examples below also
 include the `elevation` and `classification` modes.
 
 ## Why COPC Adapter
@@ -37,8 +39,11 @@ data without a separate conversion step.
 
 - Direct COPC streaming from a browser-readable URL
 - HTTP Range random access and recursive hierarchy traversal
-- Camera-driven distance/bounds-based LoD selection
-- Progressive refinement with bounded streaming work
+- Incremental view-driven hierarchy loading with perspective frustum filtering
+- Coverage-preserving mixed-LoD streaming with screen-space-error refinement
+- Bounded node/point workload and decoded-point cache
+- Gaze-aware refinement priority and LoD hysteresis
+- Coverage-safe asynchronous coarse/fine renderer transitions
 - CesiumJS rendering through a caller-owned `Viewer`
 - Stable `copc-js` backend and opt-in Rust/WASM backend
 - Fixed, RGB, elevation, intensity, and classification styling
@@ -197,11 +202,23 @@ attribute is unavailable.
 
 ![COPC Adapter streaming demo](docs/assets/copc-streaming.gif)
 
-Camera movement changes hierarchy selection. Coarse nodes provide useful
-coverage while higher-detail nodes are loaded, decoded, prepared, and
-rendered in bounded progressive batches. Ready finer nodes replace their
-coarse ancestors; a coarse node remains visible while its replacement is
-pending.
+Camera movement changes hierarchy discovery and selection. With a valid
+perspective camera, hierarchy queries follow a conservative envelope of the
+active view (including oblique views) rather than a box centered only on the
+camera position. Callers without a usable perspective view retain a finite
+camera-based fallback. Cached hierarchy pages are reused as the view changes.
+
+The selector starts from a visible coarse frontier and purchases finer
+replacement nodes only when the `maxNodes` and `maxRenderedPoints` workload
+limits permit the complete replacement. This produces a mixed-LoD frontier
+that keeps valid coarse coverage instead of leaving sparse high-detail
+islands. Higher-detail nodes are ranked primarily by projected error, with a
+bounded screen-centre priority boost when perspective data is available.
+
+Ready finer nodes replace their coarse ancestors only after they are prepared;
+fine-to-coarse collapse is also coverage-safe. A newer camera generation
+supersedes stale asynchronous transitions, while the decoded point cache and
+bounded Rust Worker decode path remain separate from rendered membership.
 
 Streaming updates yield between batches and invalidate stale asynchronous work
 after a newer camera update. The selector uses a viewport-aware projected-error
@@ -310,8 +327,9 @@ npm run build:library
 npm pack
 ```
 
-The `v0.2.0` release adds view-aware streaming, opt-in Rust/WASM, worker,
-cache, inspection, and source-diagnostics work described in the changelog.
+The `v0.3.0` release adds the coverage-preserving, view-aware streaming and
+transition behavior described in the changelog. The package remains an ESM
+library with declarations and package-local decoder runtime assets.
 Library builds clean `dist` first, `npm pack` rebuilds through `prepack`, and
 sample COPC data is excluded from the package.
 
@@ -325,22 +343,24 @@ coordinate/attribute rendering, and continued `copc-js` operation. Its
 checked-in template is in `tests/environments/cesium-vite/`; the sample is
 staged only into the disposable consumer and is never packaged.
 
-The package metadata for this release is `0.2.0`.
+The package metadata for this release is `0.3.0`.
 
 ## Known Limitations
 
-These are the documented v0.2.0 boundaries:
+These are the current v0.3.0 boundaries:
 
 - Hierarchy loading starts with the root page and follows only relevant
   intersecting pages for the current project-coordinate bounds and target
   level; broader hierarchy/loading optimization remains future work.
-- LoD uses adapter-owned screen-space error with bounds/frustum filtering and
-  depth/node-count safety caps; occlusion culling is not implemented yet.
+- LoD uses adapter-owned screen-space error with bounds/frustum filtering,
+  mixed-LoD coverage, gaze-aware priority, hysteresis, and node/point safety
+  caps; occlusion culling is not implemented yet.
 - Browser Rust/WASM point decode uses a bounded worker pool when `Worker` is
   available; environments without workers use the documented main-thread
   fallback. Worker queue/concurrency diagnostics are exposed in snapshots.
 - Rendering uses the compatibility `PointPrimitiveRenderer` boundary backed by
-  `Cesium.PointPrimitiveCollection`; benchmark evidence is in the
+  `Cesium.PointPrimitiveCollection`; coverage-safe transitions keep old
+  coverage until a replacement is ready. Benchmark evidence is in the
   [Issue #48 report](docs/benchmarks/issue-48-renderer.md).
 - Dense refinement workloads can take time to finish progressively. The
   scheduler yields between bounded batches, stale generations are discarded,
@@ -354,8 +374,12 @@ These are the documented v0.2.0 boundaries:
 
 Follow-up work includes:
 
-- Broader view-aware LOD and hierarchy loading for larger datasets
-- Worker-based hierarchy/loading and broader worker observability
+- Broader Rust backend format and edge-case coverage before considering it for
+  the default backend
+- A measured scalable renderer boundary and dataset-global styling/statistics
+- A public Playground, Focus Lens refinement influence, camera-motion lookahead,
+  and predictive prefetch
+- Larger-dataset continued validation
 - A measured renderer boundary is complete ([#48](https://github.com/mors119/copc-adapter/issues/48)); batched/custom rendering remains follow-up work only if needed
 - Occlusion-culling investigation remains deferred pending measured hidden-node
   evidence ([#60](https://github.com/mors119/copc-adapter/issues/60))
