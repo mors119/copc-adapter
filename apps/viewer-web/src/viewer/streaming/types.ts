@@ -17,10 +17,22 @@ export type BoundingBox = {
   maxZ: number;
 };
 
-export type StreamingCameraState = GeographicCamera & {
+/**
+ * Renderer-neutral perspective state consumed by hierarchy queries and node
+ * selection. Engine adapters translate their camera representation into this
+ * plain, serializable contract.
+ */
+export type StreamingView = GeographicCamera & {
   viewDistanceMeters: number;
   viewFrustum?: ViewFrustum;
 };
+
+/** Backward-compatible name for the project-owned streaming view contract. */
+export type StreamingCameraState = StreamingView;
+
+/** Explicit core-facing aliases for engine adapters and future consumers. */
+export type CopcStreamingView = StreamingView;
+export type CopcViewState = StreamingView;
 
 export type StreamingSelectionOptions = {
   maxNodes: number;
