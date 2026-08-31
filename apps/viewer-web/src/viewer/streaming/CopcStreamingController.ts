@@ -376,6 +376,9 @@ export class CopcStreamingCore {
     // still in flight. The manager also invalidates at update start, matching
     // the established stale-result semantics.
     streamingState.manager.invalidate();
+    // Start measuring before a view can discover uncached hierarchy pages. The
+    // manager is told to continue this recording after the query completes.
+    this.performanceRecorder.beginUpdate();
 
     let hierarchy;
     try {
@@ -409,7 +412,9 @@ export class CopcStreamingCore {
       progressApplied = true;
       this.applyProgress(progress, onProgress, viewGeneration);
     };
-    const update = await streamingState.manager.update(view, applyProgress);
+    const update = await streamingState.manager.update(view, applyProgress, {
+      performanceAlreadyStarted: true,
+    });
     if (!this.isCurrentView(viewGeneration, streamingState)) {
       return undefined;
     }

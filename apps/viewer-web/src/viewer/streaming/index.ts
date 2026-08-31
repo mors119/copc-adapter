@@ -9,7 +9,10 @@ export {
   calculateScreenSpaceErrorPixels,
   DEFAULT_CENTER_PRIORITY_BOOST,
 } from './NodeSelector';
-export { StreamingManager } from './StreamingManager';
+export {
+  StreamingManager,
+  type StreamingManagerUpdateOptions,
+} from './StreamingManager';
 export {
   CopcStreamingCore,
   CopcStreamingController,

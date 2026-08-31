@@ -53,6 +53,7 @@ function createNode(key, level, pointCount, children = []) {
 function createSourceFactory({ onOpen, paged = false } = {}) {
   let openCount = 0;
   let destroyCount = 0;
+  let performanceObserver;
   const root = createNode(ROOT_KEY, 0, 1, [CHILD_KEY]);
   const child = createNode(CHILD_KEY, 1, 1);
 
@@ -73,7 +74,15 @@ function createSourceFactory({ onOpen, paged = false } = {}) {
           getRootHierarchyPage() {
             return { key: ROOT_KEY, pageOffset: 0, pageLength: 10 };
           },
+          setPerformanceObserver(observer) {
+            performanceObserver = observer;
+          },
           async loadHierarchyPage(page) {
+            performanceObserver?.({
+              stage: 'rangeFetch',
+              durationMs: 7,
+              bytes: page.pageLength,
+            });
             if (paged && page.key === ROOT_KEY) {
               return {
                 nodes: [root],
@@ -194,6 +203,8 @@ test('view updates refresh the core hierarchy used by point loading', async () =
   await controller.updateView(createView());
 
   assert.equal(controller.getHierarchyDiagnostics().loadedEntryCount, 3);
+  assert.equal(controller.getSnapshot().performance.rangeFetchDurationMs, 7);
+  assert.equal(controller.getSnapshot().performance.rangeFetchBytes, 10);
   for (const nodeKey of controller.getCurrentSelection()) {
     assert.ok(controller.getCachedPointBuffer(nodeKey));
   }

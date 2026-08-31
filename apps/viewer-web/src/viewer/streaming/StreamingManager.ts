@@ -17,6 +17,14 @@ export type StreamingNodePointLoader = (
   nodeKey: string,
 ) => Promise<GeographicPointBuffer>;
 
+export type StreamingManagerUpdateOptions = {
+  /**
+   * The caller started performance recording before an async hierarchy query.
+   * Keep that recording so the query remains part of this update's metrics.
+   */
+  performanceAlreadyStarted?: boolean;
+};
+
 function isQueuedDecodeCancellation(error: unknown): boolean {
   if (!(error instanceof Error) || !('code' in error) || error.code !== 'worker') {
     return false;
@@ -160,10 +168,13 @@ export class StreamingManager {
   async update(
     camera: StreamingCameraState,
     onProgress?: (progress: import('./types').StreamingProgress) => void,
+    options: StreamingManagerUpdateOptions = {},
   ): Promise<StreamingUpdateResult> {
     const updateGeneration = ++this.updateGeneration;
     this.onInvalidate?.();
-    this.performanceRecorder.beginUpdate();
+    if (!options.performanceAlreadyStarted) {
+      this.performanceRecorder.beginUpdate();
+    }
     const selectionStartedAt = performanceNow();
     const selectedNodes = this.selector.selectVisibleNodes(camera, this.hierarchy, {
       previousSelectedNodeKeys: this.selectedNodeKeys,
