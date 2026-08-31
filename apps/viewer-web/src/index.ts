@@ -38,6 +38,7 @@ export {
 } from './copc/rustCopcDecodeWorkerPool';
 export type {
   CopcHierarchyBounds,
+  CopcHierarchyQueryBounds,
   CopcHierarchyDiagnostics,
   CopcHierarchyQuery,
   CopcProjectBounds,
@@ -144,6 +145,7 @@ export type {
 } from './viewer/streaming/CopcStreamingController';
 export type {
   BoundingSphere,
+  BoundingSphereInput,
   ViewFrustum,
   ViewVector3,
   StreamingCameraState,

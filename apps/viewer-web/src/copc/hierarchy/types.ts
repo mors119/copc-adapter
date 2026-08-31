@@ -29,9 +29,19 @@ export type CopcProjectBounds = CopcHierarchyBounds & {
   coordinateSystem: 'copc-source';
 };
 
+/**
+ * Bounds accepted by the public hierarchy query contract.
+ *
+ * The coordinate label is optional only for compatibility with callers of
+ * the pre-#134 API. New project-owned queries should use CopcProjectBounds.
+ */
+export type CopcHierarchyQueryBounds = CopcHierarchyBounds & {
+  coordinateSystem?: 'copc-source';
+};
+
 /** Project-owned request for the hierarchy needed by one view update. */
 export type CopcHierarchyQuery = {
-  bounds: CopcProjectBounds;
+  bounds: CopcHierarchyQueryBounds;
   maxLevel?: number;
 };
 

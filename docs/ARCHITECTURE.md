@@ -47,10 +47,12 @@ Float32 conversion. The shared `CopcPointData` representation exposes the
 three coordinate buffers directly for adapters that do not use the legacy
 geographic view.
 
-Hierarchy query bounds are labeled `copc-source`. Streaming node boxes are
-labeled `wgs84-geographic`, and node bounding spheres/frusta are labeled
-`wgs84-ecef-meters`; none of these shared geometry values are renderer-local or
-Cesium-native.
+Hierarchy query bounds produced by the adapter are labeled `copc-source`.
+The public query input still accepts an unlabeled legacy bounds object for
+source compatibility, while rejecting an explicitly different coordinate
+system. Streaming node boxes are labeled `wgs84-geographic`, and node
+bounding spheres/frusta are labeled `wgs84-ecef-meters`; none of these shared
+geometry values are renderer-local or Cesium-native.
 
 The root hierarchy page is loaded before point streaming begins. Each camera
 update gives the stateful `HierarchyLoader` a project-owned bounds/max-level
@@ -187,10 +189,12 @@ nodes and removes deselected primitives. The node cache is bounded and evicts
 least-recently-used entries.
 
 `CopcHierarchyQuery` contains only project-coordinate bounds and an optional
-`maxLevel`; it has no Cesium camera, culling, or screen-space-error types. The
-adapter owns the camera envelope and target-depth policy. `HierarchyLoader`
-owns page-reference traversal and its per-source page cache, while the Rust
-and copc.js sources own byte/page decoding. Hierarchy diagnostics report page
+`maxLevel`; new adapter-created bounds carry the `copc-source` label, while
+unlabeled bounds remain accepted for compatibility with pre-boundary callers.
+It has no Cesium camera, culling, or screen-space-error types. The adapter owns
+the camera envelope and target-depth policy. `HierarchyLoader` owns
+page-reference traversal and its per-source page cache, while the Rust and
+copc.js sources own byte/page decoding. Hierarchy diagnostics report page
 requests, cache hits, fetched hierarchy bytes, and loaded entry counts.
 
 The selector uses a project-owned perspective screen-space-error policy. COPC

@@ -22,6 +22,14 @@ export type BoundingSphere = {
   radiusMeters: number;
 };
 
+/**
+ * Input accepted by the frustum helper, including pre-#134 unlabeled spheres.
+ * Shared streaming nodes continue to use the explicitly labeled BoundingSphere.
+ */
+export type BoundingSphereInput =
+  | BoundingSphere
+  | Omit<BoundingSphere, 'coordinateSystem'>;
+
 export type FrustumPlane = {
   /** Plane interior is the non-negative side of this equation. */
   normal: ViewVector3;
@@ -182,7 +190,7 @@ export function createPerspectiveViewFrustum(
 /** Return true unless a node sphere is completely outside one frustum plane. */
 export function intersectsViewFrustum(
   frustum: ViewFrustum,
-  sphere: BoundingSphere,
+  sphere: BoundingSphereInput,
 ): boolean {
   // Accept unlabeled legacy test/custom objects, but never compare spheres
   // explicitly labeled in a different coordinate space.
