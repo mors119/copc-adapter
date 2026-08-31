@@ -10,6 +10,10 @@ export {
   DEFAULT_CENTER_PRIORITY_BOOST,
 } from './NodeSelector';
 export { StreamingManager } from './StreamingManager';
+export {
+  CopcStreamingCore,
+  CopcStreamingController,
+} from './CopcStreamingController';
 export { compareNodePriority } from './NodeSelector';
 export { createStreamingWorkBatches, yieldToBrowser } from './scheduler';
 export { StreamingPerformanceRecorder } from './performance';
@@ -37,6 +41,9 @@ export type {
 export type {
   BoundingBox,
   StreamingCameraState,
+  CopcStreamingView,
+  CopcViewState,
+  StreamingView,
   StreamingHierarchy,
   StreamingHierarchyNode,
   StreamingLevelRange,

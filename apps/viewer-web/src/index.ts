@@ -109,3 +109,47 @@ export type {
   CopcPointRendererPerformanceStage,
 } from './cesium/render/CopcPointRenderer';
 export type { NodePointCacheDiagnostics } from './viewer/streaming/createNodePointCache';
+export {
+  CopcStreamingCore,
+  CopcStreamingController,
+} from './viewer/streaming/CopcStreamingController';
+export type {
+  CopcStreamingCoreOptions,
+  CopcStreamingControllerOptions,
+  CopcStreamingLifecycleState,
+  CopcStreamingPerformanceSnapshot,
+  CopcStreamingProgressHandler,
+  CopcStreamingSnapshot,
+  CopcStreamingTransitionState,
+} from './viewer/streaming/CopcStreamingController';
+export type {
+  BoundingSphere,
+  ViewFrustum,
+  ViewVector3,
+  StreamingCameraState,
+  CopcStreamingView,
+  CopcViewState,
+  StreamingView,
+  StreamingHierarchy,
+  StreamingHierarchyNode,
+  StreamingProgress,
+  StreamingReplacementGroup,
+  StreamingReplacementKind,
+  StreamingSelectionContext,
+  StreamingSelectionMetrics,
+  StreamingSelectionOptions,
+  StreamingUpdateResult,
+} from './viewer/streaming/types';
+export type {
+  FrustumPlane,
+  GeographicViewBounds,
+  StreamingViewBounds,
+  StreamingViewBoundsInput,
+} from './viewer/streaming/view';
+export {
+  createPerspectiveViewFrustum,
+  createStreamingViewBounds,
+  ecefToGeographic,
+  geographicToEcef,
+  intersectsViewFrustum,
+} from './viewer/streaming/view';

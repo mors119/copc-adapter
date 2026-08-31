@@ -1,4 +1,4 @@
-/** A small, serializable vector used at the Cesium/streaming boundary. */
+/** A small, serializable vector used at the renderer/streaming boundary. */
 export type ViewVector3 = {
   x: number;
   y: number;

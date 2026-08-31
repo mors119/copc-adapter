@@ -13,11 +13,12 @@ converts those points into Cesium primitives in the browser.
 Browser-readable COPC URL
   -> project-owned CopcBackend / CopcSource boundary
   -> copc-js (default) or Rust/WASM (explicit opt-in)
+  -> CopcStreamingController
   -> metadata and incremental hierarchy-page queries
   -> streaming hierarchy and camera-based node selection
-  -> selected project-owned point buffers
+  -> selected project-owned point buffers and update intents
   -> coordinate transformation to WGS84
-  -> CopcPointRenderer boundary
+  -> engine adapter / CopcPointRenderer boundary
   -> PointPrimitiveRenderer (Cesium PointPrimitiveCollection compatibility path)
 ```
 
@@ -36,10 +37,11 @@ separate concern.
 | COPC loading | `apps/viewer-web/src/copc/` | Consume backend-neutral metadata, hierarchy, and point-view types |
 | Coordinate transformation | `apps/viewer-web/src/coordinates/` | Convert COPC coordinates to WGS84 longitude, latitude, and height |
 | WASM decoder | `crates/copc-wasm/`, `apps/viewer-web/src/wasm/` | Convert XYZ values into an interleaved point buffer |
-| Streaming | `apps/viewer-web/src/viewer/streaming/` | Build selection data, choose nodes, and maintain the bounded point cache |
+| Streaming core | `apps/viewer-web/src/viewer/streaming/` | Own source/context, metadata and hierarchy lifecycle, view-driven selection, generations, point loading, update intents, diagnostics, and the bounded point cache |
 | Cesium rendering | `apps/viewer-web/src/cesium/` | Consume geographic point buffers through the renderer boundary; the baseline uses point primitive collections |
 | Renderer boundary | `apps/viewer-web/src/cesium/render/CopcPointRenderer.ts` | Own node add/update/remove/clear/destroy and optional point identity; no COPC or selection logic |
-| Internal controller | `apps/viewer-web/src/viewer/CopcViewer.ts` | Coordinate loading, camera events, streaming, selection, and renderer lifecycle decisions |
+| Renderer-neutral controller | `apps/viewer-web/src/viewer/streaming/CopcStreamingController.ts` | Coordinate loading, hierarchy queries, selection, point streaming, lifecycle, generations, and engine-independent diagnostics |
+| Cesium compatibility controller | `apps/viewer-web/src/viewer/CopcViewer.ts` | Existing Cesium attachment, camera conversion, point rendering, picking, and coverage-safe renderer reconciliation; migration to the shared core is the follow-up adapter work |
 | Public API | `apps/viewer-web/src/api/`, `apps/viewer-web/src/index.ts` | Expose `CopcCesiumLayer` and its public types |
 
 External `copc.js` types stay inside `copcJsBackend.ts`. The context, loaders,
@@ -47,6 +49,29 @@ streaming controller, and decoder communicate through project-owned interfaces.
 Cesium types are
 used only by the rendering and public attachment boundary, not by core COPC
 domain types.
+
+## Renderer-neutral streaming core (#132)
+
+`CopcStreamingController` is the shared lifecycle seam for future rendering
+engines. It owns the opened `CopcSource`, metadata, incremental
+`HierarchyLoader`, `StreamingManager`, decoded point cache, load/view
+generations, current selected node keys, replacement intents, and diagnostics.
+It emits `StreamingProgress` as selected geographic point buffers become ready;
+an adapter may submit each buffer to its renderer and use the replacement
+groups to preserve coverage while a refinement or collapse is prepared.
+
+The controller accepts only the project-owned `StreamingView` contract. A view
+contains geographic camera position, a view-distance limit, and an optional
+plain perspective `ViewFrustum` in WGS84 ECEF metres. It contains no engine
+camera, viewer, scene, render-loop callback, or frame-rate state. Adapters are
+responsible for converting camera state and deciding when to call
+`updateView(view)`.
+
+The existing Cesium controller remains the compatibility attachment path while
+the renderer-specific migration is staged separately in #135. The new core is
+independently usable by a future adapter and is covered by tests that do not
+import Cesium; #135 will make the existing Cesium path consume it so the
+repository has one streaming engine.
 
 ## Rust Decode Worker Pool (#46)
 

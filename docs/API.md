@@ -31,6 +31,42 @@ root hierarchy page 로딩 실패를 각각 project-owned `CopcLoadError`로 rej
 panel에 그대로 표시할 수 있다. `CopcSourceError`, `CopcMetadataError`,
 `CopcHierarchyLoadError`도 public entrypoint에서 export된다.
 
+### `CopcStreamingController`
+
+`CopcStreamingController` is the renderer-neutral loading and streaming core.
+It can be used without creating a Cesium `Viewer` or importing an engine
+camera. `load()` reads metadata and the root hierarchy, and
+`updateView(view, onProgress?)` accepts the project-owned `StreamingView`
+contract, performs the view-driven hierarchy query and selection, and emits
+progressively loaded geographic point buffers. The callback receives
+coverage-safe `replacementGroups` so an engine adapter can decide how to stage
+and commit its own primitives.
+
+The core exposes `getSnapshot()`, `getMetadata()`,
+`getHierarchyDiagnostics()`, `getPointCacheDiagnostics()`,
+`getCurrentSelection()`, and `getTransitionState()`. Its lifecycle is
+`'idle' | 'loading' | 'ready' | 'destroyed'`; stale view generations resolve to
+`undefined` and cannot update the current selection. `unload()`, `reload()`,
+and `destroy()` release source, worker, hierarchy, and cache state. The
+existing `CopcCesiumLayer` remains the compatibility adapter while its
+renderer-specific migration is handled separately.
+
+```ts
+import {
+  CopcStreamingController,
+} from '@frillab/copc-adapter';
+
+const core = new CopcStreamingController({ url });
+await core.load();
+await core.updateView({
+  longitude,
+  latitude,
+  height,
+  viewDistanceMeters,
+  viewFrustum,
+});
+```
+
 ### `probeCopcSource(url)`
 
 `probeCopcSource(url)` is a low-cost browser diagnostic for a remote source.
