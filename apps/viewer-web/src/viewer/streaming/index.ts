@@ -59,3 +59,8 @@ export type {
   StreamingReplacementGroup,
   StreamingReplacementKind,
 } from './types';
+export type {
+  CopcPointRenderer,
+  CopcPointRendererOptions,
+  CopcValueRange,
+} from './renderer';

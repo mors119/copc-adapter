@@ -4,8 +4,8 @@ import { performanceNow } from '../../copc/performance';
 import { transformPointBuffer } from '../../coordinates/transform/createPointTransformer';
 import {
   PointPrimitiveRenderer,
-  type CopcPointRenderer,
-  type CopcPointRendererOptions,
+  type CesiumPointRenderer,
+  type CopcCesiumPointRendererOptions,
   type CopcPointRendererPerformanceStage,
 } from './CopcPointRenderer';
 
@@ -34,7 +34,7 @@ export type RendererPerformanceBenchmarkOptions = {
   pointCounts?: readonly number[];
   repetitions?: number;
   warmups?: number;
-  colorMode?: CopcPointRendererOptions['colorMode'];
+  colorMode?: CopcCesiumPointRendererOptions['colorMode'];
 };
 
 const SYNTHETIC_METADATA: CopcMetadata = {
@@ -127,9 +127,9 @@ function recordStage(
 }
 
 function rendererOptions(
-  colorMode: CopcPointRendererOptions['colorMode'],
+  colorMode: CopcCesiumPointRendererOptions['colorMode'],
   values: Partial<Record<BenchmarkStage, number[]>>,
-): CopcPointRendererOptions {
+): CopcCesiumPointRendererOptions {
   return {
     pointSize: 2,
     colorMode,
@@ -162,7 +162,7 @@ export function runSyntheticRendererPerformanceBenchmark(
       const geographicPoints = transformPointBuffer(SYNTHETIC_METADATA, points);
       const crsDuration = performanceNow() - crsStartedAt;
       const firstStages: Partial<Record<BenchmarkStage, number[]>> = {};
-      const renderer: CopcPointRenderer = new PointPrimitiveRenderer();
+      const renderer: CesiumPointRenderer = new PointPrimitiveRenderer();
       renderer.attachTo(viewer);
 
       renderer.addOrUpdateNode(

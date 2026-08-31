@@ -41,7 +41,7 @@ function assertOrderedBounds(
   }
 }
 
-/** Validate metadata required by hierarchy selection and Cesium rendering. */
+/** Validate metadata required by hierarchy selection and geographic rendering. */
 export function validateCopcMetadata(metadata: CopcMetadata): void {
   if (!Number.isSafeInteger(metadata.pointCount) || metadata.pointCount < 0) {
     throw new CopcMetadataValidationError(

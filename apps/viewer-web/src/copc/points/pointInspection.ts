@@ -1,11 +1,11 @@
 import type { CopcBackendName } from '../backend/selection';
 import type { GeographicPointBuffer } from '../types/copc';
 
-/** Small project-owned reference carried by a rendered Cesium point. */
+/** Small project-owned reference carried by a rendered point. */
 export type CopcPointPickId = Readonly<{
   nodeKey: string;
   pointIndex: number;
-  /** Layer-local token used when multiple COPC layers share a viewer. */
+  /** Layer-local token used when multiple COPC layers share a scene. */
   ownerId?: string;
 }>;
 
