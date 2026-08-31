@@ -144,10 +144,12 @@ CORS checks in `warnings`. The current reader requires the browser to send a
 - `backend`: `'copc-js' | 'rust' | CopcBackend`; defaults to `'copc-js'`.
   Rust is opt-in and does not silently fall back to `copc-js`.
 - `decoder`: optional `CopcPointDecoder`; defaults to the Rust/WASM decoder
-- `renderer`: optional project-owned `CopcPointRenderer`; defaults to the
-  compatibility `PointPrimitiveRenderer`. A renderer receives transformed
-  geographic point buffers and owns only node add/update/remove/clear/destroy;
-  COPC loading, selection, LoD, and streaming remain layer responsibilities.
+- `renderer`: optional Cesium adapter renderer; defaults to the compatibility
+  `PointPrimitiveRenderer`. The shared `CopcPointRenderer` contract receives
+  transformed geographic point buffers and owns only node
+  add/update/remove/clear/destroy and rendered counts. Cesium attachment and
+  Cesium geometry stay in `CesiumPointRenderer`; COPC loading, selection, LoD,
+  and streaming remain layer responsibilities.
 - `maxPointCacheBytes`: decoded CPU point-buffer cache budget in bytes (default
   `256 * 1024 * 1024`). This estimates project-owned typed-array storage and
   does not measure exact Cesium/WebGL/browser memory.

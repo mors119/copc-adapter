@@ -1,9 +1,12 @@
 import * as Cesium from 'cesium';
-import { PointPrimitiveRenderer, type CopcPointRenderer } from '../cesium/render/CopcPointRenderer';
+import {
+  PointPrimitiveRenderer,
+  type CesiumPointRenderer,
+} from '../cesium/render/CopcPointRenderer';
 import {
   getCopcPointFieldSelection,
   type CopcColorMode,
-} from '../cesium/style/pointStyle';
+} from '../copc/points/fieldSelection';
 import {
   createCopcContext,
 } from '../copc/context/createCopcContext';
@@ -69,7 +72,7 @@ export type CopcLayerOptions = {
   streaming?: Partial<StreamingSelectionOptions>;
   backend?: CopcBackendSelection;
   decoder?: CopcPointDecoder;
-  renderer?: CopcPointRenderer;
+  renderer?: CesiumPointRenderer;
   /** Called when a rendered COPC point is selected or selection is cleared. */
   onPointPicked?: (point: CopcPointInspection | undefined) => void;
   /** Maximum retained decoded CPU point-buffer bytes. Defaults to 256 MiB. */
@@ -192,7 +195,7 @@ function createTransitionDiagnostics(): CopcLayerTransitionDiagnostics {
 export class CopcLayerController {
   private viewer?: Cesium.Viewer;
   private readonly options: CopcLayerOptions;
-  private readonly pointRenderer: CopcPointRenderer;
+  private readonly pointRenderer: CesiumPointRenderer;
   private readonly selectedNodeKeys = new Set<string>();
   private readonly nodePointCache: NodePointCache<GeographicPointBuffer>;
   private readonly performanceRecorder = new StreamingPerformanceRecorder();
