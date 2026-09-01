@@ -73,7 +73,7 @@ separate concern.
 | Cesium rendering | `apps/viewer-web/src/cesium/render/` | Implement the neutral renderer contract with Cesium primitives; keep viewer attachment, Cesium geometry, styling details, and engine diagnostics here |
 | Renderer-neutral contract | `apps/viewer-web/src/viewer/streaming/renderer.ts` | Own the minimal node add/update/remove/clear/destroy/count contract and project-owned point options; no scene, camera, engine geometry, COPC, or selection logic |
 | Renderer-neutral controller | `apps/viewer-web/src/viewer/streaming/CopcStreamingController.ts` | Coordinate loading, hierarchy queries, selection, point streaming, lifecycle, generations, and engine-independent diagnostics |
-| Cesium compatibility controller | `apps/viewer-web/src/viewer/CopcViewer.ts`, `apps/viewer-web/src/cesium/view/` | Cesium attachment, camera conversion, point rendering, picking, and coverage-safe renderer reconciliation over the shared streaming core |
+| Cesium compatibility controller | `apps/viewer-web/src/viewer/CopcViewer.ts` | Existing Cesium attachment, camera conversion, point rendering, picking, and coverage-safe renderer reconciliation; migration to the shared core is the follow-up adapter work |
 | Public API | `apps/viewer-web/src/api/`, `apps/viewer-web/src/index.ts` | Expose `CopcCesiumLayer` and its public types |
 
 External `copc.js` types stay inside `copcJsBackend.ts`. The context, loaders,
@@ -105,10 +105,11 @@ camera, viewer, scene, render-loop callback, or frame-rate state. Adapters are
 responsible for converting camera state and deciding when to call
 `updateView(view)`.
 
-The Cesium controller is the compatibility attachment path over this core. The
-core is independently usable by future adapters and is covered by tests that do
-not import Cesium; the Cesium path consumes the same source, hierarchy,
-selection, generation, and point-cache implementation.
+The existing Cesium controller remains the compatibility attachment path while
+the renderer-specific migration is staged separately in #135. The new core is
+independently usable by a future adapter and is covered by tests that do not
+import Cesium; #135 will make the existing Cesium path consume it so the
+repository has one streaming engine.
 
 ## Rust Decode Worker Pool (#46)
 
