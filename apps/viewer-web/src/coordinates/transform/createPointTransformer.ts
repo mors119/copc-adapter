@@ -3,9 +3,11 @@ import type {
   CopcMetadata,
   CopcPoint,
   CopcPointBuffer,
+  CopcPointData,
   GeographicPoint,
   GeographicPointBuffer,
 } from '../../copc/types/copc';
+import { geographicToEcef } from './worldCoordinates';
 import {
   extractHorizontalWkt,
   extractVerticalUnitScale,
@@ -91,8 +93,32 @@ export function transformPointBuffer(
   metadata: CopcMetadata,
   points: CopcPointBuffer,
 ): GeographicPointBuffer {
+  const transformed = transformPointBufferToPointData(metadata, points);
+
+  return {
+    pointCount: transformed.pointCount,
+    coordinateSystem: 'wgs84-geographic',
+    coordinates: transformed.geographic.coordinates,
+    sourceCoordinateSystem: 'copc-source',
+    sourceCoordinates: transformed.source.coordinates,
+    worldCoordinateSystem: 'wgs84-ecef-meters',
+    worldCoordinates: transformed.world.coordinates,
+    attributes: transformed.attributes,
+  };
+}
+
+/**
+ * Decode output after the shared CRS path, retaining every useful coordinate
+ * space in Float64 form for engine adapters.
+ */
+export function transformPointBufferToPointData(
+  metadata: CopcMetadata,
+  points: CopcPointBuffer,
+): CopcPointData {
   const transformPoint = createPointTransformer(metadata);
-  const coordinates = new Float64Array(points.coordinates.length);
+  const sourceCoordinates = points.coordinates.slice();
+  const geographicCoordinates = new Float64Array(points.coordinates.length);
+  const worldCoordinates = new Float64Array(points.coordinates.length);
 
   for (let index = 0; index < points.pointCount; index += 1) {
     const offset = index * 3;
@@ -102,15 +128,33 @@ export function transformPointBuffer(
       z: points.coordinates[offset + 2],
     });
 
-    coordinates[offset] = point.longitude;
-    coordinates[offset + 1] = point.latitude;
-    coordinates[offset + 2] = point.height;
+    geographicCoordinates[offset] = point.longitude;
+    geographicCoordinates[offset + 1] = point.latitude;
+    geographicCoordinates[offset + 2] = point.height;
+
+    const world = geographicToEcef(point);
+    worldCoordinates[offset] = world.x;
+    worldCoordinates[offset + 1] = world.y;
+    worldCoordinates[offset + 2] = world.z;
   }
 
   return {
     pointCount: points.pointCount,
-    coordinates,
-    sourceCoordinates: points.coordinates.slice(),
+    source: {
+      coordinateSystem: 'copc-source',
+      pointCount: points.pointCount,
+      coordinates: sourceCoordinates,
+    },
+    geographic: {
+      coordinateSystem: 'wgs84-geographic',
+      pointCount: points.pointCount,
+      coordinates: geographicCoordinates,
+    },
+    world: {
+      coordinateSystem: 'wgs84-ecef-meters',
+      pointCount: points.pointCount,
+      coordinates: worldCoordinates,
+    },
     attributes: points.attributes,
   };
 }

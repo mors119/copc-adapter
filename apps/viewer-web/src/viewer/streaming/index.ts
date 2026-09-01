@@ -34,6 +34,7 @@ export type {
 } from './createNodePointCache';
 export type {
   BoundingSphere,
+  BoundingSphereInput,
   FrustumPlane,
   GeographicViewBounds,
   StreamingViewBounds,

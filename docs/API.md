@@ -280,12 +280,26 @@ format에 없는 attribute는 생성하지 않는다. RGB/intensity/classificati
 style은 해당 typed arrays를 직접 사용하며, attribute 누락 시 fixed color로
 fallback한다.
 
+좌표 배열은 shared boundary에서 `Float64Array`로 유지된다. `CopcPointData`는
+동일한 디코드 결과에 대해 `copc-source`, `wgs84-geographic`,
+`wgs84-ecef-meters` 좌표 버전을 명시적으로 제공한다. 기존
+`GeographicPointBuffer.coordinates`는 Cesium 호환성을 위해 계속 유지하며,
+core가 만든 buffer에는 source/ECEF 좌표와 coordinate-system 표식도 함께
+보존된다. 렌더러 adapter는 `worldToLocal()`로 선택한 WGS84 ECEF 원점을
+먼저 뺀 뒤 필요할 때만 Float32/GPU 형식으로 변환한다.
+
+새로 생성되는 hierarchy bounds와 streaming geometry에는 좌표계 표식이
+포함된다. 기존 공개 `CopcHierarchyQuery` 입력과 `intersectsViewFrustum()`
+입력은 이전 버전의 무표식 source bounds/sphere도 호환성을 위해 허용하지만,
+명시적으로 다른 좌표계가 표시된 값은 거부한다.
+
 ### Point picking and inspection
 
 Cesium point picks carry only a project-owned `{ nodeKey, pointIndex }` identity
 plus a compact layer-local ownership token. `CopcCesiumLayer.getSelectedPoint()` resolves it through the current
 rendered node and decoded CPU cache, returning transformed position/height,
-retained source XYZ, node level, and available attributes. RGB, intensity, and
+retained source XYZ, shared WGS84 ECEF world coordinates when available, node
+level, and available attributes. RGB, intensity, and
 classification remain unavailable when the active field selection did not
 request or decode them. Picking does not force unconditional full-field
 decoding; removed or evicted nodes clear stale selection safely.

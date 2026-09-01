@@ -12,6 +12,7 @@ import { HierarchyLoader } from '../../copc/hierarchy/HierarchyLoader';
 import type {
   CopcHierarchyBounds,
   CopcHierarchyDiagnostics,
+  CopcProjectBounds,
   CopcHierarchyQuery,
 } from '../../copc/hierarchy/types';
 import { CopcHierarchyLoadError, CopcLoadError } from '../../copc/errors';
@@ -195,7 +196,7 @@ function cloneTransitionState(
 function toProjectBounds(
   metadata: CopcMetadata,
   geographicBounds: CopcHierarchyBounds,
-): CopcHierarchyBounds {
+): CopcProjectBounds {
   const toProject = createProjectPointTransformer(metadata);
   const corners = [
     [geographicBounds.minX, geographicBounds.minY, geographicBounds.minZ],
@@ -209,7 +210,8 @@ function toProjectBounds(
   ].map(([longitude, latitude, height]) =>
     toProject({ longitude, latitude, height }));
 
-  return corners.reduce<CopcHierarchyBounds>((bounds, point) => ({
+  return corners.reduce<CopcProjectBounds>((bounds, point) => ({
+    coordinateSystem: 'copc-source',
     minX: Math.min(bounds.minX, point.x),
     minY: Math.min(bounds.minY, point.y),
     minZ: Math.min(bounds.minZ, point.z),
@@ -217,6 +219,7 @@ function toProjectBounds(
     maxY: Math.max(bounds.maxY, point.y),
     maxZ: Math.max(bounds.maxZ, point.z),
   }), {
+    coordinateSystem: 'copc-source',
     minX: Number.POSITIVE_INFINITY,
     minY: Number.POSITIVE_INFINITY,
     minZ: Number.POSITIVE_INFINITY,

@@ -19,7 +19,15 @@ import {
   type CopcPointInspection,
   type CopcPointPickId,
 } from '../copc/points/pointInspection';
-import type { CopcMetadata, GeographicPointBuffer } from '../copc/types/copc';
+import { HierarchyLoader } from '../copc/hierarchy/HierarchyLoader';
+import type {
+  CopcHierarchyBounds,
+  CopcHierarchyQuery,
+  CopcProjectBounds,
+} from '../copc/hierarchy/types';
+import { CopcHierarchyLoadError, CopcLoadError } from '../copc/errors';
+import { loadCopcMetadata } from '../copc/metadata/loadMetadata';
+import { loadCopcPointBuffer } from '../copc/points/loadPointData';
 import { extractHorizontalUnitScale } from '../coordinates/crs/parseCopcWkt';
 import { createPointTransformer } from '../coordinates/transform/createPointTransformer';
 import {
@@ -52,6 +60,57 @@ export type CopcLayerOptions = {
   /** Maximum retained decoded CPU point-buffer bytes. Defaults to 256 MiB. */
   maxPointCacheBytes?: number;
 };
+
+type StreamingState = {
+  context: CopcSource;
+  metadata: CopcMetadata;
+  hierarchyLoader: HierarchyLoader;
+  nodes: StreamingHierarchy;
+  manager: StreamingManager;
+};
+
+let nextPickOwnerId = 0;
+
+function createPickOwnerId(): string {
+  nextPickOwnerId += 1;
+  return `copc-layer-${nextPickOwnerId}`;
+}
+
+function toProjectBounds(
+  metadata: CopcMetadata,
+  geographicBounds: CopcHierarchyBounds,
+): CopcProjectBounds {
+  const toProject = createProjectPointTransformer(metadata);
+  const corners = [
+    [geographicBounds.minX, geographicBounds.minY, geographicBounds.minZ],
+    [geographicBounds.minX, geographicBounds.minY, geographicBounds.maxZ],
+    [geographicBounds.minX, geographicBounds.maxY, geographicBounds.minZ],
+    [geographicBounds.minX, geographicBounds.maxY, geographicBounds.maxZ],
+    [geographicBounds.maxX, geographicBounds.minY, geographicBounds.minZ],
+    [geographicBounds.maxX, geographicBounds.minY, geographicBounds.maxZ],
+    [geographicBounds.maxX, geographicBounds.maxY, geographicBounds.minZ],
+    [geographicBounds.maxX, geographicBounds.maxY, geographicBounds.maxZ],
+  ].map(([longitude, latitude, height]) =>
+    toProject({ longitude, latitude, height }));
+
+  return corners.reduce<CopcProjectBounds>((bounds, point) => ({
+    coordinateSystem: 'copc-source',
+    minX: Math.min(bounds.minX, point.x),
+    minY: Math.min(bounds.minY, point.y),
+    minZ: Math.min(bounds.minZ, point.z),
+    maxX: Math.max(bounds.maxX, point.x),
+    maxY: Math.max(bounds.maxY, point.y),
+    maxZ: Math.max(bounds.maxZ, point.z),
+  }), {
+    coordinateSystem: 'copc-source',
+    minX: Number.POSITIVE_INFINITY,
+    minY: Number.POSITIVE_INFINITY,
+    minZ: Number.POSITIVE_INFINITY,
+    maxX: Number.NEGATIVE_INFINITY,
+    maxY: Number.NEGATIVE_INFINITY,
+    maxZ: Number.NEGATIVE_INFINITY,
+  });
+}
 
 export type CopcLayerLifecycleState =
   | 'idle'
