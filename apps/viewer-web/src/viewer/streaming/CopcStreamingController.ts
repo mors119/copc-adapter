@@ -39,6 +39,7 @@ import { StreamingManager } from './StreamingManager';
 import { createStreamingViewBounds } from './view';
 import type {
   StreamingHierarchy,
+  StreamingHierarchyNode,
   StreamingProgress,
   StreamingReplacementGroup,
   StreamingSelectionOptions,
@@ -536,6 +537,21 @@ export class CopcStreamingCore {
     return this.currentView;
   }
 
+  /** Return the currently available hierarchy node for an adapter-side pick. */
+  getHierarchyNode(nodeKey: string): StreamingHierarchyNode | undefined {
+    return this.streamingState?.nodes.get(nodeKey);
+  }
+
+  /** Invalidate an in-flight view without unloading reusable source state. */
+  invalidateView(): void {
+    if (this.lifecycle === 'destroyed') {
+      return;
+    }
+
+    this.viewGeneration += 1;
+    this.streamingState?.manager.invalidate();
+  }
+
   getTransitionState(): CopcStreamingTransitionState {
     return cloneTransitionState(this.transition);
   }
@@ -638,8 +654,6 @@ export class CopcStreamingCore {
       candidatesBeforeCulling: snapshot.candidatesBeforeCulling,
       frustumCulledCount: snapshot.frustumCulledCount,
       maxScreenSpaceError: snapshot.maxScreenSpaceError,
-      screenSpaceErrorMin: snapshot.screenSpaceErrorMin,
-      screenSpaceErrorMax: snapshot.screenSpaceErrorMax,
       refinedNodeCount: snapshot.refinedNodeCount,
       keptNodeCount: snapshot.keptNodeCount,
       frontierNodeCount: snapshot.frontierNodeCount,
@@ -650,16 +664,6 @@ export class CopcStreamingCore {
       refinementDeferredByIncompleteHierarchyCount: snapshot.refinementDeferredByIncompleteHierarchyCount,
       minimumFrontierExceedsNodeBudget: snapshot.minimumFrontierExceedsNodeBudget,
       minimumFrontierExceedsPointBudget: snapshot.minimumFrontierExceedsPointBudget,
-      centerWeightMin: snapshot.centerWeightMin,
-      centerWeightMax: snapshot.centerWeightMax,
-      acceptedRefinementPriorityMin: snapshot.acceptedRefinementPriorityMin,
-      acceptedRefinementPriorityMax: snapshot.acceptedRefinementPriorityMax,
-      candidatesWithCenterBoostCount: snapshot.candidatesWithCenterBoostCount,
-      hysteresisHoldCount: snapshot.hysteresisHoldCount,
-      refineDecisionCount: snapshot.refineDecisionCount,
-      collapseDecisionCount: snapshot.collapseDecisionCount,
-      visibleLevelRange: snapshot.visibleLevelRange,
-      cameraDirection: snapshot.cameraDirection,
       loadedNodeCount: snapshot.loadedNodeCount,
       loadedPointCount: snapshot.loadedPointCount,
       rangeFetchDurationMs: snapshot.rangeFetchDurationMs,
@@ -667,6 +671,42 @@ export class CopcStreamingCore {
       decodeDurationMs: snapshot.decodeDurationMs,
       crsTransformDurationMs: snapshot.crsTransformDurationMs,
       longestMainThreadBlockingSectionMs: snapshot.longestMainThreadBlockingSectionMs,
+      ...(snapshot.screenSpaceErrorMin === undefined
+        ? {}
+        : { screenSpaceErrorMin: snapshot.screenSpaceErrorMin }),
+      ...(snapshot.screenSpaceErrorMax === undefined
+        ? {}
+        : { screenSpaceErrorMax: snapshot.screenSpaceErrorMax }),
+      ...(snapshot.visibleLevelRange === undefined
+        ? {}
+        : { visibleLevelRange: snapshot.visibleLevelRange }),
+      ...(snapshot.cameraDirection === undefined
+        ? {}
+        : { cameraDirection: snapshot.cameraDirection }),
+      ...(snapshot.centerWeightMin === undefined
+        ? {}
+        : { centerWeightMin: snapshot.centerWeightMin }),
+      ...(snapshot.centerWeightMax === undefined
+        ? {}
+        : { centerWeightMax: snapshot.centerWeightMax }),
+      ...(snapshot.acceptedRefinementPriorityMin === undefined
+        ? {}
+        : { acceptedRefinementPriorityMin: snapshot.acceptedRefinementPriorityMin }),
+      ...(snapshot.acceptedRefinementPriorityMax === undefined
+        ? {}
+        : { acceptedRefinementPriorityMax: snapshot.acceptedRefinementPriorityMax }),
+      ...(snapshot.candidatesWithCenterBoostCount === undefined
+        ? {}
+        : { candidatesWithCenterBoostCount: snapshot.candidatesWithCenterBoostCount }),
+      ...(snapshot.hysteresisHoldCount === undefined
+        ? {}
+        : { hysteresisHoldCount: snapshot.hysteresisHoldCount }),
+      ...(snapshot.refineDecisionCount === undefined
+        ? {}
+        : { refineDecisionCount: snapshot.refineDecisionCount }),
+      ...(snapshot.collapseDecisionCount === undefined
+        ? {}
+        : { collapseDecisionCount: snapshot.collapseDecisionCount }),
     };
   }
 
