@@ -271,7 +271,9 @@ export class CopcLayerController {
     this.viewer.camera.moveEnd.addEventListener(this.handleCameraMoveEnd);
     this.viewer.camera.changed?.addEventListener(this.handleCameraMoveEnd);
     this.attachPickHandler(this.viewer);
-    this.lifecycle = this.streamingState ? 'ready' : 'mounted';
+    if (this.lifecycle !== 'loading') {
+      this.lifecycle = this.streamingState ? 'ready' : 'mounted';
+    }
 
     if (this.streamingState) {
       this.flyToDataset(this.streamingState.metadata);
@@ -303,7 +305,9 @@ export class CopcLayerController {
     this.resetReplacementTransitions();
     this.clearSelectedPoint();
     this.viewer = undefined;
-    this.lifecycle = this.streamingState ? 'ready' : 'idle';
+    if (this.lifecycle !== 'loading') {
+      this.lifecycle = this.streamingState ? 'ready' : 'idle';
+    }
   }
 
   /**
@@ -324,69 +328,84 @@ export class CopcLayerController {
 
     this.lifecycle = 'loading';
     const loadGeneration = ++this.loadGeneration;
-    const context = await createCopcContext(
-      this.options.url,
-      this.options.backend,
-    );
-
-    if (!this.isCurrentLoad(loadGeneration)) {
-      context.destroy?.();
-      return;
-    }
-
-    context.setPerformanceObserver?.(this.performanceObserver);
-    const metadata = await loadCopcMetadata(context);
-
-    if (!this.isCurrentLoad(loadGeneration)) {
-      context.destroy?.();
-      return;
-    }
-
-    const hierarchyLoader = new HierarchyLoader(context, metadata.cube);
-    let rootHierarchy;
+    let context: CopcSource | undefined;
     try {
-      rootHierarchy = await hierarchyLoader.loadRoot();
-    } catch (error: unknown) {
-      if (error instanceof CopcLoadError) {
-        throw error;
+      context = await createCopcContext(
+        this.options.url,
+        this.options.backend,
+      );
+
+      if (!this.isCurrentLoad(loadGeneration)) {
+        context.destroy?.();
+        return;
       }
 
-      throw new CopcHierarchyLoadError(context.source, { cause: error });
-    }
+      context.setPerformanceObserver?.(this.performanceObserver);
+      const metadata = await loadCopcMetadata(context);
 
-    if (!this.isCurrentLoad(loadGeneration)) {
-      context.destroy?.();
-      return;
-    }
+      if (!this.isCurrentLoad(loadGeneration)) {
+        context.destroy?.();
+        return;
+      }
 
-    const hierarchy = buildStreamingHierarchy(metadata, rootHierarchy.nodes);
+      const hierarchyLoader = new HierarchyLoader(context, metadata.cube);
+      let rootHierarchy;
+      try {
+        rootHierarchy = await hierarchyLoader.loadRoot();
+      } catch (error: unknown) {
+        if (error instanceof CopcLoadError) {
+          throw error;
+        }
 
-    this.streamingState = {
-      context,
-      metadata,
-      hierarchyLoader,
-      nodes: hierarchy,
-      manager: new StreamingManager(
-        hierarchy,
-        {
-          ...STREAMING_OPTIONS,
-          ...this.options.streaming,
-          ...(this.options.maxRenderedPoints === undefined
-            ? {}
-            : { maxRenderedPoints: this.options.maxRenderedPoints }),
-        },
-        this.nodePointCache,
-        this.performanceRecorder,
-        context.cancelPendingPointJobs?.bind(context),
-      ),
-    };
+        throw new CopcHierarchyLoadError(context.source, { cause: error });
+      }
 
-    this.lifecycle = 'ready';
-    this.debug('COPC metadata and hierarchy loaded');
+      if (!this.isCurrentLoad(loadGeneration)) {
+        context.destroy?.();
+        return;
+      }
 
-    if (this.viewer) {
-      this.flyToDataset(metadata);
-      await this.updateStreamingView();
+      const hierarchy = buildStreamingHierarchy(metadata, rootHierarchy.nodes);
+
+      this.streamingState = {
+        context,
+        metadata,
+        hierarchyLoader,
+        nodes: hierarchy,
+        manager: new StreamingManager(
+          hierarchy,
+          {
+            ...STREAMING_OPTIONS,
+            ...this.options.streaming,
+            ...(this.options.maxRenderedPoints === undefined
+              ? {}
+              : { maxRenderedPoints: this.options.maxRenderedPoints }),
+          },
+          this.nodePointCache,
+          this.performanceRecorder,
+          context.cancelPendingPointJobs?.bind(context),
+        ),
+      };
+
+      this.lifecycle = 'ready';
+      this.debug('COPC metadata and hierarchy loaded');
+
+      if (this.viewer) {
+        this.flyToDataset(metadata);
+        await this.updateStreamingView();
+      }
+    } catch (error: unknown) {
+      if (!this.isCurrentLoad(loadGeneration)) {
+        context?.destroy?.();
+        return;
+      }
+
+      const hasStreamingState = this.streamingState !== undefined;
+      this.unload();
+      if (!hasStreamingState) {
+        context?.destroy?.();
+      }
+      throw error;
     }
   }
 
