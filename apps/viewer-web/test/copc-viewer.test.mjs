@@ -270,6 +270,51 @@ test('CopcCesiumLayer restores lifecycle and disposes a context after load failu
   assert.equal(contexts[1].destroyed, true);
 });
 
+test('CopcLayerController rolls back partial streaming state after an update failure', async () => {
+  const fakeViewer = createFakeViewer();
+  const contexts = [];
+  const backend = {
+    async open(source) {
+      const context = await createFakeBackend().open(source);
+      context.destroyed = false;
+      context.destroy = () => {
+        context.destroyed = true;
+      };
+      contexts.push(context);
+      return context;
+    },
+  };
+  const controller = new CopcLayerController({
+    url: 'memory://fake.copc.laz',
+    backend,
+  });
+
+  controller.attachTo(fakeViewer);
+  controller.updateStreamingView = async () => {
+    controller.pointRenderer.addOrUpdateNode('0-0-0-0', {
+      pointCount: 1,
+      coordinates: new Float64Array([-123, 44, 10]),
+    }, { pointSize: 3 });
+    controller.selectedNodeKeys.add('0-0-0-0');
+    throw new Error('point decode failed');
+  };
+
+  await assert.rejects(
+    () => controller.load(),
+    /point decode failed/,
+  );
+
+  assert.equal(controller.getSnapshot().lifecycle, 'mounted');
+  assert.equal(controller.getMetadata(), undefined);
+  assert.deepEqual(controller.getRenderedNodeKeys(), []);
+  assert.deepEqual(controller.getCurrentSelection(), []);
+  assert.equal(controller.getHierarchyDiagnostics(), undefined);
+  assert.equal(controller.getPointCacheDiagnostics().cachedNodeCount, 0);
+  assert.equal(contexts[0].destroyed, true);
+
+  controller.destroy();
+});
+
 test('CopcCesiumLayer disposes a context when loading is cancelled', async () => {
   const opening = createDeferred();
   const hierarchy = createDeferred();

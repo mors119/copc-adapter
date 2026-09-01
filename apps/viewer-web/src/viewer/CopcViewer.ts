@@ -400,9 +400,11 @@ export class CopcLayerController {
         return;
       }
 
-      context?.destroy?.();
-      this.streamingState = undefined;
-      this.lifecycle = this.viewer ? 'mounted' : 'idle';
+      const hasStreamingState = this.streamingState !== undefined;
+      this.unload();
+      if (!hasStreamingState) {
+        context?.destroy?.();
+      }
       throw error;
     }
   }
