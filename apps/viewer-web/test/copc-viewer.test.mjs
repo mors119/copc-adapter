@@ -129,6 +129,16 @@ function createFakeBackend() {
   };
 }
 
+function createDeferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 test('CopcLayerController destroy releases layer resources without destroying the attached viewer', () => {
   const originalWindow = globalThis.window;
   const fakeViewer = createFakeViewer();
@@ -216,6 +226,114 @@ test('CopcCesiumLayer loads through an injected backend', async () => {
   assert.equal(layer.getHierarchyDiagnostics(), undefined);
   await layer.reload();
   assert.equal(layer.getHierarchyDiagnostics()?.pageRequests, 1);
+  layer.destroy();
+});
+
+test('CopcCesiumLayer restores lifecycle and disposes a context after load failure', async () => {
+  const fakeViewer = createFakeViewer();
+  const contexts = [];
+  let openCount = 0;
+  const backend = {
+    async open(source) {
+      const shouldFail = openCount === 0;
+      openCount += 1;
+      const context = await createFakeBackend().open(source);
+      context.destroyed = false;
+      context.destroy = () => {
+        context.destroyed = true;
+      };
+      if (shouldFail) {
+        context.loadHierarchyPage = async () => {
+          throw new Error('hierarchy request failed');
+        };
+      }
+      contexts.push(context);
+      return context;
+    },
+  };
+  const layer = new CopcCesiumLayer({
+    url: 'memory://fake.copc.laz',
+    backend,
+  });
+
+  layer.attachTo(fakeViewer);
+  await assert.rejects(() => layer.load());
+
+  assert.equal(layer.getSnapshot().lifecycle, 'mounted');
+  assert.equal(contexts[0].destroyed, true);
+
+  layer.detachFrom();
+  await layer.load();
+  assert.equal(layer.getSnapshot().lifecycle, 'ready');
+
+  layer.destroy();
+  assert.equal(contexts[1].destroyed, true);
+});
+
+test('CopcCesiumLayer disposes a context when loading is cancelled', async () => {
+  const opening = createDeferred();
+  const hierarchy = createDeferred();
+  const hierarchyStarted = createDeferred();
+  const context = await createFakeBackend().open('memory://fake.copc.laz');
+  context.destroyed = false;
+  context.destroy = () => {
+    context.destroyed = true;
+  };
+  context.loadHierarchyPage = async () => {
+    hierarchyStarted.resolve();
+    return hierarchy.promise;
+  };
+  const layer = new CopcCesiumLayer({
+    url: 'memory://fake.copc.laz',
+    backend: {
+      open() {
+        return opening.promise;
+      },
+    },
+  });
+
+  const loadPromise = layer.load();
+  opening.resolve(context);
+  await hierarchyStarted.promise;
+
+  layer.unload();
+  hierarchy.reject(new Error('load cancelled'));
+  await loadPromise;
+
+  assert.equal(context.destroyed, true);
+  assert.equal(layer.getSnapshot().lifecycle, 'idle');
+  layer.destroy();
+});
+
+test('CopcCesiumLayer preserves loading state while attaching a viewer', async () => {
+  const opening = createDeferred();
+  const layer = new CopcCesiumLayer({
+    url: 'memory://fake.copc.laz',
+    backend: {
+      open() {
+        return opening.promise;
+      },
+    },
+  });
+  const loadPromise = layer.load();
+
+  assert.equal(layer.getSnapshot().lifecycle, 'loading');
+
+  const fakeViewer = createFakeViewer();
+  layer.attachTo(fakeViewer);
+
+  assert.equal(layer.getSnapshot().lifecycle, 'loading');
+  await assert.rejects(
+    () => layer.load(),
+    /COPC layer is already loading/,
+  );
+
+  layer.detachFrom();
+  assert.equal(layer.getSnapshot().lifecycle, 'loading');
+  opening.resolve(await createFakeBackend().open('memory://fake.copc.laz'));
+  await loadPromise;
+
+  assert.equal(layer.getSnapshot().lifecycle, 'ready');
   layer.destroy();
 });
 
@@ -884,5 +1002,5 @@ test('CopcLayerController load rejects invalid dataset paths', async () => {
       return true;
     },
   );
-  assert.equal(viewer.getSnapshot().lifecycle, 'loading');
+  assert.equal(viewer.getSnapshot().lifecycle, 'mounted');
 });
