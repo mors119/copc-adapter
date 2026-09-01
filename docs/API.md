@@ -48,10 +48,8 @@ The core exposes `getSnapshot()`, `getMetadata()`,
 `'idle' | 'loading' | 'ready' | 'destroyed'`; stale view generations resolve to
 `undefined` and cannot update the current selection. `unload()`, `reload()`,
 and `destroy()` release source, worker, hierarchy, and cache state. The
-`CopcCesiumLayer` remains the compatibility facade for Cesium consumers. It
-delegates loading, hierarchy queries, selection, generations, and point-cache
-ownership to the core, while its adapter layer handles Cesium camera state,
-listeners, picking, and primitive reconciliation.
+existing `CopcCesiumLayer` remains the compatibility adapter while its
+renderer-specific migration is handled separately.
 
 ```ts
 import {
