@@ -73,7 +73,7 @@ separate concern.
 | Cesium rendering | `apps/viewer-web/src/cesium/render/` | Implement the neutral renderer contract with Cesium primitives; keep viewer attachment, Cesium geometry, styling details, and engine diagnostics here |
 | Renderer-neutral contract | `apps/viewer-web/src/viewer/streaming/renderer.ts` | Own the minimal node add/update/remove/clear/destroy/count contract and project-owned point options; no scene, camera, engine geometry, COPC, or selection logic |
 | Renderer-neutral controller | `apps/viewer-web/src/viewer/streaming/CopcStreamingController.ts` | Coordinate loading, hierarchy queries, selection, point streaming, lifecycle, generations, and engine-independent diagnostics |
-| Cesium compatibility controller | `apps/viewer-web/src/viewer/CopcViewer.ts` | Existing Cesium attachment, camera conversion, point rendering, picking, and coverage-safe renderer reconciliation; migration to the shared core is the follow-up adapter work |
+| Cesium compatibility controller | `apps/viewer-web/src/viewer/CopcViewer.ts`, `apps/viewer-web/src/cesium/view/` | Cesium attachment, camera conversion, point rendering, picking, and coverage-safe renderer reconciliation over the shared streaming core |
 | Public API | `apps/viewer-web/src/api/`, `apps/viewer-web/src/index.ts` | Expose `CopcCesiumLayer` and its public types |
 
 External `copc.js` types stay inside `copcJsBackend.ts`. The context, loaders,
@@ -105,11 +105,10 @@ camera, viewer, scene, render-loop callback, or frame-rate state. Adapters are
 responsible for converting camera state and deciding when to call
 `updateView(view)`.
 
-The existing Cesium controller remains the compatibility attachment path while
-the renderer-specific migration is staged separately in #135. The new core is
-independently usable by a future adapter and is covered by tests that do not
-import Cesium; #135 will make the existing Cesium path consume it so the
-repository has one streaming engine.
+The Cesium controller is the compatibility attachment path over this core. The
+core is independently usable by future adapters and is covered by tests that do
+not import Cesium; the Cesium path consumes the same source, hierarchy,
+selection, generation, and point-cache implementation.
 
 ## Rust Decode Worker Pool (#46)
 
@@ -177,8 +176,8 @@ streaming overrides. It deliberately does not create or own a Cesium viewer.
    hierarchy page.
 2. `attachTo(viewer)` registers the camera listener, flies to the dataset once,
    and starts a streaming update. The adapter converts its camera envelope into
-   a project-coordinate hierarchy query and supplies the configured target
-   depth.
+   a plain project-owned `StreamingView`; the core performs the hierarchy query
+   and selection.
 3. Camera movement schedules another hierarchy query and streaming update;
    previously loaded pages are reused and newly intersecting pages are added.
 4. `detachFrom()` removes this layer's primitives and listener but preserves
@@ -191,14 +190,15 @@ streaming overrides. It deliberately does not create or own a Cesium viewer.
 
 The current selection policy uses node bounds, camera distance, a maximum
 depth, and a render-distance limit. `StreamingManager` loads missing selected
-nodes and removes deselected primitives. The node cache is bounded and evicts
+nodes and emits renderer-neutral removal/update intents; the Cesium adapter
+reconciles those intents into primitives. The node cache is bounded and evicts
 least-recently-used entries.
 
 `CopcHierarchyQuery` contains only project-coordinate bounds and an optional
 `maxLevel`; new adapter-created bounds carry the `copc-source` label, while
 unlabeled bounds remain accepted for compatibility with pre-boundary callers.
 It has no Cesium camera, culling, or screen-space-error types. The adapter owns
-the camera envelope and target-depth policy. `HierarchyLoader` owns
+the camera envelope, while the core owns target-depth policy. `HierarchyLoader` owns
 page-reference traversal and its per-source page cache, while the Rust and
 copc.js sources own byte/page decoding. Hierarchy diagnostics report page
 requests, cache hits, fetched hierarchy bytes, and loaded entry counts.
@@ -223,7 +223,7 @@ before SSE, and `maxDepth`/`maxNodes` remain safety caps. This is intentionally
 not a copy of Cesium3DTileset traversal or private SSE implementation, nor is
 it a worker-based loader or GPU-specific point-cloud renderer.
 
-After frustum/SSE selection, the adapter applies a rendered-point workload
+After frustum/SSE selection, the core applies a rendered-point workload
 budget using each hierarchy node's `pointCount` as its estimated cost. The
 default `maxRenderedPoints` is an experimental conservative `250000`: the
 issue-48 benchmark measured roughly 30 ms of renderer preparation at 100k
@@ -236,9 +236,9 @@ cap, and `maxDepth` remains the hierarchy traversal cap.
 
 `StreamingManager` processes only budgeted nodes in bounded sequential batches.
 Camera generations invalidate stale work and cancel queued worker decodes; stale
-completion is ignored. The controller also checks actual decoded point counts
-before renderer submission, so cache hits and custom sources cannot push the
-active renderer over the configured budget. Debug snapshots expose the
+completion is ignored. The Cesium adapter also checks actual decoded point
+counts before renderer submission, so cache hits and custom sources cannot
+push the active renderer over the configured budget. Debug snapshots expose the
 configured budget, candidate and active points, deferred node/point counts,
 utilization, budget defer/drop count, range bytes, stage timings, and Rust
 worker queue/concurrency metrics. This is rendered workload backpressure, not
