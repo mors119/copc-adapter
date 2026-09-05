@@ -238,18 +238,7 @@ function toProjectBounds(
  */
 export class CopcStreamingCore {
   private readonly options: CopcStreamingControllerOptions;
-  private readonly performanceRecorder = new StreamingPerformanceRecorder();
-  private readonly performanceObserver: CopcPerformanceObserver = (event) => {
-    const stage = event.stage === 'rangeFetch'
-      ? 'rangeFetchDurationMs'
-      : 'decodeDurationMs';
-    this.performanceRecorder.recordStage(
-      stage,
-      event.durationMs,
-      event.blocksMainThread ?? event.stage === 'decode',
-      event.bytes,
-    );
-  };
+  private performanceRecorder: StreamingPerformanceRecorder;
   private readonly initialCache: NodePointCache<GeographicPointBuffer>;
   private readonly pointFields: CopcPointFieldSelection;
   private streamingState?: StreamingState;
@@ -267,7 +256,7 @@ export class CopcStreamingCore {
       'position',
       ...(options.pointFields ?? []),
     ]);
-    this.performanceRecorder.setConfiguredPointBudget(this.getMaxRenderedPoints());
+    this.performanceRecorder = this.createPerformanceRecorder();
     this.initialCache = this.createEmptyCache();
   }
 
@@ -285,6 +274,7 @@ export class CopcStreamingCore {
 
     this.lifecycle = 'loading';
     const loadGeneration = ++this.loadGeneration;
+    const performanceRecorder = this.performanceRecorder;
     let context: CopcSource | undefined;
 
     try {
@@ -294,7 +284,9 @@ export class CopcStreamingCore {
         return;
       }
 
-      context.setPerformanceObserver?.(this.performanceObserver);
+      context.setPerformanceObserver?.(
+        this.createPerformanceObserver(performanceRecorder),
+      );
       const metadata = await loadCopcMetadata(context);
       if (!this.isCurrentLoad(loadGeneration)) {
         context.destroy?.();
@@ -319,7 +311,12 @@ export class CopcStreamingCore {
 
       const nodes = buildStreamingHierarchy(metadata, rootHierarchy.nodes);
       const nodesRef = { current: nodes };
-      const cache = this.createCache(context, metadata, nodesRef);
+      const cache = this.createCache(
+        context,
+        metadata,
+        nodesRef,
+        performanceRecorder,
+      );
       const manager = new StreamingManager(
         nodes,
         {
@@ -482,7 +479,9 @@ export class CopcStreamingCore {
     this.currentView = undefined;
     this.transition = createTransitionState();
     this.streamingUpdateCount = 0;
-    this.performanceRecorder.reset();
+    // A pending decode may still complete after the source is destroyed. Give
+    // the next source a recorder that those stale continuations cannot reach.
+    this.performanceRecorder = this.createPerformanceRecorder();
     this.lifecycle = 'idle';
     this.debug('COPC streaming controller unloaded');
   }
@@ -594,9 +593,16 @@ export class CopcStreamingCore {
     context: CopcSource,
     metadata: CopcMetadata,
     nodesRef: { current: StreamingHierarchy },
+    performanceRecorder: StreamingPerformanceRecorder,
   ): NodePointCache<GeographicPointBuffer> {
     return createNodePointCache(
-      (nodeKey) => this.loadRenderableNodePoints(context, metadata, nodesRef, nodeKey),
+      (nodeKey) => this.loadRenderableNodePoints(
+        context,
+        metadata,
+        nodesRef,
+        performanceRecorder,
+        nodeKey,
+      ),
       {
         maxEntries: MAX_CACHED_NODES,
         maxBytes: this.options.maxPointCacheBytes ?? DEFAULT_POINT_CACHE_BYTES,
@@ -608,6 +614,7 @@ export class CopcStreamingCore {
     context: CopcSource,
     metadata: CopcMetadata,
     nodesRef: { current: StreamingHierarchy },
+    performanceRecorder: StreamingPerformanceRecorder,
     nodeKey: string,
   ): Promise<GeographicPointBuffer> {
     const streamingNode = nodesRef.current.get(nodeKey);
@@ -623,12 +630,34 @@ export class CopcStreamingCore {
     );
     const transformStartedAt = performanceNow();
     const transformed = transformPointBuffer(metadata, points);
-    this.performanceRecorder.recordStage(
+    performanceRecorder.recordStage(
       'crsTransformDurationMs',
       performanceNow() - transformStartedAt,
       true,
     );
     return transformed;
+  }
+
+  private createPerformanceObserver(
+    performanceRecorder: StreamingPerformanceRecorder,
+  ): CopcPerformanceObserver {
+    return (event) => {
+      const stage = event.stage === 'rangeFetch'
+        ? 'rangeFetchDurationMs'
+        : 'decodeDurationMs';
+      performanceRecorder.recordStage(
+        stage,
+        event.durationMs,
+        event.blocksMainThread ?? event.stage === 'decode',
+        event.bytes,
+      );
+    };
+  }
+
+  private createPerformanceRecorder(): StreamingPerformanceRecorder {
+    const recorder = new StreamingPerformanceRecorder();
+    recorder.setConfiguredPointBudget(this.getMaxRenderedPoints());
+    return recorder;
   }
 
   private getStreamingOptions(): StreamingSelectionOptions {
