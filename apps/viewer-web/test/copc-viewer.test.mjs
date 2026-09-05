@@ -2,21 +2,34 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as Cesium from 'cesium';
 
-import { CopcCesiumLayer, CopcSourceError } from '../src/index.ts';
-import { CopcLayerController } from '../src/viewer/CopcViewer.ts';
-import { PointPrimitiveRenderer } from '../src/cesium/render/CopcPointRenderer.ts';
+import { CopcCesiumLayer } from '../src/index.ts';
+import { createCesiumStreamingView } from '../src/cesium/view/CesiumViewAdapter.ts';
+
+function createEvent() {
+  const listeners = new Set();
+  return {
+    listeners,
+    addEventListener(listener) {
+      listeners.add(listener);
+    },
+    removeEventListener(listener) {
+      listeners.delete(listener);
+    },
+  };
+}
 
 function createFakeViewer() {
+  const moveEnd = createEvent();
+  const changed = createEvent();
   const removedCollections = [];
   const addedCollections = [];
-  const moveEndListeners = new Set();
 
   return {
+    moveEnd,
+    changed,
     removedCollections,
     addedCollections,
-    moveEndListeners,
     destroyed: false,
-    flyToCalls: [],
     scene: {
       primitives: {
         add(collection) {
@@ -31,15 +44,9 @@ function createFakeViewer() {
     },
     camera: {
       percentageChanged: 0,
-      positionWC: Cesium.Cartesian3.fromDegrees(-123, 44, 1500),
-      moveEnd: {
-        addEventListener(listener) {
-          moveEndListeners.add(listener);
-        },
-        removeEventListener(listener) {
-          moveEndListeners.delete(listener);
-        },
-      },
+      positionWC: Cesium.Cartesian3.fromDegrees(-122.5, 44.5, 1500),
+      moveEnd,
+      changed,
       flyTo(options) {
         this.positionWC = options.destination;
       },
@@ -50,83 +57,102 @@ function createFakeViewer() {
   };
 }
 
-function createStreamingState(update, nodes = new Map()) {
-  return {
-    metadata: {
-      pointCount: 1,
-      bounds: {
-        minX: -123.1,
-        minY: 44,
-        minZ: 0,
-        maxX: -123,
-        maxY: 44.1,
-        maxZ: 100,
-      },
-      cube: {
-        minX: -123.1,
-        minY: 44,
-        minZ: 0,
-        maxX: -123,
-        maxY: 44.1,
-        maxZ: 100,
-      },
-      wkt: undefined,
-    },
-    nodes,
-    context: {},
-    manager: { update },
-  };
-}
-
-function createFakeBackend() {
+function createBackend({ onFields } = {}) {
   const node = {
     key: '0-0-0-0',
     level: 0,
     x: 0,
     y: 0,
     z: 0,
-    pointCount: 1,
+    pointCount: 2,
     pointDataOffset: 100,
     pointDataLength: 20,
   };
+  let openCount = 0;
+  let destroyCount = 0;
 
   return {
-    async open(source) {
-      return {
-        source,
-        getMetadata() {
-          return {
-            pointCount: 1,
-            bounds: {
-              minX: -123,
-              minY: 44,
-              minZ: 10,
-              maxX: -123,
-              maxY: 44,
-              maxZ: 10,
-            },
-            cube: {
-              minX: -123,
-              minY: 44,
-              minZ: 10,
-              maxX: -122,
-              maxY: 45,
-              maxZ: 11,
-            },
-          };
-        },
-        getRootHierarchyPage() {
-          return { key: node.key, pageOffset: 10, pageLength: 10 };
-        },
-        async loadHierarchyPage() {
-          return { nodes: [node], pages: [] };
-        },
-        async loadPointDataView() {
-          throw new Error('point data is not loaded until the layer is attached');
-        },
-      };
+    get openCount() {
+      return openCount;
+    },
+    get destroyCount() {
+      return destroyCount;
+    },
+    backend: {
+      async open(source) {
+        openCount += 1;
+        return {
+          source,
+          getMetadata() {
+            return {
+              pointCount: 2,
+              bounds: {
+                minX: -123,
+                minY: 44,
+                minZ: 10,
+                maxX: -122,
+                maxY: 45,
+                maxZ: 20,
+              },
+              cube: {
+                minX: -123,
+                minY: 44,
+                minZ: 10,
+                maxX: -122,
+                maxY: 45,
+                maxZ: 20,
+              },
+            };
+          },
+          getRootHierarchyPage() {
+            return { key: node.key, pageOffset: 0, pageLength: 10 };
+          },
+          async loadHierarchyPage() {
+            return { nodes: [node], pages: [] };
+          },
+          async loadPointDataView(_node, fields) {
+            onFields?.([...fields]);
+            return {
+              pointCount: node.pointCount,
+              availableFields: fields,
+              getter() {
+                return () => 0;
+              },
+            };
+          },
+          destroy() {
+            destroyCount += 1;
+          },
+        };
+      },
+    },
+    decoder: {
+      async decode() {
+        return {
+          pointCount: 2,
+          coordinates: new Float64Array([
+            -122.6, 44.4, 12,
+            -122.4, 44.6, 18,
+          ]),
+          attributes: {
+            red: new Uint16Array([255, 128]),
+            green: new Uint16Array([0, 128]),
+            blue: new Uint16Array([0, 255]),
+          },
+        };
+      },
     },
   };
+}
+
+async function waitFor(predicate) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (predicate()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.fail('timed out waiting for Cesium adapter update');
 }
 
 function createDeferred() {
@@ -139,82 +165,20 @@ function createDeferred() {
   return { promise, resolve, reject };
 }
 
-test('CopcLayerController destroy releases layer resources without destroying the attached viewer', () => {
-  const originalWindow = globalThis.window;
-  const fakeViewer = createFakeViewer();
-  const renderer = new PointPrimitiveRenderer();
-  const viewer = new CopcLayerController({
-    url: '/samples/autzen.copc.laz',
-    renderer,
-  });
-  let cleared = 0;
-  let removedListener;
-
-  globalThis.window = {
-    clearTimeout() {},
-  };
-  fakeViewer.camera.moveEnd.removeEventListener = (listener) => {
-    removedListener = listener;
-  };
-
-  renderer.attachTo(fakeViewer);
-  renderer.addOrUpdateNode('0-0-0-0', {
-    pointCount: 1,
-    coordinates: new Float64Array([-123, 44, 10]),
-  }, { pointSize: 2 });
-  viewer.viewer = fakeViewer;
-  viewer.updateTimer = 42;
-  viewer.selectedNodeKeys.add('0-0-0-0');
-  viewer.nodePointCache.clear = () => {
-    cleared += 1;
-  };
-
-  viewer.destroy();
-  viewer.destroy();
-
-  assert.equal(fakeViewer.destroyed, false);
-  assert.equal(removedListener, viewer.handleCameraMoveEnd);
-  assert.equal(viewer.getRenderedNodeKeys().length, 0);
-  assert.equal(viewer.getCurrentSelection().length, 0);
-  assert.equal(viewer.getSnapshot().lifecycle, 'destroyed');
-  assert.equal(cleared, 1);
-
-  globalThis.window = originalWindow;
-});
-
-test('CopcCesiumLayer attaches and detaches without taking ownership of the viewer', () => {
-  const fakeViewer = createFakeViewer();
+test('CopcCesiumLayer delegates source and streaming work to the shared core', async () => {
+  const requestedFields = [];
+  const source = createBackend({ onFields: (fields) => requestedFields.push(fields) });
   const layer = new CopcCesiumLayer({
-    url: '/samples/autzen.copc.laz',
-    pointSize: 5,
-    colorMode: 'elevation',
-    debug: true,
+    url: 'memory://adapter.copc.laz',
+    backend: source.backend,
+    decoder: source.decoder,
+    colorMode: 'rgb',
   });
-
-  layer.attachTo(fakeViewer);
-
-  assert.equal(layer.getSnapshot().attached, true);
-  assert.equal(fakeViewer.moveEndListeners.size, 1);
-
-  layer.detachFrom();
-
-  assert.equal(layer.getSnapshot().attached, false);
-  assert.equal(fakeViewer.moveEndListeners.size, 0);
-
-  layer.destroy();
-  assert.equal(fakeViewer.destroyed, false);
-});
-
-test('CopcCesiumLayer loads through an injected backend', async () => {
-  const layer = new CopcCesiumLayer({
-    url: 'memory://fake.copc.laz',
-    backend: createFakeBackend(),
-  });
+  const viewer = createFakeViewer();
 
   await layer.load();
-
+  assert.equal(source.openCount, 1);
   assert.equal(layer.getSnapshot().lifecycle, 'ready');
-  assert.equal(layer.getMetadata().pointCount, 1);
   assert.deepEqual(layer.getHierarchyDiagnostics(), {
     pageRequests: 1,
     pageCacheHits: 0,
@@ -222,830 +186,314 @@ test('CopcCesiumLayer loads through an injected backend', async () => {
     loadedPageCount: 1,
     loadedEntryCount: 1,
   });
-  layer.unload();
-  assert.equal(layer.getHierarchyDiagnostics(), undefined);
-  await layer.reload();
-  assert.equal(layer.getHierarchyDiagnostics()?.pageRequests, 1);
+
+  layer.attachTo(viewer);
+  await waitFor(() => layer.getSnapshot().renderedPointCount === 2);
+
+  assert.deepEqual(requestedFields, [['position', 'rgb']]);
+  assert.deepEqual(layer.getSnapshot().selectedNodeKeys, ['0-0-0-0']);
+  assert.deepEqual(layer.getSnapshot().renderedNodeKeys, ['0-0-0-0']);
+  assert.equal(layer.getSnapshot().streamingUpdateCount, 1);
+
   layer.destroy();
+  assert.equal(source.destroyCount, 1);
+  assert.equal(viewer.destroyed, false);
 });
 
-test('CopcCesiumLayer restores lifecycle and disposes a context after load failure', async () => {
-  const fakeViewer = createFakeViewer();
-  const contexts = [];
-  let openCount = 0;
-  const backend = {
-    async open(source) {
-      const shouldFail = openCount === 0;
-      openCount += 1;
-      const context = await createFakeBackend().open(source);
-      context.destroyed = false;
-      context.destroy = () => {
-        context.destroyed = true;
-      };
-      if (shouldFail) {
-        context.loadHierarchyPage = async () => {
-          throw new Error('hierarchy request failed');
-        };
-      }
-      contexts.push(context);
-      return context;
-    },
-  };
+test('Cesium attachment listeners are stable and detach preserves loaded data', async () => {
+  const source = createBackend();
   const layer = new CopcCesiumLayer({
-    url: 'memory://fake.copc.laz',
-    backend,
+    url: 'memory://lifecycle.copc.laz',
+    backend: source.backend,
+    decoder: source.decoder,
   });
+  const firstViewer = createFakeViewer();
+  const secondViewer = createFakeViewer();
 
-  layer.attachTo(fakeViewer);
-  await assert.rejects(() => layer.load());
-
-  assert.equal(layer.getSnapshot().lifecycle, 'mounted');
-  assert.equal(contexts[0].destroyed, true);
-
-  layer.detachFrom();
   await layer.load();
-  assert.equal(layer.getSnapshot().lifecycle, 'ready');
-
-  layer.destroy();
-  assert.equal(contexts[1].destroyed, true);
-});
-
-test('CopcLayerController rolls back partial streaming state after an update failure', async () => {
-  const fakeViewer = createFakeViewer();
-  const contexts = [];
-  const backend = {
-    async open(source) {
-      const context = await createFakeBackend().open(source);
-      context.destroyed = false;
-      context.destroy = () => {
-        context.destroyed = true;
-      };
-      contexts.push(context);
-      return context;
-    },
-  };
-  const controller = new CopcLayerController({
-    url: 'memory://fake.copc.laz',
-    backend,
-  });
-
-  controller.attachTo(fakeViewer);
-  controller.updateStreamingView = async () => {
-    controller.pointRenderer.addOrUpdateNode('0-0-0-0', {
-      pointCount: 1,
-      coordinates: new Float64Array([-123, 44, 10]),
-    }, { pointSize: 3 });
-    controller.selectedNodeKeys.add('0-0-0-0');
-    throw new Error('point decode failed');
-  };
-
-  await assert.rejects(
-    () => controller.load(),
-    /point decode failed/,
-  );
-
-  assert.equal(controller.getSnapshot().lifecycle, 'mounted');
-  assert.equal(controller.getMetadata(), undefined);
-  assert.deepEqual(controller.getRenderedNodeKeys(), []);
-  assert.deepEqual(controller.getCurrentSelection(), []);
-  assert.equal(controller.getHierarchyDiagnostics(), undefined);
-  assert.equal(controller.getPointCacheDiagnostics().cachedNodeCount, 0);
-  assert.equal(contexts[0].destroyed, true);
-
-  controller.destroy();
-});
-
-test('CopcCesiumLayer disposes a context when loading is cancelled', async () => {
-  const opening = createDeferred();
-  const hierarchy = createDeferred();
-  const hierarchyStarted = createDeferred();
-  const context = await createFakeBackend().open('memory://fake.copc.laz');
-  context.destroyed = false;
-  context.destroy = () => {
-    context.destroyed = true;
-  };
-  context.loadHierarchyPage = async () => {
-    hierarchyStarted.resolve();
-    return hierarchy.promise;
-  };
-  const layer = new CopcCesiumLayer({
-    url: 'memory://fake.copc.laz',
-    backend: {
-      open() {
-        return opening.promise;
-      },
-    },
-  });
-
-  const loadPromise = layer.load();
-  opening.resolve(context);
-  await hierarchyStarted.promise;
-
-  layer.unload();
-  hierarchy.reject(new Error('load cancelled'));
-  await loadPromise;
-
-  assert.equal(context.destroyed, true);
-  assert.equal(layer.getSnapshot().lifecycle, 'idle');
-  layer.destroy();
-});
-
-test('CopcCesiumLayer preserves loading state while attaching a viewer', async () => {
-  const opening = createDeferred();
-  const layer = new CopcCesiumLayer({
-    url: 'memory://fake.copc.laz',
-    backend: {
-      open() {
-        return opening.promise;
-      },
-    },
-  });
-  const loadPromise = layer.load();
-
-  assert.equal(layer.getSnapshot().lifecycle, 'loading');
-
-  const fakeViewer = createFakeViewer();
-  layer.attachTo(fakeViewer);
-
-  assert.equal(layer.getSnapshot().lifecycle, 'loading');
-  await assert.rejects(
-    () => layer.load(),
-    /COPC layer is already loading/,
-  );
+  layer.attachTo(firstViewer);
+  await waitFor(() => layer.getSnapshot().renderedPointCount === 2);
+  layer.attachTo(firstViewer);
+  assert.equal(firstViewer.moveEnd.listeners.size, 1);
+  assert.equal(firstViewer.changed.listeners.size, 1);
 
   layer.detachFrom();
+  assert.equal(firstViewer.moveEnd.listeners.size, 0);
+  assert.equal(firstViewer.changed.listeners.size, 0);
+  assert.equal(layer.getSnapshot().attached, false);
+  assert.equal(layer.getMetadata().pointCount, 2);
+  assert.equal(layer.getPointCacheDiagnostics().cachedNodeCount, 1);
+  assert.equal(layer.getSnapshot().renderedPointCount, 0);
+
+  layer.attachTo(firstViewer);
+  await waitFor(() => layer.getSnapshot().renderedPointCount === 2);
+  layer.attachTo(secondViewer);
+  await waitFor(() => layer.getSnapshot().renderedPointCount === 2);
+  assert.equal(firstViewer.moveEnd.listeners.size, 0);
+  assert.equal(secondViewer.moveEnd.listeners.size, 1);
+
+  await layer.reload();
+  assert.equal(source.openCount, 2);
+  assert.equal(layer.getSnapshot().attached, true);
+  assert.equal(secondViewer.destroyed, false);
+  layer.destroy();
+  assert.equal(secondViewer.destroyed, false);
+});
+
+test('detaching while loading preserves the loading lifecycle', async () => {
+  const opening = createDeferred();
+  const source = createBackend();
+  const layer = new CopcCesiumLayer({
+    url: 'memory://loading.copc.laz',
+    backend: {
+      open() {
+        return opening.promise;
+      },
+    },
+  });
+  const viewer = createFakeViewer();
+  const loadPromise = layer.load();
+
+  layer.attachTo(viewer);
   assert.equal(layer.getSnapshot().lifecycle, 'loading');
-  opening.resolve(await createFakeBackend().open('memory://fake.copc.laz'));
+  layer.detachFrom();
+  assert.equal(layer.getSnapshot().lifecycle, 'loading');
+
+  opening.resolve(await source.backend.open('memory://loading.copc.laz'));
   await loadPromise;
 
   assert.equal(layer.getSnapshot().lifecycle, 'ready');
+  assert.equal(layer.getSnapshot().attached, false);
   layer.destroy();
 });
 
-test('CopcLayerController updateStreamingView removes stale nodes and renders newly loaded nodes', async () => {
-  const fakeViewer = createFakeViewer();
-  const renderer = new PointPrimitiveRenderer();
-  const viewer = new CopcLayerController({
-    url: '/samples/autzen.copc.laz',
-    colorMode: 'elevation',
-    renderer,
+test('a failed first render rolls back the shared core and keeps the viewer usable', async () => {
+  const source = createBackend();
+  const layer = new CopcCesiumLayer({
+    url: 'memory://render-failure.copc.laz',
+    backend: source.backend,
+    decoder: {
+      async decode() {
+        throw new Error('point decode failed');
+      },
+    },
   });
+  const viewer = createFakeViewer();
+  layer.attachTo(viewer);
 
-  renderer.attachTo(fakeViewer);
-  renderer.addOrUpdateNode('0-0-0-0', {
-    pointCount: 1,
-    coordinates: new Float64Array([-123, 44, 10]),
-  }, { pointSize: 2 });
-  const staleCollection = fakeViewer.addedCollections[0];
-  viewer.viewer = fakeViewer;
-  viewer.streamingState = createStreamingState(async () => ({
-    selectedNodeKeys: ['1-0-0-0'],
-    removedNodeKeys: ['0-0-0-0'],
-    loadedNodePoints: new Map([
-      [
-        '1-0-0-0',
-        {
-          pointCount: 2,
-          coordinates: new Float64Array([
-            -123.0, 44.0, 0.0,
-            -123.1, 44.1, 100.0,
-          ]),
-        },
-      ],
-    ]),
-  }));
-
-  await viewer.updateStreamingView();
-
-  assert.deepEqual(viewer.getCurrentSelection(), ['1-0-0-0']);
-  assert.deepEqual(viewer.getRenderedNodeKeys(), ['1-0-0-0']);
-  assert.equal(fakeViewer.removedCollections[0], staleCollection);
-  assert.equal(viewer.getRenderedPointCount(), 2);
-  const renderedCollection = fakeViewer.addedCollections.at(-1);
-  assert.notDeepEqual(
-    renderedCollection.get(0).color,
-    renderedCollection.get(1).color,
-  );
-  assert.ok(viewer.getSelectionBoundingSphere());
+  await assert.rejects(() => layer.load(), /point decode failed/);
+  assert.equal(layer.getSnapshot().lifecycle, 'mounted');
+  assert.equal(layer.getMetadata(), undefined);
+  assert.deepEqual(layer.getSnapshot().renderedNodeKeys, []);
+  assert.deepEqual(layer.getSnapshot().selectedNodeKeys, []);
+  assert.equal(viewer.destroyed, false);
+  layer.destroy();
 });
 
-test('CopcLayerController maps Cesium picks and clears unrelated, removed, and evicted selections', () => {
-  const fakeViewer = createFakeViewer();
-  const nodeKey = '4-12-7-3';
-  const points = {
-    pointCount: 1,
-    coordinates: new Float64Array([-123, 44, 132.42]),
-    sourceCoordinates: new Float64Array([500000, 4870000, 434]),
-    attributes: {
-      intensity: new Uint16Array([8241]),
-      classification: new Uint8Array([5]),
-      red: new Uint16Array([12341]),
-      green: new Uint16Array([24211]),
-      blue: new Uint16Array([9841]),
+test('detach invalidates an in-flight core update before stale points reach Cesium', async () => {
+  let resolveDecode;
+  let decodeStarted;
+  const decodeReady = new Promise((resolve) => {
+    decodeStarted = resolve;
+  });
+  const source = createBackend();
+  source.decoder = {
+    async decode() {
+      decodeStarted();
+      return new Promise((resolve) => {
+        resolveDecode = resolve;
+      });
     },
   };
-  const renderer = new PointPrimitiveRenderer();
-  renderer.attachTo(fakeViewer);
-  renderer.addOrUpdateNode(nodeKey, points, { pointSize: 3 });
-  const picked = [];
-  const controller = new CopcLayerController({
-    url: 'memory://pick.copc.laz',
-    renderer,
-    onPointPicked: (point) => picked.push(point),
-    backend: 'rust',
+  const layer = new CopcCesiumLayer({
+    url: 'memory://stale.copc.laz',
+    backend: source.backend,
+    decoder: source.decoder,
   });
-  controller.streamingState = {
-    nodes: new Map([[nodeKey, {
-      node: { key: nodeKey, level: 4 },
-    }]]),
-    context: {},
-    manager: {},
+  const viewer = createFakeViewer();
+
+  await layer.load();
+  layer.attachTo(viewer);
+  await decodeReady;
+  layer.detachFrom();
+  resolveDecode({
+    pointCount: 2,
+    coordinates: new Float64Array([
+      -122.6, 44.4, 12,
+      -122.4, 44.6, 18,
+    ]),
+  });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  assert.equal(layer.getSnapshot().attached, false);
+  assert.equal(layer.getSnapshot().renderedPointCount, 0);
+  assert.equal(viewer.addedCollections.length, 0);
+  layer.destroy();
+});
+
+test('Cesium view adapter produces a plain perspective view for oblique cameras', () => {
+  const viewer = createFakeViewer();
+  viewer.scene.drawingBufferHeight = 900;
+  viewer.scene.canvas = { clientHeight: 900, height: 900 };
+  viewer.camera.frustum = {
+    fov: Math.PI / 3,
+    aspectRatio: 16 / 9,
+    near: 1,
+    far: 6000,
   };
-  controller.nodePointCache.get = () => points;
-  fakeViewer.scene.pick = () => ({ id: {
-    nodeKey,
-    pointIndex: 0,
-    ownerId: controller.pickOwnerId,
-  } });
+  viewer.camera.directionWC = new Cesium.Cartesian3(0, 1, 0);
+  viewer.camera.upWC = new Cesium.Cartesian3(0, 0, 1);
+  viewer.camera.rightWC = new Cesium.Cartesian3(1, 0, 0);
 
-  controller.handlePick(fakeViewer, new Cesium.Cartesian2(10, 10));
-  assert.equal(picked.length, 1);
-  assert.equal(controller.getSelectedPoint().classificationLabel, 'High Vegetation');
-  assert.equal(controller.getSelectedPoint().backend, 'rust');
+  const view = createCesiumStreamingView(viewer);
 
-  fakeViewer.scene.pick = () => ({ id: { unrelated: true } });
-  controller.handlePick(fakeViewer, new Cesium.Cartesian2(10, 10));
-  assert.equal(controller.getSelectedPoint(), undefined);
+  assert.equal(view.viewFrustum.coordinateSystem, 'wgs84-ecef-meters');
+  assert.equal(view.viewFrustum.viewportHeightPixels, 900);
+  assert.equal(view.viewFrustum.farMeters, 6000);
+  assert.deepEqual(view.viewFrustum.direction, { x: 0, y: 1, z: 0 });
+});
+
+test('Cesium picks resolve through the shared live node and point cache', async () => {
+  const picked = [];
+  const source = createBackend();
+  const layer = new CopcCesiumLayer({
+    url: 'memory://picking.copc.laz',
+    backend: source.backend,
+    decoder: source.decoder,
+    colorMode: 'rgb',
+    onPointPicked: (point) => picked.push(point),
+  });
+  const viewer = createFakeViewer();
+  const nodeKey = '0-0-0-0';
+
+  await layer.load();
+  layer.attachTo(viewer);
+  await waitFor(() => layer.getSnapshot().renderedPointCount === 2);
+
+  // Private members are used here only to drive the adapter-side Cesium pick
+  // event without constructing a browser DOM or a real WebGL scene.
+  const controller = layer.controller;
+  viewer.scene.pick = () => ({
+    id: { nodeKey, pointIndex: 1, ownerId: controller.pickOwnerId },
+  });
+  controller.handlePick(viewer, new Cesium.Cartesian2(10, 10));
+
+  assert.equal(layer.getSelectedPoint().nodeKey, nodeKey);
+  assert.equal(layer.getSelectedPoint().pointIndex, 1);
+  assert.deepEqual(layer.getSelectedPoint().rgb, { red: 128, green: 128, blue: 255 });
+
+  viewer.scene.pick = () => ({
+    id: { nodeKey, pointIndex: 1, ownerId: 'copc-layer-foreign' },
+  });
+  controller.handlePick(viewer, new Cesium.Cartesian2(10, 10));
+  assert.equal(layer.getSelectedPoint(), undefined);
   assert.equal(picked.at(-1), undefined);
 
-  fakeViewer.scene.pick = () => ({ id: {
-    nodeKey,
-    pointIndex: 0,
-    ownerId: controller.pickOwnerId,
-  } });
-  controller.handlePick(fakeViewer, new Cesium.Cartesian2(10, 10));
-  controller.nodePointCache.get = () => undefined;
-  assert.equal(controller.getSelectedPoint(), undefined);
+  viewer.scene.pick = () => ({
+    id: { nodeKey, pointIndex: 0, ownerId: controller.pickOwnerId },
+  });
+  controller.handlePick(viewer, new Cesium.Cartesian2(10, 10));
+  controller.core.streamingState.cache.delete(nodeKey);
+  assert.equal(layer.getSelectedPoint(), undefined);
+  assert.equal(picked.at(-1), undefined);
 
-  controller.nodePointCache.get = () => points;
-  fakeViewer.scene.pick = () => ({ id: {
-    nodeKey,
-    pointIndex: 0,
-    ownerId: 'copc-layer-foreign',
-  } });
-  controller.handlePick(fakeViewer, new Cesium.Cartesian2(10, 10));
-  assert.equal(controller.getSelectedPoint(), undefined);
-
-  fakeViewer.scene.pick = () => ({ id: {
-    nodeKey,
-    pointIndex: 0,
-    ownerId: controller.pickOwnerId,
-  } });
-  controller.handlePick(fakeViewer, new Cesium.Cartesian2(10, 10));
-  controller.removePointCollection(nodeKey);
-  assert.equal(controller.getSelectedPoint(), undefined);
-
-  controller.unload();
-  assert.equal(controller.getSelectedPoint(), undefined);
+  layer.destroy();
 });
 
-test('CopcLayerController retains a coarse parent until all selected replacements are ready', async () => {
-  const fakeViewer = createFakeViewer();
-  const renderer = new PointPrimitiveRenderer();
-  const viewer = new CopcLayerController({
-    url: '/samples/autzen.copc.laz',
-    colorMode: 'elevation',
-    renderer,
+test('selection is cleared across unload, reload, and removed transition coverage', async () => {
+  const picked = [];
+  const source = createBackend();
+  const layer = new CopcCesiumLayer({
+    url: 'memory://selection-lifecycle.copc.laz',
+    backend: source.backend,
+    decoder: source.decoder,
+    onPointPicked: (point) => picked.push(point),
   });
-  const parent = {
-    node: { key: '0-0-0-0', level: 0, pointCount: 1 },
-    children: ['1-0-0-0'],
-  };
-  const child = {
-    node: { key: '1-0-0-0', level: 1, pointCount: 1 },
-    children: [],
-  };
-  const nodes = new Map([
-    ['0-0-0-0', parent],
-    ['1-0-0-0', child],
-  ]);
-  const namesDuringProgress = [];
+  const viewer = createFakeViewer();
+  const nodeKey = '0-0-0-0';
 
-  renderer.attachTo(fakeViewer);
-  renderer.addOrUpdateNode('0-0-0-0', {
+  await layer.load();
+  layer.attachTo(viewer);
+  await waitFor(() => layer.getSnapshot().renderedPointCount === 2);
+  const controller = layer.controller;
+
+  viewer.scene.pick = () => ({
+    id: { nodeKey, pointIndex: 0, ownerId: controller.pickOwnerId },
+  });
+  controller.handlePick(viewer, new Cesium.Cartesian2(10, 10));
+  assert.ok(layer.getSelectedPoint());
+
+  layer.unload();
+  assert.equal(layer.getSelectedPoint(), undefined);
+  assert.equal(layer.getSnapshot().selectedNodeKeys.length, 0);
+  assert.equal(layer.getSnapshot().renderedPointCount, 0);
+
+  await layer.reload();
+  await waitFor(() => layer.getSnapshot().renderedPointCount === 2);
+  controller.handlePick(viewer, new Cesium.Cartesian2(10, 10));
+  assert.ok(layer.getSelectedPoint());
+
+  const childPoints = {
     pointCount: 1,
-    coordinates: new Float64Array([-123, 44, 10]),
-  }, { pointSize: 2 });
-  viewer.viewer = fakeViewer;
-  viewer.streamingState = createStreamingState(async (_camera, onProgress) => {
-    onProgress({
-      selectedNodeKeys: ['1-0-0-0'],
-      removedNodeKeys: ['0-0-0-0'],
-      loadedNodePoints: new Map(),
-      completedBatchPointCount: 0,
-    });
-    namesDuringProgress.push(viewer.getRenderedNodeKeys());
-    onProgress({
-      selectedNodeKeys: ['1-0-0-0'],
-      removedNodeKeys: ['0-0-0-0'],
-      loadedNodePoints: new Map([['1-0-0-0', {
-        pointCount: 1,
-        coordinates: new Float64Array([-123, 44, 100]),
-      }]]),
-      completedBatchPointCount: 1,
-    });
-    return {
-      selectedNodeKeys: ['1-0-0-0'],
-      removedNodeKeys: ['0-0-0-0'],
-      loadedNodePoints: new Map(),
-    };
-  }, nodes);
-
-  await viewer.updateStreamingView();
-
-  assert.deepEqual(namesDuringProgress, [['0-0-0-0']]);
-  assert.deepEqual(viewer.getRenderedNodeKeys(), ['1-0-0-0']);
-});
-
-test('CopcLayerController commits complete refinement and collapse groups coverage-safely', async () => {
-  const fakeViewer = createFakeViewer();
-  const renderer = new PointPrimitiveRenderer();
-  const controller = new CopcLayerController({
-    url: '/samples/autzen.copc.laz',
-    renderer,
-    maxRenderedPoints: 100,
-  });
-  const parentKey = '0-parent';
-  const childKeys = ['1-a', '1-b', '1-c', '1-d'];
-  const parent = { node: { key: parentKey, level: 0, pointCount: 40 }, children: childKeys };
-  const nodes = new Map([
-    [parentKey, parent],
-    ...childKeys.map((key) => [key, { node: { key, level: 1, pointCount: 25 }, children: [] }]),
-  ]);
-  const replacementGroups = [{
-    kind: 'refinement',
-    oldNodeKeys: [parentKey],
-    newNodeKeys: childKeys,
-  }];
-  const collapseGroup = [{
-    kind: 'collapse',
-    oldNodeKeys: childKeys,
-    newNodeKeys: [parentKey],
-  }];
-  const makePoints = (pointCount, height) => ({
-    pointCount,
-    coordinates: new Float64Array(pointCount * 3).fill(height),
-  });
-  const renderedAtProgress = [];
-  let updateCount = 0;
-
-  renderer.attachTo(fakeViewer);
-  renderer.addOrUpdateNode(parentKey, makePoints(40, 10), { pointSize: 2 });
-  controller.viewer = fakeViewer;
-  controller.streamingState = createStreamingState(async (_camera, onProgress) => {
-    updateCount += 1;
-    if (updateCount === 1) {
-      onProgress({
-        selectedNodeKeys: childKeys,
-        removedNodeKeys: [parentKey],
-        loadedNodePoints: new Map(),
-        completedBatchPointCount: 0,
-        replacementGroups,
-        generation: 1,
-      });
-      onProgress({
-        selectedNodeKeys: childKeys,
-        removedNodeKeys: [parentKey],
-        loadedNodePoints: new Map([
-          [childKeys[0], makePoints(25, 20)],
-          [childKeys[1], makePoints(25, 30)],
-        ]),
-        completedBatchPointCount: 50,
-        replacementGroups,
-        generation: 1,
-      });
-      renderedAtProgress.push(controller.getRenderedNodeKeys());
-      onProgress({
-        selectedNodeKeys: childKeys,
-        removedNodeKeys: [parentKey],
-        loadedNodePoints: new Map([
-          [childKeys[2], makePoints(25, 40)],
-          [childKeys[3], makePoints(25, 50)],
-        ]),
-        completedBatchPointCount: 50,
-        replacementGroups,
-        generation: 1,
-      });
-      return {
-        selectedNodeKeys: childKeys,
-        removedNodeKeys: [parentKey],
-        loadedNodePoints: new Map(),
-        replacementGroups,
-        generation: 1,
-      };
-    }
-
-    onProgress({
-      selectedNodeKeys: [parentKey],
-      removedNodeKeys: childKeys,
-      loadedNodePoints: new Map(),
-      completedBatchPointCount: 0,
-      replacementGroups: collapseGroup,
-      generation: 2,
-    });
-    renderedAtProgress.push(controller.getRenderedNodeKeys());
-    onProgress({
-      selectedNodeKeys: [parentKey],
-      removedNodeKeys: childKeys,
-      loadedNodePoints: new Map([[parentKey, makePoints(40, 60)]]),
-      completedBatchPointCount: 40,
-      replacementGroups: collapseGroup,
-      generation: 2,
-    });
-    return {
-      selectedNodeKeys: [parentKey],
-      removedNodeKeys: childKeys,
-      loadedNodePoints: new Map(),
-      replacementGroups: collapseGroup,
-      generation: 2,
-    };
-  }, nodes);
-  let cacheDeletes = 0;
-  const originalCacheDelete = controller.nodePointCache.delete;
-  controller.nodePointCache.delete = (nodeKey) => {
-    cacheDeletes += 1;
-    originalCacheDelete(nodeKey);
+    coordinates: new Float64Array([-122.4, 44.6, 18]),
   };
-
-  await controller.updateStreamingView();
-  assert.deepEqual(renderedAtProgress[0], [parentKey, childKeys[0], childKeys[1]]);
-  assert.deepEqual(controller.getRenderedNodeKeys(), childKeys);
-  assert.equal(controller.getSnapshot().transition.refinementReplacementCommitCount, 1);
-  assert.equal(controller.getSnapshot().transition.activeReplacementGroupCount, 0);
-
-  await controller.updateStreamingView();
-  assert.deepEqual(renderedAtProgress[1], childKeys);
-  assert.deepEqual(controller.getRenderedNodeKeys(), [parentKey]);
-  assert.equal(controller.getSnapshot().transition.collapseReplacementCommitCount, 1);
-  assert.equal(cacheDeletes, 0);
-});
-
-test('CopcLayerController cancels superseded replacement groups before stale data arrives', async () => {
-  const fakeViewer = createFakeViewer();
-  const renderer = new PointPrimitiveRenderer();
-  const controller = new CopcLayerController({
-    url: '/samples/autzen.copc.laz',
-    renderer,
-    maxRenderedPoints: 100,
-  });
-  const parentKey = '0-parent';
-  const oldChildKeys = ['1-a', '1-b', '1-c', '1-d'];
-  const newChildKeys = ['1-e', '1-f'];
-  const makePoints = (pointCount, height) => ({
-    pointCount,
-    coordinates: new Float64Array(pointCount * 3).fill(height),
-  });
-  const updates = [];
-  const refinement = [{
-    kind: 'refinement',
-    oldNodeKeys: [parentKey],
-    newNodeKeys: oldChildKeys,
-  }];
-  const retarget = [{
-    kind: 'retarget',
-    oldNodeKeys: ['1-a', '1-b'],
-    newNodeKeys: newChildKeys,
-  }];
-
-  renderer.attachTo(fakeViewer);
-  renderer.addOrUpdateNode(parentKey, makePoints(40, 10), { pointSize: 2 });
-  controller.viewer = fakeViewer;
-  controller.streamingState = createStreamingState((_camera, onProgress) =>
-    new Promise((resolve) => updates.push({ onProgress, resolve })), new Map());
-
-  const firstUpdate = controller.updateStreamingView();
-  await Promise.resolve();
-  updates[0].onProgress({
-    selectedNodeKeys: oldChildKeys,
-    removedNodeKeys: [parentKey],
-    loadedNodePoints: new Map([['1-a', makePoints(20, 20)]]),
-    completedBatchPointCount: 20,
-    replacementGroups: refinement,
+  controller.applyStreamingProgress(viewer, {
+    selectedNodeKeys: ['1-child'],
+    removedNodeKeys: [nodeKey],
+    loadedNodePoints: new Map([['1-child', childPoints]]),
+    completedBatchPointCount: 1,
+    replacementGroups: [{
+      kind: 'refinement',
+      oldNodeKeys: [nodeKey],
+      newNodeKeys: ['1-child'],
+    }],
     generation: 1,
-  });
-  assert.deepEqual(controller.getRenderedNodeKeys(), [parentKey, '1-a']);
+  }, 1);
 
-  const secondUpdate = controller.updateStreamingView();
-  await Promise.resolve();
-  updates[1].onProgress({
-    selectedNodeKeys: newChildKeys,
-    removedNodeKeys: oldChildKeys,
-    loadedNodePoints: new Map([
-      ['1-e', makePoints(30, 30)],
-      ['1-f', makePoints(30, 40)],
-    ]),
-    completedBatchPointCount: 60,
-    replacementGroups: retarget,
-    generation: 2,
-  });
-  updates[1].resolve({
-    selectedNodeKeys: newChildKeys,
-    removedNodeKeys: oldChildKeys,
-    loadedNodePoints: new Map(),
-    replacementGroups: retarget,
-    generation: 2,
-  });
-  await secondUpdate;
+  assert.deepEqual(layer.getSnapshot().renderedNodeKeys, ['1-child']);
+  assert.equal(layer.getSelectedPoint(), undefined);
+  assert.equal(picked.at(-1), undefined);
 
-  updates[0].onProgress({
-    selectedNodeKeys: oldChildKeys,
-    removedNodeKeys: [parentKey],
-    loadedNodePoints: new Map([['1-d', makePoints(20, 50)]]),
-    completedBatchPointCount: 20,
-    replacementGroups: refinement,
-    generation: 1,
+  // Keep the fixture explicit: old coverage is gone and cannot be picked
+  // again even if a stale scene object is presented to the adapter.
+  viewer.scene.pick = () => ({
+    id: { nodeKey, pointIndex: 0, ownerId: controller.pickOwnerId },
   });
-  updates[0].resolve({
-    selectedNodeKeys: oldChildKeys,
-    removedNodeKeys: [parentKey],
-    loadedNodePoints: new Map(),
-    replacementGroups: refinement,
-    generation: 1,
-  });
-  await firstUpdate;
+  controller.handlePick(viewer, new Cesium.Cartesian2(10, 10));
+  assert.equal(layer.getSelectedPoint(), undefined);
 
-  assert.deepEqual(controller.getCurrentSelection(), newChildKeys);
-  assert.deepEqual(controller.getRenderedNodeKeys(), newChildKeys);
-  assert.equal(controller.getSnapshot().transition.staleReplacementCancellationCount, 1);
+  layer.destroy();
 });
 
-test('CopcLayerController removes stale coverage when the desired frontier is already staged', async () => {
-  const fakeViewer = createFakeViewer();
-  const renderer = new PointPrimitiveRenderer();
-  const controller = new CopcLayerController({
-    url: '/samples/autzen.copc.laz',
-    renderer,
-    maxRenderedPoints: 100,
+test('public snapshot composes core and renderer state without old-layer values', async () => {
+  const source = createBackend();
+  const layer = new CopcCesiumLayer({
+    url: 'memory://snapshot.copc.laz',
+    backend: source.backend,
+    decoder: source.decoder,
   });
-  const parentKey = '0-parent';
-  const childKeys = ['1-a', '1-b', '1-c', '1-d'];
-  const makePoints = (pointCount, height) => ({
-    pointCount,
-    coordinates: new Float64Array(pointCount * 3).fill(height),
-  });
-  const replacementGroups = [{
-    kind: 'refinement',
-    oldNodeKeys: [parentKey],
-    newNodeKeys: childKeys,
-  }];
-  const updates = [];
+  const viewer = createFakeViewer();
 
-  renderer.attachTo(fakeViewer);
-  renderer.addOrUpdateNode(parentKey, makePoints(40, 10), { pointSize: 2 });
-  controller.viewer = fakeViewer;
-  controller.streamingState = createStreamingState(
-    (_camera, onProgress) => new Promise((resolve) => updates.push({ onProgress, resolve })),
-    new Map([
-      [parentKey, { node: { key: parentKey, level: 0, pointCount: 40 }, children: childKeys }],
-      ...childKeys.map((key) => [key, { node: { key, level: 1, pointCount: 25 }, children: [] }]),
-    ]),
-  );
+  await layer.load();
+  layer.attachTo(viewer);
+  await waitFor(() => layer.getSnapshot().renderedPointCount === 2);
 
-  const firstUpdate = controller.updateStreamingView();
-  await Promise.resolve();
-  updates[0].onProgress({
-    selectedNodeKeys: childKeys,
-    removedNodeKeys: [parentKey],
-    loadedNodePoints: new Map([
-      [childKeys[0], makePoints(25, 20)],
-      [childKeys[1], makePoints(25, 30)],
-    ]),
-    completedBatchPointCount: 50,
-    replacementGroups,
-    generation: 1,
-  });
-  updates[0].resolve({
-    selectedNodeKeys: childKeys,
-    removedNodeKeys: [parentKey],
-    loadedNodePoints: new Map(),
-    replacementGroups,
-    generation: 1,
-  });
-  await firstUpdate;
-  assert.deepEqual(controller.getRenderedNodeKeys(), [parentKey, childKeys[0], childKeys[1]]);
+  const ready = layer.getSnapshot();
+  assert.equal(ready.streamingUpdateCount, 1);
+  assert.equal(ready.performance.activeRenderedPointCount, ready.renderedPointCount);
+  assert.equal(ready.performance.selectedNodeCount, 1);
+  assert.equal(ready.pointCache.cachedNodeCount, 1);
 
-  const secondUpdate = controller.updateStreamingView();
-  await Promise.resolve();
-  updates[1].onProgress({
-    // A/B are still the desired frontier and are already staged, while the
-    // old parent is absent from this generation's removedNodeKeys.
-    selectedNodeKeys: childKeys.slice(0, 2),
-    removedNodeKeys: childKeys.slice(2),
-    loadedNodePoints: new Map(),
-    completedBatchPointCount: 0,
-    replacementGroups: [],
-    generation: 2,
-  });
-  assert.deepEqual(controller.getRenderedNodeKeys(), childKeys.slice(0, 2));
-  updates[1].resolve({
-    selectedNodeKeys: childKeys.slice(0, 2),
-    removedNodeKeys: childKeys.slice(2),
-    loadedNodePoints: new Map(),
-    replacementGroups: [],
-    generation: 2,
-  });
-  await secondUpdate;
+  layer.unload();
+  const unloaded = layer.getSnapshot();
+  assert.equal(unloaded.streamingUpdateCount, 0);
+  assert.deepEqual(unloaded.selectedNodeKeys, []);
+  assert.deepEqual(unloaded.renderedNodeKeys, []);
+  assert.equal(unloaded.renderedPointCount, 0);
+  assert.equal(unloaded.performance.activeRenderedPointCount, 0);
+  assert.equal(unloaded.performance.selectedNodeCount, 0);
+  assert.equal(unloaded.performance.rendererPreparationDurationMs, 0);
+  assert.equal(unloaded.pointCache.cachedNodeCount, 0);
 
-  assert.deepEqual(controller.getRenderedNodeKeys(), childKeys.slice(0, 2));
-  assert.equal(controller.getSnapshot().transition.activeReplacementGroupCount, 0);
-  assert.equal(controller.getSnapshot().transition.coarseNodesRetainedForCoverageCount, 0);
-});
-
-test('CopcLayerController ignores loaded nodes after destroy during an in-flight update', async () => {
-  const fakeViewer = createFakeViewer();
-  const viewer = new CopcLayerController({
-    url: '/samples/autzen.copc.laz',
-  });
-  let resolveUpdate;
-
-  viewer.viewer = fakeViewer;
-  viewer.streamingState = createStreamingState(
-    () =>
-      new Promise((resolve) => {
-        resolveUpdate = resolve;
-      }),
-  );
-
-  const updatePromise = viewer.updateStreamingView();
-  viewer.destroy();
-  resolveUpdate({
-    selectedNodeKeys: ['1-0-0-0'],
-    removedNodeKeys: [],
-    loadedNodePoints: new Map([
-      [
-        '1-0-0-0',
-        {
-          pointCount: 1,
-          coordinates: new Float64Array([-123, 44, 100]),
-        },
-      ],
-    ]),
-  });
-  await updatePromise;
-
-  assert.deepEqual(viewer.getRenderedNodeKeys(), []);
-  assert.equal(fakeViewer.addedCollections.length, 0);
-});
-
-test('CopcLayerController ignores an older streaming result after a newer camera update', async () => {
-  const fakeViewer = createFakeViewer();
-  const renderer = new PointPrimitiveRenderer();
-  const viewer = new CopcLayerController({
-    url: '/samples/autzen.copc.laz',
-    renderer,
-  });
-  let callCount = 0;
-  let resolveFirst;
-  let resolveSecond;
-
-  renderer.attachTo(fakeViewer);
-  viewer.viewer = fakeViewer;
-  viewer.streamingState = createStreamingState(() => {
-    callCount += 1;
-
-    return new Promise((resolve) => {
-      if (callCount === 1) {
-        resolveFirst = resolve;
-      } else {
-        resolveSecond = resolve;
-      }
-    });
-  });
-
-  const firstUpdate = viewer.updateStreamingView();
-  const secondUpdate = viewer.updateStreamingView();
-
-  resolveSecond({
-    selectedNodeKeys: ['1-0-0-0'],
-    removedNodeKeys: [],
-    loadedNodePoints: new Map([
-      ['1-0-0-0', {
-        pointCount: 1,
-        coordinates: new Float64Array([-123, 44, 100]),
-      }],
-    ]),
-  });
-  await secondUpdate;
-
-  resolveFirst({
-    selectedNodeKeys: ['0-0-0-0'],
-    removedNodeKeys: [],
-    loadedNodePoints: new Map([
-      ['0-0-0-0', {
-        pointCount: 1,
-        coordinates: new Float64Array([-123, 44, 100]),
-      }],
-    ]),
-  });
-  await firstUpdate;
-
-  assert.deepEqual(viewer.getCurrentSelection(), ['1-0-0-0']);
-  assert.deepEqual(viewer.getRenderedNodeKeys(), ['1-0-0-0']);
-  viewer.destroy();
-});
-
-test('CopcLayerController loadRenderableNodePoints rejects missing streaming state and unknown nodes', async () => {
-  const viewer = new CopcLayerController({
-    url: '/samples/autzen.copc.laz',
-  });
-
-  await assert.rejects(
-    () => viewer.loadRenderableNodePoints('0-0-0-0'),
-    /Streaming state is not initialized/,
-  );
-
-  viewer.streamingState = createStreamingState(async () => ({
-    selectedNodeKeys: [],
-    removedNodeKeys: [],
-    loadedNodePoints: new Map(),
-  }));
-
-  await assert.rejects(
-    () => viewer.loadRenderableNodePoints('0-0-0-0'),
-    /Unknown COPC hierarchy node/,
-  );
-});
-
-test('CopcLayerController decodes point views through an injected decoder', async () => {
-  const node = {
-    key: '0-0-0-0',
-    level: 0,
-    x: 0,
-    y: 0,
-    z: 0,
-    pointCount: 1,
-    pointDataOffset: 100,
-    pointDataLength: 20,
-  };
-  const view = {
-    pointCount: 1,
-    availableFields: new Set(['position']),
-    getter() {
-      return () => 0;
-    },
-  };
-  let decodedView;
-  let requestedFields;
-  const viewer = new CopcLayerController({
-    url: 'memory://fake.copc.laz',
-    decoder: {
-      async decode(requestedView) {
-        decodedView = requestedView;
-        return {
-          pointCount: 1,
-          coordinates: new Float64Array([-123, 44, 10]),
-        };
-      },
-    },
-  });
-  viewer.streamingState = {
-    ...createStreamingState(async () => ({
-      selectedNodeKeys: [],
-      removedNodeKeys: [],
-      loadedNodePoints: new Map(),
-    })),
-    context: {
-      source: 'memory://fake.copc.laz',
-      async loadPointDataView(_node, fields) {
-        requestedFields = fields;
-        return view;
-      },
-    },
-  };
-
-  const buffer = await viewer.loadPoints(node);
-
-  assert.equal(decodedView, view);
-  assert.deepEqual([...requestedFields], ['position']);
-  assert.deepEqual(Array.from(buffer.coordinates), [-123, 44, 10]);
-});
-
-test('CopcLayerController load rejects invalid dataset paths', async () => {
-  const viewer = new CopcLayerController({
-    url: '/samples/local/missing.copc.laz',
-  });
-
-  viewer.viewer = createFakeViewer();
-  viewer.lifecycle = 'mounted';
-
-  await assert.rejects(
-    () => viewer.load(),
-    (error) => {
-      assert.ok(error instanceof CopcSourceError);
-      assert.equal(error.stage, 'source');
-      assert.match(error.message, /missing\.copc\.laz/);
-      return true;
-    },
-  );
-  assert.equal(viewer.getSnapshot().lifecycle, 'mounted');
+  layer.destroy();
 });

@@ -12,6 +12,10 @@
   "dependencies": {
     "cesium": "1.142.0"
   },
+  "overrides": {
+    "@cesium/engine": "26.0.0",
+    "@cesium/widgets": "16.0.0"
+  },
   "devDependencies": {
     "@playwright/test": "1.55.0",
     "vite": "7.2.2",
