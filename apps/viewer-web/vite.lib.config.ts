@@ -16,12 +16,15 @@ export default defineConfig({
     // the same URL resolution path as a published installation.
     assetsInlineLimit: 0,
     lib: {
-      entry: 'src/index.ts',
+      entry: {
+        index: 'src/index.ts',
+        three: 'src/three.ts',
+      },
       formats: ['es'],
-      fileName: 'index',
+      fileName: (_format, entryName) => `${entryName}.js`,
     },
     rollupOptions: {
-      external: ['cesium'],
+      external: ['cesium', 'three'],
     },
   },
   resolve: {

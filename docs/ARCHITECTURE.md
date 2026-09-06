@@ -74,7 +74,7 @@ separate concern.
 | Renderer-neutral contract | `apps/viewer-web/src/viewer/streaming/renderer.ts` | Own the minimal node add/update/remove/clear/destroy/count contract and project-owned point options; no scene, camera, engine geometry, COPC, or selection logic |
 | Renderer-neutral controller | `apps/viewer-web/src/viewer/streaming/CopcStreamingController.ts` | Coordinate loading, hierarchy queries, selection, point streaming, lifecycle, generations, and engine-independent diagnostics |
 | Cesium compatibility controller | `apps/viewer-web/src/viewer/CopcViewer.ts`, `apps/viewer-web/src/cesium/view/` | Cesium attachment, camera conversion, point rendering, picking, and coverage-safe renderer reconciliation over the shared streaming core |
-| Public API | `apps/viewer-web/src/api/`, `apps/viewer-web/src/index.ts` | Expose `CopcCesiumLayer` and its public types |
+| Public API | `apps/viewer-web/src/api/`, `apps/viewer-web/src/index.ts`, `apps/viewer-web/src/three.ts` | Expose the backwards-compatible Cesium façade from the package root and the isolated renderer-neutral Three entrypoint |
 
 External `copc.js` types stay inside `copcJsBackend.ts`. The context, loaders,
 streaming controller, and decoder communicate through project-owned interfaces.
@@ -163,6 +163,35 @@ Omitting `backend` or passing `'copc-js'` selects the stable implementation.
 An injected `CopcBackend` remains supported for tests and host-owned sources.
 There is no automatic Rust-to-JS fallback: a Rust source or decode error is
 reported with its backend error category so validation cannot be masked.
+
+## Package renderer boundary (#139)
+
+The published package uses renderer subpath exports rather than separate npm
+packages:
+
+```text
+@frillab/copc-adapter       -> dist/index.js  (existing Cesium façade)
+@frillab/copc-adapter/three -> dist/three.js  (renderer-neutral Three entry)
+```
+
+The root entry remains unchanged for existing Cesium users. The Three entry is
+implemented as a separate source module and does not re-export the root entry,
+because the root statically re-exports Cesium integration modules. Its shared
+chunk contains only COPC, coordinate, and renderer-neutral streaming code.
+
+`cesium` and `three` are optional peer dependencies at the package level. npm
+cannot express peer dependencies conditionally per export, so this keeps the
+single package installable for either renderer while the application explicitly
+installs the peer for the entrypoint it uses. The Three path is validated from
+a packed tarball in a clean Vite consumer with no Cesium installation.
+
+The library build emits both public entry declarations and keeps the existing
+package-owned Rust/WASM, LAZ, and Worker assets. The Three package entry does
+not own a second COPC implementation; it consumes the same backend, cache,
+hierarchy, coordinate, and streaming modules as the Cesium façade. The
+`CopcThreeLayer` scene façade is intentionally left to the follow-up renderer
+work; this boundary establishes its stable import path without prematurely
+exposing internal selectors or managers.
 
 Callers may inject a backend for an alternative implementation or unit tests.
 There is intentionally no second placeholder production backend.

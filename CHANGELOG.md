@@ -6,6 +6,17 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Added the `@frillab/copc-adapter/three` public entrypoint for Three.js
+  consumers without a static Cesium import.
+- Added a packed external Three.js/Vite consumer validation fixture.
+
+### Changed
+
+- Marked the Cesium peer optional at the package level and added an optional
+  Three.js peer so the renderer subpath does not impose an unused renderer.
+
 ## [0.3.0] - 2026-08-31
 
 ### Added
