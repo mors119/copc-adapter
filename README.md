@@ -94,13 +94,43 @@ import {
 
 `@frillab/copc-adapter/three` has no static Cesium module dependency. The
 package keeps both renderer peers optional because one package serves both
-entrypoints; applications install the renderer they use. The concrete
-`CopcThreeLayer` façade and Three.js scene integration are follow-up work in
-the Three.js epic. The current entrypoint exposes the shared renderer-neutral
-core and its public contracts so the package boundary can be validated before
-that façade lands. See the [Three package boundary decision](docs/benchmarks/issue-139-three-package-boundary.md).
+entrypoints; applications install the renderer they use. The Three.js façade
+is available from the isolated `./three` export. It uses a
+fixed dataset-local ENU frame (`+X` east, `+Y` north, `+Z` up) for both camera
+views and rendered points, while the application retains ownership of the
+scene, camera, WebGL renderer, and render loop. See the [Three package boundary
+decision](docs/benchmarks/issue-139-three-package-boundary.md).
 
-Destroying the layer does not destroy the viewer:
+```ts
+import * as THREE from 'three';
+import { CopcThreeLayer } from '@frillab/copc-adapter/three';
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 20_000);
+const renderer = new THREE.WebGLRenderer();
+const layer = new CopcThreeLayer({
+  url: 'https://example.com/data.copc.laz',
+  colorMode: 'elevation',
+});
+
+await layer.load();
+layer.attachTo({ scene, camera, renderer });
+
+function animate() {
+  requestAnimationFrame(animate);
+  void layer.update();
+  renderer.render(scene, camera);
+}
+animate();
+```
+
+`layer.pick({ x, y })` accepts normalized device coordinates and resolves the
+hit through the live decoded buffer. `pickingThreshold` is in scene units and
+defaults to one metre. `layer.detachFrom()`, `layer.unload()`,
+`layer.reload()`, and `layer.destroy()` release only resources owned by the
+layer; they never dispose the application renderer or scene.
+
+For the Cesium façade, destroying the layer does not destroy the viewer:
 
 ```ts
 layer.detachFrom();

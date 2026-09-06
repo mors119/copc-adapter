@@ -5,6 +5,6 @@ This checked-in template is copied into a disposable directory by
 `@frillab/copc-adapter` tarball by package name, installs `three`, and builds
 an ordinary Vite app that imports only `@frillab/copc-adapter/three`.
 
-The fixture is build-focused while the Three camera, renderer, styling, and
-layer façade issues are implemented. It intentionally has no Cesium
-dependency, alias, or source deep-import.
+The fixture attaches the public Three layer to an ordinary scene and camera
+while remaining build-focused. It intentionally has no Cesium dependency,
+alias, or source deep-import.

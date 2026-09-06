@@ -6,13 +6,16 @@ import {
   geographicToEcef,
   worldBufferToLocal,
 } from '../../coordinates/transform/worldCoordinates';
-import type { Wgs84EcefPoint } from '../../coordinates/types';
+import { worldBufferToDatasetLocal } from '../../coordinates/transform/datasetLocalFrame';
+import type { DatasetLocalFrame, Wgs84EcefPoint } from '../../coordinates/types';
+import {
+  getThreePointsMaterialOptions,
+  prepareThreePointColorBuffer,
+} from '../style/pointStyle';
 import type {
   CopcPointRenderer,
   CopcPointRendererOptions,
 } from '../../viewer/streaming/renderer';
-
-const FIXED_POINT_COLOR = 0x00ffff;
 
 export type ThreePointRendererPerformanceStage =
   | 'worldToLocal'
@@ -37,6 +40,8 @@ export type ThreePointRendererConstructorOptions = {
    * frame; without one, the first non-empty node chooses the origin.
    */
   localOrigin?: Wgs84EcefPoint;
+  /** Stable dataset-local ENU frame shared with the camera adapter. */
+  localFrame?: DatasetLocalFrame;
 };
 
 /** Metadata-derived origin for the renderer-local ECEF frame. */
@@ -134,11 +139,8 @@ function createMaterial(pointSize: number): THREE.PointsMaterial {
   }
 
   return new THREE.PointsMaterial({
-    color: FIXED_POINT_COLOR,
-    opacity: 0.9,
-    size: pointSize,
-    sizeAttenuation: false,
-    transparent: true,
+    color: 0xffffff,
+    ...getThreePointsMaterialOptions(pointSize),
   });
 }
 
@@ -155,12 +157,16 @@ export class ThreePointRenderer implements CopcPointRenderer {
   private readonly pointsByNode = new Map<string, THREE.Points>();
   private scene?: THREE.Scene;
   private localOrigin?: Wgs84EcefPoint;
+  private localFrame?: DatasetLocalFrame;
   private destroyed = false;
 
   constructor(options: ThreePointRendererConstructorOptions = {}) {
     this.localOrigin = options.localOrigin
       ? copyEcefPoint(options.localOrigin)
       : undefined;
+    if (options.localFrame) {
+      this.setLocalFrame(options.localFrame);
+    }
     this.root.name = 'copc-three-root';
   }
 
@@ -195,7 +201,30 @@ export class ThreePointRenderer implements CopcPointRenderer {
 
   /** Return the stable ECEF origin used for local vertex positions. */
   getLocalOrigin(): Wgs84EcefPoint | undefined {
-    return this.localOrigin ? { ...this.localOrigin } : undefined;
+    const origin = this.localFrame?.origin ?? this.localOrigin;
+    return origin ? { ...origin } : undefined;
+  }
+
+  /** Set the fixed frame used by future node geometry. */
+  setLocalFrame(frame: DatasetLocalFrame): void {
+    if (this.destroyed) {
+      throw new Error('ThreePointRenderer has been destroyed');
+    }
+    if (this.pointsByNode.size > 0) {
+      throw new Error('ThreePointRenderer cannot change its frame while nodes are rendered');
+    }
+    if (frame.coordinateSystem !== 'renderer-local'
+      || frame.axisConvention !== 'enu'
+      || frame.units !== 'metres') {
+      throw new Error('ThreePointRenderer requires a dataset-local ENU metre frame');
+    }
+    this.localFrame = frame;
+    this.localOrigin = undefined;
+  }
+
+  /** Return the fixed dataset-local frame, when one has been configured. */
+  getLocalFrame(): DatasetLocalFrame | undefined {
+    return this.localFrame;
   }
 
   addOrUpdateNode(
@@ -230,7 +259,9 @@ export class ThreePointRenderer implements CopcPointRenderer {
     };
 
     const localStartedAt = performanceNow();
-    const localCoordinates = worldBufferToLocal(worldCoordinates, origin);
+    const localCoordinates = this.localFrame
+      ? worldBufferToDatasetLocal(worldCoordinates, this.localFrame)
+      : worldBufferToLocal(worldCoordinates, origin);
     const positions = new Float32Array(localCoordinates);
     options.onPerformance?.(
       'worldToLocal',
@@ -241,6 +272,14 @@ export class ThreePointRenderer implements CopcPointRenderer {
     const geometryStartedAt = performanceNow();
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('color', new THREE.BufferAttribute(
+      prepareThreePointColorBuffer(points, {
+        colorMode: options.colorMode,
+        elevationRange: options.elevationRange,
+        rgbMax: options.rgbMax,
+      }),
+      3,
+    ));
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
     options.onPerformance?.(
