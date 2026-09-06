@@ -300,8 +300,8 @@ export class ThreePointRenderer implements CopcPointRenderer {
   }
 
   clear(): void {
-    for (const [nodeKey, points] of [...this.pointsByNode.entries()]) {
-      this.disposeNode(nodeKey, points);
+    for (const nodeKey of [...this.pointsByNode.keys()]) {
+      this.removeNode(nodeKey);
     }
   }
 

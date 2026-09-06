@@ -109,18 +109,26 @@ test('removing a node detaches and disposes its adapter-owned resources', () => 
 
 test('clear and destroy remove all adapter-owned objects without touching the scene', () => {
   const { scene, renderer } = createRenderer();
+  const lifecycleStages = [];
   const applicationMesh = new THREE.Mesh(
     new THREE.BufferGeometry(),
     new THREE.MeshBasicMaterial(),
   );
   scene.add(applicationMesh);
-  renderer.addOrUpdateNode('node-a', createPoints(), options());
-  renderer.addOrUpdateNode('node-b', createPoints([[10_007, 20_008, 30_009]]), options());
+  renderer.addOrUpdateNode('node-a', createPoints(), {
+    ...options(),
+    onPerformance: (stage) => lifecycleStages.push(stage),
+  });
+  renderer.addOrUpdateNode('node-b', createPoints([[10_007, 20_008, 30_009]]), {
+    ...options(),
+    onPerformance: (stage) => lifecycleStages.push(stage),
+  });
 
   renderer.clear();
   assert.equal(renderer.getRoot().children.length, 0);
   assert.equal(renderer.getRenderedPointCount(), 0);
   assert.equal(scene.children.includes(applicationMesh), true);
+  assert.equal(lifecycleStages.filter((stage) => stage === 'nodeRemoval').length, 2);
 
   renderer.addOrUpdateNode('node-c', createPoints([[10_010, 20_011, 30_012]]), options());
   renderer.destroy();
