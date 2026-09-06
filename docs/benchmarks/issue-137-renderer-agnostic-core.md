@@ -22,10 +22,10 @@ extraction. Issue #137 is ready to close together with parent issue #131.
 ## Validation commands
 
 - `npm run typecheck` — passed
-- `npm test` — 211 passed, 0 failed
+- `npm test` — 213 passed, 0 failed
 - `npm run test:conformance:unit` — 4 passed, 4 intentional integration skips
 - `npm run test:conformance:integration` — 8 passed
-- `npm run coverage` — 211 passed; 94.33% lines, 83.10% branches, 93.50% functions
+- `npm run coverage` — 213 passed; 94.33% lines, 83.53% branches, 93.54% functions
 - `npm run build` — passed
 - `npm run test:e2e` — 11 passed
 - `cargo test --workspace` — 10 passed
@@ -37,7 +37,8 @@ extraction. Issue #137 is ready to close together with parent issue #131.
   `samples/local` file in local and CI runs, while retaining support for a
   staged `public/samples` file.
 - Cesium camera events are serialized and materially equivalent views are
-  coalesced, preventing duplicate streaming work and stale renderer progress.
+  coalesced; a materially changed `moveEnd` invalidates stale adapter progress
+  without turning noisy `changed` events into repeated cancellations.
 - The layer snapshot accounts for progress rendered before the core update
   promise resolves, keeping diagnostics consistent with visible points.
 - Chromium installation and the browser E2E gate are now part of CI.

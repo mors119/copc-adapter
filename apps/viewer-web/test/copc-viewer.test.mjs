@@ -298,6 +298,142 @@ test('coalesces repeated camera events when the view has not materially changed'
   }
 });
 
+test('invalidates stale progress when a materially changed camera event is queued', async () => {
+  const source = createBackend();
+  const layer = new CopcCesiumLayer({
+    url: 'memory://queued-camera-events.copc.laz',
+    backend: source.backend,
+    decoder: source.decoder,
+  });
+  const viewer = createFakeViewer();
+
+  await layer.load();
+  layer.attachTo(viewer);
+  await waitFor(() => layer.getSnapshot().renderedPointCount === 2);
+
+  const controller = layer.controller;
+  const originalUpdateView = controller.core.updateView.bind(controller.core);
+  const staleUpdate = createDeferred();
+  const currentUpdate = createDeferred();
+  const stalePoints = {
+    pointCount: 1,
+    coordinates: new Float64Array([-122.3, 44.7, 25]),
+  };
+  let updateCallCount = 0;
+  controller.core.updateView = async (view, onProgress) => {
+    updateCallCount += 1;
+    if (updateCallCount === 1) {
+      await staleUpdate.promise;
+      onProgress({
+        selectedNodeKeys: ['stale-node'],
+        removedNodeKeys: [],
+        loadedNodePoints: new Map([['stale-node', stalePoints]]),
+        completedBatchPointCount: 1,
+        replacementGroups: [],
+        generation: 1,
+      });
+      return {
+        selectedNodeKeys: ['stale-node'],
+        removedNodeKeys: [],
+        loadedNodePoints: new Map([['stale-node', stalePoints]]),
+        replacementGroups: [],
+        generation: 1,
+      };
+    }
+    if (updateCallCount === 2) {
+      await currentUpdate.promise;
+    }
+    return originalUpdateView(view, onProgress);
+  };
+
+  const originalWindow = globalThis.window;
+  globalThis.window = { setTimeout, clearTimeout };
+  try {
+    viewer.camera.positionWC = Cesium.Cartesian3.fromDegrees(-122.5, 44.5, 2000);
+    viewer.moveEnd.raise();
+    await waitFor(() => updateCallCount === 1);
+
+    viewer.camera.positionWC = Cesium.Cartesian3.fromDegrees(-122.5, 44.5, 3000);
+    viewer.moveEnd.raise();
+    await new Promise((resolve) => setTimeout(resolve, 125));
+
+    let queuedUpdateSettled = false;
+    const queuedUpdate = controller.updateStreamingView().then(() => {
+      queuedUpdateSettled = true;
+    });
+    staleUpdate.resolve();
+    await waitFor(() => updateCallCount === 2);
+
+    assert.equal(layer.getSnapshot().renderedNodeKeys.includes('stale-node'), false);
+    assert.equal(queuedUpdateSettled, false);
+
+    currentUpdate.resolve();
+    await queuedUpdate;
+  } finally {
+    layer.destroy();
+    globalThis.window = originalWindow;
+  }
+});
+
+test('reload waits for a queued update after the previous update is invalidated', async () => {
+  const source = createBackend();
+  const layer = new CopcCesiumLayer({
+    url: 'memory://queued-reload.copc.laz',
+    backend: source.backend,
+    decoder: source.decoder,
+  });
+  const viewer = createFakeViewer();
+
+  await layer.load();
+  layer.attachTo(viewer);
+  await waitFor(() => layer.getSnapshot().renderedPointCount === 2);
+
+  const controller = layer.controller;
+  const originalUpdateView = controller.core.updateView.bind(controller.core);
+  const previousUpdate = createDeferred();
+  const reloadUpdate = createDeferred();
+  let updateCallCount = 0;
+  controller.core.updateView = async (view, onProgress) => {
+    updateCallCount += 1;
+    if (updateCallCount === 1) {
+      await previousUpdate.promise;
+      return undefined;
+    }
+    if (updateCallCount === 2) {
+      await reloadUpdate.promise;
+    }
+    return originalUpdateView(view, onProgress);
+  };
+
+  const originalWindow = globalThis.window;
+  globalThis.window = { setTimeout, clearTimeout };
+  try {
+    viewer.camera.positionWC = Cesium.Cartesian3.fromDegrees(-122.5, 44.5, 2000);
+    viewer.moveEnd.raise();
+    await waitFor(() => updateCallCount === 1);
+
+    let reloadSettled = false;
+    const reloadPromise = layer.reload().then(() => {
+      reloadSettled = true;
+    });
+    await waitFor(() => source.openCount === 2);
+    assert.equal(reloadSettled, false);
+
+    previousUpdate.resolve();
+    await waitFor(() => updateCallCount === 2);
+    assert.equal(reloadSettled, false);
+
+    reloadUpdate.resolve();
+    await reloadPromise;
+    assert.equal(reloadSettled, true);
+    await waitFor(() => layer.getSnapshot().renderedPointCount === 2);
+    assert.equal(layer.getSnapshot().lifecycle, 'ready');
+  } finally {
+    layer.destroy();
+    globalThis.window = originalWindow;
+  }
+});
+
 test('a failed first render rolls back the shared core and keeps the viewer usable', async () => {
   const source = createBackend();
   const layer = new CopcCesiumLayer({

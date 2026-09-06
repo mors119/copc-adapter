@@ -199,7 +199,9 @@ export class CopcLayerController {
   private readonly rendererPerformance = new StreamingPerformanceRecorder();
   private viewer?: Cesium.Viewer;
   private updateTimer?: number;
+  private scheduledUpdateShouldInvalidate = false;
   private updateInFlight = false;
+  private updateInFlightPromise?: Promise<void>;
   private updatePending = false;
   private loadGeneration = 0;
   private streamingGeneration = 0;
@@ -214,6 +216,9 @@ export class CopcLayerController {
   private pickHandler?: Cesium.ScreenSpaceEventHandler;
   private readonly pickOwnerId = createPickOwnerId();
   private readonly handleCameraMoveEnd = (): void => {
+    void this.scheduleStreamingUpdate(true);
+  };
+  private readonly handleCameraChanged = (): void => {
     void this.scheduleStreamingUpdate();
   };
 
@@ -250,7 +255,7 @@ export class CopcLayerController {
     this.pointRenderer.attachTo(viewer);
     this.viewer.camera.percentageChanged = 0.02;
     this.viewer.camera.moveEnd.addEventListener(this.handleCameraMoveEnd);
-    this.viewer.camera.changed?.addEventListener(this.handleCameraMoveEnd);
+    this.viewer.camera.changed?.addEventListener(this.handleCameraChanged);
     this.attachPickHandler(viewer);
     if (this.lifecycle !== 'loading') {
       this.lifecycle = this.core.getMetadata() ? 'ready' : 'mounted';
@@ -259,7 +264,7 @@ export class CopcLayerController {
     const metadata = this.core.getMetadata();
     if (metadata) {
       this.flyToDataset(metadata);
-      void this.updateStreamingView();
+      this.startStreamingUpdate();
     }
   }
 
@@ -276,7 +281,7 @@ export class CopcLayerController {
 
     if (this.viewer) {
       this.viewer.camera.moveEnd.removeEventListener(this.handleCameraMoveEnd);
-      this.viewer.camera.changed?.removeEventListener(this.handleCameraMoveEnd);
+      this.viewer.camera.changed?.removeEventListener(this.handleCameraChanged);
     }
 
     this.detachPickHandler();
@@ -450,24 +455,55 @@ export class CopcLayerController {
     return this.pointRenderer.getSelectionBoundingSphere();
   }
 
-  private async updateStreamingView(): Promise<void> {
+  private async updateStreamingView(shouldInvalidateActive = false): Promise<void> {
     if (this.updateInFlight) {
-      // Keep only the latest camera event. The current update owns the
-      // renderer until it settles; starting another update concurrently can
-      // make stale progress compete for the main thread and GPU resources.
+      // Keep only the latest camera event. A materially changed settled view
+      // also invalidates the active adapter generation immediately, so stale
+      // progress cannot reach the renderer while the update drains.
       this.updatePending = true;
+      if (shouldInvalidateActive) {
+        const currentView = this.viewer && this.core.getMetadata()
+          ? createCesiumStreamingView(this.viewer)
+          : undefined;
+        if (!this.lastStreamingView
+          || !currentView
+          || !areStreamingViewsEquivalent(this.lastStreamingView, currentView)) {
+          this.streamingGeneration += 1;
+        }
+      }
+
+      const inFlightPromise = this.updateInFlightPromise;
+      if (inFlightPromise) {
+        await inFlightPromise;
+      }
       return;
     }
 
     this.updateInFlight = true;
+    const updatePromise = this.runPendingStreamingUpdates();
+    this.updateInFlightPromise = updatePromise;
     try {
-      await this.performStreamingUpdate();
+      await updatePromise;
     } finally {
-      this.updateInFlight = false;
-      if (this.updatePending) {
-        this.updatePending = false;
-        void this.updateStreamingView();
+      if (this.updateInFlightPromise === updatePromise) {
+        this.updateInFlightPromise = undefined;
+        this.updateInFlight = false;
       }
+    }
+  }
+
+  private async runPendingStreamingUpdates(): Promise<void> {
+    while (true) {
+      try {
+        await this.performStreamingUpdate();
+      } catch (error: unknown) {
+        this.updatePending = false;
+        throw error;
+      }
+      if (!this.updatePending) {
+        return;
+      }
+      this.updatePending = false;
     }
   }
 
@@ -495,7 +531,9 @@ export class CopcLayerController {
       }
 
       progressApplied = true;
-      activeStreamingUpdate.progressApplied = true;
+      if (progress.loadedNodePoints.size > 0) {
+        activeStreamingUpdate.progressApplied = true;
+      }
       this.applyStreamingProgress(viewer, progress, streamingGeneration);
     };
 
@@ -850,12 +888,24 @@ export class CopcLayerController {
     this.hasFlownToDataset = true;
   }
 
-  private async scheduleStreamingUpdate(): Promise<void> {
-    this.clearScheduledUpdate();
+  private async scheduleStreamingUpdate(shouldInvalidateActive = false): Promise<void> {
+    if (this.updateTimer !== undefined) {
+      window.clearTimeout(this.updateTimer);
+      this.updateTimer = undefined;
+    }
+    this.scheduledUpdateShouldInvalidate ||= shouldInvalidateActive;
     this.updateTimer = window.setTimeout(() => {
       this.updateTimer = undefined;
-      void this.updateStreamingView();
+      const shouldInvalidate = this.scheduledUpdateShouldInvalidate;
+      this.scheduledUpdateShouldInvalidate = false;
+      this.startStreamingUpdate(shouldInvalidate);
     }, 100);
+  }
+
+  private startStreamingUpdate(shouldInvalidateActive = false): void {
+    void this.updateStreamingView(shouldInvalidateActive).catch((error: unknown) => {
+      this.debug(`COPC streaming update failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
   }
 
   private clearScheduledUpdate(): void {
@@ -863,6 +913,7 @@ export class CopcLayerController {
       window.clearTimeout(this.updateTimer);
       this.updateTimer = undefined;
     }
+    this.scheduledUpdateShouldInvalidate = false;
   }
 
   private isCurrentStreamingGeneration(
