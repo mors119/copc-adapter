@@ -88,6 +88,10 @@ type ActiveReplacementGroup = StreamingReplacementGroup & {
   generation: number;
 };
 
+type ActiveStreamingUpdate = {
+  progressApplied: boolean;
+};
+
 function createTransitionDiagnostics(): CopcLayerTransitionDiagnostics {
   return {
     activeReplacementGroupCount: 0,
@@ -135,6 +139,52 @@ function createPickOwnerId(): string {
   return `copc-layer-${nextPickOwnerId}`;
 }
 
+const STREAMING_VIEW_POSITION_EPSILON = 0.1;
+const STREAMING_VIEW_ANGLE_EPSILON = 1e-5;
+const STREAMING_VIEW_DISTANCE_EPSILON = 1;
+
+function isClose(left: number, right: number, epsilon: number): boolean {
+  return Math.abs(left - right) <= epsilon;
+}
+
+function areStreamingViewsEquivalent(
+  left: import('./streaming/types').StreamingView,
+  right: import('./streaming/types').StreamingView,
+): boolean {
+  if (!isClose(left.longitude, right.longitude, 1e-7)
+    || !isClose(left.latitude, right.latitude, 1e-7)
+    || !isClose(left.height, right.height, STREAMING_VIEW_POSITION_EPSILON)
+    || !isClose(left.viewDistanceMeters, right.viewDistanceMeters, STREAMING_VIEW_DISTANCE_EPSILON)) {
+    return false;
+  }
+
+  const leftFrustum = left.viewFrustum;
+  const rightFrustum = right.viewFrustum;
+  if (!leftFrustum || !rightFrustum) {
+    return leftFrustum === rightFrustum;
+  }
+
+  return [
+    [leftFrustum.position, rightFrustum.position],
+    [leftFrustum.direction, rightFrustum.direction],
+    [leftFrustum.up, rightFrustum.up],
+    [leftFrustum.right, rightFrustum.right],
+  ].every(([leftVector, rightVector]) =>
+    isClose(leftVector.x, rightVector.x, STREAMING_VIEW_ANGLE_EPSILON)
+      && isClose(leftVector.y, rightVector.y, STREAMING_VIEW_ANGLE_EPSILON)
+      && isClose(leftVector.z, rightVector.z, STREAMING_VIEW_ANGLE_EPSILON),
+  )
+    && isClose(
+      leftFrustum.verticalFovRadians,
+      rightFrustum.verticalFovRadians,
+      STREAMING_VIEW_ANGLE_EPSILON,
+    )
+    && isClose(leftFrustum.aspectRatio, rightFrustum.aspectRatio, STREAMING_VIEW_ANGLE_EPSILON)
+    && isClose(leftFrustum.viewportHeightPixels, rightFrustum.viewportHeightPixels, 1)
+    && isClose(leftFrustum.nearMeters, rightFrustum.nearMeters, STREAMING_VIEW_DISTANCE_EPSILON)
+    && isClose(leftFrustum.farMeters, rightFrustum.farMeters, STREAMING_VIEW_DISTANCE_EPSILON);
+}
+
 /**
  * Cesium adapter for the renderer-neutral COPC streaming core.
  *
@@ -149,6 +199,8 @@ export class CopcLayerController {
   private readonly rendererPerformance = new StreamingPerformanceRecorder();
   private viewer?: Cesium.Viewer;
   private updateTimer?: number;
+  private updateInFlight = false;
+  private updatePending = false;
   private loadGeneration = 0;
   private streamingGeneration = 0;
   private transitionGeneration = 0;
@@ -156,6 +208,8 @@ export class CopcLayerController {
   private transitionDiagnostics = createTransitionDiagnostics();
   private hasFlownToDataset = false;
   private lifecycle: CopcLayerLifecycleState = 'idle';
+  private lastStreamingView?: import('./streaming/types').StreamingView;
+  private activeStreamingUpdate?: ActiveStreamingUpdate;
   private selectedPointPickId?: CopcPointPickId;
   private pickHandler?: Cesium.ScreenSpaceEventHandler;
   private readonly pickOwnerId = createPickOwnerId();
@@ -218,6 +272,7 @@ export class CopcLayerController {
     this.streamingGeneration += 1;
     this.core.invalidateView();
     this.clearScheduledUpdate();
+    this.updatePending = false;
 
     if (this.viewer) {
       this.viewer.camera.moveEnd.removeEventListener(this.handleCameraMoveEnd);
@@ -229,6 +284,8 @@ export class CopcLayerController {
     this.resetReplacementTransitions();
     this.clearSelectedPoint();
     this.rendererPerformance.reset();
+    this.lastStreamingView = undefined;
+    this.activeStreamingUpdate = undefined;
     this.viewer = undefined;
     if (this.lifecycle !== 'loading') {
       this.lifecycle = this.core.getMetadata() ? 'ready' : 'idle';
@@ -281,11 +338,14 @@ export class CopcLayerController {
     this.loadGeneration += 1;
     this.streamingGeneration += 1;
     this.clearScheduledUpdate();
+    this.updatePending = false;
     this.core.unload();
     this.pointRenderer.clear();
     this.resetReplacementTransitions();
     this.clearSelectedPoint();
     this.rendererPerformance.reset();
+    this.lastStreamingView = undefined;
+    this.activeStreamingUpdate = undefined;
     this.hasFlownToDataset = false;
     this.lifecycle = this.viewer ? 'mounted' : 'idle';
     this.debug('COPC layer unloaded');
@@ -314,12 +374,14 @@ export class CopcLayerController {
   getSnapshot(): CopcLayerSnapshot {
     const coreSnapshot = this.core.getSnapshot();
     const renderedPointCount = this.getRenderedPointCount();
+    const streamingUpdateCount = coreSnapshot.streamingUpdateCount
+      + (this.activeStreamingUpdate?.progressApplied ? 1 : 0);
     return {
       lifecycle: this.lifecycle,
       renderedNodeKeys: this.getRenderedNodeKeys(),
       selectedNodeKeys: this.core.getCurrentSelection(),
       renderedPointCount,
-      streamingUpdateCount: coreSnapshot.streamingUpdateCount,
+      streamingUpdateCount,
       datasetUrl: this.options.url,
       attached: this.viewer !== undefined,
       backend: coreSnapshot.backend,
@@ -389,6 +451,27 @@ export class CopcLayerController {
   }
 
   private async updateStreamingView(): Promise<void> {
+    if (this.updateInFlight) {
+      // Keep only the latest camera event. The current update owns the
+      // renderer until it settles; starting another update concurrently can
+      // make stale progress compete for the main thread and GPU resources.
+      this.updatePending = true;
+      return;
+    }
+
+    this.updateInFlight = true;
+    try {
+      await this.performStreamingUpdate();
+    } finally {
+      this.updateInFlight = false;
+      if (this.updatePending) {
+        this.updatePending = false;
+        void this.updateStreamingView();
+      }
+    }
+  }
+
+  private async performStreamingUpdate(): Promise<void> {
     const viewer = this.viewer;
     if (!viewer || !this.core.getMetadata() || this.lifecycle === 'destroyed') {
       return;
@@ -396,18 +479,44 @@ export class CopcLayerController {
 
     const streamingGeneration = ++this.streamingGeneration;
     const view = createCesiumStreamingView(viewer);
+    if (this.lastStreamingView && areStreamingViewsEquivalent(this.lastStreamingView, view)) {
+      return;
+    }
+    this.lastStreamingView = view;
     this.rendererPerformance.beginUpdate();
     let progressApplied = false;
+    const activeStreamingUpdate: ActiveStreamingUpdate = {
+      progressApplied: false,
+    };
+    this.activeStreamingUpdate = activeStreamingUpdate;
     const onProgress: CopcStreamingProgressHandler = (progress) => {
       if (!this.isCurrentStreamingGeneration(streamingGeneration, viewer)) {
         return;
       }
 
       progressApplied = true;
+      activeStreamingUpdate.progressApplied = true;
       this.applyStreamingProgress(viewer, progress, streamingGeneration);
     };
 
-    const update = await this.core.updateView(view, onProgress);
+    let update: Awaited<ReturnType<CopcStreamingCore['updateView']>>;
+    try {
+      update = await this.core.updateView(view, onProgress);
+    } catch (error: unknown) {
+      if (this.lastStreamingView === view) {
+        this.lastStreamingView = undefined;
+      }
+      if (this.activeStreamingUpdate === activeStreamingUpdate) {
+        this.activeStreamingUpdate = undefined;
+      }
+      throw error;
+    }
+    if (this.activeStreamingUpdate === activeStreamingUpdate) {
+      // The core increments its completed-update counter before resolving.
+      // From here on, the normal snapshot is already consistent with any
+      // progress that was delivered during the update.
+      this.activeStreamingUpdate = undefined;
+    }
     if (!this.isCurrentStreamingGeneration(streamingGeneration, viewer) || !update) {
       return;
     }

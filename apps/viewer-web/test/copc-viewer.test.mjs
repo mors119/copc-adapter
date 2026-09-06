@@ -15,6 +15,9 @@ function createEvent() {
     removeEventListener(listener) {
       listeners.delete(listener);
     },
+    raise(...args) {
+      for (const listener of listeners) listener(...args);
+    },
   };
 }
 
@@ -265,6 +268,34 @@ test('detaching while loading preserves the loading lifecycle', async () => {
   assert.equal(layer.getSnapshot().lifecycle, 'ready');
   assert.equal(layer.getSnapshot().attached, false);
   layer.destroy();
+});
+
+test('coalesces repeated camera events when the view has not materially changed', async () => {
+  const source = createBackend();
+  const layer = new CopcCesiumLayer({
+    url: 'memory://camera-events.copc.laz',
+    backend: source.backend,
+    decoder: source.decoder,
+  });
+  const viewer = createFakeViewer();
+
+  await layer.load();
+  layer.attachTo(viewer);
+  await waitFor(() => layer.getSnapshot().renderedPointCount === 2);
+  const initialUpdateCount = layer.getSnapshot().streamingUpdateCount;
+
+  const originalWindow = globalThis.window;
+  globalThis.window = { setTimeout, clearTimeout };
+  try {
+    viewer.changed.raise();
+    viewer.moveEnd.raise();
+    await new Promise((resolve) => setTimeout(resolve, 125));
+
+    assert.equal(layer.getSnapshot().streamingUpdateCount, initialUpdateCount);
+  } finally {
+    layer.destroy();
+    globalThis.window = originalWindow;
+  }
 });
 
 test('a failed first render rolls back the shared core and keeps the viewer usable', async () => {

@@ -2,6 +2,10 @@ import { defineConfig } from 'vite';
 import cesium from 'vite-plugin-cesium';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const appDirectory = path.dirname(fileURLToPath(import.meta.url));
+const repositoryDirectory = path.resolve(appDirectory, '../..');
 
 function localSampleRangeMiddleware() {
   return {
@@ -14,7 +18,12 @@ function localSampleRangeMiddleware() {
         }
 
         const filename = path.basename(new URL(request.url, 'http://localhost').pathname);
-        const filePath = path.resolve('public/samples', filename);
+        // Keep the downloaded sample outside the app and package output. The
+        // public copy still wins for hosts that explicitly stage one there,
+        // while local development and CI can use `download-samples` directly.
+        const publicFilePath = path.resolve(appDirectory, 'public/samples', filename);
+        const localFilePath = path.resolve(repositoryDirectory, 'samples/local', filename);
+        const filePath = fs.existsSync(publicFilePath) ? publicFilePath : localFilePath;
         if (!fs.existsSync(filePath)) {
           next();
           return;

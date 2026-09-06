@@ -294,9 +294,11 @@ rustup target add wasm32-unknown-unknown
 npm ci
 npm ci --prefix apps/viewer-web
 npm run download-samples -- autzen
-mkdir -p apps/viewer-web/public/samples
-cp samples/local/autzen.copc.laz apps/viewer-web/public/samples/autzen.copc.laz
 ```
+
+The development server serves the downloaded `samples/local` file through its
+range-request middleware; a staged `apps/viewer-web/public/samples` copy is
+also supported when a host needs to provide a different local sample.
 
 Start the local viewer with:
 
