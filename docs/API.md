@@ -289,6 +289,17 @@ core가 만든 buffer에는 source/ECEF 좌표와 coordinate-system 표식도 �
 보존된다. 렌더러 adapter는 `worldToLocal()`로 선택한 WGS84 ECEF 원점을
 먼저 뺀 뒤 필요할 때만 Float32/GPU 형식으로 변환한다.
 
+Three 계열 renderer가 사용할 고정 프레임은 `createDatasetLocalFrame()`으로
+만든다. 이 프레임의 원점은 COPC metadata cube 중심의 WGS84 ECEF 위치이며,
+local 축은 원점에서의 ENU(East, North, Up), 단위는 metre이다. 따라서 cube
+중심은 local `(0, 0, 0)`에 놓인다. `worldToDatasetLocal()` /
+`datasetLocalToWorld()`는 점에 사용하고,
+`worldDirectionToDatasetLocal()` /
+`datasetLocalDirectionToWorld()`는 카메라 direction/up/right 같은 벡터에
+사용한다. 모든 변환은 Float64 중간값을 유지하므로 local 변환 후에만
+GPU Float32 버퍼를 만들어야 한다. 프레임은 dataset 수명 동안 고정되며
+카메라 이동에 따라 rebasing하지 않는다.
+
 새로 생성되는 hierarchy bounds와 streaming geometry에는 좌표계 표식이
 포함된다. 기존 공개 `CopcHierarchyQuery` 입력과 `intersectsViewFrustum()`
 입력은 이전 버전의 무표식 source bounds/sphere도 호환성을 위해 허용하지만,

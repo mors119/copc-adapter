@@ -47,6 +47,44 @@ Float32 conversion. The shared `CopcPointData` representation exposes the
 three coordinate buffers directly for adapters that do not use the legacy
 geographic view.
 
+### Stable dataset-local frame for Three.js (#141)
+
+The first non-globe renderer frame is a fixed ENU frame derived from COPC
+metadata. `createDatasetLocalFrame(metadata)` transforms the centre of the
+metadata cube through the existing source-CRS -> WGS84 path and uses that ECEF
+point as the frame origin. Consequently, the COPC cube centre appears at
+`(0, 0, 0)` in the local scene. The axes are geodetic East, North, and Up at
+that origin, in metres:
+
+```text
+local +X = east
+local +Y = north
+local +Z = up
+```
+
+`worldToDatasetLocal()` subtracts the ECEF origin and projects the remaining
+high-precision vector onto those axes. `datasetLocalToWorld()` and the paired
+direction helpers apply the inverse basis for camera positions and
+direction/up/right vectors. Point and camera transforms must use the same
+frame instance; the origin is not rebased as the camera moves. A renderer may
+convert the resulting `Float64Array` local coordinates to `Float32Array` only
+after this operation.
+
+The frame object is immutable and is intentionally exposed as a coordinate
+utility rather than as a `CopcThreeLayer` method until the Three package/API
+boundary is finalized. A future adapter can use the same frame to place
+application-owned data. Shared LoD bounds remain authoritative in their
+documented source/geographic/ECEF spaces; any local node bounds are derived
+renderer data and must not be fed back into selection. The initial root object
+should remain identity-transformed unless the camera adapter explicitly
+accounts for a user transform.
+
+This is a fixed tangent frame, not a globe projection or a moving-origin
+system. It is suitable for local and multi-kilometre datasets, while larger
+extents should be checked for tangent-plane orientation error. If that becomes
+insufficient, moving-origin or high/low precision encoding belongs in a
+separate design rather than being introduced implicitly here.
+
 Hierarchy query bounds produced by the adapter are labeled `copc-source`.
 The public query input still accepts an unlabeled legacy bounds object for
 source compatibility, while rejecting an explicitly different coordinate
