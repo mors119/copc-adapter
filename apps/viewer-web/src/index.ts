@@ -96,10 +96,13 @@ export type {
   GeographicPointBuffer,
 } from './copc/types/copc';
 export type {
+  CoordinateDirection,
   CoordinateBounds,
   CoordinateBuffer,
   CoordinateSystem,
   CoordinateVector3,
+  DatasetLocalFrame,
+  RendererLocalBounds,
   RendererLocalPoint,
   Wgs84EcefBounds,
   Wgs84EcefPoint,
@@ -109,6 +112,15 @@ export type {
 export {
   transformPointBufferToPointData,
 } from './coordinates/transform/createPointTransformer';
+export {
+  createDatasetLocalFrame,
+  datasetLocalDirectionToWorld,
+  datasetLocalToWorld,
+  worldBoundsToDatasetLocal,
+  worldBufferToDatasetLocal,
+  worldDirectionToDatasetLocal,
+  worldToDatasetLocal,
+} from './coordinates/transform/datasetLocalFrame';
 export {
   worldBufferToLocal,
   worldToLocal,

@@ -7,6 +7,15 @@ import {
 } from '../src/coordinates/transform/createPointTransformer.ts';
 import { inspectCopcPoint } from '../src/copc/points/pointInspection.ts';
 import {
+  createDatasetLocalFrame,
+  datasetLocalDirectionToWorld,
+  datasetLocalToWorld,
+  worldBoundsToDatasetLocal,
+  worldBufferToDatasetLocal,
+  worldDirectionToDatasetLocal,
+  worldToDatasetLocal,
+} from '../src/coordinates/transform/datasetLocalFrame.ts';
+import {
   worldBufferToLocal,
   worldToLocal,
 } from '../src/coordinates/transform/worldCoordinates.ts';
@@ -107,6 +116,144 @@ test('world-to-local conversion subtracts a high-precision origin before GPU con
   );
   assert.ok(localBuffer instanceof Float64Array);
   assert.deepEqual([...localBuffer], [local.x, local.y, local.z]);
+});
+
+test('dataset-local frame uses a deterministic cube-centre ENU origin', () => {
+  const metadata = createGeographicMetadata();
+  const frame = createDatasetLocalFrame(metadata);
+  const repeatedFrame = createDatasetLocalFrame(metadata);
+  const expectedOrigin = geographicToEcef({
+    longitude: 10.5,
+    latitude: 20.5,
+    height: 150,
+  });
+
+  assert.ok(Object.isFrozen(frame));
+  assert.ok(Object.isFrozen(frame.origin));
+  assert.deepEqual(frame.origin, expectedOrigin);
+  assert.deepEqual(frame, repeatedFrame);
+  assert.deepEqual(worldToDatasetLocal(frame.origin, frame), {
+    coordinateSystem: 'renderer-local',
+    x: 0,
+    y: 0,
+    z: 0,
+  });
+  assert.equal(frame.axisConvention, 'enu');
+  assert.equal(frame.units, 'metres');
+  assert.ok([
+    ...Object.values(frame.east),
+    ...Object.values(frame.north),
+    ...Object.values(frame.up),
+  ].every(Number.isFinite));
+});
+
+test('dataset-local ENU positions and camera vectors round-trip consistently', () => {
+  const frame = createDatasetLocalFrame(createGeographicMetadata());
+  const localPositions = [
+    { x: 12.5, y: -30, z: 2 },
+    { x: -1200, y: 800, z: 450 },
+    { x: 0, y: 0, z: -15.25 },
+  ];
+  const localDirections = [
+    { x: 1, y: 0, z: 0 },
+    { x: 0, y: 1, z: 0 },
+    { x: 0.25, y: -0.75, z: 0.6 },
+  ];
+
+  for (const localPosition of localPositions) {
+    const world = datasetLocalToWorld({
+      coordinateSystem: 'renderer-local',
+      ...localPosition,
+    }, frame);
+    const roundTrip = worldToDatasetLocal(world, frame);
+
+    assert.ok(Math.abs(roundTrip.x - localPosition.x) < 1e-9);
+    assert.ok(Math.abs(roundTrip.y - localPosition.y) < 1e-9);
+    assert.ok(Math.abs(roundTrip.z - localPosition.z) < 1e-9);
+    assert.ok(Object.values(world).slice(1).every(Number.isFinite));
+  }
+
+  for (const localDirection of localDirections) {
+    const worldDirection = datasetLocalDirectionToWorld(localDirection, frame);
+    const roundTrip = worldDirectionToDatasetLocal(worldDirection, frame);
+
+    assert.ok(Math.abs(roundTrip.x - localDirection.x) < 1e-12);
+    assert.ok(Math.abs(roundTrip.y - localDirection.y) < 1e-12);
+    assert.ok(Math.abs(roundTrip.z - localDirection.z) < 1e-12);
+  }
+});
+
+test('dataset-local conversion preserves nearby Earth-scale points before Float32 upload', () => {
+  const frame = createDatasetLocalFrame(createGeographicMetadata());
+  const firstWorld = datasetLocalToWorld({
+    coordinateSystem: 'renderer-local',
+    x: 1000,
+    y: 2000,
+    z: 10,
+  }, frame);
+  const secondWorld = datasetLocalToWorld({
+    coordinateSystem: 'renderer-local',
+    x: 1000.01,
+    y: 2000,
+    z: 10,
+  }, frame);
+  const firstLocal = worldToDatasetLocal(firstWorld, frame);
+  const secondLocal = worldToDatasetLocal(secondWorld, frame);
+  const localBuffer = worldBufferToDatasetLocal(new Float64Array([
+    firstWorld.x,
+    firstWorld.y,
+    firstWorld.z,
+    secondWorld.x,
+    secondWorld.y,
+    secondWorld.z,
+  ]), frame);
+  const directEarthScaleFirst = new Float32Array([
+    firstWorld.x,
+    firstWorld.y,
+    firstWorld.z,
+  ]);
+  const directEarthScaleSecond = new Float32Array([
+    secondWorld.x,
+    secondWorld.y,
+    secondWorld.z,
+  ]);
+  const localGpuFirst = new Float32Array([
+    firstLocal.x,
+    firstLocal.y,
+    firstLocal.z,
+  ]);
+  const localGpuSecond = new Float32Array([
+    secondLocal.x,
+    secondLocal.y,
+    secondLocal.z,
+  ]);
+
+  assert.deepEqual([...directEarthScaleFirst], [...directEarthScaleSecond]);
+  assert.notEqual(localGpuFirst[0], localGpuSecond[0]);
+  assert.ok(Math.abs(localGpuSecond[0] - localGpuFirst[0] - 0.01) < 1e-4);
+  assert.ok(Math.abs(localBuffer[0] - firstLocal.x) < 1e-9);
+  assert.ok(Math.abs(localBuffer[3] - secondLocal.x) < 1e-9);
+});
+
+test('renderer-local bounds are derived without replacing shared world bounds', () => {
+  const frame = createDatasetLocalFrame(createGeographicMetadata());
+  const worldBounds = {
+    coordinateSystem: 'wgs84-ecef-meters',
+    minX: frame.origin.x - 10,
+    minY: frame.origin.y - 20,
+    minZ: frame.origin.z - 30,
+    maxX: frame.origin.x + 10,
+    maxY: frame.origin.y + 20,
+    maxZ: frame.origin.z + 30,
+  };
+  const localBounds = worldBoundsToDatasetLocal(worldBounds, frame);
+
+  assert.equal(worldBounds.coordinateSystem, 'wgs84-ecef-meters');
+  assert.equal(localBounds.coordinateSystem, 'renderer-local');
+  assert.ok(localBounds.minX < 0 && localBounds.maxX > 0);
+  assert.ok(localBounds.minY < 0 && localBounds.maxY > 0);
+  assert.ok(localBounds.minZ < 0 && localBounds.maxZ > 0);
+  assert.ok(Object.values(localBounds).slice(1).every(Number.isFinite));
 });
 
 test('shared hierarchy geometry labels geographic boxes and ECEF spheres', () => {

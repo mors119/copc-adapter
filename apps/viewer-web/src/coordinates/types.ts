@@ -48,5 +48,30 @@ export type Wgs84EcefPoint = CoordinateVector3<'wgs84-ecef-meters'>;
 
 export type RendererLocalPoint = CoordinateVector3<'renderer-local'>;
 
+/** A finite, unlabelled vector used for frame directions and camera axes. */
+export type CoordinateDirection = {
+  x: number;
+  y: number;
+  z: number;
+};
+
+/**
+ * Stable renderer frame derived once from a dataset's metadata.
+ *
+ * Local coordinates use metres and the ENU convention: +X east, +Y north,
+ * and +Z up at the ECEF origin. The frame is fixed for the dataset lifetime;
+ * it is not a moving-origin/rebasing representation.
+ */
+export type DatasetLocalFrame = Readonly<{
+  coordinateSystem: 'renderer-local';
+  axisConvention: 'enu';
+  units: 'metres';
+  origin: Readonly<Wgs84EcefPoint>;
+  east: Readonly<CoordinateDirection>;
+  north: Readonly<CoordinateDirection>;
+  up: Readonly<CoordinateDirection>;
+}>;
+
 export type Wgs84GeographicBounds = CoordinateBounds<'wgs84-geographic'>;
 export type Wgs84EcefBounds = CoordinateBounds<'wgs84-ecef-meters'>;
+export type RendererLocalBounds = CoordinateBounds<'renderer-local'>;
