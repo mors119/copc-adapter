@@ -148,6 +148,33 @@ export type {
   CopcPointRendererOptions,
   CopcValueRange,
 } from './viewer/streaming/renderer';
+export {
+  getPointBufferElevationRange,
+  getPointBufferIntensityRange,
+  getPointBufferRgbMax,
+  getCopcPointColor,
+  createCopcPointStyleState,
+  normalizeElevation,
+  normalizeIntensity,
+  prepareCopcPointColorBuffer,
+  resolveCopcPointStyleOptions,
+} from './point/style/pointStyle';
+export type {
+  CopcElevationRange,
+  CopcNormalizedColor,
+  CopcPointStyleInput,
+  CopcPointStyleOptions,
+  CopcPointStyleState,
+} from './point/style/pointStyle';
+export {
+  getThreePointsMaterialOptions,
+  prepareThreePointColorBuffer,
+  THREE_POINT_SIZE_ATTENUATION,
+} from './three/style/pointStyle';
+export type {
+  CopcThreePointStyleOptions,
+  CopcThreePointsMaterialOptions,
+} from './three/style/pointStyle';
 export type { NodePointCacheDiagnostics } from './viewer/streaming/createNodePointCache';
 export {
   CopcStreamingCore,

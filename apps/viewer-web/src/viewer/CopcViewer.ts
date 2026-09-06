@@ -23,6 +23,9 @@ import type { CopcMetadata, GeographicPointBuffer } from '../copc/types/copc';
 import { extractHorizontalUnitScale } from '../coordinates/crs/parseCopcWkt';
 import { createPointTransformer } from '../coordinates/transform/createPointTransformer';
 import {
+  createCopcPointStyleState,
+} from '../point/style/pointStyle';
+import {
   CopcStreamingCore,
   type CopcStreamingPerformanceSnapshot,
   type CopcStreamingProgressHandler,
@@ -196,6 +199,7 @@ export class CopcLayerController {
   private readonly core: CopcStreamingCore;
   private readonly options: CopcLayerOptions;
   private readonly pointRenderer: CesiumPointRenderer;
+  private readonly pointStyleState = createCopcPointStyleState();
   private readonly rendererPerformance = new StreamingPerformanceRecorder();
   private viewer?: Cesium.Viewer;
   private updateTimer?: number;
@@ -346,6 +350,7 @@ export class CopcLayerController {
     this.updatePending = false;
     this.core.unload();
     this.pointRenderer.clear();
+    this.pointStyleState.reset();
     this.resetReplacementTransitions();
     this.clearSelectedPoint();
     this.rendererPerformance.reset();
@@ -613,6 +618,7 @@ export class CopcLayerController {
       pointSize: this.options.pointSize ?? 3,
       colorMode: this.options.colorMode ?? 'fixed',
       elevationRange: this.getDatasetElevationRange(),
+      rgbMax: this.pointStyleState.getRgbMax(points),
       pointId: (pointIndex) => ({
         nodeKey,
         pointIndex,

@@ -303,7 +303,27 @@ crosses the backend boundary without Cesium or `copc.js` types.
 and found in the source point format. An absent or unrequested field is not
 represented by a zero-filled array. A field whose getter fails propagates the
 decoder error. RGB remains `Uint16Array` in `CopcPointBuffer` and is normalized
-only by the Cesium styling boundary.
+only when a renderer asks the shared point-style module for display colors.
+
+The renderer-neutral style module at `apps/viewer-web/src/point/style/` owns
+the fixed, RGB, elevation, intensity, and classification mappings. It returns
+normalized colors and can prepare exactly three finite `Float32` values per
+point for a `BufferGeometry` color attribute. Cesium converts those shared
+values to `Cesium.Color`; a Three.js adapter can attach the same buffer to a
+`THREE.BufferAttribute`. Attribute modes use the fixed cyan color when the
+requested field is absent, and classification preserves the existing
+category/unknown palette. Intensity ranges remain node-local for this MVP;
+RGB display scale is resolved once per layer/dataset and reused across its
+streamed nodes. The current backend does not expose an authoritative RGB
+precision marker, so explicit `rgbMax` metadata/options take precedence and
+the existing value-based detection is retained as a compatibility fallback.
+
+The Three.js material contract deliberately sets `sizeAttenuation: false`.
+`pointSize` therefore remains a screen-space pixel size instead of changing
+with camera distance. The renderer-neutral module does not import Three.js;
+`apps/viewer-web/src/three/style/` only describes the material options and
+consumes the shared color buffer so the eventual node renderer can own Three's
+geometry/material lifecycle.
 
 `CopcPointDecoder.decode(view)` remains available for injected decoders and
 legacy source implementations. Both production backends also expose the
