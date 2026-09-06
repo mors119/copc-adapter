@@ -116,6 +116,13 @@ export class StreamingPerformanceRecorder {
     this.snapshot.configuredPointBudget = this.configuredPointBudget;
   }
 
+  /** Clear measurements for a released source while retaining its budget. */
+  reset(): void {
+    this.snapshot = emptySnapshot();
+    this.snapshot.configuredPointBudget = this.configuredPointBudget;
+    this.updateStartedAt = 0;
+  }
+
   setSelection(
     selectedNodeCount: number,
     estimatedSelectedPointCount: number,

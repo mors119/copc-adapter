@@ -50,7 +50,7 @@ function createNode(key, level, pointCount, children = []) {
   };
 }
 
-function createSourceFactory({ onOpen, paged = false } = {}) {
+function createSourceFactory({ onOpen, onPerformanceObserver, paged = false } = {}) {
   let openCount = 0;
   let destroyCount = 0;
   let performanceObserver;
@@ -76,6 +76,7 @@ function createSourceFactory({ onOpen, paged = false } = {}) {
           },
           setPerformanceObserver(observer) {
             performanceObserver = observer;
+            onPerformanceObserver?.(observer);
           },
           async loadHierarchyPage(page) {
             performanceObserver?.({
@@ -255,6 +256,46 @@ test('a changed view invalidates stale streaming generations', async () => {
   assert.deepEqual(current.selectedNodeKeys, [ROOT_KEY]);
   assert.equal(controller.getSnapshot().streamingUpdateCount, 1);
   assert.deepEqual(controller.getCurrentView(), createView({ height: 250 }));
+});
+
+test('unload isolates performance metrics from a stale non-cancellable point load', async () => {
+  let resolvePoints;
+  let resolveDecodeStarted;
+  let stalePerformanceObserver;
+  const decodeStarted = new Promise((resolve) => {
+    resolveDecodeStarted = resolve;
+  });
+  const source = createSourceFactory({
+    onPerformanceObserver: (observer) => {
+      stalePerformanceObserver = observer;
+    },
+  });
+  const controller = createController(source.backend, {
+    decoder: {
+      async decode() {
+        resolveDecodeStarted();
+        return new Promise((resolve) => {
+          resolvePoints = resolve;
+        });
+      },
+    },
+  });
+
+  await controller.load();
+  const update = controller.updateView(createView());
+  await decodeStarted;
+
+  controller.unload();
+  stalePerformanceObserver({
+    stage: 'decode',
+    durationMs: 17,
+    bytes: 256,
+  });
+  resolvePoints(createPointBuffer());
+
+  assert.equal(await update, undefined);
+  assert.equal(controller.getSnapshot().performance.decodeDurationMs, 0);
+  assert.equal(controller.getSnapshot().performance.crsTransformDurationMs, 0);
 });
 
 test('same-position views with different directions produce different hierarchy queries', async () => {
