@@ -141,6 +141,7 @@ export {
   getPointBufferIntensityRange,
   getPointBufferRgbMax,
   getCopcPointColor,
+  createCopcPointStyleState,
   normalizeElevation,
   normalizeIntensity,
   prepareCopcPointColorBuffer,
@@ -151,6 +152,7 @@ export type {
   CopcNormalizedColor,
   CopcPointStyleInput,
   CopcPointStyleOptions,
+  CopcPointStyleState,
 } from './point/style/pointStyle';
 export {
   getThreePointsMaterialOptions,

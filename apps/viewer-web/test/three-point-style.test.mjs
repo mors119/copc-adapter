@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  createCopcPointStyleState,
   getCopcPointColor,
   getPointBufferRgbMax,
   getThreePointsMaterialOptions,
@@ -50,6 +51,29 @@ test('RGB styling preserves 16-bit precision until normalized', () => {
   assert.deepEqual(colorAt(colors, 0), [1, 0, 0]);
   assert.ok(Math.abs(colors[4] - (32768 / 65535)) < 1e-6);
   assert.deepEqual(colorAt(colors, 2), [0, 1, 1]);
+});
+
+test('RGB display scale is stable across streamed nodes and resets per dataset', () => {
+  const state = createCopcPointStyleState();
+  const lowRangeNode = createPoints({
+    red: new Uint16Array([200, 0, 0]),
+    green: new Uint16Array([0, 200, 0]),
+    blue: new Uint16Array([0, 0, 200]),
+  });
+  const fullRangeNode = createPoints({
+    red: new Uint16Array([65535, 128, 0]),
+    green: new Uint16Array([0, 65535, 0]),
+    blue: new Uint16Array([0, 0, 65535]),
+  });
+
+  assert.equal(state.getRgbMax(lowRangeNode), 255);
+  assert.equal(state.getRgbMax(fullRangeNode), 255);
+  const secondNodeColors = prepareThreePointColorBuffer(fullRangeNode, {
+    colorMode: 'rgb',
+  }, state);
+  assert.ok(secondNodeColors[3] > 0.4);
+  state.reset();
+  assert.equal(state.getRgbMax(fullRangeNode), 65535);
 });
 
 test('RGB, intensity, and classification missing fields fall back to fixed cyan', () => {

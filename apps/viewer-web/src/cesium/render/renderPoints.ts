@@ -20,6 +20,7 @@ export type CopcPointRenderOptions = {
   pointSize: number;
   colorMode?: CopcColorMode;
   elevationRange?: CopcElevationRange;
+  rgbMax?: 255 | 65535;
   pointId?: (pointIndex: number) => unknown;
   onPerformance?: (
     stage: 'geographicToCartesian' | 'pointStylePreparation' | 'pointCollectionCreation' | 'pointAdd',
@@ -75,6 +76,7 @@ export function renderCopcPoints(
     {
       colorMode: options.colorMode,
       elevationRange: options.elevationRange,
+      rgbMax: options.rgbMax,
     },
   );
 

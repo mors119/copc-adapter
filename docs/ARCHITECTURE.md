@@ -274,7 +274,11 @@ point for a `BufferGeometry` color attribute. Cesium converts those shared
 values to `Cesium.Color`; a Three.js adapter can attach the same buffer to a
 `THREE.BufferAttribute`. Attribute modes use the fixed cyan color when the
 requested field is absent, and classification preserves the existing
-category/unknown palette. Attribute ranges remain node-local for this MVP.
+category/unknown palette. Intensity ranges remain node-local for this MVP;
+RGB display scale is resolved once per layer/dataset and reused across its
+streamed nodes. The current backend does not expose an authoritative RGB
+precision marker, so explicit `rgbMax` metadata/options take precedence and
+the existing value-based detection is retained as a compatibility fallback.
 
 The Three.js material contract deliberately sets `sizeAttenuation: false`.
 `pointSize` therefore remains a screen-space pixel size instead of changing

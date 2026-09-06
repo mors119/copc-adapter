@@ -26,6 +26,13 @@ export type CopcPointStyleOptions = {
 
 export type CopcPointStyleInput = Partial<CopcPointStyleOptions>;
 
+export type CopcPointStyleState = {
+  /** Resolve the RGB display scale once for the owning dataset/layer. */
+  getRgbMax(points: GeographicPointBuffer): 255 | 65535 | undefined;
+  /** Reset source-derived state before loading a different dataset. */
+  reset(): void;
+};
+
 const FIXED_POINT_COLOR: CopcNormalizedColor = {
   red: 0,
   green: 1,
@@ -166,6 +173,35 @@ export function getPointBufferRgbMax(
   return max <= 255 ? 255 : 65535;
 }
 
+/**
+ * Keep source-derived RGB display precision stable across streamed nodes.
+ *
+ * COPC point buffers do not currently carry a source-level RGB precision
+ * marker, so the existing value-based detection is retained as a
+ * compatibility fallback. It is deliberately performed once per owning
+ * layer rather than once per node; callers with authoritative source metadata
+ * can pass `rgbMax` explicitly in the style options.
+ */
+export function createCopcPointStyleState(
+  initialRgbMax?: 255 | 65535,
+): CopcPointStyleState {
+  let rgbMax = initialRgbMax;
+
+  return {
+    getRgbMax(points: GeographicPointBuffer): 255 | 65535 | undefined {
+      if (rgbMax !== undefined) {
+        return rgbMax;
+      }
+
+      rgbMax = getPointBufferRgbMax(points);
+      return rgbMax;
+    },
+    reset(): void {
+      rgbMax = initialRgbMax;
+    },
+  };
+}
+
 function getRgbColor(
   attributes: CopcPointAttributes | undefined,
   pointIndex: number,
@@ -284,12 +320,13 @@ export function getCopcPointColor(
 export function resolveCopcPointStyleOptions(
   points: GeographicPointBuffer,
   options: CopcPointStyleInput = {},
+  state?: CopcPointStyleState,
 ): CopcPointStyleOptions {
   return {
     colorMode: options.colorMode ?? 'fixed',
     elevationRange: options.elevationRange ?? getPointBufferElevationRange(points),
     intensityRange: options.intensityRange ?? getPointBufferIntensityRange(points),
-    rgbMax: options.rgbMax ?? getPointBufferRgbMax(points),
+    rgbMax: options.rgbMax ?? state?.getRgbMax(points) ?? getPointBufferRgbMax(points),
   };
 }
 
@@ -300,8 +337,9 @@ export function resolveCopcPointStyleOptions(
 export function prepareCopcPointColorBuffer(
   points: GeographicPointBuffer,
   options: CopcPointStyleInput = {},
+  state?: CopcPointStyleState,
 ): Float32Array {
-  const styleOptions = resolveCopcPointStyleOptions(points, options);
+  const styleOptions = resolveCopcPointStyleOptions(points, options, state);
   const colors = new Float32Array(points.pointCount * 3);
 
   for (let index = 0; index < points.pointCount; index += 1) {

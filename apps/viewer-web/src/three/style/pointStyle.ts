@@ -2,6 +2,7 @@ import type { GeographicPointBuffer } from '../../copc/types/copc';
 import {
   prepareCopcPointColorBuffer,
   type CopcPointStyleInput,
+  type CopcPointStyleState,
 } from '../../point/style/pointStyle';
 
 export type CopcThreePointStyleOptions = CopcPointStyleInput & {
@@ -26,12 +27,15 @@ export type CopcThreePointsMaterialOptions = {
 /**
  * Prepare the `color` BufferAttribute data consumed by a Three.js node.
  * Three.js can attach this array directly with `new BufferAttribute(colors, 3)`.
+ * A renderer should create one `CopcPointStyleState` per layer and pass it for
+ * every node so streamed nodes share one RGB display scale.
  */
 export function prepareThreePointColorBuffer(
   points: GeographicPointBuffer,
   options: CopcPointStyleInput = {},
+  state?: CopcPointStyleState,
 ): Float32Array {
-  return prepareCopcPointColorBuffer(points, options);
+  return prepareCopcPointColorBuffer(points, options, state);
 }
 
 /**
@@ -50,4 +54,8 @@ export function getThreePointsMaterialOptions(
   };
 }
 
-export type { CopcPointStyleInput, CopcValueRange } from '../../point/style/pointStyle';
+export type {
+  CopcPointStyleInput,
+  CopcPointStyleState,
+  CopcValueRange,
+} from '../../point/style/pointStyle';

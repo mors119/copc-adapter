@@ -19,6 +19,8 @@ export type CopcPointRendererOptions = {
   pointSize: number;
   colorMode?: CopcColorMode;
   elevationRange?: CopcValueRange;
+  /** Dataset-stable source RGB display scale when RGB styling is active. */
+  rgbMax?: 255 | 65535;
   /** Optional project-owned identity retained by an engine's picking path. */
   pointId?: (pointIndex: number) => unknown;
 };
