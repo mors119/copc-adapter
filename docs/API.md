@@ -44,12 +44,15 @@ and commit its own primitives.
 
 The core exposes `getSnapshot()`, `getMetadata()`,
 `getHierarchyDiagnostics()`, `getPointCacheDiagnostics()`,
-`getCurrentSelection()`, and `getTransitionState()`. Its lifecycle is
+`getCurrentSelection()`, `getHierarchyNode()`, `getCachedPointBuffer()`, and
+`getTransitionState()`. Its lifecycle is
 `'idle' | 'loading' | 'ready' | 'destroyed'`; stale view generations resolve to
 `undefined` and cannot update the current selection. `unload()`, `reload()`,
 and `destroy()` release source, worker, hierarchy, and cache state. The
-existing `CopcCesiumLayer` remains the compatibility adapter while its
-renderer-specific migration is handled separately.
+`CopcCesiumLayer` remains the compatibility facade for Cesium consumers. It
+delegates source loading, hierarchy queries, selection, generations, and point
+cache ownership to the core, while its adapter owns Cesium camera state,
+listeners, picking, primitive reconciliation, and renderer timings.
 
 ```ts
 import {
@@ -149,7 +152,7 @@ CORS checks in `warnings`. The current reader requires the browser to send a
   transformed geographic point buffers and owns only node
   add/update/remove/clear/destroy and rendered counts. Cesium attachment and
   Cesium geometry stay in `CesiumPointRenderer`; COPC loading, selection, LoD,
-  and streaming remain layer responsibilities.
+  and streaming remain renderer-neutral core responsibilities.
 - `maxPointCacheBytes`: decoded CPU point-buffer cache budget in bytes (default
   `256 * 1024 * 1024`). This estimates project-owned typed-array storage and
   does not measure exact Cesium/WebGL/browser memory.
