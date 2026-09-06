@@ -12,6 +12,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./three": {
+      "types": "./dist/three.d.ts",
+      "import": "./dist/three.js"
     }
   },
   "types": "./dist/index.d.ts",
@@ -57,11 +61,15 @@
     "proj4": "^2.20.9"
   },
   "peerDependencies": {
-    "cesium": ">=1.142.0"
+    "cesium": ">=1.142.0",
+    "three": ">=0.170.0"
   },
   "peerDependenciesMeta": {
     "cesium": {
-      "optional": false
+      "optional": true
+    },
+    "three": {
+      "optional": true
     }
   }
 }

@@ -63,3 +63,6 @@ jobs:
 
       - name: Run packed artifact smoke test
         run: npm run test:pack
+
+      - name: Run packed Three.js artifact smoke test
+        run: npm run test:pack:three

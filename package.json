@@ -4,7 +4,8 @@
   },
   "scripts": {
     "download-samples": "tsx scripts/download-samples.ts",
-    "test:pack": "node scripts/pack-smoke-test.mjs"
+    "test:pack": "node scripts/pack-smoke-test.mjs",
+    "test:pack:three": "node scripts/pack-three-smoke-test.mjs"
   },
   "devDependencies": {
     "tsx": "^4"

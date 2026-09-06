@@ -35,18 +35,22 @@ if (generatedFactoryModules.length !== 1) {
 const generatedFactoryModule = generatedFactoryModules[0];
 const factoryPath = path.resolve(distDirectory, generatedFactoryModule);
 let factorySource = await readFile(factoryPath, 'utf8');
-const indexPath = path.resolve(distDirectory, 'index.js');
-let indexSource = await readFile(indexPath, 'utf8');
+const javascriptEntries = (await readdir(distDirectory))
+  .filter((entry) => entry.endsWith('.js'));
+const javascriptSources = new Map(
+  await Promise.all(javascriptEntries.map(async (entry) => [
+    entry,
+    await readFile(path.resolve(distDirectory, entry), 'utf8'),
+  ])),
+);
 const generatedImport = `./${generatedAssetModule}`;
-if (!indexSource.includes(generatedImport)) {
-  throw new Error(`Library entry does not reference ${generatedAssetModule}`);
+if (![...javascriptSources.values()].some((source) => source.includes(generatedImport))) {
+  throw new Error(`Library output does not reference ${generatedAssetModule}`);
 }
-indexSource = indexSource.replaceAll(generatedImport, `./${assetModule}`);
 const lazImport = `./${generatedLazModule}`;
-if (!indexSource.includes(lazImport)) {
-  throw new Error(`Library entry does not reference ${generatedLazModule}`);
+if (![...javascriptSources.values()].some((source) => source.includes(lazImport))) {
+  throw new Error(`Library output does not reference ${generatedLazModule}`);
 }
-indexSource = indexSource.replaceAll(lazImport, './lazPerfAsset.js');
 const workerConstructor = new RegExp(
   `new Worker\\("" \\+ new URL\\("assets/${generatedWorkerModule}", import\\.meta\\.url\\)\\.href, \\{ name: e\\?\\.name \\}\\)`,
 );
@@ -55,11 +59,19 @@ if (!workerConstructor.test(factorySource)) {
 }
 factorySource = factorySource.replace(workerConstructor, `new Worker(${JSON.stringify(workerDataUrl)}, { name: e?.name })`);
 const factoryImport = `./${generatedFactoryModule}`;
-if (!indexSource.includes(factoryImport)) {
-  throw new Error(`Library entry does not reference ${generatedFactoryModule}`);
+if (![...javascriptSources.values()].some((source) => source.includes(factoryImport))) {
+  throw new Error(`Library output does not reference ${generatedFactoryModule}`);
 }
-indexSource = indexSource.replaceAll(factoryImport, './rustCopcWorkerFactory.js');
-await writeFile(indexPath, indexSource);
+
+for (const [entry, source] of javascriptSources) {
+  const finalizedSource = source
+    .replaceAll(generatedImport, `./${assetModule}`)
+    .replaceAll(lazImport, './lazPerfAsset.js')
+    .replaceAll(factoryImport, './rustCopcWorkerFactory.js');
+  if (entry !== generatedFactoryModule && finalizedSource !== source) {
+    await writeFile(path.resolve(distDirectory, entry), finalizedSource);
+  }
+}
 await rm(path.resolve(distDirectory, generatedAssetModule));
 await rm(path.resolve(distDirectory, generatedLazModule));
 await rm(workerPath);

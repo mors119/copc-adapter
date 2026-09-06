@@ -74,6 +74,32 @@ layer.attachTo(viewer);
 ```
 
 The caller owns the Cesium `Viewer` and is responsible for destroying it.
+
+### Three.js package boundary
+
+Three.js consumers should import the isolated renderer entrypoint rather than
+the backwards-compatible Cesium root entrypoint:
+
+```bash
+npm install @frillab/copc-adapter three
+```
+
+```ts
+import * as THREE from 'three';
+import {
+  CopcStreamingCore,
+  createPerspectiveViewFrustum,
+} from '@frillab/copc-adapter/three';
+```
+
+`@frillab/copc-adapter/three` has no static Cesium module dependency. The
+package keeps both renderer peers optional because one package serves both
+entrypoints; applications install the renderer they use. The concrete
+`CopcThreeLayer` façade and Three.js scene integration are follow-up work in
+the Three.js epic. The current entrypoint exposes the shared renderer-neutral
+core and its public contracts so the package boundary can be validated before
+that façade lands. See the [Three package boundary decision](docs/benchmarks/issue-139-three-package-boundary.md).
+
 Destroying the layer does not destroy the viewer:
 
 ```ts
