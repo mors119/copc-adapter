@@ -5,6 +5,10 @@ const systemChromium = '/Applications/Google Chrome.app/Contents/MacOS/Google Ch
 
 export default defineConfig({
   testDir: './e2e',
+  // Each scenario streams and renders a large real COPC sample. Running
+  // several Chromium/WebGL instances concurrently makes the validation gate
+  // contend for CPU and memory and turns deterministic checks into timeouts.
+  workers: 1,
   timeout: 120000,
   expect: {
     timeout: 60000,

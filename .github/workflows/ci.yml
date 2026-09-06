@@ -34,6 +34,9 @@ jobs:
       - name: Install viewer dependencies
         run: npm ci --prefix apps/viewer-web
 
+      - name: Install Chromium for browser validation
+        run: npx --prefix apps/viewer-web playwright install --with-deps chromium
+
       - name: Download sample dataset
         run: npm run download-samples -- autzen
 
@@ -54,6 +57,9 @@ jobs:
 
       - name: Build production bundle
         run: npm --prefix apps/viewer-web run build
+
+      - name: Run browser E2E regression gate
+        run: npm --prefix apps/viewer-web run test:e2e
 
       - name: Run packed artifact smoke test
         run: npm run test:pack
