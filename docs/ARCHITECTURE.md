@@ -20,6 +20,7 @@ Browser-readable COPC URL
   -> coordinate transformation to WGS84
   -> engine adapter / CopcPointRenderer boundary
   -> PointPrimitiveRenderer (Cesium PointPrimitiveCollection compatibility path)
+     or ThreePointRenderer (node-owned THREE.Points objects)
 ```
 
 ## Coordinate and render-output boundary (#134)
@@ -71,6 +72,7 @@ separate concern.
 | WASM decoder | `crates/copc-wasm/`, `apps/viewer-web/src/wasm/` | Convert XYZ values into an interleaved point buffer |
 | Streaming core | `apps/viewer-web/src/viewer/streaming/` | Own source/context, metadata and hierarchy lifecycle, view-driven selection, generations, point loading, update intents, diagnostics, and the bounded point cache |
 | Cesium rendering | `apps/viewer-web/src/cesium/render/` | Implement the neutral renderer contract with Cesium primitives; keep viewer attachment, Cesium geometry, styling details, and engine diagnostics here |
+| Three.js rendering | `apps/viewer-web/src/three/render/` | Implement the neutral renderer contract with one local-coordinate `THREE.Points` object per active node; own only the root group and resources created beneath it |
 | Renderer-neutral contract | `apps/viewer-web/src/viewer/streaming/renderer.ts` | Own the minimal node add/update/remove/clear/destroy/count contract and project-owned point options; no scene, camera, engine geometry, COPC, or selection logic |
 | Renderer-neutral controller | `apps/viewer-web/src/viewer/streaming/CopcStreamingController.ts` | Coordinate loading, hierarchy queries, selection, point streaming, lifecycle, generations, and engine-independent diagnostics |
 | Cesium compatibility controller | `apps/viewer-web/src/viewer/CopcViewer.ts`, `apps/viewer-web/src/cesium/view/` | Cesium attachment, camera conversion, point rendering, picking, and coverage-safe renderer reconciliation over the shared streaming core |
@@ -87,6 +89,18 @@ counts only. `CesiumPointRenderer` adds `attachTo`, `detachFrom`, and the
 Cesium-only selection bounding sphere used by the compatibility controller.
 That keeps engine attachment and `Cesium.BoundingSphere` out of shared
 streaming state while preserving the existing Cesium API.
+
+`ThreePointRenderer` follows the same contract without taking ownership of an
+application scene, camera, WebGL renderer, or render loop. It owns one
+`THREE.Points` per active node under a dedicated root `THREE.Group`. The
+renderer subtracts a stable WGS84 ECEF origin while values are still
+`Float64`, then creates the `Float32Array` position attribute. Applications
+should pass `createThreeLocalOrigin(metadata)` (or an equivalent stable origin)
+when constructing it; the first non-empty node is only a deterministic fallback
+for low-level adapter use. The initial frame uses ECEF-aligned axes in metres;
+it does not rebase or rotate as the camera moves. Geometry bounds are computed
+in that local frame and Three frustum culling remains enabled; the shared
+streaming selector remains the authoritative LoD policy.
 
 ## Renderer-neutral streaming core (#132)
 
