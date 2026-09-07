@@ -47,6 +47,10 @@ more than one runtime. The ABI crate should remain thin.
 Evaluate and integrate a Rust CRS pipeline using real COPC WKT/CRS fixtures and
 differential validation against the current JavaScript path. Adoption depends
 on measured supported behavior and explicit handling of unsupported CRS input.
+The completed compatibility gate is documented in
+[the issue #171 audit](benchmarks/issue-171-proj4rs-compatibility.md); the
+remaining upstream and adapter-boundary follow-ups must be resolved before
+production integration.
 
 ### Renderer-neutral prepared point pipeline
 

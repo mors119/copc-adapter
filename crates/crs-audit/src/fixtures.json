@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "fixtures": [
+    {
+      "id": "autzen-wkt1-compound-lcc",
+      "source": "real COPC metadata: autzen-classified.copc.laz",
+      "wkt_family": "WKT1 COMPD_CS",
+      "wkt": "COMPD_CS[\"NAD83 / Oregon GIC Lambert (ft) + NAVD88 height (ftUS)\",PROJCS[\"NAD83 / Oregon GIC Lambert (ft)\",GEOGCS[\"NAD83\",DATUM[\"North_American_Datum_1983\",SPHEROID[\"GRS 1980\",6378137,298.257222101,AUTHORITY[\"EPSG\",\"7019\"]],AUTHORITY[\"EPSG\",\"6269\"]],PRIMEM[\"Greenwich\",0,AUTHORITY[\"EPSG\",\"8901\"]],UNIT[\"degree\",0.0174532925199433,AUTHORITY[\"EPSG\",\"9122\"]],AUTHORITY[\"EPSG\",\"4269\"]],PROJECTION[\"Lambert_Conformal_Conic_2SP\"],PARAMETER[\"latitude_of_origin\",41.75],PARAMETER[\"central_meridian\",-120.5],PARAMETER[\"standard_parallel_1\",43],PARAMETER[\"standard_parallel_2\",45.5],PARAMETER[\"false_easting\",1312335.958],PARAMETER[\"false_northing\",0],UNIT[\"foot\",0.3048,AUTHORITY[\"EPSG\",\"9002\"]],AXIS[\"Easting\",EAST],AXIS[\"Northing\",NORTH],AUTHORITY[\"EPSG\",\"2992\"]],VERT_CS[\"NAVD88 height (ftUS)\",VERT_DATUM[\"North American Vertical Datum 1988\",2005,AUTHORITY[\"EPSG\",\"5103\"]],UNIT[\"US survey foot\",0.304800609601219,AUTHORITY[\"EPSG\",\"9003\"]],AXIS[\"Gravity-related height\",UP],AUTHORITY[\"EPSG\",\"6360\"]]]",
+      "horizontal_wkt": "PROJCS[\"NAD83 / Oregon GIC Lambert (ft)\",GEOGCS[\"NAD83\",DATUM[\"North_American_Datum_1983\",SPHEROID[\"GRS 1980\",6378137,298.257222101,AUTHORITY[\"EPSG\",\"7019\"]],AUTHORITY[\"EPSG\",\"6269\"]],PRIMEM[\"Greenwich\",0,AUTHORITY[\"EPSG\",\"8901\"]],UNIT[\"degree\",0.0174532925199433,AUTHORITY[\"EPSG\",\"9122\"]],AUTHORITY[\"EPSG\",\"4269\"]],PROJECTION[\"Lambert_Conformal_Conic_2SP\"],PARAMETER[\"latitude_of_origin\",41.75],PARAMETER[\"central_meridian\",-120.5],PARAMETER[\"standard_parallel_1\",43],PARAMETER[\"standard_parallel_2\",45.5],PARAMETER[\"false_easting\",1312335.958],PARAMETER[\"false_northing\",0],UNIT[\"foot\",0.3048,AUTHORITY[\"EPSG\",\"9002\"]],AXIS[\"Easting\",EAST],AXIS[\"Northing\",NORTH],AUTHORITY[\"EPSG\",\"2992\"]]",
+      "vertical_unit_scale": 0.304800609601219,
+      "points": [
+        { "x": 637905.545, "y": 851209.905, "z": 510.7 },
+        { "x": 635577.79, "y": 848882.15, "z": 406.14 },
+        { "x": 639003.73, "y": 853537.66, "z": 615.26 },
+        { "x": 638500.125, "y": 849100.875, "z": -12.5 }
+      ],
+      "tolerance": { "longitude_degrees": 1e-7, "latitude_degrees": 1e-7, "height_meters": 1e-9 }
+    },
+    {
+      "id": "sofi-wkt1-compound-utm11",
+      "source": "real COPC metadata: sofi.copc.laz",
+      "wkt_family": "WKT1 COMPD_CS",
+      "wkt": "COMPD_CS[\"WGS 84 / UTM zone 11N\",PROJCS[\"WGS 84 / UTM zone 11N\",GEOGCS[\"WGS 84 / UTM zone 11N\",DATUM[\"WGS84\",SPHEROID[\"WGS84\",6378137,298.257223563,AUTHORITY[\"EPSG\",\"7030\"]],AUTHORITY[\"EPSG\",\"6326\"]],PRIMEM[\"Greenwich\",0,AUTHORITY[\"EPSG\",\"8901\"]],UNIT[\"Degree\",0.0174532925199433,AUTHORITY[\"EPSG\",\"9102\"]],AUTHORITY[\"EPSG\",\"32611\"]],PROJECTION[\"Transverse_Mercator\"],PARAMETER[\"latitude_of_origin\",0],PARAMETER[\"central_meridian\",-117],PARAMETER[\"scale_factor\",0.9996],PARAMETER[\"false_easting\",500000],PARAMETER[\"false_northing\",0],UNIT[\"Meter\",1,AUTHORITY[\"EPSG\",\"9001\"]],AXIS[\"Easting\",EAST],AXIS[\"Northing\",NORTH],AUTHORITY[\"EPSG\",\"32611\"]],VERT_CS[\"Ellipsoidal Heights\",VERT_DATUM[\"Ellipsoidal Heights\",2002,AUTHORITY[\"EPSG\",\"0\"]],UNIT[\"Meter\",1,AUTHORITY[\"EPSG\",\"9001\"]],AXIS[\"ellipsoidal height\",UP]]",
+      "horizontal_wkt": "PROJCS[\"WGS 84 / UTM zone 11N\",GEOGCS[\"WGS 84 / UTM zone 11N\",DATUM[\"WGS84\",SPHEROID[\"WGS84\",6378137,298.257223563,AUTHORITY[\"EPSG\",\"7030\"]],AUTHORITY[\"EPSG\",\"6326\"]],PRIMEM[\"Greenwich\",0,AUTHORITY[\"EPSG\",\"8901\"]],UNIT[\"Degree\",0.0174532925199433,AUTHORITY[\"EPSG\",\"9102\"]],AUTHORITY[\"EPSG\",\"32611\"]],PROJECTION[\"Transverse_Mercator\"],PARAMETER[\"latitude_of_origin\",0],PARAMETER[\"central_meridian\",-117],PARAMETER[\"scale_factor\",0.9996],PARAMETER[\"false_easting\",500000],PARAMETER[\"false_northing\",0],UNIT[\"Meter\",1,AUTHORITY[\"EPSG\",\"9001\"]],AXIS[\"Easting\",EAST],AXIS[\"Northing\",NORTH],AUTHORITY[\"EPSG\",\"32611\"]]",
+      "vertical_unit_scale": 1,
+      "points": [
+        { "x": 376392.9975, "y": 3757833.2855, "z": 545.1945 },
+        { "x": 375764.094, "y": 3757204.382, "z": -83.709 },
+        { "x": 376899.027, "y": 3758462.189, "z": 138.186 },
+        { "x": 376100.5, "y": 3758000.25, "z": -12.5 }
+      ],
+      "tolerance": { "longitude_degrees": 1e-7, "latitude_degrees": 1e-7, "height_meters": 1e-9 }
+    },
+    {
+      "id": "wgs84-geographic-wkt1",
+      "source": "proj4wkt WKT1 geographic coverage fixture",
+      "wkt_family": "WKT1 GEOGCS",
+      "wkt": "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563,AUTHORITY[\"EPSG\",\"7030\"]],AUTHORITY[\"EPSG\",\"6326\"]],PRIMEM[\"Greenwich\",0,AUTHORITY[\"EPSG\",\"8901\"]],UNIT[\"degree\",0.0174532925199433,AUTHORITY[\"EPSG\",\"9122\"]],AUTHORITY[\"EPSG\",\"4326\"]]",
+      "vertical_unit_scale": 1,
+      "points": [
+        { "x": -122.6784, "y": 45.5231, "z": 123.5 },
+        { "x": 0, "y": 0, "z": -10 },
+        { "x": 179.9, "y": -89.9, "z": 0 },
+        { "x": 12.5, "y": 55.7, "z": 100 }
+      ],
+      "tolerance": { "longitude_degrees": 1e-12, "latitude_degrees": 1e-12, "height_meters": 1e-12 }
+    },
+    {
+      "id": "utm11-wkt2-projcrs",
+      "source": "EPSG:32611 WKT2 standards fixture; not a checked-in COPC binary",
+      "wkt_family": "WKT2 PROJCRS",
+      "wkt": "PROJCRS[\"WGS 84 / UTM zone 11N\",BASEGEODCRS[\"WGS 84\",DATUM[\"World Geodetic System 1984\",ELLIPSOID[\"WGS 84\",6378137,298.257223563,LENGTHUNIT[\"metre\",1]]]],CONVERSION[\"UTM zone 11N\",METHOD[\"Transverse Mercator\",ID[\"EPSG\",9807]],PARAMETER[\"Latitude of natural origin\",0,ANGLEUNIT[\"degree\",0.0174532925199433],ID[\"EPSG\",8801]],PARAMETER[\"Longitude of natural origin\",-117,ANGLEUNIT[\"degree\",0.0174532925199433],ID[\"EPSG\",8802]],PARAMETER[\"Scale factor at natural origin\",0.9996,SCALEUNIT[\"unity\",1],ID[\"EPSG\",8805]],PARAMETER[\"False easting\",500000,LENGTHUNIT[\"metre\",1],ID[\"EPSG\",8806]],PARAMETER[\"False northing\",0,LENGTHUNIT[\"metre\",1],ID[\"EPSG\",8807]]],CS[Cartesian,2],AXIS[\"(E)\",east,ORDER[1],LENGTHUNIT[\"metre\",1]],AXIS[\"(N)\",north,ORDER[2],LENGTHUNIT[\"metre\",1]],ID[\"EPSG\",32611]]",
+      "vertical_unit_scale": 1,
+      "points": [
+        { "x": 376392.9975, "y": 3757833.2855, "z": 545.1945 },
+        { "x": 375764.094, "y": 3757204.382, "z": -83.709 },
+        { "x": 376899.027, "y": 3758462.189, "z": 138.186 },
+        { "x": 376100.5, "y": 3758000.25, "z": -12.5 }
+      ],
+      "tolerance": { "longitude_degrees": 1e-7, "latitude_degrees": 1e-7, "height_meters": 1e-9 }
+    }
+  ]
+}

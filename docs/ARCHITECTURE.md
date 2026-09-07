@@ -65,6 +65,9 @@ renderer adapter
   helpers and `proj4js` where a projected CRS is present, then computes WGS84
   ECEF/world coordinates in JavaScript. The shared buffers retain source,
   WGS84 geographic, and WGS84 ECEF values as `Float64Array`s.
+  The `proj4rs`/`proj4wkt` compatibility audit is recorded in
+  [issue-171-proj4rs-compatibility.md](benchmarks/issue-171-proj4rs-compatibility.md);
+  it does not change this runtime boundary or remove `proj4js`.
 - Cesium and Three.js adapters convert the shared data into engine-specific
   resources. Cesium owns `Viewer` and primitive integration; Three.js owns
   `THREE.Group`, `THREE.Points`, `BufferGeometry`, materials, and its fixed
@@ -253,6 +256,13 @@ renderer-specific local representation
 not permanent architectural requirements. The eventual Rust CRS layer must be
 abstracted from renderer code and adopted only for the supported CRS behavior
 that has been measured against real COPC metadata and fixtures.
+
+The current audit result is **RUST CRS READY WITH FOCUSED UPSTREAM/FOLLOW-UP**:
+Autzen and SoFi's extracted horizontal CRS paths pass differential validation,
+while full SoFi compound-WKT parsing and the current `PROJCS`-only adapter
+boundary remain explicit follow-up items. See
+[issue-171-proj4rs-compatibility.md](benchmarks/issue-171-proj4rs-compatibility.md)
+for the matrix and benchmark evidence.
 
 Existing `proj4js` behavior is useful as a differential reference. Reference
 output is not automatically the specification: authoritative CRS definitions

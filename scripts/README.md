@@ -10,6 +10,9 @@
 - `benchmark:streaming`
   `npm run benchmark:streaming --prefix apps/viewer-web`로 Autzen streaming,
   budget, stale-work, and decoded CPU cache validation을 실행합니다.
+- `audit:crs`
+  `npm run audit:crs -- --wasm --benchmark`로 checked-in WKT fixtures를
+  `proj4js`와 차분 비교하고 native Rust/WASM CRS benchmark를 실행합니다.
 
 패키지 빌드, Rust/WASM 준비, 테스트, conformance, browser 검증 명령은
 각 package script와 [기여 가이드](../CONTRIBUTING.md)에서 관리합니다.
