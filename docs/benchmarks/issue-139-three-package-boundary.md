@@ -35,13 +35,13 @@ and preserves the existing root import.
 `src/three.ts` is deliberately independent from `src/index.ts`. The root
 entrypoint statically imports Cesium integration to preserve the existing API;
 re-exporting it from the Three entry would make Cesium part of the Three module
-graph. The Three entry therefore exports only project-owned renderer-neutral
-contracts and the shared COPC streaming implementation.
+graph. The Three entry therefore exports the project-owned renderer-neutral
+contracts, the shared COPC streaming implementation, and the Three façade and
+renderer without importing Cesium.
 
-The provisional `CopcThreeLayerOptions` and `CopcThreeLayerSnapshot` names are
-declaration-level aliases for the shared core contract. The concrete
-`CopcThreeLayer` class belongs to the follow-up Three façade issue and is not
-pretended to be implemented by this packaging change.
+The `CopcThreeLayer` façade now consumes the shared core through this boundary.
+Its options and snapshot add only Three attachment, lifecycle, picking, and
+renderer-specific concerns; COPC loading and streaming remain shared.
 
 ## Runtime assets
 
@@ -65,9 +65,9 @@ No Cesium asset configuration is used by the Three consumer.
 `tests/environments/three-vite/` is copied into a disposable directory by
 `npm run test:pack:three`. It installs the generated tarball by package name,
 installs `three`, verifies that Cesium is absent, and builds an ordinary Vite
-scene that imports only `@frillab/copc-adapter/three`. The fixture is
-intentionally build-focused until the Three camera, renderer, styling, and
-layer façade issues land.
+scene that imports only `@frillab/copc-adapter/three`. The fixture remains
+build-focused while the Three camera, renderer, styling, and façade are
+validated by their unit tests.
 
 Validation command:
 

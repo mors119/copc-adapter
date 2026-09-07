@@ -1,14 +1,13 @@
 /**
- * Public renderer-neutral entrypoint for the future Three.js adapter.
+ * Public Three.js adapter entrypoint.
  *
  * Keep this module independent from `src/index.ts`: the latter is the
  * backwards-compatible Cesium entrypoint and statically re-exports Cesium
  * integration modules. A Three.js consumer must be able to import this path
  * without resolving or initializing Cesium.
  *
- * The concrete `CopcThreeLayer` facade is intentionally owned by the follow-up
- * renderer work. This entrypoint establishes its package boundary and exposes
- * the shared core/types that the facade will consume.
+ * The concrete `CopcThreeLayer` facade and its renderer remain isolated from
+ * the Cesium root entry while sharing the project-owned COPC core and types.
  */
 export {
   CopcHierarchyLoadError,
@@ -91,6 +90,7 @@ export type {
   CoordinateBuffer,
   CoordinateSystem,
   CoordinateVector3,
+  DatasetLocalFrame,
   RendererLocalPoint,
   Wgs84EcefBounds,
   Wgs84EcefPoint,
@@ -100,6 +100,15 @@ export type {
 export {
   transformPointBufferToPointData,
 } from './coordinates/transform/createPointTransformer';
+export {
+  createDatasetLocalFrame,
+  datasetLocalDirectionToWorld,
+  datasetLocalToWorld,
+  worldBoundsToDatasetLocal,
+  worldBufferToDatasetLocal,
+  worldDirectionToDatasetLocal,
+  worldToDatasetLocal,
+} from './coordinates/transform/datasetLocalFrame';
 export {
   worldBufferToLocal,
   worldToLocal,
@@ -162,13 +171,33 @@ export {
   geographicToEcef,
   intersectsViewFrustum,
 } from './viewer/streaming/view';
-
-/**
- * Provisional names reserved for the public Three layer facade. They keep
- * consumers and declaration tests on the renderer-neutral boundary until the
- * concrete layer is implemented in the follow-up Three renderer work.
- */
+export {
+  CopcThreeLayer,
+} from './api/CopcThreeLayer';
 export type {
-  CopcStreamingControllerOptions as CopcThreeLayerOptions,
-  CopcStreamingSnapshot as CopcThreeLayerSnapshot,
-} from './viewer/streaming/CopcStreamingController';
+  CopcThreeLayerAttachment,
+  CopcThreeLayerLifecycleState,
+  CopcThreeLayerOptions,
+  CopcThreeLayerPickOptions,
+  CopcThreeLayerPickPosition,
+  CopcThreeLayerSnapshot,
+  CopcThreeLayerTransitionDiagnostics,
+  CopcThreePointRenderer,
+  CopcThreeRendererPerformanceSnapshot,
+} from './api/CopcThreeLayer';
+export {
+  ThreePointRenderer,
+  createThreeLocalOrigin,
+} from './three/render/ThreePointRenderer';
+export type {
+  ThreePointRendererConstructorOptions,
+  ThreePointRendererOptions,
+  ThreePointRendererPerformanceStage,
+} from './three/render/ThreePointRenderer';
+export {
+  createThreeStreamingView,
+} from './three/view/ThreeViewAdapter';
+export type {
+  ThreeStreamingViewOptions,
+  ThreeViewportSource,
+} from './three/view/ThreeViewAdapter';

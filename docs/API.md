@@ -163,6 +163,52 @@ The Rust selector uses the same layer API; it does not create a Rust-only
 Viewer. Applications continue to create and own `Cesium.Viewer`, then call
 `layer.attachTo(viewer)`.
 
+### `CopcThreeLayer`
+
+`CopcThreeLayer` is exported from `@frillab/copc-adapter/three` and accepts an
+application-owned Three.js scene, camera, and optional WebGL renderer:
+
+```ts
+const layer = new CopcThreeLayer({
+  url,
+  pointSize: 3,
+  colorMode: 'rgb',
+  pickingThreshold: 1,
+});
+
+await layer.load();
+layer.attachTo({ scene, camera, renderer });
+
+function animate() {
+  requestAnimationFrame(animate);
+  void layer.update();
+  renderer.render(scene, camera);
+}
+```
+
+`update()` reads the current camera and drives the shared streaming core. It
+does not render, schedule an animation loop, or update application controls;
+repeated calls with an unchanged view do not issue another streaming update.
+The layer creates one root `THREE.Group` and owns only its node
+`THREE.Points`, geometries, and materials. The application continues to own
+the scene, camera, WebGL renderer, controls, and render loop.
+
+The loaded dataset defines a fixed ENU frame in metres. Camera positions and
+directions, point geometry, and picking all use that same frame. `pick({ x,
+y })` takes normalized device coordinates and returns the shared
+`CopcPointInspection`, or `undefined` for empty/non-COPC hits. Its optional
+raycaster can be supplied as `pick(position, { raycaster })`; point threshold
+is in scene units and defaults to one metre.
+
+The lifecycle is `idle | mounted | loading | ready | destroyed`. `load()` may
+run before attachment. `detachFrom()` removes the root and clears selection
+without unloading the source; `unload()` clears source/cache/node state while
+retaining the attachment; `reload()` repeats the configured load; and
+`destroy()` permanently releases layer resources without disposing the
+application scene, camera, or WebGL renderer. `getSnapshot()` exposes shared
+streaming/hierarchy/cache/worker diagnostics plus Three-specific renderer
+timings without adding Cesium-only fields.
+
 ### Diagnostics
 
 `getSnapshot()` returns the current lifecycle, selected and rendered nodes,

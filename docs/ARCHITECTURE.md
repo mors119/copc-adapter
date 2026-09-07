@@ -71,9 +71,8 @@ frame instance; the origin is not rebased as the camera moves. A renderer may
 convert the resulting `Float64Array` local coordinates to `Float32Array` only
 after this operation.
 
-The frame object is immutable and is intentionally exposed as a coordinate
-utility rather than as a `CopcThreeLayer` method until the Three package/API
-boundary is finalized. A future adapter can use the same frame to place
+The frame object is immutable and is exposed both as a coordinate utility and
+through `CopcThreeLayer.getLocalFrame()`, so applications can place compatible
 application-owned data. Shared LoD bounds remain authoritative in their
 documented source/geographic/ECEF spaces; any local node bounds are derived
 renderer data and must not be fed back into selection. The initial root object
@@ -131,14 +130,12 @@ streaming state while preserving the existing Cesium API.
 `ThreePointRenderer` follows the same contract without taking ownership of an
 application scene, camera, WebGL renderer, or render loop. It owns one
 `THREE.Points` per active node under a dedicated root `THREE.Group`. The
-renderer subtracts a stable WGS84 ECEF origin while values are still
-`Float64`, then creates the `Float32Array` position attribute. Applications
-should pass `createThreeLocalOrigin(metadata)` (or an equivalent stable origin)
-when constructing it; the first non-empty node is only a deterministic fallback
-for low-level adapter use. The initial frame uses ECEF-aligned axes in metres;
-it does not rebase or rotate as the camera moves. Geometry bounds are computed
-in that local frame and Three frustum culling remains enabled; the shared
-streaming selector remains the authoritative LoD policy.
+renderer uses the loaded dataset-local ENU frame while values are still
+`Float64`, then creates the `Float32Array` position attribute. The first
+non-empty node is only a deterministic ECEF-origin fallback for low-level
+adapter use. Geometry bounds are computed in the fixed local frame and Three
+frustum culling remains enabled; the shared streaming selector remains the
+authoritative LoD policy.
 
 ## Renderer-neutral streaming core (#132)
 
@@ -241,9 +238,10 @@ The library build emits both public entry declarations and keeps the existing
 package-owned Rust/WASM, LAZ, and Worker assets. The Three package entry does
 not own a second COPC implementation; it consumes the same backend, cache,
 hierarchy, coordinate, and streaming modules as the Cesium façade. The
-`CopcThreeLayer` scene façade is intentionally left to the follow-up renderer
-work; this boundary establishes its stable import path without prematurely
-exposing internal selectors or managers.
+`CopcThreeLayer` scene façade consumes this boundary from the isolated `./three`
+entry. It owns only the root group, node objects, point-picking identity, and
+Three-specific lifecycle state; application scene, camera, WebGLRenderer,
+controls, and render loop ownership remain outside the adapter.
 
 Callers may inject a backend for an alternative implementation or unit tests.
 There is intentionally no second placeholder production backend.
@@ -364,9 +362,9 @@ the existing value-based detection is retained as a compatibility fallback.
 The Three.js material contract deliberately sets `sizeAttenuation: false`.
 `pointSize` therefore remains a screen-space pixel size instead of changing
 with camera distance. The renderer-neutral module does not import Three.js;
-`apps/viewer-web/src/three/style/` only describes the material options and
-consumes the shared color buffer so the eventual node renderer can own Three's
-geometry/material lifecycle.
+`apps/viewer-web/src/three/style/` describes the material options and the node
+renderer consumes the shared color buffer while owning Three's geometry and
+material lifecycle.
 
 `CopcPointDecoder.decode(view)` remains available for injected decoders and
 legacy source implementations. Both production backends also expose the
