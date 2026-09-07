@@ -83,40 +83,54 @@ fn safe_u64(value: u64, what: &str) -> Result<u64, ParseError> {
     Ok(value)
 }
 
+fn safe_range_end(offset: u64, length: u64, what: &str) -> Result<(), ParseError> {
+    let end = offset
+        .checked_add(length)
+        .ok_or_else(|| error("overflow", format!("{what} overflows")))?;
+    safe_u64(end, what)?;
+    Ok(())
+}
+
 fn header_json(value: CopcHeader) -> Result<CopcHeaderJson, ParseError> {
+    let point_count = safe_u64(value.point_count, "point count")?;
+    let root_offset = safe_u64(
+        value.root_hierarchy_page_offset,
+        "root hierarchy page offset",
+    )?;
+    let root_length = safe_u64(
+        value.root_hierarchy_page_length,
+        "root hierarchy page length",
+    )?;
+    safe_range_end(root_offset, root_length, "root hierarchy page end")?;
+
     Ok(CopcHeaderJson {
         version_major: value.version_major,
         version_minor: value.version_minor,
         point_data_record_format: value.point_data_record_format,
         point_data_record_length: value.point_data_record_length,
-        point_count: safe_u64(value.point_count, "point count")?,
+        point_count,
         scale: value.scale,
         offset: value.offset,
         bounds: value.bounds,
         cube: value.cube,
         spacing: value.spacing,
-        root_hierarchy_page_offset: safe_u64(
-            value.root_hierarchy_page_offset,
-            "root hierarchy page offset",
-        )?,
-        root_hierarchy_page_length: safe_u64(
-            value.root_hierarchy_page_length,
-            "root hierarchy page length",
-        )?,
+        root_hierarchy_page_offset: root_offset,
+        root_hierarchy_page_length: root_length,
         wkt: value.wkt,
     })
 }
 
 fn validate_header_for_js(value: &CopcHeader) -> Result<(), ParseError> {
     safe_u64(value.point_count, "point count")?;
-    safe_u64(
+    let root_offset = safe_u64(
         value.root_hierarchy_page_offset,
         "root hierarchy page offset",
     )?;
-    safe_u64(
+    let root_length = safe_u64(
         value.root_hierarchy_page_length,
         "root hierarchy page length",
     )?;
+    safe_range_end(root_offset, root_length, "root hierarchy page end")?;
     Ok(())
 }
 
@@ -127,12 +141,18 @@ fn hierarchy_json(value: RootHierarchy) -> Result<RootHierarchyJson, ParseError>
             .nodes
             .into_iter()
             .map(|node| {
+                let point_data_offset = safe_u64(node.point_data_offset, "point data offset")?;
+                safe_range_end(
+                    point_data_offset,
+                    u64::from(node.point_data_length),
+                    "hierarchy byte range end",
+                )?;
                 Ok(RootHierarchyNodeJson {
                     level: node.level,
                     x: node.x,
                     y: node.y,
                     z: node.z,
-                    point_data_offset: safe_u64(node.point_data_offset, "point data offset")?,
+                    point_data_offset,
                     point_data_length: node.point_data_length,
                     point_count: node.point_count,
                 })
@@ -142,12 +162,18 @@ fn hierarchy_json(value: RootHierarchy) -> Result<RootHierarchyJson, ParseError>
             .pages
             .into_iter()
             .map(|page| {
+                let page_offset = safe_u64(page.page_offset, "hierarchy page offset")?;
+                safe_range_end(
+                    page_offset,
+                    u64::from(page.page_length),
+                    "hierarchy byte range end",
+                )?;
                 Ok(RootHierarchyPageJson {
                     level: page.level,
                     x: page.x,
                     y: page.y,
                     z: page.z,
-                    page_offset: safe_u64(page.page_offset, "hierarchy page offset")?,
+                    page_offset,
                     page_length: page.page_length,
                 })
             })
