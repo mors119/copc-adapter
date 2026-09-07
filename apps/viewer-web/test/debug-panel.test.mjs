@@ -23,6 +23,14 @@ function createSnapshot(overrides = {}) {
       budgetUtilizationPercent: 0.938,
       screenSpaceErrorMin: 2.5,
       screenSpaceErrorMax: 18.75,
+      effectiveScreenSpaceErrorMin: 3,
+      effectiveScreenSpaceErrorMax: 22.5,
+      detailBiasMin: 1,
+      detailBiasMax: 1.25,
+      candidatesWithNonZeroInfluenceCount: 2,
+      acceptedGazeInfluencedRefinementCount: 1,
+      refinementRejectedByNodeBudgetCount: 3,
+      refinementRejectedByPointBudgetCount: 4,
       refinedNodeCount: 4,
       keptNodeCount: 3,
       visibleLevelRange: { min: 2, max: 5 },
@@ -121,6 +129,12 @@ test('maps layer diagnostics and metadata into browser-visible values', () => {
   assert.equal(view.frustumCulledCount, '5');
   assert.equal(view.maxScreenSpaceError, '8 px');
   assert.equal(view.representativeScreenSpaceError, '2.5000000–18.750000 px');
+  assert.equal(view.effectiveScreenSpaceError, '3–22.500000 px');
+  assert.equal(view.detailBias, '1–1.2500000×');
+  assert.equal(view.influenceCandidates, '2');
+  assert.equal(view.gazeInfluencedRefinements, '1');
+  assert.equal(view.refinementRejectedByNodeBudget, '3');
+  assert.equal(view.refinementRejectedByPointBudget, '4');
   assert.equal(view.refinedNodeCount, '4');
   assert.equal(view.keptNodeCount, '3');
   assert.equal(view.visibleLevelRange, '2–5');

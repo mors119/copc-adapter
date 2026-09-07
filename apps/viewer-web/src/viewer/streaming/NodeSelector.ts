@@ -8,6 +8,11 @@ import type {
   ViewFrustum,
   ViewVector3,
 } from './types';
+import {
+  calculateRefinementInfluence,
+  DEFAULT_MAX_REFINEMENT_DETAIL_BIAS,
+  type RefinementInfluence,
+} from './refinementInfluence';
 
 function toRadians(value: number): number {
   return (value * Math.PI) / 180;
@@ -113,8 +118,8 @@ function isNodeFrustumVisible(
 
 const DEFAULT_MAX_SCREEN_SPACE_ERROR = 8;
 const DEFAULT_SCREEN_SPACE_ERROR_HYSTERESIS_FRACTION = 0.125;
-/** Maximum additional refinement priority available to a screen-center node. */
-export const DEFAULT_CENTER_PRIORITY_BOOST = 0.25;
+/** Maximum additional refinement pressure available to passive screen-centre gaze. */
+export const DEFAULT_CENTER_PRIORITY_BOOST = DEFAULT_MAX_REFINEMENT_DETAIL_BIAS - 1;
 /**
  * Conservative first workload default, informed by the issue-48 renderer
  * measurements. It is a point-pressure guard, not a GPU-memory limit.
@@ -249,7 +254,8 @@ export function calculateGazeCenterWeight(
 }
 
 function getGeometricErrorMeters(node: StreamingHierarchyNode): number {
-  return node.geometricErrorMeters ?? node.approximateSizeMeters / 2;
+  const geometricError = node.geometricErrorMeters ?? node.approximateSizeMeters / 2;
+  return Number.isFinite(geometricError) ? Math.max(geometricError, 0) : 0;
 }
 
 /**
@@ -289,14 +295,19 @@ export function calculateScreenSpaceErrorPixels(
     1e-6,
   );
 
-  return geometricErrorMeters * viewportHeightPixels /
+  const screenSpaceErrorPixels = geometricErrorMeters * viewportHeightPixels /
     (2 * distanceMeters * Math.tan(verticalFovRadians / 2));
+  return Number.isFinite(screenSpaceErrorPixels)
+    ? Math.max(screenSpaceErrorPixels, 0)
+    : screenSpaceErrorPixels === Number.POSITIVE_INFINITY
+      ? Number.MAX_VALUE
+      : 0;
 }
 
 function shouldRefine(
   node: StreamingHierarchyNode,
   options: StreamingSelectionOptions,
-  screenSpaceErrorPixels: number,
+  effectiveScreenSpaceErrorPixels: number,
   wasPreviouslyRefined: boolean,
 ): 'refine' | 'hold' | 'collapse' {
   if (node.children.length === 0 || node.node.level >= options.maxDepth) {
@@ -310,16 +321,16 @@ function shouldRefine(
   const collapseThreshold = Math.max(0, nominalThreshold - hysteresis);
 
   if (wasPreviouslyRefined) {
-    if (screenSpaceErrorPixels < collapseThreshold) {
+    if (effectiveScreenSpaceErrorPixels < collapseThreshold) {
       return 'collapse';
     }
-    if (screenSpaceErrorPixels <= refineThreshold) {
+    if (effectiveScreenSpaceErrorPixels <= refineThreshold) {
       return 'hold';
     }
     return 'refine';
   }
 
-  return screenSpaceErrorPixels > refineThreshold ? 'refine' : 'hold';
+  return effectiveScreenSpaceErrorPixels > refineThreshold ? 'refine' : 'hold';
 }
 
 function getRootNodes(hierarchy: StreamingHierarchy): StreamingHierarchyNode[] {
@@ -345,6 +356,7 @@ function getNodePointCost(node: StreamingHierarchyNode): number {
 type PrioritisedNode = {
   node: StreamingHierarchyNode;
   screenSpaceErrorPixels: number;
+  influence: RefinementInfluence;
   centerWeight: number;
   priority: number;
   boundsDistanceMeters: number;
@@ -358,7 +370,9 @@ function compareBudgetPriority(
   left: PrioritisedNode,
   right: PrioritisedNode,
 ): number {
-  // Projected error remains primary through the bounded priority multiplier.
+  // Effective projected error remains primary through the globally bounded
+  // influence model. Raw SSE remains the explicit authority tie-breaker, so
+  // a large visual error cannot be hidden by a modest centre preference.
   // The remaining visual signals are deterministic tie-breakers; continuity
   // and cache availability only prevent avoidable churn when visual priority
   // is otherwise equal. All values are precomputed before sorting.
@@ -403,6 +417,9 @@ function createSelectionMetrics(
     refinementDeferredByIncompleteHierarchyCount: 0,
     minimumFrontierExceedsNodeBudget: false,
     minimumFrontierExceedsPointBudget: false,
+    candidatesWithNonZeroInfluenceCount: 0,
+    acceptedGazeInfluencedRefinementCount: 0,
+    influenceClampCount: 0,
     candidatesWithCenterBoostCount: 0,
     hysteresisHoldCount: 0,
     refineDecisionCount: 0,
@@ -468,6 +485,7 @@ export class NodeSelector {
     const evaluations = new Map<string, {
       visible: boolean;
       screenSpaceErrorPixels: number;
+      influence: RefinementInfluence;
     }>();
 
     const evaluate = (node: StreamingHierarchyNode) => {
@@ -479,18 +497,30 @@ export class NodeSelector {
       this.lastSelectionMetrics.candidatesBeforeCulling += 1;
       if (!isNodeFrustumVisible(camera, node)) {
         this.lastSelectionMetrics.frustumCulledCount += 1;
-        const result = { visible: false, screenSpaceErrorPixels: 0 };
+        const result = {
+          visible: false,
+          screenSpaceErrorPixels: 0,
+          influence: calculateRefinementInfluence({ rawScreenSpaceError: 0 }),
+        };
         evaluations.set(node.node.key, result);
         return result;
       }
 
       if (!isNodeVisible(camera, node, this.options)) {
-        const result = { visible: false, screenSpaceErrorPixels: 0 };
+        const result = {
+          visible: false,
+          screenSpaceErrorPixels: 0,
+          influence: calculateRefinementInfluence({ rawScreenSpaceError: 0 }),
+        };
         evaluations.set(node.node.key, result);
         return result;
       }
 
       const screenSpaceErrorPixels = calculateScreenSpaceErrorPixels(camera, node);
+      const influence = calculateRefinementInfluence({
+        rawScreenSpaceError: screenSpaceErrorPixels,
+        gazeWeight: calculateCenterWeightForProjection(node, gazeProjection),
+      });
       this.lastSelectionMetrics.screenSpaceErrorMin = Math.min(
         this.lastSelectionMetrics.screenSpaceErrorMin ?? Number.POSITIVE_INFINITY,
         screenSpaceErrorPixels,
@@ -499,7 +529,7 @@ export class NodeSelector {
         this.lastSelectionMetrics.screenSpaceErrorMax ?? Number.NEGATIVE_INFINITY,
         screenSpaceErrorPixels,
       );
-      const result = { visible: true, screenSpaceErrorPixels };
+      const result = { visible: true, screenSpaceErrorPixels, influence };
       evaluations.set(node.node.key, result);
       return result;
     };
@@ -570,19 +600,48 @@ export class NodeSelector {
 
     const toPrioritised = (node: StreamingHierarchyNode): PrioritisedNode => {
       const evaluation = evaluations.get(node.node.key) ?? evaluate(node);
-      const centerWeight = calculateCenterWeightForProjection(node, gazeProjection);
       return {
         node,
         screenSpaceErrorPixels: evaluation.screenSpaceErrorPixels,
-        centerWeight,
-        priority: evaluation.screenSpaceErrorPixels *
-          (1 + DEFAULT_CENTER_PRIORITY_BOOST * centerWeight),
+        influence: evaluation.influence,
+        centerWeight: evaluation.influence.gazeWeight,
+        priority: evaluation.influence.effectiveScreenSpaceError,
         boundsDistanceMeters: calculateBoundsDistanceMeters(camera, node),
         wasPreviouslySelected: context.previousSelectedNodeKeys?.has(node.node.key) ?? false,
         wasPreviouslyRefined: hasPreviouslyRefinedDescendant(node),
         isCached: context.isNodeCached?.(node.node.key) ?? false,
         pointCost: getNodePointCost(node),
       };
+    };
+
+    const recordCandidateInfluence = (candidate: PrioritisedNode): void => {
+      const { influence } = candidate;
+      this.lastSelectionMetrics.effectiveScreenSpaceErrorMin = Math.min(
+        this.lastSelectionMetrics.effectiveScreenSpaceErrorMin
+          ?? Number.POSITIVE_INFINITY,
+        influence.effectiveScreenSpaceError,
+      );
+      this.lastSelectionMetrics.effectiveScreenSpaceErrorMax = Math.max(
+        this.lastSelectionMetrics.effectiveScreenSpaceErrorMax
+          ?? Number.NEGATIVE_INFINITY,
+        influence.effectiveScreenSpaceError,
+      );
+      this.lastSelectionMetrics.detailBiasMin = Math.min(
+        this.lastSelectionMetrics.detailBiasMin ?? Number.POSITIVE_INFINITY,
+        influence.detailBias,
+      );
+      this.lastSelectionMetrics.detailBiasMax = Math.max(
+        this.lastSelectionMetrics.detailBiasMax ?? Number.NEGATIVE_INFINITY,
+        influence.detailBias,
+      );
+      if (influence.combinedWeight > 0) {
+        this.lastSelectionMetrics.candidatesWithNonZeroInfluenceCount =
+          (this.lastSelectionMetrics.candidatesWithNonZeroInfluenceCount ?? 0) + 1;
+      }
+      if (influence.wasClamped) {
+        this.lastSelectionMetrics.influenceClampCount =
+          (this.lastSelectionMetrics.influenceClampCount ?? 0) + 1;
+      }
     };
 
     if (!fallbackUsed) {
@@ -601,10 +660,11 @@ export class NodeSelector {
         }
 
         const prioritised = toPrioritised(parent);
+        recordCandidateInfluence(prioritised);
         const decision = shouldRefine(
           parent,
           this.options,
-          evaluation.screenSpaceErrorPixels,
+          prioritised.influence.effectiveScreenSpaceError,
           prioritised.wasPreviouslyRefined,
         );
         const hasPreviousState = prioritised.wasPreviouslySelected
@@ -729,6 +789,10 @@ export class NodeSelector {
           this.lastSelectionMetrics.acceptedRefinementPriorityMax ?? Number.NEGATIVE_INFINITY,
           candidate.priority,
         );
+        if (candidate.influence.gazeWeight > 0) {
+          this.lastSelectionMetrics.acceptedGazeInfluencedRefinementCount =
+            (this.lastSelectionMetrics.acceptedGazeInfluencedRefinementCount ?? 0) + 1;
+        }
 
         for (const child of candidate.replacement) {
           enqueue(child);

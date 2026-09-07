@@ -16,6 +16,10 @@ import {
   createPerspectiveViewFrustum,
   intersectsViewFrustum,
 } from '../src/viewer/streaming/view.ts';
+import {
+  calculateRefinementInfluence,
+  DEFAULT_MAX_REFINEMENT_DETAIL_BIAS,
+} from '../src/viewer/streaming/refinementInfluence.ts';
 import { StreamingManager } from '../src/viewer/streaming/StreamingManager.ts';
 import { createStreamingWorkBatches } from '../src/viewer/streaming/scheduler.ts';
 
@@ -1042,6 +1046,118 @@ test('gaze priority lets a centre candidate beat a modestly stronger peripheral 
   assert.equal(selector.getSelectionMetrics().acceptedRefinementCount, 1);
   assert.equal(selector.getSelectionMetrics().candidatesWithCenterBoostCount, 2);
   assert.equal(DEFAULT_CENTER_PRIORITY_BOOST, 0.25);
+});
+
+test('passive centre influence can make a near-threshold candidate refinable', () => {
+  const camera = createProjectionCamera({ height: 1000 });
+  const selector = createSelector({ maxRenderedPoints: 200 });
+  const hierarchy = createThresholdHierarchy(8.5, camera);
+  hierarchy.get('0-threshold-root').boundingSphere = {
+    center: { x: 0, y: 0, z: 5 },
+    radiusMeters: 0.1,
+  };
+
+  assert.deepEqual(
+    selector.selectVisibleNodes(camera, hierarchy).map((node) => node.node.key),
+    ['1-threshold-child'],
+  );
+  const metrics = selector.getSelectionMetrics();
+  assert.equal(metrics.screenSpaceErrorMin, 8.5);
+  assert.ok(metrics.effectiveScreenSpaceErrorMin > 9);
+  assert.equal(metrics.detailBiasMax, DEFAULT_MAX_REFINEMENT_DETAIL_BIAS);
+  assert.equal(metrics.acceptedGazeInfluencedRefinementCount, 1);
+});
+
+test('an equivalent peripheral candidate remains coarse without centre influence', () => {
+  const camera = createProjectionCamera({ height: 1000 });
+  const selector = createSelector({ maxRenderedPoints: 200 });
+  const hierarchy = createThresholdHierarchy(8.5, camera);
+  hierarchy.get('0-threshold-root').boundingSphere = {
+    center: { x: 2.8, y: 0, z: 5 },
+    radiusMeters: 0,
+  };
+
+  assert.deepEqual(
+    selector.selectVisibleNodes(camera, hierarchy).map((node) => node.node.key),
+    ['0-threshold-root'],
+  );
+  const metrics = selector.getSelectionMetrics();
+  assert.ok(metrics.effectiveScreenSpaceErrorMax < 9);
+  assert.equal(metrics.acceptedGazeInfluencedRefinementCount, 0);
+});
+
+test('effective centre pressure uses the same hysteresis for hold and collapse', () => {
+  const camera = createProjectionCamera({ height: 1000 });
+  const selector = createSelector({ maxRenderedPoints: 200 });
+  const withCentreSphere = (desiredSse) => {
+    const hierarchy = createThresholdHierarchy(desiredSse, camera);
+    hierarchy.get('0-threshold-root').boundingSphere = {
+      center: { x: 0, y: 0, z: 5 },
+      radiusMeters: 0.1,
+    };
+    return hierarchy;
+  };
+
+  assert.deepEqual(
+    selector.selectVisibleNodes(camera, withCentreSphere(8.5))
+      .map((node) => node.node.key),
+    ['1-threshold-child'],
+  );
+  assert.deepEqual(
+    selector.selectVisibleNodes(camera, withCentreSphere(6.5), {
+      previousSelectedNodeKeys: new Set(['1-threshold-child']),
+    }).map((node) => node.node.key),
+    ['1-threshold-child'],
+  );
+  assert.equal(selector.getSelectionMetrics().hysteresisHoldCount, 1);
+  assert.deepEqual(
+    selector.selectVisibleNodes(camera, withCentreSphere(5.5), {
+      previousSelectedNodeKeys: new Set(['1-threshold-child']),
+    }).map((node) => node.node.key),
+    ['0-threshold-root'],
+  );
+  assert.equal(selector.getSelectionMetrics().collapseDecisionCount, 1);
+});
+
+test('refinement influence is finite, monotonic, and globally bounded', () => {
+  const uninfluenced = calculateRefinementInfluence({
+    rawScreenSpaceError: 10,
+  });
+  const centre = calculateRefinementInfluence({
+    rawScreenSpaceError: 10,
+    gazeWeight: 1,
+  });
+  const combined = calculateRefinementInfluence({
+    rawScreenSpaceError: 10,
+    gazeWeight: 1,
+    manualFocusWeight: 1,
+    motionWeight: 1,
+  });
+  const invalid = calculateRefinementInfluence({
+    rawScreenSpaceError: Number.NaN,
+    gazeWeight: Number.POSITIVE_INFINITY,
+  });
+  const huge = calculateRefinementInfluence({
+    rawScreenSpaceError: Number.MAX_VALUE,
+    gazeWeight: 1,
+  });
+
+  assert.equal(uninfluenced.effectiveScreenSpaceError, 10);
+  assert.equal(centre.detailBias, DEFAULT_MAX_REFINEMENT_DETAIL_BIAS);
+  assert.equal(combined.detailBias, DEFAULT_MAX_REFINEMENT_DETAIL_BIAS);
+  assert.ok(combined.effectiveScreenSpaceError <= 12.5);
+  assert.deepEqual(invalid, {
+    gazeWeight: 0,
+    manualFocusWeight: 0,
+    motionWeight: 0,
+    combinedWeight: 0,
+    detailBias: 1,
+    rawScreenSpaceError: 0,
+    effectiveScreenSpaceError: 0,
+    wasClamped: true,
+  });
+  assert.equal(huge.effectiveScreenSpaceError, Number.MAX_VALUE);
+  assert.equal(huge.wasClamped, true);
 });
 
 test('a very large peripheral SSE still beats a low-error centre candidate', () => {

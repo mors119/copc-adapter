@@ -109,6 +109,8 @@ export type CopcStreamingPerformanceSnapshot = Pick<
   | 'maxScreenSpaceError'
   | 'screenSpaceErrorMin'
   | 'screenSpaceErrorMax'
+  | 'effectiveScreenSpaceErrorMin'
+  | 'effectiveScreenSpaceErrorMax'
   | 'refinedNodeCount'
   | 'keptNodeCount'
   | 'frontierNodeCount'
@@ -121,6 +123,11 @@ export type CopcStreamingPerformanceSnapshot = Pick<
   | 'minimumFrontierExceedsPointBudget'
   | 'centerWeightMin'
   | 'centerWeightMax'
+  | 'detailBiasMin'
+  | 'detailBiasMax'
+  | 'candidatesWithNonZeroInfluenceCount'
+  | 'acceptedGazeInfluencedRefinementCount'
+  | 'influenceClampCount'
   | 'acceptedRefinementPriorityMin'
   | 'acceptedRefinementPriorityMax'
   | 'candidatesWithCenterBoostCount'
@@ -710,6 +717,12 @@ export class CopcStreamingCore {
       ...(snapshot.screenSpaceErrorMax === undefined
         ? {}
         : { screenSpaceErrorMax: snapshot.screenSpaceErrorMax }),
+      ...(snapshot.effectiveScreenSpaceErrorMin === undefined
+        ? {}
+        : { effectiveScreenSpaceErrorMin: snapshot.effectiveScreenSpaceErrorMin }),
+      ...(snapshot.effectiveScreenSpaceErrorMax === undefined
+        ? {}
+        : { effectiveScreenSpaceErrorMax: snapshot.effectiveScreenSpaceErrorMax }),
       ...(snapshot.visibleLevelRange === undefined
         ? {}
         : { visibleLevelRange: snapshot.visibleLevelRange }),
@@ -722,6 +735,21 @@ export class CopcStreamingCore {
       ...(snapshot.centerWeightMax === undefined
         ? {}
         : { centerWeightMax: snapshot.centerWeightMax }),
+      ...(snapshot.detailBiasMin === undefined
+        ? {}
+        : { detailBiasMin: snapshot.detailBiasMin }),
+      ...(snapshot.detailBiasMax === undefined
+        ? {}
+        : { detailBiasMax: snapshot.detailBiasMax }),
+      ...(snapshot.candidatesWithNonZeroInfluenceCount === undefined
+        ? {}
+        : { candidatesWithNonZeroInfluenceCount: snapshot.candidatesWithNonZeroInfluenceCount }),
+      ...(snapshot.acceptedGazeInfluencedRefinementCount === undefined
+        ? {}
+        : { acceptedGazeInfluencedRefinementCount: snapshot.acceptedGazeInfluencedRefinementCount }),
+      ...(snapshot.influenceClampCount === undefined
+        ? {}
+        : { influenceClampCount: snapshot.influenceClampCount }),
       ...(snapshot.acceptedRefinementPriorityMin === undefined
         ? {}
         : { acceptedRefinementPriorityMin: snapshot.acceptedRefinementPriorityMin }),

@@ -36,12 +36,18 @@ export type CopcDebugPanelView = {
   frustumCulledCount: string;
   maxScreenSpaceError: string;
   representativeScreenSpaceError: string;
+  effectiveScreenSpaceError: string;
+  detailBias: string;
+  influenceCandidates: string;
+  gazeInfluencedRefinements: string;
   refinedNodeCount: string;
   keptNodeCount: string;
   frontierNodeCount: string;
   frontierPointCount: string;
   acceptedRefinementCount: string;
   refinementRejectedByBudget: string;
+  refinementRejectedByNodeBudget: string;
+  refinementRejectedByPointBudget: string;
   refinementDeferredByIncompleteHierarchyCount: string;
   impossibleMinimumFrontier: string;
   visibleLevelRange: string;
@@ -166,6 +172,22 @@ export function buildCopcDebugPanelView(
       && snapshot.performance?.screenSpaceErrorMax !== undefined
         ? `${formatCoordinate(snapshot.performance.screenSpaceErrorMin)}–${formatCoordinate(snapshot.performance.screenSpaceErrorMax)} px`
         : '—',
+    effectiveScreenSpaceError:
+      snapshot.performance?.effectiveScreenSpaceErrorMin !== undefined
+      && snapshot.performance?.effectiveScreenSpaceErrorMax !== undefined
+        ? `${formatCoordinate(snapshot.performance.effectiveScreenSpaceErrorMin)}–${formatCoordinate(snapshot.performance.effectiveScreenSpaceErrorMax)} px`
+        : '—',
+    detailBias:
+      snapshot.performance?.detailBiasMin !== undefined
+      && snapshot.performance?.detailBiasMax !== undefined
+        ? `${formatCoordinate(snapshot.performance.detailBiasMin)}–${formatCoordinate(snapshot.performance.detailBiasMax)}×`
+        : '—',
+    influenceCandidates: formatNumber(
+      snapshot.performance?.candidatesWithNonZeroInfluenceCount ?? 0,
+    ),
+    gazeInfluencedRefinements: formatNumber(
+      snapshot.performance?.acceptedGazeInfluencedRefinementCount ?? 0,
+    ),
     refinedNodeCount: formatNumber(snapshot.performance?.refinedNodeCount ?? 0),
     keptNodeCount: formatNumber(snapshot.performance?.keptNodeCount ?? 0),
     frontierNodeCount: formatNumber(snapshot.performance?.frontierNodeCount ?? 0),
@@ -174,6 +196,12 @@ export function buildCopcDebugPanelView(
     refinementRejectedByBudget: formatNumber(
       (snapshot.performance?.refinementRejectedByNodeBudgetCount ?? 0)
       + (snapshot.performance?.refinementRejectedByPointBudgetCount ?? 0),
+    ),
+    refinementRejectedByNodeBudget: formatNumber(
+      snapshot.performance?.refinementRejectedByNodeBudgetCount ?? 0,
+    ),
+    refinementRejectedByPointBudget: formatNumber(
+      snapshot.performance?.refinementRejectedByPointBudgetCount ?? 0,
     ),
     refinementDeferredByIncompleteHierarchyCount: formatNumber(
       snapshot.performance?.refinementDeferredByIncompleteHierarchyCount ?? 0,
@@ -273,12 +301,18 @@ export function createCopcDebugPanel(
       <div><dt>Frustum culled</dt><dd data-field="frustumCulledCount"></dd></div>
       <div><dt>SSE threshold</dt><dd data-field="maxScreenSpaceError"></dd></div>
       <div><dt>SSE observed</dt><dd data-field="representativeScreenSpaceError"></dd></div>
+      <div><dt>Effective SSE</dt><dd data-field="effectiveScreenSpaceError"></dd></div>
+      <div><dt>Detail bias</dt><dd data-field="detailBias"></dd></div>
+      <div><dt>Influenced candidates</dt><dd data-field="influenceCandidates"></dd></div>
+      <div><dt>Gaze refinements</dt><dd data-field="gazeInfluencedRefinements"></dd></div>
       <div><dt>Nodes refined</dt><dd data-field="refinedNodeCount"></dd></div>
       <div><dt>Nodes kept</dt><dd data-field="keptNodeCount"></dd></div>
       <div><dt>Frontier nodes</dt><dd data-field="frontierNodeCount"></dd></div>
       <div><dt>Frontier points</dt><dd data-field="frontierPointCount"></dd></div>
       <div><dt>Refinements accepted</dt><dd data-field="acceptedRefinementCount"></dd></div>
       <div><dt>Refinements rejected</dt><dd data-field="refinementRejectedByBudget"></dd></div>
+      <div><dt>Rejected by node budget</dt><dd data-field="refinementRejectedByNodeBudget"></dd></div>
+      <div><dt>Rejected by point budget</dt><dd data-field="refinementRejectedByPointBudget"></dd></div>
       <div><dt>Hierarchy deferred</dt><dd data-field="refinementDeferredByIncompleteHierarchyCount"></dd></div>
       <div><dt>Minimum frontier over budget</dt><dd data-field="impossibleMinimumFrontier"></dd></div>
       <div><dt>Visible levels</dt><dd data-field="visibleLevelRange"></dd></div>
