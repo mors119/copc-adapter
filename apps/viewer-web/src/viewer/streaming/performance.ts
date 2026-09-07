@@ -22,6 +22,8 @@ export type StreamingPerformanceSnapshot = {
   maxScreenSpaceError: number;
   screenSpaceErrorMin?: number;
   screenSpaceErrorMax?: number;
+  effectiveScreenSpaceErrorMin?: number;
+  effectiveScreenSpaceErrorMax?: number;
   refinedNodeCount: number;
   keptNodeCount: number;
   frontierNodeCount: number;
@@ -34,6 +36,11 @@ export type StreamingPerformanceSnapshot = {
   minimumFrontierExceedsPointBudget: boolean;
   centerWeightMin?: number;
   centerWeightMax?: number;
+  detailBiasMin?: number;
+  detailBiasMax?: number;
+  candidatesWithNonZeroInfluenceCount?: number;
+  acceptedGazeInfluencedRefinementCount?: number;
+  influenceClampCount?: number;
   acceptedRefinementPriorityMin?: number;
   acceptedRefinementPriorityMax?: number;
   candidatesWithCenterBoostCount?: number;
@@ -150,6 +157,8 @@ export class StreamingPerformanceRecorder {
     this.snapshot.maxScreenSpaceError = metrics.maxScreenSpaceError;
     this.snapshot.screenSpaceErrorMin = metrics.screenSpaceErrorMin;
     this.snapshot.screenSpaceErrorMax = metrics.screenSpaceErrorMax;
+    this.snapshot.effectiveScreenSpaceErrorMin = metrics.effectiveScreenSpaceErrorMin;
+    this.snapshot.effectiveScreenSpaceErrorMax = metrics.effectiveScreenSpaceErrorMax;
     this.snapshot.refinedNodeCount = metrics.refinedNodeCount;
     this.snapshot.keptNodeCount = metrics.keptNodeCount;
     this.snapshot.frontierNodeCount = metrics.frontierNodeCount ?? 0;
@@ -162,6 +171,13 @@ export class StreamingPerformanceRecorder {
     this.snapshot.minimumFrontierExceedsPointBudget = metrics.minimumFrontierExceedsPointBudget ?? false;
     this.snapshot.centerWeightMin = metrics.centerWeightMin;
     this.snapshot.centerWeightMax = metrics.centerWeightMax;
+    this.snapshot.detailBiasMin = metrics.detailBiasMin;
+    this.snapshot.detailBiasMax = metrics.detailBiasMax;
+    this.snapshot.candidatesWithNonZeroInfluenceCount =
+      metrics.candidatesWithNonZeroInfluenceCount ?? 0;
+    this.snapshot.acceptedGazeInfluencedRefinementCount =
+      metrics.acceptedGazeInfluencedRefinementCount ?? 0;
+    this.snapshot.influenceClampCount = metrics.influenceClampCount ?? 0;
     this.snapshot.acceptedRefinementPriorityMin = metrics.acceptedRefinementPriorityMin;
     this.snapshot.acceptedRefinementPriorityMax = metrics.acceptedRefinementPriorityMax;
     this.snapshot.candidatesWithCenterBoostCount = metrics.candidatesWithCenterBoostCount ?? 0;

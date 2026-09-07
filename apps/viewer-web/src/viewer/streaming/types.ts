@@ -87,6 +87,8 @@ export type StreamingSelectionMetrics = {
   maxScreenSpaceError: number;
   screenSpaceErrorMin?: number;
   screenSpaceErrorMax?: number;
+  effectiveScreenSpaceErrorMin?: number;
+  effectiveScreenSpaceErrorMax?: number;
   refinedNodeCount: number;
   keptNodeCount: number;
   /** Estimated points in the minimum coarse frontier before impossible-budget handling. */
@@ -108,6 +110,11 @@ export type StreamingSelectionMetrics = {
   minimumFrontierExceedsPointBudget?: boolean;
   centerWeightMin?: number;
   centerWeightMax?: number;
+  detailBiasMin?: number;
+  detailBiasMax?: number;
+  candidatesWithNonZeroInfluenceCount?: number;
+  acceptedGazeInfluencedRefinementCount?: number;
+  influenceClampCount?: number;
   acceptedRefinementPriorityMin?: number;
   acceptedRefinementPriorityMax?: number;
   candidatesWithCenterBoostCount?: number;

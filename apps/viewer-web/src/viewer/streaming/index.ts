@@ -18,6 +18,14 @@ export {
   CopcStreamingController,
 } from './CopcStreamingController';
 export { compareNodePriority } from './NodeSelector';
+export {
+  calculateRefinementInfluence,
+  DEFAULT_MAX_REFINEMENT_DETAIL_BIAS,
+} from './refinementInfluence';
+export type {
+  RefinementInfluence,
+  RefinementInfluenceInput,
+} from './refinementInfluence';
 export { createStreamingWorkBatches, yieldToBrowser } from './scheduler';
 export { StreamingPerformanceRecorder } from './performance';
 export {

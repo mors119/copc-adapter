@@ -16,6 +16,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 - Marked the Cesium peer optional at the package level and added an optional
   Three.js peer so the renderer subpath does not impose an unused renderer.
+- Generalized passive screen-centre refinement into a bounded influence model
+  that applies to effective SSE, ordering, and aggregate selection diagnostics.
 
 ## [0.3.0] - 2026-08-31
 

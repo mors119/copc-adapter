@@ -268,8 +268,10 @@ The selector starts from a visible coarse frontier and purchases finer
 replacement nodes only when the `maxNodes` and `maxRenderedPoints` workload
 limits permit the complete replacement. This produces a mixed-LoD frontier
 that keeps valid coarse coverage instead of leaving sparse high-detail
-islands. Higher-detail nodes are ranked primarily by projected error, with a
-bounded screen-centre priority boost when perspective data is available.
+islands. Higher-detail nodes use a bounded refinement-influence model when
+perspective data is available: the screen-centre signal can raise effective
+refinement pressure as well as budget ordering, while raw projected error
+remains the authority for large visual differences.
 
 Ready finer nodes replace their coarse ancestors only after they are prepared;
 fine-to-coarse collapse is also coverage-safe. A newer camera generation
@@ -284,8 +286,9 @@ refines while the result exceeds `streaming.maxScreenSpaceError` (default `8`
 pixels). The default state-aware hold band is 7–9 pixels: a previously coarse
 branch waits for 9 pixels before refining, while a previously refined branch
 is retained until its error falls below 7 pixels. Screen-centre relevance adds
-at most a bounded 25% priority boost after SSE, so a large peripheral error can
-still win. The adapter's geometric scale is `max(rootSpacing / 2^level,
+at most a bounded 25% detail bias to effective SSE, so a near-threshold centre
+candidate can request more detail but a large peripheral error can still win.
+The adapter's geometric scale is `max(rootSpacing / 2^level,
 nodeExtent / 2)` in metres: COPC defines root spacing as the space between
 points at level zero and halves it at each octree level; the extent term is a
 conservative proxy for unresolved geometry when no per-node error metadata
