@@ -135,7 +135,7 @@ function benchmarkJavaScript(fixture) {
 }
 
 function benchmarkNative() {
-  return execFileSync('cargo', ['run', '-q', '-p', 'crs-audit', '--', '--benchmark'], {
+  return execFileSync('cargo', ['run', '-q', '-p', 'crs-audit', '--release', '--', '--benchmark'], {
     cwd: repositoryDirectory,
     encoding: 'utf8',
   }).trim().split('\n').filter(Boolean).map((line) => JSON.parse(line));
@@ -146,11 +146,9 @@ async function benchmarkWasm() {
     repositoryDirectory,
     'target/wasm32-unknown-unknown/release/crs_audit.wasm',
   );
-  if (!fs.existsSync(wasmPath)) {
-    execFileSync('cargo', [
-      'build', '-p', 'crs-audit', '--target', 'wasm32-unknown-unknown', '--release',
-    ], { cwd: repositoryDirectory, stdio: 'inherit' });
-  }
+  execFileSync('cargo', [
+    'build', '-p', 'crs-audit', '--target', 'wasm32-unknown-unknown', '--release',
+  ], { cwd: repositoryDirectory, stdio: 'inherit' });
   const outputDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'copc-adapter-crs-wasm-'));
   execFileSync('wasm-bindgen', [wasmPath, '--target', 'nodejs', '--out-dir', outputDirectory], {
     cwd: repositoryDirectory,

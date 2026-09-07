@@ -131,6 +131,9 @@ their normal per-point output-array creation; the WASM call also copies a
 Allocator-level counts were not instrumented; the recorded allocation fact is
 the output buffer size, and the benchmark includes the output allocation in
 the transform wall time.
+The native Rust benchmark runs with Cargo's `--release` profile, and the WASM
+benchmark invokes the release build on every run so Cargo can refresh a stale
+artifact before it is measured.
 
 Hardware/runtime context: Apple Mac14,15, arm64, 8 CPU cores; Node.js
 `v26.7.0`; Rust `1.92.0`; `proj4js 2.22.0`; `proj4rs 0.1.10`; `proj4wkt 0.1.1`.
@@ -138,28 +141,29 @@ The numbers are a local audit snapshot, not a release performance guarantee.
 
 | Fixture | Points | `proj4js` (ms) | native Rust (ms) | Rust/WASM (ms) |
 | --- | ---: | ---: | ---: | ---: |
-| Autzen LCC | 10k | 34.8 | 65.2 | 45.0 |
-| Autzen LCC | 100k | 282.3 | 468.9 | 423.8 |
-| Autzen LCC | 250k | 699.8 | 1,151.4 | 1,064.5 |
-| Autzen LCC | 500k | 1,404.3 | 2,311.2 | 2,146.1 |
-| SoFi UTM | 10k | 21.3 | 41.1 | 18.4 |
-| SoFi UTM | 100k | 196.0 | 403.4 | 183.7 |
-| SoFi UTM | 250k | 503.2 | 999.2 | 445.8 |
-| SoFi UTM | 500k | 988.0 | 2,009.4 | 894.9 |
+| Autzen LCC | 10k | 40.3 | 47.6 | 45.4 |
+| Autzen LCC | 100k | 316.1 | 245.1 | 429.8 |
+| Autzen LCC | 250k | 783.8 | 593.3 | 1,070.9 |
+| Autzen LCC | 500k | 1,651.2 | 1,191.5 | 2,145.5 |
+| SoFi UTM | 10k | 24.2 | 11.4 | 18.6 |
+| SoFi UTM | 100k | 228.6 | 115.0 | 180.7 |
+| SoFi UTM | 250k | 589.2 | 287.7 | 454.0 |
+| SoFi UTM | 500k | 1,164.3 | 576.6 | 939.3 |
 
 Initialization was measured separately from the repeated transform loop:
 
 | Pipeline | Initialization observation |
 | --- | --- |
-| `proj4js` | 0.33–0.39 ms per projection construction |
-| native Rust | 0.20–1.14 ms per construction |
-| Rust/WASM transformer | 0.10–0.15 ms after module startup; first Autzen constructor was 3.39 ms in this Node run |
+| `proj4js` | 0.43–0.59 ms per projection construction |
+| native Rust | 0.01–0.24 ms per construction |
+| Rust/WASM transformer | 0.10–0.25 ms after module startup; first Autzen constructor was 3.47 ms in this Node run |
 
-The candidate does not win every raw transform benchmark. Native Rust was slower
-than `proj4js` in this point loop; WASM was similar for Autzen and faster for
-SoFi. A Worker/fused decode+CRS path may still reduce main-thread work and
-boundary crossings, but this audit does not justify claiming a raw throughput
-win or changing the runtime dependency by itself.
+The candidate does not win every raw transform benchmark. Native Rust was
+slightly slower than `proj4js` for the smallest Autzen run but faster at the
+larger sizes and for SoFi; WASM was slower for Autzen and faster for SoFi. A
+Worker/fused decode+CRS path may still reduce main-thread work and boundary
+crossings, but this audit does not justify changing the runtime dependency by
+itself.
 
 ## WASM and resource checks
 
