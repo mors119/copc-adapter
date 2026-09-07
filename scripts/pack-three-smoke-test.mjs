@@ -102,6 +102,8 @@ try {
     'package/package.json',
     'package/dist/index.js',
     'package/dist/index.d.ts',
+    'package/dist/cesium.js',
+    'package/dist/cesium.d.ts',
     'package/dist/three.js',
     'package/dist/three.d.ts',
     'package/dist/copc_wasm.wasm',
@@ -138,6 +140,12 @@ try {
   const installedPackage = JSON.parse(
     await readFile(path.resolve(installedPackageDirectory, 'package.json'), 'utf8'),
   );
+  if (!installedPackage.exports?.['.']) {
+    throw new Error('Clean consumer package is missing the root export');
+  }
+  if (!installedPackage.exports?.['./cesium']) {
+    throw new Error('Clean consumer package is missing the ./cesium export');
+  }
   if (!installedPackage.exports?.['./three']) {
     throw new Error('Clean consumer package is missing the ./three export');
   }

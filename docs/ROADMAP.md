@@ -2,8 +2,8 @@
 
 ## Project Goal
 
-> Load COPC data directly in CesiumJS and visualize selected point-cloud chunks
-> in the browser without a preprocessing conversion step.
+> Load COPC data directly in CesiumJS or Three.js and visualize selected
+> point-cloud chunks in the browser without a preprocessing conversion step.
 
 ## Current MVP
 
@@ -14,12 +14,13 @@
 | Point data | Implemented | XYZ plus available intensity, classification, and RGB dimensions converted to project-owned typed buffers |
 | Coordinate transformation | Implemented | COPC CRS values transformed to WGS84 coordinates |
 | Cesium rendering | Implemented | Point primitive collections rendered in a Cesium viewer |
+| Three.js rendering | Implemented | Node-owned `THREE.Points` objects rendered in a caller-owned scene |
 | Point styling | Implemented | Fixed cyan, elevation, RGB, intensity, and classification modes with missing-attribute fallback |
 | Streaming | Implemented | Incremental view-driven hierarchy loading, perspective frustum/SSE selection, coverage-preserving mixed-LoD frontier, gaze priority, hysteresis, and bounded node/point workload |
 | Renderer transitions | Implemented | Coverage-safe coarse-to-fine and fine-to-coarse replacement with stale-generation suppression |
 | Public API | Implemented | `CopcCesiumLayer` load, attach, detach, unload, reload, and destroy lifecycle |
 | WASM decoder | Implemented | Rust/WASM LAS 1.4 point 6/7/8 node decoding with selected project-owned attributes |
-| ESM package build | Implemented | Packed ESM bundle, declarations, package-local WASM assets, and Cesium peer dependency |
+| ESM package build | Implemented | Packed ESM bundle, root/Cesium/Three declarations and entries, shared package-local WASM assets, and optional renderer peers |
 
 ## Known Gaps
 

@@ -8,6 +8,7 @@ Use a renderer subpath export in the existing package:
 
 ```text
 @frillab/copc-adapter       -> existing Cesium-compatible entrypoint
+@frillab/copc-adapter/cesium -> explicit Cesium entrypoint (added by #164)
 @frillab/copc-adapter/three -> renderer-neutral entrypoint for Three.js work
 ```
 
@@ -22,11 +23,11 @@ and preserves the existing root import.
 | Criterion | Result | Evidence |
 | --- | --- | --- |
 | Clean consumer ergonomics | PASS | `npm install @frillab/copc-adapter three`, then import `@frillab/copc-adapter/three` |
-| No mandatory unused renderer | PASS | `cesium` and `three` are optional peers; the Three fixture installs no Cesium |
+| No mandatory unused renderer | PASS | `cesium` and `three` are optional peers; the Three fixture installs no Cesium and the Cesium fixture installs no Three.js |
 | No duplicated COPC core | PASS | `three.ts` references the existing backend, coordinate, and streaming modules; no Three-specific copy exists |
-| Existing Cesium compatibility | PASS | Root `.` export and `CopcCesiumLayer` remain unchanged |
+| Existing Cesium compatibility | PASS | Root `.` export and `CopcCesiumLayer` remain supported; `/cesium` is also available explicitly |
 | Vite compatibility | PASS | Clean packed Three/Vite fixture builds using default dependency resolution |
-| TypeScript declarations | PASS | Library build emits `dist/three.d.ts` and the export maps it from `./three` |
+| TypeScript declarations | PASS | Library build emits `dist/cesium.d.ts` and `dist/three.d.ts`, mapped from their renderer subpaths |
 | Package-owned assets | PASS | The multi-entry build finalizes shared COPC WASM, LAZ WASM, and Worker assets once for both entries |
 | Release maintenance | PASS | One package and one version remain; only the public export map and peer metadata expand |
 

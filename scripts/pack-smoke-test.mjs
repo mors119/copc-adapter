@@ -91,6 +91,8 @@ try {
     'package/LICENSE',
     'package/dist/index.js',
     'package/dist/index.d.ts',
+    'package/dist/cesium.js',
+    'package/dist/cesium.d.ts',
     'package/dist/copc_wasm.wasm',
     'package/dist/laz-perf.wasm',
     'package/dist/copcWasmAsset.js',
@@ -180,13 +182,67 @@ try {
     'node_modules/@frillab/copc-adapter',
   );
   const installedEntries = await readdir(path.resolve(installedPackageDirectory, 'dist'));
-  if (!installedEntries.includes('index.js')) {
-    throw new Error('Clean consumer did not install the packed package by name');
+  for (const requiredEntry of [
+    'index.js',
+    'index.d.ts',
+    'cesium.js',
+    'cesium.d.ts',
+    'three.js',
+    'three.d.ts',
+  ]) {
+    if (!installedEntries.includes(requiredEntry)) {
+      throw new Error(`Clean consumer did not install dist/${requiredEntry}`);
+    }
   }
 
-  console.log('Building the clean consumer production bundle...');
+  const installedPackage = JSON.parse(
+    await readFile(path.resolve(installedPackageDirectory, 'package.json'), 'utf8'),
+  );
+  for (const exportPath of ['.', './cesium', './three']) {
+    if (!installedPackage.exports?.[exportPath]) {
+      throw new Error(`Clean consumer package is missing the ${exportPath} export`);
+    }
+  }
+  if (!installedPackage.peerDependenciesMeta?.cesium?.optional) {
+    throw new Error('Cesium peer must be optional at the combined package boundary');
+  }
+  if (!installedPackage.peerDependenciesMeta?.three?.optional) {
+    throw new Error('Three.js peer must be optional at the combined package boundary');
+  }
+  if (!installedPackage.keywords?.includes('cesiumjs')
+    || !installedPackage.keywords?.includes('threejs')) {
+    throw new Error('Packed metadata must name both CesiumJS and Three.js');
+  }
+
+  const cesiumDeclaration = await readFile(
+    path.resolve(installedPackageDirectory, 'dist/cesium.d.ts'),
+    'utf8',
+  );
+  if (/(?:from|import)\s+['"][^'"]*three/u.test(cesiumDeclaration)) {
+    throw new Error('Cesium declarations contain a Three.js module reference');
+  }
+  const threeDeclaration = await readFile(
+    path.resolve(installedPackageDirectory, 'dist/three.d.ts'),
+    'utf8',
+  );
+  if (/(?:from|import)\s+['"][^'"]*cesium/u.test(threeDeclaration)) {
+    throw new Error('Three declarations contain a Cesium module reference');
+  }
+  const cesiumEntrySource = await readFile(
+    path.resolve(installedPackageDirectory, 'dist/cesium.js'),
+    'utf8',
+  );
+  if (/three/iu.test(cesiumEntrySource)) {
+    throw new Error('Cesium entry contains a Three.js module reference');
+  }
+  if (existsSync(path.resolve(consumerDirectory, 'node_modules/three'))) {
+    throw new Error('Cesium-only consumer unexpectedly installed Three.js');
+  }
+
+  console.log('Building the clean root Cesium consumer production bundle...');
   await run(npmCommand(), ['run', 'build'], {
     cwd: consumerDirectory,
+    env: { CONSUMER_ENTRY: 'root' },
     stdio: 'inherit',
   });
   const consumerAssetEntries = await readdir(path.resolve(consumerDirectory, 'dist/assets'));
@@ -215,14 +271,47 @@ try {
   }
   await run(npmCommand(), ['run', 'test:e2e'], {
     cwd: consumerDirectory,
-    env: { CONSUMER_MODE: 'production', CONSUMER_PORT: '4174' },
+    env: {
+      CONSUMER_ENTRY: 'root',
+      CONSUMER_MODE: 'production',
+      CONSUMER_PORT: '4174',
+    },
+    stdio: 'inherit',
+  });
+
+  console.log('Building and serving the explicit Cesium consumer entrypoint...');
+  await run(npmCommand(), ['run', 'build'], {
+    cwd: consumerDirectory,
+    env: { CONSUMER_ENTRY: 'cesium' },
+    stdio: 'inherit',
+  });
+  const explicitConsumerAssetEntries = await readdir(
+    path.resolve(consumerDirectory, 'dist/assets'),
+  );
+  if (!explicitConsumerAssetEntries.some((entry) => entry.startsWith('copc_wasm-') && entry.endsWith('.wasm'))) {
+    throw new Error('Explicit Cesium consumer build did not emit the Rust WASM asset');
+  }
+  if (!explicitConsumerAssetEntries.some((entry) => entry.startsWith('laz-perf-') && entry.endsWith('.wasm'))) {
+    throw new Error('Explicit Cesium consumer build did not emit the LAZ runtime asset');
+  }
+  await run(npmCommand(), ['run', 'test:e2e'], {
+    cwd: consumerDirectory,
+    env: {
+      CONSUMER_ENTRY: 'cesium',
+      CONSUMER_MODE: 'production',
+      CONSUMER_PORT: '4176',
+    },
     stdio: 'inherit',
   });
 
   console.log('Serving the development bundle with Vite dependency optimization and running Chromium E2E...');
   await run(npmCommand(), ['run', 'test:e2e'], {
     cwd: consumerDirectory,
-    env: { CONSUMER_MODE: 'dev', CONSUMER_PORT: '4175' },
+    env: {
+      CONSUMER_ENTRY: 'root',
+      CONSUMER_MODE: 'dev',
+      CONSUMER_PORT: '4175',
+    },
     stdio: 'inherit',
   });
 

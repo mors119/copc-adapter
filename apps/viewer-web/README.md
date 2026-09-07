@@ -1,8 +1,8 @@
 # @frillab/copc-adapter
 
-`@frillab/copc-adapter` streams COPC point clouds directly into a
-caller-owned CesiumJS `Viewer`. It uses HTTP Range requests and does not
-require preprocessing into Cesium 3D Tiles.
+`@frillab/copc-adapter` streams COPC point clouds directly into CesiumJS and
+Three.js through renderer-specific entrypoints. It uses HTTP Range requests
+and does not require preprocessing into renderer-specific tiles.
 
 ## Install
 
@@ -10,14 +10,15 @@ require preprocessing into Cesium 3D Tiles.
 npm install @frillab/copc-adapter cesium
 ```
 
-Cesium is a peer dependency. The package includes its browser decoder
-runtime assets, including the opt-in Rust/WASM backend assets.
+Cesium and Three.js are optional peer dependencies. Install only the renderer
+used by the application. The package includes its browser decoder runtime
+assets, including the opt-in Rust/WASM backend assets.
 
 ## Minimal usage
 
 ```ts
 import * as Cesium from 'cesium';
-import { CopcCesiumLayer } from '@frillab/copc-adapter';
+import { CopcCesiumLayer } from '@frillab/copc-adapter/cesium';
 
 const viewer = new Cesium.Viewer('cesium-container');
 const layer = new CopcCesiumLayer({
@@ -27,6 +28,23 @@ const layer = new CopcCesiumLayer({
 
 await layer.load();
 layer.attachTo(viewer);
+```
+
+The historical root import remains supported for existing Cesium consumers:
+
+```ts
+import { CopcCesiumLayer } from '@frillab/copc-adapter';
+```
+
+Three.js consumers install only the renderer they use and import the isolated
+Three.js entrypoint:
+
+```bash
+npm install @frillab/copc-adapter three
+```
+
+```ts
+import { CopcThreeLayer } from '@frillab/copc-adapter/three';
 ```
 
 The COPC URL must be browser-readable, support byte Range requests, and

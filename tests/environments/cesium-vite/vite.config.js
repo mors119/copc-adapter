@@ -3,6 +3,10 @@ import path from 'node:path';
 import cesium from 'vite-plugin-cesium';
 import { defineConfig } from 'vite';
 
+const adapterEntry = process.env.CONSUMER_ENTRY === 'cesium'
+  ? '@frillab/copc-adapter/cesium'
+  : '@frillab/copc-adapter';
+
 function sampleRangeMiddleware() {
   function serveRange(request, response, next) {
     if (!request.url?.startsWith('/samples/') || !request.headers.range) {
@@ -59,4 +63,9 @@ function sampleRangeMiddleware() {
 
 export default defineConfig({
   plugins: [sampleRangeMiddleware(), cesium()],
+  resolve: {
+    alias: {
+      '@packed-adapter': adapterEntry,
+    },
+  },
 });

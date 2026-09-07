@@ -18,6 +18,7 @@ export default defineConfig({
     lib: {
       entry: {
         index: 'src/index.ts',
+        cesium: 'src/cesium.ts',
         three: 'src/three.ts',
       },
       formats: ['es'],

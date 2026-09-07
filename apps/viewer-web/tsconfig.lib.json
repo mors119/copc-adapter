@@ -9,6 +9,7 @@
   },
   "include": [
     "src/index.ts",
+    "src/cesium.ts",
     "src/three.ts",
     "src/api/**/*.ts",
     "src/cesium/**/*.ts",

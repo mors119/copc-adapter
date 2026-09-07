@@ -2,7 +2,17 @@
   "name": "@frillab/copc-adapter",
   "version": "0.3.0",
   "type": "module",
-  "description": "Stream and visualize COPC point clouds directly in CesiumJS.",
+  "description": "Stream and visualize COPC point clouds directly in CesiumJS and Three.js.",
+  "keywords": [
+    "copc",
+    "point-cloud",
+    "lidar",
+    "cesium",
+    "cesiumjs",
+    "three",
+    "threejs",
+    "webgl"
+  ],
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -12,6 +22,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./cesium": {
+      "types": "./dist/cesium.d.ts",
+      "import": "./dist/cesium.js"
     },
     "./three": {
       "types": "./dist/three.d.ts",
