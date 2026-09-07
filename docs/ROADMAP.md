@@ -1,63 +1,104 @@
 # Roadmap
 
-## Project Goal
+The roadmap describes capabilities and architectural direction. It is
+deliberately independent of issue numbers, release versions, and temporary
+implementation order.
 
-> Load COPC data directly in CesiumJS or Three.js and visualize selected
-> point-cloud chunks in the browser without a preprocessing conversion step.
+## Project goal
 
-## Current MVP
+COPC Adapter is a browser library for directly streaming and visualizing COPC
+point clouds through renderer adapters such as CesiumJS and Three.js, without
+preprocessing the source into another tile format.
 
-| Area | Status | Current scope |
-| --- | --- | --- |
-| COPC source access | Implemented | Shared project-owned boundary with `copc.js` default and opt-in Rust/WASM backend |
-| Metadata and hierarchy | Implemented | Metadata loading plus root-first incremental hierarchy-page queries |
-| Point data | Implemented | XYZ plus available intensity, classification, and RGB dimensions converted to project-owned typed buffers |
-| Coordinate transformation | Implemented | COPC CRS values transformed to WGS84 coordinates |
-| Cesium rendering | Implemented | Point primitive collections rendered in a Cesium viewer |
-| Three.js rendering | Implemented | Node-owned `THREE.Points` objects rendered in a caller-owned scene |
-| Point styling | Implemented | Fixed cyan, elevation, RGB, intensity, and classification modes with missing-attribute fallback |
-| Streaming | Implemented | Incremental view-driven hierarchy loading, perspective frustum/SSE selection, coverage-preserving mixed-LoD frontier, gaze priority, hysteresis, and bounded node/point workload |
-| Renderer transitions | Implemented | Coverage-safe coarse-to-fine and fine-to-coarse replacement with stale-generation suppression |
-| Public API | Implemented | `CopcCesiumLayer` load, attach, detach, unload, reload, and destroy lifecycle |
-| WASM decoder | Implemented | Rust/WASM LAS 1.4 point 6/7/8 node decoding with selected project-owned attributes |
-| ESM package build | Implemented | Packed ESM bundle, root/Cesium/Three declarations and entries, shared package-local WASM assets, and optional renderer peers |
+## Current capabilities
 
-## Known Gaps
+The current main branch provides:
 
-- Hierarchy loading starts with the root page and follows relevant pages for a
-  conservative envelope of the active perspective view; invalid or missing
-  perspective data uses a finite camera-based fallback. Broader optimization
-  for very large datasets remains future work.
-- Selection uses adapter-owned perspective frustum and screen-space error,
-  mixed-LoD coverage frontier, gaze-aware priority, hysteresis, and node/point
-  workload caps.
-- Range loading and point preparation remain workload-dependent, but Rust
-  browser decode is worker-backed with bounded concurrency and streaming uses a
-  rendered-point budget with stale-work suppression.
-- Intensity normalization currently uses each loaded node buffer's range.
-- The packed artifact is validated in a clean Vite + Cesium consumer; broader
-  consumer compatibility validation remains future work.
-- Repository-owned demo media is available in `docs/assets/`; there is no
-  hosted demo yet.
+- direct COPC access through browser HTTP Range requests;
+- incremental hierarchy loading;
+- a renderer-neutral TypeScript streaming controller;
+- coverage-preserving mixed-LoD selection;
+- gaze-aware priority and LoD hysteresis;
+- bounded node and point workload;
+- an opt-in Rust/WASM path for LAS/COPC parsing, hierarchy interpretation,
+  LAZ decoding, and requested point-field extraction;
+- a default `copc-js` backend;
+- CesiumJS and Three.js adapters;
+- root, Cesium, and Three.js package exports; and
+- typed project-owned metadata, point buffers, diagnostics, and lifecycle
+  contracts.
 
-## Next Work
+Current CRS transformation, WGS84/ECEF preparation, and renderer-local
+preparation remain in TypeScript. Rust/WASM decoding is worker-backed when the
+browser provides `Worker`, but browser Range I/O and streaming policy remain
+TypeScript responsibilities. See [ARCHITECTURE.md](ARCHITECTURE.md) for the
+current implementation boundaries.
 
-1. Broaden Rust backend format and edge-case coverage before considering it for
-  the default backend.
-2. Explore measured scalable rendering approaches and dataset-global attribute
-   statistics; the Issue #48 boundary and baseline are complete.
-3. Add a public Playground, then explore Focus Lens refinement influence,
-   camera-motion lookahead, and predictive prefetch.
-4. Continue larger-dataset validation and revisit occlusion culling only after a
-   validation run quantifies hidden
-   in-frustum workload; see the [Issue #60 investigation](benchmarks/issue-60-occlusion.md)
-   and [Issue #68 report](benchmarks/issue-68-streaming.md).
-5. Continue broader consumer compatibility validation beyond the current packed
-   consumer test.
+## Active architecture direction
 
-## Submission State
+### Pure Rust processing domain
 
-The v0.3.0 MVP demonstrates the intended direct COPC-to-Cesium path with
-coverage-preserving, view-aware streaming on local and larger COPC validation
-datasets. The roadmap keeps scalable rendering, predictive/focus features,
-broader backend coverage, and wider consumer validation as future work.
+Separate reusable COPC processing logic from the WebAssembly and browser ABI.
+The pure Rust domain should be independently testable natively and reusable by
+more than one runtime. The ABI crate should remain thin.
+
+### Rust CRS capability
+
+Evaluate and integrate a Rust CRS pipeline using real COPC WKT/CRS fixtures and
+differential validation against the current JavaScript path. Adoption depends
+on measured supported behavior and explicit handling of unsupported CRS input.
+
+### Renderer-neutral prepared point pipeline
+
+Move suitable point-level binary and numeric work into the Rust processing core
+and return typed renderer-neutral buffers. Keep camera, hierarchy, LoD, cache,
+and workload policy in the shared TypeScript streaming core.
+
+### Fused Worker processing
+
+Reduce repeated main-thread passes and WASM crossings by preparing point data
+inside the Worker before returning it to TypeScript. Measure end-to-end effects
+on responsiveness, transfer cost, memory, and renderer preparation rather than
+optimizing an isolated decode stage.
+
+### Thin renderer integration
+
+Ensure CesiumJS and Three.js consume the same renderer-neutral prepared data.
+Renderer adapters should own engine objects, camera conversion, local frames,
+picking, styling details, and resource disposal without reimplementing COPC,
+CRS, hierarchy, or streaming logic.
+
+### Rust correctness and performance validation
+
+Validate native Rust behavior, the WASM boundary, CRS behavior, real datasets,
+browser integration, and measured performance before changing backend defaults.
+Rust-path failures must remain visible during this validation.
+
+### LoD quality improvements
+
+Continue improving allocation of bounded point budgets toward visually
+important regions while preserving coarse coverage. Candidate policies should
+be judged using deterministic tests and measured browser workloads.
+
+### Release readiness
+
+Prepare a release only after architecture, renderer, package, LoD, browser, and
+conformance validation are satisfactory. Release planning belongs in release
+artifacts, not in the permanent architecture vocabulary.
+
+## Later work
+
+Possible later investigations include:
+
+- making the Rust backend the default or authoritative implementation after
+  sufficient conformance;
+- removing reference runtime dependencies only after the replacement has
+  adequate coverage;
+- Focus Lens and other deliberate refinement-influence experiments;
+- camera-motion lookahead and predictive prefetch;
+- wider renderer and package-boundary research;
+- scalable rendering approaches; and
+- occlusion only when measurement supports conservative, useful behavior.
+
+These are capability areas, not commitments to a particular version or
+implementation sequence.

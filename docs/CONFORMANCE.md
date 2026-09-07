@@ -1,59 +1,115 @@
-# Backend Conformance
+# Conformance
 
-The backend conformance suite extends the shared contract harness in
-`apps/viewer-web/test/support/backend-contract.mjs`. The same semantic
-assertions run against `CopcJsBackend` and `RustCopcBackend`; tests do not
-compare decoder internals or array ordering that is not part of the public
-contract.
+Conformance protects the project-owned contracts while implementations move
+between TypeScript and Rust. It compares observable semantic results, not
+private decoder structure or incidental array ordering.
 
-## Baseline audit before Issue #42
+The COPC specification is the normative format reference. Reference
+implementations are comparison tools and do not automatically define the
+correct result.
 
-| Area | Existing coverage before #42 |
-| --- | --- |
-| Metadata | Partial: Rust parser fields and one deterministic parity check; Autzen parity was root-only and skipped without a local sample |
-| Hierarchy | Partial: root normalization and Rust incremental-loader tests; no shared recursive page/node contract |
-| Point data | Partial: one Autzen Rust path compared selected XYZ/RGB values; no shared multi-index all-attribute contract |
-| Coordinate semantics | Partial: positive Autzen transform and unit tests; no differential regression assertions for raw scale/offset and axis/height mistakes |
-| Range behavior | Partial: Rust exact node range and loader byte counters; no single contract covering header, page, and chunk requests |
-| Structured errors | Partial: Rust mappings and generic application errors; no equivalent stages/categories asserted for both backends |
-| Fixtures and CI | Partial: generated metadata fixture and optional Autzen sample; no explicit conformance commands or fixture provenance note |
+## COPC backend conformance
+
+The backend contract is exercised against the available production backends:
+the default `copc-js` implementation and the opt-in Rust/WASM implementation.
+The comparison should cover:
+
+- metadata, including LAS scale/offset, bounds, COPC cube, spacing, and WKT;
+- root and nested hierarchy interpretation;
+- node identity, point counts, offsets, lengths, and page references;
+- decoded point values and requested attributes;
+- field selection and absent-field behavior;
+- exact HTTP Range semantics and byte accounting; and
+- structured source, metadata, hierarchy, point, decode, worker, and WASM
+  errors.
+
+The current Rust implementation is intentionally a supported LAS 1.4 subset,
+including point formats 6, 7, and 8. Rust remains opt-in until broader format,
+dataset, and browser validation is sufficient to justify a default change. A
+Rust failure must be reported as a Rust/backend failure; it must not be
+silently retried through `copc-js`.
+
+The shared assertions belong at the project-owned `CopcBackend`/`CopcSource`
+boundary. They should not require Cesium or Three.js, and they should not
+assert decoder-specific allocation or internal traversal choices.
+
+## CRS differential conformance
+
+The current JavaScript CRS implementation and a candidate Rust CRS
+implementation must be compared at the project-owned coordinate boundary.
+The intended comparison covers:
+
+- WKT1 and WKT2 parsing where supported;
+- projected CRS;
+- geographic CRS;
+- axis and coordinate-order behavior;
+- horizontal coordinates;
+- height and unit handling;
+- source coordinates to WGS84 geographic coordinates; and
+- WGS84 geographic coordinates to world/WGS84 ECEF preparation.
+
+The current path uses the project WKT helpers and `proj4js` for applicable
+projected CRS transformations. A Rust CRS pipeline is a candidate target, not
+an already-complete parity guarantee. `proj4rs` and `proj4wkt` may be useful
+comparison or implementation choices, but neither is the specification.
+
+If results disagree:
+
+1. Inspect the source metadata and WKT.
+2. Consult authoritative CRS definitions and axis/unit rules.
+3. Identify which implementation is incorrect or which behavior is
+   unsupported.
+4. Add a deterministic project-owned regression for the decision.
+5. Do not simply increase tolerance until both implementations pass.
+
+Unsupported projection or WKT behavior must be explicit. A fallback that hides
+Rust-path incompatibility is a conformance failure.
+
+## Fixture strategy
+
+Use deterministic, project-owned fixtures for the fast suite. Fixtures should
+include:
+
+- small valid and malformed COPC metadata and hierarchy pages;
+- multiple CRS families and representative WKT forms;
+- scale, offset, axis, and unit cases;
+- requested point fields and missing-attribute cases; and
+- real COPC datasets where the data is legally and publicly available.
+
+The fast unit suite must not depend on a network or a downloaded dataset. Real
+datasets belong in an explicit integration or browser suite, with provenance
+and setup documented separately. The repository's local Autzen sample is used
+for integration coverage when it has been downloaded; it is not committed to
+the repository.
+
+`test/support/copc-fixture.mjs` constructs the deterministic LAS 1.4/COPC byte
+fixture inside the test process. It covers metadata, COPC info, WKT, hierarchy
+entries, page references, and malformed input. It is not a valid compressed
+point file, so compressed point decoding and end-to-end CRS behavior require
+the real-dataset integration path.
 
 ## Commands
 
-Fast deterministic checks do not require a public URL or the Autzen sample:
+Fast deterministic backend checks:
 
 ```bash
 npm --prefix apps/viewer-web run test:conformance:unit
 ```
 
-The integration checks use the repository's local Autzen copy. Download it
-once, then run the repeatable local test:
+Integration checks use the local Autzen copy:
 
 ```bash
 npm run download-samples -- autzen
 npm --prefix apps/viewer-web run test:conformance:integration
 ```
 
-The complete application test command also discovers the conformance file:
+The complete application test command also discovers the conformance tests:
 
 ```bash
 npm --prefix apps/viewer-web test
 ```
 
-## Fixture policy
-
-`test/support/copc-fixture.mjs` constructs a small LAS 1.4/COPC byte fixture
-inside the test process. Its stable header, COPC info, WKT, hierarchy entries,
-page reference, and malformed variants are defined locally; no fixture or
-expected-value table is copied from a reference repository. It is deliberately
-not a valid point-compressed file, so point decoding is tested against the
-official Autzen sample in the integration suite.
-
-Autzen is registered in `samples/datasets.json` as the public sample
-`https://s3.amazonaws.com/hobu-lidar/autzen-classified.copc.laz`. The local
-download is ignored by Git and public internet access is needed only for that
-explicit setup step, never by the fast unit suite.
-
-The normative behavior cross-check is the [COPC specification](https://copc.io/).
-`copc-js` remains the application baseline; other COPC projects are design
-references only and are not sources for copied tests or expected values.
+Use the change-specific Rust, WASM, TypeScript, browser, and packed-consumer
+checks described in [CONTRIBUTING.md](../CONTRIBUTING.md). The fast unit suite
+is the default regression signal for backend and CRS contract changes; it must
+remain deterministic and network-independent.

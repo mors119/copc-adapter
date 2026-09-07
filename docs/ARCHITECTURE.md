@@ -1,506 +1,380 @@
 # Architecture
 
-## Goal
+## Project goal
 
-The project goal is to visualize COPC source data directly in CesiumJS or
-Three.js without preprocessing it into another point-cloud tile format. The
-current MVP obtains metadata, hierarchy pages, and selected point chunks from
-a COPC resource, then converts those points into renderer-native primitives in
-the browser.
+COPC Adapter is a browser library for directly streaming and visualizing Cloud
+Optimized Point Cloud (COPC) data without preprocessing it into another tile
+format.
 
-## Runtime Flow
+It supports renderer adapters such as CesiumJS and Three.js while keeping COPC
+streaming and point-processing concerns separate from renderer-specific
+presentation. The application owns its viewer, scene, camera, render loop, and
+other engine resources.
+
+## Current architecture
+
+The current implementation has a project-owned backend boundary with two
+production choices. `copc-js` is the default. Rust/WASM is an explicit opt-in
+backend whose browser point decoding uses a bounded worker path when workers
+are available.
 
 ```text
 Browser-readable COPC URL
-  -> project-owned CopcBackend / CopcSource boundary
-  -> copc-js (default) or Rust/WASM (explicit opt-in)
-  -> CopcStreamingController
-  -> metadata and incremental hierarchy-page queries
-  -> streaming hierarchy and camera-based node selection
-  -> selected project-owned point buffers and update intents
-  -> coordinate transformation to WGS84
-  -> engine adapter / CopcPointRenderer boundary
-  -> PointPrimitiveRenderer (Cesium PointPrimitiveCollection compatibility path)
-     or ThreePointRenderer (node-owned THREE.Points objects)
+        ↓
+HTTP Range / project-owned RandomAccessByteSource
+        ↓
+CopcJsBackend (default) or RustCopcBackend (opt-in)
+        ↓
+metadata / hierarchy / project-owned point buffers
+        ↓
+renderer-neutral TypeScript streaming core
+        ├─ view-driven hierarchy loading
+        ├─ NodeSelector and mixed-LoD selection
+        ├─ screen-space error, gaze priority, and hysteresis
+        ├─ node/point workload budgets
+        ├─ cache, generations, and stale-work handling
+        └─ public lifecycle and diagnostics
+        ↓
+TypeScript point preparation
+        ├─ source coordinates → WGS84 geographic coordinates
+        ├─ WGS84 geographic → WGS84 ECEF/world coordinates
+        └─ project-owned typed buffers and attributes
+        ↓
+renderer adapter
+        ├─ CesiumJS
+        └─ Three.js
 ```
 
-## Coordinate and render-output boundary (#134)
+### Current processing ownership
 
-COPC XYZ values remain the authoritative source/project coordinates owned by
-the shared decode path. The shared CRS transform may additionally produce
-WGS84 geographic longitude/latitude/height and WGS84 ECEF metres. These values
-are retained as `Float64Array`s in project-owned point data; no renderer or GPU
-precision is selected at this boundary.
+- Browser TypeScript owns HTTP Range requests, CORS-visible response
+  validation, source factories, worker scheduling, cancellation, and stale
+  generation handling.
+- `CopcJsBackend` uses the `copc` implementation for metadata, hierarchy, and
+  point-view loading. The project-owned TypeScript boundary selects requested
+  fields and converts point views into typed buffers.
+- The current Rust/WASM path parses the LAS header and COPC metadata, interprets
+  hierarchy pages, decompresses LAZ node chunks, and extracts requested LAS
+  fields. Rust applies LAS scale and offset while creating source-coordinate
+  arrays. TypeScript still fetches the exact byte ranges, owns the reader and
+  worker orchestration, and maps results into project-owned types.
+- `CopcStreamingCore` and `CopcStreamingController` own hierarchy lifecycle,
+  view-driven selection, `NodeSelector`, SSE/refinement policy, hysteresis,
+  workload budgets, cache policy, generations, cancellation, and diagnostics.
+- The current CRS path is still TypeScript. It uses the project WKT parsing
+  helpers and `proj4js` where a projected CRS is present, then computes WGS84
+  ECEF/world coordinates in JavaScript. The shared buffers retain source,
+  WGS84 geographic, and WGS84 ECEF values as `Float64Array`s.
+- Cesium and Three.js adapters convert the shared data into engine-specific
+  resources. Cesium owns `Viewer` and primitive integration; Three.js owns
+  `THREE.Group`, `THREE.Points`, `BufferGeometry`, materials, and its fixed
+  dataset-local ENU frame. Neither adapter parses COPC or owns streaming policy.
+
+The current Rust path does not own CRS transformation, WGS84/ECEF preparation,
+point-level statistics or reductions, or fused point preparation. Those remain
+TypeScript responsibilities until the target processing architecture is
+implemented and validated.
+
+The repository currently contains `crates/copc-wasm` only. Its Rust/WASM ABI
+exposes header parsing, hierarchy parsing, and node decoding, while TypeScript
+provides the browser-facing reader and transfers data across the boundary. A
+separate pure Rust processing crate does not yet exist.
+
+### Current data and streaming contracts
+
+The backend boundary returns project-owned metadata, hierarchy nodes, point
+views, and point buffers. The public point fields are `position`, `intensity`,
+`classification`, and `rgb`; absent or unrequested fields are unavailable
+rather than zero-filled.
+
+The shared streaming core accepts a plain `StreamingView`, not a Cesium or
+Three.js camera. It loads the root hierarchy first, follows relevant hierarchy
+pages, and keeps page and decoded point caches separate. Selection preserves
+coarse coverage while finer replacements are prepared, and a newer view
+generation invalidates stale work. Node count and estimated point count are
+independent safety limits.
+
+The shared output currently retains the following coordinate spaces:
 
 ```text
 COPC/source XYZ (`copc-source`)
-        ↓ shared decode + CRS transform
-WGS84 geographic (`wgs84-geographic`) + WGS84 ECEF world (`wgs84-ecef-meters`)
-        ↓ renderer chooses an origin
-renderer-local XYZ (`renderer-local`)
-        ↓ renderer chooses its GPU representation
+        ↓ current TypeScript CRS path
+WGS84 geographic (`wgs84-geographic`)
+        ↓ current TypeScript ECEF conversion
+WGS84 ECEF/world (`wgs84-ecef-meters`)
+        ↓ renderer-owned origin/frame
+renderer-local coordinates
 ```
 
-`GeographicPointBuffer.coordinates` remains the Cesium-compatible geographic
-view, while `sourceCoordinates` and `worldCoordinates` retain the source and
-ECEF values from the same transform. New adapters should use the explicit
-coordinate metadata and choose a local origin with `worldToLocal()` before any
-Float32 conversion. The shared `CopcPointData` representation exposes the
-three coordinate buffers directly for adapters that do not use the legacy
-geographic view.
+The Three.js adapter currently uses an immutable dataset-local East/North/Up
+frame whose origin is derived from the metadata cube centre. It converts to
+renderer/GPU-friendly values only after subtracting that origin. This is a
+renderer concern, not a shared streaming coordinate system.
 
-### Stable dataset-local frame for Three.js (#141)
+## Target processing architecture
 
-The first non-globe renderer frame is a fixed ENU frame derived from COPC
-metadata. `createDatasetLocalFrame(metadata)` transforms the centre of the
-metadata cube through the existing source-CRS -> WGS84 path and uses that ECEF
-point as the frame origin. Consequently, the COPC cube centre appears at
-`(0, 0, 0)` in the local scene. The axes are geodetic East, North, and Up at
-that origin, in metres:
+The intended long-term processing structure is:
 
 ```text
-local +X = east
-local +Y = north
-local +Z = up
+HTTP Range / browser I/O
+        ↓
+Rust Worker
+        ↓
+pure Rust COPC processing core
+        ├─ COPC/LAS parsing
+        ├─ hierarchy binary interpretation
+        ├─ LAZ decompression
+        ├─ point-record interpretation
+        ├─ supported WKT/CRS transformation
+        ├─ WGS84/world-coordinate preparation
+        ├─ renderer-independent numeric reductions/statistics
+        └─ typed point-buffer preparation
+        ↓
+thin Rust/WASM ABI layer
+        ↓
+renderer-neutral TypeScript streaming core
+        ├─ HTTP/browser orchestration
+        ├─ asynchronous scheduling
+        ├─ cache policy
+        ├─ generations and cancellation
+        ├─ hierarchy lifecycle
+        ├─ NodeSelector
+        ├─ SSE and refinement influence
+        ├─ hysteresis
+        └─ node/point workload budgets
+        ↓
+renderer adapters
+        ├─ CesiumJS
+        └─ Three.js
 ```
 
-`worldToDatasetLocal()` subtracts the ECEF origin and projects the remaining
-high-precision vector onto those axes. `datasetLocalToWorld()` and the paired
-direction helpers apply the inverse basis for camera positions and
-direction/up/right vectors. Point and camera transforms must use the same
-frame instance; the origin is not rebased as the camera moves. A renderer may
-convert the resulting `Float64Array` local coordinates to `Float32Array` only
-after this operation.
+The Rust core is a domain and processing core. It is not a renderer, browser
+runtime, or streaming controller. The WASM crate is only the browser ABI and
+runtime boundary around that core. TypeScript remains responsible for
+browser/streaming policy and lifecycle even after more point-level work moves
+to Rust.
 
-The frame object is immutable and is exposed both as a coordinate utility and
-through `CopcThreeLayer.getLocalFrame()`, so applications can place compatible
-application-owned data. Shared LoD bounds remain authoritative in their
-documented source/geographic/ECEF spaces; any local node bounds are derived
-renderer data and must not be fed back into selection. The initial root object
-should remain identity-transformed unless the camera adapter explicitly
-accounts for a user transform.
+### Rust and TypeScript ownership rule
 
-This is a fixed tangent frame, not a globe projection or a moving-origin
-system. It is suitable for local and multi-kilometre datasets, while larger
-extents should be checked for tangent-plane orientation error. If that becomes
-insufficient, moving-origin or high/low precision encoding belongs in a
-separate design rather than being introduced implicitly here.
+Point-level binary and numeric work belongs in Rust when doing so provides a
+clear reusable processing boundary. Node- and view-level streaming policy
+remains in TypeScript.
 
-Hierarchy query bounds produced by the adapter are labeled `copc-source`.
-The public query input still accepts an unlabeled legacy bounds object for
-source compatibility, while rejecting an explicitly different coordinate
-system. Streaming node boxes are labeled `wgs84-geographic`, and node
-bounding spheres/frusta are labeled `wgs84-ecef-meters`; none of these shared
-geometry values are renderer-local or Cesium-native.
+Rust-oriented responsibilities include:
 
-The root hierarchy page is loaded before point streaming begins. Each camera
-update gives the stateful `HierarchyLoader` a project-owned bounds/max-level
-query. It fetches intersecting page references only, retains page promises and
-decoded entry metadata per layer/source instance, and exposes the currently
-available nodes to the streaming manager. Point-buffer caching remains a
-separate concern.
+- binary COPC/LAS interpretation;
+- LAZ decompression;
+- per-point coordinate arithmetic;
+- supported CRS transformations;
+- WGS84/ECEF and other world-coordinate preparation;
+- point-level statistics and reductions; and
+- numeric typed-buffer preparation.
 
-## Module Boundaries
+TypeScript responsibilities include:
 
-| Area | Location | Responsibility |
-| --- | --- | --- |
-| COPC backend boundary | `apps/viewer-web/src/copc/backend/` | Define project-owned source capabilities and isolate the `copc.js` and Rust/WASM adapters |
-| COPC loading | `apps/viewer-web/src/copc/` | Consume backend-neutral metadata, hierarchy, and point-view types |
-| Coordinate transformation | `apps/viewer-web/src/coordinates/` | Convert COPC coordinates to WGS84 longitude, latitude, and height |
-| WASM decoder | `crates/copc-wasm/`, `apps/viewer-web/src/wasm/` | Convert XYZ values into an interleaved point buffer |
-| Streaming core | `apps/viewer-web/src/viewer/streaming/` | Own source/context, metadata and hierarchy lifecycle, view-driven selection, generations, point loading, update intents, diagnostics, and the bounded point cache |
-| Cesium rendering | `apps/viewer-web/src/cesium/render/` | Implement the neutral renderer contract with Cesium primitives; keep viewer attachment, Cesium geometry, styling details, and engine diagnostics here |
-| Three.js rendering | `apps/viewer-web/src/three/render/` | Implement the neutral renderer contract with one local-coordinate `THREE.Points` object per active node; own only the root group and resources created beneath it |
-| Renderer-neutral contract | `apps/viewer-web/src/viewer/streaming/renderer.ts` | Own the minimal node add/update/remove/clear/destroy/count contract and project-owned point options; no scene, camera, engine geometry, COPC, or selection logic |
-| Renderer-neutral controller | `apps/viewer-web/src/viewer/streaming/CopcStreamingController.ts` | Coordinate loading, hierarchy queries, selection, point streaming, lifecycle, generations, and engine-independent diagnostics |
-| Cesium compatibility controller | `apps/viewer-web/src/viewer/CopcViewer.ts`, `apps/viewer-web/src/cesium/view/` | Cesium attachment, camera conversion, point rendering, picking, and coverage-safe renderer reconciliation over the shared streaming core |
-| Public API | `apps/viewer-web/src/api/`, `apps/viewer-web/src/index.ts`, `apps/viewer-web/src/cesium.ts`, `apps/viewer-web/src/three.ts` | Expose the backwards-compatible Cesium root, explicit Cesium subpath, and isolated renderer-neutral Three entrypoint |
+- HTTP Range and browser I/O ownership;
+- Worker scheduling and asynchronous orchestration;
+- cancellation and stale-generation policy;
+- hierarchy lifecycle and page/cache management;
+- `NodeSelector`, SSE, refinement influence, and hysteresis;
+- node and point workload budgets;
+- camera/view contracts; and
+- the public JavaScript lifecycle and diagnostics.
 
-External `copc.js` types stay inside `copcJsBackend.ts`. The context, loaders,
-streaming controller, and decoder communicate through project-owned interfaces.
-Cesium types are used only by the rendering and public attachment boundary, not
-by the neutral renderer contract, streaming core, or core COPC domain types.
+Renderer responsibilities are limited to engine-specific work:
 
-The neutral renderer contract is intentionally smaller than the Cesium
-implementation. `CopcPointRenderer` exposes node lifecycle and rendered
-counts only. `CesiumPointRenderer` adds `attachTo`, `detachFrom`, and the
-Cesium-only selection bounding sphere used by the compatibility controller.
-That keeps engine attachment and `Cesium.BoundingSphere` out of shared
-streaming state while preserving the existing Cesium API.
+- CesiumJS integrates with `Viewer` and `Scene`, creates Cesium-native render
+  objects, performs Cesium picking, and converts camera state.
+- Three.js integrates with `Scene` and `Camera`, creates `THREE.Points` and
+  `BufferGeometry`, manages renderer-local representation and GPU resources,
+  performs Three.js picking, and disposes resources it owns.
 
-`ThreePointRenderer` follows the same contract without taking ownership of an
-application scene, camera, WebGL renderer, or render loop. It owns one
-`THREE.Points` per active node under a dedicated root `THREE.Group`. The
-renderer uses the loaded dataset-local ENU frame while values are still
-`Float64`, then creates the `Float32Array` position attribute. The first
-non-empty node is only a deterministic ECEF-origin fallback for low-level
-adapter use. Geometry bounds are computed in the fixed local frame and Three
-frustum culling remains enabled; the shared streaming selector remains the
-authoritative LoD policy.
+Neither renderer should understand COPC compression or CRS parsing. The
+renderer-neutral streaming core must not return Cesium or Three.js objects.
 
-## Renderer-neutral streaming core (#132)
+### Pure Rust core and WASM wrapper
 
-`CopcStreamingController` is the shared lifecycle seam for future rendering
-engines. It owns the opened `CopcSource`, metadata, incremental
-`HierarchyLoader`, `StreamingManager`, decoded point cache, load/view
-generations, current selected node keys, replacement intents, and diagnostics.
-It emits `StreamingProgress` as selected geographic point buffers become ready;
-an adapter may submit each buffer to its renderer and use the replacement
-groups to preserve coverage while a refinement or collapse is prepared.
-
-The controller accepts only the project-owned `StreamingView` contract. A view
-contains geographic camera position, a view-distance limit, and an optional
-plain perspective `ViewFrustum` in WGS84 ECEF metres. It contains no engine
-camera, viewer, scene, render-loop callback, or frame-rate state. Adapters are
-responsible for converting camera state and deciding when to call
-`updateView(view)`.
-
-The Cesium controller is the compatibility attachment path over this core. The
-core is independently usable by future adapters and is covered by tests that do
-not import Cesium; the Cesium path consumes the same source, hierarchy,
-selection, generation, and point-cache implementation.
-
-## Rust Decode Worker Pool (#46)
-
-The existing Rust backend remains the only COPC loading pipeline. In a browser,
-`RustCopcReader` keeps ownership of exact byte-range requests on the main
-thread through `HttpRangeByteSource`; this preserves the established range
-semantics, request diagnostics, and source factories. It transfers the fetched
-metadata/chunk bytes to a worker pool only after the range has completed. The
-workers perform Rust/WASM LAZ decode and requested-field extraction, then return
-the same project-owned `CopcPointBuffer` contract.
-
-Each opened Rust source owns its own pool, so layer instances do not share WASM
-or queue state. The default pool is bounded to at most four workers and one
-fewer than `navigator.hardwareConcurrency` (with a minimum of one). Jobs enter
-a deterministic FIFO queue; callers may remove obsolete queued jobs or apply a
-priority comparator. An active WASM call is allowed to finish when it cannot be
-aborted, but its result is ignored when the streaming generation is stale.
-Worker failures become `CopcBackendError` values with `stage: 'decode'` and
-`code: 'worker'`. Unload/destroy terminates workers and rejects pending work.
-
-WASM is initialized lazily in each worker on its first assigned job. The worker
-imports the package's `copcWasm` module, which resolves the emitted WASM asset
-relative to the built worker module via `import.meta.url`; it never uses
-`/public`, `target/`, or repository-relative paths. Vite therefore emits both
-the worker chunk and its package-local WASM dependency for an installed
-consumer.
-
-Decode output uses transferable `ArrayBuffer`s for XYZ and each requested
-attribute (RGB remains three `Uint16Array`s, intensity `Uint16Array`, and
-classification `Uint8Array`). The pool copies a non-owned input view before
-transfer, so a detached sender buffer cannot be reused accidentally. No large
-point array is serialized through JSON; the only JSON crossing the worker is
-the small Rust status response inside the worker runtime.
-
-## Backend Boundary
-
-`CopcBackend.open(url)` returns a reusable `CopcSource`. A source exposes only
-the capabilities the runtime needs: metadata, the root hierarchy page,
-hierarchy-page loading, and project-owned point data. `CopcJsBackend` remains
-the default production implementation. `RustCopcBackend` is selected with
-`backend: 'rust'`; it uses `HttpRangeByteSource` and `RustCopcReader`, and
-returns the same metadata, hierarchy, point count, coordinate, and optional
-attribute semantics. Neither backend creates a Cesium viewer.
-
-The public selection is additive:
-
-```ts
-new CopcCesiumLayer({ url, backend: 'rust', colorMode: 'elevation' });
-```
-
-Omitting `backend` or passing `'copc-js'` selects the stable implementation.
-An injected `CopcBackend` remains supported for tests and host-owned sources.
-There is no automatic Rust-to-JS fallback: a Rust source or decode error is
-reported with its backend error category so validation cannot be masked.
-
-## Package renderer boundary (#139, #164)
-
-The published package uses renderer subpath exports rather than separate npm
-packages:
+The target crate separation is:
 
 ```text
-@frillab/copc-adapter       -> dist/index.js  (existing Cesium façade)
-@frillab/copc-adapter/cesium -> dist/cesium.js (explicit Cesium façade)
-@frillab/copc-adapter/three -> dist/three.js  (renderer-neutral Three entry)
+crates/
+  copc-core/
+  copc-wasm/
 ```
 
-The root entry remains unchanged for existing Cesium users, and the explicit
-Cesium entry exposes the same API for new consumers. The Three entry is
-implemented as a separate source module and does not re-export the root entry,
-because the root statically re-exports Cesium integration modules. Its shared
-chunk contains only COPC, coordinate, and renderer-neutral streaming code.
+This is target structure, not a claim about the current repository.
 
-`cesium` and `three` are optional peer dependencies at the package level. npm
-cannot express peer dependencies conditionally per export, so this keeps the
-single package installable for either renderer while the application explicitly
-installs the peer for the entrypoint it uses. The Three path is validated from
-a packed tarball in a clean Vite consumer with no Cesium installation.
+`copc-core` is intended to be pure Rust. It should have no JavaScript,
+WebAssembly-specific pointer ABI, browser, Cesium, or Three.js dependency. It
+must be independently testable with native Rust tests and reusable by more
+than one runtime.
 
-The library build emits both public entry declarations and keeps the existing
-package-owned Rust/WASM, LAZ, and Worker assets. The Three package entry does
-not own a second COPC implementation; it consumes the same backend, cache,
-hierarchy, coordinate, and streaming modules as the Cesium façade. The
-`CopcThreeLayer` scene façade consumes this boundary from the isolated `./three`
-entry. It owns only the root group, node objects, point-picking identity, and
-Three-specific lifecycle state; application scene, camera, WebGLRenderer,
-controls, and render loop ownership remain outside the adapter.
+`copc-wasm` is intended to be a thin wrapper around that core. It owns memory
+allocation and deallocation, ABI validation, JS/WASM result transfer, and
+WebAssembly-specific error/result encoding. It should not become the place
+where COPC domain rules or renderer behavior are defined.
 
-Callers may inject a backend for an alternative implementation or unit tests.
-There is intentionally no second placeholder production backend.
+## CRS architecture
 
-## Public Layer Lifecycle
+### Current CRS path
 
-`CopcCesiumLayer` accepts a COPC URL, optional point size, debug flag, and
-streaming overrides. It deliberately does not create or own a Cesium viewer.
-
-1. `load()` creates the COPC context, reads metadata, and loads only the root
-   hierarchy page.
-2. `attachTo(viewer)` registers the camera listener, flies to the dataset once,
-   and starts a streaming update. The adapter converts its camera envelope into
-   a plain project-owned `StreamingView`; the core performs the hierarchy query
-   and selection.
-3. Camera movement schedules another hierarchy query and streaming update;
-   previously loaded pages are reused and newly intersecting pages are added.
-4. `detachFrom()` removes this layer's primitives and listener but preserves
-   loaded COPC state and the caller-owned viewer.
-5. `unload()` clears loaded state and cached point requests.
-6. `reload()` performs `unload()` followed by `load()`.
-7. `destroy()` releases layer resources and still does not destroy the viewer.
-
-## Current Selection and Cache Behavior
-
-The current selection policy uses node bounds, camera distance, a maximum
-depth, and a render-distance limit. `StreamingManager` loads missing selected
-nodes and emits renderer-neutral removal/update intents; the Cesium adapter
-reconciles those intents into primitives. The node cache is bounded and evicts
-least-recently-used entries.
-
-`CopcHierarchyQuery` contains only project-coordinate bounds and an optional
-`maxLevel`; new adapter-created bounds carry the `copc-source` label, while
-unlabeled bounds remain accepted for compatibility with pre-boundary callers.
-It has no Cesium camera, culling, or screen-space-error types. The adapter owns
-the camera envelope, while the core owns target-depth policy. `HierarchyLoader` owns
-page-reference traversal and its per-source page cache, while the Rust and
-copc.js sources own byte/page decoding. Hierarchy diagnostics report page
-requests, cache hits, fetched hierarchy bytes, and loaded entry counts.
-
-The selector uses a project-owned perspective screen-space-error policy. COPC
-`spacing` is the distance between points at the root level and halves at every
-octree level. Since COPC does not provide a per-node geometric-error field, the
-adapter uses `max(spacing / 2^level, nodeExtent / 2)` as a conservative detail
-scale in metres. For a visible node it projects that scale with:
+The current JavaScript path is:
 
 ```text
-SSE_pixels = detailScaleMeters * viewportHeightPixels /
-             (2 * distanceToNodeBoundsMeters * tan(verticalFovRadians / 2))
+COPC/source coordinates
+        ↓ project WKT parsing + proj4js where applicable
+WGS84 geographic longitude/latitude/height
+        ↓ JavaScript WGS84 conversion
+WGS84 ECEF/world coordinates
+        ↓ renderer adapter
+renderer-specific local representation
 ```
 
-The node refines when `SSE_pixels > maxScreenSpaceError` (default `8`). The
-distance is clamped to at least the node detail scale when the camera is
-inside a node volume, preventing a singular near-field projection.
-viewport height and vertical FOV come from the Cesium camera adapter; the
-selector consumes only plain project-owned values. Frustum filtering happens
-before SSE, and `maxDepth`/`maxNodes` remain safety caps. This is intentionally
-not a copy of Cesium3DTileset traversal or private SSE implementation, nor is
-it a worker-based loader or GPU-specific point-cloud renderer.
+Projected COPC metadata is currently expected to provide usable WKT. The
+current parser handles the project’s supported WKT shape and reports malformed
+or unsupported CRS metadata during loading; it does not promise general PROJ
+coverage.
 
-After frustum/SSE selection, the core applies a rendered-point workload
-budget using each hierarchy node's `pointCount` as its estimated cost. The
-default `maxRenderedPoints` is an experimental conservative `250000`: the
-issue-48 benchmark measured roughly 30 ms of renderer preparation at 100k
-points and severe near-view pressure at 418k points. Budget priority is
-projected SSE, then bounds distance and level, with prior selection continuity
-and decoded-cache availability used only as deterministic tie-breakers. Nodes
-that do not fit are deferred before point fetch/decode begins; a single node is
-not partially rendered. `maxNodes` remains an independent node-count safety
-cap, and `maxDepth` remains the hierarchy traversal cap.
+### Target CRS path
 
-`StreamingManager` processes only budgeted nodes in bounded sequential batches.
-Camera generations invalidate stale work and cancel queued worker decodes; stale
-completion is ignored. The Cesium adapter also checks actual decoded point
-counts before renderer submission, so cache hits and custom sources cannot
-push the active renderer over the configured budget. Debug snapshots expose the
-configured budget, candidate and active points, deferred node/point counts,
-utilization, budget defer/drop count, range bytes, stage timings, and Rust
-worker queue/concurrency metrics. This is rendered workload backpressure, not
-a claim about exact Cesium/WebGL memory.
+The target processing pipeline is:
 
-Occlusion culling is intentionally not part of the current selection contract.
-The Issue #60 investigation found no stable public Cesium API that can prove a
-COPC node is fully hidden by terrain or arbitrary scene geometry. Depth and
-height sampling are incomplete whole-node evidence, and Cesium private depth
-internals are outside the supported boundary. Until a repeatable workload
-demonstrates a material hidden-node cost and supplies conservative visibility
-evidence, uncertain nodes follow the existing visible path. See
-[`docs/benchmarks/issue-60-occlusion.md`](benchmarks/issue-60-occlusion.md).
+```text
+COPC/source coordinates
+        ↓ Rust CRS layer
+WGS84 geographic coordinates
+        ↓ Rust world-coordinate preparation
+WGS84/world coordinates and prepared buffers
+        ↓ renderer adapter
+renderer-specific local representation
+```
 
-## Point Field Contract
+`proj4rs` and `proj4wkt` are currently evaluated Rust implementation choices,
+not permanent architectural requirements. The eventual Rust CRS layer must be
+abstracted from renderer code and adopted only for the supported CRS behavior
+that has been measured against real COPC metadata and fixtures.
 
-The project-owned `CopcPointFieldSelection` contains `position`, `intensity`,
-`classification`, and `rgb`. Styling maps deterministically to the minimum
-selection: fixed/elevation request position only; RGB, intensity, and
-classification request position plus their corresponding field. The selection
-crosses the backend boundary without Cesium or `copc.js` types.
+Existing `proj4js` behavior is useful as a differential reference. Reference
+output is not automatically the specification: authoritative CRS definitions
+and source metadata determine correctness. When implementations disagree, the
+project should inspect the WKT and metadata, consult the authoritative CRS
+definition, identify the incorrect implementation, and add a deterministic
+project-owned regression. Unsupported WKT or projection behavior must be
+reported explicitly; silent fallback must not hide Rust-path incompatibility.
 
-`CopcPointView.availableFields` contains only fields that were both requested
-and found in the source point format. An absent or unrequested field is not
-represented by a zero-filled array. A field whose getter fails propagates the
-decoder error. RGB remains `Uint16Array` in `CopcPointBuffer` and is normalized
-only when a renderer asks the shared point-style module for display colors.
+CRS validation should cover WKT1 and WKT2 as supported, projected and
+geographic CRS forms, axis and coordinate order, horizontal coordinates,
+height and unit handling, source-to-WGS84 transformation, and WGS84/world
+preparation. Full PROJ functionality must not be promised unless the selected
+Rust implementation actually provides it.
 
-The renderer-neutral style module at `apps/viewer-web/src/point/style/` owns
-the fixed, RGB, elevation, intensity, and classification mappings. It returns
-normalized colors and can prepare exactly three finite `Float32` values per
-point for a `BufferGeometry` color attribute. Cesium converts those shared
-values to `Cesium.Color`; a Three.js adapter can attach the same buffer to a
-`THREE.BufferAttribute`. Attribute modes use the fixed cyan color when the
-requested field is absent, and classification preserves the existing
-category/unknown palette. Intensity ranges remain node-local for this MVP;
-RGB display scale is resolved once per layer/dataset and reused across its
-streamed nodes. The current backend does not expose an authoritative RGB
-precision marker, so explicit `rgbMax` metadata/options take precedence and
-the existing value-based detection is retained as a compatibility fallback.
+## Point preparation pipeline
 
-The Three.js material contract deliberately sets `sizeAttenuation: false`.
-`pointSize` therefore remains a screen-space pixel size instead of changing
-with camera distance. The renderer-neutral module does not import Three.js;
-`apps/viewer-web/src/three/style/` describes the material options and the node
-renderer consumes the shared color buffer while owning Three's geometry and
-material lifecycle.
+The target performance shape is one coarse-grained Worker operation per useful
+node or batch:
 
-`CopcPointDecoder.decode(view)` remains available for injected decoders and
-legacy source implementations. Both production backends also expose the
-optional direct `loadPointDataBuffer()` capability; the default point-loading
-path uses that capability, so Rust decodes the selected node once and returns
-project-owned typed arrays. Buffer validation rejects coordinate or attribute
-length mismatches before transformation/rendering. Coordinate transformation
-retains the same attribute arrays, keeping the decoder boundary replaceable
-without changing the streaming or Cesium layers.
+```text
+compressed node
+        ↓
+Rust decode
+        ↓
+point interpretation
+        ↓
+CRS transformation
+        ↓
+WGS84/world-coordinate preparation
+        ↓
+statistics/reductions
+        ↓
+typed-buffer packing
+        ↓
+transferable renderer-neutral result
+```
 
-The current `copc.js` release still returns a complete point view internally,
-so `CopcJsBackend` enforces the selection by filtering the project-owned view.
-The Rust backend passes the same request to its selective LAZ decode path.
+The target avoids a pipeline shaped like:
 
-`StreamingManager` owns the selected-node protection set for the decoded point
-cache, while `createNodePointCache` owns its byte accounting and eviction. A
-resolved entry is charged the sum of the actual `byteLength` values of its
-project-owned typed arrays (including coordinates and present attributes).
-Inactive entries are evicted least-recently-used when either the 48-node safety
-cap or configured `maxPointCacheBytes` budget is exceeded. Selected entries are
-protected; a single oversized selected entry is retained deterministically.
-The diagnostics describe decoded CPU point-buffer memory only, not exact
-Cesium/WebGL/browser memory.
+```text
+JS → WASM decode → JS → WASM CRS → JS → WASM ECEF → JS
+```
 
-## Random-Access Byte Source
+The goal is to reduce repeated full-buffer passes, unnecessary JavaScript
+object allocation, WASM boundary crossings, main-thread numeric work, and
+duplicated coordinate conversion. “Rust is faster” by itself is not the
+architecture; a reusable processing boundary and measured end-to-end behavior
+are the goals.
 
-`apps/viewer-web/src/copc/range/` defines the project-owned
-`RandomAccessByteSource` boundary for the future Rust/WASM reader. Its core
-operation is `readRange(offset, length)`, with `readRanges()` for a logical
-batch and `size()` for an optional known source length. The boundary is
-backend-neutral and can be implemented by a browser HTTP source, an in-memory
-source, or a future worker/local-file bridge.
+## Renderer-neutral data contract
 
-`HttpRangeByteSource` owns browser network I/O. It sends one `Range:
-bytes=start-end` request per read and runs `readRanges()` requests concurrently.
-Every partial response must be HTTP 206, include a matching `Content-Range`,
-and contain exactly the requested number of bytes. A 200 whole-resource
-response, 404/416 response, malformed range metadata, short body, invalid
-range, and network failure become a structured `RangeSourceError`; a server
-that ignores Range is never counted as efficient streaming. `Content-Range`
-also supplies a cached total size when available.
+The shared prepared-data concept may expose, as needed:
 
-`probeCopcSource()` builds diagnostics on the same content-range parser and
-exact body-length contract. It requests a bounded prefix, optionally reads
-only the missing LAS VLR bytes, and never participates in normal layer loads.
-Its result is a project-owned summary for application diagnostics and the demo
-debug panel; the panel does not own networking.
+- point count;
+- source coordinates;
+- WGS84 geographic coordinates;
+- WGS84/world coordinates;
+- requested attributes;
+- reusable numeric statistics; and
+- coordinate-space metadata.
 
-Callers pass an `AbortSignal` for cancellation. The camera/streaming owner can
-create a controller per generation and abort the previous generation when a
-new camera state supersedes it; the source does not retain camera or Cesium
-state. This keeps staleness policy in the caller while making cancellation
-observable as `RangeSourceError` with code `aborted`.
+This describes the intended data shape without fixing an exact future
+TypeScript interface. Existing public buffers remain the compatibility contract
+while the internal preparation boundary evolves. A renderer consumes prepared
+numeric data and chooses its own local origin, GPU representation, resources,
+and picking integration.
 
-Browser deployment requires the COPC host to allow the `Range` request header
-and expose `Content-Range` (and any application request headers) through CORS;
-`Access-Control-Allow-Origin` must allow the consuming origin. A server must
-also return byte ranges rather than silently returning 200 for the whole
-resource. The `InMemoryByteSource` provides the same bounds-checked semantics
-without a browser, so Rust-facing parsing tests can use deterministic bytes.
+## Package boundary
 
-This boundary is additive: the existing `copc.js` backend remains the default
-runtime backend. Rust consumes the source contract without taking a dependency
-on Cesium; browser HTTP range I/O is isolated in `HttpRangeByteSource`.
+### Current distribution
 
-## Rust COPC Header and Root Reader
+The current distribution is one npm package with renderer subpath exports:
 
-`apps/viewer-web/src/copc/rustCopcReader.ts` is the first consumer of the
-random-access boundary. `RustCopcReader.open()` reads the LAS 1.4 header and
-VLR area, passes those bytes to `copc-wasm`, then reads the COPC root hierarchy
-page by the offset and length returned by the COPC info VLR. TypeScript owns
-range I/O and maps the compact parser result into project-owned metadata and
-hierarchy values; Rust owns little-endian interpretation, COPC validation, and
-structured parse errors.
+```text
+@frillab/copc-adapter         → backwards-compatible Cesium root
+@frillab/copc-adapter/cesium  → explicit Cesium entrypoint
+@frillab/copc-adapter/three   → Three.js entrypoint
+```
 
-`RustCopcReader.loadPointDataBuffer()` is the focused node-decoding proof path.
-It requests only `pointDataOffset..pointDataOffset + pointDataLength` for one
-hierarchy entry and passes that exact chunk, together with the metadata bytes,
-to the Rust decoder, either directly for non-browser runtimes or through the
-per-source worker pool in a browser. The Rust ABI returns project-owned XYZ,
-intensity, classification, and RGB buffers. LAS scale/offset is applied once
-in Rust while converting raw integer coordinates to the existing
-projected-coordinate contract.
+The root entry remains backwards compatible with existing Cesium consumers.
+Cesium and Three.js are optional peer dependencies; an application installs the
+renderer it uses. The package currently carries the browser decoder runtime
+assets and exposes the project-owned shared streaming/data contract through
+the renderer entrypoints.
 
-The decoder dependency is `laz 0.13.0`, used through its public layered
-point-record decompressor. It supports the COPC layered chunks used by LAS
-1.4 point formats 6, 7, and 8, including the crate's selective field
-decompression API. The crate builds for `wasm32-unknown-unknown` in this
-repository. `360-geo/copc-streaming` is intentionally not a dependency and no
-reference source is vendored. Rust is opt-in; `copc.js` remains the default,
-but errors from the selected Rust backend are never silently retried in JS.
+Single-package distribution is a current release/distribution choice, not a
+permanent architectural constraint. Internal boundaries should allow a future
+package arrangement such as:
 
-Backend errors expose a project-owned `CopcBackendError` with a stage and
-category such as `source-range`, `header-parse`, `hierarchy`, `point-chunk`,
-`laz-decode`, `unsupported`, or `wasm`. The original range/parser/decoder
-error is retained as `cause`, and point failures include the hierarchy node key.
+```text
+shared core/runtime
+        + Cesium adapter package
+        + Three.js adapter package
+```
 
-The metadata and hierarchy parser ABI uses a small NUL-terminated JSON
-response. The node decoder uses the same bounded status/error envelope while
-writing its project-owned typed output buffers directly. Parser responses are
-bounded by the header/VLR area and one root page; point output is bounded by
-the selected node's point count.
-Root entries with `pointCount == -1` are returned as `pages`, while all
-non-negative point counts are returned as point-data `nodes`. Offsets and
-lengths are checked against JavaScript's safe-integer range before they cross
-the boundary.
+That split is optional and should happen only if it is justified by consumer
+needs and validation. It must not require duplicate COPC, CRS, or streaming
+implementations.
 
-The implementation was checked against the COPC 1.0 specification's LAS/VLR,
-COPC info VLR, and hierarchy-page entry definitions, and against the
-`copc_types.rs`, `header.rs`, and `hierarchy.rs` concepts in the 360-geo
-projects. The code and tests independently reimplement those concepts and do
-not require an external repository at build or test time.
+## Migration invariants
 
-Point styling consumes these transformed buffers directly. RGB channels are
-normalized from their detected 8-bit or 16-bit range, intensity is normalized
-per loaded node buffer, and classification values use a fixed categorical
-palette. Missing attributes select the backward-compatible fixed cyan color.
+Architecture changes should preserve these properties:
 
-## Package Boundary
+- Public root, Cesium, and Three.js entrypoints remain compatible unless a
+  deliberate API change is documented.
+- The `CopcBackend` boundary continues to expose project-owned types rather
+  than decoder- or renderer-specific types.
+- HTTP Range semantics remain explicit and structured; a source that ignores
+  Range is not silently treated as an efficient stream.
+- Rust backend failures are surfaced as Rust/backend errors and are never
+  silently retried through `copc-js`.
+- Requested point fields remain explicit, and unavailable source attributes
+  remain unavailable.
+- Coordinate-space labels and high-precision intermediate values are preserved
+  until a renderer deliberately chooses its local/GPU representation.
+- Streaming policy remains renderer-neutral, coverage-preserving, generation
+  aware, and bounded by node and point workload limits.
+- The current JavaScript implementations remain useful differential references
+  during Rust migration, but reference behavior is not accepted blindly as the
+  specification.
 
-`apps/viewer-web/src/index.ts` is the backwards-compatible root source
-entrypoint, while `src/cesium.ts` and `src/three.ts` provide explicit
-renderer-specific entrypoints. The viewer package also has an ESM declaration
-and bundle build configuration. Library builds include the Rust/WASM decoder
-and package-local LAZ decoder runtime in the `npm pack` artifact, while both
-renderer libraries remain optional external peer dependencies owned by the
-consuming application.
-
-## Browser Acceptance Coverage
-
-`apps/viewer-web/e2e/copc-viewer.spec.ts` starts the real Vite application in
-Chromium with `?backend=rust`, loads the local Autzen COPC sample, and verifies
-metadata, decoded point rendering, actual Cesium point primitive collections,
-and camera-driven streaming updates. The application installs
-`window.__COPC_DEBUG__` only in Vite development mode to make those runtime
-states observable; it is not a production API.
+The public surface is documented in [API.md](API.md), conceptual development
+stages are in [ROADMAP.md](ROADMAP.md), and correctness and differential
+validation are in [CONFORMANCE.md](CONFORMANCE.md).
