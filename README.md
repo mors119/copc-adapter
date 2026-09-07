@@ -225,8 +225,8 @@ const layer = new CopcCesiumLayer({
 });
 ```
 
-Both backends use the same public layer, streaming, coordinate, and Cesium
-rendering path. Rust/WASM does not create or own the Cesium viewer. It is not
+Both backends use the same public layer, renderer-neutral streaming, and
+coordinate path. Rust/WASM does not create or own a viewer or scene. It is not
 presented as universally faster; in the tested Autzen scenario, coordinate
 transformation was a larger cost than Rust point decoding.
 
@@ -275,62 +275,23 @@ active view (including oblique views) rather than a box centered only on the
 camera position. Callers without a usable perspective view retain a finite
 camera-based fallback. Cached hierarchy pages are reused as the view changes.
 
-The selector starts from a visible coarse frontier and purchases finer
-replacement nodes only when the `maxNodes` and `maxRenderedPoints` workload
-limits permit the complete replacement. This produces a mixed-LoD frontier
-that keeps valid coarse coverage instead of leaving sparse high-detail
-islands. Higher-detail nodes use a bounded refinement-influence model when
-perspective data is available: the screen-centre signal can raise effective
-refinement pressure as well as budget ordering, while raw projected error
-remains the authority for large visual differences.
-
-Ready finer nodes replace their coarse ancestors only after they are prepared;
-fine-to-coarse collapse is also coverage-safe. A newer camera generation
-supersedes stale asynchronous transitions, while the decoded point cache and
-bounded Rust Worker decode path remain separate from rendered membership.
-
-Streaming updates yield between batches and invalidate stale asynchronous work
-after a newer camera update. The selector uses a viewport-aware projected-error
-policy. For a visible node, it estimates `SSE = geometricErrorMeters *
-viewportHeightPixels / (2 * distanceMeters * tan(verticalFovRadians / 2))` and
-refines while the result exceeds `streaming.maxScreenSpaceError` (default `8`
-pixels). The default state-aware hold band is 7–9 pixels: a previously coarse
-branch waits for 9 pixels before refining, while a previously refined branch
-is retained until its error falls below 7 pixels. Screen-centre relevance adds
-at most a bounded 25% detail bias to effective SSE, so a near-threshold centre
-candidate can request more detail but a large peripheral error can still win.
-The adapter's geometric scale is `max(rootSpacing / 2^level,
-nodeExtent / 2)` in metres: COPC defines root spacing as the space between
-points at level zero and halves it at each octree level; the extent term is a
-conservative proxy for unresolved geometry when no per-node error metadata
-exists. Frustum culling is applied before this decision.
+The selector maintains a visible coarse frontier and replaces nodes with finer
+data when screen-space error, view relevance, hysteresis, and node/point
+workload limits permit it. Replacements preserve coarse coverage until finer
+data is ready, while newer camera generations supersede stale asynchronous
+work. See the [architecture guide](docs/ARCHITECTURE.md) for the ownership
+boundary and the [API documentation](docs/API.md) for current options.
 
 ## Architecture
 
-```text
-COPC URL
-  ↓
-HTTP Range source
-  ↓
-CopcBackend
-  ├─ copc-js
-  └─ Rust/WASM
-  ↓
-COPC metadata / hierarchy / point buffers
-  ↓
-CRS transform → WGS84
-  ↓
-NodeSelector / StreamingManager
-  ↓
-CopcPointRenderer
-  ↓
-PointPrimitiveRenderer → Cesium PointPrimitiveCollection
-```
+COPC Adapter has a shared browser streaming core and thin renderer adapters.
+The current implementation uses `copc-js` by default and an opt-in Rust/WASM
+backend; TypeScript still owns browser Range I/O, view/LoD policy, and CRS/ECEF
+preparation. CesiumJS and Three.js consume the renderer-neutral data while the
+application retains ownership of its viewer or scene.
 
-The backend reads COPC data. The layer coordinates Cesium camera events, LoD,
-streaming, rendering, and lifecycle. The application creates and owns the
-Cesium `Viewer`. See the [architecture guide](docs/ARCHITECTURE.md) for the
-module boundaries.
+See the [architecture guide](docs/ARCHITECTURE.md) for current ownership,
+target processing architecture, and migration invariants.
 
 ## Public API and Lifecycle
 
@@ -399,11 +360,9 @@ npm run build:library
 npm pack
 ```
 
-The `v0.3.0` release adds the coverage-preserving, view-aware streaming and
-transition behavior described in the changelog. The package remains an ESM
-library with declarations and package-local decoder runtime assets.
-Library builds clean `dist` first, `npm pack` rebuilds through `prepack`, and
-sample COPC data is excluded from the package.
+The package is an ESM library with declarations and package-local decoder
+runtime assets. Library builds clean `dist` first, `npm pack` rebuilds through
+`prepack`, and sample COPC data is excluded from the package.
 
 `npm run test:pack` is the release-boundary gate for the generated `.tgz`. It
 builds Rust/WASM and the library, checks the tarball contents, installs it by
@@ -415,16 +374,14 @@ coordinate/attribute rendering, and continued `copc-js` operation. Its
 checked-in template is in `tests/environments/cesium-vite/`; the sample is
 staged only into the disposable consumer and is never packaged.
 
-The package metadata for this release is `0.3.0`.
-
 ## Known Limitations
 
-These are the current v0.3.0 boundaries:
+These are the current boundaries:
 
-### Three.js MVP boundaries
+### Three.js current boundaries
 
 The Three.js entrypoint is a composable layer for an existing application,
-not a full point-cloud viewer. The MVP intentionally does not implement:
+not a full point-cloud viewer. The current adapter does not implement:
 
 - `OrthographicCamera` support; the validated camera is
   `THREE.PerspectiveCamera`.
@@ -449,42 +406,30 @@ controls, render loop, and UI.
 - Rendering uses the compatibility `PointPrimitiveRenderer` boundary backed by
   `Cesium.PointPrimitiveCollection`; coverage-safe transitions keep old
   coverage until a replacement is ready. Benchmark evidence is in the
-  [Issue #48 report](docs/benchmarks/issue-48-renderer.md).
+  [renderer benchmark](docs/benchmarks/issue-48-renderer.md).
 - Dense refinement workloads can take time to finish progressively. The
   scheduler yields between bounded batches, stale generations are discarded,
   and rendered-point budget/backpressure keeps active work bounded. See the
-  [Issue #68 validation report](docs/benchmarks/issue-68-streaming.md).
+  [streaming validation report](docs/benchmarks/issue-68-streaming.md).
 - The Rust backend currently targets the supported LAS 1.4 point format
   subset, including point formats 6, 7, and 8.
 - Source URLs must support HTTP Range requests and appropriate CORS behavior.
 
 ## Roadmap
 
-Follow-up work includes:
-
-- Broader Rust backend format and edge-case coverage before considering it for
-  the default backend
-- A measured scalable renderer boundary and dataset-global styling/statistics
-- A public Playground, Focus Lens refinement influence, camera-motion lookahead,
-  and predictive prefetch
-- Larger-dataset continued validation
-- A measured renderer boundary is complete ([#48](https://github.com/mors119/copc-adapter/issues/48)); batched/custom rendering remains follow-up work only if needed
-- Occlusion-culling investigation remains deferred pending measured hidden-node
-  evidence ([#60](https://github.com/mors119/copc-adapter/issues/60))
-
-See the [project roadmap](docs/ROADMAP.md) and the
-[GitHub issue tracker](https://github.com/mors119/copc-adapter/issues) for
-scope and status.
+See the [project roadmap](docs/ROADMAP.md) for capability-based development
+stages and remaining goals. Historical measurements remain in
+[`docs/benchmarks/`](docs/benchmarks/).
 
 ## Related Documentation
 
 - [Architecture](docs/ARCHITECTURE.md)
 - [API](docs/API.md)
 - [Examples](docs/EXAMPLES.md)
+- [Conformance](docs/CONFORMANCE.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Sample datasets](samples/README.md)
-- [Issue #61 performance work](https://github.com/mors119/copc-adapter/issues/61)
-- [Issue #68 streaming validation report](docs/benchmarks/issue-68-streaming.md)
+- [Contributing](CONTRIBUTING.md)
 
 ## Community and License
 

@@ -37,11 +37,15 @@ cp samples/local/autzen.copc.laz apps/viewer-web/public/samples/autzen.copc.laz
 ## Development guidelines
 
 Keep changes aligned with the layered architecture described in
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and the project rules in
-[docs/AGENTS.MD](docs/AGENTS.MD):
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), the correctness model in
+[docs/CONFORMANCE.md](docs/CONFORMANCE.md), and the permanent coding rules in
+[AGENTS.md](AGENTS.md):
 
-- Keep COPC parsing, hierarchy traversal, point loading, coordinate
-  transformation, and Cesium rendering in their respective layers.
+- Keep renderer-neutral COPC streaming and point processing in shared layers.
+- Keep engine-specific integration in its renderer adapter. CesiumJS and
+  Three.js adapters must not duplicate COPC, hierarchy, or streaming policy.
+- Place Rust and TypeScript work according to the ownership boundaries in
+  [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - Keep external library types behind project-owned interfaces where practical.
 - Add or update tests for behavior changes.
 - Update the relevant documentation when public behavior, limitations, or
@@ -49,19 +53,32 @@ Keep changes aligned with the layered architecture described in
 
 ## Validation
 
-Before opening a pull request, run the checks relevant to your change. These
-are the main validation commands used by the project:
+Run only the checks relevant to the changed area. Documentation-only changes
+normally need `git diff --check` and validation of changed Markdown links.
+
+- TypeScript or shared runtime changes:
 
 ```bash
 npm --prefix apps/viewer-web run typecheck
 npm --prefix apps/viewer-web test
-npm --prefix apps/viewer-web run test:conformance:unit
-npm --prefix apps/viewer-web run test:conformance:integration
-npm --prefix apps/viewer-web run coverage
-npm --prefix apps/viewer-web run build
-npm run test:pack
-cargo test --workspace
 ```
+
+- Rust changes:
+
+```bash
+cargo fmt --all -- --check
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+```
+
+- Rust/WASM boundary changes: build for `wasm32-unknown-unknown` in release
+  mode and run the relevant integration tests.
+- Browser or renderer changes: run the relevant Playwright/browser tests.
+- Package or export changes: run the relevant packed-consumer validation,
+  such as `npm run test:pack` or `npm run test:pack:three`.
+- Backend or CRS contract changes: run the fast conformance suite and, when
+  applicable, the integration suite described in
+  [docs/CONFORMANCE.md](docs/CONFORMANCE.md).
 
 If a check cannot be run locally, explain why in the pull request.
 

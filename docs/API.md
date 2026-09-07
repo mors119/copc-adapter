@@ -1,182 +1,100 @@
-# Library API
+# Public API
 
-`apps/viewer-web/src/index.ts` 가 backwards-compatible root source entrypoint
-이며, `apps/viewer-web/src/cesium.ts` 는 명시적 Cesium entrypoint 이다.
-Package consumers should import the generated
-`@frillab/copc-adapter/cesium` package path for new Cesium integrations; the
-historical root package path remains supported.
+This document describes the current public API of `@frillab/copc-adapter`.
+The root entrypoint is the backwards-compatible Cesium entrypoint. New
+integrations may import the explicit renderer paths:
 
-## Exported API
+```text
+@frillab/copc-adapter         → Cesium-compatible root
+@frillab/copc-adapter/cesium  → Cesium API
+@frillab/copc-adapter/three   → Three.js API
+```
 
-### `CopcCesiumLayer`
+`cesium` and `three` are optional peer dependencies. Install the renderer used
+by the application. The internal point-processing implementation is not part
+of the public API contract; its placement may change between TypeScript and
+Rust/WASM while these interfaces remain compatible.
 
-호출자가 소유한 Cesium `Viewer`에 COPC streaming primitives를 연결하는 public class.
+## `CopcCesiumLayer`
 
-주요 메서드:
-
-- `load()`: URL에서 metadata / hierarchy 로딩
-- `unload()`: loaded data와 rendered primitives 정리
-- `reload()`: `unload()` 후 configured URL을 다시 로딩
-- `attachTo(viewer)`: caller-owned Cesium viewer에 primitives와 camera listener 연결
-- `detachFrom()`: Cesium viewer를 destroy하지 않고 primitives와 listener 분리
-- `destroy()`: layer resource 와 listener 정리
-- `getSnapshot()`: 현재 lifecycle, 선택 node, 렌더링 point 수와 decoded CPU
-  point-cache, stage-timing, range-byte, and (Rust) worker queue metrics 조회
-- `getHierarchyDiagnostics()`: hierarchy page request/cache/byte counters 조회
-- `getPointCacheDiagnostics()`: decoded CPU point-buffer cache counters 조회
-- `getSelectedPoint()`: 현재 live decoded buffer에서 선택된 point inspection 조회
-
-`load()`와 `reload()`는 source/context 생성, metadata 및 CRS 검증,
-root hierarchy page 로딩 실패를 각각 project-owned `CopcLoadError`로 reject한다.
-`stage`는 `'source' | 'metadata' | 'hierarchy' | 'point-data' | 'decode' |
-'wasm'`, `source`는 원본 configured URL이며, 지원되는 runtime에서는 원래 오류가 `cause`에 보존된다. 표시용
-`message`에서는 URL credential, query, fragment가 제거되므로 demo/debug
-panel에 그대로 표시할 수 있다. `CopcSourceError`, `CopcMetadataError`,
-`CopcHierarchyLoadError`도 public entrypoint에서 export된다.
-
-### `CopcStreamingController`
-
-`CopcStreamingController` is the renderer-neutral loading and streaming core.
-It can be used without creating a Cesium `Viewer` or importing an engine
-camera. `load()` reads metadata and the root hierarchy, and
-`updateView(view, onProgress?)` accepts the project-owned `StreamingView`
-contract, performs the view-driven hierarchy query and selection, and emits
-progressively loaded geographic point buffers. The callback receives
-coverage-safe `replacementGroups` so an engine adapter can decide how to stage
-and commit its own primitives.
-
-The core exposes `getSnapshot()`, `getMetadata()`,
-`getHierarchyDiagnostics()`, `getPointCacheDiagnostics()`,
-`getCurrentSelection()`, `getHierarchyNode()`, `getCachedPointBuffer()`, and
-`getTransitionState()`. Its lifecycle is
-`'idle' | 'loading' | 'ready' | 'destroyed'`; stale view generations resolve to
-`undefined` and cannot update the current selection. `unload()`, `reload()`,
-and `destroy()` release source, worker, hierarchy, and cache state. The
-`CopcCesiumLayer` remains the compatibility facade for Cesium consumers. It
-delegates source loading, hierarchy queries, selection, generations, and point
-cache ownership to the core, while its adapter owns Cesium camera state,
-listeners, picking, primitive reconciliation, and renderer timings.
+`CopcCesiumLayer` connects a streamed COPC resource to a caller-owned Cesium
+`Viewer`. It never creates or destroys that viewer.
 
 ```ts
-import {
-  CopcStreamingController,
-} from '@frillab/copc-adapter';
+import * as Cesium from 'cesium';
+import { CopcCesiumLayer } from '@frillab/copc-adapter/cesium';
 
-const core = new CopcStreamingController({ url });
-await core.load();
-await core.updateView({
-  longitude,
-  latitude,
-  height,
-  viewDistanceMeters,
-  viewFrustum,
+const viewer = new Cesium.Viewer('cesium-container');
+const layer = new CopcCesiumLayer({
+  url: 'https://example.com/data.copc.laz',
+  colorMode: 'elevation',
 });
+
+await layer.load();
+layer.attachTo(viewer);
 ```
-
-### `probeCopcSource(url)`
-
-`probeCopcSource(url)` is a low-cost browser diagnostic for a remote source.
-It is independent of `CopcCesiumLayer.load()` and is not run automatically by
-the library's normal loading path.
-
-```ts
-import { probeCopcSource } from '@frillab/copc-adapter';
-
-const result = await probeCopcSource(url);
-```
-
-The returned `CopcSourceProbeResult` is project-owned and contains the
-observed HTTP status, requested and returned ranges, known resource length
-and `Content-Range` when available, `reachable`, `rangeSupported`,
-`corsReadable`, `copcDetected`, optional LAS `pointFormat`, and actionable
-`warnings`. Boolean capability fields use `true`, `false`, or `'unknown'`
-where a browser cannot distinguish a network failure from a CORS block.
-
-The default request is `bytes=0-1023`. The response body is bounded; if the
-LAS header says its VLR metadata extends beyond that prefix, the probe can
-request only the missing metadata bytes. A healthy response is HTTP `206`,
-has a `Content-Range` matching the requested bytes, and contains exactly the
-requested body length. HTTP `200`, malformed or mismatched `Content-Range`,
-short bodies, `404`, `416`, and network failures are retained as structured
-diagnostic outcomes rather than raw `Response` objects.
-
-For cross-origin resources, CORS and Range should be diagnosed separately. A
-readable response with bad range semantics reports `corsReadable: true` and
-`rangeSupported: false`. When the browser rejects the fetch before exposing a
-response, both reachability of the resource and the precise cause are not
-provable; the result uses `corsReadable: 'unknown'` and points to network and
-CORS checks in `warnings`. The current reader requires the browser to send a
-`Range` request and read `Content-Range`; it does not depend on
-`Content-Length` being exposed.
 
 ### `CopcCesiumLayerOptions`
 
-- `url`: HTTP range request를 지원하는 browser-readable COPC URL
-- `pointSize`: Cesium point primitive 크기 (기본값 `3`)
+- `url`: browser-readable COPC URL. The source must support HTTP Range
+  requests and appropriate CORS headers.
+- `pointSize`: Cesium point size in pixels. Default: `3`.
 - `colorMode`: `'fixed' | 'elevation' | 'rgb' | 'intensity' |
-  'classification'` (기본값 `'fixed'`). `elevation`은 transformed dataset
-  height, `rgb`는 source RGB, `intensity`는 node buffer의 intensity 범위,
-  `classification`은 categorical palette를 사용한다. 필요한 attribute가
-  없으면 fixed cyan으로 fallback한다.
-- `debug`: lifecycle debug logging 활성화
-- `maxRenderedPoints`: maximum estimated points in the active current-view
-  workload. This is equivalent to `streaming.maxRenderedPoints` and is shown
-  separately because it is the primary render-pressure control. The default is
-  `250000`; this is workload backpressure, not GPU-memory accounting.
-- `streaming`: overrides for the following selection limits:
-  - `maxNodes` (default `24`): maximum selected frontier nodes and a hard
-    refinement constraint.
-  - `maxDepth` (default `6`): deepest hierarchy level considered for selection
-    and view-driven hierarchy loading.
-  - `maxScreenSpaceError` (default `8` pixels): projected-detail threshold
-    used by LoD refinement. A visible node's estimated geometric error is
-    projected into pixels using the active perspective view when available.
-  - `screenSpaceErrorHysteresis` (default `12.5%` of
-    `maxScreenSpaceError`, or `1` pixel at the default threshold): half-width
-    of the state-aware refinement/collapse band. With the defaults, a coarse
-    branch refines above `9` pixels, a refined branch collapses below `7`, and
-    the previous frontier is retained inside the band.
-  - `maxRenderDistanceMeters` (default `12000`): maximum selector visibility
-    distance measured from the camera to a node's bounds, combined with the
-    current camera view distance. It is not a geographic-radius box. When a
-    valid perspective view is available, hierarchy discovery follows a
-    conservative envelope of that active view using an effective far distance
-    bounded by the view distance, this option, and the frustum far plane.
-  - `maxRenderedPoints` (default `250000`): maximum estimated point workload
-    for the active current-view frontier. Refinement is deferred when a complete
-    parent-to-child replacement would exceed the node or point budget.
-  The former `refineDistanceMultiplier` remains accepted for source
-  compatibility but is deprecated and no longer controls refinement.
-- `backend`: `'copc-js' | 'rust' | CopcBackend`; defaults to `'copc-js'`.
-  Rust is opt-in and does not silently fall back to `copc-js`.
-- `decoder`: optional `CopcPointDecoder`; defaults to the Rust/WASM decoder
-- `renderer`: optional Cesium adapter renderer; defaults to the compatibility
-  `PointPrimitiveRenderer`. The shared `CopcPointRenderer` contract receives
-  transformed geographic point buffers and owns only node
-  add/update/remove/clear/destroy and rendered counts. Cesium attachment and
-  Cesium geometry stay in `CesiumPointRenderer`; COPC loading, selection, LoD,
-  and streaming remain renderer-neutral core responsibilities.
-- `maxPointCacheBytes`: decoded CPU point-buffer cache budget in bytes (default
-  `256 * 1024 * 1024`). This estimates project-owned typed-array storage and
-  does not measure exact Cesium/WebGL/browser memory.
-- `onPointPicked`: optional callback receiving the current point inspection, or
-  `undefined` when a non-COPC/empty pick or lifecycle change clears selection.
+  'classification'`. Default: `'fixed'`.
+- `debug`: enable lifecycle messages through `console.debug`.
+- `maxRenderedPoints`: maximum estimated point workload in the active view.
+  Default: `250000`.
+- `streaming`: overrides for `maxNodes` (default `24`), `maxDepth` (default
+  `6`), `maxScreenSpaceError` in pixels (default `8`),
+  `screenSpaceErrorHysteresis` in pixels, `maxRenderDistanceMeters` (default
+  `12000`), and `maxRenderedPoints`.
+- `refineDistanceMultiplier`: accepted for source compatibility but deprecated;
+  the current selector uses screen-space error instead.
+- `backend`: `'copc-js' | 'rust' | CopcBackend`. Default: `'copc-js'`.
+  `'rust'` explicitly selects the Rust/WASM backend. Backend failures are not
+  silently retried through `copc-js`.
+- `decoder`: optional `CopcPointDecoder` used when a source returns a point
+  view rather than a direct point buffer. The default is the bundled
+  Rust/WASM-backed XYZ interleaver; the Rust backend's direct buffer path is
+  used when available.
+- `renderer`: optional Cesium renderer implementation. The default uses Cesium
+  point primitives.
+- `maxPointCacheBytes`: decoded CPU point-buffer cache budget. Default:
+  `256 * 1024 * 1024`.
+- `onPointPicked`: called with a selected `CopcPointInspection`, or `undefined`
+  when selection is cleared.
 
-The Rust selector uses the same layer API; it does not create a Rust-only
-Viewer. Applications continue to create and own `Cesium.Viewer`, then call
-`layer.attachTo(viewer)`.
-
-### `CopcThreeLayer`
-
-`CopcThreeLayer` is exported from `@frillab/copc-adapter/three` and accepts an
-application-owned Three.js scene, camera, and optional WebGL renderer:
+### Lifecycle
 
 ```ts
+await layer.load();       // metadata and the root hierarchy page
+layer.attachTo(viewer);   // camera/view updates and rendering
+layer.detachFrom();       // detach without unloading or destroying viewer
+await layer.reload();     // unload and load the configured URL again
+layer.unload();           // release loaded source, hierarchy, and point data
+layer.destroy();          // permanently release layer-owned resources
+```
+
+`load()` and `reload()` reject with project-owned errors when source, metadata,
+CRS, or hierarchy initialization fails. `getMetadata()` returns the loaded
+metadata, when available.
+
+## `CopcThreeLayer`
+
+`CopcThreeLayer` is exported from `@frillab/copc-adapter/three`. It attaches to
+an application-owned scene and camera and does not own the renderer or render
+loop.
+
+```ts
+import * as THREE from 'three';
+import { CopcThreeLayer } from '@frillab/copc-adapter/three';
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 20_000);
+const renderer = new THREE.WebGLRenderer();
 const layer = new CopcThreeLayer({
-  url,
-  pointSize: 3,
+  url: 'https://example.com/data.copc.laz',
   colorMode: 'rgb',
-  pickingThreshold: 1,
 });
 
 await layer.load();
@@ -187,190 +105,150 @@ function animate() {
   void layer.update();
   renderer.render(scene, camera);
 }
+animate();
 ```
 
-`update()` reads the current camera and drives the shared streaming core. It
-does not render, schedule an animation loop, or update application controls;
-repeated calls with an unchanged view do not issue another streaming update.
-The layer creates one root `THREE.Group` and owns only its node
-`THREE.Points`, geometries, and materials. The application continues to own
-the scene, camera, WebGL renderer, controls, and render loop.
+Current options include `url`, `pointSize` (default `3`), `colorMode`,
+`maxRenderedPoints`, `streaming`, `backend`, `decoder`,
+`maxPointCacheBytes`, `debug`, `pickingThreshold` (default `1` scene unit),
+an optional compatible `renderer`, and `onPointPicked`.
 
-The loaded dataset defines a fixed ENU frame in metres. Camera positions and
-directions, point geometry, and picking all use that same frame. `pick({ x,
-y })` takes normalized device coordinates and returns the shared
-`CopcPointInspection`, or `undefined` for empty/non-COPC hits. Its optional
-raycaster can be supplied as `pick(position, { raycaster })`; point threshold
-is in scene units and defaults to one metre.
+`update()` reads the attached camera and drives the shared streaming core. It
+does not render or schedule the application loop; equivalent views are not
+submitted repeatedly. The layer creates one root `THREE.Group` and owns the
+point objects, geometries, and materials below it. The application owns the
+scene, camera, WebGL renderer, controls, and loop.
 
-The lifecycle is `idle | mounted | loading | ready | destroyed`. `load()` may
-run before attachment. `detachFrom()` removes the root and clears selection
-without unloading the source; `unload()` clears source/cache/node state while
-retaining the attachment; `reload()` repeats the configured load; and
-`destroy()` permanently releases layer resources without disposing the
-application scene, camera, or WebGL renderer. `getSnapshot()` exposes shared
-streaming/hierarchy/cache/worker diagnostics plus Three-specific renderer
-timings without adding Cesium-only fields.
+The loaded dataset uses a fixed local ENU frame in metres: +X east, +Y north,
+and +Z up. `pick({ x, y })` accepts normalized device coordinates and returns a
+`CopcPointInspection` or `undefined`. An optional `THREE.Raycaster` and
+threshold can be supplied. `detachFrom()`, `unload()`, `reload()`, and
+`destroy()` do not dispose application-owned Three.js resources.
 
-### Diagnostics
+## `CopcStreamingController`
 
-`getSnapshot()` returns the current lifecycle, selected and rendered nodes,
-rendered point count, backend, and public streaming diagnostics. Its
-`performance` member includes selection, frustum, SSE, frontier, budget,
-hierarchy/render timing, and range-byte metrics. Its `transition` member
-reports active/waiting replacement groups, refinement and collapse commits,
-stale replacement cancellations, and coarse nodes retained for coverage. Its
-`pointCache` member reports decoded CPU cache budget, size, hits, misses, and
-evictions. When Rust decoding is active, `worker` reports bounded queue and
-worker activity counters.
-
-`getHierarchyDiagnostics()` reports hierarchy page requests, cache hits, bytes
-fetched, loaded pages, and loaded entries while data is available.
-`getPointCacheDiagnostics()` returns the decoded CPU point-buffer cache
-diagnostics independently of rendered membership. These values describe
-project-owned work and buffers; they are not exact Cesium, WebGL, browser, or
-GPU memory measurements.
-
-In browsers, Rust point chunks are decoded by a per-source bounded Web Worker
-pool. Range requests stay on the main thread, queued work is superseded on a
-new streaming generation, and stale active results are ignored. Worker
-failures use `CopcBackendError` code `worker`; unloading or destroying a layer
-terminates the source-owned workers. `getSnapshot().worker`, when present,
-reports configured/active/queued counts, observed peaks, and submitted,
-completed, cancelled, and failed job counts. `getSnapshot().performance` reports
-range bytes alongside range, decode, CRS, and renderer timings.
-
-### Point field selection
-
-The public `CopcPointFieldSelection` is a `ReadonlySet` of project-owned
-fields: `position`, `intensity`, `classification`, and `rgb`. Use
-`getCopcPointFieldSelection(colorMode)` to obtain the minimum request for a
-render mode. `CopcSource.loadPointDataView(node, fields)` accepts that request
-without exposing `copc.js`, LAS, LAZ, or Cesium types.
-
-The returned `CopcPointView.availableFields` reports fields that are both
-requested and present in the source. Missing and unrequested fields are
-unavailable, never zero-filled. Decode failures propagate as errors. Point
-buffers validate that every present attribute array has exactly `pointCount`
-values. RGB channel arrays retain source 16-bit precision until the rendering
-layer normalizes them for Cesium.
-
-## Quick Start
+`CopcStreamingController` is the renderer-neutral streaming core, also
+exported as `CopcStreamingCore`. It can be used without importing Cesium or
+Three.js.
 
 ```ts
-import * as Cesium from 'cesium';
-import { CopcCesiumLayer } from '@frillab/copc-adapter';
+import { CopcStreamingController } from '@frillab/copc-adapter/three';
 
-const viewer = new Cesium.Viewer('cesium-container');
-const layer = new CopcCesiumLayer({
-  url: '/samples/autzen.copc.laz',
-  colorMode: 'rgb',
+const core = new CopcStreamingController({
+  url: 'https://example.com/data.copc.laz',
 });
 
-await layer.load();
-layer.attachTo(viewer);
-
-// Optional request/cache diagnostics for incremental hierarchy loading.
-console.log(layer.getHierarchyDiagnostics());
-```
-
-Install the package together with the Cesium version owned by the host app:
-
-```bash
-npm install @frillab/copc-adapter cesium
-```
-
-`cesium` and `three` are optional peer dependencies. Install only the renderer
-used by the application. `copc`, `proj4`, and the browser decoder runtime are
-provided by the adapter package; its `npm pack` artifact includes the Rust/WASM
-and LAZ decoder assets, so no `/wasm` or `/laz-perf.wasm` web-root copy is
-required.
-
-## Layer Lifecycle
-
-```ts
-const layer = new CopcCesiumLayer({
-  url: '/samples/autzen.copc.laz',
+await core.load();
+await core.updateView({
+  longitude,
+  latitude,
+  height,
+  viewDistanceMeters,
+  viewFrustum,
 });
-
-await layer.load();
-layer.attachTo(viewer);
-
-layer.detachFrom();
-await layer.reload();
-layer.attachTo(viewer);
-
-layer.destroy();
 ```
 
-## Decoder Boundary
+`CopcStreamingControllerOptions` includes:
 
-The public entrypoint exports `CopcBackend`, `CopcSource`, `CopcJsBackend`, and
-`CopcPointDecoder`. Applications normally use the defaults; alternative
-backends and test doubles can be passed through layer options without changing
-the controller or renderer.
+- `url`;
+- `streaming`, with the shared selection limits;
+- `maxRenderedPoints`;
+- `backend`;
+- `decoder`;
+- `pointFields`, a project-owned selection of `position`, `intensity`,
+  `classification`, and `rgb`;
+- `maxPointCacheBytes`; and
+- `debug`.
 
-The default backend is `CopcJsBackend`. Selecting `backend: 'rust'` uses the
-exported `RustCopcBackend` behind the same source boundary; the layer,
-streaming manager, coordinate transform, and Cesium renderer do not change.
-Both production backends return project-owned buffers. The Rust path decodes
-XYZ and selected LAS attributes directly in Rust/WASM.
+The shared streaming limits include `maxNodes` (default `24`), `maxDepth`
+(default `6`), `maxScreenSpaceError` in pixels (default `8`),
+`screenSpaceErrorHysteresis`, `maxRenderDistanceMeters` (default `12000`),
+`maxRenderedPoints` (default `250000`), and `maxPointsPerBatch` (default
+`100000`). `refineDistanceMultiplier` is accepted for compatibility but is
+deprecated and no longer controls refinement.
 
-The public entrypoint also exports the backend-neutral `RandomAccessByteSource`,
-`HttpRangeByteSource`, `InMemoryByteSource`, and `RangeSourceError` types for
-the Rust/WASM reader boundary. `RustCopcReader` and `RustCopcParseError` are
-also exported for callers that need to parse LAS/COPC metadata, the root
-hierarchy, and one LAS 1.4 point chunk through an injected random-access
-source. `CopcBackendError` maps Rust source, parser, hierarchy, point-chunk,
-LAZ, unsupported-format, worker, and WASM failures into project-owned stage/category
-values while preserving `cause`.
+`load()` reads metadata and the root hierarchy. `updateView(view,
+onProgress?)` performs view-driven hierarchy loading and selection and reports
+progressively prepared geographic point buffers. The view and progress types
+contain no engine objects. `undefined` is returned when an update is
+superseded by a newer view or lifecycle operation.
 
-`CopcPointBuffer`와 `GeographicPointBuffer`는 optional `intensity`,
-`classification`, `red`, `green`, `blue` typed arrays를 보존한다. source point
-format에 없는 attribute는 생성하지 않는다. RGB/intensity/classification
-style은 해당 typed arrays를 직접 사용하며, attribute 누락 시 fixed color로
-fallback한다.
+The core lifecycle is `idle | loading | ready | destroyed`. It provides
+`getSnapshot()`, `getMetadata()`, `getHierarchyDiagnostics()`,
+`getPointCacheDiagnostics()`, `getCurrentSelection()`, `getCurrentView()`,
+`getHierarchyNode()`, `getCachedPointBuffer()`, and `getTransitionState()`, as
+well as `unload()`, `reload()`, and `destroy()`.
 
-좌표 배열은 shared boundary에서 `Float64Array`로 유지된다. `CopcPointData`는
-동일한 디코드 결과에 대해 `copc-source`, `wgs84-geographic`,
-`wgs84-ecef-meters` 좌표 버전을 명시적으로 제공한다. 기존
-`GeographicPointBuffer.coordinates`는 Cesium 호환성을 위해 계속 유지하며,
-core가 만든 buffer에는 source/ECEF 좌표와 coordinate-system 표식도 함께
-보존된다. 렌더러 adapter는 `worldToLocal()`로 선택한 WGS84 ECEF 원점을
-먼저 뺀 뒤 필요할 때만 Float32/GPU 형식으로 변환한다.
+## Backend and point contracts
 
-Three 계열 renderer가 사용할 고정 프레임은 `createDatasetLocalFrame()`으로
-만든다. 이 프레임의 원점은 COPC metadata cube 중심의 WGS84 ECEF 위치이며,
-local 축은 원점에서의 ENU(East, North, Up), 단위는 metre이다. 따라서 cube
-중심은 local `(0, 0, 0)`에 놓인다. `worldToDatasetLocal()` /
-`datasetLocalToWorld()`는 점에 사용하고,
-`worldDirectionToDatasetLocal()` /
-`datasetLocalDirectionToWorld()`는 카메라 direction/up/right 같은 벡터에
-사용한다. 모든 변환은 Float64 중간값을 유지하므로 local 변환 후에만
-GPU Float32 버퍼를 만들어야 한다. 프레임은 dataset 수명 동안 고정되며
-카메라 이동에 따라 rebasing하지 않는다.
+`CopcBackend.open(url)` returns a project-owned `CopcSource`. A source exposes
+metadata, the root hierarchy page, hierarchy-page loading, and point views or
+point buffers. It does not expose `copc` or renderer types.
 
-새로 생성되는 hierarchy bounds와 streaming geometry에는 좌표계 표식이
-포함된다. 기존 공개 `CopcHierarchyQuery` 입력과 `intersectsViewFrustum()`
-입력은 이전 버전의 무표식 source bounds/sphere도 호환성을 위해 허용하지만,
-명시적으로 다른 좌표계가 표시된 값은 거부한다.
+The current backend selection is:
 
-### Point picking and inspection
+- `copc-js`: the default production backend. It uses the `copc` implementation
+  for metadata, hierarchy, and point-view loading.
+- `rust`: explicit opt-in Rust/WASM processing. The current path uses Rust for
+  LAS/COPC metadata and hierarchy interpretation plus LAS 1.4 point/LAZ
+  decoding and requested-field extraction. TypeScript retains browser Range
+  I/O and worker orchestration.
+- an injected `CopcBackend`: supported for tests and host-owned sources.
 
-Cesium point picks carry only a project-owned `{ nodeKey, pointIndex }` identity
-plus a compact layer-local ownership token. `CopcCesiumLayer.getSelectedPoint()` resolves it through the current
-rendered node and decoded CPU cache, returning transformed position/height,
-retained source XYZ, shared WGS84 ECEF world coordinates when available, node
-level, and available attributes. RGB, intensity, and
-classification remain unavailable when the active field selection did not
-request or decode them. Picking does not force unconditional full-field
-decoding; removed or evicted nodes clear stale selection safely.
+`CopcPointFieldSelection` is a `ReadonlySet` of `position`, `intensity`,
+`classification`, and `rgb`. `CopcPointView.availableFields` reports fields
+that were requested and are present. Missing fields are not zero-filled.
+`CopcPointBuffer` retains `Float64Array` coordinates and optional typed
+attribute arrays. RGB and intensity retain their source integer precision.
 
-- `copc.js`: metadata, hierarchy, point view 로딩
-- `copc-wasm`: focused LAS 1.4 point 6/7/8 node decode and X/Y/Z interleaving
-- `viewer-web` decoder: available LAS attributes -> optional typed arrays
-- `viewer-web`: streaming selection, CRS transform, Cesium rendering
+`CopcPointData` and the current `GeographicPointBuffer` can retain all three
+coordinate spaces:
 
-Worker/WASM assets are resolved from the installed package build using the
-worker module's `import.meta.url`; consumers do not need to copy assets into
-`/public`.
+- `copc-source` source/project XYZ;
+- `wgs84-geographic` longitude, latitude, and height; and
+- `wgs84-ecef-meters` world coordinates.
+
+The current TypeScript coordinate path uses the project WKT helpers and the
+`proj4js` dependency for applicable projected CRS transformations. The
+Rust/WASM backend remains opt-in; this implementation detail is not a separate
+public coordinate API.
+
+`CopcPointDecoder.decode(view)` remains available for injected decoders and
+legacy source implementations. The public point-processing types are
+renderer-neutral; a renderer receives numeric data, not COPC compression or
+engine objects.
+
+## Diagnostics, errors, and picking
+
+`getSnapshot()` reports lifecycle, backend, selected nodes, rendered nodes and
+points, streaming performance, replacement transitions, hierarchy counters,
+point-cache counters, and Rust worker counters when the Rust backend is active.
+The performance values include selection, frustum/SSE, workload budget,
+hierarchy, range, decode, CRS, and renderer stages where applicable.
+
+`getHierarchyDiagnostics()` reports hierarchy-page requests, cache hits, bytes,
+pages, and entries. `getPointCacheDiagnostics()` reports project-owned decoded
+CPU point-buffer memory, not exact browser, WebGL, or GPU memory.
+
+The public errors include `CopcLoadError`, `CopcSourceError`,
+`CopcMetadataError`, `CopcHierarchyLoadError`, and `CopcBackendError`.
+Backend errors retain their original `cause` where available and identify the
+stage/category, including source range, metadata, hierarchy, point chunk,
+decode, worker, unsupported input, and WASM failures.
+
+`CopcCesiumLayer.getSelectedPoint()` and `CopcThreeLayer.pick()` resolve a
+project-owned `{ nodeKey, pointIndex }` identity through the live decoded
+buffer. The inspection may include transformed position/height, source XYZ,
+WGS84 ECEF/world coordinates, node level, and requested attributes. Evicted or
+removed nodes clear stale selection safely.
+
+## Source requirements
+
+COPC sources must support byte Range requests. Cross-origin sources must allow
+the consuming origin, allow the browser's `Range` request header, and expose
+`Content-Range`. `probeCopcSource(url)` performs a bounded prefix probe and
+returns structured reachability, Range, CORS-observability, LAS/COPC, and
+warning fields without downloading the whole source.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for implementation ownership and
+[CONFORMANCE.md](CONFORMANCE.md) for backend and CRS correctness strategy.
