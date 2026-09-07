@@ -372,6 +372,27 @@ test('Rust reader returns structured failures for malformed header and hierarchy
     () => RustCopcReader.open(new InMemoryByteSource(overflow.bytes)),
     (error) => error instanceof RustCopcParseError && error.code === 'unsupported-value',
   );
+
+  const unsafeRootEnd = makeFixture();
+  putU64(unsafeRootEnd.bytes, 375 + 54 + 40, BigInt(Number.MAX_SAFE_INTEGER - 31));
+  await assert.rejects(
+    () => RustCopcReader.open(new InMemoryByteSource(unsafeRootEnd.bytes)),
+    (error) => error instanceof RustCopcParseError && error.code === 'unsupported-value',
+  );
+
+  const unsafeHierarchyEnd = makeFixture();
+  putU64(
+    unsafeHierarchyEnd.bytes,
+    unsafeHierarchyEnd.rootPageOffset + 16,
+    BigInt(Number.MAX_SAFE_INTEGER - 31),
+  );
+  putI32(unsafeHierarchyEnd.bytes, unsafeHierarchyEnd.rootPageOffset + 24, 64);
+  await assert.rejects(
+    async () => (await RustCopcReader.open(
+      new InMemoryByteSource(unsafeHierarchyEnd.bytes),
+    )).loadRootHierarchy(),
+    (error) => error instanceof RustCopcParseError && error.code === 'unsupported-value',
+  );
 });
 
 test('Autzen backend metadata and root entries match', { skip: !existsSync(samplePath) }, async () => {

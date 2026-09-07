@@ -53,10 +53,14 @@ renderer adapter
 - `CopcJsBackend` uses the `copc` implementation for metadata, hierarchy, and
   point-view loading. The project-owned TypeScript boundary selects requested
   fields and converts point views into typed buffers.
-- The current Rust/WASM path parses the LAS header and COPC metadata, interprets
-  hierarchy pages, decompresses LAZ node chunks, and extracts requested LAS
-  fields. Rust applies LAS scale and offset while creating source-coordinate
-  arrays. TypeScript still fetches the exact byte ranges, owns the reader and
+- `copc-core` owns renderer-neutral LAS/COPC metadata and hierarchy parsing,
+  LAZ node decompression, supported point-format interpretation, requested
+  field selection, and source-coordinate buffer creation. It returns typed Rust
+  results and errors and has no WebAssembly or browser dependency.
+- `copc-wasm` is the thin ABI wrapper around `copc-core`. It owns pointer/length
+  validation, WASM allocation and deallocation, copying core-owned buffers into
+  host-provided memory, JavaScript-safe integer checks, and JSON/status
+  encoding. TypeScript still fetches the exact byte ranges, owns the reader and
   worker orchestration, and maps results into project-owned types.
 - `CopcStreamingCore` and `CopcStreamingController` own hierarchy lifecycle,
   view-driven selection, `NodeSelector`, SSE/refinement policy, hysteresis,
@@ -75,10 +79,12 @@ point-level statistics or reductions, or fused point preparation. Those remain
 TypeScript responsibilities until the target processing architecture is
 implemented and validated.
 
-The repository currently contains `crates/copc-wasm` only. Its Rust/WASM ABI
-exposes header parsing, hierarchy parsing, and node decoding, while TypeScript
-provides the browser-facing reader and transfers data across the boundary. A
-separate pure Rust processing crate does not yet exist.
+The repository contains `crates/copc-core` and `crates/copc-wasm`. The former
+is the native-testable domain implementation; the latter exposes the existing
+Rust/WASM ABI without owning COPC parsing or decoding rules. This extraction is
+the first phase of the broader processing-core direction: CRS transformation,
+WGS84/ECEF preparation, statistics, and fused point preparation remain future
+work.
 
 ### Current data and streaming contracts
 
@@ -194,7 +200,7 @@ renderer-neutral streaming core must not return Cesium or Three.js objects.
 
 ### Pure Rust core and WASM wrapper
 
-The target crate separation is:
+The current crate separation is:
 
 ```text
 crates/
@@ -202,17 +208,14 @@ crates/
   copc-wasm/
 ```
 
-This is target structure, not a claim about the current repository.
+`copc-core` is pure Rust. It has no JavaScript, WebAssembly-specific pointer
+ABI, browser, Cesium, or Three.js dependency. Its native tests exercise the
+same metadata, hierarchy, and point-decoding behavior used by the WASM path.
 
-`copc-core` is intended to be pure Rust. It should have no JavaScript,
-WebAssembly-specific pointer ABI, browser, Cesium, or Three.js dependency. It
-must be independently testable with native Rust tests and reusable by more
-than one runtime.
-
-`copc-wasm` is intended to be a thin wrapper around that core. It owns memory
-allocation and deallocation, ABI validation, JS/WASM result transfer, and
-WebAssembly-specific error/result encoding. It should not become the place
-where COPC domain rules or renderer behavior are defined.
+`copc-wasm` is a thin wrapper around that core. It owns memory allocation and
+deallocation, ABI validation, JS/WASM result transfer, and WebAssembly-specific
+error/result encoding. COPC domain rules remain in `copc-core`; renderer
+behavior remains outside both crates.
 
 ## CRS architecture
 

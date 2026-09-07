@@ -2,5 +2,6 @@
 resolver = "2"
 
 members = [
+    "crates/copc-core",
     "crates/copc-wasm"
 ]

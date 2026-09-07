@@ -38,9 +38,12 @@ current implementation boundaries.
 
 ### Pure Rust processing domain
 
-Separate reusable COPC processing logic from the WebAssembly and browser ABI.
-The pure Rust domain should be independently testable natively and reusable by
-more than one runtime. The ABI crate should remain thin.
+The first extraction is complete: `copc-core` owns native-testable COPC/LAS
+metadata and hierarchy parsing, supported LAZ point decoding, and typed domain
+errors, while `copc-wasm` remains the ABI and memory/transport wrapper. Future
+work may move CRS, world-coordinate preparation, statistics, and fused point
+preparation into the same core; this does not claim the broader #169 migration
+is complete.
 
 ### Rust CRS capability
 
