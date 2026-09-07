@@ -3,11 +3,13 @@
 [![npm](https://img.shields.io/npm/v/@frillab/copc-adapter.svg)](https://www.npmjs.com/package/@frillab/copc-adapter) [![CI](https://github.com/mors119/copc-adapter/actions/workflows/ci.yml/badge.svg)](https://github.com/mors119/copc-adapter/actions/workflows/ci.yml) [![License](https://img.shields.io/github/license/mors119/copc-adapter.svg)](https://github.com/mors119/copc-adapter/blob/main/LICENSE) [![GitHub release](https://img.shields.io/github/v/release/mors119/copc-adapter.svg)](https://github.com/mors119/copc-adapter/releases)
 
 Stream and visualize Cloud Optimized Point Cloud (COPC) data directly in
-CesiumJS without preprocessing or converting it to Cesium-specific tiles.
+CesiumJS and Three.js without preprocessing or converting it to
+renderer-specific tiles.
 
 COPC Adapter reads the original COPC resource in the browser, uses HTTP Range
-requests to load the hierarchy and selected point chunks, and renders them in
-CesiumJS. The application keeps ownership of its own `Cesium.Viewer`.
+requests to load the hierarchy and selected point chunks, and renders them
+through the renderer adapter selected by the application. The application
+keeps ownership of its own viewer or scene.
 
 ![COPC Adapter demo](docs/assets/copc-main.gif)
 
@@ -29,7 +31,9 @@ COPC Adapter keeps the original COPC resource as the source for both storage
 and visualization:
 
 ```text
-COPC -> HTTP Range requests -> hierarchy / LoD -> point chunks -> CesiumJS
+COPC -> HTTP Range requests -> hierarchy / LoD -> point chunks
+                                                    ├─ CesiumJS
+                                                    └─ Three.js
 ```
 
 It is a focused browser-side path for applications that want to stream COPC
@@ -45,13 +49,14 @@ data without a separate conversion step.
 - Gaze-aware refinement priority and LoD hysteresis
 - Coverage-safe asynchronous coarse/fine renderer transitions
 - CesiumJS rendering through a caller-owned `Viewer`
+- Three.js rendering through a caller-owned scene and render loop
 - Stable `copc-js` backend and opt-in Rust/WASM backend
 - Fixed, RGB, elevation, intensity, and classification styling
 - Typed TypeScript API and explicit layer lifecycle
 - Public point picking with a compact node/index identity and demo inspector
 - Packed npm artifact with declarations and decoder runtime assets
 
-## Quick Start
+## Quick Start: CesiumJS
 
 Install the package and the Cesium version owned by your application:
 
@@ -61,7 +66,7 @@ npm install @frillab/copc-adapter cesium
 
 ```ts
 import * as Cesium from 'cesium';
-import { CopcCesiumLayer } from '@frillab/copc-adapter';
+import { CopcCesiumLayer } from '@frillab/copc-adapter/cesium';
 
 const viewer = new Cesium.Viewer('cesium-container');
 const layer = new CopcCesiumLayer({
@@ -74,6 +79,12 @@ layer.attachTo(viewer);
 ```
 
 The caller owns the Cesium `Viewer` and is responsible for destroying it.
+
+The historical root import remains supported for existing Cesium consumers:
+
+```ts
+import { CopcCesiumLayer } from '@frillab/copc-adapter';
+```
 
 ### Three.js package boundary
 

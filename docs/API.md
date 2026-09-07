@@ -1,7 +1,10 @@
 # Library API
 
-`apps/viewer-web/src/index.ts` 가 source public entrypoint 이며, package
-consumers should import the generated `@frillab/copc-adapter` package.
+`apps/viewer-web/src/index.ts` 가 backwards-compatible root source entrypoint
+이며, `apps/viewer-web/src/cesium.ts` 는 명시적 Cesium entrypoint 이다.
+Package consumers should import the generated
+`@frillab/copc-adapter/cesium` package path for new Cesium integrations; the
+historical root package path remains supported.
 
 ## Exported API
 
@@ -277,10 +280,11 @@ Install the package together with the Cesium version owned by the host app:
 npm install @frillab/copc-adapter cesium
 ```
 
-`cesium` is a peer dependency. `copc`, `proj4`, and the browser decoder
-runtime are provided by the adapter package; its `npm pack` artifact includes
-the Rust/WASM and LAZ decoder assets, so no `/wasm` or `/laz-perf.wasm` web-root
-copy is required.
+`cesium` and `three` are optional peer dependencies. Install only the renderer
+used by the application. `copc`, `proj4`, and the browser decoder runtime are
+provided by the adapter package; its `npm pack` artifact includes the Rust/WASM
+and LAZ decoder assets, so no `/wasm` or `/laz-perf.wasm` web-root copy is
+required.
 
 ## Layer Lifecycle
 

@@ -2,10 +2,11 @@
 
 ## Goal
 
-The project goal is to visualize COPC source data directly in CesiumJS without
-preprocessing it into another point-cloud tile format. The current MVP obtains
-metadata, hierarchy pages, and selected point chunks from a COPC resource, then
-converts those points into Cesium primitives in the browser.
+The project goal is to visualize COPC source data directly in CesiumJS or
+Three.js without preprocessing it into another point-cloud tile format. The
+current MVP obtains metadata, hierarchy pages, and selected point chunks from
+a COPC resource, then converts those points into renderer-native primitives in
+the browser.
 
 ## Runtime Flow
 
@@ -113,7 +114,7 @@ separate concern.
 | Renderer-neutral contract | `apps/viewer-web/src/viewer/streaming/renderer.ts` | Own the minimal node add/update/remove/clear/destroy/count contract and project-owned point options; no scene, camera, engine geometry, COPC, or selection logic |
 | Renderer-neutral controller | `apps/viewer-web/src/viewer/streaming/CopcStreamingController.ts` | Coordinate loading, hierarchy queries, selection, point streaming, lifecycle, generations, and engine-independent diagnostics |
 | Cesium compatibility controller | `apps/viewer-web/src/viewer/CopcViewer.ts`, `apps/viewer-web/src/cesium/view/` | Cesium attachment, camera conversion, point rendering, picking, and coverage-safe renderer reconciliation over the shared streaming core |
-| Public API | `apps/viewer-web/src/api/`, `apps/viewer-web/src/index.ts`, `apps/viewer-web/src/three.ts` | Expose the backwards-compatible Cesium façade from the package root and the isolated renderer-neutral Three entrypoint |
+| Public API | `apps/viewer-web/src/api/`, `apps/viewer-web/src/index.ts`, `apps/viewer-web/src/cesium.ts`, `apps/viewer-web/src/three.ts` | Expose the backwards-compatible Cesium root, explicit Cesium subpath, and isolated renderer-neutral Three entrypoint |
 
 External `copc.js` types stay inside `copcJsBackend.ts`. The context, loaders,
 streaming controller, and decoder communicate through project-owned interfaces.
@@ -213,17 +214,19 @@ An injected `CopcBackend` remains supported for tests and host-owned sources.
 There is no automatic Rust-to-JS fallback: a Rust source or decode error is
 reported with its backend error category so validation cannot be masked.
 
-## Package renderer boundary (#139)
+## Package renderer boundary (#139, #164)
 
 The published package uses renderer subpath exports rather than separate npm
 packages:
 
 ```text
 @frillab/copc-adapter       -> dist/index.js  (existing Cesium façade)
+@frillab/copc-adapter/cesium -> dist/cesium.js (explicit Cesium façade)
 @frillab/copc-adapter/three -> dist/three.js  (renderer-neutral Three entry)
 ```
 
-The root entry remains unchanged for existing Cesium users. The Three entry is
+The root entry remains unchanged for existing Cesium users, and the explicit
+Cesium entry exposes the same API for new consumers. The Three entry is
 implemented as a separate source module and does not re-export the root entry,
 because the root statically re-exports Cesium integration modules. Its shared
 chunk contains only COPC, coordinate, and renderer-neutral streaming code.
@@ -485,11 +488,13 @@ palette. Missing attributes select the backward-compatible fixed cyan color.
 
 ## Package Boundary
 
-`apps/viewer-web/src/index.ts` is the only public source entrypoint. The viewer
-package also has an ESM declaration and bundle build configuration. Library
-builds include the Rust/WASM decoder and package-local LAZ decoder runtime in
-the `npm pack` artifact, while Cesium remains an external peer dependency owned
-by the consuming application.
+`apps/viewer-web/src/index.ts` is the backwards-compatible root source
+entrypoint, while `src/cesium.ts` and `src/three.ts` provide explicit
+renderer-specific entrypoints. The viewer package also has an ESM declaration
+and bundle build configuration. Library builds include the Rust/WASM decoder
+and package-local LAZ decoder runtime in the `npm pack` artifact, while both
+renderer libraries remain optional external peer dependencies owned by the
+consuming application.
 
 ## Browser Acceptance Coverage
 

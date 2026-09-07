@@ -4,7 +4,7 @@ import * as Cesium from 'cesium';
 import {
   CopcCesiumLayer,
   RustCopcBackend,
-} from '@frillab/copc-adapter';
+} from '@packed-adapter';
 
 const datasetUrl = '/samples/autzen.copc.laz';
 const params = new URLSearchParams(window.location.search);
