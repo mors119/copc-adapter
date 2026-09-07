@@ -407,6 +407,22 @@ The package metadata for this release is `0.3.0`.
 
 These are the current v0.3.0 boundaries:
 
+### Three.js MVP boundaries
+
+The Three.js entrypoint is a composable layer for an existing application,
+not a full point-cloud viewer. The MVP intentionally does not implement:
+
+- `OrthographicCamera` support; the validated camera is
+  `THREE.PerspectiveCamera`.
+- EDL, measurements, profiles, annotations, clipping, or viewer UI.
+- React Three Fiber, Babylon.js, or WebGPU adapters.
+- Moving-origin/rebasing, arbitrary root transforms into an application
+  coordinate frame, or a custom shader-extension framework.
+
+The dataset-local ENU frame is fixed for the lifetime of a loaded dataset.
+The application remains responsible for the scene, camera, WebGL renderer,
+controls, render loop, and UI.
+
 - Hierarchy loading starts with the root page and follows only relevant
   intersecting pages for the current project-coordinate bounds and target
   level; broader hierarchy/loading optimization remains future work.
