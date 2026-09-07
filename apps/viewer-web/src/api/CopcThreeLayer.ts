@@ -377,6 +377,10 @@ export class CopcThreeLayer {
       if (!this.lastStreamingView || !areStreamingViewsEquivalent(this.lastStreamingView, view)) {
         this.updatePending = true;
         this.streamingGeneration += 1;
+        // The recorded view belongs to the invalidated generation. Clearing it
+        // prevents a retry from being mistaken for an unchanged view if the
+        // camera returns to that generation before the stale update settles.
+        this.lastStreamingView = undefined;
         this.core.invalidateView();
       }
       return this.updateInFlightPromise ?? Promise.resolve();

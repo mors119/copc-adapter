@@ -86,6 +86,38 @@ function localToWorldVector(vector: THREE.Vector3, frame: DatasetLocalFrame): Vi
   return datasetLocalDirectionToWorld(toViewVector(vector), frame);
 }
 
+function getVerticalFovRadians(
+  camera: THREE.Camera & {
+    fov?: number;
+    zoom?: number;
+    getEffectiveFOV?: () => number;
+  },
+): number | undefined {
+  const fovDegrees = camera.fov;
+  if (typeof fovDegrees !== 'number' || !Number.isFinite(fovDegrees)) {
+    return undefined;
+  }
+
+  let effectiveFovDegrees = fovDegrees;
+  if (typeof camera.getEffectiveFOV === 'function') {
+    effectiveFovDegrees = camera.getEffectiveFOV();
+  } else if (typeof camera.zoom === 'number'
+    && Number.isFinite(camera.zoom)
+    && camera.zoom > 0) {
+    effectiveFovDegrees = THREE.MathUtils.radToDeg(
+      2 * Math.atan(
+        Math.tan(THREE.MathUtils.degToRad(fovDegrees) / 2) / camera.zoom,
+      ),
+    );
+  }
+  if (!Number.isFinite(effectiveFovDegrees)
+    || effectiveFovDegrees <= 0
+    || effectiveFovDegrees >= 180) {
+    return undefined;
+  }
+  return THREE.MathUtils.degToRad(effectiveFovDegrees);
+}
+
 /** Convert a live Three camera into the renderer-neutral streaming view. */
 export function createThreeStreamingView(
   options: ThreeStreamingViewOptions,
@@ -104,7 +136,9 @@ export function createThreeStreamingView(
     fov?: number;
     near?: number;
     far?: number;
+    zoom?: number;
     isPerspectiveCamera?: boolean;
+    getEffectiveFOV?: () => number;
   };
   const farMeters = finitePositive(
     cameraWithPerspectiveFields.far,
@@ -123,8 +157,9 @@ export function createThreeStreamingView(
     viewDistanceMeters: farMeters,
   };
 
+  const verticalFovRadians = getVerticalFovRadians(cameraWithPerspectiveFields);
   if (cameraWithPerspectiveFields.isPerspectiveCamera !== false
-    && Number.isFinite(cameraWithPerspectiveFields.fov)) {
+    && verticalFovRadians !== undefined) {
     view.viewFrustum = createPerspectiveViewFrustum({
       position: {
         x: worldPosition.x,
@@ -134,7 +169,7 @@ export function createThreeStreamingView(
       direction: localToWorldVector(basis.direction, options.frame),
       up: localToWorldVector(basis.up, options.frame),
       right: localToWorldVector(basis.right, options.frame),
-      verticalFovRadians: THREE.MathUtils.degToRad(cameraWithPerspectiveFields.fov ?? 45),
+      verticalFovRadians,
       viewportHeightPixels: viewport.y,
       aspectRatio,
       nearMeters,

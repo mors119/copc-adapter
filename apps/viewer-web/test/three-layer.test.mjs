@@ -4,6 +4,7 @@ import * as THREE from 'three';
 
 import {
   CopcThreeLayer,
+  createThreeStreamingView,
 } from '../src/three.ts';
 
 function createBackend() {
@@ -118,6 +119,14 @@ function createAttachment(scene, camera, renderer = {
   };
 }
 
+function createDeferred() {
+  let resolve;
+  const promise = new Promise((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 async function createLoadedLayer(renderer) {
   const source = createBackend();
   const layer = new CopcThreeLayer({
@@ -160,6 +169,63 @@ test('loads without a scene, attaches one root, and update is a no-op for an unc
   assert.equal(scene.children.filter((child) => child === layer.getRoot()).length, 1);
   assert.equal(source.hierarchyRequestCount, 1);
   assert.equal(layer.getSnapshot().streamingUpdateCount, 1);
+
+  layer.destroy();
+});
+
+test('retries an invalidated update when the camera returns to the recorded view', async () => {
+  const { layer, camera } = await createLoadedLayer();
+  const previousUpdate = layer.core.updateView.bind(layer.core);
+  const firstUpdate = createDeferred();
+  let updateCallCount = 0;
+  layer.core.updateView = async (view, onProgress) => {
+    updateCallCount += 1;
+    if (updateCallCount === 1) {
+      await firstUpdate.promise;
+      return undefined;
+    }
+    return previousUpdate(view, onProgress);
+  };
+
+  camera.position.x = 10;
+  camera.updateMatrixWorld(true);
+  const updatePromise = layer.update();
+  assert.equal(updateCallCount, 1);
+
+  camera.position.x = 20;
+  camera.updateMatrixWorld(true);
+  layer.update();
+  camera.position.x = 10;
+  camera.updateMatrixWorld(true);
+  layer.update();
+
+  firstUpdate.resolve();
+  await updatePromise;
+  assert.equal(updateCallCount, 2);
+
+  layer.destroy();
+});
+
+test('uses a perspective camera effective FOV when zoom changes', async () => {
+  const { layer, camera, attachment } = await createLoadedLayer();
+  const frame = layer.getLocalFrame();
+  const unzoomed = createThreeStreamingView({
+    camera,
+    frame,
+    renderer: attachment.renderer,
+  });
+
+  camera.zoom = 2;
+  camera.updateProjectionMatrix();
+  const zoomed = createThreeStreamingView({
+    camera,
+    frame,
+    renderer: attachment.renderer,
+  });
+  const zoomedFov = zoomed.viewFrustum.verticalFovRadians;
+  const expectedFov = THREE.MathUtils.degToRad(camera.getEffectiveFOV());
+  assert.ok(Math.abs(zoomedFov - expectedFov) < 1e-12);
+  assert.ok(zoomedFov < unzoomed.viewFrustum.verticalFovRadians);
 
   layer.destroy();
 });
