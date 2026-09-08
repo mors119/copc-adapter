@@ -38,3 +38,42 @@ validation of any changed Markdown links.
   integration tests.
 - Browser/renderer changes: relevant browser tests.
 - Package/export changes: relevant packed-consumer tests.
+
+## Rust panic safety
+
+Production Rust code must not rely on panics for recoverable input, format,
+parsing, decoding, CRS, WASM-boundary, or runtime errors.
+
+In production/runtime code:
+
+- Do not use `unwrap()` or `expect()`.
+- Do not use `panic!()`, `todo!()`, `unimplemented!()`, or reachable
+  `unreachable!()` for recoverable failures.
+- Do not use `assert!()` or similar assertions to validate external or
+  user-controlled input.
+- Prefer `Result`, `Option`, checked arithmetic, and project-owned errors.
+- Treat COPC, LAS, LAZ, WKT, CRS, HTTP-derived bytes, and WASM inputs as
+  untrusted.
+- Bounds-check byte ranges before slicing, indexing, decoding, allocating, or
+  copying.
+- Prefer checked access such as `.get()` when offsets or indices originate from
+  external data.
+- Use `checked_add`, `checked_mul`, and equivalent checked conversions when
+  calculating byte offsets, lengths, counts, or allocation sizes.
+- Do not rely on an earlier validation step as the only reason a later
+  unchecked conversion or index "cannot fail" when a checked alternative is
+  practical.
+- Do not use `unsafe`, `unwrap_unchecked`, unchecked pointer arithmetic, or
+  unchecked conversions unless they are strictly necessary and the safety
+  invariant is documented and tested.
+- WASM/FFI boundaries must convert recoverable failures into structured errors
+  or status results rather than allowing a panic to cross the boundary.
+- Preserve the original error cause and useful context when mapping failures.
+- Do not introduce silent fallback to hide an error.
+
+Tests may use `unwrap()`, `expect()`, assertions, and deliberate panics when
+they make the expected invariant clearer.
+
+Development-only benchmarks and audit tools may use assertions for fixed
+repository-owned fixture invariants, but user-, file-, or externally supplied
+input should still return an error instead of panicking.
