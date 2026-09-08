@@ -46,6 +46,8 @@ async function loadRustPage(page, query = '?backend=rust&mode=rgb') {
     backend: 'rust',
     metadata: { pointCount: 10653336 },
   });
+  expect(await page.evaluate(() => window.__PACKED_CONSUMER__.rustCrsTransformerExportAvailable))
+    .toBe(true);
   await expect.poll(async () => (await state(page)).renderedPointCount).toBeGreaterThan(0);
   await expect.poll(async () => {
     const current = await state(page);

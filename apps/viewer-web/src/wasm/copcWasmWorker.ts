@@ -1,4 +1,5 @@
 import type { CopcWasmExports } from './copcWasm';
+import { instantiateCopcWasm } from './copcWasmImports';
 
 let wasmPromise: Promise<CopcWasmExports> | undefined;
 
@@ -6,9 +7,7 @@ let wasmPromise: Promise<CopcWasmExports> | undefined;
 export async function loadCopcWasmWorker(bundledWasmBinary: Uint8Array): Promise<CopcWasmExports> {
   if (!wasmPromise) {
     wasmPromise = (async () => {
-      const module = await WebAssembly.compile(bundledWasmBinary as unknown as BufferSource);
-      const instance = await WebAssembly.instantiate(module);
-      return instance.exports as unknown as CopcWasmExports;
+      return instantiateCopcWasm(bundledWasmBinary);
     })();
   }
   return wasmPromise;

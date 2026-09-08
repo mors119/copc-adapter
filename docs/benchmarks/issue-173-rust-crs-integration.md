@@ -38,9 +38,10 @@ available as pure Rust numeric operations.
 - `transform_crs_points_json` fills host-provided geographic and ECEF buffers;
 - `free_crs_transform` releases the handle.
 
-The TypeScript `RustCrsTransformer` wrapper is opt-in. The existing `proj4js`
-runtime path and backend selection policy remain unchanged while migration
-conformance is collected.
+The TypeScript `RustCrsTransformer` wrapper is an opt-in public API from the
+root, Cesium, and Three.js package entry points. The existing `proj4js` runtime
+path and backend selection policy remain unchanged while migration conformance
+is collected.
 
 ## Fixture and error behavior
 
@@ -100,9 +101,9 @@ not correctness assertions or release performance guarantees.
   files, or network resources.
 - The WASM handle keeps projection state alive across multiple point-buffer
   calls, so Worker-side reuse does not repeat WKT parsing.
-- The raw WASM loader supplies the numeric parser imports needed by proj4rs's
-  direct Rust API; proj4rs's optional wasm-bindgen projection wrappers are not
-  exposed through the adapter ABI.
+- The main-thread and Worker raw-WASM loaders share the numeric parser imports
+  needed by proj4rs's direct Rust API; proj4rs's optional wasm-bindgen
+  projection wrappers are not exposed through the adapter ABI.
 - `proj4js` remains in the package as the differential/runtime reference until
   a later migration issue changes that policy.
 

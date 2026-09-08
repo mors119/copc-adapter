@@ -3,8 +3,30 @@ import assert from 'node:assert/strict';
 
 import { RustCrsTransformer } from '../src/coordinates/transform/rustCrsTransformer.ts';
 import { geographicToEcef } from '../src/coordinates/transform/worldCoordinates.ts';
+import { getCopcWasmBinary } from '../src/wasm/copcWasm.ts';
+import { loadCopcWasmWorker } from '../src/wasm/copcWasmWorker.ts';
 
 const WGS84_GEOGRAPHIC_WKT = 'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]]';
+
+test('Rust CRS WASM worker loader supplies the proj4rs imports', async () => {
+  const wasm = await loadCopcWasmWorker(await getCopcWasmBinary());
+  const wktBytes = new TextEncoder().encode(WGS84_GEOGRAPHIC_WKT);
+  const wktPointer = wasm.alloc_bytes(wktBytes.byteLength);
+  new Uint8Array(wasm.memory.buffer, wktPointer, wktBytes.byteLength).set(wktBytes);
+
+  try {
+    const responsePointer = wasm.create_crs_transform_json(wktPointer, wktBytes.byteLength);
+    const responseBytes = new Uint8Array(wasm.memory.buffer);
+    let responseEnd = responsePointer;
+    while (responseBytes[responseEnd] !== 0) responseEnd += 1;
+    const response = JSON.parse(new TextDecoder().decode(responseBytes.subarray(responsePointer, responseEnd)));
+    assert.equal(response.ok, true);
+    wasm.free_crs_transform(response.value.handle);
+    wasm.free_parser_json(responsePointer);
+  } finally {
+    wasm.dealloc_bytes(wktPointer, wktBytes.byteLength);
+  }
+});
 
 test('Rust CRS transformer reuses a WASM handle for geographic and ECEF buffers', async () => {
   const transformer = await RustCrsTransformer.fromMetadata({

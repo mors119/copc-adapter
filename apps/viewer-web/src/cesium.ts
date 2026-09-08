@@ -46,6 +46,8 @@ export type {
 } from './copc/hierarchy/types';
 export { RustCopcParseError, RustCopcReader } from './copc/rustCopcReader';
 export { CopcWasmError } from './wasm/copcWasm';
+export { RustCrsTransformer } from './coordinates/transform/rustCrsTransformer';
+export type { RustPreparedCoordinateBuffer } from './coordinates/transform/rustCrsTransformer';
 export type {
   RustCopcHeader,
   RustCopcParseErrorCode,
