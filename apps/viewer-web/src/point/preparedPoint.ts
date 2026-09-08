@@ -12,6 +12,7 @@ type PreparedPointDataInput = {
   geographicCoordinates: Float64Array;
   worldCoordinates: Float64Array;
   attributes?: CopcPointAttributes;
+  statistics?: PreparedPointStatistics;
 };
 
 function assertPointCount(pointCount: number): void {
@@ -159,7 +160,8 @@ export function createPreparedPointData(input: PreparedPointDataInput): Prepared
     geographic,
     world,
     attributes,
-    statistics: prepareStatistics(input.geographicCoordinates, attributes, input.pointCount),
+    statistics: input.statistics
+      ?? prepareStatistics(input.geographicCoordinates, attributes, input.pointCount),
     // Compatibility aliases intentionally share storage with the named buffers.
     coordinates: geographic.coordinates,
     coordinateSystem: geographic.coordinateSystem,

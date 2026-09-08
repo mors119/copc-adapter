@@ -1,4 +1,4 @@
-export type CopcPerformanceStage = 'rangeFetch' | 'decode';
+export type CopcPerformanceStage = 'rangeFetch' | 'decode' | 'pointPreparation';
 
 export type CopcPerformanceEvent = {
   stage: CopcPerformanceStage;

@@ -1,9 +1,10 @@
 use copc_core::{
-    CopcHeader, CrsTransform, RootHierarchy, decode_copc_node, interleave_xyz, parse_header,
-    parse_root_hierarchy,
+    CopcHeader, CopcNodePreparer, CrsTransform, PreparedCopcNode, RootHierarchy, decode_copc_node,
+    interleave_xyz, parse_header, parse_root_hierarchy,
 };
 use serde::Serialize;
 use std::ffi::{CString, c_char};
+use std::time::Instant;
 
 use crate::error::{ParseError, ParseResponse, error, from_core};
 use crate::memory::{
@@ -78,6 +79,56 @@ struct CrsTransformHandle {
 #[derive(Debug, Serialize)]
 struct CrsTransformResult {
     point_count: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct CopcNodePreparerHandle {
+    handle: usize,
+    vertical_unit_scale: f64,
+    used_horizontal_fallback: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct PreparedPointRangeJson {
+    min: f64,
+    max: f64,
+}
+
+#[derive(Debug, Serialize)]
+struct PreparedPointStatisticsJson {
+    elevation: Option<PreparedPointRangeJson>,
+    intensity: Option<PreparedPointRangeJson>,
+    rgb_max: Option<u32>,
+}
+
+#[derive(Debug, Serialize)]
+struct PrepareResult {
+    point_count: usize,
+    source_coordinate_system: &'static str,
+    coordinate_system: &'static str,
+    world_coordinate_system: &'static str,
+    intensity: bool,
+    classification: bool,
+    rgb: bool,
+    statistics: PreparedPointStatisticsJson,
+    decode_duration_ms: f64,
+    preparation_duration_ms: f64,
+}
+
+struct PreparedOutputPointers {
+    source: *mut f64,
+    geographic: *mut f64,
+    ecef: *mut f64,
+    intensity: *mut u16,
+    classification: *mut u8,
+    red: *mut u16,
+    green: *mut u16,
+    blue: *mut u16,
+}
+
+struct PreparationTiming {
+    decode_ms: f64,
+    preparation_ms: f64,
 }
 
 fn json_pointer<T: Serialize>(response: ParseResponse<T>) -> *mut c_char {
@@ -228,6 +279,18 @@ fn create_geographic_crs_transform_value() -> Result<CrsTransformHandle, ParseEr
     })
 }
 
+fn create_copc_node_preparer_value(metadata: &[u8]) -> Result<CopcNodePreparerHandle, ParseError> {
+    let preparer = CopcNodePreparer::from_metadata(metadata).map_err(from_core)?;
+    let vertical_unit_scale = preparer.transform().vertical_unit_scale();
+    let used_horizontal_fallback = preparer.transform().used_horizontal_fallback();
+    let handle = Box::into_raw(Box::new(preparer)) as usize;
+    Ok(CopcNodePreparerHandle {
+        handle,
+        vertical_unit_scale,
+        used_horizontal_fallback,
+    })
+}
+
 fn transform_crs_points_value(
     handle: usize,
     input_ptr: *const f64,
@@ -296,6 +359,159 @@ pub extern "C" fn transform_crs_points_json(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn create_copc_node_preparer_json(ptr: *const u8, length: usize) -> *mut c_char {
+    let response = match input_slice(ptr, length).and_then(create_copc_node_preparer_value) {
+        Ok(value) => ParseResponse::success(value),
+        Err(parse_error) => ParseResponse::failure(parse_error),
+    };
+    json_pointer(response)
+}
+
+fn prepared_range_json(
+    range: Option<copc_core::PreparedPointRange>,
+) -> Option<PreparedPointRangeJson> {
+    range.map(|value| PreparedPointRangeJson {
+        min: value.min,
+        max: value.max,
+    })
+}
+
+fn copy_prepared_node(
+    prepared: PreparedCopcNode,
+    output: PreparedOutputPointers,
+    timing: PreparationTiming,
+) -> Result<PrepareResult, ParseError> {
+    let coordinate_length = prepared
+        .point_count
+        .checked_mul(3)
+        .ok_or_else(|| error("overflow", "coordinate output length overflows"))?;
+    let PreparedCopcNode {
+        point_count,
+        source_coordinates,
+        geographic_coordinates,
+        ecef_coordinates,
+        intensity,
+        classification,
+        red,
+        green,
+        blue,
+        statistics,
+    } = prepared;
+    mutable_f64_slice(output.source, coordinate_length)?.copy_from_slice(&source_coordinates);
+    mutable_f64_slice(output.geographic, coordinate_length)?
+        .copy_from_slice(&geographic_coordinates);
+    mutable_f64_slice(output.ecef, coordinate_length)?.copy_from_slice(&ecef_coordinates);
+
+    let intensity_present = intensity.is_some();
+    if let Some(values) = intensity {
+        mutable_u16_slice(output.intensity, point_count)?.copy_from_slice(&values);
+    }
+    let classification_present = classification.is_some();
+    if let Some(values) = classification {
+        mutable_u8_slice(output.classification, point_count)?.copy_from_slice(&values);
+    }
+    let rgb_present = red.is_some();
+    if let Some(values) = red {
+        mutable_u16_slice(output.red, point_count)?.copy_from_slice(&values);
+    }
+    if let Some(values) = green {
+        mutable_u16_slice(output.green, point_count)?.copy_from_slice(&values);
+    }
+    if let Some(values) = blue {
+        mutable_u16_slice(output.blue, point_count)?.copy_from_slice(&values);
+    }
+
+    Ok(PrepareResult {
+        point_count,
+        source_coordinate_system: "copc-source",
+        coordinate_system: "wgs84-geographic",
+        world_coordinate_system: "wgs84-ecef-meters",
+        intensity: intensity_present,
+        classification: classification_present,
+        rgb: rgb_present,
+        statistics: PreparedPointStatisticsJson {
+            elevation: prepared_range_json(statistics.elevation),
+            intensity: prepared_range_json(statistics.intensity),
+            rgb_max: statistics.rgb_max,
+        },
+        decode_duration_ms: timing.decode_ms,
+        preparation_duration_ms: timing.preparation_ms,
+    })
+}
+
+fn prepare_copc_node_value(
+    handle: usize,
+    chunk_ptr: *const u8,
+    chunk_length: usize,
+    point_count: usize,
+    requested_fields: u32,
+    output: PreparedOutputPointers,
+) -> Result<PrepareResult, ParseError> {
+    if handle == 0 {
+        return Err(error("invalid-input", "COPC node preparer handle is null"));
+    }
+    let chunk = input_slice(chunk_ptr, chunk_length)?;
+    // SAFETY: the handle is returned by create_copc_node_preparer_json and
+    // remains live until the caller invokes free_copc_node_preparer.
+    let preparer = unsafe { &*(handle as *const CopcNodePreparer) };
+    let decode_started = Instant::now();
+    let decoded = preparer
+        .decode_node(chunk, point_count, requested_fields)
+        .map_err(from_core)?;
+    let decode_duration_ms = decode_started.elapsed().as_secs_f64() * 1000.0;
+    let preparation_started = Instant::now();
+    let prepared = preparer.prepare_decoded(decoded).map_err(from_core)?;
+    let preparation_duration_ms = preparation_started.elapsed().as_secs_f64() * 1000.0;
+    copy_prepared_node(
+        prepared,
+        output,
+        PreparationTiming {
+            decode_ms: decode_duration_ms,
+            preparation_ms: preparation_duration_ms,
+        },
+    )
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn prepare_copc_node_json(
+    handle: usize,
+    chunk_ptr: *const u8,
+    chunk_length: usize,
+    point_count: usize,
+    requested_fields: u32,
+    source_ptr: *mut f64,
+    geographic_ptr: *mut f64,
+    ecef_ptr: *mut f64,
+    intensity_ptr: *mut u16,
+    classification_ptr: *mut u8,
+    red_ptr: *mut u16,
+    green_ptr: *mut u16,
+    blue_ptr: *mut u16,
+) -> *mut c_char {
+    let response = match prepare_copc_node_value(
+        handle,
+        chunk_ptr,
+        chunk_length,
+        point_count,
+        requested_fields,
+        PreparedOutputPointers {
+            source: source_ptr,
+            geographic: geographic_ptr,
+            ecef: ecef_ptr,
+            intensity: intensity_ptr,
+            classification: classification_ptr,
+            red: red_ptr,
+            green: green_ptr,
+            blue: blue_ptr,
+        },
+    ) {
+        Ok(value) => ParseResponse::success(value),
+        Err(parse_error) => ParseResponse::failure(parse_error),
+    };
+    json_pointer(response)
+}
+
+#[unsafe(no_mangle)]
 /// # Safety
 ///
 /// `handle` must be a value returned by a CRS transform creation function and
@@ -306,6 +522,21 @@ pub unsafe extern "C" fn free_crs_transform(handle: usize) {
         // in a CRS transform creation function and is freed exactly once.
         unsafe {
             drop(Box::from_raw(handle as *mut CrsTransform));
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+/// # Safety
+///
+/// `handle` must be a value returned by `create_copc_node_preparer_json` and
+/// must not be freed more than once or used after this call.
+pub unsafe extern "C" fn free_copc_node_preparer(handle: usize) {
+    if handle != 0 {
+        // SAFETY: the caller guarantees that this handle came from Box::into_raw
+        // in create_copc_node_preparer_json and is freed exactly once.
+        unsafe {
+            drop(Box::from_raw(handle as *mut CopcNodePreparer));
         }
     }
 }

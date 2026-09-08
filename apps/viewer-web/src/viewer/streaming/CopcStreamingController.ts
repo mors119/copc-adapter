@@ -18,6 +18,7 @@ import type {
 import { CopcHierarchyLoadError, CopcLoadError } from '../../copc/errors';
 import { loadCopcMetadata } from '../../copc/metadata/loadMetadata';
 import { loadCopcPointBuffer } from '../../copc/points/loadPointData';
+import { wasmCopcPointDecoder } from '../../wasm/copcDecoder';
 import { createCopcPointFieldSelection, type CopcPointFieldSelection } from '../../copc/points/fieldSelection';
 import {
   createProjectPointTransformer,
@@ -146,6 +147,7 @@ export type CopcStreamingPerformanceSnapshot = Pick<
   | 'rangeFetchDurationMs'
   | 'rangeFetchBytes'
   | 'decodeDurationMs'
+  | 'pointPreparationDurationMs'
   | 'crsTransformDurationMs'
   | 'longestMainThreadBlockingSectionMs'
 >;
@@ -640,6 +642,17 @@ export class CopcStreamingCore {
       throw new Error(`Unknown COPC hierarchy node: ${nodeKey}`);
     }
 
+    const usesRustPointPath = this.options.decoder === undefined
+      || this.options.decoder === wasmCopcPointDecoder;
+    if (usesRustPointPath && context.loadPreparedPointData) {
+      const prepared = await context.loadPreparedPointData(
+        streamingNode.node,
+        this.pointFields,
+      );
+      assertPreparedPointData(prepared);
+      return prepared;
+    }
+
     const points = await loadCopcPointBuffer(
       context,
       streamingNode.node,
@@ -663,7 +676,9 @@ export class CopcStreamingCore {
     return (event) => {
       const stage = event.stage === 'rangeFetch'
         ? 'rangeFetchDurationMs'
-        : 'decodeDurationMs';
+        : event.stage === 'pointPreparation'
+          ? 'pointPreparationDurationMs'
+          : 'decodeDurationMs';
       performanceRecorder.recordStage(
         stage,
         event.durationMs,
@@ -721,6 +736,7 @@ export class CopcStreamingCore {
       rangeFetchDurationMs: snapshot.rangeFetchDurationMs,
       rangeFetchBytes: snapshot.rangeFetchBytes,
       decodeDurationMs: snapshot.decodeDurationMs,
+      pointPreparationDurationMs: snapshot.pointPreparationDurationMs,
       crsTransformDurationMs: snapshot.crsTransformDurationMs,
       longestMainThreadBlockingSectionMs: snapshot.longestMainThreadBlockingSectionMs,
       ...(snapshot.screenSpaceErrorMin === undefined

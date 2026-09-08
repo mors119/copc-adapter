@@ -43,6 +43,23 @@ export type CopcWasmExports = {
     ecefPointer: number,
   ): number;
   free_crs_transform(handle: number): void;
+  create_copc_node_preparer_json(pointer: number, length: number): number;
+  prepare_copc_node_json(
+    handle: number,
+    chunkPointer: number,
+    chunkLength: number,
+    pointCount: number,
+    requestedFields: number,
+    sourcePointer: number,
+    geographicPointer: number,
+    ecefPointer: number,
+    intensityPointer: number,
+    classificationPointer: number,
+    redPointer: number,
+    greenPointer: number,
+    bluePointer: number,
+  ): number;
+  free_copc_node_preparer(handle: number): void;
   free_parser_json(pointer: number): void;
 };
 

@@ -8,6 +8,7 @@ import {
   createPerspectiveViewFrustum,
   geographicToEcef,
 } from '../src/viewer/streaming/view.ts';
+import { createPreparedPointData } from '../src/point/preparedPoint.ts';
 
 const ROOT_KEY = '0-0-0-0';
 const CHILD_KEY = '1-0-0-0';
@@ -50,7 +51,7 @@ function createNode(key, level, pointCount, children = []) {
   };
 }
 
-function createSourceFactory({ onOpen, onPerformanceObserver, paged = false } = {}) {
+function createSourceFactory({ onOpen, onPerformanceObserver, paged = false, prepared = false } = {}) {
   let openCount = 0;
   let destroyCount = 0;
   let performanceObserver;
@@ -104,6 +105,18 @@ function createSourceFactory({ onOpen, onPerformanceObserver, paged = false } = 
               },
             };
           },
+          ...(prepared ? {
+            async loadPreparedPointData() {
+              performanceObserver?.({ stage: 'decode', durationMs: 5, bytes: 20 });
+              performanceObserver?.({ stage: 'pointPreparation', durationMs: 3 });
+              return createPreparedPointData({
+                pointCount: 1,
+                sourceCoordinates: new Float64Array([10.005, 20.005, 150]),
+                geographicCoordinates: new Float64Array([10.005, 20.005, 150]),
+                worldCoordinates: new Float64Array([1, 2, 3]),
+              });
+            },
+          } : {}),
           destroy() {
             destroyCount += 1;
           },
@@ -193,6 +206,21 @@ test('a plain project-owned view drives hierarchy query and deterministic select
   assert.equal(prepared.world.coordinateSystem, 'wgs84-ecef-meters');
   assert.deepEqual(prepared.statistics.elevation, { min: 150, max: 150 });
   assert.equal(controller.getPointCacheDiagnostics().cachedNodeCount, 1);
+});
+
+test('streaming cache consumes a backend prepared result without a TypeScript transform pass', async () => {
+  const source = createSourceFactory({ prepared: true });
+  const controller = createController(source.backend, { decoder: undefined });
+
+  await controller.load();
+  await controller.updateView(createView());
+
+  const prepared = controller.getCachedPreparedPointData(ROOT_KEY);
+  assert.deepEqual([...prepared.source.coordinates], [10.005, 20.005, 150]);
+  assert.deepEqual([...prepared.world.coordinates], [1, 2, 3]);
+  assert.equal(controller.getSnapshot().performance.decodeDurationMs, 5);
+  assert.equal(controller.getSnapshot().performance.pointPreparationDurationMs, 3);
+  assert.equal(controller.getSnapshot().performance.crsTransformDurationMs, 0);
 });
 
 test('view updates refresh the core hierarchy used by point loading', async () => {

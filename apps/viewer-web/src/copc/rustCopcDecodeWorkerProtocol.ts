@@ -5,7 +5,7 @@ export type RustCopcDecodeWorkerInit = {
 };
 
 export type RustCopcDecodeWorkerJob = {
-  type: 'decode';
+  type: 'decode' | 'prepare';
   id: number;
   nodeKey: string;
   pointCount: number;
@@ -21,11 +21,25 @@ export type RustCopcDecodeWorkerResult = {
   type: 'result';
   id: number;
   nodeKey: string;
+  operation?: 'decode' | 'prepare';
   pointCount: number;
   durationMs: number;
-  coordinateSystem: 'copc-source';
-  /** Transferred TypeScript-owned COPC/source XYZ; never a WASM memory view. */
+  decodeDurationMs?: number;
+  preparationDurationMs?: number;
+  coordinateSystem: 'copc-source' | 'wgs84-geographic';
+  sourceCoordinateSystem?: 'copc-source';
+  worldCoordinateSystem?: 'wgs84-ecef-meters';
+  /** Transferred typed coordinate storage; never a WASM memory view. */
   coordinates: ArrayBuffer;
+  /** Prepared source/geographic/ECEF buffers for the fused path. */
+  sourceCoordinates?: ArrayBuffer;
+  geographicCoordinates?: ArrayBuffer;
+  worldCoordinates?: ArrayBuffer;
+  statistics?: {
+    elevation?: { min: number; max: number };
+    intensity?: { min: number; max: number };
+    rgbMax?: 255 | 65535;
+  };
   intensity?: ArrayBuffer;
   classification?: ArrayBuffer;
   red?: ArrayBuffer;

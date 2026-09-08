@@ -54,6 +54,8 @@ export type StreamingPerformanceSnapshot = {
   rangeFetchDurationMs: number;
   rangeFetchBytes: number;
   decodeDurationMs: number;
+  /** Rust fused decode/CRS/ECEF preparation time, excluding decode. */
+  pointPreparationDurationMs: number;
   crsTransformDurationMs: number;
   geographicToCartesianDurationMs: number;
   pointStylePreparationDurationMs: number;
@@ -95,6 +97,7 @@ function emptySnapshot(): StreamingPerformanceSnapshot {
     rangeFetchDurationMs: 0,
     rangeFetchBytes: 0,
     decodeDurationMs: 0,
+    pointPreparationDurationMs: 0,
     crsTransformDurationMs: 0,
     geographicToCartesianDurationMs: 0,
     pointStylePreparationDurationMs: 0,
@@ -215,6 +218,7 @@ export class StreamingPerformanceRecorder {
       StreamingPerformanceSnapshot,
       | 'rangeFetchDurationMs'
       | 'decodeDurationMs'
+      | 'pointPreparationDurationMs'
       | 'crsTransformDurationMs'
       | 'geographicToCartesianDurationMs'
       | 'pointStylePreparationDurationMs'

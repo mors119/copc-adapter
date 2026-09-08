@@ -1,5 +1,9 @@
 import { loadCopcWasm } from '../wasm/copcWasm';
-import { decodeRustCopcNode, getRustPointFieldMask } from './rustCopcNodeDecoder';
+import {
+  decodeRustCopcNode,
+  getRustPointFieldMask,
+  RustCopcNodePreparer,
+} from './rustCopcNodeDecoder';
 import {
   RustCopcDecodeWorkerPool,
 } from './rustCopcDecodeWorkerPool';
@@ -8,7 +12,7 @@ import type {
   CopcHierarchyPage,
   CopcHierarchySubtree,
 } from './hierarchy/types';
-import type { CopcMetadata, CopcPointBuffer } from './types/copc';
+import type { CopcMetadata, CopcPointBuffer, PreparedPointData } from './types/copc';
 import type { RandomAccessByteSource } from './range/types';
 import type { CopcPointFieldSelection } from './points/fieldSelection';
 import type { CopcWorkerDiagnostics } from './backend/types';
@@ -210,6 +214,7 @@ export class RustCopcReader {
   readonly header: RustCopcHeader;
   private readonly byteSource: RandomAccessByteSource;
   private readonly decodeWorkerPool?: RustCopcDecodeWorkerPool;
+  private nodePreparer?: Promise<RustCopcNodePreparer>;
   private performanceObserver?: CopcPerformanceObserver;
 
   private constructor(byteSource: RandomAccessByteSource, header: RustCopcHeader) {
@@ -317,30 +322,7 @@ export class RustCopcReader {
     node: CopcHierarchyNode,
     fields: CopcPointFieldSelection,
   ): Promise<CopcPointBuffer> {
-    if (!fields.has('position')) {
-      throw new RustCopcParseError('invalid-value', 'COPC point selection must include position');
-    }
-    const pointCount = requireDecodePointCount(node.pointCount);
-    const coordinateLength = pointCount * 3;
-    if (!Number.isSafeInteger(coordinateLength)) {
-      throw new RustCopcParseError('overflow', 'coordinate output length exceeds safe integer range');
-    }
-    if (!Number.isSafeInteger(node.pointDataLength) || node.pointDataLength > MAX_NODE_CHUNK_BYTES) {
-      throw new RustCopcParseError(
-        'unsupported-value',
-        `point data chunk must not exceed ${MAX_NODE_CHUNK_BYTES} bytes`,
-      );
-    }
-
-    const metadataBytes = this.metadataBytes;
-    if (!metadataBytes) {
-      throw new RustCopcParseError('invalid-input', 'Rust COPC reader metadata is unavailable');
-    }
-    const chunkBytes = await this.readRange(
-      node.pointDataOffset,
-      node.pointDataLength,
-      node.key,
-    );
+    const { metadataBytes, chunkBytes, pointCount } = await this.readNodeChunk(node, fields);
     if (this.decodeWorkerPool) {
       const decoded = await this.decodeWorkerPool.submit({
         nodeKey: node.key,
@@ -374,6 +356,81 @@ export class RustCopcReader {
     return decoded.buffer;
   }
 
+  /** Prepare one node in the Rust worker/core path, including CRS and ECEF. */
+  async loadPreparedPointData(
+    node: CopcHierarchyNode,
+    fields: CopcPointFieldSelection,
+  ): Promise<PreparedPointData> {
+    const { metadataBytes, chunkBytes, pointCount } = await this.readNodeChunk(node, fields);
+    const request = {
+      nodeKey: node.key,
+      pointCount,
+      requestedFields: getRustPointFieldMask(fields),
+      chunk: chunkBytes,
+    };
+    if (this.decodeWorkerPool) {
+      const result = await this.decodeWorkerPool.submitPrepared(request);
+      this.performanceObserver?.({
+        stage: 'decode',
+        durationMs: result.decodeDurationMs,
+        nodeKey: node.key,
+        blocksMainThread: false,
+      });
+      this.performanceObserver?.({
+        stage: 'pointPreparation',
+        durationMs: result.preparationDurationMs,
+        nodeKey: node.key,
+        blocksMainThread: false,
+      });
+      return result.prepared;
+    }
+
+    if (!this.nodePreparer) {
+      this.nodePreparer = RustCopcNodePreparer.fromMetadata(metadataBytes, loadCopcWasm);
+    }
+    const result = (await this.nodePreparer).prepare(chunkBytes, pointCount, fields);
+    this.performanceObserver?.({
+      stage: 'decode',
+      durationMs: result.decodeDurationMs,
+      nodeKey: node.key,
+      blocksMainThread: true,
+    });
+    this.performanceObserver?.({
+      stage: 'pointPreparation',
+      durationMs: result.preparationDurationMs,
+      nodeKey: node.key,
+      blocksMainThread: true,
+    });
+    return result.prepared;
+  }
+
+  private async readNodeChunk(
+    node: CopcHierarchyNode,
+    fields: CopcPointFieldSelection,
+  ): Promise<{ metadataBytes: Uint8Array; chunkBytes: Uint8Array; pointCount: number }> {
+    if (!fields.has('position')) {
+      throw new RustCopcParseError('invalid-value', 'COPC point selection must include position');
+    }
+    const pointCount = requireDecodePointCount(node.pointCount);
+    const coordinateLength = pointCount * 3;
+    if (!Number.isSafeInteger(coordinateLength)) {
+      throw new RustCopcParseError('overflow', 'coordinate output length exceeds safe integer range');
+    }
+    if (!Number.isSafeInteger(node.pointDataLength) || node.pointDataLength > MAX_NODE_CHUNK_BYTES) {
+      throw new RustCopcParseError(
+        'unsupported-value',
+        `point data chunk must not exceed ${MAX_NODE_CHUNK_BYTES} bytes`,
+      );
+    }
+
+    const metadataBytes = this.metadataBytes;
+    if (!metadataBytes) {
+      throw new RustCopcParseError('invalid-input', 'Rust COPC reader metadata is unavailable');
+    }
+    const chunkBytes = await this.readRange(node.pointDataOffset, node.pointDataLength, node.key);
+    return { metadataBytes, chunkBytes, pointCount };
+  }
+
   cancelPendingPointJobs(): void {
     this.decodeWorkerPool?.cancelQueued();
   }
@@ -383,6 +440,10 @@ export class RustCopcReader {
   }
 
   destroy(): void {
+    void this.nodePreparer?.then(
+      (preparer) => preparer.dispose(),
+      () => undefined,
+    );
     this.decodeWorkerPool?.destroy();
   }
 }

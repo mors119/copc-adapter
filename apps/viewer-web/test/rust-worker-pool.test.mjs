@@ -6,7 +6,7 @@ import {
   RustCopcWorkerError,
 } from '../src/copc/rustCopcDecodeWorkerPool.ts';
 
-function createFakeWorkerHarness({ delay = 5, fail = false } = {}) {
+function createFakeWorkerHarness({ delay = 5, fail = false, failPrepare = false, initFail = false } = {}) {
   const workers = [];
   let active = 0;
   let peak = 0;
@@ -21,6 +21,13 @@ function createFakeWorkerHarness({ delay = 5, fail = false } = {}) {
     postMessage(message) {
       if (this.terminated) throw new Error('worker terminated');
       if (message.type === 'init') {
+        if (initFail) {
+          setTimeout(() => this.onmessage?.({ data: {
+            type: 'error',
+            error: { name: 'RustCopcParseError', message: 'unsupported CRS', code: 'unsupported-crs' },
+          } }), 0);
+          return;
+        }
         setTimeout(() => this.onmessage?.({ data: { type: 'ready' } }), 0);
         return;
       }
@@ -30,7 +37,7 @@ function createFakeWorkerHarness({ delay = 5, fail = false } = {}) {
       setTimeout(() => {
         active -= 1;
         if (this.terminated) return;
-        if (fail) {
+        if (fail || (failPrepare && message.type === 'prepare')) {
           this.onmessage?.({ data: {
             type: 'error',
             id: message.id,
@@ -51,8 +58,25 @@ function createFakeWorkerHarness({ delay = 5, fail = false } = {}) {
           nodeKey: message.nodeKey,
           pointCount: message.pointCount,
           durationMs: delay,
-          coordinateSystem: 'copc-source',
+          operation: message.type,
+          coordinateSystem: message.type === 'prepare' ? 'wgs84-geographic' : 'copc-source',
+          sourceCoordinateSystem: message.type === 'prepare' ? 'copc-source' : undefined,
+          worldCoordinateSystem: message.type === 'prepare' ? 'wgs84-ecef-meters' : undefined,
           coordinates: coordinates.buffer,
+          sourceCoordinates: message.type === 'prepare'
+            ? new Float64Array([4, 5, 6]).buffer
+            : undefined,
+          geographicCoordinates: message.type === 'prepare'
+            ? new Float64Array([7, 8, 9]).buffer
+            : undefined,
+          worldCoordinates: message.type === 'prepare'
+            ? new Float64Array([10, 11, 12]).buffer
+            : undefined,
+          statistics: message.type === 'prepare'
+            ? { elevation: { min: 8, max: 8 }, intensity: { min: 11, max: 11 }, rgbMax: 255 }
+            : undefined,
+          decodeDurationMs: message.type === 'prepare' ? 2 : undefined,
+          preparationDurationMs: message.type === 'prepare' ? 3 : undefined,
           intensity: intensity?.buffer,
           classification: classification?.buffer,
           red: red?.buffer,
@@ -149,6 +173,26 @@ test('Rust decode worker pool transfers project-owned XYZ and attributes', async
   pool.destroy();
 });
 
+test('Rust worker pool returns the fused prepared-point contract and stage timings', async () => {
+  const harness = createFakeWorkerHarness();
+  const pool = new RustCopcDecodeWorkerPool({ workerCount: 1, workerFactory: harness.factory });
+  pool.setMetadata(new Uint8Array([1]));
+
+  const result = await pool.submitPrepared(request('prepared', 1, 1));
+  assert.equal(result.prepared.pointCount, 1);
+  assert.deepEqual([...result.prepared.source.coordinates], [4, 5, 6]);
+  assert.deepEqual([...result.prepared.geographic.coordinates], [7, 8, 9]);
+  assert.deepEqual([...result.prepared.world.coordinates], [10, 11, 12]);
+  assert.deepEqual(result.prepared.statistics, {
+    elevation: { min: 8, max: 8 },
+    intensity: { min: 11, max: 11 },
+    rgbMax: 255,
+  });
+  assert.equal(result.decodeDurationMs, 2);
+  assert.equal(result.preparationDurationMs, 3);
+  pool.destroy();
+});
+
 test('queued Rust decode work can be superseded while active work finishes', async () => {
   const harness = createFakeWorkerHarness({ delay: 20 });
   const pool = new RustCopcDecodeWorkerPool({ workerCount: 1, workerFactory: harness.factory });
@@ -173,6 +217,33 @@ test('worker failures are structured and include the node key', async () => {
     error instanceof RustCopcWorkerError
       && error.workerCode === 'worker-failure'
       && error.nodeKey === 'failed');
+  pool.destroy();
+});
+
+test('prepared worker failures preserve the job identity and Rust error code', async () => {
+  const harness = createFakeWorkerHarness({ failPrepare: true });
+  const pool = new RustCopcDecodeWorkerPool({ workerCount: 1, workerFactory: harness.factory });
+  pool.setMetadata(new Uint8Array([1]));
+
+  await assert.rejects(pool.submitPrepared(request('prepared-failed')), (error) =>
+    error instanceof RustCopcWorkerError
+      && error.workerCode === 'worker-failure'
+      && error.nodeKey === 'prepared-failed'
+      && error.rustCode === 'synthetic');
+  pool.destroy();
+});
+
+test('worker initialization failures preserve the Rust error code', async () => {
+  const harness = createFakeWorkerHarness({ initFail: true });
+  const pool = new RustCopcDecodeWorkerPool({ workerCount: 1, workerFactory: harness.factory });
+  pool.setMetadata(new Uint8Array([1]));
+
+  await assert.rejects(pool.submit(request('unsupported-crs')), (error) =>
+    error instanceof RustCopcWorkerError
+      && error.workerCode === 'worker-failure'
+      && error.nodeKey === 'unsupported-crs'
+      && error.rustCode === 'unsupported-crs');
+  assert.equal(pool.getDiagnostics().failedCount, 1);
   pool.destroy();
 });
 
