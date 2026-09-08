@@ -71,10 +71,18 @@ pub fn parse_root_hierarchy(bytes: &[u8]) -> Result<RootHierarchy> {
     }
 
     let entry_count = bytes.len() / HIERARCHY_ENTRY_SIZE;
-    let mut nodes = Vec::with_capacity(entry_count);
+    let mut nodes = Vec::new();
+    nodes
+        .try_reserve_exact(entry_count)
+        .map_err(|_| CopcError::new("allocation", "unable to allocate hierarchy nodes"))?;
     let mut pages = Vec::new();
+    pages
+        .try_reserve_exact(entry_count)
+        .map_err(|_| CopcError::new("allocation", "unable to allocate hierarchy pages"))?;
     for index in 0..entry_count {
-        let start = index * HIERARCHY_ENTRY_SIZE;
+        let start = index
+            .checked_mul(HIERARCHY_ENTRY_SIZE)
+            .ok_or_else(|| CopcError::new("overflow", "hierarchy entry offset overflows"))?;
         let level = read_i32(bytes, start, "hierarchy level")?;
         let x = read_i32(bytes, start + 4, "hierarchy X")?;
         let y = read_i32(bytes, start + 8, "hierarchy Y")?;

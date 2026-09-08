@@ -4,6 +4,7 @@ import type {
   CopcMetadata,
   CopcPointBuffer,
   CopcPointView,
+  PreparedPointData,
 } from '../types/copc';
 import type { CopcPointFieldSelection } from '../points/fieldSelection';
 import type { CopcPerformanceObserver } from '../performance';
@@ -33,6 +34,11 @@ export interface CopcSource extends CopcHierarchySource {
     node: CopcHierarchyNode,
     fields: CopcPointFieldSelection,
   ): Promise<CopcPointBuffer>;
+  /** Optional fused decode/CRS/ECEF path for renderer-neutral cache entries. */
+  loadPreparedPointData?(
+    node: CopcHierarchyNode,
+    fields: CopcPointFieldSelection,
+  ): Promise<PreparedPointData>;
   setPerformanceObserver?(observer: CopcPerformanceObserver | undefined): void;
   /** Drop queued decode work that cannot contribute to the current view. */
   cancelPendingPointJobs?(): void;

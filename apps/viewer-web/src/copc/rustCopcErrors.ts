@@ -9,6 +9,8 @@ export type RustCopcParseErrorCode =
   | 'malformed-wkt'
   | 'invalid-hierarchy'
   | 'overflow'
+  | 'allocation'
+  | 'serialization'
   | string;
 
 /** Structured validation failure returned by the Rust COPC parser. */
@@ -20,4 +22,11 @@ export class RustCopcParseError extends Error {
     this.name = 'RustCopcParseError';
     this.code = code;
   }
+}
+
+export function requireRustWasmPointer(pointer: number, length: number, what: string): number {
+  if (!Number.isSafeInteger(pointer) || pointer < 0 || (length > 0 && pointer === 0)) {
+    throw new RustCopcParseError('allocation', `Rust WASM allocation for ${what} failed`);
+  }
+  return pointer;
 }

@@ -226,9 +226,12 @@ const layer = new CopcCesiumLayer({
 ```
 
 Both backends use the same public layer, renderer-neutral streaming, and
-coordinate path. Rust/WASM does not create or own a viewer or scene. It is not
-presented as universally faster; in the tested Autzen scenario, coordinate
-transformation was a larger cost than Rust point decoding.
+coordinate path. Rust/WASM does not create or own a viewer or scene. In the
+Rust streaming path, each Worker initializes reusable dataset CRS/LAZ state
+and prepares one node's source/geographic/ECEF buffers, requested attributes,
+and point statistics in one job. `decodeDurationMs` and
+`pointPreparationDurationMs` are reported separately; the JS path remains the
+reference implementation and is not silently used as a Rust fallback.
 
 ## Styling Modes
 
@@ -402,9 +405,10 @@ controls, render loop, and UI.
 - LoD uses adapter-owned screen-space error with bounds/frustum filtering,
   mixed-LoD coverage, gaze-aware priority, hysteresis, and node/point safety
   caps; occlusion culling is not implemented yet.
-- Browser Rust/WASM point decode uses a bounded worker pool when `Worker` is
-  available; environments without workers use the documented main-thread
-  fallback. Worker queue/concurrency diagnostics are exposed in snapshots.
+- Browser Rust/WASM point preparation uses a bounded worker pool when `Worker`
+  is available; environments without workers use the same `copc-core`
+  semantics on the main thread. Worker queue/concurrency diagnostics are
+  exposed in snapshots.
 - Rendering uses the compatibility `PointPrimitiveRenderer` boundary backed by
   `Cesium.PointPrimitiveCollection`; coverage-safe transitions keep old
   coverage until a replacement is ready. Benchmark evidence is in the

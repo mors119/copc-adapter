@@ -10,6 +10,7 @@ import type {
   CopcHierarchyNode,
   CopcPointBuffer,
   CopcPointView,
+  PreparedPointData,
 } from '../types/copc';
 import type {
   CopcPointComponent,
@@ -224,6 +225,17 @@ class RustCopcSource implements CopcSource {
   ): Promise<CopcPointBuffer> {
     try {
       return await this.reader.loadPointDataBuffer(node, fields);
+    } catch (error: unknown) {
+      throw mapRustError(this.source, error, 'point', node.key);
+    }
+  }
+
+  async loadPreparedPointData(
+    node: CopcHierarchyNode,
+    fields: CopcPointFieldSelection,
+  ): Promise<PreparedPointData> {
+    try {
+      return await this.reader.loadPreparedPointData(node, fields);
     } catch (error: unknown) {
       throw mapRustError(this.source, error, 'point', node.key);
     }

@@ -191,8 +191,9 @@ The current backend selection is:
   for metadata, hierarchy, and point-view loading.
 - `rust`: explicit opt-in Rust/WASM processing. The current path uses Rust for
   LAS/COPC metadata and hierarchy interpretation plus LAS 1.4 point/LAZ
-  decoding and requested-field extraction. TypeScript retains browser Range
-  I/O and worker orchestration.
+  decoding and requested-field extraction. Streaming node loads additionally
+  use Rust's fused decode/CRS/ECEF prepared-point path. TypeScript retains
+  browser Range I/O and worker orchestration.
 - an injected `CopcBackend`: supported for tests and host-owned sources.
 
 `CopcPointFieldSelection` is a `ReadonlySet` of `position`, `intensity`,
@@ -217,10 +218,12 @@ The ECEF buffer is the renderer-neutral render-space authority; Three.js may
 derive its own local ENU/Float32 representation and Cesium may create its own
 Cartesian objects.
 
-Rust/WASM decode results tag their source buffer as `copc-source`. The Worker
-transfers owned `ArrayBuffer` instances, and the TypeScript preparation step
-copies out of WASM memory before the result enters the decoded CPU cache. No
-renderer object or view into WASM linear memory is retained by the cache.
+Rust/WASM results tag each coordinate buffer explicitly. The fused Worker
+result contains source, WGS84 geographic, and WGS84 ECEF buffers, requested
+attributes, and Rust-computed statistics. The Worker transfers owned
+`ArrayBuffer` instances, and TypeScript copies out of WASM memory before the
+result enters the decoded CPU cache. No renderer object or view into WASM
+linear memory is retained by the cache.
 
 The current TypeScript coordinate path uses the project WKT helpers and the
 `proj4js` dependency for applicable projected CRS transformations. The
@@ -238,7 +241,10 @@ engine objects.
 points, streaming performance, replacement transitions, hierarchy counters,
 point-cache counters, and Rust worker counters when the Rust backend is active.
 The performance values include selection, frustum/SSE, workload budget,
-hierarchy, range, decode, CRS, and renderer stages where applicable.
+hierarchy, range, decode, point preparation, CRS, and renderer stages where
+applicable. `pointPreparationDurationMs` separates the fused Rust CRS/ECEF and
+reduction stage from `decodeDurationMs`; the legacy TypeScript path continues
+to report `crsTransformDurationMs`.
 
 `getHierarchyDiagnostics()` reports hierarchy-page requests, cache hits, bytes,
 pages, and entries. `getPointCacheDiagnostics()` reports project-owned decoded

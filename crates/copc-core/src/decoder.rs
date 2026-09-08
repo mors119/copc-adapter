@@ -4,7 +4,7 @@ use laz::LazVlr;
 use laz::las::selective::DecompressionSelection;
 use laz::record::{LayeredPointRecordDecompressor, RecordDecompressor};
 
-use crate::binary::{read_u16, read_u32};
+use crate::binary::{read_i32, read_u16, read_u32};
 use crate::error::{CopcError, Result};
 use crate::header::{CopcHeader, parse_header};
 use crate::vlr::{VlrVisit, for_each_vlr};
@@ -17,6 +17,18 @@ const KNOWN_FIELD_MASK: u32 = FIELD_INTENSITY | FIELD_CLASSIFICATION | FIELD_RGB
 const MAX_DECODE_POINTS: usize = 5_000_000;
 const MAX_NODE_CHUNK_BYTES: usize = 64 * 1024 * 1024;
 
+fn allocate_zeroed<T>(length: usize, what: &str) -> Result<Vec<T>>
+where
+    T: Clone + Default,
+{
+    let mut values = Vec::new();
+    values
+        .try_reserve_exact(length)
+        .map_err(|_| CopcError::new("allocation", format!("unable to allocate {what} buffer")))?;
+    values.resize(length, T::default());
+    Ok(values)
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct DecodedCopcNode {
     pub point_count: usize,
@@ -26,6 +38,15 @@ pub struct DecodedCopcNode {
     pub red: Option<Vec<u16>>,
     pub green: Option<Vec<u16>>,
     pub blue: Option<Vec<u16>>,
+}
+
+/// A validated decoder initialized from one dataset's LAS/LAZ metadata.
+///
+/// The header and LASZIP VLR are intentionally retained so node jobs do not
+/// repeatedly parse the complete metadata buffer.
+pub struct CopcNodeDecoder {
+    header: CopcHeader,
+    laz_vlr: LazVlr,
 }
 
 fn parse_laz_vlr(bytes: &[u8], header: &CopcHeader) -> Result<LazVlr> {
@@ -87,156 +108,252 @@ fn parse_laz_vlr(bytes: &[u8], header: &CopcHeader) -> Result<LazVlr> {
     })
 }
 
+impl CopcNodeDecoder {
+    pub fn from_metadata(metadata: &[u8]) -> Result<Self> {
+        let header = parse_header(metadata)?;
+        let laz_vlr = parse_laz_vlr(metadata, &header)?;
+        let record_length = usize::try_from(laz_vlr.items_size()).map_err(|_| {
+            CopcError::new("overflow", "LAZ record length does not fit in this target")
+        })?;
+        if record_length != usize::from(header.point_data_record_length) {
+            return Err(CopcError::new(
+                "invalid-laz-vlr",
+                format!(
+                    "LASZIP record length {record_length} does not match LAS record length {}",
+                    header.point_data_record_length
+                ),
+            ));
+        }
+
+        Ok(Self { header, laz_vlr })
+    }
+
+    pub fn header(&self) -> &CopcHeader {
+        &self.header
+    }
+
+    pub fn decode(
+        &self,
+        chunk: &[u8],
+        point_count: usize,
+        requested_fields: u32,
+    ) -> Result<DecodedCopcNode> {
+        if requested_fields & !KNOWN_FIELD_MASK != 0 {
+            return Err(CopcError::new(
+                "unsupported-value",
+                "unknown COPC point field selection bits",
+            ));
+        }
+        if point_count == 0 {
+            return Err(CopcError::new(
+                "invalid-value",
+                "COPC node point count must be positive",
+            ));
+        }
+        if point_count > MAX_DECODE_POINTS {
+            return Err(CopcError::new(
+                "unsupported-value",
+                format!("COPC node has more than the {MAX_DECODE_POINTS}-point safety limit"),
+            ));
+        }
+        if chunk.len() > MAX_NODE_CHUNK_BYTES {
+            return Err(CopcError::new(
+                "unsupported-value",
+                format!("COPC node chunk exceeds the {MAX_NODE_CHUNK_BYTES}-byte safety limit"),
+            ));
+        }
+        let header = &self.header;
+        let laz_vlr = &self.laz_vlr;
+        let record_length = usize::from(header.point_data_record_length);
+        let minimum_chunk_length = record_length
+            .checked_add(4)
+            .ok_or_else(|| CopcError::new("overflow", "COPC node chunk length overflows"))?;
+        if chunk.len() < minimum_chunk_length {
+            return Err(CopcError::new(
+                "truncated",
+                "COPC node chunk is shorter than its first point and count",
+            ));
+        }
+
+        let compressed_count_offset = record_length;
+        let compressed_count =
+            read_u32(chunk, compressed_count_offset, "COPC chunk point count")? as usize;
+        if compressed_count != point_count {
+            return Err(CopcError::new(
+                "chunk-length-mismatch",
+                format!("hierarchy says {point_count} points but chunk says {compressed_count}"),
+            ));
+        }
+        let raw_length = point_count.checked_mul(record_length).ok_or_else(|| {
+            CopcError::new("overflow", "decompressed point buffer size overflows")
+        })?;
+        let has_intensity = requested_fields & FIELD_INTENSITY != 0;
+        let has_classification = requested_fields & FIELD_CLASSIFICATION != 0;
+        let has_rgb = requested_fields & FIELD_RGB != 0 && header.point_data_record_format >= 7;
+        let mut selection = DecompressionSelection::xy_returns_channel().decompress_z();
+        if has_intensity {
+            selection = selection.decompress_intensity();
+        }
+        if has_classification {
+            selection = selection.decompress_classification();
+        }
+        if has_rgb {
+            selection = selection.decompress_rgb();
+        }
+
+        let mut decompressor = LayeredPointRecordDecompressor::new(Cursor::new(chunk));
+        decompressor
+            .set_fields_from(laz_vlr.items())
+            .map_err(|value| CopcError::new("laz-decode", value.to_string()))?;
+        decompressor.set_selection(selection);
+
+        let mut raw = Vec::new();
+        raw.try_reserve_exact(raw_length).map_err(|_| {
+            CopcError::new("allocation", "unable to allocate decompressed point buffer")
+        })?;
+        raw.resize(raw_length, 0);
+        decompressor
+            .decompress_many(&mut raw)
+            .map_err(|value| CopcError::new("laz-decode", value.to_string()))?;
+        let consumed = usize::try_from(decompressor.get().position()).map_err(|_| {
+            CopcError::new(
+                "overflow",
+                "LAZ decoder position does not fit in this target",
+            )
+        })?;
+        if consumed != chunk.len() {
+            return Err(CopcError::new(
+                "chunk-length-mismatch",
+                format!(
+                    "LAZ decoder consumed {consumed} bytes from a {}-byte node chunk",
+                    chunk.len()
+                ),
+            ));
+        }
+
+        let coordinate_length = point_count
+            .checked_mul(3)
+            .ok_or_else(|| CopcError::new("overflow", "coordinate buffer size overflows"))?;
+        let mut coordinates = allocate_zeroed(coordinate_length, "coordinate")?;
+        let mut intensity = if has_intensity {
+            Some(allocate_zeroed(point_count, "intensity")?)
+        } else {
+            None
+        };
+        let mut classification = if has_classification {
+            Some(allocate_zeroed(point_count, "classification")?)
+        } else {
+            None
+        };
+        let mut red = if has_rgb {
+            Some(allocate_zeroed(point_count, "red")?)
+        } else {
+            None
+        };
+        let mut green = if has_rgb {
+            Some(allocate_zeroed(point_count, "green")?)
+        } else {
+            None
+        };
+        let mut blue = if has_rgb {
+            Some(allocate_zeroed(point_count, "blue")?)
+        } else {
+            None
+        };
+
+        for index in 0..point_count {
+            let record_start = index
+                .checked_mul(record_length)
+                .ok_or_else(|| CopcError::new("overflow", "point record offset overflows"))?;
+            let record_end = record_start
+                .checked_add(record_length)
+                .ok_or_else(|| CopcError::new("overflow", "point record range overflows"))?;
+            let record = raw.get(record_start..record_end).ok_or_else(|| {
+                CopcError::new(
+                    "truncated",
+                    format!("point record {index} exceeds the decoded point buffer"),
+                )
+            })?;
+            let x = f64::from(read_i32(record, 0, "point X")?);
+            let y = f64::from(read_i32(record, 4, "point Y")?);
+            let z = f64::from(read_i32(record, 8, "point Z")?);
+            let coordinate_offset = index
+                .checked_mul(3)
+                .ok_or_else(|| CopcError::new("overflow", "coordinate offset overflows"))?;
+            let coordinate_end = coordinate_offset
+                .checked_add(3)
+                .ok_or_else(|| CopcError::new("overflow", "coordinate range overflows"))?;
+            let coordinate_values = coordinates
+                .get_mut(coordinate_offset..coordinate_end)
+                .ok_or_else(|| {
+                    CopcError::new(
+                        "truncated",
+                        format!("point {index} exceeds the coordinate buffer"),
+                    )
+                })?;
+            coordinate_values.copy_from_slice(&[
+                x * header.scale[0] + header.offset[0],
+                y * header.scale[1] + header.offset[1],
+                z * header.scale[2] + header.offset[2],
+            ]);
+            if let Some(values) = intensity.as_deref_mut() {
+                let value = values.get_mut(index).ok_or_else(|| {
+                    CopcError::new("truncated", format!("point {index} exceeds intensity data"))
+                })?;
+                *value = read_u16(record, 12, "point intensity")?;
+            }
+            if let Some(values) = classification.as_deref_mut() {
+                let value = values.get_mut(index).ok_or_else(|| {
+                    CopcError::new(
+                        "truncated",
+                        format!("point {index} exceeds classification data"),
+                    )
+                })?;
+                *value = record.get(16).copied().ok_or_else(|| {
+                    CopcError::new("truncated", "point classification field is unavailable")
+                })?;
+            }
+            if has_rgb {
+                if let Some(values) = red.as_deref_mut() {
+                    let value = values.get_mut(index).ok_or_else(|| {
+                        CopcError::new("truncated", format!("point {index} exceeds red data"))
+                    })?;
+                    *value = read_u16(record, 30, "point red")?;
+                }
+                if let Some(values) = green.as_deref_mut() {
+                    let value = values.get_mut(index).ok_or_else(|| {
+                        CopcError::new("truncated", format!("point {index} exceeds green data"))
+                    })?;
+                    *value = read_u16(record, 32, "point green")?;
+                }
+                if let Some(values) = blue.as_deref_mut() {
+                    let value = values.get_mut(index).ok_or_else(|| {
+                        CopcError::new("truncated", format!("point {index} exceeds blue data"))
+                    })?;
+                    *value = read_u16(record, 34, "point blue")?;
+                }
+            }
+        }
+
+        Ok(DecodedCopcNode {
+            point_count,
+            coordinates,
+            intensity,
+            classification,
+            red,
+            green,
+            blue,
+        })
+    }
+}
+
 pub fn decode_copc_node(
     metadata: &[u8],
     chunk: &[u8],
     point_count: usize,
     requested_fields: u32,
 ) -> Result<DecodedCopcNode> {
-    if requested_fields & !KNOWN_FIELD_MASK != 0 {
-        return Err(CopcError::new(
-            "unsupported-value",
-            "unknown COPC point field selection bits",
-        ));
-    }
-    if point_count == 0 {
-        return Err(CopcError::new(
-            "invalid-value",
-            "COPC node point count must be positive",
-        ));
-    }
-    if point_count > MAX_DECODE_POINTS {
-        return Err(CopcError::new(
-            "unsupported-value",
-            format!("COPC node has more than the {MAX_DECODE_POINTS}-point safety limit"),
-        ));
-    }
-    if chunk.len() > MAX_NODE_CHUNK_BYTES {
-        return Err(CopcError::new(
-            "unsupported-value",
-            format!("COPC node chunk exceeds the {MAX_NODE_CHUNK_BYTES}-byte safety limit"),
-        ));
-    }
-    let header = parse_header(metadata)?;
-    let laz_vlr = parse_laz_vlr(metadata, &header)?;
-    let record_length = usize::try_from(laz_vlr.items_size())
-        .map_err(|_| CopcError::new("overflow", "LAZ record length does not fit in this target"))?;
-    if record_length != usize::from(header.point_data_record_length) {
-        return Err(CopcError::new(
-            "invalid-laz-vlr",
-            format!(
-                "LASZIP record length {record_length} does not match LAS record length {}",
-                header.point_data_record_length
-            ),
-        ));
-    }
-
-    let compressed_count_offset = record_length;
-    let compressed_count =
-        read_u32(chunk, compressed_count_offset, "COPC chunk point count")? as usize;
-    if compressed_count != point_count {
-        return Err(CopcError::new(
-            "chunk-length-mismatch",
-            format!("hierarchy says {point_count} points but chunk says {compressed_count}"),
-        ));
-    }
-    let raw_length = point_count
-        .checked_mul(record_length)
-        .ok_or_else(|| CopcError::new("overflow", "decompressed point buffer size overflows"))?;
-    if chunk.len() < record_length + 4 {
-        return Err(CopcError::new(
-            "truncated",
-            "COPC node chunk is shorter than its first point and count",
-        ));
-    }
-
-    let has_intensity = requested_fields & FIELD_INTENSITY != 0;
-    let has_classification = requested_fields & FIELD_CLASSIFICATION != 0;
-    let has_rgb = requested_fields & FIELD_RGB != 0 && header.point_data_record_format >= 7;
-    let mut selection = DecompressionSelection::xy_returns_channel().decompress_z();
-    if has_intensity {
-        selection = selection.decompress_intensity();
-    }
-    if has_classification {
-        selection = selection.decompress_classification();
-    }
-    if has_rgb {
-        selection = selection.decompress_rgb();
-    }
-
-    let mut decompressor = LayeredPointRecordDecompressor::new(Cursor::new(chunk));
-    decompressor
-        .set_fields_from(laz_vlr.items())
-        .map_err(|value| CopcError::new("laz-decode", value.to_string()))?;
-    decompressor.set_selection(selection);
-
-    let mut raw = Vec::new();
-    raw.try_reserve_exact(raw_length).map_err(|_| {
-        CopcError::new("allocation", "unable to allocate decompressed point buffer")
-    })?;
-    raw.resize(raw_length, 0);
-    decompressor
-        .decompress_many(&mut raw)
-        .map_err(|value| CopcError::new("laz-decode", value.to_string()))?;
-    let consumed = usize::try_from(decompressor.get().position()).map_err(|_| {
-        CopcError::new(
-            "overflow",
-            "LAZ decoder position does not fit in this target",
-        )
-    })?;
-    if consumed != chunk.len() {
-        return Err(CopcError::new(
-            "chunk-length-mismatch",
-            format!(
-                "LAZ decoder consumed {consumed} bytes from a {}-byte node chunk",
-                chunk.len()
-            ),
-        ));
-    }
-
-    let mut coordinates = vec![0.0; point_count * 3];
-    let mut intensity = has_intensity.then(|| vec![0; point_count]);
-    let mut classification = has_classification.then(|| vec![0; point_count]);
-    let mut red = has_rgb.then(|| vec![0; point_count]);
-    let mut green = has_rgb.then(|| vec![0; point_count]);
-    let mut blue = has_rgb.then(|| vec![0; point_count]);
-
-    for index in 0..point_count {
-        let record = &raw[index * record_length..(index + 1) * record_length];
-        let x = i32::from_le_bytes(record[0..4].try_into().unwrap()) as f64;
-        let y = i32::from_le_bytes(record[4..8].try_into().unwrap()) as f64;
-        let z = i32::from_le_bytes(record[8..12].try_into().unwrap()) as f64;
-        coordinates[index * 3] = x * header.scale[0] + header.offset[0];
-        coordinates[index * 3 + 1] = y * header.scale[1] + header.offset[1];
-        coordinates[index * 3 + 2] = z * header.scale[2] + header.offset[2];
-        if let Some(values) = intensity.as_deref_mut() {
-            values[index] = u16::from_le_bytes(record[12..14].try_into().unwrap());
-        }
-        if let Some(values) = classification.as_deref_mut() {
-            values[index] = record[16];
-        }
-        if has_rgb {
-            if let Some(values) = red.as_deref_mut() {
-                values[index] = u16::from_le_bytes(record[30..32].try_into().unwrap());
-            }
-            if let Some(values) = green.as_deref_mut() {
-                values[index] = u16::from_le_bytes(record[32..34].try_into().unwrap());
-            }
-            if let Some(values) = blue.as_deref_mut() {
-                values[index] = u16::from_le_bytes(record[34..36].try_into().unwrap());
-            }
-        }
-    }
-
-    Ok(DecodedCopcNode {
-        point_count,
-        coordinates,
-        intensity,
-        classification,
-        red,
-        green,
-        blue,
-    })
+    CopcNodeDecoder::from_metadata(metadata)?.decode(chunk, point_count, requested_fields)
 }
 
 #[cfg(test)]
@@ -244,7 +361,11 @@ mod tests {
     use laz::record::{LayeredPointRecordCompressor, RecordCompressor};
     use laz::{LazVlr, LazVlrBuilder};
 
-    use super::{FIELD_CLASSIFICATION, FIELD_INTENSITY, FIELD_RGB, decode_copc_node};
+    use crate::CopcNodePreparer;
+
+    use super::{
+        DecodedCopcNode, FIELD_CLASSIFICATION, FIELD_INTENSITY, FIELD_RGB, decode_copc_node,
+    };
 
     fn put_u16(bytes: &mut [u8], offset: usize, value: u16) {
         bytes[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
@@ -290,14 +411,15 @@ mod tests {
         laz_vlr.write_to(&mut laz_payload).unwrap();
 
         let header_size = 375;
-        let point_data_offset = header_size + 54 + 160 + 54 + laz_payload.len();
+        let wkt = br#"GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]]"#;
+        let point_data_offset = header_size + 54 + 160 + 54 + wkt.len() + 54 + laz_payload.len();
         let mut metadata = vec![0; point_data_offset];
         metadata[0..4].copy_from_slice(b"LASF");
         metadata[24] = 1;
         metadata[25] = 4;
         put_u16(&mut metadata, 94, header_size as u16);
         put_u32(&mut metadata, 96, point_data_offset as u32);
-        put_u32(&mut metadata, 100, 2);
+        put_u32(&mut metadata, 100, 3);
         metadata[104] = 7 | 0x80;
         put_u16(&mut metadata, 105, 36);
         put_u64(&mut metadata, 247, 2);
@@ -323,9 +445,10 @@ mod tests {
         put_u64(&mut copc_payload, 40, point_data_offset as u64 + 32);
         put_u64(&mut copc_payload, 48, 64);
         let copc_end = put_vlr(&mut metadata, header_size, "copc", 1, &copc_payload);
+        let wkt_end = put_vlr(&mut metadata, copc_end, "LASF_Projection", 2112, wkt);
         put_vlr(
             &mut metadata,
-            copc_end,
+            wkt_end,
             LazVlr::USER_ID,
             LazVlr::RECORD_ID,
             &laz_payload,
@@ -381,6 +504,43 @@ mod tests {
     }
 
     #[test]
+    fn prepares_coordinates_and_statistics_in_one_dataset_scoped_path() {
+        let (metadata, chunk) = compressed_fixture();
+        let preparer = CopcNodePreparer::from_metadata(&metadata)
+            .expect("fixture metadata should initialize the node preparer");
+        let prepared = preparer
+            .prepare_node(
+                &chunk,
+                2,
+                FIELD_INTENSITY | FIELD_CLASSIFICATION | FIELD_RGB,
+            )
+            .expect("fixture node should be prepared");
+
+        assert_eq!(prepared.point_count, 2);
+        assert_eq!(prepared.source_coordinates[0..4], [11.0, 24.0, 39.0, 11.01]);
+        assert!((prepared.source_coordinates[4] - 24.02).abs() < 1e-12);
+        assert_eq!(prepared.source_coordinates[5], 39.03);
+        for (geographic, source) in prepared
+            .geographic_coordinates
+            .iter()
+            .zip(prepared.source_coordinates.iter())
+        {
+            assert!((geographic - source).abs() < 1e-12);
+        }
+        assert!(
+            prepared
+                .ecef_coordinates
+                .iter()
+                .all(|value| value.is_finite())
+        );
+        assert_eq!(prepared.statistics.elevation.as_ref().unwrap().min, 39.0);
+        assert_eq!(prepared.statistics.elevation.as_ref().unwrap().max, 39.03);
+        assert_eq!(prepared.statistics.intensity.as_ref().unwrap().min, 400.0);
+        assert_eq!(prepared.statistics.intensity.as_ref().unwrap().max, 401.0);
+        assert_eq!(prepared.statistics.rgb_max, Some(65535));
+    }
+
+    #[test]
     fn rejects_decode_limits_and_malformed_chunks() {
         let (metadata, chunk) = compressed_fixture();
         assert_eq!(
@@ -408,6 +568,26 @@ mod tests {
             decode_copc_node(&metadata, &mismatched, 2, 0)
                 .unwrap_err()
                 .code(),
+            "chunk-length-mismatch"
+        );
+
+        let truncated = &chunk[..chunk.len() - 1];
+        let outcome = std::panic::catch_unwind(|| decode_copc_node(&metadata, truncated, 2, 0));
+        assert!(outcome.is_ok());
+        assert!(outcome.unwrap().is_err());
+
+        let preparer = CopcNodePreparer::from_metadata(&metadata).unwrap();
+        let malformed = DecodedCopcNode {
+            point_count: 1,
+            coordinates: vec![0.0, 0.0, 0.0],
+            intensity: Some(Vec::new()),
+            classification: None,
+            red: None,
+            green: None,
+            blue: None,
+        };
+        assert_eq!(
+            preparer.prepare_decoded(malformed).unwrap_err().code(),
             "chunk-length-mismatch"
         );
     }

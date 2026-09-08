@@ -16,6 +16,7 @@ mod error;
 mod header;
 mod hierarchy;
 mod interleave;
+mod preparation;
 mod vlr;
 
 pub use crs::{
@@ -23,9 +24,13 @@ pub use crs::{
     geographic_to_ecef,
 };
 pub use decoder::{
-    DecodedCopcNode, FIELD_CLASSIFICATION, FIELD_INTENSITY, FIELD_RGB, decode_copc_node,
+    CopcNodeDecoder, DecodedCopcNode, FIELD_CLASSIFICATION, FIELD_INTENSITY, FIELD_RGB,
+    decode_copc_node,
 };
 pub use error::{CopcError, Result};
 pub use header::{CopcHeader, parse_header};
 pub use hierarchy::{RootHierarchy, RootHierarchyNode, RootHierarchyPage, parse_root_hierarchy};
 pub use interleave::interleave_xyz;
+pub use preparation::{
+    CopcNodePreparer, PreparedCopcNode, PreparedPointRange, PreparedPointStatistics,
+};

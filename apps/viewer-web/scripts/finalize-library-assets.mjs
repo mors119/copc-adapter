@@ -19,6 +19,10 @@ if (generatedLazModules.length !== 1) {
 }
 
 const generatedAssetModule = generatedAssetModules[0];
+const generatedWasmAssets = assetEntries.filter((entry) => /^copc_wasm-[\w-]+\.wasm$/u.test(entry));
+if (generatedWasmAssets.length !== 1) {
+  throw new Error(`Expected one generated COPC WASM asset, found ${generatedWasmAssets.length}`);
+}
 const generatedLazModule = generatedLazModules[0];
 const generatedWorkerModules = assetEntries.filter((entry) => entry.startsWith('rustCopcDecodeWorker-') && entry.endsWith('.js'));
 if (generatedWorkerModules.length !== 1) {
@@ -73,6 +77,9 @@ for (const [entry, source] of javascriptSources) {
   }
 }
 await rm(path.resolve(distDirectory, generatedAssetModule));
+await Promise.all(
+  generatedWasmAssets.map((entry) => rm(path.resolve(distDirectory, 'assets', entry))),
+);
 await rm(path.resolve(distDirectory, generatedLazModule));
 await rm(workerPath);
 await rm(factoryPath);

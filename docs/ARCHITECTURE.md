@@ -257,7 +257,7 @@ coverage.
 
 ### Rust CRS path
 
-The target processing pipeline is:
+The Rust processing pipeline used by the opt-in prepared-point path is:
 
 ```text
 COPC/source coordinates
@@ -301,8 +301,7 @@ Rust implementation actually provides it.
 
 ## Point preparation pipeline
 
-The target performance shape is one coarse-grained Worker operation per useful
-node or batch:
+The Rust backend uses one coarse-grained Worker operation per useful node:
 
 ```text
 compressed node
@@ -328,11 +327,20 @@ The target avoids a pipeline shaped like:
 JS → WASM decode → JS → WASM CRS → JS → WASM ECEF → JS
 ```
 
-The goal is to reduce repeated full-buffer passes, unnecessary JavaScript
-object allocation, WASM boundary crossings, main-thread numeric work, and
-duplicated coordinate conversion. “Rust is faster” by itself is not the
-architecture; a reusable processing boundary and measured end-to-end behavior
-are the goals.
+The Worker initializes one `CopcNodePreparer` per source. That state retains
+validated LAS/LAZ metadata and the initialized CRS transform, so node jobs
+transfer only the compressed chunk, point count, and field mask. The core
+decodes the chunk, transforms each point, computes elevation/intensity/RGB
+reductions, and packs the prepared buffers in the same point traversal. The
+result reports separate decode and point-preparation timings.
+
+The TypeScript boundary copies every returned typed array out of WASM linear
+memory before transferring it from the Worker. The cache owns the transferred
+source, geographic, ECEF, and requested attribute arrays; no WASM view is
+retained. The existing decode-only API remains available for backend
+conformance and reference consumers, while Rust streaming uses the fused
+prepared result. Worker scheduling, stale generations, cancellation, and
+renderer lifecycle remain TypeScript responsibilities.
 
 ## Renderer-neutral data contract
 

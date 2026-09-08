@@ -1,15 +1,24 @@
 use copc_core::{
-    CopcHeader, CrsTransform, RootHierarchy, decode_copc_node, interleave_xyz, parse_header,
-    parse_root_hierarchy,
+    CopcHeader, CopcNodePreparer, CrsTransform, PreparedCopcNode, RootHierarchy, decode_copc_node,
+    interleave_xyz, parse_header, parse_root_hierarchy,
 };
 use serde::Serialize;
 use std::ffi::{CString, c_char};
 
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Instant;
+
+#[cfg(target_arch = "wasm32")]
+#[link(wasm_import_module = "env")]
+unsafe extern "C" {
+    fn copc_now_ms() -> f64;
+}
+
 use crate::error::{ParseError, ParseResponse, error, from_core};
 use crate::memory::{
-    checked_f64_input_slice, f64_input_slice, f64_output_slice, input_slice, into_leaked_buffer,
-    into_leaked_bytes, into_leaked_f64_buffer, mutable_f64_slice, mutable_u8_slice,
-    mutable_u16_slice, reclaim_buffer, reclaim_bytes, reclaim_f64_buffer,
+    checked_f64_input_slice, input_slice, into_leaked_buffer, into_leaked_bytes,
+    into_leaked_f64_buffer, mutable_f64_slice, mutable_u8_slice, mutable_u16_slice, reclaim_buffer,
+    reclaim_bytes, reclaim_f64_buffer,
 };
 
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
@@ -80,11 +89,98 @@ struct CrsTransformResult {
     point_count: usize,
 }
 
+#[derive(Debug, Serialize)]
+struct CopcNodePreparerHandle {
+    handle: usize,
+    vertical_unit_scale: f64,
+    used_horizontal_fallback: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct PreparedPointRangeJson {
+    min: f64,
+    max: f64,
+}
+
+#[derive(Debug, Serialize)]
+struct PreparedPointStatisticsJson {
+    elevation: Option<PreparedPointRangeJson>,
+    intensity: Option<PreparedPointRangeJson>,
+    rgb_max: Option<u32>,
+}
+
+#[derive(Debug, Serialize)]
+struct PrepareResult {
+    point_count: usize,
+    source_coordinate_system: &'static str,
+    coordinate_system: &'static str,
+    world_coordinate_system: &'static str,
+    intensity: bool,
+    classification: bool,
+    rgb: bool,
+    statistics: PreparedPointStatisticsJson,
+    decode_duration_ms: f64,
+    preparation_duration_ms: f64,
+}
+
+struct PreparedOutputPointers {
+    source: *mut f64,
+    geographic: *mut f64,
+    ecef: *mut f64,
+    intensity: *mut u16,
+    classification: *mut u8,
+    red: *mut u16,
+    green: *mut u16,
+    blue: *mut u16,
+}
+
+struct PreparationTiming {
+    decode_ms: f64,
+    preparation_ms: f64,
+}
+
+fn clock_ms() -> f64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        // SAFETY: the `env.copc_now_ms` import is supplied by the host WASM
+        // loader and returns a monotonic millisecond clock.
+        return unsafe { copc_now_ms() };
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+        START.get_or_init(Instant::now).elapsed().as_secs_f64() * 1000.0
+    }
+}
+
+fn elapsed_ms(start: f64) -> f64 {
+    (clock_ms() - start).max(0.0)
+}
+
+fn try_json_pointer<T: Serialize>(response: &ParseResponse<T>) -> Result<*mut c_char, ParseError> {
+    let bytes = serde_json::to_vec(response).map_err(|value| {
+        error(
+            "serialization",
+            format!("failed to serialize parser response: {value}"),
+        )
+    })?;
+    CString::new(bytes)
+        .map(|value| value.into_raw())
+        .map_err(|_| error("serialization", "parser response contains an interior NUL"))
+}
+
+fn fallback_json_pointer() -> *mut c_char {
+    const FALLBACK: &[u8] =
+        br#"{"ok":false,"error":{"code":"serialization","message":"failed to serialize parser response"}}"#;
+    match CString::new(FALLBACK.to_vec()) {
+        Ok(value) => value.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
 fn json_pointer<T: Serialize>(response: ParseResponse<T>) -> *mut c_char {
-    let mut bytes = serde_json::to_vec(&response).expect("serializing parser response cannot fail");
-    bytes.push(0);
-    let string = CString::from_vec_with_nul(bytes).expect("parser response has no interior NUL");
-    string.into_raw()
+    try_json_pointer(&response).unwrap_or_else(|_| fallback_json_pointer())
 }
 
 fn safe_u64(value: u64, what: &str) -> Result<u64, ParseError> {
@@ -228,6 +324,18 @@ fn create_geographic_crs_transform_value() -> Result<CrsTransformHandle, ParseEr
     })
 }
 
+fn create_copc_node_preparer_value(metadata: &[u8]) -> Result<CopcNodePreparerHandle, ParseError> {
+    let preparer = CopcNodePreparer::from_metadata(metadata).map_err(from_core)?;
+    let vertical_unit_scale = preparer.transform().vertical_unit_scale();
+    let used_horizontal_fallback = preparer.transform().used_horizontal_fallback();
+    let handle = Box::into_raw(Box::new(preparer)) as usize;
+    Ok(CopcNodePreparerHandle {
+        handle,
+        vertical_unit_scale,
+        used_horizontal_fallback,
+    })
+}
+
 fn transform_crs_points_value(
     handle: usize,
     input_ptr: *const f64,
@@ -296,6 +404,159 @@ pub extern "C" fn transform_crs_points_json(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn create_copc_node_preparer_json(ptr: *const u8, length: usize) -> *mut c_char {
+    let response = match input_slice(ptr, length).and_then(create_copc_node_preparer_value) {
+        Ok(value) => ParseResponse::success(value),
+        Err(parse_error) => ParseResponse::failure(parse_error),
+    };
+    json_pointer(response)
+}
+
+fn prepared_range_json(
+    range: Option<copc_core::PreparedPointRange>,
+) -> Option<PreparedPointRangeJson> {
+    range.map(|value| PreparedPointRangeJson {
+        min: value.min,
+        max: value.max,
+    })
+}
+
+fn copy_prepared_node(
+    prepared: PreparedCopcNode,
+    output: PreparedOutputPointers,
+    timing: PreparationTiming,
+) -> Result<PrepareResult, ParseError> {
+    let coordinate_length = prepared
+        .point_count
+        .checked_mul(3)
+        .ok_or_else(|| error("overflow", "coordinate output length overflows"))?;
+    let PreparedCopcNode {
+        point_count,
+        source_coordinates,
+        geographic_coordinates,
+        ecef_coordinates,
+        intensity,
+        classification,
+        red,
+        green,
+        blue,
+        statistics,
+    } = prepared;
+    mutable_f64_slice(output.source, coordinate_length)?.copy_from_slice(&source_coordinates);
+    mutable_f64_slice(output.geographic, coordinate_length)?
+        .copy_from_slice(&geographic_coordinates);
+    mutable_f64_slice(output.ecef, coordinate_length)?.copy_from_slice(&ecef_coordinates);
+
+    let intensity_present = intensity.is_some();
+    if let Some(values) = intensity {
+        mutable_u16_slice(output.intensity, point_count)?.copy_from_slice(&values);
+    }
+    let classification_present = classification.is_some();
+    if let Some(values) = classification {
+        mutable_u8_slice(output.classification, point_count)?.copy_from_slice(&values);
+    }
+    let rgb_present = red.is_some();
+    if let Some(values) = red {
+        mutable_u16_slice(output.red, point_count)?.copy_from_slice(&values);
+    }
+    if let Some(values) = green {
+        mutable_u16_slice(output.green, point_count)?.copy_from_slice(&values);
+    }
+    if let Some(values) = blue {
+        mutable_u16_slice(output.blue, point_count)?.copy_from_slice(&values);
+    }
+
+    Ok(PrepareResult {
+        point_count,
+        source_coordinate_system: "copc-source",
+        coordinate_system: "wgs84-geographic",
+        world_coordinate_system: "wgs84-ecef-meters",
+        intensity: intensity_present,
+        classification: classification_present,
+        rgb: rgb_present,
+        statistics: PreparedPointStatisticsJson {
+            elevation: prepared_range_json(statistics.elevation),
+            intensity: prepared_range_json(statistics.intensity),
+            rgb_max: statistics.rgb_max,
+        },
+        decode_duration_ms: timing.decode_ms,
+        preparation_duration_ms: timing.preparation_ms,
+    })
+}
+
+fn prepare_copc_node_value(
+    handle: usize,
+    chunk_ptr: *const u8,
+    chunk_length: usize,
+    point_count: usize,
+    requested_fields: u32,
+    output: PreparedOutputPointers,
+) -> Result<PrepareResult, ParseError> {
+    if handle == 0 {
+        return Err(error("invalid-input", "COPC node preparer handle is null"));
+    }
+    let chunk = input_slice(chunk_ptr, chunk_length)?;
+    // SAFETY: the handle is returned by create_copc_node_preparer_json and
+    // remains live until the caller invokes free_copc_node_preparer.
+    let preparer = unsafe { &*(handle as *const CopcNodePreparer) };
+    let decode_started = clock_ms();
+    let decoded = preparer
+        .decode_node(chunk, point_count, requested_fields)
+        .map_err(from_core)?;
+    let decode_duration_ms = elapsed_ms(decode_started);
+    let preparation_started = clock_ms();
+    let prepared = preparer.prepare_decoded(decoded).map_err(from_core)?;
+    let preparation_duration_ms = elapsed_ms(preparation_started);
+    copy_prepared_node(
+        prepared,
+        output,
+        PreparationTiming {
+            decode_ms: decode_duration_ms,
+            preparation_ms: preparation_duration_ms,
+        },
+    )
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn prepare_copc_node_json(
+    handle: usize,
+    chunk_ptr: *const u8,
+    chunk_length: usize,
+    point_count: usize,
+    requested_fields: u32,
+    source_ptr: *mut f64,
+    geographic_ptr: *mut f64,
+    ecef_ptr: *mut f64,
+    intensity_ptr: *mut u16,
+    classification_ptr: *mut u8,
+    red_ptr: *mut u16,
+    green_ptr: *mut u16,
+    blue_ptr: *mut u16,
+) -> *mut c_char {
+    let response = match prepare_copc_node_value(
+        handle,
+        chunk_ptr,
+        chunk_length,
+        point_count,
+        requested_fields,
+        PreparedOutputPointers {
+            source: source_ptr,
+            geographic: geographic_ptr,
+            ecef: ecef_ptr,
+            intensity: intensity_ptr,
+            classification: classification_ptr,
+            red: red_ptr,
+            green: green_ptr,
+            blue: blue_ptr,
+        },
+    ) {
+        Ok(value) => ParseResponse::success(value),
+        Err(parse_error) => ParseResponse::failure(parse_error),
+    };
+    json_pointer(response)
+}
+
+#[unsafe(no_mangle)]
 /// # Safety
 ///
 /// `handle` must be a value returned by a CRS transform creation function and
@@ -306,6 +567,21 @@ pub unsafe extern "C" fn free_crs_transform(handle: usize) {
         // in a CRS transform creation function and is freed exactly once.
         unsafe {
             drop(Box::from_raw(handle as *mut CrsTransform));
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+/// # Safety
+///
+/// `handle` must be a value returned by `create_copc_node_preparer_json` and
+/// must not be freed more than once or used after this call.
+pub unsafe extern "C" fn free_copc_node_preparer(handle: usize) {
+    if handle != 0 {
+        // SAFETY: the caller guarantees that this handle came from Box::into_raw
+        // in create_copc_node_preparer_json and is freed exactly once.
+        unsafe {
+            drop(Box::from_raw(handle as *mut CopcNodePreparer));
         }
     }
 }
@@ -479,10 +755,18 @@ pub extern "C" fn decode_xyz_to_interleaved(
         return 0;
     }
 
-    let x = f64_input_slice(x_ptr, count);
-    let y = f64_input_slice(y_ptr, count);
-    let z = f64_input_slice(z_ptr, count);
-    let out = f64_output_slice(out_ptr, output_length);
+    let Ok(x) = checked_f64_input_slice(x_ptr, count) else {
+        return 0;
+    };
+    let Ok(y) = checked_f64_input_slice(y_ptr, count) else {
+        return 0;
+    };
+    let Ok(z) = checked_f64_input_slice(z_ptr, count) else {
+        return 0;
+    };
+    let Ok(out) = mutable_f64_slice(out_ptr, output_length) else {
+        return 0;
+    };
     let Ok(values) = interleave_xyz(x, y, z) else {
         return 0;
     };
@@ -512,9 +796,44 @@ pub extern "C" fn dealloc_u8(ptr: *mut u8, length: usize) {
 
 #[cfg(test)]
 mod tests {
-    use super::{create_crs_transform_value, free_crs_transform, transform_crs_points_value};
+    use serde::ser::{Error as _, Serializer};
+
+    use super::{
+        ParseResponse, create_crs_transform_value, free_crs_transform, json_pointer,
+        transform_crs_points_value, try_json_pointer,
+    };
 
     const WGS84_GEOGRAPHIC_WKT: &str = "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]]";
+
+    struct FailingSerialize;
+
+    impl serde::Serialize for FailingSerialize {
+        fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            Err(S::Error::custom("injected serialization failure"))
+        }
+    }
+
+    #[test]
+    fn maps_serialization_failure_and_uses_terminal_json_fallback() {
+        let response = ParseResponse::success(FailingSerialize);
+        assert_eq!(
+            try_json_pointer(&response).unwrap_err().code,
+            "serialization"
+        );
+
+        let pointer = json_pointer(response);
+        assert!(!pointer.is_null());
+        // SAFETY: the pointer was returned by json_pointer and is reclaimed
+        // exactly once by CString::from_raw in this test.
+        let response = unsafe { std::ffi::CString::from_raw(pointer) };
+        assert_eq!(
+            response.to_str().unwrap(),
+            "{\"ok\":false,\"error\":{\"code\":\"serialization\",\"message\":\"failed to serialize parser response\"}}"
+        );
+    }
 
     #[test]
     fn reuses_a_crs_handle_and_copies_geographic_and_ecef_outputs() {

@@ -11,6 +11,7 @@ import type {
   CopcMetadata,
   CopcPointBuffer,
   CopcPointView,
+  PreparedPointData,
 } from '../types/copc';
 import type { CopcPointFieldSelection } from '../points/fieldSelection';
 import type { CopcPerformanceObserver } from '../performance';
@@ -28,6 +29,10 @@ export class CopcContext implements CopcSource {
     node: CopcHierarchyNode,
     fields: CopcPointFieldSelection,
   ) => Promise<CopcPointBuffer>;
+  readonly loadPreparedPointData?: (
+    node: CopcHierarchyNode,
+    fields: CopcPointFieldSelection,
+  ) => Promise<PreparedPointData>;
   readonly setPerformanceObserver?: (
     observer: CopcPerformanceObserver | undefined,
   ) => void;
@@ -39,6 +44,9 @@ export class CopcContext implements CopcSource {
     this.delegate = delegate;
     if (delegate.loadPointDataBuffer) {
       this.loadPointDataBuffer = delegate.loadPointDataBuffer.bind(delegate);
+    }
+    if (delegate.loadPreparedPointData) {
+      this.loadPreparedPointData = delegate.loadPreparedPointData.bind(delegate);
     }
     if (delegate.setPerformanceObserver) {
       this.setPerformanceObserver = delegate.setPerformanceObserver.bind(delegate);

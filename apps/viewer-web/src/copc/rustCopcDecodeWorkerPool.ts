@@ -1,4 +1,5 @@
-import type { CopcPointBuffer } from './types/copc';
+import type { CopcPointBuffer, PreparedPointData } from './types/copc';
+import { assertPreparedPointData, createPreparedPointData } from '../point/preparedPoint';
 import type {
   RustCopcDecodeWorkerJob,
   RustCopcDecodeWorkerRequest,
@@ -27,6 +28,13 @@ export type RustCopcDecodeRequest = {
   chunk: Uint8Array;
 };
 
+export type RustCopcPreparedResult = {
+  prepared: PreparedPointData;
+  durationMs: number;
+  decodeDurationMs: number;
+  preparationDurationMs: number;
+};
+
 export class RustCopcWorkerError extends Error {
   readonly workerCode: 'worker-failure' | 'worker-message' | 'worker-cancelled' | 'worker-destroyed';
   readonly nodeKey?: string;
@@ -47,15 +55,22 @@ export class RustCopcWorkerError extends Error {
 
 type QueueEntry = {
   id: number;
-  request: RustCopcDecodeRequest;
-  resolve: (buffer: CopcPointBuffer & { decodeDurationMs: number }) => void;
+  request: RustCopcWorkerJobRequest;
+  resolve: (result: RustCopcWorkerResult) => void;
   reject: (error: unknown) => void;
 };
+
+type RustCopcWorkerJobRequest = Omit<RustCopcDecodeWorkerJob, 'id' | 'chunk'> & {
+  chunk: Uint8Array;
+};
+
+type RustCopcDecodedResult = CopcPointBuffer & { decodeDurationMs: number };
+type RustCopcWorkerResult = RustCopcDecodedResult | RustCopcPreparedResult;
 
 type WorkerSlot = {
   worker: RustCopcDecodeWorkerLike;
   ready: boolean;
-  phase: 'initializing' | 'decoding';
+  phase: 'initializing' | 'processing';
   current?: QueueEntry;
 };
 
@@ -109,7 +124,33 @@ export class RustCopcDecodeWorkerPool {
     this.metadata = metadata.slice();
   }
 
-  submit(request: RustCopcDecodeRequest): Promise<CopcPointBuffer & { decodeDurationMs: number }> {
+  submit(request: RustCopcDecodeRequest): Promise<RustCopcDecodedResult> {
+    return this.enqueue({ ...request, type: 'decode' }).then((result) => {
+      if ('prepared' in result) {
+        throw new RustCopcWorkerError(
+          'worker-message',
+          'Rust COPC worker returned prepared data for a decode request',
+          { nodeKey: request.nodeKey },
+        );
+      }
+      return result;
+    });
+  }
+
+  submitPrepared(request: RustCopcDecodeRequest): Promise<RustCopcPreparedResult> {
+    return this.enqueue({ ...request, type: 'prepare' }).then((result) => {
+      if (!('prepared' in result)) {
+        throw new RustCopcWorkerError(
+          'worker-message',
+          'Rust COPC worker returned decoded data for a preparation request',
+          { nodeKey: request.nodeKey },
+        );
+      }
+      return result;
+    });
+  }
+
+  private enqueue(request: RustCopcWorkerJobRequest): Promise<RustCopcWorkerResult> {
     if (this.destroyed) {
       return Promise.reject(new RustCopcWorkerError('worker-destroyed', 'Rust COPC worker pool was destroyed'));
     }
@@ -262,10 +303,10 @@ export class RustCopcDecodeWorkerPool {
   }
 
   private postJob(slot: WorkerSlot, entry: QueueEntry): void {
-    slot.phase = 'decoding';
+    slot.phase = 'processing';
     const chunk = entry.request.chunk.slice().buffer;
     const job: RustCopcDecodeWorkerJob = {
-      type: 'decode',
+      type: entry.request.type,
       id: entry.id,
       nodeKey: entry.request.nodeKey,
       pointCount: entry.request.pointCount,
@@ -289,6 +330,20 @@ export class RustCopcDecodeWorkerPool {
       if (entry) this.postJob(slot, entry);
       return;
     }
+    if (response.type === 'error' && response.id === undefined && entry) {
+      slot.current = undefined;
+      this.entries.delete(entry.id);
+      this.failedCount += 1;
+      entry.reject(new RustCopcWorkerError('worker-failure', response.error.message, {
+        nodeKey: response.nodeKey ?? entry.request.nodeKey,
+        rustCode: response.error.code,
+      }));
+      void slot.worker.terminate();
+      const index = this.workers.indexOf(slot);
+      if (index >= 0) this.workers.splice(index, 1);
+      this.dispatch();
+      return;
+    }
     if (!entry || response.id !== entry.id) {
       this.handleWorkerFailure(slot, 'Rust COPC worker returned an unexpected job response');
       return;
@@ -303,31 +358,98 @@ export class RustCopcDecodeWorkerPool {
         rustCode: response.error.code,
       }));
     } else {
-      if (response.coordinateSystem !== 'copc-source') {
+      const operation = response.operation ?? 'decode';
+      if (operation !== entry.request.type) {
         this.failedCount += 1;
         entry.reject(new RustCopcWorkerError(
           'worker-message',
-          `Rust COPC worker returned an unexpected coordinate system: ${response.coordinateSystem}`,
+          `Rust COPC worker returned ${operation} data for a ${entry.request.type} request`,
           { nodeKey: entry.request.nodeKey },
         ));
         this.dispatch();
         return;
       }
-      const attributes = response.intensity || response.classification || response.red || response.green || response.blue
-        ? {
-          intensity: bufferFrom(response.intensity, 'u16') as Uint16Array | undefined,
-          classification: bufferFrom(response.classification, 'u8') as Uint8Array | undefined,
-          red: bufferFrom(response.red, 'u16') as Uint16Array | undefined,
-          green: bufferFrom(response.green, 'u16') as Uint16Array | undefined,
-          blue: bufferFrom(response.blue, 'u16') as Uint16Array | undefined,
+      if (operation === 'decode') {
+        if (response.coordinateSystem !== 'copc-source') {
+          this.failedCount += 1;
+          entry.reject(new RustCopcWorkerError(
+            'worker-message',
+            `Rust COPC worker returned an unexpected coordinate system: ${response.coordinateSystem}`,
+            { nodeKey: entry.request.nodeKey },
+          ));
+          this.dispatch();
+          return;
         }
-        : undefined;
-      entry.resolve({
-        pointCount: response.pointCount,
-        coordinates: new Float64Array(response.coordinates),
-        attributes,
-        decodeDurationMs: response.durationMs,
-      });
+        const attributes = response.intensity || response.classification || response.red || response.green || response.blue
+          ? {
+            intensity: bufferFrom(response.intensity, 'u16') as Uint16Array | undefined,
+            classification: bufferFrom(response.classification, 'u8') as Uint8Array | undefined,
+            red: bufferFrom(response.red, 'u16') as Uint16Array | undefined,
+            green: bufferFrom(response.green, 'u16') as Uint16Array | undefined,
+            blue: bufferFrom(response.blue, 'u16') as Uint16Array | undefined,
+          }
+          : undefined;
+        entry.resolve({
+          pointCount: response.pointCount,
+          coordinates: new Float64Array(response.coordinates),
+          attributes,
+          decodeDurationMs: response.durationMs,
+        });
+      } else {
+        if (response.coordinateSystem !== 'wgs84-geographic'
+          || response.sourceCoordinateSystem !== 'copc-source'
+          || response.worldCoordinateSystem !== 'wgs84-ecef-meters'
+          || !response.sourceCoordinates
+          || !response.geographicCoordinates
+          || !response.worldCoordinates
+          || !response.statistics
+          || response.decodeDurationMs === undefined
+          || response.preparationDurationMs === undefined) {
+          this.failedCount += 1;
+          entry.reject(new RustCopcWorkerError(
+            'worker-message',
+            'Rust COPC worker returned an incomplete prepared point result',
+            { nodeKey: entry.request.nodeKey },
+          ));
+          this.dispatch();
+          return;
+        }
+        const attributes = response.intensity || response.classification || response.red || response.green || response.blue
+          ? {
+            intensity: bufferFrom(response.intensity, 'u16') as Uint16Array | undefined,
+            classification: bufferFrom(response.classification, 'u8') as Uint8Array | undefined,
+            red: bufferFrom(response.red, 'u16') as Uint16Array | undefined,
+            green: bufferFrom(response.green, 'u16') as Uint16Array | undefined,
+            blue: bufferFrom(response.blue, 'u16') as Uint16Array | undefined,
+          }
+          : undefined;
+        try {
+          const prepared = createPreparedPointData({
+            pointCount: response.pointCount,
+            sourceCoordinates: new Float64Array(response.sourceCoordinates),
+            geographicCoordinates: new Float64Array(response.geographicCoordinates),
+            worldCoordinates: new Float64Array(response.worldCoordinates),
+            attributes,
+            statistics: response.statistics,
+          });
+          assertPreparedPointData(prepared);
+          entry.resolve({
+            prepared,
+            durationMs: response.durationMs,
+            decodeDurationMs: response.decodeDurationMs,
+            preparationDurationMs: response.preparationDurationMs,
+          });
+        } catch (error: unknown) {
+          this.failedCount += 1;
+          entry.reject(new RustCopcWorkerError(
+            'worker-message',
+            error instanceof Error ? error.message : String(error),
+            { nodeKey: entry.request.nodeKey },
+          ));
+          this.dispatch();
+          return;
+        }
+      }
     }
     this.dispatch();
   }

@@ -11,12 +11,24 @@ pub fn interleave_xyz(x: &[f64], y: &[f64], z: &[f64]) -> Result<Vec<f64>> {
         .len()
         .checked_mul(3)
         .ok_or_else(|| CopcError::new("overflow", "interleaved output length overflows"))?;
-    let mut out = vec![0.0; output_length];
-    for index in 0..x.len() {
-        let offset = index * 3;
-        out[offset] = x[index];
-        out[offset + 1] = y[index];
-        out[offset + 2] = z[index];
+    let mut out = Vec::new();
+    out.try_reserve_exact(output_length)
+        .map_err(|_| CopcError::new("allocation", "unable to allocate interleaved output"))?;
+    out.resize(output_length, 0.0);
+    for (index, ((x_value, y_value), z_value)) in x.iter().zip(y).zip(z).enumerate() {
+        let offset = index
+            .checked_mul(3)
+            .ok_or_else(|| CopcError::new("overflow", "interleaved output offset overflows"))?;
+        let end = offset
+            .checked_add(3)
+            .ok_or_else(|| CopcError::new("overflow", "interleaved output range overflows"))?;
+        let values = out.get_mut(offset..end).ok_or_else(|| {
+            CopcError::new(
+                "invalid-value",
+                "interleaved output dimensions are inconsistent",
+            )
+        })?;
+        values.copy_from_slice(&[*x_value, *y_value, *z_value]);
     }
     Ok(out)
 }
