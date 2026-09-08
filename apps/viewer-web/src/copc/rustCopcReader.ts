@@ -73,7 +73,7 @@ type RustParserResponse<T> = {
 
 export { RustCopcParseError } from './rustCopcErrors';
 export type { RustCopcParseErrorCode } from './rustCopcErrors';
-import { RustCopcParseError } from './rustCopcErrors';
+import { requireRustWasmPointer, RustCopcParseError } from './rustCopcErrors';
 
 export type RustCopcHeader = RustHeaderValue;
 
@@ -119,6 +119,12 @@ function requireHierarchyPageLength(value: number): number {
 
 function readCString(memory: WebAssembly.Memory, pointer: number): string {
   const bytes = new Uint8Array(memory.buffer);
+  if (pointer === 0) {
+    throw new RustCopcParseError('serialization', 'Rust parser could not allocate a response');
+  }
+  if (!Number.isSafeInteger(pointer) || pointer < 0 || pointer >= bytes.length) {
+    throw new RustCopcParseError('invalid-input', 'Rust parser returned an invalid response pointer');
+  }
   let end = pointer;
   while (end < bytes.length && bytes[end] !== 0) {
     end += 1;
@@ -134,7 +140,11 @@ async function parseWithRust<T>(
   parse: (wasm: Awaited<ReturnType<typeof loadCopcWasm>>, pointer: number, length: number) => number,
 ): Promise<T> {
   const wasm = await loadCopcWasm();
-  const inputPointer = wasm.alloc_bytes(bytes.byteLength);
+  const inputPointer = requireRustWasmPointer(
+    wasm.alloc_bytes(bytes.byteLength),
+    bytes.byteLength,
+    'parser input',
+  );
   new Uint8Array(wasm.memory.buffer, inputPointer, bytes.byteLength).set(bytes);
 
   try {

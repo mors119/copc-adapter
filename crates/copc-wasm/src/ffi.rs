@@ -16,9 +16,9 @@ unsafe extern "C" {
 
 use crate::error::{ParseError, ParseResponse, error, from_core};
 use crate::memory::{
-    checked_f64_input_slice, f64_input_slice, f64_output_slice, input_slice, into_leaked_buffer,
-    into_leaked_bytes, into_leaked_f64_buffer, mutable_f64_slice, mutable_u8_slice,
-    mutable_u16_slice, reclaim_buffer, reclaim_bytes, reclaim_f64_buffer,
+    checked_f64_input_slice, input_slice, into_leaked_buffer, into_leaked_bytes,
+    into_leaked_f64_buffer, mutable_f64_slice, mutable_u8_slice, mutable_u16_slice, reclaim_buffer,
+    reclaim_bytes, reclaim_f64_buffer,
 };
 
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
@@ -158,11 +158,29 @@ fn elapsed_ms(start: f64) -> f64 {
     (clock_ms() - start).max(0.0)
 }
 
+fn try_json_pointer<T: Serialize>(response: &ParseResponse<T>) -> Result<*mut c_char, ParseError> {
+    let bytes = serde_json::to_vec(response).map_err(|value| {
+        error(
+            "serialization",
+            format!("failed to serialize parser response: {value}"),
+        )
+    })?;
+    CString::new(bytes)
+        .map(|value| value.into_raw())
+        .map_err(|_| error("serialization", "parser response contains an interior NUL"))
+}
+
+fn fallback_json_pointer() -> *mut c_char {
+    const FALLBACK: &[u8] =
+        br#"{"ok":false,"error":{"code":"serialization","message":"failed to serialize parser response"}}"#;
+    match CString::new(FALLBACK.to_vec()) {
+        Ok(value) => value.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
 fn json_pointer<T: Serialize>(response: ParseResponse<T>) -> *mut c_char {
-    let mut bytes = serde_json::to_vec(&response).expect("serializing parser response cannot fail");
-    bytes.push(0);
-    let string = CString::from_vec_with_nul(bytes).expect("parser response has no interior NUL");
-    string.into_raw()
+    try_json_pointer(&response).unwrap_or_else(|_| fallback_json_pointer())
 }
 
 fn safe_u64(value: u64, what: &str) -> Result<u64, ParseError> {
@@ -737,10 +755,18 @@ pub extern "C" fn decode_xyz_to_interleaved(
         return 0;
     }
 
-    let x = f64_input_slice(x_ptr, count);
-    let y = f64_input_slice(y_ptr, count);
-    let z = f64_input_slice(z_ptr, count);
-    let out = f64_output_slice(out_ptr, output_length);
+    let Ok(x) = checked_f64_input_slice(x_ptr, count) else {
+        return 0;
+    };
+    let Ok(y) = checked_f64_input_slice(y_ptr, count) else {
+        return 0;
+    };
+    let Ok(z) = checked_f64_input_slice(z_ptr, count) else {
+        return 0;
+    };
+    let Ok(out) = mutable_f64_slice(out_ptr, output_length) else {
+        return 0;
+    };
     let Ok(values) = interleave_xyz(x, y, z) else {
         return 0;
     };
@@ -770,9 +796,44 @@ pub extern "C" fn dealloc_u8(ptr: *mut u8, length: usize) {
 
 #[cfg(test)]
 mod tests {
-    use super::{create_crs_transform_value, free_crs_transform, transform_crs_points_value};
+    use serde::ser::{Error as _, Serializer};
+
+    use super::{
+        ParseResponse, create_crs_transform_value, free_crs_transform, json_pointer,
+        transform_crs_points_value, try_json_pointer,
+    };
 
     const WGS84_GEOGRAPHIC_WKT: &str = "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]]";
+
+    struct FailingSerialize;
+
+    impl serde::Serialize for FailingSerialize {
+        fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            Err(S::Error::custom("injected serialization failure"))
+        }
+    }
+
+    #[test]
+    fn maps_serialization_failure_and_uses_terminal_json_fallback() {
+        let response = ParseResponse::success(FailingSerialize);
+        assert_eq!(
+            try_json_pointer(&response).unwrap_err().code,
+            "serialization"
+        );
+
+        let pointer = json_pointer(response);
+        assert!(!pointer.is_null());
+        // SAFETY: the pointer was returned by json_pointer and is reclaimed
+        // exactly once by CString::from_raw in this test.
+        let response = unsafe { std::ffi::CString::from_raw(pointer) };
+        assert_eq!(
+            response.to_str().unwrap(),
+            "{\"ok\":false,\"error\":{\"code\":\"serialization\",\"message\":\"failed to serialize parser response\"}}"
+        );
+    }
 
     #[test]
     fn reuses_a_crs_handle_and_copies_geographic_and_ecef_outputs() {

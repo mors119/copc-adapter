@@ -1,5 +1,5 @@
 import type { CopcMetadata } from '../../copc/types/copc';
-import { RustCopcParseError } from '../../copc/rustCopcErrors';
+import { requireRustWasmPointer, RustCopcParseError } from '../../copc/rustCopcErrors';
 import { loadCopcWasm, type CopcWasmExports } from '../../wasm/copcWasm';
 
 type RustResponse<T> = {
@@ -28,6 +28,12 @@ export type RustPreparedCoordinateBuffer = {
 
 function readCString(memory: WebAssembly.Memory, pointer: number): string {
   const bytes = new Uint8Array(memory.buffer);
+  if (pointer === 0) {
+    throw new RustCopcParseError('serialization', 'Rust CRS could not allocate a response');
+  }
+  if (!Number.isSafeInteger(pointer) || pointer < 0 || pointer >= bytes.length) {
+    throw new RustCopcParseError('invalid-input', 'Rust CRS returned an invalid response pointer');
+  }
   let end = pointer;
   while (end < bytes.length && bytes[end] !== 0) end += 1;
   if (end === bytes.length) {
@@ -78,22 +84,21 @@ export class RustCrsTransformer {
     let wktPointer = 0;
     let wktLength = 0;
 
-    if (metadata.wkt) {
-      const bytes = new TextEncoder().encode(metadata.wkt);
-      wktLength = bytes.byteLength;
-      wktPointer = wasm.alloc_bytes(wktLength);
-      new Uint8Array(wasm.memory.buffer, wktPointer, wktLength).set(bytes);
-      responsePointer = wasm.create_crs_transform_json(wktPointer, wktLength);
-    } else if (hasGeographicBounds(metadata)) {
-      responsePointer = wasm.create_geographic_crs_transform_json();
-    } else {
-      throw new RustCopcParseError(
-        'missing-wkt',
-        'COPC metadata WKT is required for projected source coordinates',
-      );
-    }
-
     try {
+      if (metadata.wkt) {
+        const bytes = new TextEncoder().encode(metadata.wkt);
+        wktLength = bytes.byteLength;
+        wktPointer = requireRustWasmPointer(wasm.alloc_bytes(wktLength), wktLength, 'CRS WKT');
+        new Uint8Array(wasm.memory.buffer, wktPointer, wktLength).set(bytes);
+        responsePointer = wasm.create_crs_transform_json(wktPointer, wktLength);
+      } else if (hasGeographicBounds(metadata)) {
+        responsePointer = wasm.create_geographic_crs_transform_json();
+      } else {
+        throw new RustCopcParseError(
+          'missing-wkt',
+          'COPC metadata WKT is required for projected source coordinates',
+        );
+      }
       return new RustCrsTransformer(wasm, parseResponse<RustCrsHandle>(wasm, responsePointer));
     } finally {
       if (wktLength > 0) wasm.dealloc_bytes(wktPointer, wktLength);
@@ -121,10 +126,25 @@ export class RustCrsTransformer {
     }
 
     const coordinateLength = sourceCoordinates.length;
-    const inputPointer = this.wasm.alloc_f64(coordinateLength);
-    const geographicPointer = this.wasm.alloc_f64(coordinateLength);
-    const ecefPointer = this.wasm.alloc_f64(coordinateLength);
+    let inputPointer = 0;
+    let geographicPointer = 0;
+    let ecefPointer = 0;
     try {
+      inputPointer = requireRustWasmPointer(
+        this.wasm.alloc_f64(coordinateLength),
+        coordinateLength,
+        'CRS input coordinates',
+      );
+      geographicPointer = requireRustWasmPointer(
+        this.wasm.alloc_f64(coordinateLength),
+        coordinateLength,
+        'geographic coordinates',
+      );
+      ecefPointer = requireRustWasmPointer(
+        this.wasm.alloc_f64(coordinateLength),
+        coordinateLength,
+        'ECEF coordinates',
+      );
       new Float64Array(this.wasm.memory.buffer, inputPointer, coordinateLength).set(sourceCoordinates);
       const responsePointer = this.wasm.transform_crs_points_json(
         this.handle.handle,
@@ -134,7 +154,12 @@ export class RustCrsTransformer {
         ecefPointer,
       );
       const response = parseResponse<RustCrsTransformResult>(this.wasm, responsePointer);
-      if (response.point_count * 3 !== coordinateLength) {
+      const returnedCoordinateLength = Number.isSafeInteger(response.point_count)
+        && response.point_count >= 0
+        && response.point_count <= Number.MAX_SAFE_INTEGER / 3
+        ? response.point_count * 3
+        : Number.NaN;
+      if (returnedCoordinateLength !== coordinateLength) {
         throw new RustCopcParseError(
           'chunk-length-mismatch',
           `Rust CRS returned ${response.point_count} points; expected ${coordinateLength / 3}`,
@@ -152,9 +177,9 @@ export class RustCrsTransformer {
         usedHorizontalFallback: this.handle.used_horizontal_fallback,
       };
     } finally {
-      this.wasm.dealloc_f64(inputPointer, coordinateLength);
-      this.wasm.dealloc_f64(geographicPointer, coordinateLength);
-      this.wasm.dealloc_f64(ecefPointer, coordinateLength);
+      if (inputPointer) this.wasm.dealloc_f64(inputPointer, coordinateLength);
+      if (geographicPointer) this.wasm.dealloc_f64(geographicPointer, coordinateLength);
+      if (ecefPointer) this.wasm.dealloc_f64(ecefPointer, coordinateLength);
     }
   }
 

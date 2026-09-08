@@ -81,6 +81,25 @@ impl CopcNodePreparer {
                 "decoded coordinate buffer does not match point count",
             ));
         }
+        for (name, length) in [
+            ("intensity", decoded.intensity.as_ref().map(Vec::len)),
+            (
+                "classification",
+                decoded.classification.as_ref().map(Vec::len),
+            ),
+            ("red", decoded.red.as_ref().map(Vec::len)),
+            ("green", decoded.green.as_ref().map(Vec::len)),
+            ("blue", decoded.blue.as_ref().map(Vec::len)),
+        ] {
+            if let Some(length) = length
+                && length != decoded.point_count
+            {
+                return Err(CopcError::new(
+                    "chunk-length-mismatch",
+                    format!("decoded {name} buffer does not match point count"),
+                ));
+            }
+        }
 
         let mut geographic_coordinates = Vec::new();
         geographic_coordinates

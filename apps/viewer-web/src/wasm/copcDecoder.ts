@@ -6,6 +6,7 @@ import type {
 import type { CopcPointDecoder } from '../copc/points/types';
 import type { CopcPointComponent } from '../copc/points/fieldSelection';
 import { loadCopcWasm } from './copcWasm';
+import { requireRustWasmPointer, RustCopcParseError } from '../copc/rustCopcErrors';
 
 function readDimensionValues(
   view: CopcPointView,
@@ -86,14 +87,25 @@ export async function decodeCopcPointBuffer(
   const zValues = readDimensionValues(view, 'z');
   const attributes = readPointAttributes(view);
   const count = view.pointCount;
+  if (!Number.isSafeInteger(count) || count < 0 || count > Number.MAX_SAFE_INTEGER / 3) {
+    throw new RustCopcParseError('overflow', 'interleaved output length exceeds safe integer range');
+  }
   const outputLength = count * 3;
 
-  const xPointer = wasm.alloc_f64(count);
-  const yPointer = wasm.alloc_f64(count);
-  const zPointer = wasm.alloc_f64(count);
-  const outputPointer = wasm.alloc_f64(outputLength);
+  let xPointer = 0;
+  let yPointer = 0;
+  let zPointer = 0;
+  let outputPointer = 0;
 
   try {
+    xPointer = requireRustWasmPointer(wasm.alloc_f64(count), count, 'X coordinates');
+    yPointer = requireRustWasmPointer(wasm.alloc_f64(count), count, 'Y coordinates');
+    zPointer = requireRustWasmPointer(wasm.alloc_f64(count), count, 'Z coordinates');
+    outputPointer = requireRustWasmPointer(
+      wasm.alloc_f64(outputLength),
+      outputLength,
+      'interleaved coordinates',
+    );
     const memory = wasm.memory.buffer;
 
     new Float64Array(memory, xPointer, count).set(xValues);
@@ -122,10 +134,10 @@ export async function decodeCopcPointBuffer(
       attributes,
     };
   } finally {
-    wasm.dealloc_f64(xPointer, count);
-    wasm.dealloc_f64(yPointer, count);
-    wasm.dealloc_f64(zPointer, count);
-    wasm.dealloc_f64(outputPointer, outputLength);
+    if (xPointer) wasm.dealloc_f64(xPointer, count);
+    if (yPointer) wasm.dealloc_f64(yPointer, count);
+    if (zPointer) wasm.dealloc_f64(zPointer, count);
+    if (outputPointer) wasm.dealloc_f64(outputPointer, outputLength);
   }
 }
 

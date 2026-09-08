@@ -9,6 +9,14 @@ const WGS84_PROJ: &str = "+proj=longlat +datum=WGS84 +no_defs";
 const WGS84_SEMI_MAJOR_AXIS_METERS: f64 = 6_378_137.0;
 const WGS84_FIRST_ECCENTRICITY_SQUARED: f64 = 6.694_379_990_141_316_5e-3;
 
+fn allocate_coordinate_buffer(length: usize, what: &str) -> Result<Vec<f64>> {
+    let mut values = Vec::new();
+    values
+        .try_reserve_exact(length)
+        .map_err(|_| CopcError::new("allocation", format!("unable to allocate {what} buffer")))?;
+    Ok(values)
+}
+
 /// A source-independent WGS84 geographic point.
 ///
 /// Longitude and latitude are expressed in degrees. Height follows the
@@ -236,7 +244,7 @@ impl CrsTransform {
             ));
         }
 
-        let mut geographic = Vec::with_capacity(source_coordinates.len());
+        let mut geographic = allocate_coordinate_buffer(source_coordinates.len(), "geographic")?;
         for values in source_coordinates.chunks_exact(3) {
             let point = self.transform_point([values[0], values[1], values[2]])?;
             geographic.extend([point.longitude, point.latitude, point.height]);
@@ -257,8 +265,8 @@ impl CrsTransform {
             ));
         }
 
-        let mut geographic = Vec::with_capacity(source_coordinates.len());
-        let mut ecef = Vec::with_capacity(source_coordinates.len());
+        let mut geographic = allocate_coordinate_buffer(source_coordinates.len(), "geographic")?;
+        let mut ecef = allocate_coordinate_buffer(source_coordinates.len(), "ECEF")?;
         for values in source_coordinates.chunks_exact(3) {
             let point = self.transform_point([values[0], values[1], values[2]])?;
             let world = geographic_to_ecef(point)?;
@@ -317,7 +325,7 @@ pub fn geographic_buffer_to_ecef(geographic_coordinates: &[f64]) -> Result<Vec<f
         ));
     }
 
-    let mut ecef = Vec::with_capacity(geographic_coordinates.len());
+    let mut ecef = allocate_coordinate_buffer(geographic_coordinates.len(), "ECEF")?;
     for values in geographic_coordinates.chunks_exact(3) {
         let point = geographic_to_ecef(GeographicPoint {
             longitude: values[0],

@@ -8,7 +8,7 @@ import { createPreparedPointData } from '../point/preparedPoint';
 import type { CopcPointFieldSelection } from './points/fieldSelection';
 import { performanceNow } from './performance';
 import { loadCopcWasm, type CopcWasmExports } from '../wasm/copcWasm';
-import { RustCopcParseError } from './rustCopcErrors';
+import { requireRustWasmPointer, RustCopcParseError } from './rustCopcErrors';
 
 const FIELD_INTENSITY = 1 << 0;
 const FIELD_CLASSIFICATION = 1 << 1;
@@ -61,6 +61,12 @@ type RustPrepareValue = {
 
 function readCString(memory: WebAssembly.Memory, pointer: number): string {
   const bytes = new Uint8Array(memory.buffer);
+  if (pointer === 0) {
+    throw new RustCopcParseError('serialization', 'Rust decoder could not allocate a response');
+  }
+  if (!Number.isSafeInteger(pointer) || pointer < 0 || pointer >= bytes.length) {
+    throw new RustCopcParseError('invalid-input', 'Rust decoder returned an invalid response pointer');
+  }
   let end = pointer;
   while (end < bytes.length && bytes[end] !== 0) {
     end += 1;
@@ -128,7 +134,11 @@ export class RustCopcNodePreparer {
     loadWasm: () => Promise<CopcWasmExports> = loadCopcWasm,
   ): Promise<RustCopcNodePreparer> {
     const wasm = await loadWasm();
-    const metadataPointer = wasm.alloc_bytes(metadataBytes.byteLength);
+    const metadataPointer = requireRustWasmPointer(
+      wasm.alloc_bytes(metadataBytes.byteLength),
+      metadataBytes.byteLength,
+      'metadata',
+    );
     new Uint8Array(wasm.memory.buffer, metadataPointer, metadataBytes.byteLength).set(metadataBytes);
     try {
       const responsePointer = wasm.create_copc_node_preparer_json(
@@ -161,18 +171,56 @@ export class RustCopcNodePreparer {
       throw new RustCopcParseError('invalid-input', 'Rust COPC node preparer has been disposed');
     }
     const requestedFields = getRustPointFieldMask(fields);
+    if (!Number.isSafeInteger(pointCount) || pointCount < 0 || pointCount > Number.MAX_SAFE_INTEGER / 3) {
+      throw new RustCopcParseError('overflow', 'coordinate output length exceeds safe integer range');
+    }
     const coordinateLength = pointCount * 3;
-    const chunkPointer = this.wasm.alloc_bytes(chunkBytes.byteLength);
-    const sourcePointer = this.wasm.alloc_f64(coordinateLength);
-    const geographicPointer = this.wasm.alloc_f64(coordinateLength);
-    const ecefPointer = this.wasm.alloc_f64(coordinateLength);
-    const intensityPointer = fields.has('intensity') ? this.wasm.alloc_u16(pointCount) : 0;
-    const classificationPointer = fields.has('classification') ? this.wasm.alloc_u8(pointCount) : 0;
-    const redPointer = fields.has('rgb') ? this.wasm.alloc_u16(pointCount) : 0;
-    const greenPointer = fields.has('rgb') ? this.wasm.alloc_u16(pointCount) : 0;
-    const bluePointer = fields.has('rgb') ? this.wasm.alloc_u16(pointCount) : 0;
+    let chunkPointer = 0;
+    let sourcePointer = 0;
+    let geographicPointer = 0;
+    let ecefPointer = 0;
+    let intensityPointer = 0;
+    let classificationPointer = 0;
+    let redPointer = 0;
+    let greenPointer = 0;
+    let bluePointer = 0;
 
     try {
+      chunkPointer = requireRustWasmPointer(
+        this.wasm.alloc_bytes(chunkBytes.byteLength),
+        chunkBytes.byteLength,
+        'node chunk',
+      );
+      sourcePointer = requireRustWasmPointer(
+        this.wasm.alloc_f64(coordinateLength),
+        coordinateLength,
+        'source coordinates',
+      );
+      geographicPointer = requireRustWasmPointer(
+        this.wasm.alloc_f64(coordinateLength),
+        coordinateLength,
+        'geographic coordinates',
+      );
+      ecefPointer = requireRustWasmPointer(
+        this.wasm.alloc_f64(coordinateLength),
+        coordinateLength,
+        'ECEF coordinates',
+      );
+      intensityPointer = fields.has('intensity')
+        ? requireRustWasmPointer(this.wasm.alloc_u16(pointCount), pointCount, 'intensity')
+        : 0;
+      classificationPointer = fields.has('classification')
+        ? requireRustWasmPointer(this.wasm.alloc_u8(pointCount), pointCount, 'classification')
+        : 0;
+      redPointer = fields.has('rgb')
+        ? requireRustWasmPointer(this.wasm.alloc_u16(pointCount), pointCount, 'red')
+        : 0;
+      greenPointer = fields.has('rgb')
+        ? requireRustWasmPointer(this.wasm.alloc_u16(pointCount), pointCount, 'green')
+        : 0;
+      bluePointer = fields.has('rgb')
+        ? requireRustWasmPointer(this.wasm.alloc_u16(pointCount), pointCount, 'blue')
+        : 0;
       new Uint8Array(this.wasm.memory.buffer, chunkPointer, chunkBytes.byteLength).set(chunkBytes);
       const startedAt = performanceNow();
       const responsePointer = this.wasm.prepare_copc_node_json(
@@ -249,10 +297,10 @@ export class RustCopcNodePreparer {
         this.wasm.free_parser_json(responsePointer);
       }
     } finally {
-      this.wasm.dealloc_bytes(chunkPointer, chunkBytes.byteLength);
-      this.wasm.dealloc_f64(sourcePointer, coordinateLength);
-      this.wasm.dealloc_f64(geographicPointer, coordinateLength);
-      this.wasm.dealloc_f64(ecefPointer, coordinateLength);
+      if (chunkPointer) this.wasm.dealloc_bytes(chunkPointer, chunkBytes.byteLength);
+      if (sourcePointer) this.wasm.dealloc_f64(sourcePointer, coordinateLength);
+      if (geographicPointer) this.wasm.dealloc_f64(geographicPointer, coordinateLength);
+      if (ecefPointer) this.wasm.dealloc_f64(ecefPointer, coordinateLength);
       if (intensityPointer) this.wasm.dealloc_u16(intensityPointer, pointCount);
       if (classificationPointer) this.wasm.dealloc_u8(classificationPointer, pointCount);
       if (redPointer) this.wasm.dealloc_u16(redPointer, pointCount);
@@ -278,18 +326,51 @@ export async function decodeRustCopcNode(
   loadWasm: () => Promise<CopcWasmExports>,
 ): Promise<RustCopcNodeDecodeResult> {
   const requestedFields = getRustPointFieldMask(fields);
+  if (!Number.isSafeInteger(pointCount) || pointCount < 0 || pointCount > Number.MAX_SAFE_INTEGER / 3) {
+    throw new RustCopcParseError('overflow', 'coordinate output length exceeds safe integer range');
+  }
   const coordinateLength = pointCount * 3;
   const wasm = await loadWasm();
-  const metadataPointer = wasm.alloc_bytes(metadataBytes.byteLength);
-  const chunkPointer = wasm.alloc_bytes(chunkBytes.byteLength);
-  const coordinatesPointer = wasm.alloc_f64(coordinateLength);
-  const intensityPointer = fields.has('intensity') ? wasm.alloc_u16(pointCount) : 0;
-  const classificationPointer = fields.has('classification') ? wasm.alloc_u8(pointCount) : 0;
-  const redPointer = fields.has('rgb') ? wasm.alloc_u16(pointCount) : 0;
-  const greenPointer = fields.has('rgb') ? wasm.alloc_u16(pointCount) : 0;
-  const bluePointer = fields.has('rgb') ? wasm.alloc_u16(pointCount) : 0;
+  let metadataPointer = 0;
+  let chunkPointer = 0;
+  let coordinatesPointer = 0;
+  let intensityPointer = 0;
+  let classificationPointer = 0;
+  let redPointer = 0;
+  let greenPointer = 0;
+  let bluePointer = 0;
 
   try {
+    metadataPointer = requireRustWasmPointer(
+      wasm.alloc_bytes(metadataBytes.byteLength),
+      metadataBytes.byteLength,
+      'metadata',
+    );
+    chunkPointer = requireRustWasmPointer(
+      wasm.alloc_bytes(chunkBytes.byteLength),
+      chunkBytes.byteLength,
+      'node chunk',
+    );
+    coordinatesPointer = requireRustWasmPointer(
+      wasm.alloc_f64(coordinateLength),
+      coordinateLength,
+      'coordinates',
+    );
+    intensityPointer = fields.has('intensity')
+      ? requireRustWasmPointer(wasm.alloc_u16(pointCount), pointCount, 'intensity')
+      : 0;
+    classificationPointer = fields.has('classification')
+      ? requireRustWasmPointer(wasm.alloc_u8(pointCount), pointCount, 'classification')
+      : 0;
+    redPointer = fields.has('rgb')
+      ? requireRustWasmPointer(wasm.alloc_u16(pointCount), pointCount, 'red')
+      : 0;
+    greenPointer = fields.has('rgb')
+      ? requireRustWasmPointer(wasm.alloc_u16(pointCount), pointCount, 'green')
+      : 0;
+    bluePointer = fields.has('rgb')
+      ? requireRustWasmPointer(wasm.alloc_u16(pointCount), pointCount, 'blue')
+      : 0;
     const memory = wasm.memory.buffer;
     new Uint8Array(memory, metadataPointer, metadataBytes.byteLength).set(metadataBytes);
     new Uint8Array(memory, chunkPointer, chunkBytes.byteLength).set(chunkBytes);
@@ -360,9 +441,9 @@ export async function decodeRustCopcNode(
       wasm.free_parser_json(responsePointer);
     }
   } finally {
-    wasm.dealloc_bytes(metadataPointer, metadataBytes.byteLength);
-    wasm.dealloc_bytes(chunkPointer, chunkBytes.byteLength);
-    wasm.dealloc_f64(coordinatesPointer, coordinateLength);
+    if (metadataPointer) wasm.dealloc_bytes(metadataPointer, metadataBytes.byteLength);
+    if (chunkPointer) wasm.dealloc_bytes(chunkPointer, chunkBytes.byteLength);
+    if (coordinatesPointer) wasm.dealloc_f64(coordinatesPointer, coordinateLength);
     if (intensityPointer) wasm.dealloc_u16(intensityPointer, pointCount);
     if (classificationPointer) wasm.dealloc_u8(classificationPointer, pointCount);
     if (redPointer) wasm.dealloc_u16(redPointer, pointCount);
