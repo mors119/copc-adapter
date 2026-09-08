@@ -34,6 +34,8 @@ export function rawWasmImports(module: WebAssembly.Module): RawWasmImportSet {
       namespace[imported.name] = (pointer: number, length: number, radix: number) => (
         Number.parseInt(readString(pointer, length), radix)
       );
+    } else if (imported.module === 'env' && imported.name === 'copc_now_ms') {
+      namespace[imported.name] = () => globalThis.performance?.now() ?? Date.now();
     } else {
       namespace[imported.name] = () => 0;
     }

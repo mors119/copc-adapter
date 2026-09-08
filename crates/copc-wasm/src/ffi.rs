@@ -4,7 +4,15 @@ use copc_core::{
 };
 use serde::Serialize;
 use std::ffi::{CString, c_char};
+
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
+
+#[cfg(target_arch = "wasm32")]
+#[link(wasm_import_module = "env")]
+unsafe extern "C" {
+    fn copc_now_ms() -> f64;
+}
 
 use crate::error::{ParseError, ParseResponse, error, from_core};
 use crate::memory::{
@@ -129,6 +137,25 @@ struct PreparedOutputPointers {
 struct PreparationTiming {
     decode_ms: f64,
     preparation_ms: f64,
+}
+
+fn clock_ms() -> f64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        // SAFETY: the `env.copc_now_ms` import is supplied by the host WASM
+        // loader and returns a monotonic millisecond clock.
+        return unsafe { copc_now_ms() };
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+        START.get_or_init(Instant::now).elapsed().as_secs_f64() * 1000.0
+    }
+}
+
+fn elapsed_ms(start: f64) -> f64 {
+    (clock_ms() - start).max(0.0)
 }
 
 fn json_pointer<T: Serialize>(response: ParseResponse<T>) -> *mut c_char {
@@ -454,14 +481,14 @@ fn prepare_copc_node_value(
     // SAFETY: the handle is returned by create_copc_node_preparer_json and
     // remains live until the caller invokes free_copc_node_preparer.
     let preparer = unsafe { &*(handle as *const CopcNodePreparer) };
-    let decode_started = Instant::now();
+    let decode_started = clock_ms();
     let decoded = preparer
         .decode_node(chunk, point_count, requested_fields)
         .map_err(from_core)?;
-    let decode_duration_ms = decode_started.elapsed().as_secs_f64() * 1000.0;
-    let preparation_started = Instant::now();
+    let decode_duration_ms = elapsed_ms(decode_started);
+    let preparation_started = clock_ms();
     let prepared = preparer.prepare_decoded(decoded).map_err(from_core)?;
-    let preparation_duration_ms = preparation_started.elapsed().as_secs_f64() * 1000.0;
+    let preparation_duration_ms = elapsed_ms(preparation_started);
     copy_prepared_node(
         prepared,
         output,
