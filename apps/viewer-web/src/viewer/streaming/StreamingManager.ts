@@ -1,4 +1,7 @@
-import type { GeographicPointBuffer } from '../../copc/types/copc';
+import type {
+  GeographicPointBuffer,
+  PreparedPointData,
+} from '../../copc/types/copc';
 import type { NodePointCache } from './createNodePointCache';
 import { NodeSelector } from './NodeSelector';
 import type {
@@ -15,7 +18,7 @@ import { createStreamingWorkBatches, yieldToBrowser } from './scheduler';
 
 export type StreamingNodePointLoader = (
   nodeKey: string,
-) => Promise<GeographicPointBuffer>;
+) => Promise<PreparedPointData>;
 
 export type StreamingManagerUpdateOptions = {
   /**
@@ -131,7 +134,7 @@ function createReplacementGroups(
 export class StreamingManager {
   private hierarchy: StreamingHierarchy;
   private readonly selector: NodeSelector;
-  private readonly cache: NodePointCache<GeographicPointBuffer>;
+  private readonly cache: NodePointCache<PreparedPointData>;
   private readonly performanceRecorder: StreamingPerformanceRecorder;
   private readonly maxPointsPerBatch: number;
   private readonly onInvalidate?: () => void;
@@ -142,7 +145,7 @@ export class StreamingManager {
   constructor(
     hierarchy: StreamingHierarchy,
     options: StreamingSelectionOptions,
-    cache: NodePointCache<GeographicPointBuffer>,
+    cache: NodePointCache<PreparedPointData>,
     performanceRecorder = new StreamingPerformanceRecorder(),
     onInvalidate?: () => void,
   ) {
@@ -239,7 +242,7 @@ export class StreamingManager {
         }
 
         const nodeKey = node.node.key;
-        let points: GeographicPointBuffer;
+        let points: PreparedPointData;
         try {
           points = await this.cache.load(nodeKey);
         } catch (error: unknown) {
@@ -279,7 +282,9 @@ export class StreamingManager {
           onProgress?.({
             selectedNodeKeys: [...nextSelectedNodeKeys].sort(),
             removedNodeKeys,
-            loadedNodePoints: new Map([[loaded.nodeKey, loaded.points]]),
+            loadedNodePoints: new Map<string, GeographicPointBuffer>([
+              [loaded.nodeKey, loaded.points],
+            ]),
             completedBatchPointCount: loaded.points.pointCount,
             replacementGroups,
             generation: updateGeneration,

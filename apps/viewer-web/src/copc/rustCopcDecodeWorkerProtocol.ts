@@ -23,6 +23,8 @@ export type RustCopcDecodeWorkerResult = {
   nodeKey: string;
   pointCount: number;
   durationMs: number;
+  coordinateSystem: 'copc-source';
+  /** Transferred TypeScript-owned COPC/source XYZ; never a WASM memory view. */
   coordinates: ArrayBuffer;
   intensity?: ArrayBuffer;
   classification?: ArrayBuffer;

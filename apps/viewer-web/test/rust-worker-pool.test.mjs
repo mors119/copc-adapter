@@ -51,6 +51,7 @@ function createFakeWorkerHarness({ delay = 5, fail = false } = {}) {
           nodeKey: message.nodeKey,
           pointCount: message.pointCount,
           durationMs: delay,
+          coordinateSystem: 'copc-source',
           coordinates: coordinates.buffer,
           intensity: intensity?.buffer,
           classification: classification?.buffer,

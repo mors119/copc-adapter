@@ -187,6 +187,11 @@ test('a plain project-owned view drives hierarchy query and deterministic select
     20.005,
     150,
   ]));
+  const prepared = controller.getCachedPreparedPointData(ROOT_KEY);
+  assert.equal(prepared.source.coordinateSystem, 'copc-source');
+  assert.equal(prepared.geographic.coordinateSystem, 'wgs84-geographic');
+  assert.equal(prepared.world.coordinateSystem, 'wgs84-ecef-meters');
+  assert.deepEqual(prepared.statistics.elevation, { min: 150, max: 150 });
   assert.equal(controller.getPointCacheDiagnostics().cachedNodeCount, 1);
 });
 

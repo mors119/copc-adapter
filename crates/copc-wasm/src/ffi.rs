@@ -61,6 +61,7 @@ struct RootHierarchyPageJson {
 #[derive(Debug, Serialize)]
 struct DecodeResult {
     point_count: usize,
+    coordinate_system: &'static str,
     intensity: bool,
     classification: bool,
     rgb: bool,
@@ -245,6 +246,7 @@ fn copy_decoded_node(
 
     Ok(DecodeResult {
         point_count: decoded.point_count,
+        coordinate_system: "copc-source",
         intensity: intensity_present,
         classification: classification_present,
         rgb: rgb_present,

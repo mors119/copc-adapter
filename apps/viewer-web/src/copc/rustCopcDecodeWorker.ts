@@ -47,6 +47,7 @@ workerScope.onmessage = async (event: MessageEvent<RustCopcDecodeWorkerRequest>)
       nodeKey: request.nodeKey,
       pointCount: result.buffer.pointCount,
       durationMs: result.durationMs,
+      coordinateSystem: result.buffer.coordinateSystem ?? 'copc-source',
       coordinates: result.buffer.coordinates.buffer,
       intensity: attributes?.intensity?.buffer,
       classification: attributes?.classification?.buffer,

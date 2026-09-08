@@ -64,6 +64,8 @@ export type CopcPointAttributes = {
 export type CopcPointBuffer = {
   pointCount: number;
   coordinates: Float64Array;
+  /** Decoded COPC/source XYZ; absent only for legacy injected decoders. */
+  coordinateSystem?: 'copc-source';
   attributes?: CopcPointAttributes;
 };
 
@@ -87,6 +89,16 @@ export type GeographicPointBuffer = {
   worldCoordinates?: Float64Array;
   worldCoordinateSystem?: 'wgs84-ecef-meters';
   attributes?: CopcPointAttributes;
+  /** Statistics prepared once with the renderer-neutral point data. */
+  statistics?: PreparedPointStatistics;
+};
+
+export type PreparedPointStatistics = {
+  /** WGS84 geographic ellipsoidal height range in metres. */
+  elevation?: { min: number; max: number };
+  intensity?: { min: number; max: number };
+  /** Value scale used by the source RGB attributes. */
+  rgbMax?: 255 | 65535;
 };
 
 /**
@@ -102,6 +114,27 @@ export type CopcPointData = {
   geographic: CoordinateBuffer<'wgs84-geographic'>;
   world: CoordinateBuffer<'wgs84-ecef-meters'>;
   attributes?: CopcPointAttributes;
+};
+
+/**
+ * Renderer-neutral point data retained by the shared streaming cache.
+ *
+ * The named coordinate buffers are the stable contract. The flat fields are
+ * compatibility aliases for existing inspection and renderer APIs and point
+ * at the same typed-array storage; they are not a second coordinate copy.
+ * Current preparation retains source, geographic, and ECEF buffers because
+ * source/geographic values remain part of the public inspection semantics and
+ * ECEF is the shared render-space authority.
+ */
+export type PreparedPointData = CopcPointData & GeographicPointBuffer & {
+  attributes: CopcPointAttributes;
+  statistics: PreparedPointStatistics;
+  coordinates: Float64Array;
+  coordinateSystem: 'wgs84-geographic';
+  sourceCoordinates: Float64Array;
+  sourceCoordinateSystem: 'copc-source';
+  worldCoordinates: Float64Array;
+  worldCoordinateSystem: 'wgs84-ecef-meters';
 };
 
 export type CopcPointView = {

@@ -49,6 +49,9 @@ export async function loadCopcPointBuffer(
 
 /** Reject malformed buffers instead of letting renderers consume partial attributes. */
 export function validateCopcPointBuffer(buffer: CopcPointBuffer): CopcPointBuffer {
+  if (buffer.coordinateSystem !== undefined && buffer.coordinateSystem !== 'copc-source') {
+    throw new Error('COPC point buffers must use copc-source coordinates');
+  }
   if (buffer.coordinates.length !== buffer.pointCount * 3) {
     throw new Error('COPC point buffer coordinates must contain three values per point');
   }

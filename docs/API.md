@@ -198,8 +198,8 @@ The current backend selection is:
 `CopcPointFieldSelection` is a `ReadonlySet` of `position`, `intensity`,
 `classification`, and `rgb`. `CopcPointView.availableFields` reports fields
 that were requested and are present. Missing fields are not zero-filled.
-`CopcPointBuffer` retains `Float64Array` coordinates and optional typed
-attribute arrays. RGB and intensity retain their source integer precision.
+`CopcPointBuffer` retains `Float64Array` `copc-source` coordinates and optional
+typed attribute arrays. RGB and intensity retain their source integer precision.
 
 `CopcPointData` and the current `GeographicPointBuffer` can retain all three
 coordinate spaces:
@@ -207,6 +207,20 @@ coordinate spaces:
 - `copc-source` source/project XYZ;
 - `wgs84-geographic` longitude, latitude, and height; and
 - `wgs84-ecef-meters` world coordinates.
+
+`PreparedPointData` is the shared cache contract for prepared node data. It
+retains the three coordinate buffers as tagged `Float64Array` values, requested
+typed attributes, and optional `elevation`, `intensity`, and `rgbMax`
+statistics. The legacy flat geographic fields are aliases to the named
+buffers, so existing inspection and renderer APIs do not require a second copy.
+The ECEF buffer is the renderer-neutral render-space authority; Three.js may
+derive its own local ENU/Float32 representation and Cesium may create its own
+Cartesian objects.
+
+Rust/WASM decode results tag their source buffer as `copc-source`. The Worker
+transfers owned `ArrayBuffer` instances, and the TypeScript preparation step
+copies out of WASM memory before the result enters the decoded CPU cache. No
+renderer object or view into WASM linear memory is retained by the cache.
 
 The current TypeScript coordinate path uses the project WKT helpers and the
 `proj4js` dependency for applicable projected CRS transformations. The

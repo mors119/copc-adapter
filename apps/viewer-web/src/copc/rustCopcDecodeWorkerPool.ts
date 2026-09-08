@@ -303,6 +303,16 @@ export class RustCopcDecodeWorkerPool {
         rustCode: response.error.code,
       }));
     } else {
+      if (response.coordinateSystem !== 'copc-source') {
+        this.failedCount += 1;
+        entry.reject(new RustCopcWorkerError(
+          'worker-message',
+          `Rust COPC worker returned an unexpected coordinate system: ${response.coordinateSystem}`,
+          { nodeKey: entry.request.nodeKey },
+        ));
+        this.dispatch();
+        return;
+      }
       const attributes = response.intensity || response.classification || response.red || response.green || response.blue
         ? {
           intensity: bufferFrom(response.intensity, 'u16') as Uint16Array | undefined,
