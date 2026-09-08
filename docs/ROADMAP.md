@@ -28,32 +28,32 @@ The current main branch provides:
 - typed project-owned metadata, point buffers, diagnostics, and lifecycle
   contracts.
 
-Current CRS transformation, WGS84/ECEF preparation, and renderer-local
-preparation remain in TypeScript. Rust/WASM decoding is worker-backed when the
-browser provides `Worker`, but browser Range I/O and streaming policy remain
-TypeScript responsibilities. See [ARCHITECTURE.md](ARCHITECTURE.md) for the
-current implementation boundaries.
+The default runtime still performs CRS transformation and WGS84/ECEF
+preparation in TypeScript. `copc-core` now provides an opt-in reusable Rust
+CRS/ECEF path through `copc-wasm`; browser Range I/O and streaming policy
+remain TypeScript responsibilities. See [ARCHITECTURE.md](ARCHITECTURE.md) for
+the current implementation boundaries.
 
 ## Active architecture direction
 
 ### Pure Rust processing domain
 
 The first extraction is complete: `copc-core` owns native-testable COPC/LAS
-metadata and hierarchy parsing, supported LAZ point decoding, and typed domain
-errors, while `copc-wasm` remains the ABI and memory/transport wrapper. Future
-work may move CRS, world-coordinate preparation, statistics, and fused point
-preparation into the same core; this does not claim the broader #169 migration
-is complete.
+metadata and hierarchy parsing, supported LAZ point decoding, reusable CRS/WKT
+transformation, WGS84/ECEF preparation, and typed domain errors, while
+`copc-wasm` remains the ABI and memory/transport wrapper. Statistics and fused
+point preparation remain future work; this does not claim the broader #169
+migration is complete.
 
 ### Rust CRS capability
 
-Evaluate and integrate a Rust CRS pipeline using real COPC WKT/CRS fixtures and
-differential validation against the current JavaScript path. Adoption depends
-on measured supported behavior and explicit handling of unsupported CRS input.
-The completed compatibility gate is documented in
-[the issue #171 audit](benchmarks/issue-171-proj4rs-compatibility.md); the
-remaining upstream and adapter-boundary follow-ups must be resolved before
-production integration.
+The reusable Rust CRS pipeline is integrated into `copc-core` and the WASM
+boundary using real COPC WKT/CRS fixtures and differential validation against
+the current JavaScript path. The opt-in TypeScript wrapper reuses initialized
+handles but does not change the default runtime. The compatibility gate is
+documented in [the issue #171 audit](benchmarks/issue-171-proj4rs-compatibility.md)
+and the implementation evidence in
+[the issue #173 integration record](benchmarks/issue-173-rust-crs-integration.md).
 
 ### Renderer-neutral prepared point pipeline
 

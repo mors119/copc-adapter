@@ -41,6 +41,8 @@ name = "copc-core"
 version = "0.1.0"
 dependencies = [
  "laz",
+ "proj4rs",
+ "proj4wkt",
 ]
 
 [[package]]
@@ -56,8 +58,8 @@ dependencies = [
 name = "crs-audit"
 version = "0.1.0"
 dependencies = [
+ "copc-core",
  "js-sys",
- "proj4rs",
  "proj4wkt",
  "serde",
  "serde_json",

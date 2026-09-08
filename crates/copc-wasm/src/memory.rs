@@ -4,6 +4,9 @@ pub(crate) fn mutable_f64_slice<'a>(
     ptr: *mut f64,
     length: usize,
 ) -> Result<&'a mut [f64], ParseError> {
+    if length == 0 {
+        return Ok(&mut []);
+    }
     if ptr.is_null() {
         return Err(error("invalid-input", "coordinate output pointer is null"));
     }
@@ -82,6 +85,21 @@ pub(crate) fn f64_input_slice<'a>(ptr: *const f64, length: usize) -> &'a [f64] {
     // supplies `length` initialized, properly aligned f64 values in linear
     // memory.
     unsafe { std::slice::from_raw_parts(ptr, length) }
+}
+
+pub(crate) fn checked_f64_input_slice<'a>(
+    ptr: *const f64,
+    length: usize,
+) -> Result<&'a [f64], ParseError> {
+    if length == 0 {
+        return Ok(&[]);
+    }
+    if ptr.is_null() {
+        return Err(error("invalid-input", "coordinate input pointer is null"));
+    }
+    // SAFETY: the FFI caller supplied a non-null pointer to `length`
+    // initialized, properly aligned f64 values in linear memory.
+    Ok(unsafe { std::slice::from_raw_parts(ptr, length) })
 }
 
 pub(crate) fn f64_output_slice<'a>(ptr: *mut f64, length: usize) -> &'a mut [f64] {

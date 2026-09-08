@@ -5,3 +5,5 @@ edition = "2024"
 
 [dependencies]
 laz = "0.13.0"
+proj4rs = { version = "0.1.10", default-features = false, features = ["wasm-strict"] }
+proj4wkt = { version = "0.1.1", default-features = false, features = ["wasm-strict"] }

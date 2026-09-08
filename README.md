@@ -286,9 +286,11 @@ boundary and the [API documentation](docs/API.md) for current options.
 
 COPC Adapter has a shared browser streaming core and thin renderer adapters.
 The current implementation uses `copc-js` by default and an opt-in Rust/WASM
-backend; TypeScript still owns browser Range I/O, view/LoD policy, and CRS/ECEF
-preparation. CesiumJS and Three.js consume the renderer-neutral data while the
-application retains ownership of its viewer or scene.
+backend; TypeScript still owns browser Range I/O, view/LoD policy, and the
+default CRS/ECEF preparation path. `copc-core` also exposes an opt-in reusable
+Rust CRS/ECEF transform for the migration path. CesiumJS and Three.js consume
+the renderer-neutral data while the application retains ownership of its
+viewer or scene.
 
 See the [architecture guide](docs/ARCHITECTURE.md) for current ownership,
 target processing architecture, and migration invariants.

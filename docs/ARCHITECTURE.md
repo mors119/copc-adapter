@@ -55,8 +55,9 @@ renderer adapter
   fields and converts point views into typed buffers.
 - `copc-core` owns renderer-neutral LAS/COPC metadata and hierarchy parsing,
   LAZ node decompression, supported point-format interpretation, requested
-  field selection, and source-coordinate buffer creation. It returns typed Rust
-  results and errors and has no WebAssembly or browser dependency.
+  field selection, source-coordinate buffer creation, the opt-in reusable
+  `CrsTransform`, and WGS84 geographic/ECEF numeric preparation. It returns
+  typed Rust results and errors and has no WebAssembly or browser dependency.
 - `copc-wasm` is the thin ABI wrapper around `copc-core`. It owns pointer/length
   validation, WASM allocation and deallocation, copying core-owned buffers into
   host-provided memory, JavaScript-safe integer checks, and JSON/status
@@ -69,6 +70,9 @@ renderer adapter
   helpers and `proj4js` where a projected CRS is present, then computes WGS84
   ECEF/world coordinates in JavaScript. The shared buffers retain source,
   WGS84 geographic, and WGS84 ECEF values as `Float64Array`s.
+  `copc-core::CrsTransform` and the matching reusable WASM handle now provide
+  the validated Rust path for future Worker adoption; they are not the default
+  runtime path yet.
   The `proj4rs`/`proj4wkt` compatibility audit is recorded in
   [issue-171-proj4rs-compatibility.md](benchmarks/issue-171-proj4rs-compatibility.md);
   it does not change this runtime boundary or remove `proj4js`.
@@ -77,17 +81,17 @@ renderer adapter
   `THREE.Group`, `THREE.Points`, `BufferGeometry`, materials, and its fixed
   dataset-local ENU frame. Neither adapter parses COPC or owns streaming policy.
 
-The current Rust path does not own CRS transformation, WGS84/ECEF preparation,
-point-level statistics or reductions, or fused point preparation. Those remain
-TypeScript responsibilities until the target processing architecture is
-implemented and validated.
+The current default runtime path does not use Rust CRS transformation,
+WGS84/ECEF preparation, point-level statistics or reductions, or fused point
+preparation. The first two capabilities are now implemented in the pure core
+and exposed through the WASM boundary, while runtime adoption and fused point
+preparation remain follow-up work.
 
 The repository contains `crates/copc-core` and `crates/copc-wasm`. The former
 is the native-testable domain implementation; the latter exposes the existing
 Rust/WASM ABI without owning COPC parsing or decoding rules. This extraction is
-the first phase of the broader processing-core direction: CRS transformation,
-WGS84/ECEF preparation, statistics, and fused point preparation remain future
-work.
+the first phase of the broader processing-core direction: statistics and fused
+point preparation remain future work.
 
 ### Current data and streaming contracts
 
@@ -241,7 +245,7 @@ current parser handles the project’s supported WKT shape and reports malformed
 or unsupported CRS metadata during loading; it does not promise general PROJ
 coverage.
 
-### Target CRS path
+### Rust CRS path
 
 The target processing pipeline is:
 
@@ -255,17 +259,21 @@ WGS84/world coordinates and prepared buffers
 renderer-specific local representation
 ```
 
-`proj4rs` and `proj4wkt` are currently evaluated Rust implementation choices,
-not permanent architectural requirements. The eventual Rust CRS layer must be
-abstracted from renderer code and adopted only for the supported CRS behavior
-that has been measured against real COPC metadata and fixtures.
+`proj4rs` and `proj4wkt` are the current implementation choices behind the
+renderer-independent core abstraction. They are used only for the supported
+CRS behavior measured against real COPC metadata and fixtures; full PROJ
+coverage is not implied.
 
 The current audit result is **RUST CRS READY WITH FOCUSED UPSTREAM/FOLLOW-UP**:
 Autzen and SoFi's extracted horizontal CRS paths pass differential validation,
 while full SoFi compound-WKT parsing and the current `PROJCS`-only adapter
-boundary remain explicit follow-up items. See
+boundary remain explicit follow-up items. The production core uses a focused
+nested-`PROJCS` compatibility path for the SoFi parser gap and reports whether
+it was used. See
 [issue-171-proj4rs-compatibility.md](benchmarks/issue-171-proj4rs-compatibility.md)
-for the matrix and benchmark evidence.
+for the compatibility matrix and
+[issue-173-rust-crs-integration.md](benchmarks/issue-173-rust-crs-integration.md)
+for the core/WASM API and integration evidence.
 
 Existing `proj4js` behavior is useful as a differential reference. Reference
 output is not automatically the specification: authoritative CRS definitions

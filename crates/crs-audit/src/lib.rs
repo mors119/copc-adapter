@@ -1,11 +1,8 @@
 use std::fmt::Display;
 
-use proj4rs::proj::Proj;
-use proj4rs::transform::transform;
+use copc_core::{CrsTransform, geographic_buffer_to_ecef};
 use proj4wkt::wkt_to_projstring;
 use serde::{Deserialize, Serialize};
-
-const WGS84_PROJ: &str = "+proj=longlat +datum=WGS84 +no_defs";
 
 #[derive(Debug, Deserialize)]
 pub struct FixtureMatrix {
@@ -62,7 +59,9 @@ pub struct BenchmarkResult {
     pub point_count: usize,
     pub iterations: usize,
     pub initialization_micros: u128,
-    pub transform_micros: u128,
+    pub crs_transform_micros: u128,
+    pub ecef_transform_micros: u128,
+    pub combined_transform_micros: u128,
     pub output_bytes: usize,
 }
 
@@ -75,25 +74,24 @@ pub fn convert_wkt(wkt: &str) -> Result<String, String> {
 }
 
 pub fn transform_fixture(fixture: &Fixture) -> Result<(String, Vec<GeographicPoint>), String> {
-    let source_wkt = fixture.horizontal_wkt.as_deref().unwrap_or(&fixture.wkt);
-    let proj_string = convert_wkt(source_wkt)?;
-    let from = Proj::from_proj_string(&proj_string).map_err(|error| {
-        format!(
-            "proj4rs source parse: {} ({proj_string})",
-            display_error(error)
-        )
-    })?;
-    let to = Proj::from_proj_string(WGS84_PROJ)
-        .map_err(|error| format!("proj4rs WGS84 parse: {}", display_error(error)))?;
-    let source_is_geographic = proj_string.contains("+proj=longlat");
-    let points = transform_points(
-        &from,
-        &to,
-        &fixture.points,
-        fixture.vertical_unit_scale,
-        source_is_geographic,
-    )?;
-    Ok((proj_string, points))
+    let transform = CrsTransform::from_wkt(&fixture.wkt).map_err(|error| error.to_string())?;
+    let source_coordinates = fixture
+        .points
+        .iter()
+        .flat_map(|point| [point.x, point.y, point.z])
+        .collect::<Vec<_>>();
+    let geographic = transform
+        .transform_buffer(&source_coordinates)
+        .map_err(|error| error.to_string())?;
+    let points = geographic
+        .chunks_exact(3)
+        .map(|values| GeographicPoint {
+            longitude: values[0],
+            latitude: values[1],
+            height: values[2],
+        })
+        .collect();
+    Ok((transform.source_proj_string().to_owned(), points))
 }
 
 pub fn evaluate_fixtures() -> Vec<FixtureResult> {
@@ -144,114 +142,49 @@ pub fn benchmark_fixture(
 
     let coordinates = repeated_coordinates(&fixture.points, point_count);
     let initialization_start = std::time::Instant::now();
-    let source_wkt = fixture.horizontal_wkt.as_deref().unwrap_or(&fixture.wkt);
-    let proj_string = convert_wkt(source_wkt)?;
-    let from = Proj::from_proj_string(&proj_string).map_err(display_error)?;
-    let to = Proj::from_proj_string(WGS84_PROJ).map_err(display_error)?;
-    let source_is_geographic = proj_string.contains("+proj=longlat");
+    let transform = CrsTransform::from_wkt(&fixture.wkt).map_err(|error| error.to_string())?;
     let initialization_micros = initialization_start.elapsed().as_micros();
 
-    let transform_start = std::time::Instant::now();
-    let mut output = Vec::new();
+    let crs_start = std::time::Instant::now();
+    let mut geographic = Vec::new();
     for _ in 0..iterations {
-        output = transform_flat_coordinates(
-            &from,
-            &to,
-            &coordinates,
-            fixture.vertical_unit_scale,
-            source_is_geographic,
-        )?;
+        geographic = transform
+            .transform_buffer(&coordinates)
+            .map_err(|error| error.to_string())?;
     }
-    let transform_micros = transform_start.elapsed().as_micros();
+    let crs_transform_micros = crs_start.elapsed().as_micros();
+
+    let ecef_start = std::time::Instant::now();
+    let mut ecef = Vec::new();
+    for _ in 0..iterations {
+        ecef = geographic_buffer_to_ecef(&geographic).map_err(|error| error.to_string())?;
+    }
+    let ecef_transform_micros = ecef_start.elapsed().as_micros();
+    std::hint::black_box(&geographic);
+    std::hint::black_box(&ecef);
+
+    let combined_start = std::time::Instant::now();
+    let mut combined_output_bytes = 0;
+    for _ in 0..iterations {
+        let combined = transform
+            .transform_buffer_to_ecef(&coordinates)
+            .map_err(|error| error.to_string())?;
+        combined_output_bytes = combined.geographic.len() * std::mem::size_of::<f64>()
+            + combined.ecef.len() * std::mem::size_of::<f64>();
+        std::hint::black_box(&combined);
+    }
+    let combined_transform_micros = combined_start.elapsed().as_micros();
 
     Ok(BenchmarkResult {
         fixture_id: fixture.id,
         point_count,
         iterations,
         initialization_micros,
-        transform_micros,
-        output_bytes: output.len() * std::mem::size_of::<f64>(),
+        crs_transform_micros,
+        ecef_transform_micros,
+        combined_transform_micros,
+        output_bytes: combined_output_bytes,
     })
-}
-
-fn transform_points(
-    from: &Proj,
-    to: &Proj,
-    points: &[SourcePoint],
-    vertical_unit_scale: f64,
-    source_is_geographic: bool,
-) -> Result<Vec<GeographicPoint>, String> {
-    points
-        .iter()
-        .map(|point| {
-            transform_one(
-                from,
-                to,
-                point.x,
-                point.y,
-                point.z,
-                vertical_unit_scale,
-                source_is_geographic,
-            )
-        })
-        .collect()
-}
-
-fn transform_flat_coordinates(
-    from: &Proj,
-    to: &Proj,
-    coordinates: &[f64],
-    vertical_unit_scale: f64,
-    source_is_geographic: bool,
-) -> Result<Vec<f64>, String> {
-    if !coordinates.len().is_multiple_of(3) {
-        return Err("coordinate buffer must contain XYZ triples".to_owned());
-    }
-
-    let mut output = Vec::with_capacity(coordinates.len());
-    for values in coordinates.chunks_exact(3) {
-        let point = transform_one(
-            from,
-            to,
-            values[0],
-            values[1],
-            values[2],
-            vertical_unit_scale,
-            source_is_geographic,
-        )?;
-        output.extend([point.longitude, point.latitude, point.height]);
-    }
-    Ok(output)
-}
-
-fn transform_one(
-    from: &Proj,
-    to: &Proj,
-    x: f64,
-    y: f64,
-    z: f64,
-    vertical_unit_scale: f64,
-    source_is_geographic: bool,
-) -> Result<GeographicPoint, String> {
-    let mut transformed = if source_is_geographic {
-        (x.to_radians(), y.to_radians(), 0.0)
-    } else {
-        (x, y, 0.0)
-    };
-    transform(from, to, &mut transformed).map_err(display_error)?;
-    let point = GeographicPoint {
-        longitude: transformed.0.to_degrees(),
-        latitude: transformed.1.to_degrees(),
-        height: z * vertical_unit_scale,
-    };
-    if [point.longitude, point.latitude, point.height]
-        .iter()
-        .all(|value| value.is_finite())
-    {
-        Ok(point)
-    } else {
-        Err(format!("non-finite candidate result for ({x}, {y}, {z})"))
-    }
 }
 
 fn repeated_coordinates(points: &[SourcePoint], point_count: usize) -> Vec<f64> {
@@ -269,17 +202,13 @@ fn display_error(error: impl Display) -> String {
 
 #[cfg(target_arch = "wasm32")]
 mod wasm_api {
-    use super::{WGS84_PROJ, fixture_matrix, transform_flat_coordinates};
+    use super::{CrsTransform, fixture_matrix};
     use js_sys::Float64Array;
-    use proj4rs::proj::Proj;
     use wasm_bindgen::prelude::*;
 
     #[wasm_bindgen]
     pub struct CrsAuditTransformer {
-        from: Proj,
-        to: Proj,
-        vertical_unit_scale: f64,
-        source_is_geographic: bool,
+        transform: CrsTransform,
     }
 
     #[wasm_bindgen]
@@ -291,19 +220,9 @@ mod wasm_api {
                 .into_iter()
                 .find(|fixture| fixture.id == fixture_id)
                 .ok_or_else(|| JsValue::from_str("unknown CRS audit fixture"))?;
-            let source_wkt = fixture.horizontal_wkt.as_deref().unwrap_or(&fixture.wkt);
-            let proj_string =
-                super::convert_wkt(source_wkt).map_err(|error| JsValue::from_str(&error))?;
-            let from = Proj::from_proj_string(&proj_string)
-                .map_err(|error| JsValue::from_str(&error.to_string()))?;
-            let to = Proj::from_proj_string(WGS84_PROJ)
-                .map_err(|error| JsValue::from_str(&error.to_string()))?;
-            Ok(Self {
-                from,
-                to,
-                vertical_unit_scale: fixture.vertical_unit_scale,
-                source_is_geographic: proj_string.contains("+proj=longlat"),
-            })
+            let transform = CrsTransform::from_wkt(&fixture.wkt)
+                .map_err(|error| JsValue::from_str(error.message()))?;
+            Ok(Self { transform })
         }
 
         pub fn transform_points(
@@ -312,14 +231,10 @@ mod wasm_api {
         ) -> Result<Float64Array, JsValue> {
             let mut input = vec![0.0; coordinates.length() as usize];
             coordinates.copy_to(&mut input);
-            let output = transform_flat_coordinates(
-                &self.from,
-                &self.to,
-                &input,
-                self.vertical_unit_scale,
-                self.source_is_geographic,
-            )
-            .map_err(|error| JsValue::from_str(&error))?;
+            let output = self
+                .transform
+                .transform_buffer(&input)
+                .map_err(|error| JsValue::from_str(error.message()))?;
             Ok(Float64Array::from(output.as_slice()))
         }
     }
@@ -328,6 +243,7 @@ mod wasm_api {
 #[cfg(test)]
 mod tests {
     use super::{fixture_matrix, transform_fixture};
+    use copc_core::CrsTransform;
 
     #[test]
     fn fixture_matrix_contains_real_and_boundary_cases() {
@@ -381,8 +297,7 @@ mod tests {
             .find(|fixture| fixture.id == "sofi-wkt1-compound-utm11")
             .expect("SoFi fixture");
         assert!(super::convert_wkt(&fixture.wkt).is_err());
-        assert!(
-            super::convert_wkt(fixture.horizontal_wkt.as_ref().expect("horizontal WKT")).is_ok()
-        );
+        let transform = CrsTransform::from_wkt(&fixture.wkt).expect("horizontal fallback");
+        assert!(transform.used_horizontal_fallback());
     }
 }
