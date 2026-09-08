@@ -29,6 +29,10 @@ dataset, and browser validation is sufficient to justify a default change. A
 Rust failure must be reported as a Rust/backend failure; it must not be
 silently retried through `copc-js`.
 
+The shared Rust behavior is implemented in `crates/copc-core` and is exercised
+by native tests. `crates/copc-wasm` only adapts those typed results and errors
+to the existing ABI; its JSON/status representation is not the domain contract.
+
 The shared assertions belong at the project-owned `CopcBackend`/`CopcSource`
 boundary. They should not require Cesium or Three.js, and they should not
 assert decoder-specific allocation or internal traversal choices.

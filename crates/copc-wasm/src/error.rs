@@ -1,3 +1,4 @@
+use copc_core::CopcError;
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
@@ -28,4 +29,8 @@ pub(crate) fn error(code: &'static str, message: impl Into<String>) -> ParseErro
         code,
         message: message.into(),
     }
+}
+
+pub(crate) fn from_core(value: CopcError) -> ParseError {
+    error(value.code(), value.message())
 }

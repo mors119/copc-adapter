@@ -37,10 +37,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "copc-wasm"
+name = "copc-core"
 version = "0.1.0"
 dependencies = [
  "laz",
+]
+
+[[package]]
+name = "copc-wasm"
+version = "0.1.0"
+dependencies = [
+ "copc-core",
  "serde",
  "serde_json",
 ]

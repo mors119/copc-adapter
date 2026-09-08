@@ -1,5 +1,5 @@
 use crate::binary::{ensure_range, las_string, read_u16};
-use crate::error::{ParseError, error};
+use crate::error::{CopcError, Result};
 
 pub(crate) const VLR_HEADER_SIZE: usize = 54;
 
@@ -15,9 +15,9 @@ pub(crate) fn for_each_vlr<F>(
     number_of_vlrs: usize,
     payload_offset_error: &'static str,
     mut visit: F,
-) -> Result<(), ParseError>
+) -> Result<()>
 where
-    F: FnMut(&str, u16, &[u8]) -> Result<VlrVisit, ParseError>,
+    F: FnMut(&str, u16, &[u8]) -> Result<VlrVisit>,
 {
     let mut position = header_size;
     for _ in 0..number_of_vlrs {
@@ -27,18 +27,21 @@ where
         let record_length = read_u16(bytes, position + 20, "VLR record length")? as usize;
         let payload_start = position
             .checked_add(VLR_HEADER_SIZE)
-            .ok_or_else(|| error("overflow", payload_offset_error))?;
+            .ok_or_else(|| CopcError::new("overflow", payload_offset_error))?;
         ensure_range(bytes, payload_start, record_length, "VLR payload")?;
         let payload_end = payload_start + record_length;
         if payload_end > point_data_offset {
-            return Err(error("invalid-header", "VLR payload overlaps point data"));
+            return Err(CopcError::new(
+                "invalid-header",
+                "VLR payload overlaps point data",
+            ));
         }
 
         if matches!(
             visit(
                 &record_user_id,
                 record_id,
-                &bytes[payload_start..payload_end]
+                &bytes[payload_start..payload_end],
             )?,
             VlrVisit::Stop
         ) {
@@ -70,7 +73,7 @@ mod tests {
                 |_, _, _| { Ok(VlrVisit::Continue) }
             )
             .unwrap_err()
-            .code,
+            .code(),
             "truncated"
         );
 
@@ -86,7 +89,7 @@ mod tests {
                 |_, _, _| { Ok(VlrVisit::Continue) }
             )
             .unwrap_err()
-            .code,
+            .code(),
             "truncated"
         );
     }
@@ -105,7 +108,7 @@ mod tests {
                 |_, _, _| { Ok(VlrVisit::Continue) }
             )
             .unwrap_err()
-            .code,
+            .code(),
             "invalid-header"
         );
     }
@@ -122,7 +125,7 @@ mod tests {
                 |_, _, _| { Ok(VlrVisit::Continue) }
             )
             .unwrap_err()
-            .code,
+            .code(),
             "overflow"
         );
     }
