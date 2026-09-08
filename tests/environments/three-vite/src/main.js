@@ -1,7 +1,12 @@
 import * as THREE from 'three';
 import {
   CopcThreeLayer,
+  RustCrsTransformer,
 } from '@frillab/copc-adapter/three';
+
+if (typeof RustCrsTransformer !== 'function') {
+  throw new Error('Packed Three consumer cannot import RustCrsTransformer');
+}
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1000);

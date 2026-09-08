@@ -4,6 +4,7 @@ import * as Cesium from 'cesium';
 import {
   CopcCesiumLayer,
   RustCopcBackend,
+  RustCrsTransformer,
 } from '@packed-adapter';
 
 const datasetUrl = '/samples/autzen.copc.laz';
@@ -151,6 +152,7 @@ async function probeRustAttributes() {
 }
 
 window.__PACKED_CONSUMER__ = {
+  rustCrsTransformerExportAvailable: typeof RustCrsTransformer === 'function',
   getState,
   probeRustAttributes,
   setCameraHeight(height) {

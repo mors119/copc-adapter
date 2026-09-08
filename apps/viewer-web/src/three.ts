@@ -38,6 +38,8 @@ export type {
 } from './copc/backend/types';
 export type { CopcPerformanceEvent, CopcPerformanceObserver } from './copc/performance';
 export { CopcWasmError } from './wasm/copcWasm';
+export { RustCrsTransformer } from './coordinates/transform/rustCrsTransformer';
+export type { RustPreparedCoordinateBuffer } from './coordinates/transform/rustCrsTransformer';
 export type {
   CopcHierarchyBounds,
   CopcHierarchyQueryBounds,

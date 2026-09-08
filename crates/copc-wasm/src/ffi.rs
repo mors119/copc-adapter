@@ -1,14 +1,15 @@
 use copc_core::{
-    CopcHeader, RootHierarchy, decode_copc_node, interleave_xyz, parse_header, parse_root_hierarchy,
+    CopcHeader, CrsTransform, RootHierarchy, decode_copc_node, interleave_xyz, parse_header,
+    parse_root_hierarchy,
 };
 use serde::Serialize;
 use std::ffi::{CString, c_char};
 
 use crate::error::{ParseError, ParseResponse, error, from_core};
 use crate::memory::{
-    f64_input_slice, f64_output_slice, input_slice, into_leaked_buffer, into_leaked_bytes,
-    into_leaked_f64_buffer, mutable_f64_slice, mutable_u8_slice, mutable_u16_slice, reclaim_buffer,
-    reclaim_bytes, reclaim_f64_buffer,
+    checked_f64_input_slice, f64_input_slice, f64_output_slice, input_slice, into_leaked_buffer,
+    into_leaked_bytes, into_leaked_f64_buffer, mutable_f64_slice, mutable_u8_slice,
+    mutable_u16_slice, reclaim_buffer, reclaim_bytes, reclaim_f64_buffer,
 };
 
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
@@ -64,6 +65,18 @@ struct DecodeResult {
     intensity: bool,
     classification: bool,
     rgb: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct CrsTransformHandle {
+    handle: usize,
+    vertical_unit_scale: f64,
+    used_horizontal_fallback: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct CrsTransformResult {
+    point_count: usize,
 }
 
 fn json_pointer<T: Serialize>(response: ParseResponse<T>) -> *mut c_char {
@@ -189,6 +202,111 @@ fn parse_hierarchy_value(bytes: &[u8]) -> Result<RootHierarchyJson, ParseError> 
     parse_root_hierarchy(bytes)
         .map_err(from_core)
         .and_then(hierarchy_json)
+}
+
+fn create_crs_transform_value(wkt: &str) -> Result<CrsTransformHandle, ParseError> {
+    let transform = CrsTransform::from_wkt(wkt).map_err(from_core)?;
+    let vertical_unit_scale = transform.vertical_unit_scale();
+    let used_horizontal_fallback = transform.used_horizontal_fallback();
+    let handle = Box::into_raw(Box::new(transform)) as usize;
+    Ok(CrsTransformHandle {
+        handle,
+        vertical_unit_scale,
+        used_horizontal_fallback,
+    })
+}
+
+fn create_geographic_crs_transform_value() -> Result<CrsTransformHandle, ParseError> {
+    let transform = CrsTransform::from_geographic().map_err(from_core)?;
+    let vertical_unit_scale = transform.vertical_unit_scale();
+    let handle = Box::into_raw(Box::new(transform)) as usize;
+    Ok(CrsTransformHandle {
+        handle,
+        vertical_unit_scale,
+        used_horizontal_fallback: false,
+    })
+}
+
+fn transform_crs_points_value(
+    handle: usize,
+    input_ptr: *const f64,
+    input_length: usize,
+    geographic_ptr: *mut f64,
+    ecef_ptr: *mut f64,
+) -> Result<CrsTransformResult, ParseError> {
+    if handle == 0 {
+        return Err(error("invalid-input", "CRS transform handle is null"));
+    }
+    let source = checked_f64_input_slice(input_ptr, input_length)?;
+    // SAFETY: the handle is returned by create_crs_transform_json or
+    // create_geographic_crs_transform_json and remains live until the caller
+    // invokes free_crs_transform.
+    let transform = unsafe { &*(handle as *const CrsTransform) };
+    let prepared = transform
+        .transform_buffer_to_ecef(source)
+        .map_err(from_core)?;
+    mutable_f64_slice(geographic_ptr, prepared.geographic.len())?
+        .copy_from_slice(&prepared.geographic);
+    mutable_f64_slice(ecef_ptr, prepared.ecef.len())?.copy_from_slice(&prepared.ecef);
+    Ok(CrsTransformResult {
+        point_count: prepared.geographic.len() / 3,
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn create_crs_transform_json(ptr: *const u8, length: usize) -> *mut c_char {
+    let response = match input_slice(ptr, length)
+        .and_then(|bytes| {
+            std::str::from_utf8(bytes)
+                .map_err(|_| error("malformed-wkt", "CRS WKT is not valid UTF-8"))
+        })
+        .and_then(create_crs_transform_value)
+    {
+        Ok(value) => ParseResponse::success(value),
+        Err(parse_error) => ParseResponse::failure(parse_error),
+    };
+    json_pointer(response)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn create_geographic_crs_transform_json() -> *mut c_char {
+    let response = match create_geographic_crs_transform_value() {
+        Ok(value) => ParseResponse::success(value),
+        Err(parse_error) => ParseResponse::failure(parse_error),
+    };
+    json_pointer(response)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn transform_crs_points_json(
+    handle: usize,
+    input_ptr: *const f64,
+    input_length: usize,
+    geographic_ptr: *mut f64,
+    ecef_ptr: *mut f64,
+) -> *mut c_char {
+    let response =
+        match transform_crs_points_value(handle, input_ptr, input_length, geographic_ptr, ecef_ptr)
+        {
+            Ok(value) => ParseResponse::success(value),
+            Err(parse_error) => ParseResponse::failure(parse_error),
+        };
+    json_pointer(response)
+}
+
+#[unsafe(no_mangle)]
+/// # Safety
+///
+/// `handle` must be a value returned by a CRS transform creation function and
+/// must not be freed more than once or used after this call.
+pub unsafe extern "C" fn free_crs_transform(handle: usize) {
+    if handle != 0 {
+        // SAFETY: the caller guarantees that this handle came from Box::into_raw
+        // in a CRS transform creation function and is freed exactly once.
+        unsafe {
+            drop(Box::from_raw(handle as *mut CrsTransform));
+        }
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -388,4 +506,59 @@ pub extern "C" fn alloc_u8(length: usize) -> *mut u8 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dealloc_u8(ptr: *mut u8, length: usize) {
     reclaim_buffer(ptr, length);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{create_crs_transform_value, free_crs_transform, transform_crs_points_value};
+
+    const WGS84_GEOGRAPHIC_WKT: &str = "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]]";
+
+    #[test]
+    fn reuses_a_crs_handle_and_copies_geographic_and_ecef_outputs() {
+        let handle = create_crs_transform_value(WGS84_GEOGRAPHIC_WKT)
+            .expect("WKT should initialize")
+            .handle;
+        let input = [10.25, 20.5, 100.0];
+        let mut geographic = [0.0; 3];
+        let mut ecef = [0.0; 3];
+        let result = transform_crs_points_value(
+            handle,
+            input.as_ptr(),
+            input.len(),
+            geographic.as_mut_ptr(),
+            ecef.as_mut_ptr(),
+        )
+        .expect("transform should succeed");
+
+        assert_eq!(result.point_count, 1);
+        assert!((geographic[0] - input[0]).abs() < 1e-12);
+        assert!((geographic[1] - input[1]).abs() < 1e-12);
+        assert_eq!(geographic[2], input[2]);
+        assert!(ecef.iter().all(|value| value.is_finite()));
+
+        // SAFETY: the handle was returned by create_crs_transform_value and is
+        // freed exactly once in this test.
+        unsafe { free_crs_transform(handle) };
+    }
+
+    #[test]
+    fn maps_invalid_crs_buffer_pointers_to_structured_errors() {
+        let handle = create_crs_transform_value(WGS84_GEOGRAPHIC_WKT)
+            .expect("WKT should initialize")
+            .handle;
+        let error = transform_crs_points_value(
+            handle,
+            std::ptr::null(),
+            3,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+        .expect_err("null input must fail");
+        assert_eq!(error.code, "invalid-input");
+
+        // SAFETY: the handle was returned by create_crs_transform_value and is
+        // freed exactly once in this test.
+        unsafe { free_crs_transform(handle) };
+    }
 }

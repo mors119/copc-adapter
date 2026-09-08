@@ -1,3 +1,5 @@
+import { rawWasmImports } from './copcWasmImports';
+
 export type CopcWasmExports = {
   memory: WebAssembly.Memory;
   alloc_bytes(length: number): number;
@@ -31,6 +33,16 @@ export type CopcWasmExports = {
     greenPointer: number,
     bluePointer: number,
   ): number;
+  create_crs_transform_json(pointer: number, length: number): number;
+  create_geographic_crs_transform_json(): number;
+  transform_crs_points_json(
+    handle: number,
+    inputPointer: number,
+    inputLength: number,
+    geographicPointer: number,
+    ecefPointer: number,
+  ): number;
+  free_crs_transform(handle: number): void;
   free_parser_json(pointer: number): void;
 };
 
@@ -124,8 +136,11 @@ export async function loadCopcWasm(): Promise<CopcWasmExports> {
       }
 
       try {
-        const instance = await WebAssembly.instantiate(module);
-        return instance.exports as unknown as CopcWasmExports;
+        const rawImports = rawWasmImports(module);
+        const instance = await WebAssembly.instantiate(module, rawImports.imports);
+        const exports = instance.exports as unknown as CopcWasmExports;
+        rawImports.setMemory(exports.memory);
+        return exports;
       } catch (error: unknown) {
         throw new CopcWasmError('instantiate', 'Failed to instantiate the COPC Rust/WASM module', { cause: error });
       }
