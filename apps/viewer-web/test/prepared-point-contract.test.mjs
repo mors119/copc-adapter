@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 
 import {
   assertPreparedPointData,
+  preparedPointDataToGeographicBuffer,
   transformPointBufferToPreparedPointData,
 } from '../src/index.ts';
 import { geographicToEcef } from '../src/viewer/streaming/view.ts';
@@ -71,6 +72,20 @@ test('prepared point data has tagged buffers, exact lengths, optional fields, an
   assert.equal(prepared.sourceCoordinates, prepared.source.coordinates);
   assert.equal(prepared.worldCoordinates, prepared.world.coordinates);
   assertPreparedPointData(prepared);
+});
+
+test('prepared point data preserves absent optional attributes', () => {
+  const prepared = transformPointBufferToPreparedPointData(metadata(), {
+    pointCount: 3,
+    coordinates: new Float64Array([
+      10, 20, 2,
+      11, 21, 12,
+      12, 22, 20,
+    ]),
+  });
+
+  assert.equal(prepared.attributes, undefined);
+  assert.equal(preparedPointDataToGeographicBuffer(prepared).attributes, undefined);
 });
 
 test('prepared geographic and world coordinates remain consistent', () => {

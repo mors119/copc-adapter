@@ -20,7 +20,7 @@ function assertPointCount(pointCount: number): void {
   }
 }
 
-function assertCoordinateBuffer(
+function assertCoordinateBufferShape(
   coordinates: Float64Array,
   pointCount: number,
   label: string,
@@ -31,6 +31,14 @@ function assertCoordinateBuffer(
   if (coordinates.length !== pointCount * 3) {
     throw new RangeError(`Prepared ${label} coordinates must contain three values per point`);
   }
+}
+
+function assertCoordinateBuffer(
+  coordinates: Float64Array,
+  pointCount: number,
+  label: string,
+): void {
+  assertCoordinateBufferShape(coordinates, pointCount, label);
   for (const value of coordinates) {
     if (!Number.isFinite(value)) {
       throw new RangeError(`Prepared ${label} coordinates must be finite`);
@@ -91,12 +99,12 @@ function rgbMax(attributes: CopcPointAttributes | undefined, pointCount: number)
 
 function prepareStatistics(
   geographicCoordinates: Float64Array,
-  attributes: CopcPointAttributes,
+  attributes: CopcPointAttributes | undefined,
   pointCount: number,
 ): PreparedPointStatistics {
   return {
     elevation: range(geographicCoordinates, pointCount, 3, 2),
-    intensity: range(attributes.intensity, pointCount),
+    intensity: range(attributes?.intensity, pointCount),
     rgbMax: rgbMax(attributes, pointCount),
   };
 }
@@ -126,12 +134,12 @@ export function createPreparedPointData(input: PreparedPointDataInput): Prepared
   assertCoordinateBuffer(input.geographicCoordinates, input.pointCount, 'geographic');
   assertCoordinateBuffer(input.worldCoordinates, input.pointCount, 'world');
 
-  const attributes = input.attributes ?? {};
-  assertAttributeLength(attributes.intensity, input.pointCount, 'intensity');
-  assertAttributeLength(attributes.classification, input.pointCount, 'classification');
-  assertAttributeLength(attributes.red, input.pointCount, 'red');
-  assertAttributeLength(attributes.green, input.pointCount, 'green');
-  assertAttributeLength(attributes.blue, input.pointCount, 'blue');
+  const attributes = input.attributes;
+  assertAttributeLength(attributes?.intensity, input.pointCount, 'intensity');
+  assertAttributeLength(attributes?.classification, input.pointCount, 'classification');
+  assertAttributeLength(attributes?.red, input.pointCount, 'red');
+  assertAttributeLength(attributes?.green, input.pointCount, 'green');
+  assertAttributeLength(attributes?.blue, input.pointCount, 'blue');
 
   const source = coordinateBuffer('copc-source', input.pointCount, input.sourceCoordinates);
   const geographic = coordinateBuffer(
@@ -167,6 +175,9 @@ export function assertPreparedPointData(value: PreparedPointData): void {
   if (!value || typeof value !== 'object') {
     throw new TypeError('Prepared point data must be an object');
   }
+  if (!value.source || !value.geographic || !value.world) {
+    throw new TypeError('Prepared point data must contain all coordinate buffers');
+  }
   if (value.source.coordinateSystem !== 'copc-source'
     || value.geographic.coordinateSystem !== 'wgs84-geographic'
     || value.world.coordinateSystem !== 'wgs84-ecef-meters') {
@@ -185,14 +196,15 @@ export function assertPreparedPointData(value: PreparedPointData): void {
     || value.worldCoordinates !== value.world.coordinates) {
     throw new TypeError('Prepared compatibility aliases must share typed-array storage');
   }
-  // Re-run the structural checks and discard the derived compatibility object.
-  createPreparedPointData({
-    pointCount: value.pointCount,
-    sourceCoordinates: value.source.coordinates,
-    geographicCoordinates: value.geographic.coordinates,
-    worldCoordinates: value.world.coordinates,
-    attributes: value.attributes,
-  });
+  assertPointCount(value.pointCount);
+  assertCoordinateBufferShape(value.source.coordinates, value.pointCount, 'source');
+  assertCoordinateBufferShape(value.geographic.coordinates, value.pointCount, 'geographic');
+  assertCoordinateBufferShape(value.world.coordinates, value.pointCount, 'world');
+  assertAttributeLength(value.attributes?.intensity, value.pointCount, 'intensity');
+  assertAttributeLength(value.attributes?.classification, value.pointCount, 'classification');
+  assertAttributeLength(value.attributes?.red, value.pointCount, 'red');
+  assertAttributeLength(value.attributes?.green, value.pointCount, 'green');
+  assertAttributeLength(value.attributes?.blue, value.pointCount, 'blue');
 }
 
 /** Return the legacy flat buffer without copying any prepared typed array. */

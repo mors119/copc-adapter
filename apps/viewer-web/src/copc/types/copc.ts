@@ -127,7 +127,6 @@ export type CopcPointData = {
  * ECEF is the shared render-space authority.
  */
 export type PreparedPointData = CopcPointData & GeographicPointBuffer & {
-  attributes: CopcPointAttributes;
   statistics: PreparedPointStatistics;
   coordinates: Float64Array;
   coordinateSystem: 'wgs84-geographic';
