@@ -95,6 +95,8 @@ export type {
   CopcPointAttributes,
   CopcPointBuffer,
   CopcPointData,
+  PreparedPointData,
+  PreparedPointStatistics,
   GeographicPoint,
   GeographicPointBuffer,
 } from './copc/types/copc';
@@ -114,7 +116,13 @@ export type {
 } from './coordinates/types';
 export {
   transformPointBufferToPointData,
+  transformPointBufferToPreparedPointData,
 } from './coordinates/transform/createPointTransformer';
+export {
+  assertPreparedPointData,
+  createPreparedPointData,
+  preparedPointDataToGeographicBuffer,
+} from './point/preparedPoint';
 export {
   createDatasetLocalFrame,
   datasetLocalDirectionToWorld,

@@ -124,6 +124,16 @@ frame whose origin is derived from the metadata cube centre. It converts to
 renderer/GPU-friendly values only after subtracting that origin. This is a
 renderer concern, not a shared streaming coordinate system.
 
+The shared prepared-point contract is `PreparedPointData`. The current path
+constructs it after the Rust/JS source decode and retains tagged Float64 source,
+WGS84 geographic, and WGS84 ECEF buffers, requested typed attributes, and
+small reusable point statistics. The decoded CPU cache stores this contract,
+not renderer objects. Its flat geographic fields are compatibility aliases to
+the named buffers. Rust/WASM marks its returned source buffer as
+`copc-source`; the Worker transfers owned ArrayBuffers and TypeScript copies
+out of WASM linear memory before cache insertion. This is the stable seam for
+the later fused Rust CRS/preparation pipeline.
+
 ## Target processing architecture
 
 The intended long-term processing structure is:
@@ -326,21 +336,22 @@ are the goals.
 
 ## Renderer-neutral data contract
 
-The shared prepared-data concept may expose, as needed:
+The implemented shared prepared-data contract is `PreparedPointData`:
 
 - point count;
-- source coordinates;
-- WGS84 geographic coordinates;
-- WGS84/world coordinates;
+- tagged `Float64Array` source (`copc-source`), geographic
+  (`wgs84-geographic`), and world (`wgs84-ecef-meters`) coordinate buffers;
 - requested attributes;
-- reusable numeric statistics; and
-- coordinate-space metadata.
+- reusable elevation/intensity ranges and RGB value scale when available; and
+- compatibility aliases for the existing flat geographic buffer API.
 
-This describes the intended data shape without fixing an exact future
-TypeScript interface. Existing public buffers remain the compatibility contract
-while the internal preparation boundary evolves. A renderer consumes prepared
-numeric data and chooses its own local origin, GPU representation, resources,
-and picking integration.
+Source and geographic buffers are retained for inspection and differential
+validation; ECEF/world is the primary shared render buffer. Local ENU and
+Float32 buffers remain adapter-owned secondary representations. The cache owns
+the transferred typed arrays for the lifetime of the entry, while renderers
+only read them and own any derived engine/GPU resources. A renderer consumes
+prepared numeric data and chooses its own local origin, GPU representation,
+resources, and picking integration.
 
 ## Package boundary
 

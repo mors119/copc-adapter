@@ -25,6 +25,7 @@ type RustParserResponse<T> = {
 
 type RustDecodeValue = {
   point_count: number;
+  coordinate_system: 'copc-source';
   intensity: boolean;
   classification: boolean;
   rgb: boolean;
@@ -98,6 +99,12 @@ export async function decodeRustCopcNode(
       }
 
       const value = response.value;
+      if (value.coordinate_system !== 'copc-source') {
+        throw new RustCopcParseError(
+          'invalid-input',
+          `Rust decoder returned an unexpected coordinate system: ${value.coordinate_system}`,
+        );
+      }
       if (value.point_count !== pointCount) {
         throw new RustCopcParseError(
           'chunk-length-mismatch',
@@ -122,6 +129,7 @@ export async function decodeRustCopcNode(
         buffer: {
           pointCount,
           coordinates,
+          coordinateSystem: value.coordinate_system,
           attributes: Object.values(attributes).some((values) => values !== undefined)
             ? attributes
             : undefined,

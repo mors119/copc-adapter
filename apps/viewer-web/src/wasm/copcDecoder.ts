@@ -118,6 +118,7 @@ export async function decodeCopcPointBuffer(
     return {
       pointCount: count,
       coordinates,
+      coordinateSystem: 'copc-source',
       attributes,
     };
   } finally {

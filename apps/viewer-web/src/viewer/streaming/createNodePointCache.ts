@@ -98,17 +98,17 @@ export function estimateDecodedCpuPointBufferBytes(value: unknown): number {
       return 0;
     }
 
+    if (visited.has(candidate)) {
+      return 0;
+    }
+    visited.add(candidate);
+
     if (ArrayBuffer.isView(candidate)) {
       const byteLength = (candidate as { byteLength?: unknown }).byteLength;
       return typeof byteLength === 'number'
         ? normalizeByteCount(byteLength)
         : 0;
     }
-
-    if (visited.has(candidate)) {
-      return 0;
-    }
-    visited.add(candidate);
 
     let total = 0;
     for (const child of Object.values(candidate)) {

@@ -30,6 +30,18 @@ test('estimates XYZ-only decoded CPU point-buffer bytes from byteLength', () => 
   );
 });
 
+test('does not count aliased typed-array references twice', () => {
+  const coordinates = new Float64Array(4 * 3);
+
+  assert.equal(
+    estimateDecodedCpuPointBufferBytes({
+      named: { coordinates },
+      coordinates,
+    }),
+    coordinates.byteLength,
+  );
+});
+
 test('accounts for RGB, intensity, classification, and nested typed arrays', () => {
   const buffer = pointBuffer(4, {
     red: new Uint16Array(4),

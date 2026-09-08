@@ -21,12 +21,17 @@ import { loadCopcPointBuffer } from '../../copc/points/loadPointData';
 import { createCopcPointFieldSelection, type CopcPointFieldSelection } from '../../copc/points/fieldSelection';
 import {
   createProjectPointTransformer,
-  transformPointBuffer,
+  transformPointBufferToPreparedPointData,
 } from '../../coordinates/transform/createPointTransformer';
 import type {
   CopcMetadata,
   GeographicPointBuffer,
+  PreparedPointData,
 } from '../../copc/types/copc';
+import {
+  assertPreparedPointData,
+  preparedPointDataToGeographicBuffer,
+} from '../../point/preparedPoint';
 import type { CopcPerformanceObserver } from '../../copc/performance';
 import { performanceNow } from '../../copc/performance';
 import { buildStreamingHierarchy } from './buildStreamingHierarchy';
@@ -164,7 +169,7 @@ type StreamingState = {
   hierarchyLoader: HierarchyLoader;
   nodes: StreamingHierarchy;
   nodesRef: { current: StreamingHierarchy };
-  cache: NodePointCache<GeographicPointBuffer>;
+  cache: NodePointCache<PreparedPointData>;
   manager: StreamingManager;
 };
 
@@ -246,7 +251,7 @@ function toProjectBounds(
 export class CopcStreamingCore {
   private readonly options: CopcStreamingControllerOptions;
   private performanceRecorder: StreamingPerformanceRecorder;
-  private readonly initialCache: NodePointCache<GeographicPointBuffer>;
+  private readonly initialCache: NodePointCache<PreparedPointData>;
   private readonly pointFields: CopcPointFieldSelection;
   private streamingState?: StreamingState;
   private loadGeneration = 0;
@@ -566,9 +571,15 @@ export class CopcStreamingCore {
     return cloneTransitionState(this.transition);
   }
 
-  /** Return a resolved point buffer retained by the current decoded cache. */
-  getCachedPointBuffer(nodeKey: string): GeographicPointBuffer | undefined {
+  /** Return a resolved prepared result retained by the current decoded cache. */
+  getCachedPreparedPointData(nodeKey: string): PreparedPointData | undefined {
     return this.streamingState?.cache.get(nodeKey);
+  }
+
+  /** Return the legacy flat view over a prepared result without copying arrays. */
+  getCachedPointBuffer(nodeKey: string): GeographicPointBuffer | undefined {
+    const prepared = this.getCachedPreparedPointData(nodeKey);
+    return prepared ? preparedPointDataToGeographicBuffer(prepared) : undefined;
   }
 
   private applyProgress(
@@ -584,7 +595,7 @@ export class CopcStreamingCore {
     onProgress?.(progress);
   }
 
-  private createEmptyCache(): NodePointCache<GeographicPointBuffer> {
+  private createEmptyCache(): NodePointCache<PreparedPointData> {
     return createNodePointCache(
       async () => {
         throw new Error('COPC streaming controller is not loaded');
@@ -601,7 +612,7 @@ export class CopcStreamingCore {
     metadata: CopcMetadata,
     nodesRef: { current: StreamingHierarchy },
     performanceRecorder: StreamingPerformanceRecorder,
-  ): NodePointCache<GeographicPointBuffer> {
+  ): NodePointCache<PreparedPointData> {
     return createNodePointCache(
       (nodeKey) => this.loadRenderableNodePoints(
         context,
@@ -623,7 +634,7 @@ export class CopcStreamingCore {
     nodesRef: { current: StreamingHierarchy },
     performanceRecorder: StreamingPerformanceRecorder,
     nodeKey: string,
-  ): Promise<GeographicPointBuffer> {
+  ): Promise<PreparedPointData> {
     const streamingNode = nodesRef.current.get(nodeKey);
     if (!streamingNode) {
       throw new Error(`Unknown COPC hierarchy node: ${nodeKey}`);
@@ -636,7 +647,8 @@ export class CopcStreamingCore {
       this.pointFields,
     );
     const transformStartedAt = performanceNow();
-    const transformed = transformPointBuffer(metadata, points);
+    const transformed = transformPointBufferToPreparedPointData(metadata, points);
+    assertPreparedPointData(transformed);
     performanceRecorder.recordStage(
       'crsTransformDurationMs',
       performanceNow() - transformStartedAt,

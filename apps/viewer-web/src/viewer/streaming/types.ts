@@ -145,6 +145,7 @@ export type StreamingReplacementGroup = {
 export type StreamingUpdateResult = {
   selectedNodeKeys: string[];
   removedNodeKeys: string[];
+  /** Prepared values are exposed through the compatibility flat view type. */
   loadedNodePoints: Map<string, GeographicPointBuffer>;
   replacementGroups: StreamingReplacementGroup[];
   generation: number;
@@ -153,6 +154,7 @@ export type StreamingUpdateResult = {
 export type StreamingProgress = {
   selectedNodeKeys: string[];
   removedNodeKeys: string[];
+  /** Prepared values are exposed through the compatibility flat view type. */
   loadedNodePoints: Map<string, GeographicPointBuffer>;
   completedBatchPointCount: number;
   replacementGroups: StreamingReplacementGroup[];

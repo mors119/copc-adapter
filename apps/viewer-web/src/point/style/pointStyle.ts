@@ -111,6 +111,10 @@ export function normalizeIntensity(
 export function getPointBufferElevationRange(
   points: GeographicPointBuffer,
 ): CopcElevationRange {
+  if (points.statistics?.elevation) {
+    return { ...points.statistics.elevation };
+  }
+
   let min = Number.POSITIVE_INFINITY;
   let max = Number.NEGATIVE_INFINITY;
 
@@ -131,6 +135,10 @@ export function getPointBufferElevationRange(
 export function getPointBufferIntensityRange(
   points: GeographicPointBuffer,
 ): CopcValueRange | undefined {
+  if (points.statistics?.intensity) {
+    return { ...points.statistics.intensity };
+  }
+
   const values = points.attributes?.intensity;
 
   if (!values || values.length === 0) {
@@ -157,6 +165,10 @@ export function getPointBufferIntensityRange(
 export function getPointBufferRgbMax(
   points: GeographicPointBuffer,
 ): 255 | 65535 | undefined {
+  if (points.statistics?.rgbMax !== undefined) {
+    return points.statistics.rgbMax;
+  }
+
   const { red, green, blue } = points.attributes ?? {};
 
   if (!red || !green || !blue) {

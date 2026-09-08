@@ -3,10 +3,14 @@ import type {
   CopcMetadata,
   CopcPoint,
   CopcPointBuffer,
-  CopcPointData,
   GeographicPoint,
   GeographicPointBuffer,
+  PreparedPointData,
 } from '../../copc/types/copc';
+import {
+  createPreparedPointData,
+  preparedPointDataToGeographicBuffer,
+} from '../../point/preparedPoint';
 import { geographicToEcef } from './worldCoordinates';
 import {
   extractHorizontalWkt,
@@ -93,28 +97,28 @@ export function transformPointBuffer(
   metadata: CopcMetadata,
   points: CopcPointBuffer,
 ): GeographicPointBuffer {
-  const transformed = transformPointBufferToPointData(metadata, points);
-
-  return {
-    pointCount: transformed.pointCount,
-    coordinateSystem: 'wgs84-geographic',
-    coordinates: transformed.geographic.coordinates,
-    sourceCoordinateSystem: 'copc-source',
-    sourceCoordinates: transformed.source.coordinates,
-    worldCoordinateSystem: 'wgs84-ecef-meters',
-    worldCoordinates: transformed.world.coordinates,
-    attributes: transformed.attributes,
-  };
+  return preparedPointDataToGeographicBuffer(
+    transformPointBufferToPreparedPointData(metadata, points),
+  );
 }
 
 /**
  * Decode output after the shared CRS path, retaining every useful coordinate
- * space in Float64 form for engine adapters.
+ * space in Float64 form for engine adapters. This is the renderer-neutral
+ * prepared-point contract retained by the streaming cache.
  */
 export function transformPointBufferToPointData(
   metadata: CopcMetadata,
   points: CopcPointBuffer,
-): CopcPointData {
+): PreparedPointData {
+  return transformPointBufferToPreparedPointData(metadata, points);
+}
+
+/** Prepare source points into the shared, renderer-neutral data contract. */
+export function transformPointBufferToPreparedPointData(
+  metadata: CopcMetadata,
+  points: CopcPointBuffer,
+): PreparedPointData {
   const transformPoint = createPointTransformer(metadata);
   const sourceCoordinates = points.coordinates.slice();
   const geographicCoordinates = new Float64Array(points.coordinates.length);
@@ -138,23 +142,11 @@ export function transformPointBufferToPointData(
     worldCoordinates[offset + 2] = world.z;
   }
 
-  return {
+  return createPreparedPointData({
     pointCount: points.pointCount,
-    source: {
-      coordinateSystem: 'copc-source',
-      pointCount: points.pointCount,
-      coordinates: sourceCoordinates,
-    },
-    geographic: {
-      coordinateSystem: 'wgs84-geographic',
-      pointCount: points.pointCount,
-      coordinates: geographicCoordinates,
-    },
-    world: {
-      coordinateSystem: 'wgs84-ecef-meters',
-      pointCount: points.pointCount,
-      coordinates: worldCoordinates,
-    },
+    sourceCoordinates,
+    geographicCoordinates,
+    worldCoordinates,
     attributes: points.attributes,
-  };
+  });
 }
