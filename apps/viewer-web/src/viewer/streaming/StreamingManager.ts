@@ -1,5 +1,4 @@
 import type {
-  GeographicPointBuffer,
   PreparedPointData,
 } from '../../copc/types/copc';
 import type { NodePointCache } from './createNodePointCache';
@@ -233,7 +232,7 @@ export class StreamingManager {
       generation: updateGeneration,
     });
 
-    const loadedNodePoints = new Map<string, GeographicPointBuffer>();
+    const loadedNodePoints = new Map<string, PreparedPointData>();
 
     for (const batch of createStreamingWorkBatches(selectedNodes, this.maxPointsPerBatch)) {
       const batchLoads = await Promise.all(batch.nodes.map(async (node) => {
@@ -282,7 +281,7 @@ export class StreamingManager {
           onProgress?.({
             selectedNodeKeys: [...nextSelectedNodeKeys].sort(),
             removedNodeKeys,
-            loadedNodePoints: new Map<string, GeographicPointBuffer>([
+            loadedNodePoints: new Map<string, PreparedPointData>([
               [loaded.nodeKey, loaded.points],
             ]),
             completedBatchPointCount: loaded.points.pointCount,

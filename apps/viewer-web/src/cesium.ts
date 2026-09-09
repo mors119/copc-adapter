@@ -147,6 +147,11 @@ export type {
 export {
   PointPrimitiveRenderer,
 } from './cesium/render/CopcPointRenderer';
+export {
+  toCartesian3Array,
+  toCartesian3ArrayFromBuffer,
+  toCartesian3ArrayFromWorldBuffer,
+} from './cesium/render/renderPoints';
 export type {
   CesiumPointRenderer,
   CopcCesiumPointRenderer,

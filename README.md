@@ -226,8 +226,8 @@ const layer = new CopcCesiumLayer({
 ```
 
 Both backends use the same public layer, renderer-neutral streaming, and
-coordinate path. Rust/WASM does not create or own a viewer or scene. In the
-Rust streaming path, each Worker initializes reusable dataset CRS/LAZ state
+prepared-point contract. Rust/WASM does not create or own a viewer or scene.
+In the Rust streaming path, each Worker initializes reusable dataset CRS/LAZ state
 and prepares one node's source/geographic/ECEF buffers, requested attributes,
 and point statistics in one job. `decodeDurationMs` and
 `pointPreparationDurationMs` are reported separately; the JS path remains the
@@ -289,11 +289,10 @@ boundary and the [API documentation](docs/API.md) for current options.
 
 COPC Adapter has a shared browser streaming core and thin renderer adapters.
 The current implementation uses `copc-js` by default and an opt-in Rust/WASM
-backend; TypeScript still owns browser Range I/O, view/LoD policy, and the
-default CRS/ECEF preparation path. `copc-core` also exposes an opt-in reusable
-Rust CRS/ECEF transform for the migration path. CesiumJS and Three.js consume
-the renderer-neutral data while the application retains ownership of its
-viewer or scene.
+backend. TypeScript owns browser Range I/O, view/LoD policy, and the copc-js
+reference preparation path; Rust streaming uses its fused decode/CRS/ECEF
+preparation result. CesiumJS and Three.js consume the shared prepared data
+while the application retains ownership of its viewer or scene.
 
 See the [architecture guide](docs/ARCHITECTURE.md) for current ownership,
 target processing architecture, and migration invariants.

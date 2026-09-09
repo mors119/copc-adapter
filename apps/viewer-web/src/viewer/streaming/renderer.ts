@@ -1,5 +1,5 @@
 import type { CopcColorMode } from '../../copc/points/fieldSelection';
-import type { GeographicPointBuffer } from '../../copc/types/copc';
+import type { PreparedPointData } from '../../copc/types/copc';
 
 /** A project-owned numeric range used by renderer-independent styling. */
 export type CopcValueRange = {
@@ -29,13 +29,14 @@ export type CopcPointRendererOptions = {
  * The smallest renderer contract required by shared streaming transitions.
  *
  * A renderer is attached by its engine adapter before this contract is used.
- * The shared contract never accepts a viewer/scene/camera and never returns
- * engine geometry objects.
+ * The shared contract consumes `PreparedPointData`, never a viewer/scene/camera,
+ * and never returns engine geometry objects. Concrete compatibility renderers
+ * may continue to accept the legacy flat geographic view when used directly.
  */
 export interface CopcPointRenderer {
   addOrUpdateNode(
     nodeKey: string,
-    points: GeographicPointBuffer,
+    points: PreparedPointData,
     options: CopcPointRendererOptions,
   ): void;
   removeNode(nodeKey: string): void;

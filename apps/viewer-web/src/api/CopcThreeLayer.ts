@@ -14,12 +14,15 @@ import {
   type CopcPointInspection,
   type CopcPointPickId,
 } from '../copc/points/pointInspection';
-import type { CopcMetadata, GeographicPointBuffer } from '../copc/types/copc';
+import type {
+  CopcMetadata,
+  GeographicPointBuffer,
+  PreparedPointData,
+} from '../copc/types/copc';
 import {
   createDatasetLocalFrame,
 } from '../coordinates/transform/datasetLocalFrame';
 import type { DatasetLocalFrame } from '../coordinates/types';
-import { createPointTransformer } from '../coordinates/transform/createPointTransformer';
 import {
   CopcStreamingCore,
   type CopcStreamingPerformanceSnapshot,
@@ -141,7 +144,7 @@ export interface CopcThreePointRenderer extends CopcPointRenderer {
   getRoot(): THREE.Group;
   addOrUpdateNode(
     nodeKey: string,
-    points: GeographicPointBuffer,
+    points: GeographicPointBuffer | PreparedPointData,
     options: ThreePointRendererOptions,
   ): void;
   setLocalFrame?(frame: DatasetLocalFrame): void;
@@ -679,12 +682,12 @@ export class CopcThreeLayer {
     this.updateTransitionDiagnostics();
   }
 
-  private addRenderedNode(nodeKey: string, points: GeographicPointBuffer): void {
+  private addRenderedNode(nodeKey: string, points: PreparedPointData): void {
     this.pointRenderer.addOrUpdateNode(nodeKey, points, {
       pointSize: this.options.pointSize ?? 3,
       colorMode: this.options.colorMode ?? 'fixed',
-      elevationRange: this.getDatasetElevationRange(),
-      rgbMax: this.pointStyleState.getRgbMax(points),
+      elevationRange: points.statistics?.elevation,
+      rgbMax: points.statistics?.rgbMax ?? this.pointStyleState.getRgbMax(points),
       pointId: (pointIndex) => ({
         nodeKey,
         pointIndex,
@@ -873,20 +876,6 @@ export class CopcThreeLayer {
     if (this.localFrame) {
       this.pointRenderer.setLocalFrame?.(this.localFrame);
     }
-  }
-
-  private getDatasetElevationRange(): { min: number; max: number } {
-    const metadata = this.core.getMetadata();
-    if (!metadata) {
-      return { min: 0, max: 0 };
-    }
-    const transformPoint = createPointTransformer(metadata);
-    const x = (metadata.bounds.minX + metadata.bounds.maxX) / 2;
-    const y = (metadata.bounds.minY + metadata.bounds.maxY) / 2;
-    return {
-      min: transformPoint({ x, y, z: metadata.bounds.minZ }).height,
-      max: transformPoint({ x, y, z: metadata.bounds.maxZ }).height,
-    };
   }
 
   private getMaxRenderDistanceMeters(): number {

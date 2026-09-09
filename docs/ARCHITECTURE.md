@@ -35,10 +35,10 @@ renderer-neutral TypeScript streaming core
         ├─ cache, generations, and stale-work handling
         └─ public lifecycle and diagnostics
         ↓
-TypeScript point preparation
+point preparation (Rust fused path or TypeScript copc-js path)
         ├─ source coordinates → WGS84 geographic coordinates
         ├─ WGS84 geographic → WGS84 ECEF/world coordinates
-        └─ project-owned typed buffers and attributes
+        └─ project-owned typed buffers, attributes, and statistics
         ↓
 renderer adapter
         ├─ CesiumJS
@@ -66,13 +66,12 @@ renderer adapter
 - `CopcStreamingCore` and `CopcStreamingController` own hierarchy lifecycle,
   view-driven selection, `NodeSelector`, SSE/refinement policy, hysteresis,
   workload budgets, cache policy, generations, cancellation, and diagnostics.
-- The current CRS path is still TypeScript. It uses the project WKT parsing
-  helpers and `proj4js` where a projected CRS is present, then computes WGS84
-  ECEF/world coordinates in JavaScript. The shared buffers retain source,
-  WGS84 geographic, and WGS84 ECEF values as `Float64Array`s.
-  `copc-core::CrsTransform` and the matching reusable WASM handle now provide
-  the validated Rust path for future Worker adoption; they are not the default
-  runtime path yet.
+- The `copc-js` path uses the project WKT parsing helpers and `proj4js` where a
+  projected CRS is present, then computes WGS84 ECEF/world coordinates in
+  TypeScript. The opt-in Rust path performs decode, CRS, ECEF preparation, and
+  point reductions in one Worker job. Both paths return the same
+  `PreparedPointData` contract, retaining source, WGS84 geographic, and WGS84
+  ECEF values as `Float64Array`s.
   The `proj4rs`/`proj4wkt` compatibility audit is recorded in
   [issue-171-proj4rs-compatibility.md](benchmarks/issue-171-proj4rs-compatibility.md);
   it does not change this runtime boundary or remove `proj4js`.
@@ -81,11 +80,10 @@ renderer adapter
   `THREE.Group`, `THREE.Points`, `BufferGeometry`, materials, and its fixed
   dataset-local ENU frame. Neither adapter parses COPC or owns streaming policy.
 
-The current default runtime path does not use Rust CRS transformation,
-WGS84/ECEF preparation, point-level statistics or reductions, or fused point
-preparation. The first two capabilities are now implemented in the pure core
-and exposed through the WASM boundary, while runtime adoption and fused point
-preparation remain follow-up work.
+`copc-js` remains the default backend and uses the TypeScript reference
+preparation path. The opt-in Rust backend uses the fused Rust preparation path;
+its failure is reported to the caller and is not silently retried through the
+TypeScript transform path.
 
 The repository contains `crates/copc-core` and `crates/copc-wasm`. The former
 is the native-testable domain implementation; the latter exposes the existing
@@ -111,9 +109,9 @@ The shared output currently retains the following coordinate spaces:
 
 ```text
 COPC/source XYZ (`copc-source`)
-        ↓ current TypeScript CRS path
+        ↓ backend-selected CRS path
 WGS84 geographic (`wgs84-geographic`)
-        ↓ current TypeScript ECEF conversion
+        ↓ backend-selected ECEF preparation
 WGS84 ECEF/world (`wgs84-ecef-meters`)
         ↓ renderer-owned origin/frame
 renderer-local coordinates
@@ -132,7 +130,9 @@ not renderer objects. Its flat geographic fields are compatibility aliases to
 the named buffers. Rust/WASM marks its returned source buffer as
 `copc-source`; the Worker transfers owned ArrayBuffers and TypeScript copies
 out of WASM linear memory before cache insertion. This is the stable seam for
-the later fused Rust CRS/preparation pipeline.
+the backend-neutral renderer boundary. Rust/WASM returns the same contract
+directly from its fused decode/CRS/ECEF/statistics operation, while copc-js
+continues to use the TypeScript reference implementation.
 
 ## Target processing architecture
 
@@ -236,7 +236,7 @@ behavior remains outside both crates.
 
 ## CRS architecture
 
-### Current CRS path
+### TypeScript CRS path
 
 The current JavaScript path is:
 
@@ -253,7 +253,7 @@ renderer-specific local representation
 Projected COPC metadata is currently expected to provide usable WKT. The
 current parser handles the project’s supported WKT shape and reports malformed
 or unsupported CRS metadata during loading; it does not promise general PROJ
-coverage.
+coverage. This is the reference path used by copc-js and injected decoders.
 
 ### Rust CRS path
 
@@ -285,8 +285,9 @@ for the compatibility matrix and
 [issue-173-rust-crs-integration.md](benchmarks/issue-173-rust-crs-integration.md)
 for the core/WASM API and integration evidence.
 
-Existing `proj4js` behavior is useful as a differential reference. Reference
-output is not automatically the specification: authoritative CRS definitions
+Existing `proj4js` behavior is useful as a differential reference for the
+copc-js path. Reference output is not automatically the specification:
+authoritative CRS definitions
 and source metadata determine correctness. When implementations disagree, the
 project should inspect the WKT and metadata, consult the authoritative CRS
 definition, identify the incorrect implementation, and add a deterministic
@@ -354,12 +355,15 @@ The implemented shared prepared-data contract is `PreparedPointData`:
 - compatibility aliases for the existing flat geographic buffer API.
 
 Source and geographic buffers are retained for inspection and differential
-validation; ECEF/world is the primary shared render buffer. Local ENU and
-Float32 buffers remain adapter-owned secondary representations. The cache owns
-the transferred typed arrays for the lifetime of the entry, while renderers
-only read them and own any derived engine/GPU resources. A renderer consumes
-prepared numeric data and chooses its own local origin, GPU representation,
-resources, and picking integration.
+validation; ECEF/world is the primary shared render buffer. The Cesium adapter
+wraps those ECEF triples directly as `Cartesian3` values; it does not call
+`Cartesian3.fromDegrees` for prepared data. Three.js derives its stable
+dataset-local ENU/Float32 representation from the same ECEF buffer. These are
+adapter-owned secondary representations. The cache owns the transferred typed
+arrays for the lifetime of the entry, while renderers only read them and own
+any derived engine/GPU resources. A renderer consumes prepared numeric data and
+chooses its own local origin, GPU representation, resources, and picking
+integration.
 
 ## Package boundary
 

@@ -169,8 +169,9 @@ deprecated and no longer controls refinement.
 
 `load()` reads metadata and the root hierarchy. `updateView(view,
 onProgress?)` performs view-driven hierarchy loading and selection and reports
-progressively prepared geographic point buffers. The view and progress types
-contain no engine objects. `undefined` is returned when an update is
+progressively prepared point data. The view and progress types contain no
+engine objects; loaded entries use the shared `PreparedPointData` contract and
+retain compatibility geographic aliases. `undefined` is returned when an update is
 superseded by a newer view or lifecycle operation.
 
 The core lifecycle is `idle | loading | ready | destroyed`. It provides
@@ -214,9 +215,10 @@ retains the three coordinate buffers as tagged `Float64Array` values, requested
 typed attributes, and optional `elevation`, `intensity`, and `rgbMax`
 statistics. The legacy flat geographic fields are aliases to the named
 buffers, so existing inspection and renderer APIs do not require a second copy.
-The ECEF buffer is the renderer-neutral render-space authority; Three.js may
-derive its own local ENU/Float32 representation and Cesium may create its own
-Cartesian objects.
+The ECEF buffer is the renderer-neutral render-space authority. Three.js
+derives its own local ENU/Float32 representation from it, while Cesium wraps
+prepared ECEF triples directly as `Cartesian3` values without a second
+geographic conversion.
 
 Rust/WASM results tag each coordinate buffer explicitly. The fused Worker
 result contains source, WGS84 geographic, and WGS84 ECEF buffers, requested
@@ -244,7 +246,8 @@ The performance values include selection, frustum/SSE, workload budget,
 hierarchy, range, decode, point preparation, CRS, and renderer stages where
 applicable. `pointPreparationDurationMs` separates the fused Rust CRS/ECEF and
 reduction stage from `decodeDurationMs`; the legacy TypeScript path continues
-to report `crsTransformDurationMs`.
+to report `crsTransformDurationMs`. Cesium's `worldToCartesianDurationMs`
+measures ECEF wrapping separately from its legacy `geographicToCartesian` path.
 
 `getHierarchyDiagnostics()` reports hierarchy-page requests, cache hits, bytes,
 pages, and entries. `getPointCacheDiagnostics()` reports project-owned decoded

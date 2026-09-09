@@ -58,6 +58,8 @@ export type StreamingPerformanceSnapshot = {
   pointPreparationDurationMs: number;
   crsTransformDurationMs: number;
   geographicToCartesianDurationMs: number;
+  /** Cesium wrapping of prepared ECEF values, without geographic conversion. */
+  worldToCartesianDurationMs: number;
   pointStylePreparationDurationMs: number;
   pointCollectionCreationDurationMs: number;
   pointAddDurationMs: number;
@@ -100,6 +102,7 @@ function emptySnapshot(): StreamingPerformanceSnapshot {
     pointPreparationDurationMs: 0,
     crsTransformDurationMs: 0,
     geographicToCartesianDurationMs: 0,
+    worldToCartesianDurationMs: 0,
     pointStylePreparationDurationMs: 0,
     pointCollectionCreationDurationMs: 0,
     pointAddDurationMs: 0,
@@ -221,6 +224,7 @@ export class StreamingPerformanceRecorder {
       | 'pointPreparationDurationMs'
       | 'crsTransformDurationMs'
       | 'geographicToCartesianDurationMs'
+      | 'worldToCartesianDurationMs'
       | 'pointStylePreparationDurationMs'
       | 'pointCollectionCreationDurationMs'
       | 'pointAddDurationMs'
