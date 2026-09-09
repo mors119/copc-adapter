@@ -42,6 +42,35 @@ test('does not count aliased typed-array references twice', () => {
   );
 });
 
+test('accounts for every retained prepared coordinate and attribute buffer once', () => {
+  const sourceCoordinates = new Float64Array(4 * 3);
+  const geographicCoordinates = new Float64Array(4 * 3);
+  const worldCoordinates = new Float64Array(4 * 3);
+  const intensity = new Uint16Array(4);
+  const classification = new Uint8Array(4);
+  const prepared = {
+    pointCount: 4,
+    source: { coordinates: sourceCoordinates },
+    geographic: { coordinates: geographicCoordinates },
+    world: { coordinates: worldCoordinates },
+    // Compatibility aliases refer to the same storage and must not inflate
+    // the cache estimate.
+    coordinates: geographicCoordinates,
+    sourceCoordinates,
+    worldCoordinates,
+    attributes: { intensity, classification },
+  };
+
+  assert.equal(
+    estimateDecodedCpuPointBufferBytes(prepared),
+    sourceCoordinates.byteLength
+      + geographicCoordinates.byteLength
+      + worldCoordinates.byteLength
+      + intensity.byteLength
+      + classification.byteLength,
+  );
+});
+
 test('accounts for RGB, intensity, classification, and nested typed arrays', () => {
   const buffer = pointBuffer(4, {
     red: new Uint16Array(4),

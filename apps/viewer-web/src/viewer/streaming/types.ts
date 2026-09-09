@@ -2,7 +2,7 @@ import type {
   CopcHierarchyNode,
   GeographicCamera,
   GeographicPoint,
-  GeographicPointBuffer,
+  PreparedPointData,
 } from '../../copc/types/copc';
 import type { BoundingSphere, ViewFrustum } from './view';
 
@@ -145,8 +145,8 @@ export type StreamingReplacementGroup = {
 export type StreamingUpdateResult = {
   selectedNodeKeys: string[];
   removedNodeKeys: string[];
-  /** Prepared values are exposed through the compatibility flat view type. */
-  loadedNodePoints: Map<string, GeographicPointBuffer>;
+  /** Prepared values are shared by the cache and renderer adapters. */
+  loadedNodePoints: Map<string, PreparedPointData>;
   replacementGroups: StreamingReplacementGroup[];
   generation: number;
 };
@@ -154,8 +154,8 @@ export type StreamingUpdateResult = {
 export type StreamingProgress = {
   selectedNodeKeys: string[];
   removedNodeKeys: string[];
-  /** Prepared values are exposed through the compatibility flat view type. */
-  loadedNodePoints: Map<string, GeographicPointBuffer>;
+  /** Prepared values are shared by the cache and renderer adapters. */
+  loadedNodePoints: Map<string, PreparedPointData>;
   completedBatchPointCount: number;
   replacementGroups: StreamingReplacementGroup[];
   generation: number;

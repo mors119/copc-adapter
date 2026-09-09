@@ -13,8 +13,39 @@ import {
   getPointBufferRgbMax,
   renderCopcPoints,
 } from '../src/cesium/render/renderPoints.ts';
+import {
+  createCopcPointStyleState,
+  getDatasetElevationRange,
+} from '../src/point/style/pointStyle.ts';
 
 const elevationRange = { min: 100, max: 200 };
+
+test('dataset elevation range remains stable and honors vertical units', () => {
+  assert.deepEqual(
+    getDatasetElevationRange({
+      bounds: { minZ: 100, maxZ: 200 },
+      wkt: 'VERT_CS["test",UNIT["foot",0.3048]]',
+    }),
+    { min: 30.48, max: 60.96 },
+  );
+});
+
+test('prepared RGB statistics enter the layer-wide style state once', () => {
+  const state = createCopcPointStyleState();
+  const lowValueNode = {
+    pointCount: 1,
+    coordinates: new Float64Array([0, 0, 0]),
+    statistics: { rgbMax: 255 },
+  };
+  const highValueNode = {
+    pointCount: 1,
+    coordinates: new Float64Array([0, 0, 0]),
+    statistics: { rgbMax: 65535 },
+  };
+
+  assert.equal(state.getRgbMax(lowValueNode), 255);
+  assert.equal(state.getRgbMax(highValueNode), 255);
+});
 
 test('normalizeElevation maps and clamps heights to the configured range', () => {
   assert.equal(normalizeElevation(100, elevationRange), 0);

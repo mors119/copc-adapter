@@ -1,5 +1,9 @@
 import * as THREE from 'three';
-import type { CopcMetadata, GeographicPointBuffer } from '../../copc/types/copc';
+import type {
+  CopcMetadata,
+  GeographicPointBuffer,
+  PreparedPointData,
+} from '../../copc/types/copc';
 import { performanceNow } from '../../copc/performance';
 import { createPointTransformer } from '../../coordinates/transform/createPointTransformer';
 import {
@@ -229,7 +233,7 @@ export class ThreePointRenderer implements CopcPointRenderer {
 
   addOrUpdateNode(
     nodeKey: string,
-    points: GeographicPointBuffer,
+    points: GeographicPointBuffer | PreparedPointData,
     options: ThreePointRendererOptions,
   ): void {
     if (this.destroyed) {

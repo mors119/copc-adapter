@@ -1,7 +1,7 @@
 import * as Cesium from 'cesium';
 import type { CopcMetadata, CopcPointBuffer } from '../../copc/types/copc';
 import { performanceNow } from '../../copc/performance';
-import { transformPointBuffer } from '../../coordinates/transform/createPointTransformer';
+import { transformPointBufferToPreparedPointData } from '../../coordinates/transform/createPointTransformer';
 import {
   PointPrimitiveRenderer,
   type CesiumPointRenderer,
@@ -21,6 +21,7 @@ export type RendererPerformanceBenchmarkRow = {
   pointCount: number;
   crsTransform: BenchmarkRange;
   geographicToCartesian: BenchmarkRange;
+  worldToCartesian: BenchmarkRange;
   pointStylePreparation: BenchmarkRange;
   pointCollectionCreation: BenchmarkRange;
   pointAdd: BenchmarkRange;
@@ -159,7 +160,7 @@ export function runSyntheticRendererPerformanceBenchmark(
 
     for (let repetition = 0; repetition < warmups + repetitions; repetition += 1) {
       const crsStartedAt = performanceNow();
-      const geographicPoints = transformPointBuffer(SYNTHETIC_METADATA, points);
+      const preparedPoints = transformPointBufferToPreparedPointData(SYNTHETIC_METADATA, points);
       const crsDuration = performanceNow() - crsStartedAt;
       const firstStages: Partial<Record<BenchmarkStage, number[]>> = {};
       const renderer: CesiumPointRenderer = new PointPrimitiveRenderer();
@@ -167,7 +168,7 @@ export function runSyntheticRendererPerformanceBenchmark(
 
       renderer.addOrUpdateNode(
         'synthetic-node',
-        geographicPoints,
+        preparedPoints,
         rendererOptions(colorMode, firstStages),
       );
 
@@ -175,7 +176,7 @@ export function runSyntheticRendererPerformanceBenchmark(
       const replacementStages: Partial<Record<BenchmarkStage, number[]>> = {};
       renderer.addOrUpdateNode(
         'synthetic-node',
-        geographicPoints,
+        preparedPoints,
         rendererOptions(colorMode, replacementStages),
       );
       const replacementDuration = performanceNow() - replacementStartedAt;
@@ -207,6 +208,7 @@ export function runSyntheticRendererPerformanceBenchmark(
       pointCount,
       crsTransform: summarize(crsValues),
       geographicToCartesian: range('geographicToCartesian'),
+      worldToCartesian: range('worldToCartesian'),
       pointStylePreparation: range('pointStylePreparation'),
       pointCollectionCreation: range('pointCollectionCreation'),
       pointAdd: range('pointAdd'),

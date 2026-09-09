@@ -1,5 +1,8 @@
 import * as Cesium from 'cesium';
-import type { GeographicPoint, GeographicPointBuffer } from '../../copc/types/copc';
+import type {
+  GeographicPointBuffer,
+  PreparedPointData,
+} from '../../copc/types/copc';
 import { performanceNow } from '../../copc/performance';
 import type {
   CopcPointRenderer,
@@ -9,6 +12,7 @@ import { renderCopcPoints } from './renderPoints';
 
 export type CopcCesiumPointRendererPerformanceStage =
   | 'geographicToCartesian'
+  | 'worldToCartesian'
   | 'pointStylePreparation'
   | 'pointCollectionCreation'
   | 'pointAdd'
@@ -26,6 +30,8 @@ export type CopcCesiumPointRendererOptions = NeutralCopcPointRendererOptions & {
 /** @deprecated Use `CopcCesiumPointRendererPerformanceStage`. */
 export type CopcPointRendererPerformanceStage = CopcCesiumPointRendererPerformanceStage;
 
+type CesiumPointData = GeographicPointBuffer | PreparedPointData;
+
 /** @deprecated Use the renderer-neutral options from `viewer/streaming/renderer`. */
 export type { CopcPointRendererOptions } from '../../viewer/streaming/renderer';
 export type { CopcPointRenderer } from '../../viewer/streaming/renderer';
@@ -36,7 +42,7 @@ export interface CesiumPointRenderer extends CopcPointRenderer {
   detachFrom(): void;
   addOrUpdateNode(
     nodeKey: string,
-    points: GeographicPointBuffer,
+    points: CesiumPointData,
     options: CopcCesiumPointRendererOptions,
   ): void;
   getSelectionBoundingSphere(): Cesium.BoundingSphere | undefined;
@@ -66,7 +72,7 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
 
   addOrUpdateNode(
     nodeKey: string,
-    points: GeographicPointBuffer,
+    points: CesiumPointData,
     options: CopcCesiumPointRendererOptions,
   ): void {
     if (!this.viewer) {
@@ -151,24 +157,11 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
     }
 
     const positions = [...this.pointCollections.values()].flatMap((collection) => {
-      const points: GeographicPoint[] = [];
-
+      const values: Cesium.Cartesian3[] = [];
       for (let index = 0; index < collection.length; index += 1) {
-        const primitive = collection.get(index);
-        const cartographic = Cesium.Cartographic.fromCartesian(primitive.position);
-
-        points.push({
-          longitude: Cesium.Math.toDegrees(cartographic.longitude),
-          latitude: Cesium.Math.toDegrees(cartographic.latitude),
-          height: cartographic.height,
-        });
+        values.push(collection.get(index).position);
       }
-
-      return points.map((point) => Cesium.Cartesian3.fromDegrees(
-        point.longitude,
-        point.latitude,
-        point.height,
-      ));
+      return values;
     });
 
     return Cesium.BoundingSphere.fromPoints(positions);

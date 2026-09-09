@@ -19,11 +19,12 @@ import {
   type CopcPointInspection,
   type CopcPointPickId,
 } from '../copc/points/pointInspection';
-import type { CopcMetadata, GeographicPointBuffer } from '../copc/types/copc';
+import type { CopcMetadata, PreparedPointData } from '../copc/types/copc';
 import { extractHorizontalUnitScale } from '../coordinates/crs/parseCopcWkt';
 import { createPointTransformer } from '../coordinates/transform/createPointTransformer';
 import {
   createCopcPointStyleState,
+  getDatasetElevationRange,
 } from '../point/style/pointStyle';
 import {
   CopcStreamingCore,
@@ -123,6 +124,7 @@ function combinePerformance(
       ? (activeRenderedPointCount / configuredPointBudget) * 100
       : 0,
     geographicToCartesianDurationMs: rendererPerformance.geographicToCartesianDurationMs,
+    worldToCartesianDurationMs: rendererPerformance.worldToCartesianDurationMs,
     pointStylePreparationDurationMs: rendererPerformance.pointStylePreparationDurationMs,
     pointCollectionCreationDurationMs: rendererPerformance.pointCollectionCreationDurationMs,
     pointAddDurationMs: rendererPerformance.pointAddDurationMs,
@@ -201,6 +203,7 @@ export class CopcLayerController {
   private readonly pointRenderer: CesiumPointRenderer;
   private readonly pointStyleState = createCopcPointStyleState();
   private readonly rendererPerformance = new StreamingPerformanceRecorder();
+  private datasetElevationRange?: { min: number; max: number };
   private viewer?: Cesium.Viewer;
   private updateTimer?: number;
   private scheduledUpdateShouldInvalidate = false;
@@ -321,6 +324,10 @@ export class CopcLayerController {
         return;
       }
 
+      const metadata = this.core.getMetadata();
+      if (metadata) {
+        this.datasetElevationRange = getDatasetElevationRange(metadata);
+      }
       this.lifecycle = 'ready';
       this.debug('COPC metadata and hierarchy loaded');
       if (this.viewer) {
@@ -349,6 +356,7 @@ export class CopcLayerController {
     this.clearScheduledUpdate();
     this.updatePending = false;
     this.core.unload();
+    this.datasetElevationRange = undefined;
     this.pointRenderer.clear();
     this.pointStyleState.reset();
     this.resetReplacementTransitions();
@@ -613,11 +621,11 @@ export class CopcLayerController {
     this.updateTransitionDiagnostics();
   }
 
-  private addPointCollection(nodeKey: string, points: GeographicPointBuffer): void {
+  private addPointCollection(nodeKey: string, points: PreparedPointData): void {
     this.pointRenderer.addOrUpdateNode(nodeKey, points, {
       pointSize: this.options.pointSize ?? 3,
       colorMode: this.options.colorMode ?? 'fixed',
-      elevationRange: this.getDatasetElevationRange(),
+      elevationRange: this.datasetElevationRange,
       rgbMax: this.pointStyleState.getRgbMax(points),
       pointId: (pointIndex) => ({
         nodeKey,
@@ -627,15 +635,17 @@ export class CopcLayerController {
       onPerformance: (stage, durationMs) => {
         const metricStage = stage === 'geographicToCartesian'
           ? 'geographicToCartesianDurationMs'
-          : stage === 'pointStylePreparation'
-            ? 'pointStylePreparationDurationMs'
-            : stage === 'pointCollectionCreation'
-              ? 'pointCollectionCreationDurationMs'
-              : stage === 'pointAdd'
-                ? 'pointAddDurationMs'
-                : stage === 'rendererPreparation'
-                  ? 'rendererPreparationDurationMs'
-                  : 'nodeRemovalDurationMs';
+          : stage === 'worldToCartesian'
+            ? 'worldToCartesianDurationMs'
+            : stage === 'pointStylePreparation'
+              ? 'pointStylePreparationDurationMs'
+              : stage === 'pointCollectionCreation'
+                ? 'pointCollectionCreationDurationMs'
+                : stage === 'pointAdd'
+                  ? 'pointAddDurationMs'
+                  : stage === 'rendererPreparation'
+                    ? 'rendererPreparationDurationMs'
+                    : 'nodeRemovalDurationMs';
         this.rendererPerformance.recordStage(metricStage, durationMs, true);
       },
     });
@@ -848,21 +858,6 @@ export class CopcLayerController {
 
     this.selectedPointPickId = undefined;
     this.options.onPointPicked?.(undefined);
-  }
-
-  private getDatasetElevationRange(): { min: number; max: number } {
-    const metadata = this.core.getMetadata();
-    if (!metadata) {
-      return { min: 0, max: 0 };
-    }
-
-    const transformPoint = createPointTransformer(metadata);
-    const x = (metadata.bounds.minX + metadata.bounds.maxX) / 2;
-    const y = (metadata.bounds.minY + metadata.bounds.maxY) / 2;
-    return {
-      min: transformPoint({ x, y, z: metadata.bounds.minZ }).height,
-      max: transformPoint({ x, y, z: metadata.bounds.maxZ }).height,
-    };
   }
 
   private flyToDataset(metadata: CopcMetadata): void {
