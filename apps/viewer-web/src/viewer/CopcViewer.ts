@@ -24,6 +24,7 @@ import { extractHorizontalUnitScale } from '../coordinates/crs/parseCopcWkt';
 import { createPointTransformer } from '../coordinates/transform/createPointTransformer';
 import {
   createCopcPointStyleState,
+  getDatasetElevationRange,
 } from '../point/style/pointStyle';
 import {
   CopcStreamingCore,
@@ -202,6 +203,7 @@ export class CopcLayerController {
   private readonly pointRenderer: CesiumPointRenderer;
   private readonly pointStyleState = createCopcPointStyleState();
   private readonly rendererPerformance = new StreamingPerformanceRecorder();
+  private datasetElevationRange?: { min: number; max: number };
   private viewer?: Cesium.Viewer;
   private updateTimer?: number;
   private scheduledUpdateShouldInvalidate = false;
@@ -322,6 +324,10 @@ export class CopcLayerController {
         return;
       }
 
+      const metadata = this.core.getMetadata();
+      if (metadata) {
+        this.datasetElevationRange = getDatasetElevationRange(metadata);
+      }
       this.lifecycle = 'ready';
       this.debug('COPC metadata and hierarchy loaded');
       if (this.viewer) {
@@ -350,6 +356,7 @@ export class CopcLayerController {
     this.clearScheduledUpdate();
     this.updatePending = false;
     this.core.unload();
+    this.datasetElevationRange = undefined;
     this.pointRenderer.clear();
     this.pointStyleState.reset();
     this.resetReplacementTransitions();
@@ -618,8 +625,8 @@ export class CopcLayerController {
     this.pointRenderer.addOrUpdateNode(nodeKey, points, {
       pointSize: this.options.pointSize ?? 3,
       colorMode: this.options.colorMode ?? 'fixed',
-      elevationRange: points.statistics?.elevation,
-      rgbMax: points.statistics?.rgbMax ?? this.pointStyleState.getRgbMax(points),
+      elevationRange: this.datasetElevationRange,
+      rgbMax: this.pointStyleState.getRgbMax(points),
       pointId: (pointIndex) => ({
         nodeKey,
         pointIndex,

@@ -47,7 +47,10 @@ import {
   type ThreeViewportSource,
 } from '../three/view/ThreeViewAdapter';
 import type { CopcPointRenderer } from '../viewer/streaming/renderer';
-import { createCopcPointStyleState } from '../point/style/pointStyle';
+import {
+  createCopcPointStyleState,
+  getDatasetElevationRange,
+} from '../point/style/pointStyle';
 
 export type CopcThreeLayerOptions = {
   /** Browser-readable COPC resource URL with HTTP range-request support. */
@@ -241,6 +244,7 @@ export class CopcThreeLayer {
   private readonly options: CopcThreeLayerOptions;
   private readonly pointRenderer: CopcThreePointRenderer;
   private readonly pointStyleState = createCopcPointStyleState();
+  private datasetElevationRange?: { min: number; max: number };
   private readonly pickOwnerId = createPickOwnerId();
   private attachment?: CopcThreeLayerAttachment;
   private localFrame?: DatasetLocalFrame;
@@ -354,6 +358,7 @@ export class CopcThreeLayer {
         throw new Error('COPC layer loaded without metadata');
       }
       this.localFrame = createDatasetLocalFrame(metadata);
+      this.datasetElevationRange = getDatasetElevationRange(metadata);
       this.applyLocalFrame();
       this.lifecycle = 'ready';
       this.debug('COPC metadata and hierarchy loaded');
@@ -420,6 +425,7 @@ export class CopcThreeLayer {
     this.streamingGeneration += 1;
     this.updatePending = false;
     this.core.unload();
+    this.datasetElevationRange = undefined;
     this.pointRenderer.clear();
     this.pointStyleState.reset();
     this.resetReplacementTransitions();
@@ -686,8 +692,8 @@ export class CopcThreeLayer {
     this.pointRenderer.addOrUpdateNode(nodeKey, points, {
       pointSize: this.options.pointSize ?? 3,
       colorMode: this.options.colorMode ?? 'fixed',
-      elevationRange: points.statistics?.elevation,
-      rgbMax: points.statistics?.rgbMax ?? this.pointStyleState.getRgbMax(points),
+      elevationRange: this.datasetElevationRange,
+      rgbMax: this.pointStyleState.getRgbMax(points),
       pointId: (pointIndex) => ({
         nodeKey,
         pointIndex,

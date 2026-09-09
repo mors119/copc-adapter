@@ -1,5 +1,10 @@
 import type { CopcColorMode } from '../../copc/points/fieldSelection';
-import type { CopcPointAttributes, GeographicPointBuffer } from '../../copc/types/copc';
+import type {
+  CopcMetadata,
+  CopcPointAttributes,
+  GeographicPointBuffer,
+} from '../../copc/types/copc';
+import { extractVerticalUnitScale } from '../../coordinates/crs/parseCopcWkt';
 
 export type CopcValueRange = {
   min: number;
@@ -7,6 +12,20 @@ export type CopcValueRange = {
 };
 
 export type CopcElevationRange = CopcValueRange;
+
+/** Return the stable WGS84 elevation range represented by dataset metadata. */
+export function getDatasetElevationRange(metadata: CopcMetadata): CopcElevationRange {
+  const verticalUnitScale = metadata.wkt
+    ? extractVerticalUnitScale(metadata.wkt)
+    : 1;
+  const min = metadata.bounds.minZ * verticalUnitScale;
+  const max = metadata.bounds.maxZ * verticalUnitScale;
+
+  return {
+    min: Math.min(min, max),
+    max: Math.max(min, max),
+  };
+}
 
 /** A renderer-neutral color in the normalized [0, 1] range. */
 export type CopcNormalizedColor = {
