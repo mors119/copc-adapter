@@ -2,7 +2,9 @@ import { defineConfig } from '@playwright/test';
 import fs from 'node:fs';
 
 const systemChromium = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const devServerCommand = process.env.CI ? 'npm run dev:ci' : 'npm run dev';
+const devServerCommand = process.env.COPC_WASM_PREPARED === '1'
+  ? 'npm run dev:ci'
+  : 'npm run dev';
 
 export default defineConfig({
   testDir: './e2e',

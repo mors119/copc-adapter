@@ -245,8 +245,8 @@ impl CrsTransform {
         }
 
         let mut geographic = allocate_coordinate_buffer(source_coordinates.len(), "geographic")?;
-        for values in source_coordinates.chunks_exact(3) {
-            let point = self.transform_point([values[0], values[1], values[2]])?;
+        for &values in source_coordinates.as_chunks::<3>().0 {
+            let point = self.transform_point(values)?;
             geographic.extend([point.longitude, point.latitude, point.height]);
         }
         Ok(geographic)
@@ -267,8 +267,8 @@ impl CrsTransform {
 
         let mut geographic = allocate_coordinate_buffer(source_coordinates.len(), "geographic")?;
         let mut ecef = allocate_coordinate_buffer(source_coordinates.len(), "ECEF")?;
-        for values in source_coordinates.chunks_exact(3) {
-            let point = self.transform_point([values[0], values[1], values[2]])?;
+        for &values in source_coordinates.as_chunks::<3>().0 {
+            let point = self.transform_point(values)?;
             let world = geographic_to_ecef(point)?;
             geographic.extend([point.longitude, point.latitude, point.height]);
             ecef.extend([world.x, world.y, world.z]);
@@ -326,7 +326,7 @@ pub fn geographic_buffer_to_ecef(geographic_coordinates: &[f64]) -> Result<Vec<f
     }
 
     let mut ecef = allocate_coordinate_buffer(geographic_coordinates.len(), "ECEF")?;
-    for values in geographic_coordinates.chunks_exact(3) {
+    for &values in geographic_coordinates.as_chunks::<3>().0 {
         let point = geographic_to_ecef(GeographicPoint {
             longitude: values[0],
             latitude: values[1],

@@ -79,6 +79,8 @@ jobs:
         run: npx --prefix apps/viewer-web playwright install --with-deps chromium
 
       - name: Run browser E2E regression gate
+        env:
+          COPC_WASM_PREPARED: '1'
         run: npm --prefix apps/viewer-web run test:e2e
 
       - name: Build and pack one library candidate
