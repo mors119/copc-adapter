@@ -120,10 +120,8 @@ impl CopcNodePreparer {
         let mut intensity = None;
         let mut rgb_value_max = None;
 
-        for (index, values) in decoded.coordinates.chunks_exact(3).enumerate() {
-            let geographic = self
-                .transform
-                .transform_point([values[0], values[1], values[2]])?;
+        for (index, &values) in decoded.coordinates.as_chunks::<3>().0.iter().enumerate() {
+            let geographic = self.transform.transform_point(values)?;
             let ecef = geographic_to_ecef(geographic)?;
             geographic_coordinates.extend([
                 geographic.longitude,

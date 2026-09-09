@@ -62,26 +62,37 @@ function assertIncluded(entries, entry) {
 }
 
 try {
-  console.log('Building Rust/WASM and the library package...');
-  await run(npmCommand(), ['run', 'build:library'], {
-    cwd: packageDirectory,
-    stdio: 'inherit',
-  });
+  let packagePath;
+  if (process.argv[2]) {
+    packagePath = path.resolve(process.argv[2]);
+    if (!existsSync(packagePath)) {
+      throw new Error(`Supplied adapter tarball does not exist: ${packagePath}`);
+    }
+    console.log(`Using supplied adapter tarball: ${path.basename(packagePath)}`);
+  } else {
+    console.log('Building Rust/WASM and the library package...');
+    await run(npmCommand(), ['run', 'build:library'], {
+      cwd: packageDirectory,
+      stdio: 'inherit',
+    });
 
-  console.log('Packing the freshly built library package...');
-  await run(
-    npmCommand(),
-    ['pack', '--ignore-scripts', '--pack-destination', packageOutputDirectory],
-    { cwd: packageDirectory },
-  );
-  const packedFilename = (await readdir(packageOutputDirectory)).find((entry) =>
-    entry.endsWith('.tgz'),
-  );
+    console.log('Packing the freshly built library package...');
+    await run(
+      npmCommand(),
+      ['pack', '--ignore-scripts', '--pack-destination', packageOutputDirectory],
+      { cwd: packageDirectory },
+    );
+    const packedFilenames = (await readdir(packageOutputDirectory)).filter((entry) =>
+      entry.endsWith('.tgz'),
+    );
 
-  if (!packedFilename) {
-    throw new Error('npm pack did not produce an adapter tarball');
+    if (packedFilenames.length !== 1) {
+      throw new Error(
+        `Expected npm pack to produce one adapter tarball, found ${packedFilenames.length}`,
+      );
+    }
+    packagePath = path.resolve(packageOutputDirectory, packedFilenames[0]);
   }
-  const packagePath = path.resolve(packageOutputDirectory, packedFilename);
 
   const tarResult = await run('tar', ['-tzf', packagePath]);
   const entries = new Set(tarResult.stdout.trim().split('\n').filter(Boolean));

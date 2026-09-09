@@ -7,8 +7,31 @@ on:
       - main
 
 jobs:
+  rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run native Rust tests
+        run: cargo test --workspace
+
+      - name: Run Rust Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
   viewer-web:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
 
     steps:
       - name: Check out repository
@@ -34,35 +57,53 @@ jobs:
       - name: Install viewer dependencies
         run: npm ci --prefix apps/viewer-web
 
-      - name: Install Chromium for browser validation
-        run: npx --prefix apps/viewer-web playwright install --with-deps chromium
+      - name: Check repository diff
+        run: git diff --check
+
+      - name: Type check viewer
+        run: npm --prefix apps/viewer-web run typecheck
+
+      - name: Prepare Rust/WASM asset
+        run: npm --prefix apps/viewer-web run prepare-copc-wasm
 
       - name: Download sample dataset
         run: npm run download-samples -- autzen
 
-      - name: Type check
-        run: npm --prefix apps/viewer-web run typecheck
-
-      - name: Run tests
-        run: npm --prefix apps/viewer-web test
-
-      - name: Run backend conformance unit suite
-        run: npm --prefix apps/viewer-web run test:conformance:unit
-
-      - name: Run backend conformance integration suite
-        run: npm --prefix apps/viewer-web run test:conformance:integration
-
-      - name: Generate coverage
-        run: npm --prefix apps/viewer-web run coverage
+      - name: Run full Node suite with coverage
+        run: npm --prefix apps/viewer-web run coverage:raw
 
       - name: Build production bundle
-        run: npm --prefix apps/viewer-web run build
+        run: npm --prefix apps/viewer-web run build:ci
+
+      - name: Install Chromium for browser validation
+        run: npx --prefix apps/viewer-web playwright install --with-deps chromium
 
       - name: Run browser E2E regression gate
+        env:
+          COPC_WASM_PREPARED: '1'
         run: npm --prefix apps/viewer-web run test:e2e
 
-      - name: Run packed artifact smoke test
-        run: npm run test:pack
+      - name: Build and pack one library candidate
+        run: |
+          rm -rf .ci-artifacts
+          mkdir -p .ci-artifacts
+          npm --prefix apps/viewer-web run build:library:ci
+          npm pack ./apps/viewer-web --ignore-scripts --pack-destination .ci-artifacts
+
+          candidates=()
+          while IFS= read -r candidate; do
+            candidates+=("$candidate")
+          done < <(find .ci-artifacts -maxdepth 1 -type f -name '*.tgz' -print)
+
+          if [ "${#candidates[@]}" -ne 1 ]; then
+            printf 'Expected exactly one candidate tarball, found %s\n' "${#candidates[@]}"
+            exit 1
+          fi
+
+          printf 'PACKAGE_CANDIDATE=%s\n' "${candidates[0]}" >> "$GITHUB_ENV"
+
+      - name: Run packed Cesium consumer validation
+        run: node scripts/pack-smoke-test.mjs "$PACKAGE_CANDIDATE"
 
       - name: Run packed Three.js artifact smoke test
-        run: npm run test:pack:three
+        run: node scripts/pack-three-smoke-test.mjs "$PACKAGE_CANDIDATE"

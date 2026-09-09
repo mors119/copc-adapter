@@ -84,7 +84,9 @@ pub fn transform_fixture(fixture: &Fixture) -> Result<(String, Vec<GeographicPoi
         .transform_buffer(&source_coordinates)
         .map_err(|error| error.to_string())?;
     let points = geographic
-        .chunks_exact(3)
+        .as_chunks::<3>()
+        .0
+        .iter()
         .map(|values| GeographicPoint {
             longitude: values[0],
             latitude: values[1],
