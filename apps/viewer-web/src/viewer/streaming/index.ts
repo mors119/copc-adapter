@@ -58,6 +58,7 @@ export type {
   StreamingView,
   StreamingHierarchy,
   StreamingHierarchyNode,
+  StreamingSelectedNode,
   StreamingLevelRange,
   StreamingSelectionMetrics,
   StreamingSelectionOptions,

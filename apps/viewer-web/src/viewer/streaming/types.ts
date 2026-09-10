@@ -81,6 +81,23 @@ export type StreamingHierarchyNode = {
   boundingSphere?: BoundingSphere;
 };
 
+/**
+ * A selected node with the priority computed by the renderer-neutral
+ * selector. The hierarchy-node shape is preserved so existing consumers can
+ * continue to read `node.node`, while downstream work can keep the exact
+ * visual priority that produced the frontier order.
+ */
+export type StreamingSelectedNode = StreamingHierarchyNode & {
+  /** Deterministic work-order score; larger values are scheduled first. */
+  priority: number;
+  /** Raw screen-space error before bounded visual influence is applied. */
+  rawScreenSpaceError: number;
+  /** Screen-space error after bounded centre/focus influence is applied. */
+  effectiveScreenSpaceError: number;
+  /** Bounded screen-centre relevance used by the selector, in [0, 1]. */
+  centerWeight: number;
+};
+
 export type StreamingSelectionMetrics = {
   candidatesBeforeCulling: number;
   frustumCulledCount: number;

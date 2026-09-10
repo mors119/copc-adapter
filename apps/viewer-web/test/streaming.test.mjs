@@ -966,6 +966,28 @@ function createGazeRefinementHierarchy() {
   ]);
 }
 
+function createFinalPriorityHierarchy({
+  peripheralGeometricError = 10,
+  centreGeometricError = 10,
+} = {}) {
+  const peripheral = createFrustumNode('0-a-peripheral', {
+    center: { x: 1.5, y: 0, z: 5 },
+    radiusMeters: 0.1,
+  });
+  peripheral.geometricErrorMeters = peripheralGeometricError;
+
+  const centre = createFrustumNode('0-z-centre', {
+    center: { x: 0, y: 0, z: 5 },
+    radiusMeters: 0.1,
+  });
+  centre.geometricErrorMeters = centreGeometricError;
+
+  return new Map([
+    [peripheral.node.key, peripheral],
+    [centre.node.key, centre],
+  ]);
+}
+
 function createThresholdHierarchy(desiredSse, camera) {
   const root = createWorkNode('0-threshold-root', 100, 0);
   root.children = ['1-threshold-child'];
@@ -1027,7 +1049,51 @@ test('NodeSelector responds to orientation with an unchanged camera position', (
   );
 });
 
-test('gaze priority lets a centre candidate beat a modestly stronger peripheral candidate', () => {
+test('NodeSelector preserves centre priority through the final work order', () => {
+  const selector = createSelector({ maxNodes: 2, maxRenderedPoints: 2 });
+  const camera = createProjectionCamera({ height: 1000 });
+  const hierarchy = createFinalPriorityHierarchy();
+  const selected = selector.selectVisibleNodes(camera, hierarchy);
+
+  assert.deepEqual(
+    selected.map((node) => node.node.key),
+    ['0-z-centre', '0-a-peripheral'],
+  );
+  assert.ok(selected[0].centerWeight > selected[1].centerWeight);
+  assert.ok(selected[0].effectiveScreenSpaceError > selected[1].effectiveScreenSpaceError);
+  assert.equal(selected[0].priority, selected[0].effectiveScreenSpaceError);
+  assert.equal(selected[0].rawScreenSpaceError, selected[1].rawScreenSpaceError);
+  assert.ok(compareNodePriority(camera, selected[0], selected[1]) > 0);
+
+  assert.deepEqual(
+    createStreamingWorkBatches(selected, 1)
+      .flatMap((batch) => batch.nodes.map((node) => node.node.key)),
+    ['0-z-centre', '0-a-peripheral'],
+  );
+  assert.equal(selector.getSelectionMetrics().frontierNodeCount, 2);
+  assert.equal(selector.getSelectionMetrics().frontierPointCount, 2);
+});
+
+test('raw SSE still outranks a modest centre priority in final work order', () => {
+  const selector = createSelector({ maxNodes: 2, maxRenderedPoints: 2 });
+  const selected = selector.selectVisibleNodes(
+    createProjectionCamera({ height: 1000 }),
+    createFinalPriorityHierarchy({
+      peripheralGeometricError: 100,
+      centreGeometricError: 16,
+    }),
+  );
+
+  assert.deepEqual(
+    selected.map((node) => node.node.key),
+    ['0-a-peripheral', '0-z-centre'],
+  );
+  assert.ok(selected[0].rawScreenSpaceError > selected[1].rawScreenSpaceError);
+  assert.ok(selected[0].priority > selected[1].priority);
+  assert.ok(selected.reduce((total, node) => total + node.node.pointCount, 0) <= 2);
+});
+
+test('gaze priority refines a centre candidate before a modestly stronger peripheral candidate', () => {
   const selector = createSelector({
     maxNodes: 3,
     maxRenderedPoints: 10,
@@ -1041,7 +1107,7 @@ test('gaze priority lets a centre candidate beat a modestly stronger peripheral 
 
   assert.deepEqual(
     selected.map((node) => node.node.key),
-    ['1-centre-0', '1-centre-1', '0-peripheral'],
+    ['0-peripheral', '1-centre-0', '1-centre-1'],
   );
   assert.equal(selector.getSelectionMetrics().acceptedRefinementCount, 1);
   assert.equal(selector.getSelectionMetrics().candidatesWithCenterBoostCount, 2);
@@ -1160,7 +1226,7 @@ test('refinement influence is finite, monotonic, and globally bounded', () => {
   assert.equal(huge.wasClamped, true);
 });
 
-test('a very large peripheral SSE still beats a low-error centre candidate', () => {
+test('a very large peripheral SSE still wins refinement competition', () => {
   const selector = createSelector({
     maxNodes: 3,
     maxRenderedPoints: 10,
@@ -1178,7 +1244,7 @@ test('a very large peripheral SSE still beats a low-error centre candidate', () 
 
   assert.deepEqual(
     selected.map((node) => node.node.key),
-    ['1-peripheral-0', '1-peripheral-1', '0-centre'],
+    ['0-centre', '1-peripheral-0', '1-peripheral-1'],
   );
 });
 

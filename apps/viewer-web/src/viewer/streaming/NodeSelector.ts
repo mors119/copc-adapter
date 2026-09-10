@@ -1,5 +1,9 @@
 import { intersectsViewFrustum } from './view';
-import type { StreamingHierarchyNode, StreamingSelectionMetrics } from './types';
+import type {
+  StreamingHierarchyNode,
+  StreamingSelectedNode,
+  StreamingSelectionMetrics,
+} from './types';
 import type {
   StreamingCameraState,
   StreamingHierarchy,
@@ -388,6 +392,16 @@ function compareBudgetPriority(
     || left.node.node.key.localeCompare(right.node.node.key);
 }
 
+function toSelectedNode(candidate: PrioritisedNode): StreamingSelectedNode {
+  return {
+    ...candidate.node,
+    priority: candidate.priority,
+    rawScreenSpaceError: candidate.screenSpaceErrorPixels,
+    effectiveScreenSpaceError: candidate.influence.effectiveScreenSpaceError,
+    centerWeight: candidate.centerWeight,
+  };
+}
+
 type RefinementCandidate = PrioritisedNode & {
   replacement: StreamingHierarchyNode[];
   replacementPointCost: number;
@@ -474,7 +488,7 @@ export class NodeSelector {
     camera: StreamingCameraState,
     hierarchy: StreamingHierarchy,
     context: StreamingSelectionContext = {},
-  ): StreamingHierarchyNode[] {
+  ): StreamingSelectedNode[] {
     const maxScreenSpaceError = this.options.maxScreenSpaceError
       ?? DEFAULT_MAX_SCREEN_SPACE_ERROR;
     const budget = this.options.maxRenderedPoints ?? DEFAULT_MAX_RENDERED_POINTS;
@@ -800,7 +814,9 @@ export class NodeSelector {
       }
 
       const selected = [...frontier.values()]
-        .sort((left, right) => compareNodePriority(camera, left, right));
+        .map(toPrioritised)
+        .sort(compareBudgetPriority)
+        .map(toSelectedNode);
 
       // A refinement can reduce the workload of an initially oversized
       // frontier (for example, a 100-point parent replaced by two 20-point
@@ -812,7 +828,7 @@ export class NodeSelector {
         (frontier.size > this.options.maxNodes || frontierPointCount > budget)
         && (exceedsNodeBudget || exceedsPointBudget)
       ) {
-        const accepted: StreamingHierarchyNode[] = [];
+        const accepted: PrioritisedNode[] = [];
         let acceptedPointCount = 0;
         for (const candidate of initialFrontier
           .map(toPrioritised)
@@ -820,7 +836,7 @@ export class NodeSelector {
           const canFitNodeBudget = accepted.length < this.options.maxNodes;
           const canFitPointBudget = candidate.pointCost <= budget - acceptedPointCount;
           if (canFitNodeBudget && canFitPointBudget) {
-            accepted.push(candidate.node);
+            accepted.push(candidate);
             acceptedPointCount += candidate.pointCost;
           } else {
             this.lastSelectionMetrics.deferredNodeCount += 1;
@@ -829,8 +845,11 @@ export class NodeSelector {
           }
         }
 
-        this.recordFrontierMetrics(accepted, initialPointCount, acceptedPointCount);
-        return accepted.sort((left, right) => compareNodePriority(camera, left, right));
+        const selected = accepted
+          .sort(compareBudgetPriority)
+          .map(toSelectedNode);
+        this.recordFrontierMetrics(selected, initialPointCount, acceptedPointCount);
+        return selected;
       }
 
       this.recordFrontierMetrics(selected, initialPointCount, frontierPointCount);
@@ -850,8 +869,12 @@ export class NodeSelector {
       }
     }
 
-    this.recordFrontierMetrics(initialFrontier, initialPointCount, initialPointCount);
-    return initialFrontier.sort((left, right) => compareNodePriority(camera, left, right));
+    const selected = initialFrontier
+      .map(toPrioritised)
+      .sort(compareBudgetPriority)
+      .map(toSelectedNode);
+    this.recordFrontierMetrics(selected, initialPointCount, initialPointCount);
+    return selected;
   }
 
   private recordFrontierMetrics(

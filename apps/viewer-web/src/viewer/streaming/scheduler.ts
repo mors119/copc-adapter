@@ -1,20 +1,20 @@
 import type { StreamingHierarchyNode } from './types';
 
-export type StreamingWorkBatch = {
-  nodes: StreamingHierarchyNode[];
+export type StreamingWorkBatch<TNode extends StreamingHierarchyNode = StreamingHierarchyNode> = {
+  nodes: TNode[];
   estimatedPointCount: number;
 };
 
 /** Partition prioritised work before range/decode work starts. */
-export function createStreamingWorkBatches(
-  nodes: readonly StreamingHierarchyNode[],
+export function createStreamingWorkBatches<TNode extends StreamingHierarchyNode>(
+  nodes: readonly TNode[],
   maxPointsPerBatch: number,
-): StreamingWorkBatch[] {
+): StreamingWorkBatch<TNode>[] {
   const boundedPointLimit = Number.isFinite(maxPointsPerBatch) && maxPointsPerBatch > 0
     ? maxPointsPerBatch
     : Number.POSITIVE_INFINITY;
-  const batches: StreamingWorkBatch[] = [];
-  let currentNodes: StreamingHierarchyNode[] = [];
+  const batches: StreamingWorkBatch<TNode>[] = [];
+  let currentNodes: TNode[] = [];
   let currentPointCount = 0;
 
   for (const node of nodes) {
