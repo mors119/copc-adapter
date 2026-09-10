@@ -131,12 +131,23 @@ export type CopcStreamingPerformanceSnapshot = Pick<
   | 'maxConcurrentNodeLoads'
   | 'queuedNodeCount'
   | 'activeNodeCount'
+  | 'queuedHighPriorityNodeCount'
+  | 'activeHighPriorityNodeCount'
   | 'completedNodeCount'
   | 'cancelledNodeCount'
   | 'peakActiveNodeCount'
+  | 'completedSchedulingPriorityMin'
+  | 'completedSchedulingPriorityMax'
+  | 'pendingSchedulingPriorityMin'
+  | 'pendingSchedulingPriorityMax'
+  | 'firstHighPriorityNodeStartLatencyMs'
   | 'firstHighPriorityNodeReadyLatencyMs'
   | 'centerWeightMin'
   | 'centerWeightMax'
+  | 'refinementCenterWeightMin'
+  | 'refinementCenterWeightMax'
+  | 'schedulingCenterWeightMin'
+  | 'schedulingCenterWeightMax'
   | 'detailBiasMin'
   | 'detailBiasMax'
   | 'candidatesWithNonZeroInfluenceCount'
@@ -144,6 +155,10 @@ export type CopcStreamingPerformanceSnapshot = Pick<
   | 'influenceClampCount'
   | 'acceptedRefinementPriorityMin'
   | 'acceptedRefinementPriorityMax'
+  | 'refinementPriorityMin'
+  | 'refinementPriorityMax'
+  | 'schedulingPriorityMin'
+  | 'schedulingPriorityMax'
   | 'candidatesWithCenterBoostCount'
   | 'hysteresisHoldCount'
   | 'refineDecisionCount'
@@ -745,10 +760,27 @@ export class CopcStreamingCore {
           maxConcurrentNodeLoads: snapshot.maxConcurrentNodeLoads,
           queuedNodeCount: snapshot.queuedNodeCount,
           activeNodeCount: snapshot.activeNodeCount,
+          queuedHighPriorityNodeCount: snapshot.queuedHighPriorityNodeCount,
+          activeHighPriorityNodeCount: snapshot.activeHighPriorityNodeCount,
           completedNodeCount: snapshot.completedNodeCount,
           cancelledNodeCount: snapshot.cancelledNodeCount,
           peakActiveNodeCount: snapshot.peakActiveNodeCount,
+          ...(snapshot.completedSchedulingPriorityMin === undefined
+            ? {}
+            : { completedSchedulingPriorityMin: snapshot.completedSchedulingPriorityMin }),
+          ...(snapshot.completedSchedulingPriorityMax === undefined
+            ? {}
+            : { completedSchedulingPriorityMax: snapshot.completedSchedulingPriorityMax }),
+          ...(snapshot.pendingSchedulingPriorityMin === undefined
+            ? {}
+            : { pendingSchedulingPriorityMin: snapshot.pendingSchedulingPriorityMin }),
+          ...(snapshot.pendingSchedulingPriorityMax === undefined
+            ? {}
+            : { pendingSchedulingPriorityMax: snapshot.pendingSchedulingPriorityMax }),
         }),
+      ...(snapshot.firstHighPriorityNodeStartLatencyMs === undefined
+        ? {}
+        : { firstHighPriorityNodeStartLatencyMs: snapshot.firstHighPriorityNodeStartLatencyMs }),
       ...(snapshot.firstHighPriorityNodeReadyLatencyMs === undefined
         ? {}
         : { firstHighPriorityNodeReadyLatencyMs: snapshot.firstHighPriorityNodeReadyLatencyMs }),
@@ -784,6 +816,18 @@ export class CopcStreamingCore {
       ...(snapshot.centerWeightMax === undefined
         ? {}
         : { centerWeightMax: snapshot.centerWeightMax }),
+      ...(snapshot.refinementCenterWeightMin === undefined
+        ? {}
+        : { refinementCenterWeightMin: snapshot.refinementCenterWeightMin }),
+      ...(snapshot.refinementCenterWeightMax === undefined
+        ? {}
+        : { refinementCenterWeightMax: snapshot.refinementCenterWeightMax }),
+      ...(snapshot.schedulingCenterWeightMin === undefined
+        ? {}
+        : { schedulingCenterWeightMin: snapshot.schedulingCenterWeightMin }),
+      ...(snapshot.schedulingCenterWeightMax === undefined
+        ? {}
+        : { schedulingCenterWeightMax: snapshot.schedulingCenterWeightMax }),
       ...(snapshot.detailBiasMin === undefined
         ? {}
         : { detailBiasMin: snapshot.detailBiasMin }),
@@ -805,6 +849,18 @@ export class CopcStreamingCore {
       ...(snapshot.acceptedRefinementPriorityMax === undefined
         ? {}
         : { acceptedRefinementPriorityMax: snapshot.acceptedRefinementPriorityMax }),
+      ...(snapshot.refinementPriorityMin === undefined
+        ? {}
+        : { refinementPriorityMin: snapshot.refinementPriorityMin }),
+      ...(snapshot.refinementPriorityMax === undefined
+        ? {}
+        : { refinementPriorityMax: snapshot.refinementPriorityMax }),
+      ...(snapshot.schedulingPriorityMin === undefined
+        ? {}
+        : { schedulingPriorityMin: snapshot.schedulingPriorityMin }),
+      ...(snapshot.schedulingPriorityMax === undefined
+        ? {}
+        : { schedulingPriorityMax: snapshot.schedulingPriorityMax }),
       ...(snapshot.candidatesWithCenterBoostCount === undefined
         ? {}
         : { candidatesWithCenterBoostCount: snapshot.candidatesWithCenterBoostCount }),

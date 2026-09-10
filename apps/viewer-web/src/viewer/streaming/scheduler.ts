@@ -115,6 +115,10 @@ export function createStreamingWorkBatches<TNode extends StreamingHierarchyNode>
 export type StreamingWorkSchedulerOptions<TNode, TResult> = {
   maxConcurrentNodeLoads: number;
   load: (node: TNode) => Promise<TResult>;
+  /** Precomputed scheduling score used only for aggregate diagnostics. */
+  getPriority?: (node: TNode) => number;
+  /** Identifies the bounded top-priority cohort for queue diagnostics. */
+  isHighPriority?: (node: TNode) => boolean;
   /** Optional manager-scoped limiter shared by overlapping generations. */
   workLimiter?: StreamingWorkConcurrencyLimiter;
   /** A resolved cache entry can be completed without consuming a work slot. */
@@ -169,15 +173,60 @@ export async function runBoundedPriorityWork<TNode, TResult>(
   let completedNodeCount = 0;
   let cancelledNodeCount = 0;
   let peakActiveNodeCount = 0;
+  let completedSchedulingPriorityMin: number | undefined;
+  let completedSchedulingPriorityMax: number | undefined;
 
-  const getDiagnostics = (): StreamingWorkSchedulerDiagnostics => ({
-    maxConcurrentNodeLoads,
-    queuedNodeCount: pending.length,
-    activeNodeCount: active.size,
-    completedNodeCount,
-    cancelledNodeCount,
-    peakActiveNodeCount,
-  });
+  const getPriority = (node: TNode): number | undefined => {
+    const priority = options.getPriority?.(node);
+    return priority !== undefined && Number.isFinite(priority) ? priority : undefined;
+  };
+
+  const getPriorityRange = (nodes: Iterable<TNode>): {
+    min?: number;
+    max?: number;
+  } => {
+    let min: number | undefined;
+    let max: number | undefined;
+    for (const node of nodes) {
+      const priority = getPriority(node);
+      if (priority === undefined) {
+        continue;
+      }
+      min = Math.min(min ?? Number.POSITIVE_INFINITY, priority);
+      max = Math.max(max ?? Number.NEGATIVE_INFINITY, priority);
+    }
+    return { min, max };
+  };
+
+  const getDiagnostics = (): StreamingWorkSchedulerDiagnostics => {
+    const pendingPriorityRange = getPriorityRange(pending);
+    return {
+      maxConcurrentNodeLoads,
+      queuedNodeCount: pending.length,
+      activeNodeCount: active.size,
+      queuedHighPriorityNodeCount: pending.filter(
+        (node) => options.isHighPriority?.(node) === true,
+      ).length,
+      activeHighPriorityNodeCount: [...active]
+        .filter((work) => options.isHighPriority?.(work.node) === true)
+        .length,
+      completedNodeCount,
+      cancelledNodeCount,
+      peakActiveNodeCount,
+      ...(completedSchedulingPriorityMin === undefined
+        ? {}
+        : { completedSchedulingPriorityMin }),
+      ...(completedSchedulingPriorityMax === undefined
+        ? {}
+        : { completedSchedulingPriorityMax }),
+      ...(pendingPriorityRange.min === undefined
+        ? {}
+        : { pendingSchedulingPriorityMin: pendingPriorityRange.min }),
+      ...(pendingPriorityRange.max === undefined
+        ? {}
+        : { pendingSchedulingPriorityMax: pendingPriorityRange.max }),
+    };
+  };
   const reportDiagnostics = (): void => {
     options.onDiagnostics?.(getDiagnostics());
   };
@@ -211,6 +260,17 @@ export async function runBoundedPriorityWork<TNode, TResult>(
   ): Promise<void> => {
     const settled = await promise;
     completedNodeCount += 1;
+    const priority = getPriority(node);
+    if (priority !== undefined) {
+      completedSchedulingPriorityMin = Math.min(
+        completedSchedulingPriorityMin ?? Number.POSITIVE_INFINITY,
+        priority,
+      );
+      completedSchedulingPriorityMax = Math.max(
+        completedSchedulingPriorityMax ?? Number.NEGATIVE_INFINITY,
+        priority,
+      );
+    }
     reportDiagnostics();
     if (!settled.ok) {
       throw settled.error;
@@ -304,6 +364,17 @@ export async function runBoundedPriorityWork<TNode, TResult>(
     );
     active.delete(settledWork.work);
     completedNodeCount += 1;
+    const priority = getPriority(settledWork.work.node);
+    if (priority !== undefined) {
+      completedSchedulingPriorityMin = Math.min(
+        completedSchedulingPriorityMin ?? Number.POSITIVE_INFINITY,
+        priority,
+      );
+      completedSchedulingPriorityMax = Math.max(
+        completedSchedulingPriorityMax ?? Number.NEGATIVE_INFINITY,
+        priority,
+      );
+    }
     reportDiagnostics();
     if (!settledWork.settled.ok) {
       throw settledWork.settled.error;

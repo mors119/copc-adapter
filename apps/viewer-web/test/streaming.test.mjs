@@ -7,9 +7,11 @@ import {
   calculateBoundsDistanceMeters,
   calculateDistanceMeters,
   calculateGazeCenterWeight,
+  calculateSchedulingCenterWeight,
   compareNodePriority,
   calculateScreenSpaceErrorPixels,
   DEFAULT_CENTER_PRIORITY_BOOST,
+  DEFAULT_MAX_SCHEDULING_CENTER_BOOST,
   NodeSelector,
 } from '../src/viewer/streaming/NodeSelector.ts';
 import {
@@ -193,6 +195,8 @@ test('StreamingManager starts selected work in priority order with bounded concu
   assert.deepEqual(starts, ['0-a-priority', '0-b-next']);
   assert.equal(peakActive, 2);
   assert.equal(manager.getPerformanceSnapshot().peakActiveNodeCount, 2);
+  assert.equal(manager.getPerformanceSnapshot().activeHighPriorityNodeCount, 1);
+  assert.ok(manager.getPerformanceSnapshot().firstHighPriorityNodeStartLatencyMs >= 0);
 
   resolvers.get('0-a-priority')();
   await waitFor(() => starts.length === 3 && progress.some((entry) => entry.loadedNodePoints.size > 0));
@@ -213,6 +217,10 @@ test('StreamingManager starts selected work in priority order with bounded concu
   assert.equal(manager.getPerformanceSnapshot().queuedNodeCount, 0);
   assert.equal(manager.getPerformanceSnapshot().completedNodeCount, 3);
   assert.equal(manager.getPerformanceSnapshot().peakActiveNodeCount, 2);
+  assert.equal(manager.getPerformanceSnapshot().queuedHighPriorityNodeCount, 0);
+  assert.equal(manager.getPerformanceSnapshot().activeHighPriorityNodeCount, 0);
+  assert.ok(Number.isFinite(manager.getPerformanceSnapshot().completedSchedulingPriorityMin));
+  assert.ok(Number.isFinite(manager.getPerformanceSnapshot().completedSchedulingPriorityMax));
 });
 
 test('StreamingManager emits a completion before a slower sibling resolves', async () => {
@@ -1359,7 +1367,9 @@ test('NodeSelector preserves centre priority through the final work order', () =
   );
   assert.ok(selected[0].centerWeight > selected[1].centerWeight);
   assert.ok(selected[0].effectiveScreenSpaceError > selected[1].effectiveScreenSpaceError);
-  assert.equal(selected[0].priority, selected[0].effectiveScreenSpaceError);
+  assert.equal(selected[0].refinementPriority, selected[0].effectiveScreenSpaceError);
+  assert.equal(selected[0].priority, selected[0].schedulingPriority);
+  assert.ok(selected[0].schedulingPriority > selected[1].schedulingPriority);
   assert.equal(selected[0].rawScreenSpaceError, selected[1].rawScreenSpaceError);
   assert.ok(compareNodePriority(camera, selected[0], selected[1]) > 0);
 
@@ -1370,6 +1380,37 @@ test('NodeSelector preserves centre priority through the final work order', () =
   );
   assert.equal(selector.getSelectionMetrics().frontierNodeCount, 2);
   assert.equal(selector.getSelectionMetrics().frontierPointCount, 2);
+});
+
+test('sharp scheduling relevance separates broad refinement influence from work order', () => {
+  const selector = createSelector({ maxNodes: 2, maxRenderedPoints: 2 });
+  const camera = createProjectionCamera({ height: 1000 });
+  const hierarchy = createFinalPriorityHierarchy();
+  for (const node of hierarchy.values()) {
+    node.boundingSphere.radiusMeters = 2.5;
+  }
+  hierarchy.get('0-a-peripheral').boundingSphere.center.x = 1.5;
+  hierarchy.get('0-z-centre').boundingSphere.center.x = 0.4;
+
+  const selected = selector.selectVisibleNodes(camera, hierarchy);
+  const centre = selected.find((node) => node.node.key === '0-z-centre');
+  const peripheral = selected.find((node) => node.node.key === '0-a-peripheral');
+  assert.ok(centre);
+  assert.ok(peripheral);
+
+  assert.equal(calculateGazeCenterWeight(camera, centre), 1);
+  assert.equal(calculateGazeCenterWeight(camera, peripheral), 1);
+  assert.ok(calculateSchedulingCenterWeight(camera, centre)
+    > calculateSchedulingCenterWeight(camera, peripheral));
+  assert.deepEqual(
+    selected.map((node) => node.node.key),
+    ['0-z-centre', '0-a-peripheral'],
+  );
+  assert.equal(centre.refinementPriority, centre.effectiveScreenSpaceError);
+  assert.equal(centre.priority, centre.schedulingPriority);
+  assert.ok(Number.isFinite(centre.schedulingPriority));
+  assert.ok(Number.isFinite(peripheral.schedulingPriority));
+  assert.equal(DEFAULT_MAX_SCHEDULING_CENTER_BOOST, 0.5);
 });
 
 test('raw SSE still outranks a modest centre priority in final work order', () => {
