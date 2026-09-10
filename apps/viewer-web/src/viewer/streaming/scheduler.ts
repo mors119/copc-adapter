@@ -7,6 +7,75 @@ export const DEFAULT_MAX_CONCURRENT_NODE_LOADS = 4;
 
 export type StreamingWorkSchedulerDiagnostics = StreamingSchedulingDiagnostics;
 
+/**
+ * Share load slots between overlapping view generations. A stale load still
+ * owns its slot until the underlying promise settles because the current
+ * backend can cancel queued decode work but cannot abort every active range
+ * request.
+ */
+export class StreamingWorkConcurrencyLimiter {
+  readonly maxConcurrentNodeLoads: number;
+  private activeCount = 0;
+  private readonly waiters = new Set<() => void>();
+
+  constructor(maxConcurrentNodeLoads: number) {
+    this.maxConcurrentNodeLoads = maxConcurrentNodeLoads;
+    validateConcurrency(maxConcurrentNodeLoads);
+  }
+
+  /** Acquire a slot without yielding when capacity is immediately available. */
+  tryAcquire(shouldContinue: () => boolean): boolean | undefined {
+    if (!shouldContinue()) {
+      return false;
+    }
+    if (this.activeCount >= this.maxConcurrentNodeLoads) {
+      return undefined;
+    }
+
+    this.activeCount += 1;
+    return true;
+  }
+
+  async acquire(shouldContinue: () => boolean): Promise<boolean> {
+    while (this.activeCount >= this.maxConcurrentNodeLoads) {
+      if (!shouldContinue()) {
+        return false;
+      }
+
+      await new Promise<void>((resolve) => {
+        const waiter = (): void => {
+          this.waiters.delete(waiter);
+          resolve();
+        };
+        this.waiters.add(waiter);
+      });
+    }
+
+    if (!shouldContinue()) {
+      return false;
+    }
+
+    this.activeCount += 1;
+    return true;
+  }
+
+  release(): void {
+    if (this.activeCount === 0) {
+      return;
+    }
+
+    this.activeCount -= 1;
+    this.notifyWaiters();
+  }
+
+  /** Wake stale schedulers waiting for a slot so they can observe invalidation. */
+  notifyWaiters(): void {
+    for (const waiter of [...this.waiters]) {
+      waiter();
+    }
+  }
+}
+
 export type StreamingWorkBatch<TNode extends StreamingHierarchyNode = StreamingHierarchyNode> = {
   nodes: TNode[];
   estimatedPointCount: number;
@@ -46,6 +115,8 @@ export function createStreamingWorkBatches<TNode extends StreamingHierarchyNode>
 export type StreamingWorkSchedulerOptions<TNode, TResult> = {
   maxConcurrentNodeLoads: number;
   load: (node: TNode) => Promise<TResult>;
+  /** Optional manager-scoped limiter shared by overlapping generations. */
+  workLimiter?: StreamingWorkConcurrencyLimiter;
   /** A resolved cache entry can be completed without consuming a work slot. */
   isReady?: (node: TNode) => boolean;
   /** Stop scheduling when the owning view generation is no longer current. */
@@ -172,11 +243,22 @@ export async function runBoundedPriorityWork<TNode, TResult>(
         return cancelRemaining();
       }
 
+      let hasSharedSlot = true;
+      if (options.workLimiter !== undefined) {
+        const immediateSlot = options.workLimiter.tryAcquire(isCurrent);
+        hasSharedSlot = immediateSlot ?? await options.workLimiter.acquire(isCurrent);
+      }
+      if (!hasSharedSlot) {
+        return cancelRemaining();
+      }
+
       const node = pending.shift();
       if (node === undefined) {
+        options.workLimiter?.release();
         break;
       }
       if (options.isReady?.(node) === true) {
+        options.workLimiter?.release();
         options.onStart?.(node);
         reportDiagnostics();
         await settle(node, startWork(node));
@@ -185,7 +267,9 @@ export async function runBoundedPriorityWork<TNode, TResult>(
 
       const work: ActiveWork<TNode, TResult> = {
         node,
-        promise: startWork(node),
+        promise: options.workLimiter === undefined
+          ? startWork(node)
+          : startWork(node).finally(() => options.workLimiter?.release()),
       };
       active.add(work);
       peakActiveNodeCount = Math.max(peakActiveNodeCount, active.size);

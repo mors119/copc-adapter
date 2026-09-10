@@ -17,6 +17,7 @@ import { StreamingPerformanceRecorder } from './performance';
 import {
   DEFAULT_MAX_CONCURRENT_NODE_LOADS,
   runBoundedPriorityWork,
+  StreamingWorkConcurrencyLimiter,
 } from './scheduler';
 
 export type StreamingNodePointLoader = (
@@ -140,6 +141,7 @@ export class StreamingManager {
   private readonly cache: NodePointCache<PreparedPointData>;
   private readonly performanceRecorder: StreamingPerformanceRecorder;
   private readonly maxConcurrentNodeLoads: number;
+  private readonly workLimiter: StreamingWorkConcurrencyLimiter;
   private readonly onInvalidate?: () => void;
   private updateGeneration = 0;
   private readonly selectedNodeKeys = new Set<string>();
@@ -161,6 +163,7 @@ export class StreamingManager {
     );
     this.maxConcurrentNodeLoads = options.maxConcurrentNodeLoads
       ?? DEFAULT_MAX_CONCURRENT_NODE_LOADS;
+    this.workLimiter = new StreamingWorkConcurrencyLimiter(this.maxConcurrentNodeLoads);
     this.onInvalidate = onInvalidate;
   }
 
@@ -179,6 +182,7 @@ export class StreamingManager {
   ): Promise<StreamingUpdateResult> {
     const updateGeneration = ++this.updateGeneration;
     this.onInvalidate?.();
+    this.workLimiter.notifyWaiters();
     if (!options.performanceAlreadyStarted) {
       this.performanceRecorder.beginUpdate();
     }
@@ -274,12 +278,20 @@ export class StreamingManager {
       return { node, nodeKey, points };
     };
 
+    let reportedCancelledNodeCount = 0;
     await runBoundedPriorityWork(selectedNodes, {
       maxConcurrentNodeLoads: this.maxConcurrentNodeLoads,
+      workLimiter: this.workLimiter,
       load: loadNode,
       isReady: (node) => this.cache.get(node.node.key) !== undefined,
       shouldContinue: () => updateGeneration === this.updateGeneration,
       onDiagnostics: (diagnostics) => {
+        const cancelledNodeDelta = diagnostics.cancelledNodeCount
+          - reportedCancelledNodeCount;
+        reportedCancelledNodeCount = diagnostics.cancelledNodeCount;
+        if (cancelledNodeDelta > 0) {
+          this.performanceRecorder.recordSchedulingCancellations(cancelledNodeDelta);
+        }
         if (updateGeneration === this.updateGeneration) {
           this.performanceRecorder.setSchedulingDiagnostics(diagnostics);
         }
@@ -334,6 +346,7 @@ export class StreamingManager {
   invalidate(): void {
     this.updateGeneration += 1;
     this.onInvalidate?.();
+    this.workLimiter.notifyWaiters();
   }
 
   private acceptLoadedNode(

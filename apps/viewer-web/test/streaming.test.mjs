@@ -339,6 +339,109 @@ test('StreamingManager supersedes queued work after generation invalidation', as
   assert.deepEqual(starts, ['0-a-active']);
 });
 
+test('StreamingManager shares load slots across superseded generations', async () => {
+  const firstHierarchy = new Map([
+    ['0-a-first', createWorkNode('0-a-first', 10, 0)],
+    ['0-b-first', createWorkNode('0-b-first', 10, 0)],
+  ]);
+  const secondHierarchy = new Map([
+    ['0-a-second', createWorkNode('0-a-second', 10, 0)],
+    ['0-b-second', createWorkNode('0-b-second', 10, 0)],
+  ]);
+  const resolvers = new Map();
+  const starts = [];
+  let active = 0;
+  let peakActive = 0;
+  const cache = createNodePointCache(
+    (nodeKey) => new Promise((resolve) => {
+      starts.push(nodeKey);
+      active += 1;
+      peakActive = Math.max(peakActive, active);
+      resolvers.set(nodeKey, () => {
+        active -= 1;
+        resolve({ pointCount: 10, coordinates: new Float64Array(30) });
+      });
+    }),
+    { maxEntries: 8 },
+  );
+  const manager = new StreamingManager(firstHierarchy, {
+    maxNodes: 8,
+    maxDepth: 4,
+    maxRenderDistanceMeters: 12000,
+    maxRenderedPoints: 100,
+    maxConcurrentNodeLoads: 2,
+  }, cache);
+
+  const firstUpdate = manager.update(createCamera());
+  await waitFor(() => starts.length === 2);
+
+  manager.setHierarchy(secondHierarchy);
+  const secondUpdate = manager.update(createCamera());
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(starts, ['0-a-first', '0-b-first']);
+
+  resolvers.get('0-a-first')();
+  await waitFor(() => starts.length === 3);
+  assert.deepEqual(starts, ['0-a-first', '0-b-first', '0-a-second']);
+  assert.ok(active <= 2);
+
+  resolvers.get('0-b-first')();
+  await waitFor(() => starts.length === 4);
+  assert.deepEqual(starts, [
+    '0-a-first',
+    '0-b-first',
+    '0-a-second',
+    '0-b-second',
+  ]);
+  assert.ok(active <= 2);
+
+  resolvers.get('0-a-second')();
+  resolvers.get('0-b-second')();
+  await Promise.all([firstUpdate, secondUpdate]);
+  assert.equal(active, 0);
+  assert.equal(peakActive, 2);
+});
+
+test('StreamingManager preserves cancellations from a superseded scheduler', async () => {
+  const hierarchy = new Map([
+    ['0-a-active', createWorkNode('0-a-active', 10, 0)],
+    ['0-b-queued', createWorkNode('0-b-queued', 10, 0)],
+    ['0-c-queued', createWorkNode('0-c-queued', 10, 0)],
+  ]);
+  const resolvers = new Map();
+  const starts = [];
+  const cache = createNodePointCache(
+    (nodeKey) => new Promise((resolve) => {
+      starts.push(nodeKey);
+      resolvers.set(nodeKey, () => resolve({
+        pointCount: 10,
+        coordinates: new Float64Array(30),
+      }));
+    }),
+    { maxEntries: 8 },
+  );
+  const manager = new StreamingManager(hierarchy, {
+    maxNodes: 8,
+    maxDepth: 4,
+    maxRenderDistanceMeters: 12000,
+    maxRenderedPoints: 100,
+    maxConcurrentNodeLoads: 1,
+  }, cache);
+
+  const firstUpdate = manager.update(createCamera());
+  await waitFor(() => starts.length === 1);
+  const secondUpdate = manager.update(createCamera());
+
+  resolvers.get('0-a-active')();
+  await waitFor(() => starts.length === 2);
+  resolvers.get('0-b-queued')();
+  await waitFor(() => starts.length === 3);
+  resolvers.get('0-c-queued')();
+  await Promise.all([firstUpdate, secondUpdate]);
+
+  assert.equal(manager.getPerformanceSnapshot().cancelledNodeCount, 2);
+});
+
 test('NodeSelector selects the visible root node when the camera is far', () => {
   const selector = createSelector();
   const hierarchy = new Map([

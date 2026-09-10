@@ -165,8 +165,10 @@ The shared streaming limits include `maxNodes` (default `24`), `maxDepth`
 `screenSpaceErrorHysteresis`, `maxRenderDistanceMeters` (default `12000`),
 `maxRenderedPoints` (default `250000`), and `maxConcurrentNodeLoads` (default
 `4`). `maxConcurrentNodeLoads` bounds active range/decode/preparation work and
-is independent of the rendered-point budget. `maxPointsPerBatch` is retained
-for source compatibility but no longer creates completion barriers.
+is independent of the rendered-point budget. The limit is shared by overlapping
+view generations; superseded work keeps its slot until its underlying load
+settles. `maxPointsPerBatch` is retained for source compatibility but no longer
+creates completion barriers.
 `refineDistanceMultiplier` is accepted for compatibility but is deprecated and
 no longer controls refinement.
 
