@@ -97,6 +97,16 @@ function createWorkNode(key, pointCount, level = 1) {
   });
 }
 
+async function waitFor(predicate) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (predicate()) {
+      return;
+    }
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.fail('Timed out waiting for asynchronous streaming work');
+}
+
 function createRefinementHierarchy(
   parentPointCount = 10,
   childPointCounts = [3, 3, 3],
@@ -142,6 +152,294 @@ test('a stricter workload bound never increases synchronous batch workload', () 
     Math.max(...strict.map((batch) => batch.estimatedPointCount))
       <= Math.max(...relaxed.map((batch) => batch.estimatedPointCount)),
   );
+});
+
+test('StreamingManager starts selected work in priority order with bounded concurrency', async () => {
+  const hierarchy = new Map([
+    ['0-a-priority', createWorkNode('0-a-priority', 10, 0)],
+    ['0-b-next', createWorkNode('0-b-next', 10, 0)],
+    ['0-c-deferred', createWorkNode('0-c-deferred', 10, 0)],
+  ]);
+  const resolvers = new Map();
+  const starts = [];
+  let active = 0;
+  let peakActive = 0;
+  const cache = createNodePointCache(
+    (nodeKey) => new Promise((resolve) => {
+      starts.push(nodeKey);
+      active += 1;
+      peakActive = Math.max(peakActive, active);
+      resolvers.set(nodeKey, () => {
+        active -= 1;
+        resolve({ pointCount: 10, coordinates: new Float64Array(30) });
+      });
+    }),
+    { maxEntries: 8 },
+  );
+  const manager = new StreamingManager(hierarchy, {
+    maxNodes: 8,
+    maxDepth: 4,
+    maxRenderDistanceMeters: 12000,
+    maxRenderedPoints: 100,
+    maxConcurrentNodeLoads: 2,
+    // Keep all selected nodes in one legacy batch so this proves there is no
+    // batch-level completion barrier.
+    maxPointsPerBatch: 100,
+  }, cache);
+  const progress = [];
+  const updatePromise = manager.update(createCamera(), (entry) => progress.push(entry));
+
+  await waitFor(() => starts.length === 2);
+  assert.deepEqual(starts, ['0-a-priority', '0-b-next']);
+  assert.equal(peakActive, 2);
+  assert.equal(manager.getPerformanceSnapshot().peakActiveNodeCount, 2);
+
+  resolvers.get('0-a-priority')();
+  await waitFor(() => starts.length === 3 && progress.some((entry) => entry.loadedNodePoints.size > 0));
+  assert.deepEqual(
+    progress.filter((entry) => entry.loadedNodePoints.size > 0)
+      .flatMap((entry) => [...entry.loadedNodePoints.keys()]),
+    ['0-a-priority'],
+  );
+  assert.deepEqual(starts, ['0-a-priority', '0-b-next', '0-c-deferred']);
+  assert.ok(active <= 2);
+
+  resolvers.get('0-b-next')();
+  resolvers.get('0-c-deferred')();
+  const update = await updatePromise;
+
+  assert.equal(update.loadedNodePoints.size, 3);
+  assert.equal(manager.getPerformanceSnapshot().activeNodeCount, 0);
+  assert.equal(manager.getPerformanceSnapshot().queuedNodeCount, 0);
+  assert.equal(manager.getPerformanceSnapshot().completedNodeCount, 3);
+  assert.equal(manager.getPerformanceSnapshot().peakActiveNodeCount, 2);
+});
+
+test('StreamingManager emits a completion before a slower sibling resolves', async () => {
+  const hierarchy = new Map([
+    ['0-a-priority', createWorkNode('0-a-priority', 10, 0)],
+    ['0-b-slow', createWorkNode('0-b-slow', 10, 0)],
+  ]);
+  const resolvers = new Map();
+  const cache = createNodePointCache(
+    (nodeKey) => new Promise((resolve) => {
+      resolvers.set(nodeKey, () => resolve({
+        pointCount: 10,
+        coordinates: new Float64Array(30),
+      }));
+    }),
+    { maxEntries: 8 },
+  );
+  const manager = new StreamingManager(hierarchy, {
+    maxNodes: 8,
+    maxDepth: 4,
+    maxRenderDistanceMeters: 12000,
+    maxRenderedPoints: 100,
+    maxConcurrentNodeLoads: 2,
+    maxPointsPerBatch: 100,
+  }, cache);
+  const progress = [];
+  const updatePromise = manager.update(createCamera(), (entry) => progress.push(entry));
+
+  await waitFor(() => resolvers.has('0-a-priority') && resolvers.has('0-b-slow'));
+  resolvers.get('0-a-priority')();
+  await waitFor(() => progress.some((entry) => entry.loadedNodePoints.size > 0));
+
+  assert.deepEqual(
+    progress.filter((entry) => entry.loadedNodePoints.size > 0)
+      .flatMap((entry) => [...entry.loadedNodePoints.keys()]),
+    ['0-a-priority'],
+  );
+
+  resolvers.get('0-b-slow')();
+  await updatePromise;
+  assert.deepEqual(
+    progress.filter((entry) => entry.loadedNodePoints.size > 0)
+      .flatMap((entry) => [...entry.loadedNodePoints.keys()]),
+    ['0-a-priority', '0-b-slow'],
+  );
+  assert.ok(manager.getPerformanceSnapshot().firstHighPriorityNodeReadyLatencyMs >= 0);
+});
+
+test('StreamingManager delivers cache hits without waiting for a slow miss', async () => {
+  const hierarchy = new Map([
+    ['0-a-slow', createWorkNode('0-a-slow', 10, 0)],
+    ['0-b-cached', createWorkNode('0-b-cached', 10, 0)],
+  ]);
+  const resolvers = new Map();
+  const loadCalls = [];
+  const cache = createNodePointCache(
+    (nodeKey) => {
+      loadCalls.push(nodeKey);
+      if (nodeKey === '0-a-slow') {
+        return new Promise((resolve) => resolvers.set(nodeKey, resolve));
+      }
+      return Promise.resolve({ pointCount: 10, coordinates: new Float64Array(30) });
+    },
+    { maxEntries: 8 },
+  );
+  await cache.load('0-b-cached');
+  loadCalls.length = 0;
+
+  const manager = new StreamingManager(hierarchy, {
+    maxNodes: 8,
+    maxDepth: 4,
+    maxRenderDistanceMeters: 12000,
+    maxRenderedPoints: 100,
+    maxConcurrentNodeLoads: 1,
+  }, cache);
+  const progress = [];
+  const updatePromise = manager.update(createCamera(), (entry) => progress.push(entry));
+
+  await waitFor(() => progress.some((entry) => entry.loadedNodePoints.size > 0));
+
+  assert.deepEqual(
+    progress.filter((entry) => entry.loadedNodePoints.size > 0)
+      .flatMap((entry) => [...entry.loadedNodePoints.keys()]),
+    ['0-b-cached'],
+  );
+  assert.deepEqual(loadCalls, ['0-a-slow']);
+  assert.equal(manager.getPerformanceSnapshot().activeNodeCount, 1);
+
+  resolvers.get('0-a-slow')({ pointCount: 10, coordinates: new Float64Array(30) });
+  await updatePromise;
+  assert.equal(manager.getPerformanceSnapshot().peakActiveNodeCount, 1);
+});
+
+test('StreamingManager supersedes queued work after generation invalidation', async () => {
+  const hierarchy = new Map([
+    ['0-a-active', createWorkNode('0-a-active', 10, 0)],
+    ['0-b-queued', createWorkNode('0-b-queued', 10, 0)],
+    ['0-c-queued', createWorkNode('0-c-queued', 10, 0)],
+  ]);
+  const resolvers = new Map();
+  const starts = [];
+  const cache = createNodePointCache(
+    (nodeKey) => new Promise((resolve) => {
+      starts.push(nodeKey);
+      resolvers.set(nodeKey, resolve);
+    }),
+    { maxEntries: 8 },
+  );
+  const manager = new StreamingManager(hierarchy, {
+    maxNodes: 8,
+    maxDepth: 4,
+    maxRenderDistanceMeters: 12000,
+    maxRenderedPoints: 100,
+    maxConcurrentNodeLoads: 1,
+  }, cache);
+  const firstUpdate = manager.update(createCamera());
+
+  await waitFor(() => starts.length === 1);
+  assert.deepEqual(starts, ['0-a-active']);
+  manager.invalidate();
+  resolvers.get('0-a-active')({ pointCount: 10, coordinates: new Float64Array(30) });
+  await firstUpdate;
+
+  assert.deepEqual(starts, ['0-a-active']);
+});
+
+test('StreamingManager shares load slots across superseded generations', async () => {
+  const firstHierarchy = new Map([
+    ['0-a-first', createWorkNode('0-a-first', 10, 0)],
+    ['0-b-first', createWorkNode('0-b-first', 10, 0)],
+  ]);
+  const secondHierarchy = new Map([
+    ['0-a-second', createWorkNode('0-a-second', 10, 0)],
+    ['0-b-second', createWorkNode('0-b-second', 10, 0)],
+  ]);
+  const resolvers = new Map();
+  const starts = [];
+  let active = 0;
+  let peakActive = 0;
+  const cache = createNodePointCache(
+    (nodeKey) => new Promise((resolve) => {
+      starts.push(nodeKey);
+      active += 1;
+      peakActive = Math.max(peakActive, active);
+      resolvers.set(nodeKey, () => {
+        active -= 1;
+        resolve({ pointCount: 10, coordinates: new Float64Array(30) });
+      });
+    }),
+    { maxEntries: 8 },
+  );
+  const manager = new StreamingManager(firstHierarchy, {
+    maxNodes: 8,
+    maxDepth: 4,
+    maxRenderDistanceMeters: 12000,
+    maxRenderedPoints: 100,
+    maxConcurrentNodeLoads: 2,
+  }, cache);
+
+  const firstUpdate = manager.update(createCamera());
+  await waitFor(() => starts.length === 2);
+
+  manager.setHierarchy(secondHierarchy);
+  const secondUpdate = manager.update(createCamera());
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(starts, ['0-a-first', '0-b-first']);
+
+  resolvers.get('0-a-first')();
+  await waitFor(() => starts.length === 3);
+  assert.deepEqual(starts, ['0-a-first', '0-b-first', '0-a-second']);
+  assert.ok(active <= 2);
+
+  resolvers.get('0-b-first')();
+  await waitFor(() => starts.length === 4);
+  assert.deepEqual(starts, [
+    '0-a-first',
+    '0-b-first',
+    '0-a-second',
+    '0-b-second',
+  ]);
+  assert.ok(active <= 2);
+
+  resolvers.get('0-a-second')();
+  resolvers.get('0-b-second')();
+  await Promise.all([firstUpdate, secondUpdate]);
+  assert.equal(active, 0);
+  assert.equal(peakActive, 2);
+});
+
+test('StreamingManager preserves cancellations from a superseded scheduler', async () => {
+  const hierarchy = new Map([
+    ['0-a-active', createWorkNode('0-a-active', 10, 0)],
+    ['0-b-queued', createWorkNode('0-b-queued', 10, 0)],
+    ['0-c-queued', createWorkNode('0-c-queued', 10, 0)],
+  ]);
+  const resolvers = new Map();
+  const starts = [];
+  const cache = createNodePointCache(
+    (nodeKey) => new Promise((resolve) => {
+      starts.push(nodeKey);
+      resolvers.set(nodeKey, () => resolve({
+        pointCount: 10,
+        coordinates: new Float64Array(30),
+      }));
+    }),
+    { maxEntries: 8 },
+  );
+  const manager = new StreamingManager(hierarchy, {
+    maxNodes: 8,
+    maxDepth: 4,
+    maxRenderDistanceMeters: 12000,
+    maxRenderedPoints: 100,
+    maxConcurrentNodeLoads: 1,
+  }, cache);
+
+  const firstUpdate = manager.update(createCamera());
+  await waitFor(() => starts.length === 1);
+  const secondUpdate = manager.update(createCamera());
+
+  resolvers.get('0-a-active')();
+  await waitFor(() => starts.length === 2);
+  resolvers.get('0-b-queued')();
+  await waitFor(() => starts.length === 3);
+  resolvers.get('0-c-queued')();
+  await Promise.all([firstUpdate, secondUpdate]);
+
+  assert.equal(manager.getPerformanceSnapshot().cancelledNodeCount, 2);
 });
 
 test('NodeSelector selects the visible root node when the camera is far', () => {

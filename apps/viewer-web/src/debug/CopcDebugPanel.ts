@@ -31,6 +31,13 @@ export type CopcDebugPanelView = {
   deferredPointCount: string;
   budgetUtilization: string;
   budgetDeferDropCount: string;
+  maxConcurrentNodeLoads: string;
+  queuedNodeCount: string;
+  activeNodeCount: string;
+  completedNodeCount: string;
+  cancelledNodeCount: string;
+  peakActiveNodeCount: string;
+  firstHighPriorityNodeReadyLatency: string;
   streamingUpdateCount: string;
   candidatesBeforeCulling: string;
   frustumCulledCount: string;
@@ -163,6 +170,16 @@ export function buildCopcDebugPanelView(
     deferredPointCount: formatNumber(snapshot.performance?.deferredPointCount ?? 0),
     budgetUtilization: `${formatCoordinate(snapshot.performance?.budgetUtilizationPercent ?? 0)}%`,
     budgetDeferDropCount: formatNumber(snapshot.performance?.budgetDeferDropCount ?? 0),
+    maxConcurrentNodeLoads: formatNumber(snapshot.performance?.maxConcurrentNodeLoads ?? 0),
+    queuedNodeCount: formatNumber(snapshot.performance?.queuedNodeCount ?? 0),
+    activeNodeCount: formatNumber(snapshot.performance?.activeNodeCount ?? 0),
+    completedNodeCount: formatNumber(snapshot.performance?.completedNodeCount ?? 0),
+    cancelledNodeCount: formatNumber(snapshot.performance?.cancelledNodeCount ?? 0),
+    peakActiveNodeCount: formatNumber(snapshot.performance?.peakActiveNodeCount ?? 0),
+    firstHighPriorityNodeReadyLatency:
+      snapshot.performance?.firstHighPriorityNodeReadyLatencyMs === undefined
+        ? '—'
+        : `${formatCoordinate(snapshot.performance.firstHighPriorityNodeReadyLatencyMs)} ms`,
     streamingUpdateCount: formatNumber(snapshot.streamingUpdateCount),
     candidatesBeforeCulling: formatNumber(snapshot.performance?.candidatesBeforeCulling ?? 0),
     frustumCulledCount: formatNumber(snapshot.performance?.frustumCulledCount ?? 0),
@@ -317,6 +334,16 @@ export function createCopcDebugPanel(
       <div><dt>Minimum frontier over budget</dt><dd data-field="impossibleMinimumFrontier"></dd></div>
       <div><dt>Visible levels</dt><dd data-field="visibleLevelRange"></dd></div>
     </dl>
+    <details>
+      <summary>Priority streaming scheduler</summary>
+      <dl>
+        <div><dt>Load slots</dt><dd data-field="maxConcurrentNodeLoads"></dd></div>
+        <div><dt>Queued / active</dt><dd><span data-field="queuedNodeCount"></span> / <span data-field="activeNodeCount"></span></dd></div>
+        <div><dt>Completed / cancelled</dt><dd><span data-field="completedNodeCount"></span> / <span data-field="cancelledNodeCount"></span></dd></div>
+        <div><dt>Peak active</dt><dd data-field="peakActiveNodeCount"></dd></div>
+        <div><dt>First priority ready</dt><dd data-field="firstHighPriorityNodeReadyLatency"></dd></div>
+      </dl>
+    </details>
     <details>
       <summary>Decoded CPU point cache</summary>
       <dl>

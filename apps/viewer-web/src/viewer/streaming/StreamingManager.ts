@@ -9,11 +9,16 @@ import type {
   StreamingSelectionOptions,
   StreamingHierarchyNode,
   StreamingReplacementGroup,
+  StreamingSelectedNode,
   StreamingUpdateResult,
 } from './types';
 import { performanceNow } from '../../copc/performance';
 import { StreamingPerformanceRecorder } from './performance';
-import { createStreamingWorkBatches, yieldToBrowser } from './scheduler';
+import {
+  DEFAULT_MAX_CONCURRENT_NODE_LOADS,
+  runBoundedPriorityWork,
+  StreamingWorkConcurrencyLimiter,
+} from './scheduler';
 
 export type StreamingNodePointLoader = (
   nodeKey: string,
@@ -135,7 +140,8 @@ export class StreamingManager {
   private readonly selector: NodeSelector;
   private readonly cache: NodePointCache<PreparedPointData>;
   private readonly performanceRecorder: StreamingPerformanceRecorder;
-  private readonly maxPointsPerBatch: number;
+  private readonly maxConcurrentNodeLoads: number;
+  private readonly workLimiter: StreamingWorkConcurrencyLimiter;
   private readonly onInvalidate?: () => void;
   private updateGeneration = 0;
   private readonly selectedNodeKeys = new Set<string>();
@@ -155,7 +161,9 @@ export class StreamingManager {
     this.performanceRecorder.setConfiguredPointBudget(
       this.selector.getSelectionMetrics().maxRenderedPoints,
     );
-    this.maxPointsPerBatch = options.maxPointsPerBatch ?? 100_000;
+    this.maxConcurrentNodeLoads = options.maxConcurrentNodeLoads
+      ?? DEFAULT_MAX_CONCURRENT_NODE_LOADS;
+    this.workLimiter = new StreamingWorkConcurrencyLimiter(this.maxConcurrentNodeLoads);
     this.onInvalidate = onInvalidate;
   }
 
@@ -174,6 +182,7 @@ export class StreamingManager {
   ): Promise<StreamingUpdateResult> {
     const updateGeneration = ++this.updateGeneration;
     this.onInvalidate?.();
+    this.workLimiter.notifyWaiters();
     if (!options.performanceAlreadyStarted) {
       this.performanceRecorder.beginUpdate();
     }
@@ -234,45 +243,66 @@ export class StreamingManager {
 
     const loadedNodePoints = new Map<string, PreparedPointData>();
 
-    for (const batch of createStreamingWorkBatches(selectedNodes, this.maxPointsPerBatch)) {
-      const batchLoads = await Promise.all(batch.nodes.map(async (node) => {
+    const loadNode = async (node: StreamingSelectedNode) => {
+      if (updateGeneration !== this.updateGeneration) {
+        return undefined;
+      }
+
+      const nodeKey = node.node.key;
+      let points: PreparedPointData;
+      try {
+        points = await this.cache.load(nodeKey);
+      } catch (error: unknown) {
+        // A view change intentionally cancels queued decode work. The
+        // superseded update must finish quietly so its stale results cannot
+        // affect the new selection.
         if (updateGeneration !== this.updateGeneration) {
           return undefined;
         }
-
-        const nodeKey = node.node.key;
-        let points: PreparedPointData;
-        try {
+        if (isQueuedDecodeCancellation(error)) {
+          // The cancelled promise may still be visible in the cache for
+          // this turn of the microtask queue. Evict and resubmit it for the
+          // current generation rather than exposing cancellation as a
+          // user-visible decode failure.
+          this.cache.delete(nodeKey);
           points = await this.cache.load(nodeKey);
-        } catch (error: unknown) {
-          // A view change intentionally cancels queued decode work. The
-          // superseded update must finish quietly so its stale results cannot
-          // affect the new selection.
-          if (updateGeneration !== this.updateGeneration) {
-            return undefined;
-          }
-          if (isQueuedDecodeCancellation(error)) {
-            // The cancelled promise may still be visible in the cache for
-            // this turn of the microtask queue. Evict and resubmit it for the
-            // current generation rather than exposing cancellation as a
-            // user-visible decode failure.
-            this.cache.delete(nodeKey);
-            points = await this.cache.load(nodeKey);
-          } else {
-            throw error;
-          }
+        } else {
+          throw error;
         }
+      }
 
-        if (updateGeneration !== this.updateGeneration) {
-          return undefined;
+      if (updateGeneration !== this.updateGeneration) {
+        return undefined;
+      }
+
+      return { node, nodeKey, points };
+    };
+
+    let reportedCancelledNodeCount = 0;
+    await runBoundedPriorityWork(selectedNodes, {
+      maxConcurrentNodeLoads: this.maxConcurrentNodeLoads,
+      workLimiter: this.workLimiter,
+      load: loadNode,
+      isReady: (node) => this.cache.get(node.node.key) !== undefined,
+      shouldContinue: () => updateGeneration === this.updateGeneration,
+      onDiagnostics: (diagnostics) => {
+        const cancelledNodeDelta = diagnostics.cancelledNodeCount
+          - reportedCancelledNodeCount;
+        reportedCancelledNodeCount = diagnostics.cancelledNodeCount;
+        if (cancelledNodeDelta > 0) {
+          this.performanceRecorder.recordSchedulingCancellations(cancelledNodeDelta);
         }
-
-        return { node, nodeKey, points };
-      }));
-
-      for (const loaded of batchLoads) {
+        if (updateGeneration === this.updateGeneration) {
+          this.performanceRecorder.setSchedulingDiagnostics(diagnostics);
+        }
+      },
+      onComplete: (node, loaded) => {
         if (!loaded || updateGeneration !== this.updateGeneration) {
-          continue;
+          return;
+        }
+
+        if (node.node.key === selectedNodes[0]?.node.key) {
+          this.performanceRecorder.recordFirstHighPriorityNodeReady();
         }
         if (this.selectedNodeKeys.has(loaded.nodeKey)
           && this.acceptLoadedNode(loaded.node, loaded.points.pointCount)) {
@@ -289,14 +319,8 @@ export class StreamingManager {
             generation: updateGeneration,
           });
         }
-      }
-
-      if (updateGeneration !== this.updateGeneration) {
-        break;
-      }
-
-      await yieldToBrowser();
-    }
+      },
+    });
 
     if (updateGeneration === this.updateGeneration) {
       this.performanceRecorder.finishUpdate();
@@ -322,6 +346,7 @@ export class StreamingManager {
   invalidate(): void {
     this.updateGeneration += 1;
     this.onInvalidate?.();
+    this.workLimiter.notifyWaiters();
   }
 
   private acceptLoadedNode(

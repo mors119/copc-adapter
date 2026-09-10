@@ -213,6 +213,7 @@ export type {
   StreamingReplacementKind,
   StreamingSelectionContext,
   StreamingSelectionMetrics,
+  StreamingSchedulingDiagnostics,
   StreamingSelectionOptions,
   StreamingUpdateResult,
 } from './viewer/streaming/types';

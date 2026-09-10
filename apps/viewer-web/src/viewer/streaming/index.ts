@@ -26,7 +26,16 @@ export type {
   RefinementInfluence,
   RefinementInfluenceInput,
 } from './refinementInfluence';
-export { createStreamingWorkBatches, yieldToBrowser } from './scheduler';
+export {
+  createStreamingWorkBatches,
+  DEFAULT_MAX_CONCURRENT_NODE_LOADS,
+  runBoundedPriorityWork,
+  yieldToBrowser,
+} from './scheduler';
+export type {
+  StreamingWorkSchedulerDiagnostics,
+  StreamingWorkSchedulerOptions,
+} from './scheduler';
 export { StreamingPerformanceRecorder } from './performance';
 export {
   createBoundingSphereFromGeographicBounds,
@@ -61,6 +70,7 @@ export type {
   StreamingSelectedNode,
   StreamingLevelRange,
   StreamingSelectionMetrics,
+  StreamingSchedulingDiagnostics,
   StreamingSelectionOptions,
   StreamingSelectionContext,
   StreamingUpdateResult,

@@ -2,6 +2,7 @@ import { performanceNow } from '../../copc/performance';
 import type {
   StreamingLevelRange,
   StreamingSelectionMetrics,
+  StreamingSchedulingDiagnostics,
   ViewVector3,
 } from './types';
 
@@ -49,6 +50,13 @@ export type StreamingPerformanceSnapshot = {
   collapseDecisionCount?: number;
   visibleLevelRange?: StreamingLevelRange;
   cameraDirection?: ViewVector3;
+  maxConcurrentNodeLoads?: number;
+  queuedNodeCount?: number;
+  activeNodeCount?: number;
+  completedNodeCount?: number;
+  cancelledNodeCount?: number;
+  peakActiveNodeCount?: number;
+  firstHighPriorityNodeReadyLatencyMs?: number;
   loadedNodeCount: number;
   loadedPointCount: number;
   rangeFetchDurationMs: number;
@@ -117,11 +125,15 @@ export class StreamingPerformanceRecorder {
   private snapshot = emptySnapshot();
   private updateStartedAt = 0;
   private configuredPointBudget = 0;
+  private schedulingCancellationCount = 0;
+  private currentSchedulerCancelledNodeCount = 0;
 
   beginUpdate(): void {
     this.snapshot = emptySnapshot();
     this.snapshot.configuredPointBudget = this.configuredPointBudget;
     this.updateStartedAt = performanceNow();
+    this.schedulingCancellationCount = 0;
+    this.currentSchedulerCancelledNodeCount = 0;
   }
 
   setConfiguredPointBudget(pointBudget: number): void {
@@ -134,6 +146,41 @@ export class StreamingPerformanceRecorder {
     this.snapshot = emptySnapshot();
     this.snapshot.configuredPointBudget = this.configuredPointBudget;
     this.updateStartedAt = 0;
+    this.schedulingCancellationCount = 0;
+    this.currentSchedulerCancelledNodeCount = 0;
+  }
+
+  setSchedulingDiagnostics(diagnostics: StreamingSchedulingDiagnostics): void {
+    this.snapshot.maxConcurrentNodeLoads = diagnostics.maxConcurrentNodeLoads;
+    this.snapshot.queuedNodeCount = diagnostics.queuedNodeCount;
+    this.snapshot.activeNodeCount = diagnostics.activeNodeCount;
+    this.snapshot.completedNodeCount = diagnostics.completedNodeCount;
+    this.currentSchedulerCancelledNodeCount = diagnostics.cancelledNodeCount;
+    this.snapshot.cancelledNodeCount = this.schedulingCancellationCount
+      + this.currentSchedulerCancelledNodeCount;
+    this.snapshot.peakActiveNodeCount = diagnostics.peakActiveNodeCount;
+  }
+
+  /** Preserve cancellations reported by a superseded scheduler. */
+  recordSchedulingCancellations(count: number): void {
+    if (!Number.isFinite(count) || count <= 0) {
+      return;
+    }
+
+    this.schedulingCancellationCount += Math.floor(count);
+    this.snapshot.cancelledNodeCount = this.schedulingCancellationCount
+      + this.currentSchedulerCancelledNodeCount;
+  }
+
+  recordFirstHighPriorityNodeReady(): void {
+    if (this.snapshot.firstHighPriorityNodeReadyLatencyMs !== undefined) {
+      return;
+    }
+
+    this.snapshot.firstHighPriorityNodeReadyLatencyMs = Math.max(
+      0,
+      performanceNow() - this.updateStartedAt,
+    );
   }
 
   setSelection(

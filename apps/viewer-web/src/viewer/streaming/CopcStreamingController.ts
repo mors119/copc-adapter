@@ -57,6 +57,7 @@ import {
   StreamingPerformanceRecorder,
   type StreamingPerformanceSnapshot,
 } from './performance';
+import { DEFAULT_MAX_CONCURRENT_NODE_LOADS } from './scheduler';
 
 /** Lifecycle states that do not depend on an attached rendering engine. */
 export type CopcStreamingLifecycleState =
@@ -127,6 +128,13 @@ export type CopcStreamingPerformanceSnapshot = Pick<
   | 'refinementDeferredByIncompleteHierarchyCount'
   | 'minimumFrontierExceedsNodeBudget'
   | 'minimumFrontierExceedsPointBudget'
+  | 'maxConcurrentNodeLoads'
+  | 'queuedNodeCount'
+  | 'activeNodeCount'
+  | 'completedNodeCount'
+  | 'cancelledNodeCount'
+  | 'peakActiveNodeCount'
+  | 'firstHighPriorityNodeReadyLatencyMs'
   | 'centerWeightMin'
   | 'centerWeightMax'
   | 'detailBiasMin'
@@ -182,7 +190,7 @@ const DEFAULT_STREAMING_OPTIONS: StreamingSelectionOptions = {
   refineDistanceMultiplier: 6,
   maxRenderDistanceMeters: 12000,
   maxRenderedPoints: DEFAULT_MAX_RENDERED_POINTS,
-  maxPointsPerBatch: 100000,
+  maxConcurrentNodeLoads: DEFAULT_MAX_CONCURRENT_NODE_LOADS,
 };
 const MAX_CACHED_NODES = 48;
 const DEFAULT_POINT_CACHE_BYTES = 256 * 1024 * 1024;
@@ -731,6 +739,19 @@ export class CopcStreamingCore {
       refinementDeferredByIncompleteHierarchyCount: snapshot.refinementDeferredByIncompleteHierarchyCount,
       minimumFrontierExceedsNodeBudget: snapshot.minimumFrontierExceedsNodeBudget,
       minimumFrontierExceedsPointBudget: snapshot.minimumFrontierExceedsPointBudget,
+      ...(snapshot.maxConcurrentNodeLoads === undefined
+        ? {}
+        : {
+          maxConcurrentNodeLoads: snapshot.maxConcurrentNodeLoads,
+          queuedNodeCount: snapshot.queuedNodeCount,
+          activeNodeCount: snapshot.activeNodeCount,
+          completedNodeCount: snapshot.completedNodeCount,
+          cancelledNodeCount: snapshot.cancelledNodeCount,
+          peakActiveNodeCount: snapshot.peakActiveNodeCount,
+        }),
+      ...(snapshot.firstHighPriorityNodeReadyLatencyMs === undefined
+        ? {}
+        : { firstHighPriorityNodeReadyLatencyMs: snapshot.firstHighPriorityNodeReadyLatencyMs }),
       loadedNodeCount: snapshot.loadedNodeCount,
       loadedPointCount: snapshot.loadedPointCount,
       rangeFetchDurationMs: snapshot.rangeFetchDurationMs,
