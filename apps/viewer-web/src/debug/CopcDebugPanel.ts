@@ -99,6 +99,12 @@ function formatCoordinate(value: number): string {
   return Number.isInteger(value) ? value.toString() : value.toPrecision(8);
 }
 
+function formatPriorityRange(min?: number, max?: number): string {
+  return min !== undefined && max !== undefined
+    ? `${formatCoordinate(min)}–${formatCoordinate(max)}`
+    : '—';
+}
+
 function formatVector(vector?: { x: number; y: number; z: number }): string {
   if (!vector) {
     return '—';
@@ -192,13 +198,13 @@ export function buildCopcDebugPanelView(
         ? '—'
         : `${formatCoordinate(snapshot.performance.firstHighPriorityNodeStartLatencyMs)} ms`,
     highPriorityQueuedActive: `${formatNumber(snapshot.performance?.queuedHighPriorityNodeCount ?? 0)} / ${formatNumber(snapshot.performance?.activeHighPriorityNodeCount ?? 0)}`,
-    completedPendingSchedulingPriority:
-      snapshot.performance?.completedSchedulingPriorityMin !== undefined
-      && snapshot.performance?.completedSchedulingPriorityMax !== undefined
-      && snapshot.performance?.pendingSchedulingPriorityMin !== undefined
-      && snapshot.performance?.pendingSchedulingPriorityMax !== undefined
-        ? `${formatCoordinate(snapshot.performance.completedSchedulingPriorityMin)}–${formatCoordinate(snapshot.performance.completedSchedulingPriorityMax)} / ${formatCoordinate(snapshot.performance.pendingSchedulingPriorityMin)}–${formatCoordinate(snapshot.performance.pendingSchedulingPriorityMax)}`
-        : '—',
+    completedPendingSchedulingPriority: `${formatPriorityRange(
+      snapshot.performance?.completedSchedulingPriorityMin,
+      snapshot.performance?.completedSchedulingPriorityMax,
+    )} / ${formatPriorityRange(
+      snapshot.performance?.pendingSchedulingPriorityMin,
+      snapshot.performance?.pendingSchedulingPriorityMax,
+    )}`,
     streamingUpdateCount: formatNumber(snapshot.streamingUpdateCount),
     candidatesBeforeCulling: formatNumber(snapshot.performance?.candidatesBeforeCulling ?? 0),
     frustumCulledCount: formatNumber(snapshot.performance?.frustumCulledCount ?? 0),

@@ -198,3 +198,13 @@ test('shows loading placeholders and gives runtime errors precedence', () => {
   assert.equal(failed.statusTone, 'error');
   assert.equal(failed.error, 'Range request failed');
 });
+
+test('keeps completed scheduling priority visible after the pending queue drains', () => {
+  const snapshot = createSnapshot();
+  snapshot.performance.pendingSchedulingPriorityMin = undefined;
+  snapshot.performance.pendingSchedulingPriorityMax = undefined;
+
+  const view = buildCopcDebugPanelView({ snapshot });
+
+  assert.equal(view.completedPendingSchedulingPriority, '3.2000000–28 / —');
+});
