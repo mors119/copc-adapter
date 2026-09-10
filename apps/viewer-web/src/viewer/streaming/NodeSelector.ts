@@ -131,6 +131,10 @@ export const DEFAULT_CENTER_PRIORITY_BOOST = DEFAULT_MAX_REFINEMENT_DETAIL_BIAS 
 export const DEFAULT_MAX_RENDERED_POINTS = 250_000;
 const DEFAULT_VERTICAL_FOV_RADIANS = Math.PI / 3;
 const DEFAULT_VIEWPORT_HEIGHT_PIXELS = 1080;
+/** Normalized screen distance at which scheduling centre relevance falls off. */
+export const DEFAULT_SCHEDULING_CENTER_FALLOFF = 0.45;
+/** Scheduling-only centre boost; refinement influence remains capped at 1.25×. */
+export const DEFAULT_MAX_SCHEDULING_CENTER_BOOST = 0.5;
 
 type GazeProjection = {
   position: ViewVector3;
@@ -203,12 +207,17 @@ function dot(left: ViewVector3, right: ViewVector3): number {
   return left.x * right.x + left.y * right.y + left.z * right.z;
 }
 
-function calculateCenterWeightForProjection(
+type ProjectedNodeCentre = {
+  normalizedScreenDistance: number;
+  forward: number;
+};
+
+function projectNodeCentre(
   node: StreamingHierarchyNode,
   projection: GazeProjection | undefined,
-): number {
+): ProjectedNodeCentre | undefined {
   if (!projection || !node.boundingSphere || !isFiniteVector(node.boundingSphere.center)) {
-    return 0;
+    return undefined;
   }
 
   const vector = {
@@ -218,7 +227,7 @@ function calculateCenterWeightForProjection(
   };
   const forward = dot(vector, projection.direction);
   if (!Number.isFinite(forward) || forward <= 0) {
-    return 0;
+    return undefined;
   }
 
   const horizontalDisplacement = Math.abs(dot(vector, projection.right)) /
@@ -226,6 +235,21 @@ function calculateCenterWeightForProjection(
   const verticalDisplacement = Math.abs(dot(vector, projection.up)) /
     (forward * projection.verticalTangent);
   if (!Number.isFinite(horizontalDisplacement) || !Number.isFinite(verticalDisplacement)) {
+    return undefined;
+  }
+
+  return {
+    normalizedScreenDistance: Math.hypot(horizontalDisplacement, verticalDisplacement),
+    forward,
+  };
+}
+
+function calculateCenterWeightForProjection(
+  node: StreamingHierarchyNode,
+  projection: GazeProjection | undefined,
+): number {
+  const projected = projectNodeCentre(node, projection);
+  if (projected === undefined || !projection || !node.boundingSphere) {
     return 0;
   }
 
@@ -235,18 +259,32 @@ function calculateCenterWeightForProjection(
   const radius = Number.isFinite(node.boundingSphere.radiusMeters)
     ? Math.max(node.boundingSphere.radiusMeters, 0)
     : 0;
-  const angularRadius = radius / Math.max(forward, 1e-6) /
+  const angularRadius = radius / Math.max(projected.forward, 1e-6) /
     Math.min(projection.horizontalTangent, projection.verticalTangent);
-  const normalizedScreenRadius = Math.hypot(
-    horizontalDisplacement,
-    verticalDisplacement,
-  );
-
   return clamp(
-    1 - Math.max(0, normalizedScreenRadius - angularRadius),
+    1 - Math.max(0, projected.normalizedScreenDistance - angularRadius),
     0,
     1,
   );
+}
+
+function calculateSchedulingCenterWeightForProjection(
+  node: StreamingHierarchyNode,
+  projection: GazeProjection | undefined,
+): number {
+  const projected = projectNodeCentre(node, projection);
+  if (projected === undefined) {
+    return 0;
+  }
+
+  // Refinement intentionally credits the visible extent of a large sphere.
+  // Scheduling uses the projected centre instead, with a smooth Gaussian
+  // falloff. This sharpens work order without introducing a hard screen band
+  // or changing which nodes are eligible for refinement.
+  const normalizedFalloff = projected.normalizedScreenDistance /
+    DEFAULT_SCHEDULING_CENTER_FALLOFF;
+  const weight = Math.exp(-0.5 * normalizedFalloff * normalizedFalloff);
+  return Number.isFinite(weight) ? clamp(weight, 0, 1) : 0;
 }
 
 /** Calculate the bounded screen-centre relevance for a project-owned view. */
@@ -255,6 +293,17 @@ export function calculateGazeCenterWeight(
   node: StreamingHierarchyNode,
 ): number {
   return calculateCenterWeightForProjection(node, createGazeProjection(camera.viewFrustum));
+}
+
+/** Calculate the sharper, scheduling-only screen-centre relevance. */
+export function calculateSchedulingCenterWeight(
+  camera: StreamingCameraState,
+  node: StreamingHierarchyNode,
+): number {
+  return calculateSchedulingCenterWeightForProjection(
+    node,
+    createGazeProjection(camera.viewFrustum),
+  );
 }
 
 function getGeometricErrorMeters(node: StreamingHierarchyNode): number {
@@ -362,7 +411,9 @@ type PrioritisedNode = {
   screenSpaceErrorPixels: number;
   influence: RefinementInfluence;
   centerWeight: number;
-  priority: number;
+  schedulingCenterWeight: number;
+  refinementPriority: number;
+  schedulingPriority: number;
   boundsDistanceMeters: number;
   wasPreviouslySelected: boolean;
   wasPreviouslyRefined: boolean;
@@ -370,18 +421,35 @@ type PrioritisedNode = {
   pointCost: number;
 };
 
-function compareBudgetPriority(
+function compareRefinementPriority(
   left: PrioritisedNode,
   right: PrioritisedNode,
 ): number {
-  // Effective projected error remains primary through the globally bounded
-  // influence model. Raw SSE remains the explicit authority tie-breaker, so
-  // a large visual error cannot be hidden by a modest centre preference.
-  // The remaining visual signals are deterministic tie-breakers; continuity
-  // and cache availability only prevent avoidable churn when visual priority
-  // is otherwise equal. All values are precomputed before sorting.
-  return right.priority - left.priority
+  // Refinement and coverage decisions use only the conservative influence
+  // model. Scheduling relevance is deliberately absent from this comparator.
+  return right.refinementPriority - left.refinementPriority
     || right.screenSpaceErrorPixels - left.screenSpaceErrorPixels
+    || right.centerWeight - left.centerWeight
+    || left.boundsDistanceMeters - right.boundsDistanceMeters
+    || right.node.node.level - left.node.node.level
+    || Number(right.wasPreviouslyRefined) - Number(left.wasPreviouslyRefined)
+    || Number(right.wasPreviouslySelected) - Number(left.wasPreviouslySelected)
+    || Number(right.isCached) - Number(left.isCached)
+    || left.pointCost - right.pointCost
+    || left.node.node.key.localeCompare(right.node.node.key);
+}
+
+function compareSchedulingPriority(
+  left: PrioritisedNode,
+  right: PrioritisedNode,
+): number {
+  // This comparator is used only after the selected frontier is valid. Raw
+  // SSE remains an explicit tie-breaker so a large peripheral visual error
+  // retains authority over a modest centre preference.
+  return right.schedulingPriority - left.schedulingPriority
+    || right.refinementPriority - left.refinementPriority
+    || right.screenSpaceErrorPixels - left.screenSpaceErrorPixels
+    || right.schedulingCenterWeight - left.schedulingCenterWeight
     || right.centerWeight - left.centerWeight
     || left.boundsDistanceMeters - right.boundsDistanceMeters
     || right.node.node.level - left.node.node.level
@@ -395,10 +463,13 @@ function compareBudgetPriority(
 function toSelectedNode(candidate: PrioritisedNode): StreamingSelectedNode {
   return {
     ...candidate.node,
-    priority: candidate.priority,
+    refinementPriority: candidate.refinementPriority,
+    schedulingPriority: candidate.schedulingPriority,
+    priority: candidate.schedulingPriority,
     rawScreenSpaceError: candidate.screenSpaceErrorPixels,
     effectiveScreenSpaceError: candidate.influence.effectiveScreenSpaceError,
     centerWeight: candidate.centerWeight,
+    schedulingCenterWeight: candidate.schedulingCenterWeight,
   };
 }
 
@@ -501,6 +572,7 @@ export class NodeSelector {
       screenSpaceErrorPixels: number;
       influence: RefinementInfluence;
     }>();
+    const priorityMetricsRecorded = new Set<string>();
 
     const evaluate = (node: StreamingHierarchyNode) => {
       const existing = evaluations.get(node.node.key);
@@ -614,12 +686,28 @@ export class NodeSelector {
 
     const toPrioritised = (node: StreamingHierarchyNode): PrioritisedNode => {
       const evaluation = evaluations.get(node.node.key) ?? evaluate(node);
+      const refinementPriority = evaluation.influence.effectiveScreenSpaceError;
+      const schedulingCenterWeight = calculateSchedulingCenterWeightForProjection(
+        node,
+        gazeProjection,
+      );
+      const schedulingMultiplier = 1
+        + schedulingCenterWeight * DEFAULT_MAX_SCHEDULING_CENTER_BOOST;
+      // Start from raw SSE so the conservative, extent-aware refinement
+      // influence cannot leak back into scheduling through the broad sphere
+      // overlap signal. The refinement score remains a deterministic visual
+      // tie-breaker in compareSchedulingPriority.
+      const schedulingProduct = evaluation.screenSpaceErrorPixels * schedulingMultiplier;
       return {
         node,
         screenSpaceErrorPixels: evaluation.screenSpaceErrorPixels,
         influence: evaluation.influence,
         centerWeight: evaluation.influence.gazeWeight,
-        priority: evaluation.influence.effectiveScreenSpaceError,
+        schedulingCenterWeight,
+        refinementPriority,
+        schedulingPriority: Number.isFinite(schedulingProduct)
+          ? schedulingProduct
+          : Number.MAX_VALUE,
         boundsDistanceMeters: calculateBoundsDistanceMeters(camera, node),
         wasPreviouslySelected: context.previousSelectedNodeKeys?.has(node.node.key) ?? false,
         wasPreviouslyRefined: hasPreviouslyRefinedDescendant(node),
@@ -629,6 +717,10 @@ export class NodeSelector {
     };
 
     const recordCandidateInfluence = (candidate: PrioritisedNode): void => {
+      if (priorityMetricsRecorded.has(candidate.node.node.key)) {
+        return;
+      }
+      priorityMetricsRecorded.add(candidate.node.node.key);
       const { influence } = candidate;
       this.lastSelectionMetrics.effectiveScreenSpaceErrorMin = Math.min(
         this.lastSelectionMetrics.effectiveScreenSpaceErrorMin
@@ -647,6 +739,42 @@ export class NodeSelector {
       this.lastSelectionMetrics.detailBiasMax = Math.max(
         this.lastSelectionMetrics.detailBiasMax ?? Number.NEGATIVE_INFINITY,
         influence.detailBias,
+      );
+      this.lastSelectionMetrics.centerWeightMin = Math.min(
+        this.lastSelectionMetrics.centerWeightMin ?? Number.POSITIVE_INFINITY,
+        candidate.centerWeight,
+      );
+      this.lastSelectionMetrics.centerWeightMax = Math.max(
+        this.lastSelectionMetrics.centerWeightMax ?? Number.NEGATIVE_INFINITY,
+        candidate.centerWeight,
+      );
+      this.lastSelectionMetrics.refinementCenterWeightMin =
+        this.lastSelectionMetrics.centerWeightMin;
+      this.lastSelectionMetrics.refinementCenterWeightMax =
+        this.lastSelectionMetrics.centerWeightMax;
+      this.lastSelectionMetrics.schedulingCenterWeightMin = Math.min(
+        this.lastSelectionMetrics.schedulingCenterWeightMin ?? Number.POSITIVE_INFINITY,
+        candidate.schedulingCenterWeight,
+      );
+      this.lastSelectionMetrics.schedulingCenterWeightMax = Math.max(
+        this.lastSelectionMetrics.schedulingCenterWeightMax ?? Number.NEGATIVE_INFINITY,
+        candidate.schedulingCenterWeight,
+      );
+      this.lastSelectionMetrics.refinementPriorityMin = Math.min(
+        this.lastSelectionMetrics.refinementPriorityMin ?? Number.POSITIVE_INFINITY,
+        candidate.refinementPriority,
+      );
+      this.lastSelectionMetrics.refinementPriorityMax = Math.max(
+        this.lastSelectionMetrics.refinementPriorityMax ?? Number.NEGATIVE_INFINITY,
+        candidate.refinementPriority,
+      );
+      this.lastSelectionMetrics.schedulingPriorityMin = Math.min(
+        this.lastSelectionMetrics.schedulingPriorityMin ?? Number.POSITIVE_INFINITY,
+        candidate.schedulingPriority,
+      );
+      this.lastSelectionMetrics.schedulingPriorityMax = Math.max(
+        this.lastSelectionMetrics.schedulingPriorityMax ?? Number.NEGATIVE_INFINITY,
+        candidate.schedulingPriority,
       );
       if (influence.combinedWeight > 0) {
         this.lastSelectionMetrics.candidatesWithNonZeroInfluenceCount =
@@ -701,14 +829,6 @@ export class NodeSelector {
           this.lastSelectionMetrics.refineDecisionCount =
             (this.lastSelectionMetrics.refineDecisionCount ?? 0) + 1;
         }
-        this.lastSelectionMetrics.centerWeightMin = Math.min(
-          this.lastSelectionMetrics.centerWeightMin ?? Number.POSITIVE_INFINITY,
-          prioritised.centerWeight,
-        );
-        this.lastSelectionMetrics.centerWeightMax = Math.max(
-          this.lastSelectionMetrics.centerWeightMax ?? Number.NEGATIVE_INFINITY,
-          prioritised.centerWeight,
-        );
         if (prioritised.centerWeight > 0) {
           this.lastSelectionMetrics.candidatesWithCenterBoostCount =
             (this.lastSelectionMetrics.candidatesWithCenterBoostCount ?? 0) + 1;
@@ -756,7 +876,7 @@ export class NodeSelector {
       let frontierPointCount = initialPointCount;
       while (pending.size > 0) {
         const candidate = [...pending.values()]
-          .sort(compareBudgetPriority)[0];
+          .sort(compareRefinementPriority)[0];
         pending.delete(candidate.node.node.key);
 
         if (!frontier.has(candidate.node.node.key)) {
@@ -797,11 +917,11 @@ export class NodeSelector {
           (this.lastSelectionMetrics.acceptedRefinementCount ?? 0) + 1;
         this.lastSelectionMetrics.acceptedRefinementPriorityMin = Math.min(
           this.lastSelectionMetrics.acceptedRefinementPriorityMin ?? Number.POSITIVE_INFINITY,
-          candidate.priority,
+          candidate.refinementPriority,
         );
         this.lastSelectionMetrics.acceptedRefinementPriorityMax = Math.max(
           this.lastSelectionMetrics.acceptedRefinementPriorityMax ?? Number.NEGATIVE_INFINITY,
-          candidate.priority,
+          candidate.refinementPriority,
         );
         if (candidate.influence.gazeWeight > 0) {
           this.lastSelectionMetrics.acceptedGazeInfluencedRefinementCount =
@@ -815,7 +935,11 @@ export class NodeSelector {
 
       const selected = [...frontier.values()]
         .map(toPrioritised)
-        .sort(compareBudgetPriority)
+        .map((candidate) => {
+          recordCandidateInfluence(candidate);
+          return candidate;
+        })
+        .sort(compareSchedulingPriority)
         .map(toSelectedNode);
 
       // A refinement can reduce the workload of an initially oversized
@@ -832,7 +956,7 @@ export class NodeSelector {
         let acceptedPointCount = 0;
         for (const candidate of initialFrontier
           .map(toPrioritised)
-          .sort(compareBudgetPriority)) {
+          .sort(compareRefinementPriority)) {
           const canFitNodeBudget = accepted.length < this.options.maxNodes;
           const canFitPointBudget = candidate.pointCost <= budget - acceptedPointCount;
           if (canFitNodeBudget && canFitPointBudget) {
@@ -846,7 +970,11 @@ export class NodeSelector {
         }
 
         const selected = accepted
-          .sort(compareBudgetPriority)
+          .map((candidate) => {
+            recordCandidateInfluence(candidate);
+            return candidate;
+          })
+          .sort(compareSchedulingPriority)
           .map(toSelectedNode);
         this.recordFrontierMetrics(selected, initialPointCount, acceptedPointCount);
         return selected;
@@ -871,7 +999,11 @@ export class NodeSelector {
 
     const selected = initialFrontier
       .map(toPrioritised)
-      .sort(compareBudgetPriority)
+      .map((candidate) => {
+        recordCandidateInfluence(candidate);
+        return candidate;
+      })
+      .sort(compareSchedulingPriority)
       .map(toSelectedNode);
     this.recordFrontierMetrics(selected, initialPointCount, initialPointCount);
     return selected;

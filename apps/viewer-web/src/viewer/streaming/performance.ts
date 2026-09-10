@@ -37,6 +37,10 @@ export type StreamingPerformanceSnapshot = {
   minimumFrontierExceedsPointBudget: boolean;
   centerWeightMin?: number;
   centerWeightMax?: number;
+  refinementCenterWeightMin?: number;
+  refinementCenterWeightMax?: number;
+  schedulingCenterWeightMin?: number;
+  schedulingCenterWeightMax?: number;
   detailBiasMin?: number;
   detailBiasMax?: number;
   candidatesWithNonZeroInfluenceCount?: number;
@@ -44,6 +48,10 @@ export type StreamingPerformanceSnapshot = {
   influenceClampCount?: number;
   acceptedRefinementPriorityMin?: number;
   acceptedRefinementPriorityMax?: number;
+  refinementPriorityMin?: number;
+  refinementPriorityMax?: number;
+  schedulingPriorityMin?: number;
+  schedulingPriorityMax?: number;
   candidatesWithCenterBoostCount?: number;
   hysteresisHoldCount?: number;
   refineDecisionCount?: number;
@@ -53,9 +61,16 @@ export type StreamingPerformanceSnapshot = {
   maxConcurrentNodeLoads?: number;
   queuedNodeCount?: number;
   activeNodeCount?: number;
+  queuedHighPriorityNodeCount?: number;
+  activeHighPriorityNodeCount?: number;
   completedNodeCount?: number;
   cancelledNodeCount?: number;
   peakActiveNodeCount?: number;
+  completedSchedulingPriorityMin?: number;
+  completedSchedulingPriorityMax?: number;
+  pendingSchedulingPriorityMin?: number;
+  pendingSchedulingPriorityMax?: number;
+  firstHighPriorityNodeStartLatencyMs?: number;
   firstHighPriorityNodeReadyLatencyMs?: number;
   loadedNodeCount: number;
   loadedPointCount: number;
@@ -154,11 +169,17 @@ export class StreamingPerformanceRecorder {
     this.snapshot.maxConcurrentNodeLoads = diagnostics.maxConcurrentNodeLoads;
     this.snapshot.queuedNodeCount = diagnostics.queuedNodeCount;
     this.snapshot.activeNodeCount = diagnostics.activeNodeCount;
+    this.snapshot.queuedHighPriorityNodeCount = diagnostics.queuedHighPriorityNodeCount;
+    this.snapshot.activeHighPriorityNodeCount = diagnostics.activeHighPriorityNodeCount;
     this.snapshot.completedNodeCount = diagnostics.completedNodeCount;
     this.currentSchedulerCancelledNodeCount = diagnostics.cancelledNodeCount;
     this.snapshot.cancelledNodeCount = this.schedulingCancellationCount
       + this.currentSchedulerCancelledNodeCount;
     this.snapshot.peakActiveNodeCount = diagnostics.peakActiveNodeCount;
+    this.snapshot.completedSchedulingPriorityMin = diagnostics.completedSchedulingPriorityMin;
+    this.snapshot.completedSchedulingPriorityMax = diagnostics.completedSchedulingPriorityMax;
+    this.snapshot.pendingSchedulingPriorityMin = diagnostics.pendingSchedulingPriorityMin;
+    this.snapshot.pendingSchedulingPriorityMax = diagnostics.pendingSchedulingPriorityMax;
   }
 
   /** Preserve cancellations reported by a superseded scheduler. */
@@ -178,6 +199,17 @@ export class StreamingPerformanceRecorder {
     }
 
     this.snapshot.firstHighPriorityNodeReadyLatencyMs = Math.max(
+      0,
+      performanceNow() - this.updateStartedAt,
+    );
+  }
+
+  recordFirstHighPriorityNodeStart(): void {
+    if (this.snapshot.firstHighPriorityNodeStartLatencyMs !== undefined) {
+      return;
+    }
+
+    this.snapshot.firstHighPriorityNodeStartLatencyMs = Math.max(
       0,
       performanceNow() - this.updateStartedAt,
     );
@@ -224,6 +256,10 @@ export class StreamingPerformanceRecorder {
     this.snapshot.minimumFrontierExceedsPointBudget = metrics.minimumFrontierExceedsPointBudget ?? false;
     this.snapshot.centerWeightMin = metrics.centerWeightMin;
     this.snapshot.centerWeightMax = metrics.centerWeightMax;
+    this.snapshot.refinementCenterWeightMin = metrics.refinementCenterWeightMin;
+    this.snapshot.refinementCenterWeightMax = metrics.refinementCenterWeightMax;
+    this.snapshot.schedulingCenterWeightMin = metrics.schedulingCenterWeightMin;
+    this.snapshot.schedulingCenterWeightMax = metrics.schedulingCenterWeightMax;
     this.snapshot.detailBiasMin = metrics.detailBiasMin;
     this.snapshot.detailBiasMax = metrics.detailBiasMax;
     this.snapshot.candidatesWithNonZeroInfluenceCount =
@@ -233,6 +269,10 @@ export class StreamingPerformanceRecorder {
     this.snapshot.influenceClampCount = metrics.influenceClampCount ?? 0;
     this.snapshot.acceptedRefinementPriorityMin = metrics.acceptedRefinementPriorityMin;
     this.snapshot.acceptedRefinementPriorityMax = metrics.acceptedRefinementPriorityMax;
+    this.snapshot.refinementPriorityMin = metrics.refinementPriorityMin;
+    this.snapshot.refinementPriorityMax = metrics.refinementPriorityMax;
+    this.snapshot.schedulingPriorityMin = metrics.schedulingPriorityMin;
+    this.snapshot.schedulingPriorityMax = metrics.schedulingPriorityMax;
     this.snapshot.candidatesWithCenterBoostCount = metrics.candidatesWithCenterBoostCount ?? 0;
     this.snapshot.hysteresisHoldCount = metrics.hysteresisHoldCount ?? 0;
     this.snapshot.refineDecisionCount = metrics.refineDecisionCount ?? 0;

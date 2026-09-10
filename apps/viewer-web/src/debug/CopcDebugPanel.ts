@@ -38,12 +38,19 @@ export type CopcDebugPanelView = {
   cancelledNodeCount: string;
   peakActiveNodeCount: string;
   firstHighPriorityNodeReadyLatency: string;
+  firstHighPriorityNodeStartLatency: string;
+  highPriorityQueuedActive: string;
+  completedPendingSchedulingPriority: string;
   streamingUpdateCount: string;
   candidatesBeforeCulling: string;
   frustumCulledCount: string;
   maxScreenSpaceError: string;
   representativeScreenSpaceError: string;
   effectiveScreenSpaceError: string;
+  refinementCenterWeight: string;
+  schedulingCenterWeight: string;
+  refinementPriority: string;
+  schedulingPriority: string;
   detailBias: string;
   influenceCandidates: string;
   gazeInfluencedRefinements: string;
@@ -90,6 +97,12 @@ function formatBytes(value: number): string {
 
 function formatCoordinate(value: number): string {
   return Number.isInteger(value) ? value.toString() : value.toPrecision(8);
+}
+
+function formatPriorityRange(min?: number, max?: number): string {
+  return min !== undefined && max !== undefined
+    ? `${formatCoordinate(min)}–${formatCoordinate(max)}`
+    : '—';
 }
 
 function formatVector(vector?: { x: number; y: number; z: number }): string {
@@ -180,6 +193,18 @@ export function buildCopcDebugPanelView(
       snapshot.performance?.firstHighPriorityNodeReadyLatencyMs === undefined
         ? '—'
         : `${formatCoordinate(snapshot.performance.firstHighPriorityNodeReadyLatencyMs)} ms`,
+    firstHighPriorityNodeStartLatency:
+      snapshot.performance?.firstHighPriorityNodeStartLatencyMs === undefined
+        ? '—'
+        : `${formatCoordinate(snapshot.performance.firstHighPriorityNodeStartLatencyMs)} ms`,
+    highPriorityQueuedActive: `${formatNumber(snapshot.performance?.queuedHighPriorityNodeCount ?? 0)} / ${formatNumber(snapshot.performance?.activeHighPriorityNodeCount ?? 0)}`,
+    completedPendingSchedulingPriority: `${formatPriorityRange(
+      snapshot.performance?.completedSchedulingPriorityMin,
+      snapshot.performance?.completedSchedulingPriorityMax,
+    )} / ${formatPriorityRange(
+      snapshot.performance?.pendingSchedulingPriorityMin,
+      snapshot.performance?.pendingSchedulingPriorityMax,
+    )}`,
     streamingUpdateCount: formatNumber(snapshot.streamingUpdateCount),
     candidatesBeforeCulling: formatNumber(snapshot.performance?.candidatesBeforeCulling ?? 0),
     frustumCulledCount: formatNumber(snapshot.performance?.frustumCulledCount ?? 0),
@@ -193,6 +218,26 @@ export function buildCopcDebugPanelView(
       snapshot.performance?.effectiveScreenSpaceErrorMin !== undefined
       && snapshot.performance?.effectiveScreenSpaceErrorMax !== undefined
         ? `${formatCoordinate(snapshot.performance.effectiveScreenSpaceErrorMin)}–${formatCoordinate(snapshot.performance.effectiveScreenSpaceErrorMax)} px`
+        : '—',
+    refinementCenterWeight:
+      snapshot.performance?.refinementCenterWeightMin !== undefined
+      && snapshot.performance?.refinementCenterWeightMax !== undefined
+        ? `${formatCoordinate(snapshot.performance.refinementCenterWeightMin)}–${formatCoordinate(snapshot.performance.refinementCenterWeightMax)}`
+        : '—',
+    schedulingCenterWeight:
+      snapshot.performance?.schedulingCenterWeightMin !== undefined
+      && snapshot.performance?.schedulingCenterWeightMax !== undefined
+        ? `${formatCoordinate(snapshot.performance.schedulingCenterWeightMin)}–${formatCoordinate(snapshot.performance.schedulingCenterWeightMax)}`
+        : '—',
+    refinementPriority:
+      snapshot.performance?.refinementPriorityMin !== undefined
+      && snapshot.performance?.refinementPriorityMax !== undefined
+        ? `${formatCoordinate(snapshot.performance.refinementPriorityMin)}–${formatCoordinate(snapshot.performance.refinementPriorityMax)}`
+        : '—',
+    schedulingPriority:
+      snapshot.performance?.schedulingPriorityMin !== undefined
+      && snapshot.performance?.schedulingPriorityMax !== undefined
+        ? `${formatCoordinate(snapshot.performance.schedulingPriorityMin)}–${formatCoordinate(snapshot.performance.schedulingPriorityMax)}`
         : '—',
     detailBias:
       snapshot.performance?.detailBiasMin !== undefined
@@ -319,6 +364,10 @@ export function createCopcDebugPanel(
       <div><dt>SSE threshold</dt><dd data-field="maxScreenSpaceError"></dd></div>
       <div><dt>SSE observed</dt><dd data-field="representativeScreenSpaceError"></dd></div>
       <div><dt>Effective SSE</dt><dd data-field="effectiveScreenSpaceError"></dd></div>
+      <div><dt>Refinement centre weight</dt><dd data-field="refinementCenterWeight"></dd></div>
+      <div><dt>Scheduling centre weight</dt><dd data-field="schedulingCenterWeight"></dd></div>
+      <div><dt>Refinement priority</dt><dd data-field="refinementPriority"></dd></div>
+      <div><dt>Scheduling priority</dt><dd data-field="schedulingPriority"></dd></div>
       <div><dt>Detail bias</dt><dd data-field="detailBias"></dd></div>
       <div><dt>Influenced candidates</dt><dd data-field="influenceCandidates"></dd></div>
       <div><dt>Gaze refinements</dt><dd data-field="gazeInfluencedRefinements"></dd></div>
@@ -341,6 +390,9 @@ export function createCopcDebugPanel(
         <div><dt>Queued / active</dt><dd><span data-field="queuedNodeCount"></span> / <span data-field="activeNodeCount"></span></dd></div>
         <div><dt>Completed / cancelled</dt><dd><span data-field="completedNodeCount"></span> / <span data-field="cancelledNodeCount"></span></dd></div>
         <div><dt>Peak active</dt><dd data-field="peakActiveNodeCount"></dd></div>
+        <div><dt>High-priority queued / active</dt><dd data-field="highPriorityQueuedActive"></dd></div>
+        <div><dt>Completed / pending priority</dt><dd data-field="completedPendingSchedulingPriority"></dd></div>
+        <div><dt>First priority start</dt><dd data-field="firstHighPriorityNodeStartLatency"></dd></div>
         <div><dt>First priority ready</dt><dd data-field="firstHighPriorityNodeReadyLatency"></dd></div>
       </dl>
     </details>

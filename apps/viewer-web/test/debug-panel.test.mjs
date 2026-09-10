@@ -29,6 +29,22 @@ function createSnapshot(overrides = {}) {
       detailBiasMax: 1.25,
       candidatesWithNonZeroInfluenceCount: 2,
       acceptedGazeInfluencedRefinementCount: 1,
+      refinementCenterWeightMin: 0.2,
+      refinementCenterWeightMax: 1,
+      schedulingCenterWeightMin: 0.1,
+      schedulingCenterWeightMax: 1,
+      refinementPriorityMin: 3,
+      refinementPriorityMax: 22.5,
+      schedulingPriorityMin: 3.2,
+      schedulingPriorityMax: 28,
+      queuedHighPriorityNodeCount: 2,
+      activeHighPriorityNodeCount: 1,
+      firstHighPriorityNodeStartLatencyMs: 4.5,
+      firstHighPriorityNodeReadyLatencyMs: 12.25,
+      completedSchedulingPriorityMin: 3.2,
+      completedSchedulingPriorityMax: 28,
+      pendingSchedulingPriorityMin: 5,
+      pendingSchedulingPriorityMax: 15,
       refinementRejectedByNodeBudgetCount: 3,
       refinementRejectedByPointBudgetCount: 4,
       refinedNodeCount: 4,
@@ -130,6 +146,14 @@ test('maps layer diagnostics and metadata into browser-visible values', () => {
   assert.equal(view.maxScreenSpaceError, '8 px');
   assert.equal(view.representativeScreenSpaceError, '2.5000000–18.750000 px');
   assert.equal(view.effectiveScreenSpaceError, '3–22.500000 px');
+  assert.equal(view.refinementCenterWeight, '0.20000000–1');
+  assert.equal(view.schedulingCenterWeight, '0.10000000–1');
+  assert.equal(view.refinementPriority, '3–22.500000');
+  assert.equal(view.schedulingPriority, '3.2000000–28');
+  assert.equal(view.highPriorityQueuedActive, '2 / 1');
+  assert.equal(view.firstHighPriorityNodeStartLatency, '4.5000000 ms');
+  assert.equal(view.firstHighPriorityNodeReadyLatency, '12.250000 ms');
+  assert.equal(view.completedPendingSchedulingPriority, '3.2000000–28 / 5–15');
   assert.equal(view.detailBias, '1–1.2500000×');
   assert.equal(view.influenceCandidates, '2');
   assert.equal(view.gazeInfluencedRefinements, '1');
@@ -173,4 +197,14 @@ test('shows loading placeholders and gives runtime errors precedence', () => {
   assert.equal(failed.status, 'Error');
   assert.equal(failed.statusTone, 'error');
   assert.equal(failed.error, 'Range request failed');
+});
+
+test('keeps completed scheduling priority visible after the pending queue drains', () => {
+  const snapshot = createSnapshot();
+  snapshot.performance.pendingSchedulingPriorityMin = undefined;
+  snapshot.performance.pendingSchedulingPriorityMax = undefined;
+
+  const view = buildCopcDebugPanelView({ snapshot });
+
+  assert.equal(view.completedPendingSchedulingPriority, '3.2000000–28 / —');
 });

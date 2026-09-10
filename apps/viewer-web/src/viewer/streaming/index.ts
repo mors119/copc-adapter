@@ -6,8 +6,11 @@ export {
 export { DEFAULT_MAX_RENDERED_POINTS, NodeSelector } from './NodeSelector';
 export {
   calculateGazeCenterWeight,
+  calculateSchedulingCenterWeight,
   calculateScreenSpaceErrorPixels,
   DEFAULT_CENTER_PRIORITY_BOOST,
+  DEFAULT_MAX_SCHEDULING_CENTER_BOOST,
+  DEFAULT_SCHEDULING_CENTER_FALLOFF,
 } from './NodeSelector';
 export {
   StreamingManager,

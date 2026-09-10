@@ -207,6 +207,11 @@ export class StreamingManager {
     const nextSelectedNodeKeys = new Set(
       selectedNodes.map((entry) => entry.node.key),
     );
+    const highPriorityNodeKeys = new Set(
+      selectedNodes
+        .slice(0, Math.max(1, Math.ceil(selectedNodes.length * 0.25)))
+        .map((entry) => entry.node.key),
+    );
     const replacementGroups = createReplacementGroups(
       [...this.selectedNodeKeys],
       [...nextSelectedNodeKeys],
@@ -283,6 +288,8 @@ export class StreamingManager {
       maxConcurrentNodeLoads: this.maxConcurrentNodeLoads,
       workLimiter: this.workLimiter,
       load: loadNode,
+      getPriority: (node) => node.schedulingPriority,
+      isHighPriority: (node) => highPriorityNodeKeys.has(node.node.key),
       isReady: (node) => this.cache.get(node.node.key) !== undefined,
       shouldContinue: () => updateGeneration === this.updateGeneration,
       onDiagnostics: (diagnostics) => {
@@ -296,12 +303,17 @@ export class StreamingManager {
           this.performanceRecorder.setSchedulingDiagnostics(diagnostics);
         }
       },
+      onStart: (node) => {
+        if (highPriorityNodeKeys.has(node.node.key)) {
+          this.performanceRecorder.recordFirstHighPriorityNodeStart();
+        }
+      },
       onComplete: (node, loaded) => {
         if (!loaded || updateGeneration !== this.updateGeneration) {
           return;
         }
 
-        if (node.node.key === selectedNodes[0]?.node.key) {
+        if (highPriorityNodeKeys.has(node.node.key)) {
           this.performanceRecorder.recordFirstHighPriorityNodeReady();
         }
         if (this.selectedNodeKeys.has(loaded.nodeKey)

@@ -93,14 +93,20 @@ export type StreamingHierarchyNode = {
  * visual priority that produced the frontier order.
  */
 export type StreamingSelectedNode = StreamingHierarchyNode & {
-  /** Deterministic work-order score; larger values are scheduled first. */
+  /** Bounded SSE score used for refinement and coverage decisions. */
+  refinementPriority: number;
+  /** Bounded SSE score with the sharper scheduling centre relevance applied. */
+  schedulingPriority: number;
+  /** Deterministic work-order alias retained for existing consumers. */
   priority: number;
   /** Raw screen-space error before bounded visual influence is applied. */
   rawScreenSpaceError: number;
-  /** Screen-space error after bounded centre/focus influence is applied. */
+  /** Screen-space error after bounded refinement influence is applied. */
   effectiveScreenSpaceError: number;
-  /** Bounded screen-centre relevance used by the selector, in [0, 1]. */
+  /** Conservative bounded screen-centre influence used by refinement, in [0, 1]. */
   centerWeight: number;
+  /** Sharper bounded screen-centre relevance used only for scheduling, in [0, 1]. */
+  schedulingCenterWeight: number;
 };
 
 export type StreamingSelectionMetrics = {
@@ -132,6 +138,11 @@ export type StreamingSelectionMetrics = {
   minimumFrontierExceedsPointBudget?: boolean;
   centerWeightMin?: number;
   centerWeightMax?: number;
+  /** Explicit names for the conservative refinement influence range. */
+  refinementCenterWeightMin?: number;
+  refinementCenterWeightMax?: number;
+  schedulingCenterWeightMin?: number;
+  schedulingCenterWeightMax?: number;
   detailBiasMin?: number;
   detailBiasMax?: number;
   candidatesWithNonZeroInfluenceCount?: number;
@@ -139,6 +150,10 @@ export type StreamingSelectionMetrics = {
   influenceClampCount?: number;
   acceptedRefinementPriorityMin?: number;
   acceptedRefinementPriorityMax?: number;
+  refinementPriorityMin?: number;
+  refinementPriorityMax?: number;
+  schedulingPriorityMin?: number;
+  schedulingPriorityMax?: number;
   candidatesWithCenterBoostCount?: number;
   hysteresisHoldCount?: number;
   refineDecisionCount?: number;
@@ -149,9 +164,15 @@ export type StreamingSchedulingDiagnostics = {
   maxConcurrentNodeLoads: number;
   queuedNodeCount: number;
   activeNodeCount: number;
+  queuedHighPriorityNodeCount: number;
+  activeHighPriorityNodeCount: number;
   completedNodeCount: number;
   cancelledNodeCount: number;
   peakActiveNodeCount: number;
+  completedSchedulingPriorityMin?: number;
+  completedSchedulingPriorityMax?: number;
+  pendingSchedulingPriorityMin?: number;
+  pendingSchedulingPriorityMax?: number;
 };
 
 export type StreamingLevelRange = {
