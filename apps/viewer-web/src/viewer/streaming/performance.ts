@@ -2,6 +2,7 @@ import { performanceNow } from '../../copc/performance';
 import type {
   StreamingLevelRange,
   StreamingSelectionMetrics,
+  StreamingSchedulingDiagnostics,
   ViewVector3,
 } from './types';
 
@@ -49,6 +50,13 @@ export type StreamingPerformanceSnapshot = {
   collapseDecisionCount?: number;
   visibleLevelRange?: StreamingLevelRange;
   cameraDirection?: ViewVector3;
+  maxConcurrentNodeLoads?: number;
+  queuedNodeCount?: number;
+  activeNodeCount?: number;
+  completedNodeCount?: number;
+  cancelledNodeCount?: number;
+  peakActiveNodeCount?: number;
+  firstHighPriorityNodeReadyLatencyMs?: number;
   loadedNodeCount: number;
   loadedPointCount: number;
   rangeFetchDurationMs: number;
@@ -134,6 +142,26 @@ export class StreamingPerformanceRecorder {
     this.snapshot = emptySnapshot();
     this.snapshot.configuredPointBudget = this.configuredPointBudget;
     this.updateStartedAt = 0;
+  }
+
+  setSchedulingDiagnostics(diagnostics: StreamingSchedulingDiagnostics): void {
+    this.snapshot.maxConcurrentNodeLoads = diagnostics.maxConcurrentNodeLoads;
+    this.snapshot.queuedNodeCount = diagnostics.queuedNodeCount;
+    this.snapshot.activeNodeCount = diagnostics.activeNodeCount;
+    this.snapshot.completedNodeCount = diagnostics.completedNodeCount;
+    this.snapshot.cancelledNodeCount = diagnostics.cancelledNodeCount;
+    this.snapshot.peakActiveNodeCount = diagnostics.peakActiveNodeCount;
+  }
+
+  recordFirstHighPriorityNodeReady(): void {
+    if (this.snapshot.firstHighPriorityNodeReadyLatencyMs !== undefined) {
+      return;
+    }
+
+    this.snapshot.firstHighPriorityNodeReadyLatencyMs = Math.max(
+      0,
+      performanceNow() - this.updateStartedAt,
+    );
   }
 
   setSelection(

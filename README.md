@@ -413,9 +413,10 @@ controls, render loop, and UI.
   coverage until a replacement is ready. Benchmark evidence is in the
   [renderer benchmark](docs/benchmarks/issue-48-renderer.md).
 - Dense refinement workloads can take time to finish progressively. The
-  scheduler yields between bounded batches, stale generations are discarded,
-  and rendered-point budget/backpressure keeps active work bounded. See the
-  [streaming validation report](docs/benchmarks/issue-68-streaming.md).
+  priority scheduler keeps range/decode/preparation work bounded, emits each
+  ready node independently, yields between completions, and discards stale
+  generations. Rendered-point budget/backpressure remains separate from load
+  concurrency. See the [streaming validation report](docs/benchmarks/issue-68-streaming.md).
 - The Rust backend currently targets the supported LAS 1.4 point format
   subset, including point formats 6, 7, and 8.
 - Source URLs must support HTTP Range requests and appropriate CORS behavior.

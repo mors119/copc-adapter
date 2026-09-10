@@ -163,9 +163,12 @@ await core.updateView({
 The shared streaming limits include `maxNodes` (default `24`), `maxDepth`
 (default `6`), `maxScreenSpaceError` in pixels (default `8`),
 `screenSpaceErrorHysteresis`, `maxRenderDistanceMeters` (default `12000`),
-`maxRenderedPoints` (default `250000`), and `maxPointsPerBatch` (default
-`100000`). `refineDistanceMultiplier` is accepted for compatibility but is
-deprecated and no longer controls refinement.
+`maxRenderedPoints` (default `250000`), and `maxConcurrentNodeLoads` (default
+`4`). `maxConcurrentNodeLoads` bounds active range/decode/preparation work and
+is independent of the rendered-point budget. `maxPointsPerBatch` is retained
+for source compatibility but no longer creates completion barriers.
+`refineDistanceMultiplier` is accepted for compatibility but is deprecated and
+no longer controls refinement.
 
 `load()` reads metadata and the root hierarchy. `updateView(view,
 onProgress?)` performs view-driven hierarchy loading and selection and reports
@@ -173,6 +176,10 @@ progressively prepared point data. The view and progress types contain no
 engine objects; loaded entries use the shared `PreparedPointData` contract and
 retain compatibility geographic aliases. `undefined` is returned when an update is
 superseded by a newer view or lifecycle operation.
+
+`getSnapshot().performance` includes aggregate scheduler diagnostics for the
+configured load slots, queued/active/completed/cancelled work, peak active
+loads, and first-priority-node ready latency.
 
 The core lifecycle is `idle | loading | ready | destroyed`. It provides
 `getSnapshot()`, `getMetadata()`, `getHierarchyDiagnostics()`,

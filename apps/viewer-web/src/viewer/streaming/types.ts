@@ -56,7 +56,12 @@ export type StreamingSelectionOptions = {
   maxRenderDistanceMeters: number;
   /** Maximum estimated points allowed in the active current-view workload. */
   maxRenderedPoints?: number;
-  /** Internal release-safety bound; this is not a rendered-point API. */
+  /**
+   * Maximum number of range/decode/preparation loads active at once. This is
+   * independent of the rendered-point budget.
+   */
+  maxConcurrentNodeLoads?: number;
+  /** @deprecated Retained for source compatibility; use maxConcurrentNodeLoads. */
   maxPointsPerBatch?: number;
 };
 
@@ -138,6 +143,15 @@ export type StreamingSelectionMetrics = {
   hysteresisHoldCount?: number;
   refineDecisionCount?: number;
   collapseDecisionCount?: number;
+};
+
+export type StreamingSchedulingDiagnostics = {
+  maxConcurrentNodeLoads: number;
+  queuedNodeCount: number;
+  activeNodeCount: number;
+  completedNodeCount: number;
+  cancelledNodeCount: number;
+  peakActiveNodeCount: number;
 };
 
 export type StreamingLevelRange = {
