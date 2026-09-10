@@ -160,6 +160,7 @@ export type {
   StreamingView,
   StreamingHierarchy,
   StreamingHierarchyNode,
+  StreamingSelectedNode,
   StreamingProgress,
   StreamingReplacementGroup,
   StreamingReplacementKind,
