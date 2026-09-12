@@ -88,8 +88,9 @@ TypeScript transform path.
 The repository contains `crates/copc-core` and `crates/copc-wasm`. The former
 is the native-testable domain implementation; the latter exposes the existing
 Rust/WASM ABI without owning COPC parsing or decoding rules. This extraction is
-the first phase of the broader processing-core direction: statistics and fused
-point preparation remain future work.
+complete for the supported release scope, including fused point preparation and
+statistics. Broader processing-core coverage and backend migration remain
+future work.
 
 ### Current data and streaming contracts
 
@@ -134,9 +135,13 @@ the backend-neutral renderer boundary. Rust/WASM returns the same contract
 directly from its fused decode/CRS/ECEF/statistics operation, while copc-js
 continues to use the TypeScript reference implementation.
 
-## Target processing architecture
+## Future processing direction
 
-The intended long-term processing structure is:
+The current architecture above already provides the pure Rust processing core,
+thin WASM boundary, fused Rust point preparation, shared TypeScript streaming
+core, and Cesium/Three.js adapters. Future processing work should extend those
+boundaries without moving view-level streaming policy into Rust or renderer
+concerns into the processing crates. The intended direction is:
 
 ```text
 HTTP Range / browser I/O
@@ -174,8 +179,7 @@ renderer adapters
 The Rust core is a domain and processing core. It is not a renderer, browser
 runtime, or streaming controller. The WASM crate is only the browser ABI and
 runtime boundary around that core. TypeScript remains responsible for
-browser/streaming policy and lifecycle even after more point-level work moves
-to Rust.
+browser/streaming policy and lifecycle as broader point-level coverage evolves.
 
 ### Rust and TypeScript ownership rule
 

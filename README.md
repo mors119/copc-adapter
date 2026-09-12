@@ -86,6 +86,14 @@ The historical root import remains supported for existing Cesium consumers:
 import { CopcCesiumLayer } from '@frillab/copc-adapter';
 ```
 
+The supported renderer imports are:
+
+```ts
+import { CopcCesiumLayer } from '@frillab/copc-adapter';
+import { CopcCesiumLayer } from '@frillab/copc-adapter/cesium';
+import { CopcThreeLayer } from '@frillab/copc-adapter/three';
+```
+
 ### Three.js package boundary
 
 Three.js consumers should import the isolated renderer entrypoint rather than
@@ -232,6 +240,8 @@ and prepares one node's source/geographic/ECEF buffers, requested attributes,
 and point statistics in one job. `decodeDurationMs` and
 `pointPreparationDurationMs` are reported separately; the JS path remains the
 reference implementation and is not silently used as a Rust fallback.
+The Rust CRS path covers the validated supported WKT/CRS matrix only; full
+PROJ and vertical-datum parity is not implied.
 
 ## Styling Modes
 
