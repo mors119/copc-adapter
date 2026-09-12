@@ -38,12 +38,12 @@ the current implementation boundaries.
 
 ### Pure Rust processing domain
 
-The first extraction is complete: `copc-core` owns native-testable COPC/LAS
-metadata and hierarchy parsing, supported LAZ point decoding, reusable CRS/WKT
-transformation, WGS84/ECEF preparation, and typed domain errors, while
-`copc-wasm` remains the ABI and memory/transport wrapper. Statistics and fused
-point preparation remain future work; this does not claim the broader #169
-migration is complete.
+The shipped extraction is complete for the current supported scope:
+`copc-core` owns native-testable COPC/LAS metadata and hierarchy parsing,
+supported LAZ point decoding, reusable CRS/WKT transformation, WGS84/ECEF
+preparation, fused point preparation, statistics, and typed domain errors,
+while `copc-wasm` remains the ABI and memory/transport wrapper. Broader Rust
+coverage and backend migration remain future work.
 
 ### Rust CRS capability
 
@@ -57,23 +57,24 @@ and the implementation evidence in
 
 ### Renderer-neutral prepared point pipeline
 
-Move suitable point-level binary and numeric work into the Rust processing core
-and return typed renderer-neutral buffers. Keep camera, hierarchy, LoD, cache,
-and workload policy in the shared TypeScript streaming core.
+The current Rust path returns typed renderer-neutral buffers from the processing
+core. Continue extending point-level binary and numeric coverage in Rust while
+keeping camera, hierarchy, LoD, cache, and workload policy in the shared
+TypeScript streaming core.
 
 ### Fused Worker processing
 
-Reduce repeated main-thread passes and WASM crossings by preparing point data
-inside the Worker before returning it to TypeScript. Measure end-to-end effects
-on responsiveness, transfer cost, memory, and renderer preparation rather than
-optimizing an isolated decode stage.
+The current Rust Worker prepares supported node data before returning it to
+TypeScript, reducing repeated main-thread passes and WASM crossings. Continue
+measuring end-to-end responsiveness, transfer cost, memory, and renderer
+preparation rather than optimizing an isolated decode stage.
 
 ### Thin renderer integration
 
-Ensure CesiumJS and Three.js consume the same renderer-neutral prepared data.
-Renderer adapters should own engine objects, camera conversion, local frames,
-picking, styling details, and resource disposal without reimplementing COPC,
-CRS, hierarchy, or streaming logic.
+CesiumJS and Three.js consume the same renderer-neutral prepared data.
+Continue keeping engine objects, camera conversion, local frames, picking,
+styling details, and resource disposal in renderer adapters without
+reimplementing COPC, CRS, hierarchy, or streaming logic.
 
 ### Rust correctness and performance validation
 

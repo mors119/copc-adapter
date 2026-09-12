@@ -238,8 +238,9 @@ linear memory is retained by the cache.
 
 The current TypeScript coordinate path uses the project WKT helpers and the
 `proj4js` dependency for applicable projected CRS transformations. The
-Rust/WASM backend remains opt-in; this implementation detail is not a separate
-public coordinate API.
+Rust/WASM backend remains opt-in and its CRS path covers the validated supported
+WKT/CRS matrix only; full PROJ or vertical-datum parity is not implied. This
+implementation detail is not a separate public coordinate API.
 
 `CopcPointDecoder.decode(view)` remains available for injected decoders and
 legacy source implementations. The public point-processing types are
