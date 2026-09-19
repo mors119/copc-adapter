@@ -70,7 +70,7 @@
     "@emnapi/core": "^1.11.2",
     "@emnapi/runtime": "^1.11.2",
     "@playwright/test": "^1.55.0",
-    "@types/three": "^0.185.4",
+    "@types/three": "^0.186.0",
     "cesium": "^1.142.0",
     "three": "^0.186.0",
     "typescript": "~7.0.2",
