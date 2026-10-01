@@ -55,13 +55,15 @@ const lazImport = `./${generatedLazModule}`;
 if (![...javascriptSources.values()].some((source) => source.includes(lazImport))) {
   throw new Error(`Library output does not reference ${generatedLazModule}`);
 }
-const workerConstructor = new RegExp(
-  `new Worker\\("" \\+ new URL\\("assets/${generatedWorkerModule}", import\\.meta\\.url\\)\\.href, \\{ name: e\\?\\.name \\}\\)`,
+const workerUrlExpression = new RegExp(
+  `new URL\\((["'])assets/${generatedWorkerModule.replaceAll('.', '\\.')}\\1,\\s*import\\.meta\\.url\\)\\.href`,
+  'gu',
 );
-if (!workerConstructor.test(factorySource)) {
+const workerUrlReferences = [...factorySource.matchAll(workerUrlExpression)];
+if (workerUrlReferences.length !== 1) {
   throw new Error(`Worker factory does not reference ${generatedWorkerModule}`);
 }
-factorySource = factorySource.replace(workerConstructor, `new Worker(${JSON.stringify(workerDataUrl)}, { name: e?.name })`);
+factorySource = factorySource.replace(workerUrlExpression, JSON.stringify(workerDataUrl));
 const factoryImport = `./${generatedFactoryModule}`;
 if (![...javascriptSources.values()].some((source) => source.includes(factoryImport))) {
   throw new Error(`Library output does not reference ${generatedFactoryModule}`);
