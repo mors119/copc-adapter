@@ -58,6 +58,25 @@
         { "x": 376100.5, "y": 3758000.25, "z": -12.5 }
       ],
       "tolerance": { "longitude_degrees": 1e-7, "latitude_degrees": 1e-7, "height_meters": 1e-9 }
+    },
+    {
+      "id": "epsg-5186-korean-central-belt-2010",
+      "source": "EPSG:5186 KGD2002 / Central Belt 2010; canonical definition: https://epsg.org/crs_5186/KGD2002-Central-Belt-2010.html; WKT1_GDAL exported from EPSG Dataset v12.029 by PROJ 9.8.1",
+      "wkt_family": "WKT1 PROJCS",
+      "axis_order": "COPC XYZ maps X to easting and Y to northing; both horizontal axes are metres. The official EPSG WKT2 axis labels are northing then easting, so this non-symmetric control locks the LAS/COPC tuple convention used by this adapter.",
+      "wkt": "PROJCS[\"KGD2002 / Central Belt 2010\",GEOGCS[\"KGD2002\",DATUM[\"Korean_Geodetic_Datum_2002\",SPHEROID[\"GRS 1980\",6378137,298.257222101,AUTHORITY[\"EPSG\",\"7019\"]],AUTHORITY[\"EPSG\",\"6737\"]],PRIMEM[\"Greenwich\",0,AUTHORITY[\"EPSG\",\"8901\"]],UNIT[\"degree\",0.0174532925199433,AUTHORITY[\"EPSG\",\"9122\"]],AUTHORITY[\"EPSG\",\"4737\"]],PROJECTION[\"Transverse_Mercator\"],PARAMETER[\"latitude_of_origin\",38],PARAMETER[\"central_meridian\",127],PARAMETER[\"scale_factor\",1],PARAMETER[\"false_easting\",200000],PARAMETER[\"false_northing\",600000],UNIT[\"metre\",1,AUTHORITY[\"EPSG\",\"9001\"]],AUTHORITY[\"EPSG\",\"5186\"]]",
+      "vertical_unit_scale": 1,
+      "points": [
+        { "x": 200000, "y": 600000, "z": 0 },
+        { "x": 198056.36673702704, "y": 551885.0305887164, "z": 123.45 }
+      ],
+      "expected": [
+        { "longitude": 127, "latitude": 38, "height": 0, "ecef": [-3028591.5686469036, 4019076.7579761064, 3905443.968419102] },
+        { "longitude": 126.978, "latitude": 37.5665, "height": 123.45, "ecef": [-3044838.829091913, 4043867.2821966377, 3867492.2420961736] }
+      ],
+      "provenance": "Projected coordinates for 126.978 E, 37.5665 N were produced independently with PROJ 9.8.1 using EPSG database v12.029 (pyproj 3.8.0, always_xy); the expected inverse coordinates are the originating geographic control. The natural-origin coordinate is exact by the EPSG conversion definition. ECEF controls use the WGS 84 ellipsoid formula with the same geographic points and heights. EPSG lists the KGD2002-to-WGS 84 operation at 1 m accuracy; these tighter tolerances check software conformance to that operation, not survey accuracy.",
+      "ecef_tolerance_meters": 0.05,
+      "tolerance": { "longitude_degrees": 1e-7, "latitude_degrees": 1e-7, "height_meters": 1e-9 }
     }
   ]
 }

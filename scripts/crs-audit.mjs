@@ -20,7 +20,9 @@ function sourceWkt(fixture) {
 }
 
 function adapterIntegrationStatus(fixture) {
-  return fixture.horizontal_wkt ? 'PASS' : 'ADAPTER INTEGRATION ISSUE';
+  return fixture.horizontal_wkt || fixture.wkt_family === 'WKT1 PROJCS'
+    ? 'PASS'
+    : 'ADAPTER INTEGRATION ISSUE';
 }
 
 function referencePoints(fixture) {
@@ -73,9 +75,23 @@ function differentialReport() {
       const reference = referencePoints(fixture);
       const errors = maxErrors(reference, candidate.points);
       const tolerance = fixture.tolerance;
-      const withinTolerance = errors.longitude <= tolerance.longitude_degrees
+      const withinDifferentialTolerance = errors.longitude <= tolerance.longitude_degrees
         && errors.latitude <= tolerance.latitude_degrees
         && errors.height <= tolerance.height_meters;
+      const referenceExpectedErrors = fixture.expected
+        ? maxErrors(fixture.expected, reference)
+        : undefined;
+      const candidateExpectedErrors = fixture.expected
+        ? maxErrors(fixture.expected, candidate.points)
+        : undefined;
+      const withinExpectedTolerance = (expectedErrors) => !expectedErrors || (
+        expectedErrors.longitude <= tolerance.longitude_degrees
+        && expectedErrors.latitude <= tolerance.latitude_degrees
+        && expectedErrors.height <= tolerance.height_meters
+      );
+      const expectedControlsPass = withinExpectedTolerance(referenceExpectedErrors)
+        && withinExpectedTolerance(candidateExpectedErrors);
+      const withinTolerance = withinDifferentialTolerance && expectedControlsPass;
       return {
         id: fixture.id,
         status: withinTolerance ? 'PASS' : 'DIFFERENTIAL MISMATCH',
@@ -83,6 +99,11 @@ function differentialReport() {
         fullWktStatus: candidate.full_wkt_error ? 'PROJ4WKT GAP' : 'SUPPORTED',
         pointCount: fixture.points.length,
         maxError: errors,
+        referenceMaxErrorAgainstExpected: referenceExpectedErrors,
+        candidateMaxErrorAgainstExpected: candidateExpectedErrors,
+        expectedControlStatus: fixture.expected
+          ? (expectedControlsPass ? 'PASS' : 'FAIL')
+          : 'NOT PROVIDED',
         tolerance: {
           longitude: tolerance.longitude_degrees,
           latitude: tolerance.latitude_degrees,

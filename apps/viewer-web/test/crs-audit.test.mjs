@@ -20,8 +20,17 @@ test('CRS audit projected fixtures match the current horizontal WKT boundary', (
   }
 });
 
-test('CRS audit geographic and WKT2 fixtures expose the current adapter boundary gap', () => {
-  for (const fixture of fixtures.filter((entry) => !entry.horizontal_wkt)) {
+test('EPSG:5186 WKT1 fixture is supported by the TypeScript adapter', () => {
+  const fixture = fixtures.find((entry) => entry.id === 'epsg-5186-korean-central-belt-2010');
+  assert.ok(fixture);
+  assert.equal(extractHorizontalWkt(fixture.wkt), fixture.wkt);
+  assert.equal(extractVerticalUnitScale(fixture.wkt), fixture.vertical_unit_scale);
+});
+
+test('geographic and WKT2 fixtures expose the current adapter boundary gap', () => {
+  for (const fixture of fixtures.filter((entry) => (
+    !entry.horizontal_wkt && entry.wkt_family !== 'WKT1 PROJCS'
+  ))) {
     assert.throws(() => extractHorizontalWkt(fixture.wkt), fixture.id);
   }
 });

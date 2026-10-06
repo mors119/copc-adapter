@@ -19,6 +19,10 @@ pub struct Fixture {
     pub horizontal_wkt: Option<String>,
     pub vertical_unit_scale: f64,
     pub points: Vec<SourcePoint>,
+    pub expected: Option<Vec<ExpectedPoint>>,
+    pub provenance: Option<String>,
+    pub axis_order: Option<String>,
+    pub ecef_tolerance_meters: Option<f64>,
     pub tolerance: Tolerance,
 }
 
@@ -27,6 +31,14 @@ pub struct SourcePoint {
     pub x: f64,
     pub y: f64,
     pub z: f64,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize)]
+pub struct ExpectedPoint {
+    pub longitude: f64,
+    pub latitude: f64,
+    pub height: f64,
+    pub ecef: Option<[f64; 3]>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
@@ -275,6 +287,12 @@ mod tests {
                 .iter()
                 .any(|fixture| fixture.wkt_family == "WKT2 PROJCRS")
         );
+        assert!(matrix.fixtures.iter().any(|fixture| {
+            fixture.id == "epsg-5186-korean-central-belt-2010"
+                && fixture.expected.is_some()
+                && fixture.provenance.is_some()
+                && fixture.axis_order.is_some()
+        }));
     }
 
     #[test]
@@ -301,5 +319,64 @@ mod tests {
         assert!(super::convert_wkt(&fixture.wkt).is_err());
         let transform = CrsTransform::from_wkt(&fixture.wkt).expect("horizontal fallback");
         assert!(transform.used_horizontal_fallback());
+    }
+
+    #[test]
+    fn epsg_5186_matches_independent_geographic_and_ecef_controls() {
+        let fixture = fixture_matrix()
+            .fixtures
+            .into_iter()
+            .find(|fixture| fixture.id == "epsg-5186-korean-central-belt-2010")
+            .expect("EPSG:5186 fixture");
+        let expected = fixture.expected.as_ref().expect("EPSG:5186 references");
+        let tolerance = fixture.tolerance;
+        let ecef_tolerance = fixture.ecef_tolerance_meters.expect("ECEF tolerance");
+        let transform = CrsTransform::from_wkt(&fixture.wkt).expect("EPSG:5186 WKT");
+        assert!(!transform.used_horizontal_fallback());
+
+        let (_, actual) = transform_fixture(&fixture).expect("EPSG:5186 transform");
+        assert_eq!(actual.len(), expected.len());
+        for (actual, expected) in actual.iter().zip(expected) {
+            assert!((actual.longitude - expected.longitude).abs() <= tolerance.longitude_degrees);
+            assert!((actual.latitude - expected.latitude).abs() <= tolerance.latitude_degrees);
+            assert!((actual.height - expected.height).abs() <= tolerance.height_meters);
+        }
+
+        // The natural origin control proves that false easting/northing are
+        // consumed once, and the asymmetric Seoul control catches X/Y swaps
+        // and accidental metre scaling.
+        assert_eq!(fixture.points[0].x, 200_000.0);
+        assert_eq!(fixture.points[0].y, 600_000.0);
+        assert!((actual[0].longitude - 127.0).abs() < 1e-9);
+        assert!((actual[0].latitude - 38.0).abs() < 1e-9);
+
+        let source_coordinates = fixture
+            .points
+            .iter()
+            .flat_map(|point| [point.x, point.y, point.z])
+            .collect::<Vec<_>>();
+        let prepared = transform
+            .transform_buffer_to_ecef(&source_coordinates)
+            .expect("EPSG:5186 ECEF preparation");
+        for (index, reference) in expected.iter().enumerate() {
+            let Some(expected_ecef) = reference.ecef else {
+                continue;
+            };
+            let offset = index * 3;
+            let actual_ecef = [
+                prepared.ecef[offset],
+                prepared.ecef[offset + 1],
+                prepared.ecef[offset + 2],
+            ];
+            let error = actual_ecef
+                .iter()
+                .zip(expected_ecef)
+                .map(|(actual, expected)| (actual - expected).abs())
+                .fold(0.0_f64, f64::max);
+            assert!(
+                error <= ecef_tolerance,
+                "ECEF error {error} m exceeds tolerance"
+            );
+        }
     }
 }
