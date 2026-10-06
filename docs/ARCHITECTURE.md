@@ -80,6 +80,42 @@ renderer adapter
   `THREE.Group`, `THREE.Points`, `BufferGeometry`, materials, and its fixed
   dataset-local ENU frame. Neither adapter parses COPC or owns streaming policy.
 
+### Browser thread ownership for the production backends
+
+`async` I/O does not move parsing or decoding off the main thread. The current
+production ownership is:
+
+| Stage | `backend: 'copc-js'` | `backend: 'rust'` | Cesium / GPU boundary |
+| --- | --- | --- | --- |
+| Open, metadata, and hierarchy | Main thread: `Copc.create` and hierarchy loading/parsing through `copc`. | Main thread: `RustCopcReader` performs metadata and hierarchy parsing through Rust/WASM. | Not involved. |
+| Range I/O and streaming policy | Main thread owns Range requests, response validation, hierarchy selection, scheduling, cancellation, and caches. | Same; the Worker does not fetch source bytes or choose nodes. | Camera/view updates enter through the main-thread Cesium adapter. |
+| LAZ decode and point preparation | Main thread: `Copc.loadPointDataView`, followed by TypeScript coordinate preparation and typed-buffer creation. These decode events are marked `blocksMainThread: true`. | When browser `Worker` is available, the bounded Rust Worker pool decodes LAZ and prepares source/geographic/ECEF buffers, requested fields, and statistics. Input chunks and results cross the Worker boundary as transferred buffers. | Renderer-facing data is returned to the main thread. |
+| Renderer preparation and submission | Main thread. | Main thread, after Worker results arrive. | Cesium `Cartesian3` wrapping, `PointPrimitiveCollection` creation/update, and styling run on the main thread. Cesium submits WebGL work for browser/GPU execution; this does not make adapter-side primitive preparation a Worker task. |
+
+The default Rust pool size is derived from `navigator.hardwareConcurrency` and
+capped at four Workers. Dispatch never assigns more active jobs than the
+configured pool size; the streaming scheduler separately bounds node loads.
+
+The trace follows `CopcJsSource.loadPointDataView` in
+`apps/viewer-web/src/copc/backend/copcJsBackend.ts`, Rust range reads and
+prepared-node dispatch in `apps/viewer-web/src/copc/rustCopcReader.ts`, Worker
+jobs in `apps/viewer-web/src/copc/rustCopcDecodeWorker.ts` and
+`rustCopcDecodeWorkerPool.ts`, streaming/cache/render handoff in
+`apps/viewer-web/src/viewer/streaming/CopcStreamingController.ts`, and Cesium
+primitive updates in `apps/viewer-web/src/cesium/render/CopcPointRenderer.ts`.
+
+If `Worker` is unavailable, the Rust backend uses its Rust/WASM decode and
+preparation path on the main thread. This is an environment capability path,
+not a retry through `copc-js`; Worker failures are surfaced as backend errors.
+Neither backend moves Cesium rendering or camera controls into a Worker.
+
+The designated-task validation path is the public Cesium entrypoint with an
+explicit `backend: 'rust'` selection, exercised from a packed external Vite
+consumer. This selects the Worker-isolated Rust decode/preparation path without
+changing the default (`copc-js`) or removing either backend. The Autzen
+camera-input and Worker diagnostics run is recorded in
+[`issue-208-worker-responsiveness.md`](benchmarks/issue-208-worker-responsiveness.md).
+
 `copc-js` remains the default backend and uses the TypeScript reference
 preparation path. The opt-in Rust backend uses the fused Rust preparation path;
 its failure is reported to the caller and is not silently retried through the

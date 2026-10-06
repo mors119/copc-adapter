@@ -41,9 +41,58 @@ const layer = new CopcCesiumLayer({
 
 let lastError;
 let cameraMoveEventCount = 0;
+let cameraChangeCount = 0;
+let lastWheelInputAt;
+let responsivenessCaptureStartedAt = 0;
+let longestMainThreadTaskMs = 0;
+const mainThreadTasks = [];
+const cameraChangeSamples = [];
+const wheelInputSamples = [];
+const cesiumFrameSamples = [];
+let cesiumFrameStartedAt = 0;
 viewer.camera.moveEnd.addEventListener(() => {
   cameraMoveEventCount += 1;
 });
+viewer.camera.changed.addEventListener(() => {
+  cameraChangeCount += 1;
+  cameraChangeSamples.push({
+    at: performance.now(),
+    lastWheelInputAt,
+    worker: layer.getSnapshot().worker,
+  });
+});
+viewer.scene.preRender.addEventListener(() => {
+  cesiumFrameStartedAt = performance.now();
+});
+viewer.scene.postRender.addEventListener(() => {
+  if (cesiumFrameStartedAt <= 0) return;
+  cesiumFrameSamples.push({
+    at: performance.now(),
+    durationMs: performance.now() - cesiumFrameStartedAt,
+  });
+  if (cesiumFrameSamples.length > 2000) cesiumFrameSamples.shift();
+});
+window.addEventListener('wheel', () => {
+  lastWheelInputAt = performance.now();
+  wheelInputSamples.push({
+    at: lastWheelInputAt,
+    worker: layer.getSnapshot().worker,
+  });
+}, { capture: true });
+if (typeof PerformanceObserver !== 'undefined') {
+  try {
+    const observer = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        const sample = { at: entry.startTime, durationMs: entry.duration };
+        mainThreadTasks.push(sample);
+        longestMainThreadTaskMs = Math.max(longestMainThreadTaskMs, entry.duration);
+      }
+    });
+    observer.observe({ type: 'longtask', buffered: true });
+  } catch {
+    // The Long Task API is optional in browser and test environments.
+  }
+}
 
 function reportError(error) {
   lastError = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
@@ -118,8 +167,50 @@ function getState() {
     },
     performance: snapshot.performance,
     worker: snapshot.worker,
+    cameraChangeCount,
+    longestMainThreadTaskMs,
+    cesiumFrameDurationMs: cesiumFrameSamples.at(-1)?.durationMs ?? 0,
     lastError,
     ...diagnostics,
+  };
+}
+
+function getResponsivenessDiagnostics() {
+  const startedAt = responsivenessCaptureStartedAt;
+  const cameraSamples = cameraChangeSamples.filter((sample) => sample.at >= startedAt);
+  const wheelSamples = wheelInputSamples.filter((sample) => sample.at >= startedAt);
+  const frameSamples = cesiumFrameSamples
+    .filter((sample) => sample.at >= startedAt)
+    .map((sample) => sample.durationMs)
+    .sort((left, right) => left - right);
+  const taskSamples = mainThreadTasks.filter((sample) => sample.at >= startedAt);
+  const percentile = (fraction) => frameSamples.length === 0
+    ? undefined
+    : frameSamples[Math.min(frameSamples.length - 1, Math.floor(frameSamples.length * fraction))];
+  const worker = layer.getSnapshot().worker;
+  return {
+    elapsedMs: startedAt > 0 ? performance.now() - startedAt : 0,
+    worker,
+    workerCameraChangeCount: cameraSamples.filter((sample) => sample.worker?.activeCount > 0).length,
+    workerWheelInputCount: wheelSamples.filter((sample) => sample.worker?.activeCount > 0).length,
+    workerWheelCameraChangeCount: cameraSamples.filter((sample) =>
+      sample.worker?.activeCount > 0
+      && sample.lastWheelInputAt !== undefined
+      && sample.lastWheelInputAt >= startedAt
+      && sample.at - sample.lastWheelInputAt < 200).length,
+    cameraChangeCount: cameraSamples.length,
+    wheelInputCount: wheelSamples.length,
+    frameDurationMs: {
+      count: frameSamples.length,
+      median: percentile(0.5),
+      p95: percentile(0.95),
+      max: percentile(1),
+    },
+    longTaskCount: taskSamples.length,
+    longestMainThreadTaskMs: taskSamples.reduce(
+      (maximum, sample) => Math.max(maximum, sample.durationMs),
+      0,
+    ),
   };
 }
 
@@ -154,6 +245,10 @@ async function probeRustAttributes() {
 window.__PACKED_CONSUMER__ = {
   rustCrsTransformerExportAvailable: typeof RustCrsTransformer === 'function',
   getState,
+  beginResponsivenessCapture() {
+    responsivenessCaptureStartedAt = performance.now();
+  },
+  getResponsivenessDiagnostics,
   probeRustAttributes,
   setCameraHeight(height) {
     const current = Cesium.Cartographic.fromCartesian(viewer.camera.positionWC);

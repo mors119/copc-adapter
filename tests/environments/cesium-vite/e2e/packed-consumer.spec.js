@@ -138,6 +138,53 @@ test('validates the packed Rust backend in an external Vite consumer', async ({ 
   expect(requestUrls.some((url) => /\/public\/|\/target\/|copc-adapter\/feature-/i.test(url))).toBe(false);
 });
 
+test('processes Cesium camera input while packed Rust Workers prepare Autzen nodes', async ({ page }) => {
+  const { pageErrors, consoleErrors } = await loadRustPage(page);
+  const before = await state(page);
+  await page.evaluate(() => window.__PACKED_CONSUMER__.setCameraHeight(100000));
+  await expect.poll(async () => (await state(page)).streamingUpdateCount)
+    .toBeGreaterThan(before.streamingUpdateCount);
+  const far = await state(page);
+  await page.evaluate(() => window.__PACKED_CONSUMER__.beginResponsivenessCapture());
+  await page.evaluate(() => window.__PACKED_CONSUMER__.setCameraHeight(1000));
+  await expect.poll(async () => (await state(page)).streamingUpdateCount)
+    .toBeGreaterThan(far.streamingUpdateCount);
+
+  const canvas = page.locator('#cesium-container canvas').first();
+  const bounds = await canvas.boundingBox();
+  expect(bounds).not.toBeNull();
+  await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+
+  let diagnostics = await page.evaluate(() =>
+    window.__PACKED_CONSUMER__.getResponsivenessDiagnostics());
+  for (let interaction = 0; interaction < 40; interaction += 1) {
+    await page.mouse.wheel(0, interaction % 2 === 0 ? -120 : 120);
+    await page.waitForTimeout(25);
+    diagnostics = await page.evaluate(() =>
+      window.__PACKED_CONSUMER__.getResponsivenessDiagnostics());
+    if (diagnostics.workerWheelCameraChangeCount > 0) break;
+  }
+
+  console.log(JSON.stringify({
+    scenario: 'issue-208-packed-rust-camera-input-during-worker-processing',
+    dataset: 'Autzen',
+    backend: 'rust',
+    diagnostics,
+  }, null, 2));
+
+  expect(diagnostics.worker).toBeDefined();
+  expect(diagnostics.worker.workerCount).toBeGreaterThan(0);
+  expect(diagnostics.worker.peakActiveCount).toBeGreaterThan(0);
+  expect(diagnostics.worker.peakActiveCount).toBeLessThanOrEqual(diagnostics.worker.workerCount);
+  expect(diagnostics.cameraChangeCount).toBeGreaterThan(0);
+  expect(diagnostics.wheelInputCount).toBeGreaterThan(0);
+  expect(diagnostics.workerCameraChangeCount).toBeGreaterThan(0);
+  expect(diagnostics.workerWheelCameraChangeCount).toBeGreaterThan(0);
+  expect(diagnostics.frameDurationMs.count).toBeGreaterThan(0);
+  expect(pageErrors).toEqual([]);
+  expect(consoleErrors).toEqual([]);
+});
+
 test('keeps elevation styling and the copc-js backend available to consumers', async ({ page }) => {
   const rust = await loadRustPage(page, '?backend=rust&mode=elevation');
   await expect.poll(async () => (await state(page)).colorMode).toBe('elevation');
