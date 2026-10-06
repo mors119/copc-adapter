@@ -53,12 +53,21 @@ export type CopcPoint = {
   z: number;
 };
 
+/**
+ * Per-point values of a non-standard schema dimension, such as LAS extra bytes.
+ * 64-bit integer dimensions stay exact as BigInt arrays instead of being
+ * narrowed to a double.
+ */
+export type CopcExtraDimensionValues = Float64Array | BigInt64Array | BigUint64Array;
+
 export type CopcPointAttributes = {
   intensity?: Uint16Array;
   classification?: Uint8Array;
   red?: Uint16Array;
   green?: Uint16Array;
   blue?: Uint16Array;
+  /** Requested extra schema dimensions keyed by dimension name. */
+  extraDimensions?: Readonly<Record<string, CopcExtraDimensionValues>>;
 };
 
 export type CopcPointBuffer = {
@@ -141,4 +150,12 @@ export type CopcPointView = {
   /** Fields that are both requested and available in the source point format. */
   availableFields: CopcPointFieldSelection;
   getter(component: CopcPointComponent): (index: number) => number;
+  /** Readers for the requested extra schema dimensions present in the source. */
+  extraDimensions?: ReadonlyMap<string, CopcExtraDimensionReader>;
+};
+
+/** Reads one extra schema dimension of a decoded point view by point index. */
+export type CopcExtraDimensionReader = {
+  readonly valueType: 'float64' | 'int64' | 'uint64';
+  read(index: number): number | bigint;
 };

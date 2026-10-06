@@ -206,6 +206,35 @@ The current backend selection is:
   browser Range I/O and worker orchestration.
 - an injected `CopcBackend`: supported for tests and host-owned sources.
 
+### Extra schema dimensions
+
+COPC files can carry dimensions beyond the standard LAS point record, such as
+LAS extra bytes like `leg_id` or `CE`. The `copc-js` backend can read them when
+constructed with `extraDimensions`:
+
+```ts
+import { CopcCesiumLayer, CopcJsBackend } from '@frillab/copc-adapter/cesium';
+
+const layer = new CopcCesiumLayer({
+  url: 'https://example.com/data.copc.laz',
+  backend: new CopcJsBackend({ extraDimensions: ['leg_id', 'CE'] }),
+  onPointPicked: (point) => console.log(point?.dimensions),
+});
+```
+
+- `extraDimensions` is a list of dimension names, or `'*'` for every dimension
+  outside the standard LAS point record. Names missing from a file's schema are
+  skipped, so one configuration works across files with different schemas.
+- Requested dimensions are decoded for every loaded point and retained in
+  `CopcPointAttributes.extraDimensions`, which counts toward
+  `maxPointCacheBytes`. Request only what you need.
+- The picked point reports them as `CopcPointInspection.dimensions`. Values are
+  `number`, except 64-bit integer dimensions, which are `bigint` so identifiers
+  above `Number.MAX_SAFE_INTEGER` stay exact. Scaled 64-bit integers are read
+  through the scale and offset as `number`.
+- Extra dimensions are not read by the `rust` backend yet; its picked points
+  have no `dimensions`.
+
 `CopcPointFieldSelection` is a `ReadonlySet` of `position`, `intensity`,
 `classification`, and `rgb`. `CopcPointView.availableFields` reports fields
 that were requested and are present. Missing fields are not zero-filled.

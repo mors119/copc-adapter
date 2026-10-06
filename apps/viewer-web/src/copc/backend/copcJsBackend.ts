@@ -1,4 +1,4 @@
-import { Copc } from 'copc';
+import { Copc, Las } from 'copc';
 import {
   toCopcHierarchyNode,
   toCopcHierarchyPage,
@@ -10,6 +10,7 @@ import type { CopcHierarchySubtree } from '../hierarchy/types';
 import type {
   CopcHierarchyNode,
   CopcHierarchyPage,
+  CopcExtraDimensionReader,
   CopcMetadata,
   CopcPointBuffer,
   CopcPointView,
@@ -19,6 +20,10 @@ import {
   type CopcPointField,
   type CopcPointFieldSelection,
 } from '../points/fieldSelection';
+import {
+  createExtraDimensionReaders,
+  type CopcExtraDimensionSelection,
+} from '../points/extraDimensions';
 import type { CopcBackend, CopcSource } from './types';
 import { performanceNow, type CopcPerformanceObserver } from '../performance';
 import { CopcBackendError } from '../errors';
@@ -96,6 +101,7 @@ function mapCopcJsError(
 export function toCopcPointView(
   view: SourcePointView,
   requestedFields: CopcPointFieldSelection,
+  extraDimensions?: ReadonlyMap<string, CopcExtraDimensionReader>,
 ): CopcPointView {
   const sourceDimensions = new Set(Object.keys(view.dimensions));
   const availableFields = new Set<CopcPointField>();
@@ -122,6 +128,7 @@ export function toCopcPointView(
 
       return view.getter(SOURCE_DIMENSIONS[component]);
     },
+    ...(extraDimensions && extraDimensions.size > 0 ? { extraDimensions } : {}),
   };
 }
 
@@ -131,17 +138,20 @@ class CopcJsSource implements CopcSource {
   private readonly sourceGetter: ReturnType<typeof createCopcGetter>;
   private readonly getter: ReturnType<typeof createCopcGetter>;
   private readonly copc: Copc;
+  private readonly extraDimensions?: CopcExtraDimensionSelection;
   private performanceObserver?: CopcPerformanceObserver;
 
   constructor(
     source: string,
     getter: ReturnType<typeof createCopcGetter>,
     copc: Copc,
+    extraDimensions?: CopcExtraDimensionSelection,
   ) {
     this.source = source;
     this.sourceGetter = getter;
     this.getter = (begin, end) => this.readRange(begin, end);
     this.copc = copc;
+    this.extraDimensions = extraDimensions;
   }
 
   private async readRange(
@@ -239,21 +249,26 @@ class CopcJsSource implements CopcSource {
     let pointRangeDurationMs = 0;
     const startedAt = performanceNow();
     try {
-      const view = await Copc.loadPointDataView(
-        async (begin, end) => {
-          const rangeStartedAt = performanceNow();
-          const bytes = await this.readRange(
-            begin,
-            end,
-            hierarchyNode.key,
-            hierarchyNode.pointCount,
-          );
-          pointRangeDurationMs += performanceNow() - rangeStartedAt;
-          return bytes;
-        },
-        this.copc,
-        hierarchyNode,
-      );
+      const nodeGetter = async (begin: number, end: number): Promise<Uint8Array> => {
+        const rangeStartedAt = performanceNow();
+        const bytes = await this.readRange(
+          begin,
+          end,
+          hierarchyNode.key,
+          hierarchyNode.pointCount,
+        );
+        pointRangeDurationMs += performanceNow() - rangeStartedAt;
+        return bytes;
+      };
+      // Extra dimensions need the decoded record buffer for exact 64-bit
+      // reads, so decode and wrap it here the same way Copc.loadPointDataView
+      // does; the default path is unchanged.
+      const points = this.extraDimensions === undefined
+        ? undefined
+        : await Copc.loadPointDataBuffer(nodeGetter, this.copc.header, hierarchyNode);
+      const view = points === undefined
+        ? await Copc.loadPointDataView(nodeGetter, this.copc, hierarchyNode)
+        : Las.View.create(points, this.copc.header, this.copc.eb);
 
       // copc.js currently exposes a complete point view. Keep the requested
       // fields enforced at this adapter boundary until a backend can skip LAZ
@@ -264,7 +279,15 @@ class CopcJsSource implements CopcSource {
         nodeKey: hierarchyNode.key,
         blocksMainThread: true,
       });
-      return toCopcPointView(view, fields);
+      const extraDimensions = this.extraDimensions !== undefined && points !== undefined
+        ? createExtraDimensionReaders(view, this.extraDimensions, {
+          data: points,
+          header: this.copc.header,
+          extraBytes: this.copc.eb,
+        })
+        : undefined;
+
+      return toCopcPointView(view, fields, extraDimensions);
     } catch (error: unknown) {
       throw mapCopcJsError(this.source, error, 'point', hierarchyNode.key);
     }
@@ -282,14 +305,30 @@ class CopcJsSource implements CopcSource {
   }
 }
 
+export type CopcJsBackendOptions = {
+  /**
+   * Extra schema dimensions (for example LAS extra bytes) to read for every
+   * point and expose as `CopcPointInspection.dimensions`. Pass dimension names,
+   * or `'*'` for every dimension outside the standard LAS point record. Names
+   * missing from a file's schema are skipped.
+   */
+  extraDimensions?: CopcExtraDimensionSelection;
+};
+
 /** Opens COPC resources through copc.js. */
 export class CopcJsBackend implements CopcBackend {
+  private readonly extraDimensions?: CopcExtraDimensionSelection;
+
+  constructor(options: CopcJsBackendOptions = {}) {
+    this.extraDimensions = options.extraDimensions;
+  }
+
   async open(source: string): Promise<CopcSource> {
     try {
       const getter = createCopcGetter(source);
       const copc = await Copc.create(getter);
 
-      return new CopcJsSource(source, getter, copc);
+      return new CopcJsSource(source, getter, copc, this.extraDimensions);
     } catch (error: unknown) {
       throw mapCopcJsError(source, error, 'open');
     }

@@ -6,6 +6,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Added `extraDimensions` to `CopcJsBackend` so extra schema dimensions (for
+  example LAS extra bytes) can be read per point and reported on picked points
+  as `CopcPointInspection.dimensions`. 64-bit integer dimensions are returned
+  as exact `bigint` values.
+
 ## [0.4.0] - 2026-09-12
 
 ### Added

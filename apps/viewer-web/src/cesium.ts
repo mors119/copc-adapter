@@ -24,6 +24,7 @@ export {
 export type {
   CopcBackendName,
   CopcBackendSelection,
+  CopcJsBackendOptions,
   RustByteSourceFactory,
   RustCopcBackendOptions,
 } from './copc/backend';
@@ -92,6 +93,7 @@ export type {
 export type {
   CopcMetadata,
   CopcPoint,
+  CopcExtraDimensionValues,
   CopcPointAttributes,
   CopcPointBuffer,
   CopcPointData,

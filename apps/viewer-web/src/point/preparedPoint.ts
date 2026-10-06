@@ -110,8 +110,17 @@ function prepareStatistics(
   };
 }
 
+function assertExtraDimensionLengths(
+  attributes: CopcPointAttributes | undefined,
+  pointCount: number,
+): void {
+  for (const [name, values] of Object.entries(attributes?.extraDimensions ?? {})) {
+    assertAttributeLength(values, pointCount, `extra dimension ${name}`);
+  }
+}
+
 function assertAttributeLength(
-  values: ArrayLike<number> | undefined,
+  values: ArrayLike<unknown> | undefined,
   pointCount: number,
   label: string,
 ): void {
@@ -141,6 +150,7 @@ export function createPreparedPointData(input: PreparedPointDataInput): Prepared
   assertAttributeLength(attributes?.red, input.pointCount, 'red');
   assertAttributeLength(attributes?.green, input.pointCount, 'green');
   assertAttributeLength(attributes?.blue, input.pointCount, 'blue');
+  assertExtraDimensionLengths(attributes, input.pointCount);
 
   const source = coordinateBuffer('copc-source', input.pointCount, input.sourceCoordinates);
   const geographic = coordinateBuffer(
@@ -207,6 +217,7 @@ export function assertPreparedPointData(value: PreparedPointData): void {
   assertAttributeLength(value.attributes?.red, value.pointCount, 'red');
   assertAttributeLength(value.attributes?.green, value.pointCount, 'green');
   assertAttributeLength(value.attributes?.blue, value.pointCount, 'blue');
+  assertExtraDimensionLengths(value.attributes, value.pointCount);
 }
 
 /** Return the legacy flat buffer without copying any prepared typed array. */

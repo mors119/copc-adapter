@@ -27,6 +27,11 @@ export type CopcPointInspection = {
   classification?: number;
   classificationLabel?: string;
   rgb?: { red: number; green: number; blue: number };
+  /**
+   * Requested extra schema dimensions (for example LAS extra bytes) by name.
+   * 64-bit integer dimensions are `bigint`; all others are `number`.
+   */
+  dimensions?: Record<string, number | bigint>;
   backend: CopcBackendName | 'custom';
 };
 
@@ -122,6 +127,17 @@ export function inspectCopcPoint(
       green: green[pickId.pointIndex],
       blue: blue[pickId.pointIndex],
     };
+  }
+
+  for (const [name, values] of Object.entries(points.attributes?.extraDimensions ?? {})) {
+    if (pickId.pointIndex < values.length) {
+      Object.defineProperty(inspection.dimensions ??= {}, name, {
+        value: values[pickId.pointIndex],
+        enumerable: true,
+        configurable: true,
+        writable: true,
+      });
+    }
   }
 
   return inspection;

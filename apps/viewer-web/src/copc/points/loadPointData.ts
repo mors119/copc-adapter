@@ -56,9 +56,15 @@ export function validateCopcPointBuffer(buffer: CopcPointBuffer): CopcPointBuffe
     throw new Error('COPC point buffer coordinates must contain three values per point');
   }
 
-  for (const [name, values] of Object.entries(buffer.attributes ?? {})) {
+  const { extraDimensions, ...attributes } = buffer.attributes ?? {};
+  for (const [name, values] of Object.entries(attributes)) {
     if (values && values.length !== buffer.pointCount) {
       throw new Error(`COPC point buffer attribute length mismatch: ${name}`);
+    }
+  }
+  for (const [name, values] of Object.entries(extraDimensions ?? {})) {
+    if (values.length !== buffer.pointCount) {
+      throw new Error(`COPC point buffer extra dimension length mismatch: ${name}`);
     }
   }
 

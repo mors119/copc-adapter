@@ -1,4 +1,5 @@
 export { CopcJsBackend, copcJsBackend } from './copcJsBackend';
+export type { CopcJsBackendOptions } from './copcJsBackend';
 export { RustCopcBackend, rustCopcBackend } from './rustCopcBackend';
 export type {
   RustByteSourceFactory,
