@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { getCompletedStreamingState } from './streaming-state';
 
 type CopcDebugState = {
   viewerReady: boolean;
@@ -89,6 +90,10 @@ async function getDebugState(page: import('@playwright/test').Page): Promise<Cop
   });
 }
 
+async function getCompletedDebugState(page: import('@playwright/test').Page): Promise<CopcDebugState> {
+  return getCompletedStreamingState(() => getDebugState(page));
+}
+
 test('streams a COPC sample through the opt-in Rust backend in a real Cesium scene', async ({
   page,
 }) => {
@@ -140,7 +145,7 @@ test('streams a COPC sample through the opt-in Rust backend in a real Cesium sce
   expect(selectedPoint?.rgb).toBeDefined();
   await expect(pointInspector.locator('[data-field="rgb"]')).not.toHaveText('Unavailable');
 
-  const initialState = await getDebugState(page);
+  const initialState = await getCompletedDebugState(page);
   expect(initialState.renderedNodeKeys).not.toEqual([]);
   expect(initialState.selectedNodeKeys).not.toEqual([]);
   expect(initialState.streamingUpdateCount).toBeGreaterThan(0);
@@ -164,7 +169,7 @@ test('streams a COPC sample through the opt-in Rust backend in a real Cesium sce
   });
   await expect.poll(async () => (await getDebugState(page)).streamingUpdateCount)
     .toBeGreaterThan(initialState.streamingUpdateCount);
-  const farState = await getDebugState(page);
+  const farState = await getCompletedDebugState(page);
 
   await page.evaluate(() => {
     window.__COPC_DEBUG__?.setCameraHeight(1000);
@@ -173,7 +178,7 @@ test('streams a COPC sample through the opt-in Rust backend in a real Cesium sce
     .toBeGreaterThan(farState.streamingUpdateCount);
   await expect.poll(async () => (await getDebugState(page)).transition.activeReplacementGroupCount)
     .toBe(0);
-  const nearState = await getDebugState(page);
+  const nearState = await getCompletedDebugState(page);
 
   expect(nearState.cameraMoveEventCount).toBeGreaterThanOrEqual(2);
   expect(nearState.selectedNodeKeys).not.toEqual(farState.selectedNodeKeys);
@@ -208,13 +213,13 @@ test('keeps the representative Autzen Far to Near refinement progressive', async
   await expect.poll(async () => (await getDebugState(page)).renderedPointCount)
     .toBeGreaterThan(0);
 
-  const initialState = await getDebugState(page);
+  const initialState = await getCompletedDebugState(page);
   await page.evaluate(() => window.__COPC_DEBUG__?.setCameraHeight(10000));
   await expect.poll(async () => (await getDebugState(page)).streamingUpdateCount)
     .toBeGreaterThan(initialState.streamingUpdateCount);
   await expect.poll(async () => (await getDebugState(page)).renderedPointCount)
     .toBeGreaterThan(0);
-  const farState = await getDebugState(page);
+  const farState = await getCompletedDebugState(page);
   expect(farState.performance.maxScreenSpaceError).toBe(8);
   expect(farState.performance.screenSpaceErrorMin).toBeDefined();
   expect(farState.performance.screenSpaceErrorMax).toBeDefined();
@@ -228,7 +233,7 @@ test('keeps the representative Autzen Far to Near refinement progressive', async
     .toBeGreaterThan(0);
   await expect.poll(async () => (await getDebugState(page)).transition.activeReplacementGroupCount)
     .toBe(0);
-  const nearState = await getDebugState(page);
+  const nearState = await getCompletedDebugState(page);
   expect(nearState.performance.visibleLevelRange.max)
     .toBeGreaterThanOrEqual(farState.performance.visibleLevelRange.max);
   expect(nearState.renderedPointCount).not.toBe(farState.renderedPointCount);
@@ -237,7 +242,7 @@ test('keeps the representative Autzen Far to Near refinement progressive', async
     .toBeGreaterThanOrEqual(farState.performance.acceptedRefinementCount);
   expect(nearState.performance.acceptedRefinementCount).toBeGreaterThan(0);
 
-  const beforeRotation = await getDebugState(page);
+  const beforeRotation = await getCompletedDebugState(page);
   await page.evaluate(() => {
     window.__COPC_DEBUG__?.setCameraPitch(-35);
     window.__COPC_DEBUG__?.setCameraHeading(90);
@@ -250,7 +255,7 @@ test('keeps the representative Autzen Far to Near refinement progressive', async
 
   await expect.poll(async () => (await getDebugState(page)).transition.activeReplacementGroupCount)
     .toBe(0);
-  const settledRotationState = await getDebugState(page);
+  const settledRotationState = await getCompletedDebugState(page);
   const stationaryUpdateCount = settledRotationState.streamingUpdateCount;
   await page.waitForTimeout(750);
   const stationaryState = await getDebugState(page);
@@ -263,7 +268,7 @@ test('keeps the representative Autzen Far to Near refinement progressive', async
   const microMotionState = await getDebugState(page);
   expect(microMotionState.renderedPointCount).toBeGreaterThan(0);
 
-  const beforeFarAgain = await getDebugState(page);
+  const beforeFarAgain = await getCompletedDebugState(page);
   await page.evaluate(() => window.__COPC_DEBUG__?.setCameraHeight(10000));
   await expect.poll(async () => (await getDebugState(page)).streamingUpdateCount)
     .toBeGreaterThan(beforeFarAgain.streamingUpdateCount);
@@ -271,7 +276,7 @@ test('keeps the representative Autzen Far to Near refinement progressive', async
     .toBe(0);
   await expect.poll(async () => (await getDebugState(page)).renderedPointCount)
     .toBeGreaterThan(0);
-  const farAgainState = await getDebugState(page);
+  const farAgainState = await getCompletedDebugState(page);
   expect(farAgainState.transition.activeReplacementGroupCount).toBe(0);
   expect(farAgainState.performance.visibleLevelRange.max)
     .toBeLessThan(nearState.performance.visibleLevelRange.max);
@@ -305,7 +310,7 @@ test('keeps constrained oblique hierarchy coverage aligned with camera direction
     timeout: 120_000,
   }).toBeGreaterThan(0);
 
-  const overview = await getDebugState(page);
+  const overview = await getCompletedDebugState(page);
   expect(overview.hierarchy?.pageRequests).toBeGreaterThan(0);
 
   await page.evaluate(() => {
@@ -317,7 +322,7 @@ test('keeps constrained oblique hierarchy coverage aligned with camera direction
   }).toBeGreaterThan(overview.streamingUpdateCount);
   await expect.poll(async () => (await getDebugState(page)).transition.activeReplacementGroupCount)
     .toBe(0);
-  const nearOblique = await getDebugState(page);
+  const nearOblique = await getCompletedDebugState(page);
 
   await page.evaluate(() => window.__COPC_DEBUG__?.setCameraHeading(270));
   await expect.poll(async () => (await getDebugState(page)).streamingUpdateCount, {
@@ -325,7 +330,7 @@ test('keeps constrained oblique hierarchy coverage aligned with camera direction
   }).toBeGreaterThan(nearOblique.streamingUpdateCount);
   await expect.poll(async () => (await getDebugState(page)).transition.activeReplacementGroupCount)
     .toBe(0);
-  const farOblique = await getDebugState(page);
+  const farOblique = await getCompletedDebugState(page);
 
   expect(nearOblique.renderedPointCount).toBeGreaterThan(0);
   expect(farOblique.renderedPointCount).toBeGreaterThan(0);
@@ -370,7 +375,7 @@ test('uses the same constrained view hierarchy policy with copc-js', async ({ pa
     timeout: 120_000,
   }).toBeGreaterThan(0);
 
-  const beforeRotation = await getDebugState(page);
+  const beforeRotation = await getCompletedDebugState(page);
   await page.evaluate(() => {
     window.__COPC_DEBUG__?.setCameraPitch(-35);
     window.__COPC_DEBUG__?.setCameraHeading(90);
