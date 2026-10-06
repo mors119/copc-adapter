@@ -4,6 +4,14 @@ async function state(page) {
   return page.evaluate(() => window.__PACKED_CONSUMER__.getState());
 }
 
+async function completedState(page) {
+  // Progressive rendering exposes a provisional update count. Record camera
+  // baselines after completion so superseding a pending update cannot reuse it.
+  await expect.poll(async () => (await state(page)).performance.updateDurationMs)
+    .toBeGreaterThan(0);
+  return state(page);
+}
+
 async function loadRustPage(page, query = '?backend=rust&mode=rgb') {
   const pageErrors = [];
   const consoleErrors = [];
@@ -67,7 +75,7 @@ test('validates the packed Rust backend in an external Vite consumer', async ({ 
     copcResponses,
     assetResponses,
   } = await loadRustPage(page);
-  const initial = await state(page);
+  const initial = await completedState(page);
 
   expect(initial.metadata.bounds.minX).toBeCloseTo(635577.79, 2);
   expect(initial.metadata.bounds.maxZ).toBeCloseTo(615.26, 2);
@@ -93,11 +101,11 @@ test('validates the packed Rust backend in an external Vite consumer', async ({ 
   await page.evaluate(() => window.__PACKED_CONSUMER__.setCameraHeight(100000));
   await expect.poll(async () => (await state(page)).streamingUpdateCount)
     .toBeGreaterThan(initial.streamingUpdateCount);
-  const far = await state(page);
+  const far = await completedState(page);
   await page.evaluate(() => window.__PACKED_CONSUMER__.setCameraHeight(1000));
   await expect.poll(async () => (await state(page)).streamingUpdateCount)
     .toBeGreaterThan(far.streamingUpdateCount);
-  const near = await state(page);
+  const near = await completedState(page);
   expect(near.selectedNodeKeys).not.toEqual(far.selectedNodeKeys);
   expect(near.hierarchy.pageRequests).toBeGreaterThanOrEqual(initial.hierarchy.pageRequests);
   expect(near.lastError).toBeUndefined();
@@ -106,11 +114,11 @@ test('validates the packed Rust backend in an external Vite consumer', async ({ 
   await page.evaluate(() => window.__PACKED_CONSUMER__.setCameraOrientation(0, -45));
   await expect.poll(async () => (await state(page)).streamingUpdateCount)
     .toBeGreaterThan(near.streamingUpdateCount);
-  const beforeRotation = await state(page);
+  const beforeRotation = await completedState(page);
   await page.evaluate(() => window.__PACKED_CONSUMER__.setCameraOrientation(180, -45));
   await expect.poll(async () => (await state(page)).streamingUpdateCount)
     .toBeGreaterThan(beforeRotation.streamingUpdateCount);
-  const rotated = await state(page);
+  const rotated = await completedState(page);
   expect(rotated.cameraPosition.longitude).toBeCloseTo(fixedPosition.longitude, 8);
   expect(rotated.cameraPosition.latitude).toBeCloseTo(fixedPosition.latitude, 8);
   expect(rotated.cameraPosition.height).toBeCloseTo(fixedPosition.height, 4);
@@ -140,11 +148,11 @@ test('validates the packed Rust backend in an external Vite consumer', async ({ 
 
 test('processes Cesium camera input while packed Rust Workers prepare Autzen nodes', async ({ page }) => {
   const { pageErrors, consoleErrors } = await loadRustPage(page);
-  const before = await state(page);
+  const before = await completedState(page);
   await page.evaluate(() => window.__PACKED_CONSUMER__.setCameraHeight(100000));
   await expect.poll(async () => (await state(page)).streamingUpdateCount)
     .toBeGreaterThan(before.streamingUpdateCount);
-  const far = await state(page);
+  const far = await completedState(page);
   await page.evaluate(() => window.__PACKED_CONSUMER__.beginResponsivenessCapture());
   await page.evaluate(() => window.__PACKED_CONSUMER__.setCameraHeight(1000));
   await expect.poll(async () => (await state(page)).streamingUpdateCount)
