@@ -154,14 +154,14 @@ test('processes Cesium camera input while packed Rust Workers prepare Autzen nod
     .toBeGreaterThan(before.streamingUpdateCount);
   const far = await completedState(page);
   await page.evaluate(() => window.__PACKED_CONSUMER__.beginResponsivenessCapture());
-  await page.evaluate(() => window.__PACKED_CONSUMER__.setCameraHeight(1000));
-  await expect.poll(async () => (await state(page)).streamingUpdateCount)
-    .toBeGreaterThan(far.streamingUpdateCount);
-
   const canvas = page.locator('#cesium-container canvas').first();
   const bounds = await canvas.boundingBox();
   expect(bounds).not.toBeNull();
   await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+
+  // Start input before waiting for progressive rendering: on slower renderers,
+  // the first rendered batch can arrive after every Worker job has finished.
+  await page.evaluate(() => window.__PACKED_CONSUMER__.setCameraHeight(1000));
 
   let diagnostics = await page.evaluate(() =>
     window.__PACKED_CONSUMER__.getResponsivenessDiagnostics());
@@ -172,6 +172,9 @@ test('processes Cesium camera input while packed Rust Workers prepare Autzen nod
       window.__PACKED_CONSUMER__.getResponsivenessDiagnostics());
     if (diagnostics.workerWheelCameraChangeCount > 0) break;
   }
+
+  await expect.poll(async () => (await state(page)).streamingUpdateCount)
+    .toBeGreaterThan(far.streamingUpdateCount);
 
   console.log(JSON.stringify({
     scenario: 'issue-208-packed-rust-camera-input-during-worker-processing',
