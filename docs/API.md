@@ -64,6 +64,43 @@ layer.attachTo(viewer);
 - `onPointPicked`: called with a selected `CopcPointInspection`, or `undefined`
   when selection is cleared.
 
+The Cesium layer retains the supported standard style attributes (intensity,
+classification, and RGB) in its decoded point buffers so the color mode can be
+changed later without requesting the point chunk again. This increases retained
+decoded attribute data; `maxPointCacheBytes` still bounds the point-buffer
+cache.
+
+### Runtime styling
+
+`setStyle()` applies a partial style update to visible nodes using their cached
+decoded point buffers. It does not reload metadata or hierarchy, fetch point
+chunks, or decode LAZ data. The current style is returned as a detached value by
+`getStyle()`.
+
+```ts
+layer.setStyle({ colorMode: 'classification' });
+layer.setStyle({
+  classificationFilter: { include: [2, 6] },
+});
+layer.setStyle({
+  classificationFilter: { exclude: [7, 18] },
+});
+layer.setStyle({ classificationFilter: null }); // clear the filter
+```
+
+Classification codes are integers from `0` through `255`. If both `include`
+and `exclude` are provided, a point must be included and must not be excluded.
+An empty `include` list hides every point; an empty `exclude` list has no
+effect. An empty filter object has no effect. Codes absent from the source
+simply match no points. Points without a classification value are hidden while
+an include or exclude filter is active.
+Color modes that lack their required source attribute use the existing fixed
+cyan fallback. Restyling requires each currently rendered node's decoded buffer
+to still be cached; if a buffer is no longer retained, `setStyle()` throws
+instead of fetching or decoding it again. Point picking keeps the original
+source point index after filtering, and selection is cleared if its point is
+hidden by the new filter.
+
 ### Lifecycle
 
 ```ts

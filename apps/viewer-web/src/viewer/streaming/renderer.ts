@@ -23,6 +23,8 @@ export type CopcPointRendererOptions = {
   rgbMax?: 255 | 65535;
   /** Optional project-owned identity retained by an engine's picking path. */
   pointId?: (pointIndex: number) => unknown;
+  /** Whether the point should be visible while retaining its original identity. */
+  pointFilter?: (pointIndex: number) => boolean;
 };
 
 /**

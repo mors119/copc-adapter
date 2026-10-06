@@ -11,6 +11,16 @@ import type { CopcHierarchyDiagnostics } from '../copc/hierarchy/types';
 import type { CesiumPointRenderer } from '../cesium/render/CopcPointRenderer';
 import type { CopcPointInspection } from '../copc/points/pointInspection';
 import type { NodePointCacheDiagnostics } from '../viewer/streaming/createNodePointCache';
+import type {
+  CopcCesiumPointStyle,
+  CopcCesiumPointStyleUpdate,
+} from '../cesium/style/CesiumPointStyle';
+
+export type {
+  CopcCesiumPointStyle,
+  CopcCesiumPointStyleUpdate,
+  CopcClassificationFilter,
+} from '../cesium/style/CesiumPointStyle';
 
 export type { CopcColorMode } from '../copc/points/fieldSelection';
 
@@ -125,5 +135,18 @@ export class CopcCesiumLayer {
   /** Return the selected point while its node and decoded buffer are live. */
   getSelectedPoint(): CopcPointInspection | undefined {
     return this.controller.getSelectedPoint();
+  }
+
+  /** Return the current runtime color mode and classification filter. */
+  getStyle(): CopcCesiumPointStyle {
+    return this.controller.getStyle();
+  }
+
+  /**
+   * Update point colors and classification visibility from cached point data.
+   * This does not issue metadata, hierarchy, or point-chunk requests.
+   */
+  setStyle(style: CopcCesiumPointStyleUpdate): void {
+    this.controller.setStyle(style);
   }
 }

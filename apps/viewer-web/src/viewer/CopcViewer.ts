@@ -2,10 +2,11 @@ import * as Cesium from 'cesium';
 import {
   PointPrimitiveRenderer,
   type CesiumPointRenderer,
+  type CopcCesiumPointRendererOptions,
 } from '../cesium/render/CopcPointRenderer';
 import { createCesiumStreamingView } from '../cesium/view/CesiumViewAdapter';
 import {
-  getCopcPointFieldSelection,
+  allCopcPointFields,
   type CopcColorMode,
 } from '../copc/points/fieldSelection';
 import type {
@@ -40,6 +41,17 @@ import type {
 import { DEFAULT_MAX_RENDERED_POINTS } from './streaming/NodeSelector';
 import { StreamingPerformanceRecorder } from './streaming/performance';
 import type { NodePointCacheDiagnostics } from './streaming/createNodePointCache';
+import type {
+  CopcCesiumPointStyle,
+  CopcCesiumPointStyleUpdate,
+  CopcClassificationFilter,
+} from '../cesium/style/CesiumPointStyle';
+
+export type {
+  CopcCesiumPointStyle,
+  CopcCesiumPointStyleUpdate,
+  CopcClassificationFilter,
+} from '../cesium/style/CesiumPointStyle';
 
 export type CopcLayerOptions = {
   url: string;
@@ -152,6 +164,66 @@ function isClose(left: number, right: number, epsilon: number): boolean {
   return Math.abs(left - right) <= epsilon;
 }
 
+const SUPPORTED_COLOR_MODES = new Set<CopcColorMode>([
+  'fixed',
+  'elevation',
+  'rgb',
+  'intensity',
+  'classification',
+]);
+
+function cloneClassificationFilter(
+  filter: CopcClassificationFilter,
+): CopcClassificationFilter {
+  if (filter === null || typeof filter !== 'object' || Array.isArray(filter)) {
+    throw new TypeError('Classification filter must be an object');
+  }
+
+  const cloneCodes = (values: readonly number[] | undefined, name: string) => {
+    if (values === undefined) {
+      return undefined;
+    }
+    if (!Array.isArray(values)) {
+      throw new TypeError(`Classification filter ${name} must be an array`);
+    }
+    for (const value of values) {
+      if (!Number.isInteger(value) || value < 0 || value > 255) {
+        throw new RangeError(`Classification filter codes must be integers from 0 to 255`);
+      }
+    }
+    return [...values];
+  };
+
+  const include = cloneCodes(filter.include, 'include');
+  const exclude = cloneCodes(filter.exclude, 'exclude');
+  return {
+    ...(include === undefined ? {} : { include }),
+    ...(exclude === undefined ? {} : { exclude }),
+  };
+}
+
+function isPointVisibleForStyle(
+  points: PreparedPointData,
+  pointIndex: number,
+  style: CopcCesiumPointStyle,
+): boolean {
+  const filter = style.classificationFilter;
+  if (!filter || (filter.include === undefined && filter.exclude === undefined)) {
+    return true;
+  }
+
+  const classification = points.attributes?.classification?.[pointIndex];
+  // A classification filter cannot match data that did not retain a
+  // classification value, so those points are hidden explicitly.
+  if (classification === undefined) {
+    return false;
+  }
+  if (filter.include && !filter.include.includes(classification)) {
+    return false;
+  }
+  return !filter.exclude?.includes(classification);
+}
+
 function areStreamingViewsEquivalent(
   left: import('./streaming/types').StreamingView,
   right: import('./streaming/types').StreamingView,
@@ -202,6 +274,7 @@ export class CopcLayerController {
   private readonly options: CopcLayerOptions;
   private readonly pointRenderer: CesiumPointRenderer;
   private readonly pointStyleState = createCopcPointStyleState();
+  private style: CopcCesiumPointStyle;
   private readonly rendererPerformance = new StreamingPerformanceRecorder();
   private datasetElevationRange?: { min: number; max: number };
   private viewer?: Cesium.Viewer;
@@ -231,6 +304,7 @@ export class CopcLayerController {
 
   constructor(options: CopcLayerOptions) {
     this.options = options;
+    this.style = { colorMode: options.colorMode ?? 'fixed' };
     this.pointRenderer = options.renderer ?? new PointPrimitiveRenderer();
     this.rendererPerformance.setConfiguredPointBudget(this.getMaxRenderedPoints());
     this.core = new CopcStreamingCore({
@@ -240,7 +314,9 @@ export class CopcLayerController {
       debug: options.debug,
       maxRenderedPoints: options.maxRenderedPoints,
       maxPointCacheBytes: options.maxPointCacheBytes,
-      pointFields: getCopcPointFieldSelection(options.colorMode ?? 'fixed'),
+      // Keep all supported style attributes in the decoded point cache so
+      // runtime restyling can reuse the initial point-chunk read and decode.
+      pointFields: allCopcPointFields(),
       streaming: options.streaming,
     });
   }
@@ -452,6 +528,84 @@ export class CopcLayerController {
     return inspection;
   }
 
+  /** Return a detached snapshot of the current Cesium presentation style. */
+  getStyle(): CopcCesiumPointStyle {
+    return {
+      colorMode: this.style.colorMode,
+      ...(this.style.classificationFilter === undefined
+        ? {}
+        : { classificationFilter: cloneClassificationFilter(this.style.classificationFilter) }),
+    };
+  }
+
+  /** Update colors and classification visibility using currently cached nodes. */
+  setStyle(update: CopcCesiumPointStyleUpdate): void {
+    if (this.lifecycle === 'destroyed') {
+      throw new Error('CopcCesiumLayer has been destroyed');
+    }
+    if (update === null || typeof update !== 'object') {
+      throw new TypeError('Point style update must be an object');
+    }
+
+    const nextStyle: CopcCesiumPointStyle = {
+      colorMode: this.style.colorMode,
+      ...(this.style.classificationFilter === undefined
+        ? {}
+        : { classificationFilter: cloneClassificationFilter(this.style.classificationFilter) }),
+    };
+    if (update.colorMode !== undefined) {
+      if (!SUPPORTED_COLOR_MODES.has(update.colorMode)) {
+        throw new RangeError(`Unsupported COPC point color mode: ${String(update.colorMode)}`);
+      }
+      nextStyle.colorMode = update.colorMode;
+    }
+    if (update.classificationFilter === null) {
+      delete nextStyle.classificationFilter;
+    } else if (update.classificationFilter !== undefined) {
+      nextStyle.classificationFilter = cloneClassificationFilter(update.classificationFilter);
+    }
+
+    const renderedNodes = this.pointRenderer.getRenderedNodeKeys().map((nodeKey) => {
+      const points = this.core.getCachedPreparedPointData(nodeKey);
+      if (!points) {
+        throw new Error(
+          `Cannot restyle rendered node ${nodeKey}: its decoded point buffer is not cached; `
+          + 'the style update does not reload or re-decode COPC data.',
+        );
+      }
+      return { nodeKey, points };
+    });
+
+    const previousStyle = this.style;
+    this.style = nextStyle;
+    try {
+      for (const { nodeKey, points } of renderedNodes) {
+        this.updatePointCollectionStyle(nodeKey, points, nextStyle);
+      }
+    } catch (error: unknown) {
+      this.style = previousStyle;
+      for (const { nodeKey, points } of renderedNodes) {
+        try {
+          this.updatePointCollectionStyle(nodeKey, points, previousStyle);
+        } catch {
+          // Preserve the original renderer failure while attempting to restore
+          // every already-updated node with the prior presentation.
+        }
+      }
+      throw error;
+    }
+
+    const selectedPick = this.selectedPointPickId;
+    if (selectedPick) {
+      const selectedPoints = this.core.getCachedPreparedPointData(selectedPick.nodeKey);
+      if (!selectedPoints
+        || !isPointVisibleForStyle(selectedPoints, selectedPick.pointIndex, nextStyle)) {
+        this.clearSelectedPoint();
+      }
+    }
+    this.rendererPerformance.setActiveRenderedPointCount(this.getRenderedPointCount());
+  }
+
   getRenderedNodeKeys(): string[] {
     return this.pointRenderer.getRenderedNodeKeys();
   }
@@ -622,12 +776,38 @@ export class CopcLayerController {
   }
 
   private addPointCollection(nodeKey: string, points: PreparedPointData): void {
-    this.pointRenderer.addOrUpdateNode(nodeKey, points, {
+    this.pointRenderer.addOrUpdateNode(
+      nodeKey,
+      points,
+      this.createPointRendererOptions(nodeKey, points, this.style),
+    );
+  }
+
+  private updatePointCollectionStyle(
+    nodeKey: string,
+    points: PreparedPointData,
+    style: CopcCesiumPointStyle,
+  ): void {
+    const rendererOptions = this.createPointRendererOptions(nodeKey, points, style);
+    if (this.pointRenderer.updateNodeStyle) {
+      this.pointRenderer.updateNodeStyle(nodeKey, points, rendererOptions);
+    } else {
+      this.pointRenderer.addOrUpdateNode(nodeKey, points, rendererOptions);
+    }
+  }
+
+  private createPointRendererOptions(
+    nodeKey: string,
+    points: PreparedPointData,
+    style: CopcCesiumPointStyle,
+  ): CopcCesiumPointRendererOptions {
+    return {
       pointSize: this.options.pointSize ?? 3,
-      colorMode: this.options.colorMode ?? 'fixed',
+      colorMode: style.colorMode,
       elevationRange: this.datasetElevationRange,
       rgbMax: this.pointStyleState.getRgbMax(points),
-      pointId: (pointIndex) => ({
+      pointFilter: (pointIndex: number) => isPointVisibleForStyle(points, pointIndex, style),
+      pointId: (pointIndex: number) => ({
         nodeKey,
         pointIndex,
         ownerId: this.pickOwnerId,
@@ -648,7 +828,7 @@ export class CopcLayerController {
                     : 'nodeRemovalDurationMs';
         this.rendererPerformance.recordStage(metricStage, durationMs, true);
       },
-    });
+    };
   }
 
   private reconcileReplacementGroups(

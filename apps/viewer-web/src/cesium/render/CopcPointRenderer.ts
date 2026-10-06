@@ -9,6 +9,8 @@ import type {
   CopcPointRendererOptions as NeutralCopcPointRendererOptions,
 } from '../../viewer/streaming/renderer';
 import { renderCopcPoints } from './renderPoints';
+import { getPointColor } from '../style/pointStyle';
+import { resolveCopcPointStyleOptions } from '../../point/style/pointStyle';
 
 export type CopcCesiumPointRendererPerformanceStage =
   | 'geographicToCartesian'
@@ -45,6 +47,12 @@ export interface CesiumPointRenderer extends CopcPointRenderer {
     points: CesiumPointData,
     options: CopcCesiumPointRendererOptions,
   ): void;
+  /** Restyle an existing node without replacing its point identities. */
+  updateNodeStyle?(
+    nodeKey: string,
+    points: CesiumPointData,
+    options: CopcCesiumPointRendererOptions,
+  ): void;
   getSelectionBoundingSphere(): Cesium.BoundingSphere | undefined;
 }
 
@@ -55,6 +63,7 @@ export type CopcCesiumPointRenderer = CesiumPointRenderer;
 export class PointPrimitiveRenderer implements CesiumPointRenderer {
   private viewer?: Cesium.Viewer;
   private readonly pointCollections = new Map<string, Cesium.PointPrimitiveCollection>();
+  private readonly visiblePointCounts = new Map<string, number>();
 
   attachTo(viewer: Cesium.Viewer): void {
     if (this.viewer === viewer) {
@@ -91,12 +100,60 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
       },
     });
     this.pointCollections.set(nodeKey, collection);
+    let visiblePointCount = 0;
+    for (let index = 0; index < collection.length; index += 1) {
+      if (collection.get(index).show) {
+        visiblePointCount += 1;
+      }
+    }
+    this.visiblePointCounts.set(nodeKey, visiblePointCount);
     this.rememberPerformanceObserver(nodeKey, options.onPerformance);
     options.onPerformance?.(
       'rendererPreparation',
       performanceNow() - startedAt,
       points.pointCount,
     );
+  }
+
+  updateNodeStyle(
+    nodeKey: string,
+    points: CesiumPointData,
+    options: CopcCesiumPointRendererOptions,
+  ): void {
+    const collection = this.pointCollections.get(nodeKey);
+    if (!collection || collection.length !== points.pointCount) {
+      this.addOrUpdateNode(nodeKey, points, options);
+      return;
+    }
+
+    const startedAt = performanceNow();
+    const styleOptions = resolveCopcPointStyleOptions(points, {
+      colorMode: options.colorMode,
+      elevationRange: options.elevationRange,
+      rgbMax: options.rgbMax,
+    });
+    let visiblePointCount = 0;
+    for (let index = 0; index < points.pointCount; index += 1) {
+      const primitive = collection.get(index);
+      const visible = options.pointFilter?.(index) ?? true;
+      primitive.show = visible;
+      primitive.color = getPointColor(
+        points.coordinates[index * 3 + 2],
+        styleOptions,
+        points.attributes,
+        index,
+      );
+      if (visible) {
+        visiblePointCount += 1;
+      }
+    }
+    this.visiblePointCounts.set(nodeKey, visiblePointCount);
+    options.onPerformance?.(
+      'pointStylePreparation',
+      performanceNow() - startedAt,
+      points.pointCount,
+    );
+    this.rememberPerformanceObserver(nodeKey, options.onPerformance);
   }
 
   removeNode(nodeKey: string): void {
@@ -108,6 +165,7 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
     const startedAt = performanceNow();
     this.viewer?.scene.primitives.remove(collection);
     this.pointCollections.delete(nodeKey);
+    this.visiblePointCounts.delete(nodeKey);
     // Removal is intentionally measured at the boundary where a future
     // renderer can replace a whole node without exposing Cesium internals.
     // The compatibility path has no per-call observer, so this metric is
@@ -134,7 +192,7 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
   }
 
   getRenderedNodePointCount(nodeKey: string): number | undefined {
-    return this.pointCollections.get(nodeKey)?.length;
+    return this.visiblePointCounts.get(nodeKey);
   }
 
   getRenderedNodeKeys(): string[] {
@@ -144,8 +202,8 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
   getRenderedPointCount(): number {
     let total = 0;
 
-    for (const collection of this.pointCollections.values()) {
-      total += collection.length;
+    for (const count of this.visiblePointCounts.values()) {
+      total += count;
     }
 
     return total;
@@ -159,12 +217,15 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
     const positions = [...this.pointCollections.values()].flatMap((collection) => {
       const values: Cesium.Cartesian3[] = [];
       for (let index = 0; index < collection.length; index += 1) {
-        values.push(collection.get(index).position);
+        const primitive = collection.get(index);
+        if (primitive.show) {
+          values.push(primitive.position);
+        }
       }
       return values;
     });
 
-    return Cesium.BoundingSphere.fromPoints(positions);
+    return positions.length > 0 ? Cesium.BoundingSphere.fromPoints(positions) : undefined;
   }
 
   private readonly nodePerformanceObservers = new Map<

@@ -91,6 +91,11 @@ export type {
   CopcStreamingOptions,
 } from './api/CopcCesiumLayer';
 export type {
+  CopcCesiumPointStyle,
+  CopcCesiumPointStyleUpdate,
+  CopcClassificationFilter,
+} from './api/CopcCesiumLayer';
+export type {
   CopcMetadata,
   CopcPoint,
   CopcExtraDimensionValues,
