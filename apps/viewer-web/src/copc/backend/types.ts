@@ -8,6 +8,19 @@ import type {
 } from '../types/copc';
 import type { CopcPointFieldSelection } from '../points/fieldSelection';
 import type { CopcPerformanceObserver } from '../performance';
+import type { RangeRequestDiagnosticsRecorder } from '../range/requestDiagnostics';
+
+export type CopcPointLoadOptions = {
+  /** Cancels only this point-node read; shared hierarchy reads remain reusable. */
+  signal?: AbortSignal;
+};
+
+export type CopcBackendOpenOptions = {
+  /** Aborted when this source is unloaded, reloaded, or destroyed. */
+  signal?: AbortSignal;
+  /** Aggregate diagnostics for source-owned byte-range requests. */
+  rangeRequestDiagnostics?: RangeRequestDiagnosticsRecorder;
+};
 
 export type CopcWorkerDiagnostics = {
   workerCount: number;
@@ -28,16 +41,19 @@ export interface CopcSource extends CopcHierarchySource {
   loadPointDataView(
     node: CopcHierarchyNode,
     fields: CopcPointFieldSelection,
+    options?: CopcPointLoadOptions,
   ): Promise<CopcPointView>;
   /** Optional direct buffer path for backends that already decode points. */
   loadPointDataBuffer?(
     node: CopcHierarchyNode,
     fields: CopcPointFieldSelection,
+    options?: CopcPointLoadOptions,
   ): Promise<CopcPointBuffer>;
   /** Optional fused decode/CRS/ECEF path for renderer-neutral cache entries. */
   loadPreparedPointData?(
     node: CopcHierarchyNode,
     fields: CopcPointFieldSelection,
+    options?: CopcPointLoadOptions,
   ): Promise<PreparedPointData>;
   setPerformanceObserver?(observer: CopcPerformanceObserver | undefined): void;
   /** Drop queued decode work that cannot contribute to the current view. */
@@ -50,5 +66,5 @@ export interface CopcSource extends CopcHierarchySource {
 
 /** Opens COPC resources without exposing the library used to read them. */
 export interface CopcBackend {
-  open(source: string): Promise<CopcSource>;
+  open(source: string, options?: CopcBackendOpenOptions): Promise<CopcSource>;
 }

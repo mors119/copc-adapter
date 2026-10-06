@@ -2,7 +2,11 @@ import {
   resolveCopcBackend,
   type CopcBackendSelection,
 } from '../backend/selection';
-import type { CopcSource } from '../backend/types';
+import type {
+  CopcBackendOpenOptions,
+  CopcPointLoadOptions,
+  CopcSource,
+} from '../backend/types';
 import { CopcBackendError, CopcLoadError, CopcSourceError } from '../errors';
 import type { CopcHierarchySubtree } from '../hierarchy/types';
 import type {
@@ -28,10 +32,12 @@ export class CopcContext implements CopcSource {
   readonly loadPointDataBuffer?: (
     node: CopcHierarchyNode,
     fields: CopcPointFieldSelection,
+    options?: CopcPointLoadOptions,
   ) => Promise<CopcPointBuffer>;
   readonly loadPreparedPointData?: (
     node: CopcHierarchyNode,
     fields: CopcPointFieldSelection,
+    options?: CopcPointLoadOptions,
   ) => Promise<PreparedPointData>;
   readonly setPerformanceObserver?: (
     observer: CopcPerformanceObserver | undefined,
@@ -69,9 +75,10 @@ export class CopcContext implements CopcSource {
   static async create(
     source: string,
     backend: CopcBackendSelection = 'copc-js',
+    options: CopcBackendOpenOptions = {},
   ): Promise<CopcContext> {
     try {
-      return new CopcContext(await resolveCopcBackend(backend).open(source));
+      return new CopcContext(await resolveCopcBackend(backend).open(source, options));
     } catch (error: unknown) {
       if (error instanceof CopcBackendError && error.stage === 'source') {
         throw new CopcSourceError(source, { cause: error });
@@ -99,8 +106,9 @@ export class CopcContext implements CopcSource {
   loadPointDataView(
     node: CopcHierarchyNode,
     fields: CopcPointFieldSelection,
+    options?: CopcPointLoadOptions,
   ): Promise<CopcPointView> {
-    return this.delegate.loadPointDataView(node, fields);
+    return this.delegate.loadPointDataView(node, fields, options);
   }
 }
 
@@ -110,8 +118,9 @@ export type CopcContextInput = string | CopcSource;
 export async function createCopcContext(
   source: string,
   backend: CopcBackendSelection = 'copc-js',
+  options: CopcBackendOpenOptions = {},
 ): Promise<CopcContext> {
-  return CopcContext.create(source, backend);
+  return CopcContext.create(source, backend, options);
 }
 
 /** Resolve a URL to a context or reuse an already-open project source. */

@@ -3,6 +3,10 @@ import { RustCopcParseError, RustCopcReader } from '../rustCopcReader';
 import { CopcWasmError } from '../../wasm/copcWasm';
 import { HttpRangeByteSource } from '../range/httpRangeSource';
 import {
+  ProjectOwnedByteSource,
+  RangeRequestDiagnosticsRecorder,
+} from '../range/requestDiagnostics';
+import {
   RangeSourceError,
   type RandomAccessByteSource,
 } from '../range/types';
@@ -17,7 +21,13 @@ import type {
   CopcPointField,
   CopcPointFieldSelection,
 } from '../points/fieldSelection';
-import type { CopcBackend, CopcSource, CopcWorkerDiagnostics } from './types';
+import type {
+  CopcBackend,
+  CopcBackendOpenOptions,
+  CopcPointLoadOptions,
+  CopcSource,
+  CopcWorkerDiagnostics,
+} from './types';
 import type { CopcPerformanceObserver } from '../performance';
 import { RustCopcWorkerError } from '../rustCopcDecodeWorkerPool';
 
@@ -222,9 +232,10 @@ class RustCopcSource implements CopcSource {
   async loadPointDataBuffer(
     node: CopcHierarchyNode,
     fields: CopcPointFieldSelection,
+    options: CopcPointLoadOptions = {},
   ): Promise<CopcPointBuffer> {
     try {
-      return await this.reader.loadPointDataBuffer(node, fields);
+      return await this.reader.loadPointDataBuffer(node, fields, options);
     } catch (error: unknown) {
       throw mapRustError(this.source, error, 'point', node.key);
     }
@@ -233,9 +244,10 @@ class RustCopcSource implements CopcSource {
   async loadPreparedPointData(
     node: CopcHierarchyNode,
     fields: CopcPointFieldSelection,
+    options: CopcPointLoadOptions = {},
   ): Promise<PreparedPointData> {
     try {
-      return await this.reader.loadPreparedPointData(node, fields);
+      return await this.reader.loadPreparedPointData(node, fields, options);
     } catch (error: unknown) {
       throw mapRustError(this.source, error, 'point', node.key);
     }
@@ -244,8 +256,9 @@ class RustCopcSource implements CopcSource {
   async loadPointDataView(
     node: CopcHierarchyNode,
     fields: CopcPointFieldSelection,
+    options: CopcPointLoadOptions = {},
   ): Promise<CopcPointView> {
-    return toCopcPointView(await this.loadPointDataBuffer(node, fields), fields);
+    return toCopcPointView(await this.loadPointDataBuffer(node, fields, options), fields);
   }
 
   setPerformanceObserver(observer: CopcPerformanceObserver | undefined): void {
@@ -274,7 +287,10 @@ export class RustCopcBackend implements CopcBackend {
       ?? ((source) => new HttpRangeByteSource(source));
   }
 
-  async open(source: string): Promise<CopcSource> {
+  async open(
+    source: string,
+    options: CopcBackendOpenOptions = {},
+  ): Promise<CopcSource> {
     let byteSource: RandomAccessByteSource;
     try {
       byteSource = this.createByteSource(source);
@@ -283,7 +299,12 @@ export class RustCopcBackend implements CopcBackend {
     }
 
     try {
-      return new RustCopcSource(source, await RustCopcReader.open(byteSource));
+      const ownedByteSource = new ProjectOwnedByteSource(
+        byteSource,
+        options.signal,
+        options.rangeRequestDiagnostics ?? new RangeRequestDiagnosticsRecorder(),
+      );
+      return new RustCopcSource(source, await RustCopcReader.open(ownedByteSource));
     } catch (error: unknown) {
       throw mapRustError(source, error, 'open');
     }

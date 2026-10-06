@@ -167,6 +167,33 @@ test('cache hits reuse the pending or resolved value without another load', asyn
   });
 });
 
+test('cancelled cache promises cannot evict or poison a replacement entry', async () => {
+  const resolvers = [];
+  const cache = createNodePointCache(
+    async (_nodeKey, signal) => new Promise((resolve) => {
+      resolvers.push({ resolve, signal });
+    }),
+    { maxEntries: 4 },
+  );
+
+  const stale = cache.load('node');
+  await Promise.resolve();
+  cache.cancelPending('superseded');
+  const current = cache.load('node');
+  await Promise.resolve();
+
+  assert.equal(resolvers.length, 2);
+  assert.equal(resolvers[0].signal.aborted, true);
+  assert.equal(resolvers[0].signal.reason, 'superseded');
+  resolvers[0].resolve(pointBuffer(1));
+  resolvers[1].resolve(pointBuffer(2));
+
+  await assert.rejects(stale, /cancelled/i);
+  const loaded = await current;
+  assert.equal(loaded.pointCount, 2);
+  assert.equal(cache.get('node'), loaded);
+});
+
 test('required oversized entries are deterministic and inactive oversized entries are evicted', async () => {
   const value = pointBuffer(4);
   const bytes = value.coordinates.byteLength;

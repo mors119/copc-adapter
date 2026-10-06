@@ -51,7 +51,13 @@ function createNode(key, level, pointCount, children = []) {
   };
 }
 
-function createSourceFactory({ onOpen, onPerformanceObserver, paged = false, prepared = false } = {}) {
+function createSourceFactory({
+  onOpen,
+  onPerformanceObserver,
+  onPreparedPointLoad,
+  paged = false,
+  prepared = false,
+} = {}) {
   let openCount = 0;
   let destroyCount = 0;
   let performanceObserver;
@@ -106,7 +112,10 @@ function createSourceFactory({ onOpen, onPerformanceObserver, paged = false, pre
             };
           },
           ...(prepared ? {
-            async loadPreparedPointData() {
+            async loadPreparedPointData(node, fields, options) {
+              if (onPreparedPointLoad) {
+                return onPreparedPointLoad(node, fields, options);
+              }
               performanceObserver?.({ stage: 'decode', durationMs: 5, bytes: 20 });
               performanceObserver?.({ stage: 'pointPreparation', durationMs: 3 });
               return createPreparedPointData({
@@ -289,6 +298,118 @@ test('a changed view invalidates stale streaming generations', async () => {
   assert.deepEqual(current.selectedNodeKeys, [ROOT_KEY]);
   assert.equal(controller.getSnapshot().streamingUpdateCount, 1);
   assert.deepEqual(controller.getCurrentView(), createView({ height: 250 }));
+});
+
+test('invalidating with a superseding view aborts obsolete point work immediately', async () => {
+  let resolvePointStarted;
+  const pointStarted = new Promise((resolve) => {
+    resolvePointStarted = resolve;
+  });
+  let pointSignal;
+  const source = createSourceFactory({
+    prepared: true,
+    onPreparedPointLoad(_node, _fields, options) {
+      pointSignal = options.signal;
+      resolvePointStarted();
+      return new Promise((_resolve, reject) => {
+        options.signal.addEventListener('abort', () => {
+          const error = new Error('cancelled');
+          error.name = 'AbortError';
+          reject(error);
+        }, { once: true });
+      });
+    },
+  });
+  const controller = createController(source.backend, { decoder: undefined });
+
+  await controller.load();
+  const pointUpdate = controller.updateView(createView());
+  await pointStarted;
+  const farCameraPosition = geographicToEcef({
+    longitude: 10.005,
+    latitude: 20.005,
+    height: 100_000,
+  });
+  const directionLength = Math.hypot(
+    farCameraPosition.x,
+    farCameraPosition.y,
+    farCameraPosition.z,
+  );
+  const longitudeRadians = 10.005 * Math.PI / 180;
+  const latitudeRadians = 20.005 * Math.PI / 180;
+  const farView = createView({
+    height: 100_000,
+    viewFrustum: createPerspectiveViewFrustum({
+      position: farCameraPosition,
+      direction: {
+        x: farCameraPosition.x / directionLength,
+        y: farCameraPosition.y / directionLength,
+        z: farCameraPosition.z / directionLength,
+      },
+      up: {
+        x: -Math.sin(latitudeRadians) * Math.cos(longitudeRadians),
+        y: -Math.sin(latitudeRadians) * Math.sin(longitudeRadians),
+        z: Math.cos(latitudeRadians),
+      },
+      right: {
+        x: -Math.sin(longitudeRadians),
+        y: Math.cos(longitudeRadians),
+        z: 0,
+      },
+      verticalFovRadians: Math.PI / 3,
+      aspectRatio: 1,
+      nearMeters: 1,
+      farMeters: 6_000,
+    }),
+  });
+  controller.invalidateView(farView);
+
+  assert.equal(pointSignal.aborted, true);
+  assert.equal(pointSignal.reason, 'superseded');
+  assert.equal(await pointUpdate, undefined);
+  assert.equal(controller.getSnapshot().streamingUpdateCount, 0);
+});
+
+test('unload aborts the source lifecycle and pending point work without surfacing an error', async () => {
+  let lifecycleSignal;
+  let resolvePointStarted;
+  const pointStarted = new Promise((resolve) => {
+    resolvePointStarted = resolve;
+  });
+  let pointSignal;
+  const source = createSourceFactory({
+    prepared: true,
+    onPreparedPointLoad(_node, _fields, options) {
+      pointSignal = options.signal;
+      resolvePointStarted();
+      return new Promise((_resolve, reject) => {
+        options.signal.addEventListener('abort', () => {
+          const error = new Error('cancelled');
+          error.name = 'AbortError';
+          reject(error);
+        }, { once: true });
+      });
+    },
+  });
+  const backend = {
+    async open(url, options) {
+      lifecycleSignal = options.signal;
+      return source.backend.open(url, options);
+    },
+  };
+  const controller = createController(backend, { decoder: undefined });
+
+  await controller.load();
+  const update = controller.updateView(createView());
+  await pointStarted;
+  controller.unload();
+
+  assert.equal(await update, undefined);
+  assert.equal(lifecycleSignal.aborted, true);
+  assert.equal(lifecycleSignal.reason, 'lifecycle');
+  assert.equal(pointSignal.aborted, true);
+  assert.equal(pointSignal.reason, 'lifecycle');
+  assert.equal(controller.getSnapshot().lifecycle, 'idle');
 });
 
 test('unload isolates performance metrics from a stale non-cancellable point load', async () => {

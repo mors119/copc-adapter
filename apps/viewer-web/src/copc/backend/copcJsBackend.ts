@@ -4,7 +4,7 @@ import {
   toCopcHierarchyPage,
 } from '../adapters/hierarchyAdapter';
 import { toCopcMetadata } from '../adapters/metadataAdapter';
-import { createCopcGetter } from '../getter/createCopcGetter';
+import { createCopcGetter, type CopcRangeGetter } from '../getter/createCopcGetter';
 import { decodeCopcPointBuffer } from '../../wasm/copcDecoder';
 import type { CopcHierarchySubtree } from '../hierarchy/types';
 import type {
@@ -24,7 +24,12 @@ import {
   createExtraDimensionReaders,
   type CopcExtraDimensionSelection,
 } from '../points/extraDimensions';
-import type { CopcBackend, CopcSource } from './types';
+import type {
+  CopcBackend,
+  CopcBackendOpenOptions,
+  CopcPointLoadOptions,
+  CopcSource,
+} from './types';
 import { performanceNow, type CopcPerformanceObserver } from '../performance';
 import { CopcBackendError } from '../errors';
 
@@ -135,15 +140,15 @@ export function toCopcPointView(
 /** The production source adapter backed by copc.js. */
 class CopcJsSource implements CopcSource {
   readonly source: string;
-  private readonly sourceGetter: ReturnType<typeof createCopcGetter>;
-  private readonly getter: ReturnType<typeof createCopcGetter>;
+  private readonly sourceGetter: CopcRangeGetter;
+  private readonly getter: CopcRangeGetter;
   private readonly copc: Copc;
   private readonly extraDimensions?: CopcExtraDimensionSelection;
   private performanceObserver?: CopcPerformanceObserver;
 
   constructor(
     source: string,
-    getter: ReturnType<typeof createCopcGetter>,
+    getter: CopcRangeGetter,
     copc: Copc,
     extraDimensions?: CopcExtraDimensionSelection,
   ) {
@@ -159,9 +164,10 @@ class CopcJsSource implements CopcSource {
     end: number,
     nodeKey?: string,
     nodePointCount?: number,
+    signal?: AbortSignal,
   ): Promise<Uint8Array> {
     const rangeStartedAt = performanceNow();
-    const bytes = await this.sourceGetter(begin, end);
+    const bytes = await this.sourceGetter(begin, end, { signal });
     if (nodeKey && bytes.byteLength !== end - begin) {
       throw new Error(
         `COPC point range returned ${bytes.byteLength} bytes; expected ${end - begin}`,
@@ -237,6 +243,7 @@ class CopcJsSource implements CopcSource {
   async loadPointDataView(
     hierarchyNode: CopcHierarchyNode,
     fields: CopcPointFieldSelection,
+    options: CopcPointLoadOptions = {},
   ): Promise<CopcPointView> {
     if (!fields.has('position')) {
       throw mapCopcJsError(
@@ -256,6 +263,7 @@ class CopcJsSource implements CopcSource {
           end,
           hierarchyNode.key,
           hierarchyNode.pointCount,
+          options.signal,
         );
         pointRangeDurationMs += performanceNow() - rangeStartedAt;
         return bytes;
@@ -269,6 +277,13 @@ class CopcJsSource implements CopcSource {
       const view = points === undefined
         ? await Copc.loadPointDataView(nodeGetter, this.copc, hierarchyNode)
         : Las.View.create(points, this.copc.header, this.copc.eb);
+      if (options.signal?.aborted) {
+        const error = new Error('Point-node load was cancelled', {
+          cause: options.signal.reason,
+        });
+        error.name = 'AbortError';
+        throw error;
+      }
 
       // copc.js currently exposes a complete point view. Keep the requested
       // fields enforced at this adapter boundary until a backend can skip LAZ
@@ -296,8 +311,17 @@ class CopcJsSource implements CopcSource {
   async loadPointDataBuffer(
     hierarchyNode: CopcHierarchyNode,
     fields: CopcPointFieldSelection,
+    options: CopcPointLoadOptions = {},
   ): Promise<CopcPointBuffer> {
-    return decodeCopcPointBuffer(await this.loadPointDataView(hierarchyNode, fields));
+    const buffer = decodeCopcPointBuffer(await this.loadPointDataView(hierarchyNode, fields, options));
+    if (options.signal?.aborted) {
+      const error = new Error('Point-node load was cancelled', {
+        cause: options.signal.reason,
+      });
+      error.name = 'AbortError';
+      throw error;
+    }
+    return buffer;
   }
 
   setPerformanceObserver(observer: CopcPerformanceObserver | undefined): void {
@@ -323,9 +347,15 @@ export class CopcJsBackend implements CopcBackend {
     this.extraDimensions = options.extraDimensions;
   }
 
-  async open(source: string): Promise<CopcSource> {
+  async open(
+    source: string,
+    options: CopcBackendOpenOptions = {},
+  ): Promise<CopcSource> {
     try {
-      const getter = createCopcGetter(source);
+      const getter = createCopcGetter(source, {
+        signal: options.signal,
+        rangeRequestDiagnostics: options.rangeRequestDiagnostics,
+      });
       const copc = await Copc.create(getter);
 
       return new CopcJsSource(source, getter, copc, this.extraDimensions);

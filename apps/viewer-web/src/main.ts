@@ -39,6 +39,7 @@ type CopcDebugState = {
   backend: CopcBackendName | 'custom';
   performance: ReturnType<CopcCesiumLayer['getSnapshot']>['performance'];
   pointCache: ReturnType<CopcCesiumLayer['getSnapshot']>['pointCache'];
+  rangeRequests: ReturnType<CopcCesiumLayer['getSnapshot']>['rangeRequests'];
   hierarchy: ReturnType<CopcCesiumLayer['getHierarchyDiagnostics']>;
   worker?: ReturnType<CopcCesiumLayer['getSnapshot']>['worker'];
   longestMainThreadTaskMs: number;
@@ -184,6 +185,7 @@ function installDebugAdapter(
         backend: snapshot.backend,
         performance: snapshot.performance,
         pointCache: snapshot.pointCache,
+        rangeRequests: snapshot.rangeRequests,
         hierarchy: layer.getHierarchyDiagnostics(),
         worker: snapshot.worker,
         longestMainThreadTaskMs,

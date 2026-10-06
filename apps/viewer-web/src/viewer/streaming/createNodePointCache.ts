@@ -1,4 +1,7 @@
-export type NodePointLoader<TValue> = (nodeKey: string) => Promise<TValue>;
+export type NodePointLoader<TValue> = (
+  nodeKey: string,
+  signal: AbortSignal,
+) => Promise<TValue>;
 
 export type NodePointCacheDiagnostics = {
   cacheByteBudget: number;
@@ -19,6 +22,13 @@ export type NodePointCache<TValue> = {
   has(nodeKey: string): boolean;
   getSize(): number;
   setRequiredNodeKeys(nodeKeys: Iterable<string>): void;
+  /** Abort and evict in-flight entries so a later generation can retry them. */
+  cancelPending(reason?: 'superseded' | 'lifecycle'): void;
+  /** Keep in-flight entries that remain selected in the new view. */
+  cancelPendingExcept(
+    nodeKeys: Iterable<string>,
+    reason?: 'superseded' | 'lifecycle',
+  ): void;
   getDiagnostics(): NodePointCacheDiagnostics;
   clear(): void;
 };
@@ -37,6 +47,8 @@ type CacheEntry<TValue> = {
   value: Promise<TValue>;
   bytes: number;
   resolved?: TValue;
+  controller: AbortController;
+  pending: boolean;
 };
 
 function validateMaxEntries(maxEntries: number): void {
@@ -136,9 +148,13 @@ export function createNodePointCache<TValue>(
   let evictionCount = 0;
   let bytesEvicted = 0;
 
-  const removeEntry = (nodeKey: string, countAsEviction = false): boolean => {
+  const removeEntry = (
+    nodeKey: string,
+    countAsEviction = false,
+    expectedEntry?: CacheEntry<TValue>,
+  ): boolean => {
     const entry = cache.get(nodeKey);
-    if (!entry) {
+    if (!entry || expectedEntry && entry !== expectedEntry) {
       return false;
     }
 
@@ -166,6 +182,20 @@ export function createNodePointCache<TValue>(
     }
   };
 
+  const cancelPendingExcept = (
+    nodeKeys: Iterable<string>,
+    reason: 'superseded' | 'lifecycle' = 'superseded',
+  ): void => {
+    const retainedNodeKeys = new Set(nodeKeys);
+    for (const [nodeKey, entry] of cache) {
+      if (!entry.pending || retainedNodeKeys.has(nodeKey)) {
+        continue;
+      }
+      removeEntry(nodeKey, false, entry);
+      entry.controller.abort(reason);
+    }
+  };
+
   return {
     load(nodeKey: string): Promise<TValue> {
       const cached = cache.get(nodeKey);
@@ -177,10 +207,24 @@ export function createNodePointCache<TValue>(
       }
 
       misses = saturatingAdd(misses, 1);
-      const entry = {} as CacheEntry<TValue>;
+      const entry: CacheEntry<TValue> = {
+        value: Promise.resolve(undefined as TValue),
+        bytes: 0,
+        controller: new AbortController(),
+        pending: true,
+      };
       const pending = Promise.resolve()
-        .then(() => loader(nodeKey))
+        .then(() => {
+          if (entry.controller.signal.aborted) {
+            throw new Error('Node point load was cancelled');
+          }
+          return loader(nodeKey, entry.controller.signal);
+        })
         .then((value) => {
+          entry.pending = false;
+          if (entry.controller.signal.aborted) {
+            throw new Error('Node point load was cancelled');
+          }
           // A pending request can have been evicted before it resolves. In
           // that case its result remains usable by the caller but is not
           // reinserted into the cache or its byte counters.
@@ -193,11 +237,11 @@ export function createNodePointCache<TValue>(
           return value;
         })
         .catch((error: unknown) => {
-          removeEntry(nodeKey);
+          entry.pending = false;
+          removeEntry(nodeKey, false, entry);
           throw error;
         });
       entry.value = pending;
-      entry.bytes = 0;
       cache.set(nodeKey, entry);
       evictIfNeeded();
 
@@ -222,6 +266,12 @@ export function createNodePointCache<TValue>(
       }
       evictIfNeeded();
     },
+    cancelPending(reason = 'superseded'): void {
+      cancelPendingExcept([], reason);
+    },
+    cancelPendingExcept(nodeKeys, reason = 'superseded'): void {
+      cancelPendingExcept(nodeKeys, reason);
+    },
     getDiagnostics(): NodePointCacheDiagnostics {
       let largestCachedEntryBytes = 0;
       for (const entry of cache.values()) {
@@ -240,6 +290,7 @@ export function createNodePointCache<TValue>(
       };
     },
     clear(): void {
+      cancelPendingExcept([], 'lifecycle');
       cache.clear();
       requiredNodeKeys.clear();
       currentCacheBytes = 0;

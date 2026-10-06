@@ -41,6 +41,7 @@ import type {
 import { DEFAULT_MAX_RENDERED_POINTS } from './streaming/NodeSelector';
 import { StreamingPerformanceRecorder } from './streaming/performance';
 import type { NodePointCacheDiagnostics } from './streaming/createNodePointCache';
+import type { RangeRequestDiagnostics } from '../copc/range/requestDiagnostics';
 import type {
   CopcCesiumPointStyle,
   CopcCesiumPointStyleUpdate,
@@ -97,6 +98,7 @@ export type CopcLayerSnapshot = {
   performance: ReturnType<StreamingPerformanceRecorder['getSnapshot']>;
   transition: CopcLayerTransitionDiagnostics;
   pointCache: NodePointCacheDiagnostics;
+  rangeRequests: RangeRequestDiagnostics;
   worker?: CopcWorkerDiagnostics;
 };
 
@@ -291,6 +293,7 @@ export class CopcLayerController {
   private hasFlownToDataset = false;
   private lifecycle: CopcLayerLifecycleState = 'idle';
   private lastStreamingView?: import('./streaming/types').StreamingView;
+  private pendingInvalidatedView?: import('./streaming/types').StreamingView;
   private activeStreamingUpdate?: ActiveStreamingUpdate;
   private selectedPointPickId?: CopcPointPickId;
   private pickHandler?: Cesium.ScreenSpaceEventHandler;
@@ -373,6 +376,7 @@ export class CopcLayerController {
     this.clearSelectedPoint();
     this.rendererPerformance.reset();
     this.lastStreamingView = undefined;
+    this.pendingInvalidatedView = undefined;
     this.activeStreamingUpdate = undefined;
     this.viewer = undefined;
     if (this.lifecycle !== 'loading') {
@@ -486,6 +490,7 @@ export class CopcLayerController {
       ),
       transition: { ...this.transitionDiagnostics },
       pointCache: coreSnapshot.pointCache,
+      rangeRequests: coreSnapshot.rangeRequests,
       ...(coreSnapshot.worker ? { worker: coreSnapshot.worker } : {}),
     };
   }
@@ -636,6 +641,12 @@ export class CopcLayerController {
           || !currentView
           || !areStreamingViewsEquivalent(this.lastStreamingView, currentView)) {
           this.streamingGeneration += 1;
+          if (!this.pendingInvalidatedView
+            || !currentView
+            || !areStreamingViewsEquivalent(this.pendingInvalidatedView, currentView)) {
+            this.pendingInvalidatedView = currentView;
+            this.core.invalidateView(currentView);
+          }
         }
       }
 
@@ -683,8 +694,10 @@ export class CopcLayerController {
     const streamingGeneration = ++this.streamingGeneration;
     const view = createCesiumStreamingView(viewer);
     if (this.lastStreamingView && areStreamingViewsEquivalent(this.lastStreamingView, view)) {
+      this.pendingInvalidatedView = undefined;
       return;
     }
+    this.pendingInvalidatedView = undefined;
     this.lastStreamingView = view;
     this.rendererPerformance.beginUpdate();
     let progressApplied = false;

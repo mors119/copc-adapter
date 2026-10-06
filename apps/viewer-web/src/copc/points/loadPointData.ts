@@ -8,15 +8,17 @@ import type { CopcHierarchyNode } from '../types/copc';
 import type { CopcPoint, CopcPointBuffer, CopcPointView } from '../types/copc';
 import type { CopcPointDecoder } from './types';
 import { allCopcPointFields, type CopcPointFieldSelection } from './fieldSelection';
+import type { CopcPointLoadOptions } from '../backend/types';
 
 export async function loadPointDataView(
   source: CopcContextInput,
   hierarchyNode: CopcHierarchyNode,
   fields: CopcPointFieldSelection = allCopcPointFields(),
+  options: CopcPointLoadOptions = {},
 ): Promise<CopcPointView> {
   const context = await resolveCopcContext(source);
 
-  return context.loadPointDataView(hierarchyNode, fields);
+  return context.loadPointDataView(hierarchyNode, fields, options);
 }
 
 export async function loadCopcPoints(
@@ -24,8 +26,9 @@ export async function loadCopcPoints(
   hierarchyNode: CopcHierarchyNode,
   decoder: CopcPointDecoder = wasmCopcPointDecoder,
   fields: CopcPointFieldSelection = allCopcPointFields(),
+  options: CopcPointLoadOptions = {},
 ): Promise<CopcPoint[]> {
-  const buffer = await loadCopcPointBuffer(source, hierarchyNode, decoder, fields);
+  const buffer = await loadCopcPointBuffer(source, hierarchyNode, decoder, fields, options);
 
   return readPointsFromBuffer(buffer);
 }
@@ -35,14 +38,15 @@ export async function loadCopcPointBuffer(
   hierarchyNode: CopcHierarchyNode,
   decoder: CopcPointDecoder = wasmCopcPointDecoder,
   fields: CopcPointFieldSelection = allCopcPointFields(),
+  options: CopcPointLoadOptions = {},
 ): Promise<CopcPointBuffer> {
   const context = await resolveCopcContext(source);
 
   if (decoder === wasmCopcPointDecoder && context.loadPointDataBuffer) {
-    return validateCopcPointBuffer(await context.loadPointDataBuffer(hierarchyNode, fields));
+    return validateCopcPointBuffer(await context.loadPointDataBuffer(hierarchyNode, fields, options));
   }
 
-  const view = await context.loadPointDataView(hierarchyNode, fields);
+  const view = await context.loadPointDataView(hierarchyNode, fields, options);
 
   return validateCopcPointBuffer(await decoder.decode(view));
 }

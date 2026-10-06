@@ -44,6 +44,14 @@ type CopcDebugState = {
     bytesEvicted: number;
     largestCachedEntryBytes: number;
   };
+  rangeRequests: {
+    requested: number;
+    active: number;
+    completed: number;
+    failed: number;
+    abortedSuperseded: number;
+    abortedLifecycle: number;
+  };
   hierarchy: {
     pageRequests: number;
     pageCacheHits: number;
