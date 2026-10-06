@@ -30,6 +30,14 @@ type DebugState = {
     evictionCount: number;
     bytesEvicted: number;
   };
+  rangeRequests: {
+    requested: number;
+    active: number;
+    completed: number;
+    failed: number;
+    abortedSuperseded: number;
+    abortedLifecycle: number;
+  };
   worker?: {
     workerCount: number;
     activeCount: number;
@@ -66,6 +74,18 @@ async function getState(page: import('@playwright/test').Page): Promise<DebugSta
   });
 }
 
+async function waitForViewChange(
+  page: import('@playwright/test').Page,
+  previous: DebugState,
+): Promise<void> {
+  const previousNodeKeys = [...previous.selectedNodeKeys].sort().join('\0');
+  await expect.poll(async () => {
+    const current = await getState(page);
+    return current.streamingUpdateCount > previous.streamingUpdateCount
+      || [...current.selectedNodeKeys].sort().join('\0') !== previousNodeKeys;
+  }, { timeout: 120_000 }).toBe(true);
+}
+
 async function loadScenario(
   page: import('@playwright/test').Page,
   query: string,
@@ -92,6 +112,7 @@ async function waitForIdle(page: import('@playwright/test').Page): Promise<Debug
     const workerIdle = !current.worker
       || (current.worker.activeCount === 0 && current.worker.queuedCount === 0);
     if (workerIdle
+      && current.rangeRequests.active === 0
       && current.transition.activeReplacementGroupCount === 0
       && current.streamingUpdateCount === previous.streamingUpdateCount) {
       stableSamples += 1;
@@ -145,6 +166,7 @@ function summarize(state: DebugState): Record<string, unknown> {
     transition: state.transition,
     performance: state.performance,
     pointCache: state.pointCache,
+    rangeRequests: state.rangeRequests,
     worker: state.worker,
     longestMainThreadTaskMs: state.longestMainThreadTaskMs,
     cesiumFrameDurationMs: state.cesiumFrameDurationMs,
@@ -155,6 +177,22 @@ function summarize(state: DebugState): Record<string, unknown> {
 test.describe.configure({ mode: 'serial' });
 
 test('records the Autzen Far/Near, rotation, and stale-work streaming gate', async ({ page }) => {
+  let delayRangeResponses = false;
+  let delayedRangeRequestCount = 0;
+  let releaseDelayedRangeResponses: () => void = () => {};
+  const delayedRangeResponses = new Promise<void>((resolve) => {
+    releaseDelayedRangeResponses = resolve;
+  });
+  await page.route('**/*.copc.laz*', async (route) => {
+    if (delayRangeResponses && route.request().headers().range) {
+      const state = await getState(page);
+      if (state.performance.activeNodeCount > 0 && delayedRangeRequestCount === 0) {
+        delayedRangeRequestCount += 1;
+        await delayedRangeResponses;
+      }
+    }
+    await route.continue();
+  });
   await loadScenario(page, 'budget=250000');
   const transitions: Record<string, unknown>[] = [];
 
@@ -162,9 +200,7 @@ test('records the Autzen Far/Near, rotation, and stale-work streaming gate', asy
     const before = await getState(page);
     const startedAt = Date.now();
     await page.evaluate((nextHeight) => window.__COPC_DEBUG__?.setCameraHeight(nextHeight), height);
-    await expect.poll(async () => (await getState(page)).streamingUpdateCount, {
-      timeout: 120_000,
-    }).toBeGreaterThan(before.streamingUpdateCount);
+    await waitForViewChange(page, before);
     const firstVisibleMs = Date.now() - startedAt;
     const state = await waitForIdle(page);
     transitions.push({
@@ -187,21 +223,40 @@ test('records the Autzen Far/Near, rotation, and stale-work streaming gate', asy
     window.__COPC_DEBUG__?.setCameraPitch(-35);
     window.__COPC_DEBUG__?.setCameraHeading(90);
   });
-  await expect.poll(async () => (await getState(page)).streamingUpdateCount, {
-    timeout: 120_000,
-  }).toBeGreaterThan(beforeRotation.streamingUpdateCount);
+  await waitForViewChange(page, beforeRotation);
   const rotated = await waitForIdle(page);
   transitions.push({ label: 'rotate-under-load', state: summarize(rotated), frames: await sampleFrames(page) });
 
-  // A rapid replacement must leave the latest generation in charge and must
-  // not create a late render burst above the active workload budget.
-  await page.evaluate(() => {
-    window.__COPC_DEBUG__?.setCameraHeight(100_000);
-    window.__COPC_DEBUG__?.setCameraHeight(1_000);
-  });
-  await page.waitForTimeout(2_000);
+  // Delay point ranges after the hierarchy query has started its node loads.
+  // This leaves hierarchy page reads reusable while holding a real point read.
+  delayRangeResponses = true;
+  const beforeDelayedView = await getState(page);
+  await page.evaluate(() => window.__COPC_DEBUG__?.setCameraHeading(270));
+  await waitForViewChange(page, beforeDelayedView);
+  await expect.poll(async () => {
+    const state = await getState(page);
+    return delayedRangeRequestCount > 0
+      && state.performance.activeNodeCount > 0
+      && state.rangeRequests.active > 0;
+  }, { timeout: 30_000 }).toBe(true);
+  const beforeSupersede = await getState(page);
+  try {
+    await page.evaluate(() => window.__COPC_DEBUG__?.setCameraHeight(100_000));
+    await expect.poll(async () => (await getState(page)).rangeRequests.abortedSuperseded, {
+      timeout: 30_000,
+    }).toBeGreaterThan(beforeSupersede.rangeRequests.abortedSuperseded);
+  } finally {
+    releaseDelayedRangeResponses();
+  }
+  await expect.poll(async () => (await getState(page)).selectedNodeKeys.length, {
+    timeout: 120_000,
+  }).toBe(0);
   const staleWork = await waitForIdle(page);
-  transitions.push({ label: 'rapid-near-far-near', state: summarize(staleWork) });
+  transitions.push({
+    label: 'slow-range-superseded-by-far-view',
+    delayedRangeRequestCount,
+    state: summarize(staleWork),
+  });
 
   console.log(JSON.stringify({
     scenario: 'issue-68-autzen-streaming-gate',
@@ -229,6 +284,17 @@ test('records the Autzen Far/Near, rotation, and stale-work streaming gate', asy
   expect(staleWork.worker).toBeDefined();
   expect(staleWork.worker!.activeCount).toBeLessThanOrEqual(staleWork.worker!.workerCount);
   expect(staleWork.worker!.queuedCount).toBe(0);
+  expect(staleWork.rangeRequests.requested).toBe(
+    staleWork.rangeRequests.completed
+      + staleWork.rangeRequests.failed
+      + staleWork.rangeRequests.abortedSuperseded
+      + staleWork.rangeRequests.abortedLifecycle,
+  );
+  expect(staleWork.rangeRequests.active).toBe(0);
+  expect(delayedRangeRequestCount).toBeGreaterThan(0);
+  expect(staleWork.rangeRequests.abortedSuperseded).toBeGreaterThan(
+    beforeSupersede.rangeRequests.abortedSuperseded,
+  );
 });
 
 test('records monotonic low/high rendered-point budgets', async ({ browser }) => {

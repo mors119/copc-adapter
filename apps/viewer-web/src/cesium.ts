@@ -30,6 +30,8 @@ export type {
 } from './copc/backend';
 export type {
   CopcBackend,
+  CopcBackendOpenOptions,
+  CopcPointLoadOptions,
   CopcSource,
   CopcWorkerDiagnostics,
 } from './copc/backend/types';

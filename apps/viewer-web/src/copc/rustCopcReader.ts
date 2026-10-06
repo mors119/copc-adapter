@@ -14,6 +14,7 @@ import type {
 } from './hierarchy/types';
 import type { CopcMetadata, CopcPointBuffer, PreparedPointData } from './types/copc';
 import type { RandomAccessByteSource } from './range/types';
+import type { CopcPointLoadOptions } from './backend/types';
 import type { CopcPointFieldSelection } from './points/fieldSelection';
 import type { CopcWorkerDiagnostics } from './backend/types';
 import { performanceNow, type CopcPerformanceObserver } from './performance';
@@ -246,9 +247,10 @@ export class RustCopcReader {
     offset: number,
     length: number,
     nodeKey?: string,
+    signal?: AbortSignal,
   ): Promise<Uint8Array> {
     const startedAt = performanceNow();
-    const bytes = await this.byteSource.readRange(offset, length);
+    const bytes = await this.byteSource.readRange(offset, length, { signal });
     this.performanceObserver?.({
       stage: 'rangeFetch',
       durationMs: performanceNow() - startedAt,
@@ -331,8 +333,14 @@ export class RustCopcReader {
   async loadPointDataBuffer(
     node: CopcHierarchyNode,
     fields: CopcPointFieldSelection,
+    options: CopcPointLoadOptions = {},
   ): Promise<CopcPointBuffer> {
-    const { metadataBytes, chunkBytes, pointCount } = await this.readNodeChunk(node, fields);
+    const { metadataBytes, chunkBytes, pointCount } = await this.readNodeChunk(
+      node,
+      fields,
+      options.signal,
+    );
+    throwIfPointLoadAborted(options.signal);
     if (this.decodeWorkerPool) {
       const decoded = await this.decodeWorkerPool.submit({
         nodeKey: node.key,
@@ -347,6 +355,7 @@ export class RustCopcReader {
         blocksMainThread: false,
       });
       const { decodeDurationMs: _decodeDurationMs, ...buffer } = decoded;
+      throwIfPointLoadAborted(options.signal);
       return buffer;
     }
 
@@ -363,6 +372,7 @@ export class RustCopcReader {
       nodeKey: node.key,
       blocksMainThread: true,
     });
+    throwIfPointLoadAborted(options.signal);
     return decoded.buffer;
   }
 
@@ -370,8 +380,14 @@ export class RustCopcReader {
   async loadPreparedPointData(
     node: CopcHierarchyNode,
     fields: CopcPointFieldSelection,
+    options: CopcPointLoadOptions = {},
   ): Promise<PreparedPointData> {
-    const { metadataBytes, chunkBytes, pointCount } = await this.readNodeChunk(node, fields);
+    const { metadataBytes, chunkBytes, pointCount } = await this.readNodeChunk(
+      node,
+      fields,
+      options.signal,
+    );
+    throwIfPointLoadAborted(options.signal);
     const request = {
       nodeKey: node.key,
       pointCount,
@@ -392,6 +408,7 @@ export class RustCopcReader {
         nodeKey: node.key,
         blocksMainThread: false,
       });
+      throwIfPointLoadAborted(options.signal);
       return result.prepared;
     }
 
@@ -411,12 +428,14 @@ export class RustCopcReader {
       nodeKey: node.key,
       blocksMainThread: true,
     });
+    throwIfPointLoadAborted(options.signal);
     return result.prepared;
   }
 
   private async readNodeChunk(
     node: CopcHierarchyNode,
     fields: CopcPointFieldSelection,
+    signal?: AbortSignal,
   ): Promise<{ metadataBytes: Uint8Array; chunkBytes: Uint8Array; pointCount: number }> {
     if (!fields.has('position')) {
       throw new RustCopcParseError('invalid-value', 'COPC point selection must include position');
@@ -437,7 +456,12 @@ export class RustCopcReader {
     if (!metadataBytes) {
       throw new RustCopcParseError('invalid-input', 'Rust COPC reader metadata is unavailable');
     }
-    const chunkBytes = await this.readRange(node.pointDataOffset, node.pointDataLength, node.key);
+    const chunkBytes = await this.readRange(
+      node.pointDataOffset,
+      node.pointDataLength,
+      node.key,
+      signal,
+    );
     return { metadataBytes, chunkBytes, pointCount };
   }
 
@@ -456,4 +480,13 @@ export class RustCopcReader {
     );
     this.decodeWorkerPool?.destroy();
   }
+}
+
+function throwIfPointLoadAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) {
+    return;
+  }
+  const error = new Error('Point-node load was cancelled', { cause: signal.reason });
+  error.name = 'AbortError';
+  throw error;
 }

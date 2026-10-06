@@ -149,25 +149,37 @@ test('toCopcMetadata maps header and cube data to project metadata', () => {
   );
 });
 
-test('createCopcGetter chooses HTTP, browser-relative, and local getters correctly', () => {
+test('createCopcGetter uses cancellable HTTP byte sources and local getters', async (context) => {
   const originalWindow = globalThis.window;
-  const originalHttp = Getter.http;
+  const originalFetch = globalThis.fetch;
   const originalCreate = Getter.create;
   const calls = [];
+  context.after(() => {
+    globalThis.fetch = originalFetch;
+    Getter.create = originalCreate;
+    globalThis.window = originalWindow;
+  });
 
-  Getter.http = (source) => {
-    calls.push(['http', source]);
-    return { kind: 'http', source };
+  globalThis.fetch = async (source, init) => {
+    calls.push(['http', String(source), init.headers.get('Range')]);
+    const range = init.headers.get('Range');
+    const [, start, end] = range.match(/bytes=(\d+)-(\d+)/);
+    const offset = Number(start);
+    const length = Number(end) - offset + 1;
+    return new Response(new Uint8Array(length), {
+      status: 206,
+      headers: { 'Content-Range': `bytes ${offset}-${end}/100` },
+    });
   };
   Getter.create = (source) => {
     calls.push(['create', source]);
     return { kind: 'create', source };
   };
 
-  assert.deepEqual(createCopcGetter('https://example.com/data.copc.laz'), {
-    kind: 'http',
-    source: 'https://example.com/data.copc.laz',
-  });
+  assert.deepEqual(
+    await createCopcGetter('https://example.com/data.copc.laz')(0, 2),
+    new Uint8Array(2),
+  );
 
   globalThis.window = {
     location: {
@@ -175,10 +187,10 @@ test('createCopcGetter chooses HTTP, browser-relative, and local getters correct
     },
   };
 
-  assert.deepEqual(createCopcGetter('/samples/autzen.copc.laz'), {
-    kind: 'http',
-    source: 'https://viewer.example/samples/autzen.copc.laz',
-  });
+  assert.deepEqual(
+    await createCopcGetter('/samples/autzen.copc.laz')(2, 4),
+    new Uint8Array(2),
+  );
 
   globalThis.window = undefined;
 
@@ -187,14 +199,11 @@ test('createCopcGetter chooses HTTP, browser-relative, and local getters correct
     source: samplePath,
   });
   assert.deepEqual(calls, [
-    ['http', 'https://example.com/data.copc.laz'],
-    ['http', 'https://viewer.example/samples/autzen.copc.laz'],
+    ['http', 'https://example.com/data.copc.laz', 'bytes=0-1'],
+    ['http', 'https://viewer.example/samples/autzen.copc.laz', 'bytes=2-3'],
     ['create', samplePath],
   ]);
 
-  Getter.http = originalHttp;
-  Getter.create = originalCreate;
-  globalThis.window = originalWindow;
 });
 
 test('readPoint utilities decode all coordinates from a point view', () => {
@@ -1103,6 +1112,14 @@ test('CopcCesiumLayer snapshot exposes lifecycle and dataset info', () => {
       evictionCount: 0,
       bytesEvicted: 0,
       largestCachedEntryBytes: 0,
+    },
+    rangeRequests: {
+      requested: 0,
+      active: 0,
+      completed: 0,
+      failed: 0,
+      abortedSuperseded: 0,
+      abortedLifecycle: 0,
     },
   });
 

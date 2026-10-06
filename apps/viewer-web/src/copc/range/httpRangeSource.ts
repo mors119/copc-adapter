@@ -130,6 +130,14 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
     try {
       bytes = new Uint8Array(await response.arrayBuffer());
     } catch (error: unknown) {
+      if (options.signal?.aborted || isAbortError(error)) {
+        throw new RangeSourceError(
+          'aborted',
+          `Range response body aborted for bytes=${offset}-${end}`,
+          rangeDetails(this.source, range, response.status),
+          { cause: error },
+        );
+      }
       throw new RangeSourceError(
         'network',
         `Failed to read the range response for bytes=${offset}-${end}`,

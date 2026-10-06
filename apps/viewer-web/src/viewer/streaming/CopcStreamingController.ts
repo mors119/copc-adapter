@@ -58,6 +58,11 @@ import {
   type StreamingPerformanceSnapshot,
 } from './performance';
 import { DEFAULT_MAX_CONCURRENT_NODE_LOADS } from './scheduler';
+import {
+  RANGE_CANCELLATION_REASON,
+  RangeRequestDiagnosticsRecorder,
+} from '../../copc/range/requestDiagnostics';
+import type { RangeRequestDiagnostics } from '../../copc/range/requestDiagnostics';
 
 /** Lifecycle states that do not depend on an attached rendering engine. */
 export type CopcStreamingLifecycleState =
@@ -185,6 +190,7 @@ export type CopcStreamingSnapshot = {
   transition: CopcStreamingTransitionState;
   hierarchy?: CopcHierarchyDiagnostics;
   pointCache: NodePointCacheDiagnostics;
+  rangeRequests: RangeRequestDiagnostics;
   worker?: CopcWorkerDiagnostics;
 };
 
@@ -215,6 +221,12 @@ function createTransitionState(): CopcStreamingTransitionState {
     generation: 0,
     replacementGroups: [],
   };
+}
+
+function createPointLoadAbortError(signal: AbortSignal): Error {
+  const error = new Error('Point-node load was cancelled', { cause: signal.reason });
+  error.name = 'AbortError';
+  return error;
 }
 
 function cloneTransitionState(
@@ -276,6 +288,7 @@ function toProjectBounds(
 export class CopcStreamingCore {
   private readonly options: CopcStreamingControllerOptions;
   private performanceRecorder: StreamingPerformanceRecorder;
+  private readonly rangeRequestDiagnostics = new RangeRequestDiagnosticsRecorder();
   private readonly initialCache: NodePointCache<PreparedPointData>;
   private readonly pointFields: CopcPointFieldSelection;
   private streamingState?: StreamingState;
@@ -286,6 +299,7 @@ export class CopcStreamingCore {
   private currentView?: StreamingView;
   private transition = createTransitionState();
   private lifecycle: CopcStreamingLifecycleState = 'idle';
+  private lifecycleAbortController?: AbortController;
 
   constructor(options: CopcStreamingControllerOptions) {
     this.options = options;
@@ -311,11 +325,16 @@ export class CopcStreamingCore {
 
     this.lifecycle = 'loading';
     const loadGeneration = ++this.loadGeneration;
+    const lifecycleAbortController = new AbortController();
+    this.lifecycleAbortController = lifecycleAbortController;
     const performanceRecorder = this.performanceRecorder;
     let context: CopcSource | undefined;
 
     try {
-      context = await createCopcContext(this.options.url, this.options.backend);
+      context = await createCopcContext(this.options.url, this.options.backend, {
+        signal: lifecycleAbortController.signal,
+        rangeRequestDiagnostics: this.rangeRequestDiagnostics,
+      });
       if (!this.isCurrentLoad(loadGeneration)) {
         context.destroy?.();
         return;
@@ -384,6 +403,10 @@ export class CopcStreamingCore {
         context?.destroy?.();
         return;
       }
+      lifecycleAbortController.abort(RANGE_CANCELLATION_REASON.lifecycle);
+      if (this.lifecycleAbortController === lifecycleAbortController) {
+        this.lifecycleAbortController = undefined;
+      }
       context?.destroy?.();
       this.lifecycle = 'idle';
       throw error;
@@ -413,7 +436,7 @@ export class CopcStreamingCore {
     // Invalidate queued point work while the generation's hierarchy query is
     // still in flight. The manager also invalidates at update start, matching
     // the established stale-result semantics.
-    streamingState.manager.invalidate();
+    streamingState.manager.invalidate('superseded', view);
     // Start measuring before a view can discover uncached hierarchy pages. The
     // manager is told to continue this recording after the query completes.
     this.performanceRecorder.beginUpdate();
@@ -507,6 +530,8 @@ export class CopcStreamingCore {
 
     this.loadGeneration += 1;
     this.viewGeneration += 1;
+    this.lifecycleAbortController?.abort(RANGE_CANCELLATION_REASON.lifecycle);
+    this.lifecycleAbortController = undefined;
     const state = this.streamingState;
     state?.manager.clear();
     state?.context.destroy?.();
@@ -552,6 +577,7 @@ export class CopcStreamingCore {
       transition: cloneTransitionState(this.transition),
       ...(state ? { hierarchy: state.hierarchyLoader.getDiagnostics() } : {}),
       pointCache: state?.cache.getDiagnostics() ?? this.initialCache.getDiagnostics(),
+      rangeRequests: this.rangeRequestDiagnostics.getSnapshot(),
       ...(worker ? { worker } : {}),
     };
   }
@@ -582,14 +608,14 @@ export class CopcStreamingCore {
     return this.streamingState?.nodes.get(nodeKey);
   }
 
-  /** Invalidate an in-flight view while retaining loaded source state. */
-  invalidateView(): void {
+  /** Invalidate an in-flight view and cancel reads outside an optional next view. */
+  invalidateView(view?: StreamingView): void {
     if (this.lifecycle === 'destroyed') {
       return;
     }
 
     this.viewGeneration += 1;
-    this.streamingState?.manager.invalidate();
+    this.streamingState?.manager.invalidate('superseded', view);
   }
 
   getTransitionState(): CopcStreamingTransitionState {
@@ -639,12 +665,13 @@ export class CopcStreamingCore {
     performanceRecorder: StreamingPerformanceRecorder,
   ): NodePointCache<PreparedPointData> {
     return createNodePointCache(
-      (nodeKey) => this.loadRenderableNodePoints(
+      (nodeKey, signal) => this.loadRenderableNodePoints(
         context,
         metadata,
         nodesRef,
         performanceRecorder,
         nodeKey,
+        signal,
       ),
       {
         maxEntries: MAX_CACHED_NODES,
@@ -659,6 +686,7 @@ export class CopcStreamingCore {
     nodesRef: { current: StreamingHierarchy },
     performanceRecorder: StreamingPerformanceRecorder,
     nodeKey: string,
+    signal: AbortSignal,
   ): Promise<PreparedPointData> {
     const streamingNode = nodesRef.current.get(nodeKey);
     if (!streamingNode) {
@@ -671,7 +699,11 @@ export class CopcStreamingCore {
       const prepared = await context.loadPreparedPointData(
         streamingNode.node,
         this.pointFields,
+        { signal },
       );
+      if (signal.aborted) {
+        throw createPointLoadAbortError(signal);
+      }
       assertPreparedPointData(prepared);
       return prepared;
     }
@@ -681,7 +713,11 @@ export class CopcStreamingCore {
       streamingNode.node,
       this.options.decoder,
       this.pointFields,
+      { signal },
     );
+    if (signal.aborted) {
+      throw createPointLoadAbortError(signal);
+    }
     const transformStartedAt = performanceNow();
     const transformed = transformPointBufferToPreparedPointData(metadata, points);
     assertPreparedPointData(transformed);

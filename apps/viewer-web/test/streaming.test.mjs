@@ -450,6 +450,76 @@ test('StreamingManager preserves cancellations from a superseded scheduler', asy
   assert.equal(manager.getPerformanceSnapshot().cancelledNodeCount, 2);
 });
 
+test('StreamingManager aborts only point loads that leave the next selection', async () => {
+  const firstNode = createWorkNode('0-a', 10, 0);
+  const secondNode = createStreamingNode({
+    key: '0-b',
+    level: 0,
+    pointCount: 10,
+    center: { longitude: -120, latitude: 44, height: 100 },
+    bounds: {
+      minX: -120.01,
+      minY: 43.99,
+      minZ: 50,
+      maxX: -119.99,
+      maxY: 44.01,
+      maxZ: 150,
+    },
+    approximateSizeMeters: 100,
+    boundingRadiusMeters: 20,
+  });
+  const hierarchy = new Map([
+    [firstNode.node.key, firstNode],
+    [secondNode.node.key, secondNode],
+  ]);
+  let firstSignal;
+  let resolveFirstStarted;
+  const firstStarted = new Promise((resolve) => {
+    resolveFirstStarted = resolve;
+  });
+  const cache = createNodePointCache(
+    (nodeKey, signal) => {
+      if (nodeKey === firstNode.node.key) {
+        firstSignal = signal;
+        resolveFirstStarted();
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener('abort', () => {
+            const error = new Error('cancelled');
+            error.name = 'AbortError';
+            reject(error);
+          }, { once: true });
+        });
+      }
+      return Promise.resolve({
+        pointCount: 10,
+        coordinates: new Float64Array(30),
+      });
+    },
+    { maxEntries: 8 },
+  );
+  const manager = new StreamingManager(hierarchy, {
+    maxNodes: 8,
+    maxDepth: 4,
+    maxRenderDistanceMeters: 12_000,
+    maxRenderedPoints: 100,
+    maxConcurrentNodeLoads: 1,
+  }, cache);
+
+  const firstUpdate = manager.update(createCamera());
+  await firstStarted;
+  const secondUpdate = manager.update(createCamera({
+    longitude: -120,
+    viewDistanceMeters: 6_000,
+  }));
+  const [, current] = await Promise.all([firstUpdate, secondUpdate]);
+
+  assert.equal(firstSignal.aborted, true);
+  assert.equal(firstSignal.reason, 'superseded');
+  assert.deepEqual(current.selectedNodeKeys, [secondNode.node.key]);
+  assert.equal(cache.has(firstNode.node.key), false);
+  assert.equal(cache.get(secondNode.node.key).pointCount, 10);
+});
+
 test('NodeSelector selects the visible root node when the camera is far', () => {
   const selector = createSelector();
   const hierarchy = new Map([

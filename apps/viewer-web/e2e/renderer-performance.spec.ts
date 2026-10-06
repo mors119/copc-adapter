@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { getCompletedStreamingState } from './streaming-state';
 
 type BenchmarkState = {
   renderedPointCount: number;
@@ -72,7 +73,7 @@ async function sampleCameraTransition(
   page: import('@playwright/test').Page,
   height: number,
 ): Promise<{ state: BenchmarkState; frames: { frameCount: number; medianFrameMs: number; p95FrameMs: number; maxFrameMs: number } }> {
-  const before = await getState(page);
+  const before = await getCompletedStreamingState(() => getState(page));
   const frames = await page.evaluate(async (nextHeight) => {
     window.__COPC_DEBUG__?.setCameraHeight(nextHeight);
     const values: number[] = [];
@@ -99,7 +100,7 @@ async function sampleCameraTransition(
   )] ?? 0;
 
   return {
-    state: await getState(page),
+    state: await getCompletedStreamingState(() => getState(page)),
     frames: {
       frameCount: frames.length,
       medianFrameMs: at(0.5),
@@ -155,7 +156,7 @@ test('keeps low/high rendered-point budgets bounded and reprioritises on rotatio
   };
 
   const lowPage = await loadBudgetedState(100_000);
-  const lowState = await getState(lowPage);
+  const lowState = await getCompletedStreamingState(() => getState(lowPage));
   expect(lowState.renderedPointCount).toBeLessThanOrEqual(100_000);
   expect(lowState.performance.activeRenderedPointCount).toBeLessThanOrEqual(100_000);
 
@@ -163,7 +164,7 @@ test('keeps low/high rendered-point budgets bounded and reprioritises on rotatio
   await expect.poll(async () => (await getState(highPage)).renderedPointCount, {
     timeout: 60_000,
   }).toBeGreaterThan(lowState.renderedPointCount);
-  const highState = await getState(highPage);
+  const highState = await getCompletedStreamingState(() => getState(highPage));
   expect(highState.renderedPointCount).toBeLessThanOrEqual(500_000);
   expect(highState.performance.activeRenderedPointCount).toBeLessThanOrEqual(500_000);
   expect(highState.renderedPointCount).toBeGreaterThan(lowState.renderedPointCount);
@@ -174,7 +175,7 @@ test('keeps low/high rendered-point budgets bounded and reprioritises on rotatio
   });
   await expect.poll(async () => (await getState(highPage)).streamingUpdateCount)
     .toBeGreaterThan(highState.streamingUpdateCount);
-  const rotatedState = await getState(highPage);
+  const rotatedState = await getCompletedStreamingState(() => getState(highPage));
   expect(rotatedState.renderedPointCount).toBeLessThanOrEqual(500_000);
   expect(rotatedState.selectedNodeKeys).not.toEqual(highState.selectedNodeKeys);
   expect(rotatedState.lastError).toBeUndefined();

@@ -36,6 +36,12 @@ export type CopcDebugPanelView = {
   activeNodeCount: string;
   completedNodeCount: string;
   cancelledNodeCount: string;
+  rangeRequestsRequested: string;
+  rangeRequestsActive: string;
+  rangeRequestsCompleted: string;
+  rangeRequestsFailed: string;
+  rangeRequestsAbortedSuperseded: string;
+  rangeRequestsAbortedLifecycle: string;
   peakActiveNodeCount: string;
   firstHighPriorityNodeReadyLatency: string;
   firstHighPriorityNodeStartLatency: string;
@@ -188,6 +194,12 @@ export function buildCopcDebugPanelView(
     activeNodeCount: formatNumber(snapshot.performance?.activeNodeCount ?? 0),
     completedNodeCount: formatNumber(snapshot.performance?.completedNodeCount ?? 0),
     cancelledNodeCount: formatNumber(snapshot.performance?.cancelledNodeCount ?? 0),
+    rangeRequestsRequested: formatNumber(snapshot.rangeRequests.requested),
+    rangeRequestsActive: formatNumber(snapshot.rangeRequests.active),
+    rangeRequestsCompleted: formatNumber(snapshot.rangeRequests.completed),
+    rangeRequestsFailed: formatNumber(snapshot.rangeRequests.failed),
+    rangeRequestsAbortedSuperseded: formatNumber(snapshot.rangeRequests.abortedSuperseded),
+    rangeRequestsAbortedLifecycle: formatNumber(snapshot.rangeRequests.abortedLifecycle),
     peakActiveNodeCount: formatNumber(snapshot.performance?.peakActiveNodeCount ?? 0),
     firstHighPriorityNodeReadyLatency:
       snapshot.performance?.firstHighPriorityNodeReadyLatencyMs === undefined
@@ -394,6 +406,15 @@ export function createCopcDebugPanel(
         <div><dt>Completed / pending priority</dt><dd data-field="completedPendingSchedulingPriority"></dd></div>
         <div><dt>First priority start</dt><dd data-field="firstHighPriorityNodeStartLatency"></dd></div>
         <div><dt>First priority ready</dt><dd data-field="firstHighPriorityNodeReadyLatency"></dd></div>
+      </dl>
+    </details>
+    <details>
+      <summary>HTTP Range requests</summary>
+      <dl>
+        <div><dt>Requested / active / completed</dt><dd><span data-field="rangeRequestsRequested"></span> / <span data-field="rangeRequestsActive"></span> / <span data-field="rangeRequestsCompleted"></span></dd></div>
+        <div><dt>Aborted by view changes</dt><dd data-field="rangeRequestsAbortedSuperseded"></dd></div>
+        <div><dt>Aborted by lifecycle</dt><dd data-field="rangeRequestsAbortedLifecycle"></dd></div>
+        <div><dt>Failed</dt><dd data-field="rangeRequestsFailed"></dd></div>
       </dl>
     </details>
     <details>

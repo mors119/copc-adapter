@@ -207,6 +207,7 @@ export class StreamingManager {
     const nextSelectedNodeKeys = new Set(
       selectedNodes.map((entry) => entry.node.key),
     );
+    this.cache.cancelPendingExcept(nextSelectedNodeKeys, 'superseded');
     const highPriorityNodeKeys = new Set(
       selectedNodes
         .slice(0, Math.max(1, Math.ceil(selectedNodes.length * 0.25)))
@@ -348,15 +349,31 @@ export class StreamingManager {
   }
 
   clear(): void {
-    this.invalidate();
+    this.invalidate('lifecycle');
     this.selectedNodeKeys.clear();
     this.activeNodePointCounts.clear();
     this.cache.clear();
   }
 
-  /** Invalidate queued work while preserving reusable point-cache entries. */
-  invalidate(): void {
+  /** Invalidate a generation and cancel pending point reads outside its next selection. */
+  invalidate(
+    reason: 'superseded' | 'lifecycle' = 'superseded',
+    camera?: StreamingCameraState,
+  ): void {
     this.updateGeneration += 1;
+    if (reason === 'lifecycle') {
+      this.cache.cancelPending(reason);
+    } else if (camera) {
+      const selectedNodeKeys = this.selector.selectVisibleNodes(
+        camera,
+        this.hierarchy,
+        {
+          previousSelectedNodeKeys: this.selectedNodeKeys,
+          isNodeCached: (nodeKey) => this.cache.has(nodeKey),
+        },
+      ).map((entry) => entry.node.key);
+      this.cache.cancelPendingExcept(selectedNodeKeys, reason);
+    }
     this.onInvalidate?.();
     this.workLimiter.notifyWaiters();
   }
