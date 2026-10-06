@@ -276,7 +276,12 @@ The supported modes are:
 - `classification`: categorical classification palette
 
 Attribute-based modes fall back to the fixed color when the required source
-attribute is unavailable.
+attribute is unavailable. Cesium layers retain intensity, classification, and
+RGB attributes so `setStyle()` can switch modes or apply a classification
+include/exclude filter from cached point buffers without fetching point chunks
+again. Classification filters accept LAS codes from `0` through `255`; points
+without a classification value are hidden while a filter is active. Use
+`classificationFilter: null` to clear a filter.
 
 ## Camera-Driven LoD and Streaming
 

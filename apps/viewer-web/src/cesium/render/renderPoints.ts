@@ -22,6 +22,7 @@ export type CopcPointRenderOptions = {
   elevationRange?: CopcElevationRange;
   rgbMax?: 255 | 65535;
   pointId?: (pointIndex: number) => unknown;
+  pointFilter?: (pointIndex: number) => boolean;
   onPerformance?: (
     stage: 'geographicToCartesian'
       | 'worldToCartesian'
@@ -141,6 +142,7 @@ export function renderCopcPoints(
       pixelSize: options.pointSize,
       color: colors[index],
       id: options.pointId?.(index),
+      show: options.pointFilter?.(index) ?? true,
     });
   }
   options.onPerformance?.('pointAdd', performanceNow() - addStartedAt);

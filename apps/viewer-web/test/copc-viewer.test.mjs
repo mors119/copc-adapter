@@ -73,6 +73,8 @@ function createBackend({ onFields } = {}) {
   };
   let openCount = 0;
   let destroyCount = 0;
+  let pointChunkRequestCount = 0;
+  let decodeCount = 0;
 
   return {
     get openCount() {
@@ -80,6 +82,12 @@ function createBackend({ onFields } = {}) {
     },
     get destroyCount() {
       return destroyCount;
+    },
+    get pointChunkRequestCount() {
+      return pointChunkRequestCount;
+    },
+    get decodeCount() {
+      return decodeCount;
     },
     backend: {
       async open(source) {
@@ -114,6 +122,7 @@ function createBackend({ onFields } = {}) {
             return { nodes: [node], pages: [] };
           },
           async loadPointDataView(_node, fields) {
+            pointChunkRequestCount += 1;
             onFields?.([...fields]);
             return {
               pointCount: node.pointCount,
@@ -131,6 +140,7 @@ function createBackend({ onFields } = {}) {
     },
     decoder: {
       async decode() {
+        decodeCount += 1;
         return {
           pointCount: 2,
           coordinates: new Float64Array([
@@ -138,6 +148,8 @@ function createBackend({ onFields } = {}) {
             -122.4, 44.6, 18,
           ]),
           attributes: {
+            intensity: new Uint16Array([100, 500]),
+            classification: new Uint8Array([2, 6]),
             red: new Uint16Array([255, 128]),
             green: new Uint16Array([0, 128]),
             blue: new Uint16Array([0, 255]),
@@ -193,7 +205,12 @@ test('CopcCesiumLayer delegates source and streaming work to the shared core', a
   layer.attachTo(viewer);
   await waitFor(() => layer.getSnapshot().renderedPointCount === 2);
 
-  assert.deepEqual(requestedFields, [['position', 'rgb']]);
+  assert.deepEqual(requestedFields, [[
+    'position',
+    'intensity',
+    'classification',
+    'rgb',
+  ]]);
   assert.deepEqual(layer.getSnapshot().selectedNodeKeys, ['0-0-0-0']);
   assert.deepEqual(layer.getSnapshot().renderedNodeKeys, ['0-0-0-0']);
   assert.equal(layer.getSnapshot().streamingUpdateCount, 1);
@@ -201,6 +218,141 @@ test('CopcCesiumLayer delegates source and streaming work to the shared core', a
   layer.destroy();
   assert.equal(source.destroyCount, 1);
   assert.equal(viewer.destroyed, false);
+});
+
+test('runtime Cesium styling filters cached points without another point-chunk request or decode', async () => {
+  const source = createBackend();
+  const picked = [];
+  const layer = new CopcCesiumLayer({
+    url: 'memory://runtime-style.copc.laz',
+    backend: source.backend,
+    decoder: source.decoder,
+    colorMode: 'rgb',
+    onPointPicked: (point) => picked.push(point),
+  });
+  const viewer = createFakeViewer();
+  const nodeKey = '0-0-0-0';
+
+  await layer.load();
+  layer.attachTo(viewer);
+  await waitFor(() => layer.getSnapshot().renderedPointCount === 2);
+  const collection = viewer.addedCollections[0];
+  const requestCount = source.pointChunkRequestCount;
+  const decodeCount = source.decodeCount;
+  const cacheBefore = layer.getPointCacheDiagnostics();
+  const hierarchyBefore = layer.getHierarchyDiagnostics();
+  const streamingUpdateCount = layer.getSnapshot().streamingUpdateCount;
+
+  layer.setStyle({ colorMode: 'elevation' });
+  assert.notDeepEqual(collection.get(0).color, collection.get(1).color);
+  layer.setStyle({ colorMode: 'rgb' });
+  assert.deepEqual(
+    [collection.get(0).color.red, collection.get(0).color.green, collection.get(0).color.blue],
+    [1, 0, 0],
+  );
+  layer.setStyle({ colorMode: 'intensity' });
+  assert.deepEqual(
+    [collection.get(0).color.red, collection.get(0).color.green, collection.get(0).color.blue],
+    [0, 0, 0],
+  );
+  layer.setStyle({
+    colorMode: 'classification',
+    classificationFilter: { include: [6] },
+  });
+
+  assert.equal(layer.getStyle().colorMode, 'classification');
+  assert.deepEqual(layer.getStyle().classificationFilter, { include: [6] });
+  assert.equal(layer.getSnapshot().renderedPointCount, 1);
+  assert.equal(layer.getSnapshot().renderedNodeKeys.includes(nodeKey), true);
+  assert.equal(collection.get(0).show, false);
+  assert.equal(collection.get(1).show, true);
+  assert.equal(collection.get(1).id.pointIndex, 1);
+
+  const controller = layer.controller;
+  viewer.scene.pick = () => ({
+    id: { nodeKey, pointIndex: 1, ownerId: controller.pickOwnerId },
+  });
+  controller.handlePick(viewer, new Cesium.Cartesian2(10, 10));
+  assert.equal(layer.getSelectedPoint().pointIndex, 1);
+  assert.equal(layer.getSelectedPoint().classification, 6);
+  assert.equal(picked.at(-1).classification, 6);
+
+  layer.setStyle({ classificationFilter: { exclude: [6] } });
+  assert.equal(collection.get(0).show, true);
+  assert.equal(collection.get(1).show, false);
+  assert.equal(layer.getSelectedPoint(), undefined);
+  assert.equal(picked.at(-1), undefined);
+
+  layer.setStyle({ classificationFilter: { include: [] } });
+  assert.equal(layer.getSnapshot().renderedPointCount, 0);
+  layer.setStyle({ classificationFilter: { include: [2, 6], exclude: [6] } });
+  assert.equal(layer.getSnapshot().renderedPointCount, 1);
+  assert.equal(collection.get(0).show, true);
+  assert.equal(collection.get(1).show, false);
+
+  layer.setStyle({ classificationFilter: { exclude: [] } });
+  assert.equal(layer.getSnapshot().renderedPointCount, 2);
+  layer.setStyle({ classificationFilter: {} });
+  assert.equal(layer.getSnapshot().renderedPointCount, 2);
+  layer.setStyle({ classificationFilter: null });
+  assert.equal(layer.getSnapshot().renderedPointCount, 2);
+
+  assert.equal(source.pointChunkRequestCount, requestCount);
+  assert.equal(source.decodeCount, decodeCount);
+  assert.deepEqual(layer.getPointCacheDiagnostics(), cacheBefore);
+  assert.deepEqual(layer.getHierarchyDiagnostics(), hierarchyBefore);
+  assert.equal(layer.getSnapshot().streamingUpdateCount, streamingUpdateCount);
+  assert.equal(viewer.addedCollections.length, 1);
+  assert.equal(viewer.removedCollections.length, 0);
+  layer.destroy();
+});
+
+test('missing classification values use the color fallback and cannot pass an active filter', async () => {
+  const source = createBackend();
+  source.decoder = {
+    async decode() {
+      return {
+        pointCount: 2,
+        coordinates: new Float64Array([
+          -122.6, 44.4, 12,
+          -122.4, 44.6, 18,
+        ]),
+        attributes: {
+          intensity: new Uint16Array([100, 500]),
+          red: new Uint16Array([255, 128]),
+          green: new Uint16Array([0, 128]),
+          blue: new Uint16Array([0, 255]),
+        },
+      };
+    },
+  };
+  const layer = new CopcCesiumLayer({
+    url: 'memory://no-classification.copc.laz',
+    backend: source.backend,
+    decoder: source.decoder,
+  });
+  const viewer = createFakeViewer();
+
+  await layer.load();
+  layer.attachTo(viewer);
+  await waitFor(() => layer.getSnapshot().renderedNodeKeys.length === 1);
+  const collection = viewer.addedCollections[0];
+
+  layer.setStyle({
+    colorMode: 'classification',
+    classificationFilter: { include: [2] },
+  });
+  assert.equal(layer.getSnapshot().renderedPointCount, 0);
+  assert.equal(collection.get(0).show, false);
+  assert.equal(collection.get(1).show, false);
+
+  layer.setStyle({ classificationFilter: null });
+  assert.equal(layer.getSnapshot().renderedPointCount, 2);
+  assert.deepEqual(
+    [collection.get(0).color.red, collection.get(0).color.green, collection.get(0).color.blue],
+    [0, 1, 1],
+  );
+  layer.destroy();
 });
 
 test('Cesium attachment listeners are stable and detach preserves loaded data', async () => {
