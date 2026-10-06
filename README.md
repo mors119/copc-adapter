@@ -422,7 +422,9 @@ controls, render loop, and UI.
 - Browser Rust/WASM point preparation uses a bounded worker pool when `Worker`
   is available; environments without workers use the same `copc-core`
   semantics on the main thread. Worker queue/concurrency diagnostics are
-  exposed in snapshots.
+  exposed in snapshots. The thread-ownership audit and camera-input evidence
+  are in the [Worker responsiveness
+  report](docs/benchmarks/issue-208-worker-responsiveness.md).
 - Rendering uses the compatibility `PointPrimitiveRenderer` boundary backed by
   `Cesium.PointPrimitiveCollection`; coverage-safe transitions keep old
   coverage until a replacement is ready. Benchmark evidence is in the
