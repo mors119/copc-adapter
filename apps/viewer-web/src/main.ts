@@ -59,6 +59,13 @@ type CopcDebugAdapter = {
   setCameraHeight(height: number): void;
   setCameraPitch(pitchDegrees: number): void;
   setCameraHeading(headingDegrees: number): void;
+  setCameraView(view: {
+    longitudeDegrees: number;
+    latitudeDegrees: number;
+    heightMeters: number;
+    headingDegrees: number;
+    pitchDegrees: number;
+  }): void;
   recordError(error: unknown): void;
   probeSource(source: string): Promise<CopcSourceProbeResult>;
   runSyntheticRendererPerformanceBenchmark(): ReturnType<typeof runSyntheticRendererPerformanceBenchmark>;
@@ -225,6 +232,21 @@ function installDebugAdapter(
           heading: Cesium.Math.toRadians(headingDegrees),
           pitch: viewer.camera.pitch,
           roll: viewer.camera.roll,
+        },
+      });
+      viewer.camera.moveEnd.raiseEvent();
+    },
+    setCameraView(view): void {
+      viewer.camera.setView({
+        destination: Cesium.Cartesian3.fromDegrees(
+          view.longitudeDegrees,
+          view.latitudeDegrees,
+          view.heightMeters,
+        ),
+        orientation: {
+          heading: Cesium.Math.toRadians(view.headingDegrees),
+          pitch: Cesium.Math.toRadians(view.pitchDegrees),
+          roll: 0,
         },
       });
       viewer.camera.moveEnd.raiseEvent();
