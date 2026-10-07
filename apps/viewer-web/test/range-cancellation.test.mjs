@@ -139,8 +139,13 @@ test('the copc-js HTTP getter forwards point cancellation to fetch', async (cont
   const generation = new AbortController();
   const diagnostics = new RangeRequestDiagnosticsRecorder();
   let observedSignal;
+  let resolveFetchStarted;
+  const fetchStarted = new Promise((resolve) => {
+    resolveFetchStarted = resolve;
+  });
   globalThis.fetch = async (_input, init) => new Promise((_resolve, reject) => {
     observedSignal = init.signal;
+    resolveFetchStarted();
     init.signal.addEventListener('abort', () => reject(makeAbortError()), { once: true });
   });
   const getter = createCopcGetter('https://example.test/copc.laz', {
@@ -148,6 +153,7 @@ test('the copc-js HTTP getter forwards point cancellation to fetch', async (cont
   });
 
   const pending = getter(20, 24, { signal: generation.signal });
+  await fetchStarted;
   generation.abort(RANGE_CANCELLATION_REASON.superseded);
   await assert.rejects(pending, (error) => error.code === 'aborted');
 
