@@ -6,6 +6,8 @@ import {
   CopcCesiumLayer,
   probeCopcSource,
   type CopcBackendName,
+  type CopcCesiumPointStyle,
+  type CopcCesiumPointStyleUpdate,
   type CopcSourceProbeResult,
 } from './index';
 import { createCesiumViewer } from './cesium/viewer/createViewer';
@@ -55,6 +57,8 @@ function isDebugPanelEnabled(): boolean {
 
 type CopcDebugAdapter = {
   getState(): CopcDebugState;
+  getStyle(): CopcCesiumPointStyle;
+  setStyle(update: CopcCesiumPointStyleUpdate): void;
   getLastError(): string | undefined;
   setCameraHeight(height: number): void;
   setCameraPitch(pitchDegrees: number): void;
@@ -172,6 +176,12 @@ function installDebugAdapter(
   });
 
   const adapter: CopcDebugAdapter = {
+    getStyle(): CopcCesiumPointStyle {
+      return layer.getStyle();
+    },
+    setStyle(update: CopcCesiumPointStyleUpdate): void {
+      layer.setStyle(update);
+    },
     getState(): CopcDebugState {
       const snapshot = layer.getSnapshot();
       const pointDiagnostics = getRenderedPointDiagnostics(viewer);

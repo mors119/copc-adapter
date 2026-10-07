@@ -450,6 +450,7 @@ stages and remaining goals. Historical measurements remain in
 - [API](docs/API.md)
 - [Examples](docs/EXAMPLES.md)
 - [Conformance](docs/CONFORMANCE.md)
+- [Cesium contest functional-test runbook](docs/CONTEST-FUNCTIONAL-TEST.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Sample datasets](samples/README.md)
 - [Contributing](CONTRIBUTING.md)

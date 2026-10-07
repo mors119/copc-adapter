@@ -1,4 +1,8 @@
 import { expect, test } from '@playwright/test';
+import type {
+  CopcCesiumPointStyle,
+  CopcCesiumPointStyleUpdate,
+} from '../src/index';
 import { getCompletedStreamingState } from './streaming-state';
 
 type CopcDebugState = {
@@ -30,6 +34,8 @@ type CopcDebugState = {
     longitude: number;
     latitude: number;
     height: number;
+    classification?: number;
+    intensity?: number;
     rgb?: { red: number; green: number; blue: number };
   };
   lastError?: string;
@@ -66,6 +72,8 @@ type CopcDebugState = {
 
 type CopcDebugAdapter = {
   getState(): CopcDebugState;
+  getStyle(): CopcCesiumPointStyle;
+  setStyle(update: CopcCesiumPointStyleUpdate): void;
   getLastError(): string | undefined;
   setCameraHeight(height: number): void;
   setCameraPitch(pitchDegrees: number): void;
@@ -190,6 +198,72 @@ test('streams a COPC sample through the opt-in Rust backend in a real Cesium sce
   await expect(debugPanel).toBeHidden();
   await page.keyboard.press('Shift+D');
   await expect(debugPanel).toBeVisible();
+});
+
+test('restyles and filters cached points without rereading the source', async ({ page }) => {
+  await page.goto('/?backend=rust');
+
+  await expect.poll(() => getDebugState(page)).toMatchObject({
+    viewerReady: true,
+    layerLoaded: true,
+    backend: 'rust',
+  });
+  await expect.poll(async () => (await getDebugState(page)).renderedPointCount)
+    .toBeGreaterThan(0);
+  await expect.poll(async () => page.evaluate(() => {
+    const state = window.__COPC_DEBUG__?.getState();
+    return state?.rangeRequests.active === 0
+      && state.worker?.activeCount === 0
+      && state.worker?.queuedCount === 0;
+  })).toBe(true);
+
+  const pickPosition = await page.evaluate(() =>
+    window.__COPC_DEBUG__?.getPickablePointScreenPosition());
+  expect(pickPosition).toBeTruthy();
+  if (!pickPosition) {
+    throw new Error('No visible point was available to read a classification value');
+  }
+  await page.mouse.click(pickPosition.x, pickPosition.y);
+  await expect.poll(async () => (await getDebugState(page)).selectedPoint)
+    .toMatchObject({ classification: expect.any(Number) });
+
+  const initial = await page.evaluate(() => window.__COPC_DEBUG__!.getState());
+  const classification = initial.selectedPoint!.classification!;
+  const styleModes = ['rgb', 'elevation', 'intensity', 'classification'] as const;
+  for (const colorMode of styleModes) {
+    await page.evaluate((mode) => {
+      window.__COPC_DEBUG__?.setStyle({ colorMode: mode });
+    }, colorMode);
+    await expect.poll(async () => page.evaluate(() =>
+      window.__COPC_DEBUG__?.getStyle().colorMode)).toBe(colorMode);
+  }
+
+  await page.evaluate((selectedClassification) => {
+    window.__COPC_DEBUG__?.setStyle({
+      colorMode: 'classification',
+      classificationFilter: { include: [selectedClassification] },
+    });
+  }, classification);
+  await expect.poll(async () => (await getDebugState(page)).renderedPointCount)
+    .toBeGreaterThan(0);
+  const filtered = await page.evaluate(() => window.__COPC_DEBUG__!.getState());
+
+  expect(filtered.renderedPointCount).toBeLessThan(initial.renderedPointCount);
+  expect(filtered.rangeRequests.requested).toBe(initial.rangeRequests.requested);
+  expect(filtered.pointCache.misses).toBe(initial.pointCache.misses);
+  expect(filtered.pointCache.currentCacheBytes).toBe(initial.pointCache.currentCacheBytes);
+  expect(await page.evaluate(() => window.__COPC_DEBUG__!.getStyle()))
+    .toMatchObject({ colorMode: 'classification', classificationFilter: { include: [classification] } });
+
+  await page.evaluate(() => {
+    window.__COPC_DEBUG__?.setStyle({ colorMode: 'rgb', classificationFilter: null });
+  });
+  await expect.poll(async () => (await getDebugState(page)).renderedPointCount)
+    .toBeGreaterThan(0);
+  await expect.poll(async () => (await getDebugState(page)).renderedPointCount)
+    .toBe(initial.renderedPointCount);
+  expect(await page.evaluate(() => window.__COPC_DEBUG__!.getStyle()))
+    .toMatchObject({ colorMode: 'rgb' });
 });
 
 test('can disable the runtime debug panel with a query parameter', async ({ page }) => {
