@@ -76,3 +76,9 @@ The SoFi test is `apps/viewer-web/e2e/sofi-multigb-validation.spec.ts`. It block
 On the recorded tree, TypeScript typecheck passed, all 310 viewer unit tests passed, the production viewer build passed, and all 12 Playwright E2E tests passed in 4.6 minutes, including SoFi and Autzen. The renderer build emitted the existing browser-externalization notices for Node built-ins and completed successfully.
 
 The multi-GB streaming, camera-driven LoD, point/cache bounds, cache reuse, cancellation, and Autzen regression passed. The overall result remains **LIMITED** until the SoFi source exposes `Content-Range` to browser JavaScript; the shimmed measurement must not be read as proof that the public endpoint is directly browser-ready.
+
+### Independent revalidation on the merged tree
+
+The same checks were rerun on merge commit `8e43a4ecec77a8c8ccc77d39989b64b3c9c308c0` on 2026-10-07. Typecheck passed, all 310 viewer unit tests passed, the production build passed, and all 12 Playwright E2E tests passed in 4.0 minutes, including the SoFi scenario and Autzen streaming regression.
+
+The SoFi rerun reached its first visible points after 60,855 ms and rendered 247,960 points in 15 nodes. It received 144 validated `206` Range responses totaling 6,695,017 bytes (0.330% of the 2,029,696,615-byte object). The point cache peaked at 37,703,850 bytes under the 268,435,456-byte cap; returning to area A reused cached data without another Range request. The controlled cancellation ended with one superseded request, zero failures, and zero active requests. As in the initial run, the Playwright route added the missing `Content-Range` exposure header, so this rerun confirms partial-range streaming and workload bounds while retaining the source CORS limitation above.
