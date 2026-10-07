@@ -2,6 +2,11 @@ import { defineConfig } from '@playwright/test';
 import fs from 'node:fs';
 
 const systemChromium = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const testPort = Number(process.env.PLAYWRIGHT_TEST_PORT ?? 4173);
+if (!Number.isSafeInteger(testPort) || testPort < 1 || testPort > 65_535) {
+  throw new Error('PLAYWRIGHT_TEST_PORT must be an integer from 1 to 65535');
+}
+const testUrl = `http://127.0.0.1:${testPort}`;
 const devServerCommand = process.env.COPC_WASM_PREPARED === '1'
   ? 'npm run dev:ci'
   : 'npm run dev';
@@ -17,7 +22,7 @@ export default defineConfig({
     timeout: 60000,
   },
   use: {
-    baseURL: 'http://127.0.0.1:4173',
+    baseURL: testUrl,
     browserName: 'chromium',
     headless: true,
     launchOptions: {
@@ -31,9 +36,9 @@ export default defineConfig({
     },
   },
   webServer: {
-    command: `${devServerCommand} -- --host 127.0.0.1 --port 4173`,
-    url: 'http://127.0.0.1:4173',
-    reuseExistingServer: !process.env.CI,
+    command: `${devServerCommand} -- --host 127.0.0.1 --port ${testPort} --strictPort`,
+    url: testUrl,
+    reuseExistingServer: process.env.PLAYWRIGHT_REUSE_SERVER === '1' && !process.env.CI,
     timeout: 120000,
   },
 });

@@ -219,7 +219,9 @@ test('records bounded SoFi multi-GB Cesium browser streaming', async ({ page, br
       await route.abort();
       throw new Error('Blocked a SoFi request without Range to prevent a whole-object transfer');
     }
-    const upstream = await route.fetch();
+    // S3 occasionally resets long-running Range connections. Retry only
+    // transport-level ECONNRESET failures; HTTP responses remain observable.
+    const upstream = await route.fetch({ maxRetries: 2 });
     const headers = upstream.headers();
     if (delayNextRangeResponse) {
       delayNextRangeResponse = false;
