@@ -23,6 +23,24 @@ function makeResponse(status, bytes, headers = {}) {
   return new Response(Uint8Array.from(bytes), { status, headers });
 }
 
+function createIndexedRangeFetch(calls) {
+  return async (_input, init) => {
+    const header = new Headers(init.headers).get('Range');
+    const match = /^bytes=(\d+)-(\d+)$/.exec(header ?? '');
+    assert.ok(match);
+    const offset = Number(match[1]);
+    const end = Number(match[2]);
+    calls.push({ offset, length: end - offset + 1, signal: init.signal });
+    return new Response(Uint8Array.from(
+      { length: end - offset + 1 },
+      (_value, index) => (offset + index) % 256,
+    ), {
+      status: 206,
+      headers: { 'Content-Range': `bytes ${offset}-${end}/10000000` },
+    });
+  };
+}
+
 test('HttpRangeByteSource constructs exact byte ranges and validates 206 bytes', async () => {
   const requests = [];
   const source = new HttpRangeByteSource('https://example.test/autzen.copc.laz', {
@@ -124,7 +142,7 @@ test('HttpRangeByteSource reports network failures structurally', async () => {
   );
 });
 
-test('HttpRangeByteSource performs disjoint reads concurrently', async () => {
+test('HttpRangeByteSource keeps far disjoint reads separate and concurrent', async () => {
   const calls = [];
   let active = 0;
   let maximumActive = 0;
@@ -147,12 +165,203 @@ test('HttpRangeByteSource performs disjoint reads concurrently', async () => {
 
   const result = await source.readRanges([
     { offset: 0, length: 2 },
-    { offset: 20, length: 3 },
+    { offset: 20_000, length: 3 },
   ]);
 
-  assert.deepEqual(result.map((bytes) => [...bytes]), [[0, 1], [20, 21, 22]]);
-  assert.deepEqual(calls, ['bytes=0-1', 'bytes=20-22']);
+  assert.deepEqual(result.map((bytes) => [...bytes]), [[0, 1], [32, 33, 34]]);
+  assert.deepEqual(calls, ['bytes=0-1', 'bytes=20000-20002']);
   assert.equal(maximumActive, 2);
+});
+
+test('HttpRangeByteSource coalesces overlapping and adjacent direct reads into exact slices', async () => {
+  const calls = [];
+  const source = new HttpRangeByteSource('https://example.test/data', {
+    fetch: createIndexedRangeFetch(calls),
+  });
+
+  const result = await Promise.all([
+    source.readRange(10, 5),
+    source.readRange(12, 4),
+    source.readRange(16, 2),
+  ]);
+
+  assert.deepEqual(result.map((bytes) => [...bytes]), [
+    [10, 11, 12, 13, 14],
+    [12, 13, 14, 15],
+    [16, 17],
+  ]);
+  assert.deepEqual(calls.map(({ offset, length }) => ({ offset, length })), [
+    { offset: 10, length: 8 },
+  ]);
+});
+
+test('HttpRangeByteSource coalesces a gap at the configured 4 KiB limit', async () => {
+  const calls = [];
+  const source = new HttpRangeByteSource('https://example.test/data', {
+    fetch: createIndexedRangeFetch(calls),
+  });
+
+  const result = await source.readRanges([
+    { offset: 0, length: 3 },
+    { offset: 4099, length: 2 },
+  ]);
+
+  assert.deepEqual(result.map((bytes) => [...bytes]), [[0, 1, 2], [3, 4]]);
+  assert.deepEqual(calls.map(({ offset, length }) => ({ offset, length })), [
+    { offset: 0, length: 4101 },
+  ]);
+});
+
+test('HttpRangeByteSource keeps a gap above the configured limit separate', async () => {
+  const calls = [];
+  const source = new HttpRangeByteSource('https://example.test/data', {
+    fetch: createIndexedRangeFetch(calls),
+  });
+
+  const result = await source.readRanges([
+    { offset: 0, length: 1 },
+    { offset: 4098, length: 1 },
+  ]);
+
+  assert.deepEqual(result.map((bytes) => [...bytes]), [[0], [2]]);
+  assert.deepEqual(calls.map(({ offset, length }) => ({ offset, length })), [
+    { offset: 0, length: 1 },
+    { offset: 4098, length: 1 },
+  ]);
+});
+
+test('HttpRangeByteSource keeps a merged span above 1 MiB separate', async () => {
+  const calls = [];
+  const source = new HttpRangeByteSource('https://example.test/data', {
+    fetch: createIndexedRangeFetch(calls),
+  });
+
+  await source.readRanges([
+    { offset: 0, length: 600_000 },
+    { offset: 600_000, length: 448_577 },
+  ]);
+
+  assert.deepEqual(calls.map(({ offset, length }) => ({ offset, length })), [
+    { offset: 0, length: 600_000 },
+    { offset: 600_000, length: 448_577 },
+  ]);
+});
+
+test('HttpRangeByteSource sorts ranges for fetching and preserves duplicate result order', async () => {
+  const calls = [];
+  const source = new HttpRangeByteSource('https://example.test/data', {
+    fetch: createIndexedRangeFetch(calls),
+  });
+
+  const result = await source.readRanges([
+    { offset: 8, length: 2 },
+    { offset: 0, length: 2 },
+    { offset: 4, length: 4 },
+    { offset: 0, length: 2 },
+  ]);
+
+  assert.deepEqual(result.map((bytes) => [...bytes]), [
+    [8, 9],
+    [0, 1],
+    [4, 5, 6, 7],
+    [0, 1],
+  ]);
+  assert.notEqual(result[1].buffer, result[3].buffer);
+  assert.deepEqual(calls.map(({ offset, length }) => ({ offset, length })), [
+    { offset: 0, length: 10 },
+  ]);
+});
+
+test('HttpRangeByteSource rejects invalid multi-range input before network access', async () => {
+  let callCount = 0;
+  const source = new HttpRangeByteSource('https://example.test/data', {
+    fetch: async () => {
+      callCount += 1;
+      return makeResponse(206, [0], { 'Content-Range': 'bytes 0-0/1' });
+    },
+  });
+
+  await assert.rejects(
+    () => source.readRanges([
+      { offset: 0, length: 1 },
+      { offset: Number.MAX_SAFE_INTEGER, length: 2 },
+    ]),
+    (error) => error instanceof RangeSourceError && error.code === 'invalid-range',
+  );
+  assert.equal(callCount, 0);
+});
+
+test('HttpRangeByteSource preserves original-range errors for malformed merged responses', async () => {
+  for (const response of [
+    makeResponse(206, [1, 2, 3], { 'Content-Range': 'bytes 1-3/100' }),
+    makeResponse(206, [1, 2], { 'Content-Range': 'bytes 0-2/100' }),
+  ]) {
+    const source = new HttpRangeByteSource('https://example.test/data', {
+      fetch: async () => response,
+    });
+    await assert.rejects(
+      () => source.readRanges([
+        { offset: 0, length: 2 },
+        { offset: 2, length: 1 },
+      ]),
+      (error) => error instanceof RangeSourceError
+        && error.offset === 0
+        && error.length === 2
+        && ['content-range', 'body-length'].includes(error.code),
+    );
+  }
+});
+
+test('HttpRangeByteSource keeps a merged fetch alive until every caller cancels', async () => {
+  let resolveStarted;
+  const started = new Promise((resolve) => {
+    resolveStarted = resolve;
+  });
+  let mergedSignal;
+  const source = new HttpRangeByteSource('https://example.test/data', {
+    fetch: async (_input, init) => {
+      mergedSignal = init.signal;
+      resolveStarted();
+      return new Promise((_resolve, reject) => {
+        init.signal.addEventListener('abort', () => {
+          reject(new DOMException('aborted', 'AbortError'));
+        }, { once: true });
+      });
+    },
+  });
+  const firstController = new AbortController();
+  const secondController = new AbortController();
+  const first = source.readRange(10, 2, { signal: firstController.signal });
+  const second = source.readRange(12, 2, { signal: secondController.signal });
+  await started;
+
+  firstController.abort();
+  await assert.rejects(first, (error) => error instanceof RangeSourceError && error.code === 'aborted');
+  assert.equal(mergedSignal.aborted, false);
+
+  secondController.abort();
+  await assert.rejects(second, (error) => error instanceof RangeSourceError && error.code === 'aborted');
+  assert.equal(mergedSignal.aborted, true);
+});
+
+test('HttpRangeByteSource removes reads cancelled before the fetch batch starts', async () => {
+  const controller = new AbortController();
+  let fetchCount = 0;
+  const source = new HttpRangeByteSource('https://example.test/data', {
+    fetch: async () => {
+      fetchCount += 1;
+      return makeResponse(206, [1], { 'Content-Range': 'bytes 0-0/1' });
+    },
+  });
+
+  const pending = source.readRange(0, 1, { signal: controller.signal });
+  controller.abort();
+  await assert.rejects(
+    pending,
+    (error) => error instanceof RangeSourceError && error.code === 'aborted',
+  );
+  await new Promise((resolve) => queueMicrotask(resolve));
+  assert.equal(fetchCount, 0);
 });
 
 test('HttpRangeByteSource maps AbortSignal cancellation', async () => {
@@ -209,7 +418,7 @@ test('InMemoryByteSource reads arbitrary sections of the Autzen COPC sample', as
   assert.deepEqual([...header.slice(0, 4)], [76, 65, 83, 70]);
 });
 
-test('HttpRangeByteSource reads disjoint Autzen sections without downloading the file', async (t) => {
+test('HttpRangeByteSource coalesces nearby Autzen metadata without downloading the file', async (t) => {
   if (!existsSync(samplePath)) {
     t.skip('Autzen sample is downloaded by the integration environment');
     return;
@@ -247,11 +456,8 @@ test('HttpRangeByteSource reads disjoint Autzen sections without downloading the
 
     assert.deepEqual([...header.slice(0, 4)], [76, 65, 83, 70]);
     assert.equal(info.byteLength, 24);
-    assert.deepEqual(requests, [
-      { start: 0, end: 31 },
-      { start: 375, end: 398 },
-    ]);
-    assert.ok(56 < bytes.byteLength);
+    assert.deepEqual(requests, [{ start: 0, end: 398 }]);
+    assert.ok(399 < bytes.byteLength);
   } finally {
     await new Promise((resolve, reject) => server.close((error) =>
       error ? reject(error) : resolve()));
