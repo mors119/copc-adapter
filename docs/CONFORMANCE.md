@@ -114,6 +114,6 @@ npm --prefix apps/viewer-web test
 ```
 
 Use the change-specific Rust, WASM, TypeScript, browser, and packed-consumer
-checks described in [CONTRIBUTING.md](../CONTRIBUTING.md). The fast unit suite
+checks described in [CONTRIBUTING.md](https://github.com/mors119/copc-adapter/blob/main/CONTRIBUTING.md). The fast unit suite
 is the default regression signal for backend and CRS contract changes; it must
 remain deterministic and network-independent.
