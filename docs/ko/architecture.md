@@ -2,7 +2,7 @@
 
 이 문서는 “기능이 어느 파일에 있는지”를 빨리 찾기 위한 지도입니다.
 
-더 엄밀한 설계 문서는 [Architecture](/ARCHITECTURE)를 참고하세요.
+더 엄밀한 설계 문서는 [Architecture](../ARCHITECTURE)를 참고하세요.
 
 ## 현재 큰 경계
 

@@ -34,5 +34,6 @@ The detailed English technical documents remain the canonical low-level referenc
 - [Examples](/EXAMPLES)
 - [Roadmap](/ROADMAP)
 - [Contest functional-test runbook](/CONTEST-FUNCTIONAL-TEST)
+- [Playground and Pages deployment](/PLAYGROUND)
 
 For a more learning-oriented explanation, use the [Korean guide](/ko/).

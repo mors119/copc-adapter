@@ -72,7 +72,7 @@ const value = 1;
 
 ```md
 [빠른 시작](/ko/getting-started)
-[Public API](/API)
+[Public API](../API)
 ```
 
 파일 확장자 `.md`를 링크에 꼭 적을 필요는 없습니다.
@@ -133,23 +133,33 @@ VitePress는 이 단계에서 잘못된 내부 링크도 검사하므로 dead li
 
 ```text
 Pull Request
-  → docs build만 검증
+  → VitePress와 Playground 전체 빌드/배치 검증
+  → 배포하지 않음
 
 main에 merge
-  → docs build
-  → docs/.vitepress/dist artifact 생성
-  → GitHub Pages 배포
+  → VitePress 문서 build
+  → Playground와 packed adapter build
+  → 문서를 artifact root에, Playground를 /playground/에 assemble
+  → 완성된 단일 Pages artifact 배포
 ```
 
-따라서 `docs/.vitepress/dist`를 직접 commit하지 않습니다.
+문서는 Pages root를 계속 소유하며 한글 문서는 `/ko/`에 유지됩니다. 두 사이트가
+각각 배포되어 서로를 덮어쓰지 않도록 완성된 정적 사이트를 한 번만 배포합니다.
+`docs/.vitepress/dist`와 `.ci-artifacts/pages-dist`는 직접 commit하지 않습니다.
+
+Repository Settings → Pages → Build and deployment의 Source는 **GitHub Actions**로
+설정합니다. 수동 실행은 Actions의 **GitHub Pages** workflow에서 할 수 있습니다.
 
 GitHub Pages 주소:
 
 ```text
-https://mors119.github.io/copc-adapter/
+Documentation: https://mors119.github.io/copc-adapter/
+한국어 문서:   https://mors119.github.io/copc-adapter/ko/
+Playground:    https://mors119.github.io/copc-adapter/playground/
 ```
 
-문서가 main에 merge된 뒤 Actions의 **Docs** workflow가 성공하면 새 사이트가 배포됩니다.
+변경된 사이트 입력이 main에 merge된 뒤 Actions의 **GitHub Pages** workflow가 성공하면
+문서와 Playground가 함께 배포됩니다.
 
 
 ## 문서를 업데이트해야 하는 시점

@@ -9,7 +9,12 @@
     "test:pack:three": "node scripts/pack-three-smoke-test.mjs",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
-    "docs:preview": "vitepress preview docs"
+    "docs:preview": "vitepress preview docs",
+    "playground:package": "node scripts/package-playground-adapter.mjs",
+    "playground:dev": "npm --prefix apps/playground run dev",
+    "playground:typecheck": "npm --prefix apps/playground run typecheck",
+    "playground:build": "npm --prefix apps/playground run build",
+    "pages:build": "node scripts/build-pages.mjs"
   },
   "devDependencies": {
     "tsx": "^4",
