@@ -87,7 +87,70 @@ const value = 1;
 4. `npm run docs:dev`로 확인
 5. broken link가 없는지 build 확인
 
-VitePress 설정 파일 이름과 script는 실제 세팅 후 repository 기준으로 맞추면 됩니다.
+현재 VitePress 설정은 `docs/.vitepress/config.mts`에 있고, 저장소 루트 `package.json`의 `docs:dev`, `docs:build`, `docs:preview` script를 사용합니다.
+
+
+## 로컬에서 문서 확인하기
+
+저장소 루트에서 실행합니다.
+
+```bash
+npm ci
+npm run docs:dev
+```
+
+개발 서버가 뜨면 터미널에 표시된 주소를 엽니다. GitHub Pages와 같은 base path를 사용하므로 기본 로컬 주소는 대략 다음 형태입니다.
+
+```text
+http://localhost:5173/copc-adapter/
+```
+
+한글 문서는:
+
+```text
+http://localhost:5173/copc-adapter/ko/
+```
+
+에서 확인할 수 있습니다.
+
+배포 전에 반드시 production build도 확인합니다.
+
+```bash
+npm run docs:build
+```
+
+VitePress는 이 단계에서 잘못된 내부 링크도 검사하므로 dead link가 있으면 먼저 수정합니다.
+
+## GitHub Pages 배포
+
+배포 workflow는 다음 파일에서 관리합니다.
+
+```text
+.github/workflows/docs-pages.yml
+```
+
+동작은 다음과 같습니다.
+
+```text
+Pull Request
+  → docs build만 검증
+
+main에 merge
+  → docs build
+  → docs/.vitepress/dist artifact 생성
+  → GitHub Pages 배포
+```
+
+따라서 `docs/.vitepress/dist`를 직접 commit하지 않습니다.
+
+GitHub Pages 주소:
+
+```text
+https://mors119.github.io/copc-adapter/
+```
+
+문서가 main에 merge된 뒤 Actions의 **Docs** workflow가 성공하면 새 사이트가 배포됩니다.
+
 
 ## 문서를 업데이트해야 하는 시점
 

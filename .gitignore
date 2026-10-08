@@ -11,6 +11,8 @@ apps/viewer-web/*.tgz
 
 # Vite
 .vite
+docs/.vitepress/cache
+docs/.vitepress/dist
 /.ci-artifacts/
 
 # Playwright

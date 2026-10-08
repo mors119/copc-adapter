@@ -1,6 +1,6 @@
 # COPC Adapter
 
-[![npm](https://img.shields.io/npm/v/@frillab/copc-adapter.svg)](https://www.npmjs.com/package/@frillab/copc-adapter) [![CI](https://github.com/mors119/copc-adapter/actions/workflows/ci.yml/badge.svg)](https://github.com/mors119/copc-adapter/actions/workflows/ci.yml) [![License](https://img.shields.io/github/license/mors119/copc-adapter.svg)](https://github.com/mors119/copc-adapter/blob/main/LICENSE) [![GitHub release](https://img.shields.io/github/v/release/mors119/copc-adapter.svg)](https://github.com/mors119/copc-adapter/releases)
+[![npm](https://img.shields.io/npm/v/@frillab/copc-adapter.svg)](https://www.npmjs.com/package/@frillab/copc-adapter) [![CI](https://github.com/mors119/copc-adapter/actions/workflows/ci.yml/badge.svg)](https://github.com/mors119/copc-adapter/actions/workflows/ci.yml) [![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://mors119.github.io/copc-adapter/) [![License](https://img.shields.io/github/license/mors119/copc-adapter.svg)](https://github.com/mors119/copc-adapter/blob/main/LICENSE) [![GitHub release](https://img.shields.io/github/v/release/mors119/copc-adapter.svg)](https://github.com/mors119/copc-adapter/releases)
 
 Stream and visualize Cloud Optimized Point Cloud (COPC) data directly in
 CesiumJS and Three.js without preprocessing or converting it to
@@ -12,6 +12,13 @@ through the renderer adapter selected by the application. The application
 keeps ownership of its own viewer or scene.
 
 ![COPC Adapter demo](docs/assets/copc-main.gif)
+
+## Documentation
+
+- [Documentation site](https://mors119.github.io/copc-adapter/)
+- [한국어 가이드](https://mors119.github.io/copc-adapter/ko/)
+- [Validation overview](https://mors119.github.io/copc-adapter/ko/validation)
+- [Public API](https://mors119.github.io/copc-adapter/API)
 
 The repository-owned captures use the local Autzen Stadium sample
 (`/samples/autzen.copc.laz`) rendered in CesiumJS with the demo's `rgb` color
