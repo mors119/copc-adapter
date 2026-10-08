@@ -7,8 +7,8 @@ export default defineConfig({
     'Stream and visualize COPC point clouds directly in CesiumJS.',
 
   base: '/copc-adapter/',
-
   cleanUrls: true,
+  lastUpdated: true,
 
   locales: {
     root: {
@@ -28,6 +28,10 @@ export default defineConfig({
   },
 
   themeConfig: {
+    search: {
+      provider: 'local',
+    },
+
     socialLinks: [
       {
         icon: 'github',
@@ -55,6 +59,12 @@ export default defineConfig({
             ],
           },
         ],
+
+        editLink: {
+          pattern:
+            'https://github.com/mors119/copc-adapter/edit/main/docs/:path',
+          text: 'Edit this page on GitHub',
+        },
       },
 
       ko: {
@@ -117,6 +127,12 @@ export default defineConfig({
           },
         ],
 
+        editLink: {
+          pattern:
+            'https://github.com/mors119/copc-adapter/edit/main/docs/:path',
+          text: 'GitHub에서 이 페이지 수정',
+        },
+
         outline: {
           label: '이 페이지에서',
         },
@@ -124,6 +140,10 @@ export default defineConfig({
         docFooter: {
           prev: '이전 페이지',
           next: '다음 페이지',
+        },
+
+        lastUpdated: {
+          text: '마지막 수정',
         },
 
         returnToTopLabel: '맨 위로',
