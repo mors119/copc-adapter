@@ -2,7 +2,7 @@
 
 이 페이지는 CesiumJS에서 가장 자주 사용하는 public API만 한글로 빠르게 찾기 위한 문서입니다.
 
-전체 타입과 세부 계약은 [영문 Public API](/API)를 기준으로 합니다.
+전체 타입과 세부 계약은 [영문 Public API](../API)를 기준으로 합니다.
 
 ## CopcCesiumLayer
 
@@ -28,7 +28,7 @@ const layer = new CopcCesiumLayer({
 });
 ```
 
-기본값은 버전에 따라 바뀔 수 있으므로 정확한 값이 중요할 때는 [Public API](/API)를 확인하세요.
+기본값은 버전에 따라 바뀔 수 있으므로 정확한 값이 중요할 때는 [Public API](../API)를 확인하세요.
 
 ## Lifecycle
 

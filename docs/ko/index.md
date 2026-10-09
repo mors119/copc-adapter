@@ -40,7 +40,7 @@ features:
 8. [문서 수정 방법](/ko/editing-docs)
 
 ::: tip 영문 기술 문서
-세부 타입과 구현 계약은 기존 [Public API](/API), [Architecture](/ARCHITECTURE), [Conformance](/CONFORMANCE) 문서를 기준으로 합니다.
+세부 타입과 구현 계약은 기존 [Public API](../API), [Architecture](../ARCHITECTURE), [Conformance](../CONFORMANCE) 문서를 기준으로 합니다.
 :::
 
 ## 프로젝트를 한 문장으로
@@ -82,4 +82,4 @@ Three.js 지원도 존재하지만, 이 한글 가이드에서는 먼저 다음�
 - point picking
 - Worker 및 대용량 검증
 
-Three.js의 세부 동작은 [Public API](/API)와 README의 Three.js 섹션을 참고하세요.
+Three.js의 세부 동작은 [Public API](../API)와 README의 Three.js 섹션을 참고하세요.

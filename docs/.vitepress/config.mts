@@ -28,6 +28,10 @@ export default defineConfig({
   },
 
   themeConfig: {
+    // Korean pages are a curated subset, so language switching should land on
+    // the locale home instead of generating links to untranslated pages.
+    i18nRouting: false,
+
     search: {
       provider: 'local',
     },

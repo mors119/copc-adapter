@@ -19,7 +19,7 @@ the runtime reference and dependency for this issue.
 
 ## Method
 
-The checked-in matrix is [`crates/crs-audit/src/fixtures.json`](../../crates/crs-audit/src/fixtures.json).
+The checked-in matrix is [`crates/crs-audit/src/fixtures.json`](https://github.com/mors119/copc-adapter/blob/main/crates/crs-audit/src/fixtures.json).
 It contains WKT and representative coordinates only; no COPC binary is
 committed. Autzen and SoFi WKT were extracted from the public
 `LASF_Projection/2112` VLR using a 64 KiB HTTP Range read from the public

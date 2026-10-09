@@ -3,7 +3,7 @@
 ## Browser App Example
 
 실행 가능한 최소 예제는
-[`apps/viewer-web/src/main.ts`](../apps/viewer-web/src/main.ts) 이다.
+[`apps/viewer-web/src/main.ts`](https://github.com/mors119/copc-adapter/blob/main/apps/viewer-web/src/main.ts) 이다.
 
 동작 흐름:
 
