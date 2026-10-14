@@ -158,8 +158,13 @@ Put the `map` in nginx's `http {}` context and merge the `server`/`location`
 directives into the matching TLS virtual host, including its certificate
 directives. Replace the certificate paths with your provisioned TLS
 certificate and key. This uses nginx's `add_header ... always` (1.7.5+) and
-`proxy_ssl_server_name` (1.7.0+) directives. The sample deliberately does not
-enable nginx proxy caching or cookie credentials.
+the `proxy_ssl_server_name`, `proxy_ssl_verify`, and
+`proxy_ssl_trusted_certificate` directives (1.7.0+). The CA bundle path below
+is an example for Debian/Ubuntu; replace it with the PEM trust bundle available
+to the nginx process in your host or container. For a private origin CA, use a
+bundle that trusts that CA. The `proxy_pass` hostname must match the upstream
+certificate name. The sample deliberately does not enable nginx proxy caching
+or cookie credentials.
 
 ```nginx
 map $http_origin $copc_cors_origin {
@@ -179,6 +184,8 @@ server {
 
         proxy_pass https://copc-origin.internal.example.net;
         proxy_ssl_server_name on;
+        proxy_ssl_verify on;
+        proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
         proxy_cache off;
 
         # Let nginx own these CORS response headers; avoid duplicate values.
@@ -208,8 +215,9 @@ only with this exact-origin allowlist and an application that intentionally
 uses credentialed fetches. Do not put a private origin behind a public,
 unauthenticated proxy. nginx's proxy cache changes Range forwarding behavior;
 keep it disabled until the cache is explicitly configured and the ranged GET
-is verified end to end. See nginx's [`add_header`](https://nginx.org/en/docs/http/ngx_http_headers_module.html#add_header)
-and [`proxy_set_header`](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_set_header)
+is verified end to end. See nginx's [`add_header`](https://nginx.org/en/docs/http/ngx_http_headers_module.html#add_header),
+[`proxy_set_header`](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_set_header),
+and [upstream SSL verification](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_ssl_verify)
 references.
 
 ## Verify the endpoint

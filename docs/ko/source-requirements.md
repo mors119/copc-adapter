@@ -164,7 +164,12 @@ wildcard일 때는 요청 origin을 그대로 돌려주면서
 host에 병합합니다. proxy cache와 cookie credentials는 사용하지 않는
 예시입니다. TLS 인증서와 key 경로는 발급받은 인증서 파일에 맞게 바꾸세요.
 이 설정은 nginx `add_header ... always`(1.7.5 이상)와
-`proxy_ssl_server_name`(1.7.0 이상)을 사용합니다.
+`proxy_ssl_server_name`, `proxy_ssl_verify`, `proxy_ssl_trusted_certificate`
+지시어(1.7.0 이상)를 사용합니다. 아래 CA 번들 경로는 Debian/Ubuntu의
+예시입니다. 실제 host나 container에서 nginx 프로세스가 읽을 수 있는 PEM
+신뢰 번들 경로로 바꾸세요. 비공개 origin CA를 사용한다면 해당 CA를 신뢰하는
+번들을 지정해야 합니다. `proxy_pass`의 hostname은 upstream 인증서의 이름과
+일치해야 합니다.
 
 ```nginx
 map $http_origin $copc_cors_origin {
@@ -184,6 +189,8 @@ server {
 
         proxy_pass https://copc-origin.internal.example.net;
         proxy_ssl_server_name on;
+        proxy_ssl_verify on;
+        proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
         proxy_cache off;
 
         # nginx가 CORS 응답 header를 소유해 중복 값을 피합니다.
@@ -213,8 +220,9 @@ upstream에 전달합니다. 다른 proxy 설정에서 이를 덮어쓰거나 �
 `Access-Control-Allow-Credentials: true`를 추가하세요. private upstream을
 인증 없는 공개 proxy 뒤에 두지 마세요. nginx proxy cache는 Range 전달
 동작에 영향을 줍니다. cache를 별도로 구성하고 end-to-end ranged GET을
-검증하기 전에는 비활성화하세요. 문서: nginx [`add_header`](https://nginx.org/en/docs/http/ngx_http_headers_module.html#add_header),
-[`proxy_set_header`](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_set_header).
+검증하기 전에는 비활성화하세요. nginx 문서: [`add_header`](https://nginx.org/en/docs/http/ngx_http_headers_module.html#add_header),
+[`proxy_set_header`](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_set_header),
+[upstream SSL 인증서 검증](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_ssl_verify).
 
 ## Endpoint 검증
 
