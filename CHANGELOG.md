@@ -1,3 +1,9 @@
+# Changelog
+
+All notable changes to COPC Adapter are documented here. The project follows
+the principles of [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and versions follow [Semantic Versioning](https://semver.org/).
+
 ## [Unreleased]
 
 ## [0.5.0] - 2026-10-14
