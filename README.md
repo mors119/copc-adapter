@@ -350,24 +350,24 @@ fields, errors, and lifecycle details.
 
 ## Development
 
-Requirements: Node.js 18 or later and a Rust toolchain with the
+Requirements: Node.js 22 or later (the CI version) and a Rust toolchain with the
 `wasm32-unknown-unknown` target.
 
 ```bash
-rustup target add wasm32-unknown-unknown
-npm ci
-npm ci --prefix apps/viewer-web
-npm run download-samples -- autzen
+npm run setup
+npm run dev
 ```
 
-The development server serves the downloaded `samples/local` file through its
-range-request middleware; a staged `apps/viewer-web/public/samples` copy is
-also supported when a host needs to provide a different local sample.
+Setup installs dependencies, prepares the existing WASM assets and Chromium,
+and downloads Autzen with its configured size and SHA-256 checks. The viewer
+serves `samples/local` through its same-origin HTTP Range middleware. These
+commands run the repository's development viewer; they do not change or
+publish the released npm package.
 
-Start the local viewer with:
+To check the eight core behaviors in the same default Viewer, run:
 
 ```bash
-npm --prefix apps/viewer-web run dev
+npm run test:functional
 ```
 
 Core validation commands:
@@ -377,6 +377,7 @@ npm --prefix apps/viewer-web run typecheck
 npm --prefix apps/viewer-web run test
 npm --prefix apps/viewer-web run coverage
 npm --prefix apps/viewer-web run build
+npm run test:functional
 npm --prefix apps/viewer-web run test:e2e
 npm --prefix apps/viewer-web run benchmark:renderer
 npm --prefix apps/viewer-web run benchmark:streaming

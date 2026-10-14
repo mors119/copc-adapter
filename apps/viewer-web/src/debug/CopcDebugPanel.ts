@@ -1,19 +1,30 @@
 import type {
   CopcCesiumLayerSnapshot,
+  CopcCesiumPointStyleUpdate,
+  CopcColorMode,
   CopcMetadata,
 } from '../index';
+import type { CopcHierarchyDiagnostics } from '../copc/hierarchy/types';
 import type { CopcSourceProbeResult, ProbeTruth } from '../copc/sourceProbe';
 
 export type CopcDebugPanelState = {
   snapshot: CopcCesiumLayerSnapshot;
   metadata?: CopcMetadata;
+  hierarchy?: CopcHierarchyDiagnostics;
   sourceProbe?: CopcSourceProbeResult;
+  activeColorMode?: CopcColorMode;
   lastError?: string;
+};
+
+export type CopcDebugPanelActions = {
+  setCameraPreset(preset: 'overview' | 'far' | 'near'): void;
+  setStyle(update: CopcCesiumPointStyleUpdate): void;
 };
 
 export type CopcDebugPanelView = {
   datasetName: string;
   datasetUrl: string;
+  activeColorMode: string;
   status: string;
   statusTone: 'loading' | 'ready' | 'error' | 'inactive';
   pointCount: string;
@@ -23,7 +34,15 @@ export type CopcDebugPanelView = {
   selectedNodeCount: string;
   selectedNodeKeys: string;
   renderedNodeCount: string;
+  renderedNodeKeys: string;
   renderedPointCount: string;
+  hierarchyRequests: string;
+  hierarchyCacheHits: string;
+  hierarchyLoadedPages: string;
+  hierarchyLoadedEntries: string;
+  activeReplacementGroups: string;
+  coarseNodesRetained: string;
+  refinementReplacementCommits: string;
   configuredPointBudget: string;
   candidateSelectedPointCount: string;
   activeRenderedPointCount: string;
@@ -142,7 +161,7 @@ function getDatasetName(datasetUrl: string): string {
 export function buildCopcDebugPanelView(
   state: CopcDebugPanelState,
 ): CopcDebugPanelView {
-  const { snapshot, metadata, sourceProbe, lastError } = state;
+  const { snapshot, metadata, hierarchy, sourceProbe, lastError } = state;
   const status = lastError
     ? 'Error'
     : snapshot.lifecycle === 'ready'
@@ -161,6 +180,7 @@ export function buildCopcDebugPanelView(
   return {
     datasetName: getDatasetName(snapshot.datasetUrl),
     datasetUrl: snapshot.datasetUrl,
+    activeColorMode: state.activeColorMode ?? 'fixed',
     status,
     statusTone,
     pointCount: metadata ? formatNumber(metadata.pointCount) : '—',
@@ -181,7 +201,17 @@ export function buildCopcDebugPanelView(
       ? snapshot.selectedNodeKeys.join(', ')
       : '—',
     renderedNodeCount: formatNumber(snapshot.renderedNodeKeys.length),
+    renderedNodeKeys: snapshot.renderedNodeKeys.length > 0
+      ? snapshot.renderedNodeKeys.join(', ')
+      : '—',
     renderedPointCount: formatNumber(snapshot.renderedPointCount),
+    hierarchyRequests: formatNumber(hierarchy?.pageRequests ?? 0),
+    hierarchyCacheHits: formatNumber(hierarchy?.pageCacheHits ?? 0),
+    hierarchyLoadedPages: formatNumber(hierarchy?.loadedPageCount ?? 0),
+    hierarchyLoadedEntries: formatNumber(hierarchy?.loadedEntryCount ?? 0),
+    activeReplacementGroups: formatNumber(snapshot.transition?.activeReplacementGroupCount ?? 0),
+    coarseNodesRetained: formatNumber(snapshot.transition?.coarseNodesRetainedForCoverageCount ?? 0),
+    refinementReplacementCommits: formatNumber(snapshot.transition?.refinementReplacementCommitCount ?? 0),
     configuredPointBudget: formatNumber(snapshot.performance?.configuredPointBudget ?? 0),
     candidateSelectedPointCount: formatNumber(snapshot.performance?.candidateSelectedPointCount ?? 0),
     activeRenderedPointCount: formatNumber(snapshot.performance?.activeRenderedPointCount ?? snapshot.renderedPointCount),
@@ -333,6 +363,7 @@ export type CopcDebugPanel = {
 
 export function createCopcDebugPanel(
   getState: () => CopcDebugPanelState,
+  actions: CopcDebugPanelActions,
 ): CopcDebugPanel {
   const panel = document.createElement('aside');
   panel.className = 'copc-debug-panel';
@@ -347,6 +378,21 @@ export function createCopcDebugPanel(
     </header>
     <div class="copc-debug-panel__url" data-field="datasetUrl"></div>
     <div class="copc-debug-panel__status" data-field="status"></div>
+    <section class="copc-debug-panel__validation" aria-label="Validation controls">
+      <h2>Validation controls</h2>
+      <div class="copc-debug-panel__control-group" role="group" aria-label="Camera presets">
+        <button type="button" data-testid="camera-overview" data-camera-preset="overview">Overview</button>
+        <button type="button" data-testid="camera-far" data-camera-preset="far">Far</button>
+        <button type="button" data-testid="camera-near" data-camera-preset="near">Near</button>
+      </div>
+      <div class="copc-debug-panel__control-group" role="group" aria-label="Point color mode">
+        <button type="button" data-testid="style-rgb" data-style-mode="rgb">RGB</button>
+        <button type="button" data-testid="style-elevation" data-style-mode="elevation">Elevation</button>
+        <button type="button" data-testid="style-intensity" data-style-mode="intensity">Intensity</button>
+        <button type="button" data-testid="style-classification" data-style-mode="classification">Classification</button>
+      </div>
+      <div class="copc-debug-panel__active-style"><span>Active color mode</span><strong data-field="activeColorMode"></strong></div>
+    </section>
     <details open>
       <summary>Source</summary>
       <dl>
@@ -363,6 +409,10 @@ export function createCopcDebugPanel(
       <div><dt>Selected nodes</dt><dd data-field="selectedNodeCount"></dd></div>
       <div><dt>Rendered nodes</dt><dd data-field="renderedNodeCount"></dd></div>
       <div><dt>Rendered points</dt><dd data-field="renderedPointCount"></dd></div>
+      <div><dt>Hierarchy requests / cache hits</dt><dd><span data-field="hierarchyRequests"></span> / <span data-field="hierarchyCacheHits"></span></dd></div>
+      <div><dt>Hierarchy pages / entries</dt><dd><span data-field="hierarchyLoadedPages"></span> / <span data-field="hierarchyLoadedEntries"></span></dd></div>
+      <div><dt>Active replacements / coarse retained</dt><dd><span data-field="activeReplacementGroups"></span> / <span data-field="coarseNodesRetained"></span></dd></div>
+      <div><dt>Refinement commits</dt><dd data-field="refinementReplacementCommits"></dd></div>
       <div><dt>Point budget</dt><dd data-field="configuredPointBudget"></dd></div>
       <div><dt>Candidate points</dt><dd data-field="candidateSelectedPointCount"></dd></div>
       <div><dt>Active points</dt><dd data-field="activeRenderedPointCount"></dd></div>
@@ -448,6 +498,10 @@ export function createCopcDebugPanel(
       <summary>Selected node keys</summary>
       <code class="copc-debug-panel__nodes" data-field="selectedNodeKeys"></code>
     </details>
+    <details>
+      <summary>Rendered node keys</summary>
+      <code class="copc-debug-panel__nodes" data-field="renderedNodeKeys"></code>
+    </details>
     <div class="copc-debug-panel__error" data-field="error" role="alert" hidden></div>
   `;
   document.body.append(panel);
@@ -466,6 +520,12 @@ export function createCopcDebugPanel(
     }
 
     panel.dataset.status = view.statusTone;
+    panel.querySelectorAll<HTMLButtonElement>('[data-style-mode]').forEach((button) => {
+      button.setAttribute(
+        'aria-pressed',
+        String(button.dataset.styleMode === view.activeColorMode),
+      );
+    });
     const errorElement = fields.get('error');
     if (errorElement) {
       errorElement.hidden = !view.error;
@@ -485,6 +545,27 @@ export function createCopcDebugPanel(
   };
 
   panel.querySelector('[data-action="hide"]')?.addEventListener('click', hide);
+  panel.querySelectorAll<HTMLButtonElement>('[data-camera-preset]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const preset = button.dataset.cameraPreset;
+      if (preset === 'overview' || preset === 'far' || preset === 'near') {
+        actions.setCameraPreset(preset);
+      }
+    });
+  });
+  panel.querySelectorAll<HTMLButtonElement>('[data-style-mode]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const colorMode = button.dataset.styleMode;
+      if (
+        colorMode === 'rgb'
+        || colorMode === 'elevation'
+        || colorMode === 'intensity'
+        || colorMode === 'classification'
+      ) {
+        actions.setStyle({ colorMode });
+      }
+    });
+  });
   window.addEventListener('keydown', handleShortcut);
   update();
   const updateTimer = window.setInterval(update, 250);

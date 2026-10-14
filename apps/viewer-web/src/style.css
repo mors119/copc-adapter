@@ -125,6 +125,55 @@ body,
   border-color: rgb(255 255 255 / 35%);
 }
 
+.copc-debug-panel button[aria-pressed='true'] {
+  color: #101820;
+  border-color: #ffca5c;
+  background: #ffca5c;
+}
+
+.copc-debug-panel__validation {
+  margin: 10px 0;
+  padding: 9px 0;
+  border-bottom: 1px solid rgb(255 255 255 / 10%);
+}
+
+.copc-debug-panel__validation h2 {
+  margin: 0 0 6px;
+  color: #ffca5c;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.copc-debug-panel__control-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 5px 0;
+}
+
+.copc-debug-panel__control-group button {
+  padding: 5px 7px;
+}
+
+.copc-debug-panel__active-style {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  color: #98a2b3;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.copc-debug-panel__active-style strong {
+  color: #fff;
+  font-size: 11px;
+}
+
 .copc-debug-panel__url {
   margin-top: 5px;
   overflow: hidden;
