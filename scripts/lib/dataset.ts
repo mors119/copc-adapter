@@ -11,6 +11,10 @@ export interface Dataset {
 
   size: string;
 
+  sizeBytes?: number;
+
+  sha256?: string;
+
   category: string;
 
   recommended: boolean;

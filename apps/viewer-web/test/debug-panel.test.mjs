@@ -10,6 +10,11 @@ function createSnapshot(overrides = {}) {
     selectedNodeKeys: ['1-0-0-0', '1-1-0-0', '1-0-1-0'],
     renderedPointCount: 2345,
     streamingUpdateCount: 7,
+    transition: {
+      activeReplacementGroupCount: 1,
+      refinementReplacementCommitCount: 5,
+      coarseNodesRetainedForCoverageCount: 3,
+    },
     performance: {
       candidatesBeforeCulling: 12,
       frustumCulledCount: 5,
@@ -126,6 +131,14 @@ test('maps layer diagnostics and metadata into browser-visible values', () => {
       pointFormat: 7,
       warnings: [],
     },
+    hierarchy: {
+      pageRequests: 9,
+      pageCacheHits: 4,
+      hierarchyBytesFetched: 1024,
+      loadedPageCount: 3,
+      loadedEntryCount: 28,
+    },
+    activeColorMode: 'classification',
   });
 
   assert.equal(view.datasetName, 'autzen.copc.laz');
@@ -146,7 +159,16 @@ test('maps layer diagnostics and metadata into browser-visible values', () => {
   assert.equal(view.selectedNodeCount, '3');
   assert.equal(view.selectedNodeKeys, '1-0-0-0, 1-1-0-0, 1-0-1-0');
   assert.equal(view.renderedNodeCount, '2');
+  assert.equal(view.renderedNodeKeys, '1-0-0-0, 1-1-0-0');
   assert.equal(view.renderedPointCount, '2,345');
+  assert.equal(view.activeColorMode, 'classification');
+  assert.equal(view.hierarchyRequests, '9');
+  assert.equal(view.hierarchyCacheHits, '4');
+  assert.equal(view.hierarchyLoadedPages, '3');
+  assert.equal(view.hierarchyLoadedEntries, '28');
+  assert.equal(view.activeReplacementGroups, '1');
+  assert.equal(view.coarseNodesRetained, '3');
+  assert.equal(view.refinementReplacementCommits, '5');
   assert.equal(view.configuredPointBudget, '250,000');
   assert.equal(view.candidateSelectedPointCount, '3,456');
   assert.equal(view.activeRenderedPointCount, '2,345');

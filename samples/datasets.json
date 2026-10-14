@@ -8,6 +8,8 @@
       "filename": "autzen.copc.laz",
       "url": "https://s3.amazonaws.com/hobu-lidar/autzen-classified.copc.laz",
       "size": "80 MB",
+      "sizeBytes": 81123042,
+      "sha256": "db2d56cdfa058bffccdc5d6019dae2fc9c6a551df10a5523c06c76a3e25a27fa",
       "category": "sample",
       "recommended": true
     },
