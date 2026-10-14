@@ -15,7 +15,7 @@ body,
   top: 14px;
   left: 14px;
   box-sizing: border-box;
-  width: min(340px, calc(100vw - 28px));
+  width: min(390px, calc(100vw - 28px));
   max-height: calc(100vh - 28px);
   overflow: auto;
   padding: 14px;
@@ -125,6 +125,39 @@ body,
   border-color: rgb(255 255 255 / 35%);
 }
 
+.copc-debug-panel button[aria-pressed='true'] {
+  color: #101820;
+  border-color: #ffca5c;
+  background: #ffca5c;
+}
+
+.copc-debug-panel__validation,
+.copc-debug-panel__evidence {
+  margin: 10px 0;
+}
+
+.copc-debug-panel__validation h2,
+.copc-debug-panel__evidence h2 {
+  margin: 0 0 6px;
+  color: #ffca5c;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.copc-debug-panel__control-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 5px 0;
+}
+
+.copc-debug-panel__control-group button {
+  padding: 5px 7px;
+}
+
 .copc-debug-panel__url {
   margin-top: 5px;
   overflow: hidden;
@@ -174,7 +207,7 @@ body,
 }
 
 .copc-debug-panel dl div {
-  padding: 8px 9px;
+  padding: 5px 7px;
   background: rgb(8 12 18 / 75%);
 }
 
@@ -190,7 +223,7 @@ body,
 .copc-debug-panel dd {
   margin: 2px 0 0;
   color: #fff;
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .copc-debug-panel details {

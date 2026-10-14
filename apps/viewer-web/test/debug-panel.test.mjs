@@ -10,6 +10,12 @@ function createSnapshot(overrides = {}) {
     selectedNodeKeys: ['1-0-0-0', '1-1-0-0', '1-0-1-0'],
     renderedPointCount: 2345,
     streamingUpdateCount: 7,
+    backend: 'copc-js',
+    transition: {
+      activeReplacementGroupCount: 2,
+      refinementReplacementCommitCount: 5,
+      coarseNodesRetainedForCoverageCount: 3,
+    },
     performance: {
       candidatesBeforeCulling: 12,
       frustumCulledCount: 5,
@@ -118,6 +124,15 @@ test('maps layer diagnostics and metadata into browser-visible values', () => {
       pointFormat: 7,
       warnings: [],
     },
+    hierarchy: {
+      pageRequests: 9,
+      pageCacheHits: 4,
+      hierarchyBytesFetched: 1024,
+      loadedPageCount: 3,
+      loadedEntryCount: 28,
+    },
+    activeColorMode: 'rgb',
+    rangeRequests: { requested: 12, active: 1, completed: 10, failed: 1 },
   });
 
   assert.equal(view.datasetName, 'autzen.copc.laz');
@@ -133,6 +148,19 @@ test('maps layer diagnostics and metadata into browser-visible values', () => {
   assert.equal(view.selectedNodeKeys, '1-0-0-0, 1-1-0-0, 1-0-1-0');
   assert.equal(view.renderedNodeCount, '2');
   assert.equal(view.renderedPointCount, '2,345');
+  assert.equal(view.backend, 'copc-js');
+  assert.equal(view.rangeRequested, '12');
+  assert.equal(view.rangeActive, '1');
+  assert.equal(view.rangeCompleted, '10');
+  assert.equal(view.rangeFailed, '1');
+  assert.equal(view.hierarchyPageRequests, '9');
+  assert.equal(view.hierarchyPageCacheHits, '4');
+  assert.equal(view.hierarchyLoadedPages, '3');
+  assert.equal(view.hierarchyLoadedEntries, '28');
+  assert.equal(view.transitionActiveGroups, '2');
+  assert.equal(view.transitionCoarseRetained, '3');
+  assert.equal(view.transitionRefinementCommits, '5');
+  assert.equal(view.activeColorMode, 'rgb');
   assert.equal(view.configuredPointBudget, '250,000');
   assert.equal(view.candidateSelectedPointCount, '3,456');
   assert.equal(view.activeRenderedPointCount, '2,345');

@@ -278,6 +278,11 @@ The supported modes are:
 Attribute-based modes fall back to the fixed color when the required source
 attribute is unavailable.
 
+The default Cesium development viewer starts in RGB mode and exposes buttons
+for all four attribute modes. It retains the styling attributes so switching
+modes does not reload the dataset; see the [functional validation
+runbook](docs/CONTEST-FUNCTIONAL-TEST.md).
+
 ## Camera-Driven LoD and Streaming
 
 ![COPC Adapter streaming demo](docs/assets/copc-streaming.gif)
@@ -331,11 +336,25 @@ fields, errors, and lifecycle details.
 
 ## Development
 
-Requirements: Node.js 18 or later and a Rust toolchain with the
-`wasm32-unknown-unknown` target.
+Requirements: Node.js 22 (the CI line), npm, and an installed Rust toolchain
+managed by rustup. The `.nvmrc` file selects Node 22.
+
+### Functional validation
+
+From a clean clone, run:
 
 ```bash
-rustup target add wasm32-unknown-unknown
+npm run setup
+npm run dev
+npm run test:functional
+```
+
+Open <http://127.0.0.1:4177/> for the default Cesium viewer. Setup installs
+dependencies, prepares the opt-in Rust/WASM asset, and downloads the verified
+Autzen sample; the default viewer backend remains `copc-js`. See the [live
+functional validation runbook](docs/CONTEST-FUNCTIONAL-TEST.md).
+
+```bash
 npm ci
 npm ci --prefix apps/viewer-web
 npm run download-samples -- autzen
@@ -345,10 +364,10 @@ The development server serves the downloaded `samples/local` file through its
 range-request middleware; a staged `apps/viewer-web/public/samples` copy is
 also supported when a host needs to provide a different local sample.
 
-Start the local viewer with:
+The root command starts the local viewer at `127.0.0.1:4177`:
 
 ```bash
-npm --prefix apps/viewer-web run dev
+npm run dev
 ```
 
 Core validation commands:

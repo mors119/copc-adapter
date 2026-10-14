@@ -5,6 +5,7 @@ import {
 } from '../cesium/render/CopcPointRenderer';
 import { createCesiumStreamingView } from '../cesium/view/CesiumViewAdapter';
 import {
+  allCopcPointFields,
   getCopcPointFieldSelection,
   type CopcColorMode,
 } from '../copc/points/fieldSelection';
@@ -55,6 +56,7 @@ export type CopcLayerOptions = {
   onPointPicked?: (point: CopcPointInspection | undefined) => void;
   /** Maximum retained decoded CPU point-buffer bytes. Defaults to 256 MiB. */
   maxPointCacheBytes?: number;
+  retainStyleAttributes?: boolean;
 };
 
 export type CopcLayerLifecycleState =
@@ -201,6 +203,7 @@ export class CopcLayerController {
   private readonly core: CopcStreamingCore;
   private readonly options: CopcLayerOptions;
   private readonly pointRenderer: CesiumPointRenderer;
+  private colorMode: CopcColorMode;
   private readonly pointStyleState = createCopcPointStyleState();
   private readonly rendererPerformance = new StreamingPerformanceRecorder();
   private datasetElevationRange?: { min: number; max: number };
@@ -231,6 +234,7 @@ export class CopcLayerController {
 
   constructor(options: CopcLayerOptions) {
     this.options = options;
+    this.colorMode = options.colorMode ?? 'fixed';
     this.pointRenderer = options.renderer ?? new PointPrimitiveRenderer();
     this.rendererPerformance.setConfiguredPointBudget(this.getMaxRenderedPoints());
     this.core = new CopcStreamingCore({
@@ -240,7 +244,11 @@ export class CopcLayerController {
       debug: options.debug,
       maxRenderedPoints: options.maxRenderedPoints,
       maxPointCacheBytes: options.maxPointCacheBytes,
-      pointFields: getCopcPointFieldSelection(options.colorMode ?? 'fixed'),
+      // Validation viewers can retain all styling attributes once so every
+      // color mode uses the same loaded layer and decoded point cache.
+      pointFields: options.retainStyleAttributes
+        ? allCopcPointFields()
+        : getCopcPointFieldSelection(this.colorMode),
       streaming: options.streaming,
     });
   }
@@ -452,6 +460,32 @@ export class CopcLayerController {
     return inspection;
   }
 
+  /** Recolor rendered nodes in place using the current decoded point cache. */
+  setStyle(colorMode: CopcColorMode): void {
+    if (this.lifecycle === 'destroyed') {
+      throw new Error('CopcCesiumLayer has been destroyed');
+    }
+    if (this.colorMode === colorMode) {
+      return;
+    }
+
+    this.colorMode = colorMode;
+    let needsStreamingRefresh = false;
+    for (const nodeKey of this.pointRenderer.getRenderedNodeKeys()) {
+      const points = this.core.getCachedPreparedPointData(nodeKey);
+      if (points) {
+        this.addPointCollection(nodeKey, points);
+      } else {
+        this.pointRenderer.removeNode(nodeKey);
+        needsStreamingRefresh = true;
+      }
+    }
+
+    if (needsStreamingRefresh && this.viewer && this.lifecycle === 'ready') {
+      this.startStreamingUpdate(true);
+    }
+  }
+
   getRenderedNodeKeys(): string[] {
     return this.pointRenderer.getRenderedNodeKeys();
   }
@@ -624,7 +658,7 @@ export class CopcLayerController {
   private addPointCollection(nodeKey: string, points: PreparedPointData): void {
     this.pointRenderer.addOrUpdateNode(nodeKey, points, {
       pointSize: this.options.pointSize ?? 3,
-      colorMode: this.options.colorMode ?? 'fixed',
+      colorMode: this.colorMode,
       elevationRange: this.datasetElevationRange,
       rgbMax: this.pointStyleState.getRgbMax(points),
       pointId: (pointIndex) => ({

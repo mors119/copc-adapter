@@ -2,7 +2,11 @@ import { defineConfig } from '@playwright/test';
 import fs from 'node:fs';
 
 const systemChromium = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const devServerCommand = process.env.COPC_WASM_PREPARED === '1'
+const isFunctionalOnlyRun = process.argv.some((argument) =>
+  argument.endsWith('functional-validation.spec.ts'));
+const devServerCommand = isFunctionalOnlyRun
+  ? 'npm run dev:validation'
+  : process.env.COPC_WASM_PREPARED === '1'
   ? 'npm run dev:ci'
   : 'npm run dev';
 
@@ -17,7 +21,7 @@ export default defineConfig({
     timeout: 60000,
   },
   use: {
-    baseURL: 'http://127.0.0.1:4173',
+    baseURL: 'http://127.0.0.1:4177',
     browserName: 'chromium',
     headless: true,
     launchOptions: {
@@ -31,8 +35,8 @@ export default defineConfig({
     },
   },
   webServer: {
-    command: `${devServerCommand} -- --host 127.0.0.1 --port 4173`,
-    url: 'http://127.0.0.1:4173',
+    command: `${devServerCommand} -- --host 127.0.0.1 --port 4177 --strictPort`,
+    url: 'http://127.0.0.1:4177',
     reuseExistingServer: !process.env.CI,
     timeout: 120000,
   },

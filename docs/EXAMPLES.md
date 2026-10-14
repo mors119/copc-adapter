@@ -56,5 +56,5 @@ LAS classification을 categorical palette로 보려면 `classification`을 사�
 
 `npm --prefix apps/viewer-web run dev`, `test`, and `build` prepare the
 `copc-wasm` release asset. Library builds include the decoder assets in `dist`.
-The default browser URL requires the downloaded Autzen sample at
-`apps/viewer-web/public/samples/autzen.copc.laz`.
+The Vite development server serves the downloaded
+`samples/local/autzen.copc.laz` through its local Range middleware.

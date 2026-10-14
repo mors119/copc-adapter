@@ -61,8 +61,17 @@ layer.attachTo(viewer);
   point primitives.
 - `maxPointCacheBytes`: decoded CPU point-buffer cache budget. Default:
   `256 * 1024 * 1024`.
+- `retainStyleAttributes`: when `true`, retain all supported styling
+  attributes so `setStyle()` can switch modes without reloading the source.
+  Default: `false`; the layer requests only attributes needed by its initial
+  `colorMode`.
 - `onPointPicked`: called with a selected `CopcPointInspection`, or `undefined`
   when selection is cleared.
+
+`layer.setStyle(colorMode)` changes the current Cesium layer's color mode
+without recreating the viewer. Set `retainStyleAttributes: true` when later
+styles may need fields beyond the initial mode. Missing or unrequested source
+attributes continue to use the documented fallback color.
 
 ### Lifecycle
 

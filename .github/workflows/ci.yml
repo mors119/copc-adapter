@@ -40,7 +40,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: |
             package-lock.json
@@ -78,7 +78,7 @@ jobs:
       - name: Install Chromium for browser validation
         run: npx --prefix apps/viewer-web playwright install --with-deps chromium
 
-      - name: Run browser E2E regression gate
+      - name: Run browser regression and eight-step functional gate
         env:
           COPC_WASM_PREPARED: '1'
         run: npm --prefix apps/viewer-web run test:e2e

@@ -106,11 +106,12 @@ test('streams a COPC sample through the opt-in Rust backend in a real Cesium sce
     name: 'COPC runtime debug panel',
   });
   await expect(debugPanel).toBeVisible();
-  await expect(debugPanel.getByText('autzen.copc.laz', { exact: true })).toBeVisible();
+  await expect(debugPanel.getByRole('strong')).toHaveText('autzen.copc.laz');
   await expect(debugPanel.getByText('10,653,336', { exact: true })).toBeVisible();
   await expect(debugPanel.getByText('Ready', { exact: true })).toBeVisible();
-  await expect(debugPanel.locator('details').filter({ hasText: 'Metadata' }))
-    .toHaveAttribute('open', '');
+  const metadataDetails = debugPanel.locator('details').filter({ hasText: 'Metadata' });
+  await metadataDetails.locator('summary').click();
+  await expect(metadataDetails).toHaveAttribute('open', '');
 
   const pointInspector = page.getByRole('complementary', {
     name: 'COPC point inspector',

@@ -51,6 +51,8 @@ export type CopcCesiumLayerOptions = {
   onPointPicked?: (point: CopcPointInspection | undefined) => void;
   /** Maximum retained decoded CPU point-buffer bytes. Defaults to 256 MiB. */
   maxPointCacheBytes?: number;
+  /** Retain all supported point attributes so later setStyle calls can use them. */
+  retainStyleAttributes?: boolean;
 };
 export type CopcCesiumLayerSnapshot = CopcLayerSnapshot;
 
@@ -125,5 +127,10 @@ export class CopcCesiumLayer {
   /** Return the selected point while its node and decoded buffer are live. */
   getSelectedPoint(): CopcPointInspection | undefined {
     return this.controller.getSelectedPoint();
+  }
+
+  /** Change the color mapping of the currently loaded layer. */
+  setStyle(colorMode: CopcColorMode): void {
+    this.controller.setStyle(colorMode);
   }
 }

@@ -13,8 +13,6 @@ Prepare the representative local Autzen sample, then run:
 npm ci
 npm ci --prefix apps/viewer-web
 npm run download-samples -- autzen
-mkdir -p apps/viewer-web/public/samples
-cp samples/local/autzen.copc.laz apps/viewer-web/public/samples/autzen.copc.laz
 npm run benchmark:streaming --prefix apps/viewer-web
 npm run benchmark:renderer --prefix apps/viewer-web
 npm run test:e2e --prefix apps/viewer-web

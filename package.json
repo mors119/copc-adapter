@@ -3,6 +3,9 @@
     "node": ">=18"
   },
   "scripts": {
+    "setup": "node scripts/setup-validation.mjs",
+    "dev": "npm --prefix apps/viewer-web run dev:validation -- --host 127.0.0.1 --port 4177 --strictPort",
+    "test:functional": "npm run download-samples -- autzen && npm --prefix apps/viewer-web run test:functional",
     "download-samples": "tsx scripts/download-samples.ts",
     "audit:crs": "node scripts/crs-audit.mjs",
     "test:pack": "node scripts/pack-smoke-test.mjs",

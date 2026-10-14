@@ -1,3 +1,7 @@
+import {
+  rangeRequestDiagnostics,
+  type RangeRequestDiagnostics,
+} from './debug/rangeRequestDiagnostics';
 import './style.css';
 import 'cesium/Build/Cesium/Widgets/widgets.css';
 
@@ -6,6 +10,7 @@ import {
   CopcCesiumLayer,
   probeCopcSource,
   type CopcBackendName,
+  type CopcColorMode,
   type CopcSourceProbeResult,
 } from './index';
 import { createCesiumViewer } from './cesium/viewer/createViewer';
@@ -14,6 +19,13 @@ import { createCopcPointInspector } from './debug/CopcPointInspector';
 import { runSyntheticRendererPerformanceBenchmark } from './cesium/render/rendererPerformanceBenchmark';
 
 const DEFAULT_COPC_URL = '/samples/autzen.copc.laz';
+const CAMERA_PRESET_HEIGHTS = {
+  overview: 10_000,
+  far: 100_000,
+  near: 300,
+} as const;
+
+type CameraPreset = keyof typeof CAMERA_PRESET_HEIGHTS;
 
 function getCopcUrl(): string {
   return new URLSearchParams(window.location.search).get('source')
@@ -23,8 +35,10 @@ function getCopcUrl(): string {
 type CopcDebugState = {
   viewerReady: boolean;
   layerLoaded: boolean;
+  datasetUrl: string;
   metadataPointCount?: number;
   renderedPointCount: number;
+  renderedScenePointCount: number;
   scenePointCollectionCount: number;
   renderedNodeKeys: string[];
   selectedNodeKeys: string[];
@@ -44,6 +58,8 @@ type CopcDebugState = {
   longestMainThreadTaskMs: number;
   cesiumFrameDurationMs: number;
   selectedPoint?: ReturnType<CopcCesiumLayer['getSelectedPoint']>;
+  activeColorMode: CopcColorMode;
+  rangeRequests: RangeRequestDiagnostics;
 };
 
 function isDebugPanelEnabled(): boolean {
@@ -56,9 +72,11 @@ type CopcDebugAdapter = {
   getState(): CopcDebugState;
   getLastError(): string | undefined;
   setCameraHeight(height: number): void;
+  setCameraPreset(preset: CameraPreset): void;
   setCameraPitch(pitchDegrees: number): void;
   setCameraHeading(headingDegrees: number): void;
   recordError(error: unknown): void;
+  setStyle(colorMode: CopcColorMode): void;
   probeSource(source: string): Promise<CopcSourceProbeResult>;
   runSyntheticRendererPerformanceBenchmark(): ReturnType<typeof runSyntheticRendererPerformanceBenchmark>;
   getPickablePointScreenPosition(): { x: number; y: number } | undefined;
@@ -118,6 +136,10 @@ declare global {
 function installDebugAdapter(
   viewer: Cesium.Viewer,
   layer: CopcCesiumLayer,
+  getActiveColorMode: () => CopcColorMode,
+  rangeRequests: () => ReturnType<typeof rangeRequestDiagnostics.getSnapshot>,
+  setCameraPreset: (preset: CameraPreset) => void,
+  setStyle: (colorMode: CopcColorMode) => void,
   exposeGlobally: boolean,
 ): CopcDebugAdapter {
   let cameraMoveEventCount = 0;
@@ -171,8 +193,10 @@ function installDebugAdapter(
       return {
         viewerReady: !viewer.isDestroyed(),
         layerLoaded: snapshot.lifecycle === 'ready',
+        datasetUrl: snapshot.datasetUrl,
         metadataPointCount: layer.getMetadata()?.pointCount,
         renderedPointCount: snapshot.renderedPointCount,
+        renderedScenePointCount: getSceneRenderedPointCount(viewer),
         scenePointCollectionCount: getScenePointCollectionCount(viewer),
         renderedNodeKeys: snapshot.renderedNodeKeys,
         selectedNodeKeys: snapshot.selectedNodeKeys,
@@ -189,6 +213,8 @@ function installDebugAdapter(
         longestMainThreadTaskMs,
         cesiumFrameDurationMs,
         selectedPoint: layer.getSelectedPoint(),
+        activeColorMode: getActiveColorMode(),
+        rangeRequests: rangeRequests(),
         lastError,
       };
     },
@@ -196,16 +222,10 @@ function installDebugAdapter(
       return lastError;
     },
     setCameraHeight(height: number): void {
-      const position = Cesium.Cartographic.fromCartesian(viewer.camera.positionWC);
-
-      viewer.camera.setView({
-        destination: Cesium.Cartesian3.fromRadians(
-          position.longitude,
-          position.latitude,
-          height,
-        ),
-      });
-      viewer.camera.moveEnd.raiseEvent();
+      moveCameraToHeight(viewer, height);
+    },
+    setCameraPreset(preset: CameraPreset): void {
+      setCameraPreset(preset);
     },
     setCameraPitch(pitchDegrees: number): void {
       viewer.camera.setView({
@@ -228,6 +248,7 @@ function installDebugAdapter(
       viewer.camera.moveEnd.raiseEvent();
     },
     recordError,
+    setStyle,
     probeSource: probeCopcSource,
     runSyntheticRendererPerformanceBenchmark: () => runSyntheticRendererPerformanceBenchmark({
       viewer,
@@ -248,10 +269,10 @@ function installDebugAdapter(
           );
           if (
             position
-            && position.x >= 380
-            && position.x <= viewer.scene.canvas.clientWidth - 4
+            && position.x >= 405
+            && position.x <= viewer.scene.canvas.clientWidth - 340
             && position.y >= 4
-            && position.y <= viewer.scene.canvas.clientHeight - 4
+            && position.y <= viewer.scene.canvas.clientHeight - 270
           ) {
             return { x: position.x, y: position.y };
           }
@@ -319,7 +340,15 @@ function getLayerOptions(): ConstructorParameters<typeof CopcCesiumLayer>[0] {
     url: copcUrl,
     colorMode: 'rgb',
     backend: getSelectedBackend(),
+    maxRenderedPoints: 250_000,
+    retainStyleAttributes: true,
     debug: true,
+    streaming: {
+      maxNodes: 32,
+      maxDepth: 6,
+      maxScreenSpaceError: 8,
+      maxRenderDistanceMeters: 20_000,
+    },
   };
 }
 
@@ -335,10 +364,50 @@ function getScenePointCollectionCount(viewer: Cesium.Viewer): number {
   return count;
 }
 
+function getSceneRenderedPointCount(viewer: Cesium.Viewer): number {
+  let count = 0;
+  for (let index = 0; index < viewer.scene.primitives.length; index += 1) {
+    const primitive = viewer.scene.primitives.get(index);
+    if (primitive instanceof Cesium.PointPrimitiveCollection) {
+      count += primitive.length;
+    }
+  }
+  return count;
+}
+
+function moveCameraToHeight(viewer: Cesium.Viewer, height: number): void {
+  const position = Cesium.Cartographic.fromCartesian(viewer.camera.positionWC);
+  viewer.camera.setView({
+    destination: Cesium.Cartesian3.fromRadians(
+      position.longitude,
+      position.latitude,
+      height,
+    ),
+  });
+  viewer.camera.moveEnd.raiseEvent();
+}
+
 async function main(): Promise<void> {
   const viewer = createCesiumViewer('cesium-container');
-  const layer = new CopcCesiumLayer(getLayerOptions());
-  const debugAdapter = installDebugAdapter(viewer, layer, import.meta.env.DEV);
+  const layerOptions = getLayerOptions();
+  const layer = new CopcCesiumLayer(layerOptions);
+  let activeColorMode: CopcColorMode = layerOptions.colorMode ?? 'rgb';
+  const setCameraPreset = (preset: CameraPreset): void => {
+    moveCameraToHeight(viewer, CAMERA_PRESET_HEIGHTS[preset]);
+  };
+  const setStyle = (colorMode: CopcColorMode): void => {
+    layer.setStyle(colorMode);
+    activeColorMode = colorMode;
+  };
+  const debugAdapter = installDebugAdapter(
+    viewer,
+    layer,
+    () => activeColorMode,
+    () => rangeRequestDiagnostics.getSnapshot(),
+    setCameraPreset,
+    setStyle,
+    import.meta.env.DEV,
+  );
   let sourceProbe: CopcSourceProbeResult | undefined;
   if (isDebugPanelEnabled()) {
     void probeCopcSource(getCopcUrl()).then((result) => {
@@ -349,15 +418,19 @@ async function main(): Promise<void> {
     ? createCopcDebugPanel(() => ({
         snapshot: layer.getSnapshot(),
         metadata: layer.getMetadata(),
+        hierarchy: layer.getHierarchyDiagnostics(),
         sourceProbe,
+        activeColorMode,
+        rangeRequests: rangeRequestDiagnostics.getSnapshot(),
         lastError: debugAdapter.getLastError(),
-      }))
+      }), { setCameraPreset, setStyle, getActiveColorMode: () => activeColorMode })
     : undefined;
   const pointInspector = createCopcPointInspector(() => layer.getSelectedPoint());
 
   window.addEventListener('pagehide', () => {
     debugPanel?.destroy();
     pointInspector.destroy();
+    rangeRequestDiagnostics.destroy();
   }, { once: true });
 
   try {

@@ -7,6 +7,7 @@ export function createCesiumViewer(
     animation: false,
     timeline: false,
     baseLayerPicker: false,
+    baseLayer: false,
     geocoder: false,
     homeButton: false,
     sceneModePicker: false,

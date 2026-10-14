@@ -41,6 +41,7 @@
   ],
   "scripts": {
     "dev": "npm run prepare-assets && vite",
+    "dev:validation": "npm run prepare-laz-perf && vite",
     "dev:ci": "npm run prepare-laz-perf && vite",
     "build": "tsc && npm run prepare-assets && vite build",
     "build:ci": "tsc && npm run prepare-laz-perf && vite build",
@@ -57,6 +58,7 @@
     "test:conformance:unit": "npm run prepare-copc-wasm && CONFORMANCE_SKIP_INTEGRATION=1 node --import tsx --test test/backend-conformance.test.mjs",
     "test:conformance:integration": "npm run prepare-copc-wasm && node --import tsx --test test/backend-conformance.test.mjs",
     "test:e2e": "playwright test",
+    "test:functional": "playwright test e2e/functional-validation.spec.ts --reporter=line",
     "coverage": "npm run prepare-copc-wasm && node --import tsx --test --experimental-test-coverage test/*.test.mjs",
     "coverage:raw": "node --import tsx --test --experimental-test-coverage test/*.test.mjs",
     "preview": "vite preview",
