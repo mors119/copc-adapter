@@ -17,6 +17,8 @@ keeps ownership of its own viewer or scene.
 
 - [Documentation site](https://mors119.github.io/copc-adapter/)
 - [한국어 가이드](https://mors119.github.io/copc-adapter/ko/)
+- [HTTP Range / CORS hosting guide (EN)](https://mors119.github.io/copc-adapter/source-hosting)
+- [HTTP Range / CORS 배포 가이드 (KO)](https://mors119.github.io/copc-adapter/ko/source-requirements)
 - [Validation overview](https://mors119.github.io/copc-adapter/ko/validation)
 - [Public API](https://mors119.github.io/copc-adapter/API)
 
@@ -183,10 +185,13 @@ those fields were requested and decoded. Missing fields remain unavailable,
 and picking never forces full-field decoding. The demo includes a compact
 lower-right inspector.
 
-The COPC source must support HTTP Range requests. Cross-origin sources also
-need CORS headers that allow the consuming origin, allow the browser's `Range`
-request header, and expose `Content-Range` so the reader can validate each
-partial response.
+The COPC source must support HTTP Range requests. Cross-origin sources must
+allow the consuming origin and expose `Content-Range` to browser JavaScript.
+A single byte-range `GET` is CORS-safelisted, so it does not by itself require
+preflight or `Range` in `Access-Control-Allow-Headers`; custom request headers
+can trigger preflight and must then be allowed. See the [HTTP Range / CORS
+hosting guide](https://mors119.github.io/copc-adapter/source-hosting) for
+provider settings and end-to-end checks.
 
 ### Diagnose a COPC source
 
@@ -210,7 +215,8 @@ data record format when the header is observable.
 
 `rangeSupported: false` means the browser observed an unusable response, such
 as HTTP `200` when the server ignored Range, a mismatched `Content-Range`, or a
-short body. `corsReadable: true` means the response could be inspected. A
+short body. `corsReadable: true` means fetch returned an inspectable response,
+not that every response header is readable. Check `contentRange` directly. A
 browser fetch failure can be caused by CORS, DNS, TLS, an offline client, or
 another network condition, so the probe reports that state as `unknown` and
 suggests checking both network availability and CORS policy.
@@ -220,9 +226,10 @@ still return `200` or invalid partial content, and a server can implement
 correct ranges while the browser is unable to read them cross-origin. Common
 deployment problems include an object-storage gateway, CDN, or reverse proxy
 stripping the `Range` request, converting `206` to `200`, changing
-`Content-Range`, or omitting the CORS rules for the application origin and
-`Range`/`Content-Range`. The server should preserve the requested byte range,
-return exactly that body, and make `Content-Range` readable to the browser.
+`Content-Range`, or omitting the CORS rule for the application origin, an
+actually requested preflight header, or exposed `Content-Range`. The server
+should preserve the requested byte range, return exactly that body, and make
+`Content-Range` readable to the browser.
 
 The development viewer runs this probe once when its debug panel is enabled
 and displays reachability, Range/206, CORS observability, COPC detection, point

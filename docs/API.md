@@ -344,10 +344,13 @@ removed nodes clear stale selection safely.
 ## Source requirements
 
 COPC sources must support byte Range requests. Cross-origin sources must allow
-the consuming origin, allow the browser's `Range` request header, and expose
-`Content-Range`. `probeCopcSource(url)` performs a bounded prefix probe and
-returns structured reachability, Range, CORS-observability, LAS/COPC, and
-warning fields without downloading the whole source.
+the consuming origin and expose `Content-Range` to browser JavaScript. A single
+byte-range `GET` is CORS-safelisted and does not by itself require preflight;
+custom request headers can trigger preflight and must then be allowed.
+`probeCopcSource(url)` performs a bounded prefix probe and returns structured
+reachability, Range, CORS-observability, LAS/COPC, and warning fields without
+downloading the whole source. See the [HTTP Range / CORS hosting guide](source-hosting.md)
+for deployment examples and browser checks.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for implementation ownership and
 [CONFORMANCE.md](CONFORMANCE.md) for backend and CRS correctness strategy.
