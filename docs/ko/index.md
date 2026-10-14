@@ -32,7 +32,7 @@ features:
 
 1. [빠른 시작](/ko/getting-started)
 2. [COPC 스트리밍과 LoD 이해하기](/ko/streaming)
-3. [HTTP Range / CORS 요구사항](/ko/source-requirements)
+3. [HTTP Range / CORS 배포 가이드](/ko/source-requirements)
 4. [색상 표현과 점 선택](/ko/styling-and-picking)
 5. [API 빠른 참조](/ko/api)
 6. [아키텍처와 소스 코드 위치](/ko/architecture)

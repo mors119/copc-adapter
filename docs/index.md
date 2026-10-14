@@ -32,6 +32,7 @@ The detailed English technical documents remain the canonical low-level referenc
 - [Architecture](/ARCHITECTURE)
 - [Conformance](/CONFORMANCE)
 - [Examples](/EXAMPLES)
+- [HTTP Range / CORS hosting guide](/source-hosting)
 - [Roadmap](/ROADMAP)
 - [Contest functional-test runbook](/CONTEST-FUNCTIONAL-TEST)
 - [Playground and Pages deployment](/PLAYGROUND)

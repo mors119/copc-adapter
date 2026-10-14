@@ -49,6 +49,7 @@ export default defineConfig({
           { text: 'API', link: '/API' },
           { text: 'Architecture', link: '/ARCHITECTURE' },
           { text: 'Validation', link: '/CONFORMANCE' },
+          { text: 'Source hosting', link: '/source-hosting' },
         ],
 
         sidebar: [
@@ -59,6 +60,7 @@ export default defineConfig({
               { text: 'Architecture', link: '/ARCHITECTURE' },
               { text: 'Examples', link: '/EXAMPLES' },
               { text: 'Conformance', link: '/CONFORMANCE' },
+              { text: 'Source hosting', link: '/source-hosting' },
               { text: 'Roadmap', link: '/ROADMAP' },
             ],
           },
@@ -75,6 +77,7 @@ export default defineConfig({
         nav: [
           { text: '시작하기', link: '/ko/getting-started' },
           { text: '사용 가이드', link: '/ko/streaming' },
+          { text: '배포 가이드', link: '/ko/source-requirements' },
           { text: '검증 결과', link: '/ko/validation' },
         ],
 
