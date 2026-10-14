@@ -1,17 +1,40 @@
-# Changelog
-
-All notable changes to COPC Adapter are documented here. The project follows
-the principles of [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and versions follow [Semantic Versioning](https://semver.org/).
-
 ## [Unreleased]
+
+## [0.5.0] - 2026-10-14
 
 ### Added
 
-- Added `extraDimensions` to `CopcJsBackend` so extra schema dimensions (for
-  example LAS extra bytes) can be read per point and reported on picked points
-  as `CopcPointInspection.dimensions`. 64-bit integer dimensions are returned
-  as exact `bigint` values.
+- Added opt-in LAS extra schema dimension decoding for `CopcJsBackend`, including
+  picked-point `dimensions` and exact `bigint` values for unscaled 64-bit
+  integers (PR #205).
+- Added runtime Cesium point styling through `getStyle()` / `setStyle()`,
+  including classification include/exclude filters without re-decoding cached
+  point chunks (PR #215).
+- Added an EPSG:5186 Korean CRS conformance fixture and independent controls
+  for TypeScript, Rust, and Cesium point placement (PR #214).
+- Added bilingual VitePress documentation and a standalone Cesium Playground
+  under the existing GitHub Pages site (PRs #222-#225).
+- Added English and Korean HTTP Range/CORS hosting guides for AWS S3,
+  MinIO AIStor, and nginx, including browser diagnostics and certificate
+  verification guidance (PR #245).
+
+### Changed
+
+- Cancel obsolete HTTP Range point reads on view and lifecycle changes, with
+  cancellation diagnostics and retryable cache behavior (PR #217).
+- Coalesce bounded adjacent HTTP Range reads while preserving requested byte
+  slices, input order, and cancellation semantics (PR #218).
+
+### Validation and compatibility
+
+- Expanded Rust Worker responsiveness, SoFi multi-GB streaming, EPSG:5186,
+  cancellation, and browser regression evidence (PRs #214, #216, #219-#221).
+- `copc-js` remains the default backend; Rust/WASM remains opt-in. Extra schema
+  dimensions are currently supported by `copc-js` only.
+- No intentional breaking public API change. The existing Cesium and Three.js
+  entrypoints and application-owned viewer/scene lifecycles are preserved.
+- Browser cross-origin COPC reads still require compatible Range/CORS server
+  configuration; the new deployment guides do not change server behavior.
 
 ## [0.4.0] - 2026-09-12
 
