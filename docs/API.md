@@ -281,6 +281,14 @@ The current backend selection is:
   browser Range I/O and worker orchestration.
 - an injected `CopcBackend`: supported for tests and host-owned sources.
 
+When an injected source implements `loadPreparedPointData`, the shared core
+applies `heightOffsetMeters` to its prepared geographic and ECEF coordinates
+unless the source reports the amount already applied through
+`preparedHeightOffsetMeters`. A source that applies the offset during its own
+preparation should set that property to the applied value to prevent a second
+correction. Omitting the property means the prepared coordinates have no
+height offset.
+
 ### Extra schema dimensions
 
 COPC files can carry dimensions beyond the standard LAS point record, such as

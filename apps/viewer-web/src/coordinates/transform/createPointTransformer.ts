@@ -10,6 +10,7 @@ import type {
 import {
   createPreparedPointData,
   preparedPointDataToGeographicBuffer,
+  assertPreparedPointData,
 } from '../../point/preparedPoint';
 import { geographicToEcef } from './worldCoordinates';
 import {
@@ -157,5 +158,42 @@ export function transformPointBufferToPreparedPointData(
     geographicCoordinates,
     worldCoordinates,
     attributes: points.attributes,
+  });
+}
+
+/** Apply a residual ellipsoidal-height correction to an already prepared result. */
+export function applyPreparedPointHeightOffset(
+  prepared: PreparedPointData,
+  heightOffsetDeltaMeters: number,
+): PreparedPointData {
+  const heightOffsetDelta = resolveHeightOffsetMeters(heightOffsetDeltaMeters);
+  assertPreparedPointData(prepared);
+  if (heightOffsetDelta === 0) {
+    return prepared;
+  }
+
+  const geographicCoordinates = prepared.geographic.coordinates.slice();
+  const worldCoordinates = new Float64Array(prepared.pointCount * 3);
+  for (let index = 0; index < prepared.pointCount; index += 1) {
+    const offset = index * 3;
+    const point = {
+      longitude: geographicCoordinates[offset],
+      latitude: geographicCoordinates[offset + 1],
+      height: geographicCoordinates[offset + 2] + heightOffsetDelta,
+    };
+    geographicCoordinates[offset + 2] = point.height;
+
+    const world = geographicToEcef(point);
+    worldCoordinates[offset] = world.x;
+    worldCoordinates[offset + 1] = world.y;
+    worldCoordinates[offset + 2] = world.z;
+  }
+
+  return createPreparedPointData({
+    pointCount: prepared.pointCount,
+    sourceCoordinates: prepared.source.coordinates,
+    geographicCoordinates,
+    worldCoordinates,
+    attributes: prepared.attributes,
   });
 }

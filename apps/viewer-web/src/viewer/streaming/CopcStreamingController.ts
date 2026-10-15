@@ -21,6 +21,7 @@ import { loadCopcPointBuffer } from '../../copc/points/loadPointData';
 import { wasmCopcPointDecoder } from '../../wasm/copcDecoder';
 import { createCopcPointFieldSelection, type CopcPointFieldSelection } from '../../copc/points/fieldSelection';
 import {
+  applyPreparedPointHeightOffset,
   createPointTransformer,
   createProjectPointTransformer,
   transformPointBufferToPreparedPointData,
@@ -798,7 +799,11 @@ export class CopcStreamingCore {
         throw createPointLoadAbortError(signal);
       }
       assertPreparedPointData(prepared);
-      return prepared;
+      const alreadyAppliedOffset = context.preparedHeightOffsetMeters ?? 0;
+      return applyPreparedPointHeightOffset(
+        prepared,
+        this.heightOffsetMeters - alreadyAppliedOffset,
+      );
     }
 
     const points = await loadCopcPointBuffer(

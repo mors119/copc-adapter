@@ -57,6 +57,7 @@ function createSourceFactory({
   onPreparedPointLoad,
   paged = false,
   prepared = false,
+  preparedHeightOffsetMeters,
 } = {}) {
   let openCount = 0;
   let destroyCount = 0;
@@ -77,6 +78,9 @@ function createSourceFactory({
         onOpen?.(source);
         return {
           source,
+          ...(preparedHeightOffsetMeters === undefined
+            ? {}
+            : { preparedHeightOffsetMeters }),
           getMetadata: createMetadata,
           getRootHierarchyPage() {
             return { key: ROOT_KEY, pageOffset: 0, pageLength: 10 };
@@ -277,6 +281,66 @@ test('streaming cache consumes a backend prepared result without a TypeScript tr
   assert.equal(controller.getSnapshot().performance.decodeDurationMs, 5);
   assert.equal(controller.getSnapshot().performance.pointPreparationDurationMs, 3);
   assert.equal(controller.getSnapshot().performance.crsTransformDurationMs, 0);
+});
+
+test('streaming core applies height offset to prepared data from custom backends', async () => {
+  const source = createSourceFactory({ prepared: true });
+  const controller = createController(source.backend, {
+    decoder: undefined,
+    heightOffsetMeters: 25,
+  });
+
+  await controller.load();
+  await controller.updateView(createView());
+
+  const prepared = controller.getCachedPreparedPointData(ROOT_KEY);
+  const expectedWorld = geographicToEcef({
+    longitude: 10.005,
+    latitude: 20.005,
+    height: 175,
+  });
+  assert.deepEqual([...prepared.source.coordinates], [10.005, 20.005, 150]);
+  assert.deepEqual([...prepared.geographic.coordinates], [10.005, 20.005, 175]);
+  assert.deepEqual(
+    [...prepared.world.coordinates],
+    [expectedWorld.x, expectedWorld.y, expectedWorld.z],
+  );
+  assert.deepEqual(prepared.statistics.elevation, { min: 175, max: 175 });
+});
+
+test('streaming core does not apply an offset already included in prepared data', async () => {
+  const expectedWorld = geographicToEcef({
+    longitude: 10.005,
+    latitude: 20.005,
+    height: 175,
+  });
+  const source = createSourceFactory({
+    prepared: true,
+    preparedHeightOffsetMeters: 25,
+    onPreparedPointLoad() {
+      return createPreparedPointData({
+        pointCount: 1,
+        sourceCoordinates: new Float64Array([10.005, 20.005, 150]),
+        geographicCoordinates: new Float64Array([10.005, 20.005, 175]),
+        worldCoordinates: new Float64Array([expectedWorld.x, expectedWorld.y, expectedWorld.z]),
+      });
+    },
+  });
+  const controller = createController(source.backend, {
+    decoder: undefined,
+    heightOffsetMeters: 25,
+  });
+
+  await controller.load();
+  await controller.updateView(createView());
+
+  const prepared = controller.getCachedPreparedPointData(ROOT_KEY);
+  assert.deepEqual([...prepared.source.coordinates], [10.005, 20.005, 150]);
+  assert.deepEqual([...prepared.geographic.coordinates], [10.005, 20.005, 175]);
+  assert.deepEqual(
+    [...prepared.world.coordinates],
+    [expectedWorld.x, expectedWorld.y, expectedWorld.z],
+  );
 });
 
 test('view updates refresh the core hierarchy used by point loading', async () => {

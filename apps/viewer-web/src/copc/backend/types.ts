@@ -46,6 +46,8 @@ export type CopcWorkerDiagnostics = {
 /** An opened COPC resource expressed only in project-owned types. */
 export interface CopcSource extends CopcHierarchySource {
   readonly source: string;
+  /** Height offset already included by `loadPreparedPointData`; omitted means zero. */
+  readonly preparedHeightOffsetMeters?: number;
   getMetadata(): CopcMetadata;
   loadPointDataView(
     node: CopcHierarchyNode,
