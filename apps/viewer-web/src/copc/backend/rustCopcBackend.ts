@@ -280,11 +280,10 @@ class RustCopcSource implements CopcSource {
 
 /** Opt-in Rust/WASM implementation of the project-owned COPC backend. */
 export class RustCopcBackend implements CopcBackend {
-  private readonly createByteSource: RustByteSourceFactory;
+  private readonly createByteSource?: RustByteSourceFactory;
 
   constructor(options: RustCopcBackendOptions = {}) {
-    this.createByteSource = options.createByteSource
-      ?? ((source) => new HttpRangeByteSource(source));
+    this.createByteSource = options.createByteSource;
   }
 
   async open(
@@ -293,7 +292,11 @@ export class RustCopcBackend implements CopcBackend {
   ): Promise<CopcSource> {
     let byteSource: RandomAccessByteSource;
     try {
-      byteSource = this.createByteSource(source);
+      byteSource = this.createByteSource
+        ? this.createByteSource(source)
+        : new HttpRangeByteSource(source, {
+            rangeValidation: options.rangeValidation,
+          });
     } catch (error: unknown) {
       throw mapRustError(source, error, 'open');
     }

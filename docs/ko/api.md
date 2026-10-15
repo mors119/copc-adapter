@@ -17,6 +17,7 @@ const layer = new CopcCesiumLayer({
   url,
   pointSize: 3,
   colorMode: 'rgb',
+  rangeValidation: 'strict',
   maxRenderedPoints: 250_000,
   maxPointCacheBytes: 256 * 1024 * 1024,
   streaming: {
@@ -29,6 +30,13 @@ const layer = new CopcCesiumLayer({
 ```
 
 기본값은 버전에 따라 바뀔 수 있으므로 정확한 값이 중요할 때는 [Public API](../API)를 확인하세요.
+
+`rangeValidation`은 `'strict' | 'head-fallback'`이며 기본값은 `'strict'`입니다.
+`'head-fallback'`은 브라우저 JavaScript에서 `Content-Range`를 읽을 수 없는
+source를 위한 명시적 호환 모드입니다. 성공한 `HEAD` 응답에서 읽을 수 있는
+`Content-Length`와 정확한 Range body 길이를 확인하지만, 반환된 byte offset이나
+객체 버전의 불변성을 증명하지는 못합니다. Three.js layer와 streaming core에도
+같은 옵션이 있습니다.
 
 ## Lifecycle
 
@@ -133,6 +141,10 @@ const result = await probeCopcSource(url);
 ```
 
 Range/CORS/COPC 형식을 먼저 점검하고 싶을 때 사용합니다.
+기본 strict 검증을 사용하며, 호환 모드도 확인하려면
+`probeCopcSource(url, { rangeValidation: 'head-fallback' })`를 호출합니다.
+결과의 `validationLevel`은 `strict`, `compatibility-limited`, `incompatible`,
+`unknown` 중 하나입니다.
 
 ## API를 변경할 때 볼 파일
 

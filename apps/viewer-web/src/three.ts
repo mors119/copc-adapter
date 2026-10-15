@@ -61,6 +61,8 @@ export type {
   ByteRange,
   RangeFetch,
   RangeReadOptions,
+  RangeValidationLevel,
+  RangeValidationPolicy,
   RangeSourceErrorCode,
   RangeSourceErrorDetails,
   RandomAccessByteSource,

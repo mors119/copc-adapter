@@ -355,6 +355,7 @@ export class CopcJsBackend implements CopcBackend {
       const getter = createCopcGetter(source, {
         signal: options.signal,
         rangeRequestDiagnostics: options.rangeRequestDiagnostics,
+        rangeValidation: options.rangeValidation,
       });
       const copc = await Copc.create(getter);
 

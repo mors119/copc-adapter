@@ -61,6 +61,12 @@ layer.attachTo(viewer);
   point primitives.
 - `maxPointCacheBytes`: decoded CPU point-buffer cache budget. Default:
   `256 * 1024 * 1024`.
+- `rangeValidation`: `'strict' | 'head-fallback'`. Default: `'strict'`.
+  `head-fallback` is an explicit compatibility mode for sources whose browser
+  response does not expose `Content-Range`; it requires a successful `HEAD`
+  with readable `Content-Length` and provides limited size/body-length checks.
+  It cannot prove the returned byte offset or immutable object version. The
+  option is also available on `CopcThreeLayer` and `CopcStreamingCore`.
 - `onPointPicked`: called with a selected `CopcPointInspection`, or `undefined`
   when selection is cleared.
 
@@ -343,13 +349,15 @@ removed nodes clear stale selection safely.
 
 ## Source requirements
 
-COPC sources must support byte Range requests. Cross-origin sources must allow
-the consuming origin and expose `Content-Range` to browser JavaScript. A single
-byte-range `GET` is CORS-safelisted and does not by itself require preflight;
-custom request headers can trigger preflight and must then be allowed.
-`probeCopcSource(url)` performs a bounded prefix probe and returns structured
-reachability, Range, CORS-observability, LAS/COPC, and warning fields without
-downloading the whole source. See the [HTTP Range / CORS hosting guide](source-hosting.md)
+COPC sources must support byte Range requests. Cross-origin sources should
+expose `Content-Range` to browser JavaScript; this remains required by the
+default strict policy. A single byte-range `GET` is CORS-safelisted and does
+not by itself require preflight; custom request headers or the fallback `HEAD`
+method can require CORS permission. `probeCopcSource(url)` performs a bounded
+prefix probe and returns structured reachability, Range, validation assurance,
+CORS-observability, LAS/COPC, and warning fields without downloading the whole
+source. Pass `{ rangeValidation: 'head-fallback' }` to probe the explicit
+compatibility path. See the [HTTP Range / CORS hosting guide](source-hosting.md)
 for deployment examples and browser checks.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for implementation ownership and

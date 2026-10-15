@@ -326,5 +326,65 @@ body bytes. It included `Access-Control-Allow-Origin: *` but no
 response over curl; curl does not enforce CORS or demonstrate that browser
 JavaScript can read `Content-Range`.
 
+A follow-up `curl -I` and `Range: bytes=0-3` check on 2026-10-15 found the same
+pattern for both reported COPC objects: Autzen returned `200` to `HEAD` with
+`Content-Length: 81123042`; SoFi returned `200` with
+`Content-Length: 2029696615`; each ranged `GET` returned `206`, four body bytes,
+and an on-wire `Content-Range`. Both allowed `GET, HEAD` and returned
+`Access-Control-Allow-Origin: *`, but neither exposed `Content-Range` through
+`Access-Control-Expose-Headers`. Millsite still returned `404` to both methods.
+These curl observations do not establish browser header visibility or byte
+offset correctness; the browser fixture and the compatibility limitations
+below cover those separately.
+
+## Optional compatibility mode when `Content-Range` is hidden
+
+Keep exposing `Content-Range` where possible. The default `rangeValidation:
+'strict'` policy requires JavaScript to read and validate its exact start,
+end, and total. For a source that returns `206` but does not make that header
+readable, callers may explicitly opt in:
+
+```ts
+import { CopcCesiumLayer, probeCopcSource } from '@frillab/copc-adapter/cesium';
+
+const sourceUrl = 'https://example.com/data.copc.laz';
+const layer = new CopcCesiumLayer({
+  url: sourceUrl,
+  rangeValidation: 'head-fallback',
+});
+
+const probe = await probeCopcSource(sourceUrl, {
+  rangeValidation: 'head-fallback',
+});
+console.log(probe.validationLevel); // 'compatibility-limited' when fallback succeeds
+```
+
+On the first `206` whose `Content-Range` is not readable, this mode makes one
+`HEAD` request to the same resolved URL and caches its metadata for that source
+instance. The browser must allow `HEAD` and JavaScript must be able to read a
+positive, safe-integer `Content-Length`. Each `GET + Range` must still return
+`206` and exactly the requested number of bytes. A visible but malformed or
+mismatched `Content-Range` is always rejected; a `404`, `200`, short body,
+unsupported `HEAD`, or contradictory source size is never rescued. No whole
+object `GET` is used.
+
+This mode provides **compatibility-limited** validation. `HEAD` size and an
+exact body length cannot prove that a `206` body came from the requested byte
+offset or that same-sized content stayed immutable. Readable validator changes
+and detectable size changes are rejected, but unavailable validators, weak ETags, and
+`Last-Modified` granularity leave an unverified version/offset limitation.
+`probe.validationLevel` reports `strict`, `compatibility-limited`,
+`incompatible`, or `unknown`; `rangeSupported` remains `true` only when the
+selected response contract can be used. `Content-Range` is not readable means
+it may be absent or hidden by CORS; browser JavaScript cannot distinguish those
+cases. Fixing the source CORS exposure remains the recommended deployment.
+
+The HTTP reader enforces a 64 MiB maximum for each individual range, matching
+the existing metadata, hierarchy-page, and point-chunk limits. It checks a
+readable `Content-Length` before reading, streams into one exact-size buffer,
+and cancels the body on surplus bytes or rejected responses. Keep the COPC
+object on an identity representation without gzip/Brotli or other byte
+transformations.
+
 For the corresponding evidence, see [issue #212](https://github.com/mors119/copc-adapter/issues/212)
 and the [SoFi validation record](benchmarks/issue-212-sofi-multigb-streaming).
