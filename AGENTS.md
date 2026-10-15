@@ -24,6 +24,29 @@ temporary files.
 Do not perform destructive or history-rewriting Git operations without explicit
 approval.
 
+## Benchmark and evidence documentation policy
+
+- The Pull Request is the default record for implementation-specific measurements,
+  test outcomes, commands, environments, limitations and decisions; the Issue
+  carries the problem and acceptance criteria.
+- Do NOT create `docs/benchmarks/issue-*.md` or standalone validation files by
+  default, even for performance work. Do not add files merely to report CI passes.
+- A new standalone benchmark file is allowed **only if all** conditions hold:
+  1. The maintainer explicitly requests or approves a separate benchmark record.
+  2. It is a reproducible baseline needed for comparison across future versions,
+     not a one-time validation or an issue-closeout report.
+  3. It includes measured results, inputs, environment, versions, methodology,
+     reproduction commands, and limitations.
+  4. No suitable existing canonical document exists and PR-only evidence would
+     materially impair future comparison.
+- Current architecture and package decisions belong in architecture docs, Issues
+  and PRs, not in new benchmark files.
+- Update existing benchmark records when they remain useful; do not silently
+  overwrite old results with measurements from different conditions.
+- Deletion or relocation of existing records requires maintainer approval and
+  correction of all inbound repository links. Never auto-delete closed-issue
+  records.
+
 ## Required validation
 
 Run the checks relevant to the changed area before considering the work
