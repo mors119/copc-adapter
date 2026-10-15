@@ -2,6 +2,8 @@
 name = "copc-adapter-wasm"
 version = "0.5.1"
 edition = "2024"
+description = "WebAssembly adapter for COPC Adapter's Rust core."
+license = "Apache-2.0"
 
 [lib]
 crate-type = ["cdylib"]
