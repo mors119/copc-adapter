@@ -669,11 +669,11 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
 
       this.checkHeadRangeIfCached(range);
       this.checkRepresentation(response.headers, range, response.status);
+      this.rememberRepresentation(response.headers);
       const bytes = await this.readExactRangeBody(response, range, signal);
       if (responseSize !== undefined) {
         this.rememberSize(responseSize, range, response.status);
       }
-      this.rememberRepresentation(response.headers);
       return bytes;
     } catch (error: unknown) {
       await cancelResponseBody(response);

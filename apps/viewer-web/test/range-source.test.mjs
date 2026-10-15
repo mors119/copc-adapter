@@ -315,6 +315,75 @@ test('HttpRangeByteSource rejects contradictory sizes and readable validator cha
   );
 });
 
+test('HttpRangeByteSource records validators before awaiting concurrent range bodies', async () => {
+  let releaseFirstBody;
+  let resolveFirstBodyRead;
+  const firstBodyRead = new Promise((resolve) => {
+    resolveFirstBodyRead = resolve;
+  });
+  let resolveSecondResponse;
+  let resolveSecondRequest;
+  const secondRequest = new Promise((resolve) => {
+    resolveSecondRequest = resolve;
+  });
+
+  const source = new HttpRangeByteSource('https://example.test/data', {
+    fetch: async (_input, init) => {
+      const range = new Headers(init.headers).get('Range');
+      if (range === 'bytes=0-0') {
+        return new Response(new ReadableStream({
+          pull(controller) {
+            resolveFirstBodyRead();
+            return new Promise((resolve) => {
+              releaseFirstBody = () => {
+                controller.enqueue(new Uint8Array([1]));
+                controller.close();
+                resolve();
+              };
+            });
+          },
+        }, { highWaterMark: 0 }), {
+          status: 206,
+          headers: {
+            'Content-Range': 'bytes 0-0/100001',
+            'Content-Length': '1',
+            ETag: '"version-a"',
+          },
+        });
+      }
+
+      assert.equal(range, 'bytes=10000-10000');
+      resolveSecondRequest();
+      return new Promise((resolve) => {
+        resolveSecondResponse = () => resolve(makeResponse(206, [2], {
+          'Content-Range': 'bytes 10000-10000/100001',
+          'Content-Length': '1',
+          ETag: '"version-b"',
+        }));
+      });
+    },
+  });
+
+  const first = source.readRange(0, 1);
+  const second = source.readRange(10_000, 1);
+  await Promise.all([firstBodyRead, secondRequest]);
+  resolveSecondResponse();
+
+  let secondOutcome;
+  try {
+    secondOutcome = await second.then(
+      (value) => ({ value }),
+      (error) => ({ error }),
+    );
+  } finally {
+    releaseFirstBody();
+  }
+  assert.ok(
+    secondOutcome.error instanceof RangeSourceError && secondOutcome.error.code === 'source-changed',
+  );
+  assert.deepEqual([...await first], [1]);
+});
+
 test('head-fallback rejects HEAD failures, invalid lengths, and out-of-bounds reads', async () => {
   for (const response of [
     new Response(null, { status: 405 }),
