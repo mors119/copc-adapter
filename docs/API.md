@@ -238,8 +238,9 @@ configured load slots, queued/active/completed/cancelled work, peak active
 loads, and first-priority-node ready latency.
 
 For a perspective view, the shared core estimates the current visible ground
-footprint from nine renderer-neutral frustum rays against a local plane 25 m
-below the WGS84 surface. It applies a 1.5× overscan, expands when the target
+footprint from nine renderer-neutral frustum rays against a local plane at
+least 25 m below the WGS84 surface and below the dataset's minimum elevation
+when known. It applies a 1.5× overscan, expands when the target
 grows by more than 15%, and shrinks when the target falls below 75% of the
 current distance. Views whose frustum reaches the local horizon use the
 nearer of the camera far plane and configured maximum as a conservative

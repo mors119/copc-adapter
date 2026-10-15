@@ -21,6 +21,7 @@ import { loadCopcPointBuffer } from '../../copc/points/loadPointData';
 import { wasmCopcPointDecoder } from '../../wasm/copcDecoder';
 import { createCopcPointFieldSelection, type CopcPointFieldSelection } from '../../copc/points/fieldSelection';
 import {
+  createPointTransformer,
   createProjectPointTransformer,
   transformPointBufferToPreparedPointData,
 } from '../../coordinates/transform/createPointTransformer';
@@ -209,6 +210,7 @@ export type CopcStreamingSnapshot = {
 type StreamingState = {
   context: CopcSource;
   metadata: CopcMetadata;
+  minimumDatasetHeightMeters?: number;
   hierarchyLoader: HierarchyLoader;
   nodes: StreamingHierarchy;
   nodesRef: { current: StreamingHierarchy };
@@ -288,6 +290,20 @@ function toProjectBounds(
     maxY: Number.NEGATIVE_INFINITY,
     maxZ: Number.NEGATIVE_INFINITY,
   });
+}
+
+function getMinimumDatasetHeightMeters(metadata: CopcMetadata): number | undefined {
+  try {
+    const transformPoint = createPointTransformer(metadata);
+    const minimum = transformPoint({
+      x: metadata.bounds.minX,
+      y: metadata.bounds.minY,
+      z: metadata.bounds.minZ,
+    }).height;
+    return Number.isFinite(minimum) ? minimum : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -416,6 +432,7 @@ export class CopcStreamingCore {
       this.streamingState = {
         context,
         metadata,
+        minimumDatasetHeightMeters: getMinimumDatasetHeightMeters(metadata),
         hierarchyLoader,
         nodes,
         nodesRef,
@@ -460,6 +477,7 @@ export class CopcStreamingCore {
     const adaptiveView = this.adaptiveViewDistancePolicy.apply(
       view,
       this.getStreamingOptions().maxRenderDistanceMeters,
+      streamingState.minimumDatasetHeightMeters,
     );
 
     const viewGeneration = ++this.viewGeneration;
@@ -536,6 +554,7 @@ export class CopcStreamingCore {
     const adaptiveView = this.adaptiveViewDistancePolicy.preview(
       view,
       this.getStreamingOptions().maxRenderDistanceMeters,
+      this.streamingState?.minimumDatasetHeightMeters,
     );
     return this.createHierarchyQuery(adaptiveView);
   }

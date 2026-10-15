@@ -167,14 +167,29 @@ function samplePerspectiveRayDirections(frustum: ViewFrustum): ViewVector3[] {
 
 /**
  * Estimate the farthest ground footprint reached by the current perspective
- * view. The local tangent plane is placed 25 m below the WGS84 surface to
- * retain a useful footprint for cameras close to ground level. A view with no
- * sampled ground intersection falls back to its configured hard distance cap.
+ * view. The local tangent plane is placed at least 25 m below the WGS84
+ * surface and below the dataset's minimum elevation, when known. A view whose
+ * cone reaches the horizon uses its configured hard distance cap as a fallback.
  */
 export function estimateVisibleFootprintDistanceMeters(
   view: AdaptiveViewDistanceInput,
   maxRenderDistanceMeters: number,
+  minimumDatasetHeightMeters?: number,
 ): number | undefined {
+  return estimateVisibleFootprint(view, maxRenderDistanceMeters, minimumDatasetHeightMeters)
+    ?.distanceMeters;
+}
+
+type VisibleFootprintEstimate = {
+  distanceMeters: number;
+  usedFallback: boolean;
+};
+
+function estimateVisibleFootprint(
+  view: AdaptiveViewDistanceInput,
+  maxRenderDistanceMeters: number,
+  minimumDatasetHeightMeters?: number,
+): VisibleFootprintEstimate | undefined {
   const frustum = view.viewFrustum;
   if (!isUsablePerspectiveFrustum(frustum)
     || !Number.isFinite(maxRenderDistanceMeters)
@@ -220,11 +235,21 @@ export function estimateVisibleFootprintDistanceMeters(
   // unbounded in this approximation. Preserve coverage conservatively up to
   // the frustum/application ceiling instead of trusting sparse ray samples.
   if (horizonReach >= -ADAPTIVE_VIEW_RAY_EPSILON) {
-    return Math.min(frustum.farMeters, maxRenderDistanceMeters);
+    return {
+      distanceMeters: Math.min(frustum.farMeters, maxRenderDistanceMeters),
+      usedFallback: true,
+    };
   }
 
+  const datasetMinimumHeight = Number.isFinite(minimumDatasetHeightMeters)
+    ? minimumDatasetHeightMeters as number
+    : 0;
+  const groundPlaneHeight = Math.min(
+    -ADAPTIVE_GROUND_CLEARANCE_METERS,
+    datasetMinimumHeight - ADAPTIVE_GROUND_CLEARANCE_METERS,
+  );
   const cameraGroundDistance = Math.max(
-    view.height + ADAPTIVE_GROUND_CLEARANCE_METERS,
+    view.height - groundPlaneHeight,
     ADAPTIVE_GROUND_CLEARANCE_METERS,
   );
   if (!Number.isFinite(cameraGroundDistance)) {
@@ -248,7 +273,9 @@ export function estimateVisibleFootprintDistanceMeters(
     );
   }
 
-  return farthestGroundDistance > 0 ? farthestGroundDistance : undefined;
+  return farthestGroundDistance > 0
+    ? { distanceMeters: farthestGroundDistance, usedFallback: false }
+    : undefined;
 }
 
 /**
@@ -268,25 +295,28 @@ export class AdaptiveViewDistancePolicy {
   apply(
     view: AdaptiveViewDistanceInput,
     maxRenderDistanceMeters: number,
+    minimumDatasetHeightMeters?: number,
   ): AdaptiveViewDistanceInput & {
     viewDistanceDiagnostics: AdaptiveViewDistanceDiagnostics;
   } {
-    return this.resolve(view, maxRenderDistanceMeters, true);
+    return this.resolve(view, maxRenderDistanceMeters, minimumDatasetHeightMeters, true);
   }
 
   /** Calculate an update view without changing hysteresis or aggregate counts. */
   preview(
     view: AdaptiveViewDistanceInput,
     maxRenderDistanceMeters: number,
+    minimumDatasetHeightMeters?: number,
   ): AdaptiveViewDistanceInput & {
     viewDistanceDiagnostics: AdaptiveViewDistanceDiagnostics;
   } {
-    return this.resolve(view, maxRenderDistanceMeters, false);
+    return this.resolve(view, maxRenderDistanceMeters, minimumDatasetHeightMeters, false);
   }
 
   private resolve(
     view: AdaptiveViewDistanceInput,
     maxRenderDistanceMeters: number,
+    minimumDatasetHeightMeters: number | undefined,
     commit: boolean,
   ): AdaptiveViewDistanceInput & {
     viewDistanceDiagnostics: AdaptiveViewDistanceDiagnostics;
@@ -294,7 +324,13 @@ export class AdaptiveViewDistancePolicy {
     const safeMaximum = Number.isFinite(maxRenderDistanceMeters)
       ? Math.max(maxRenderDistanceMeters, 0)
       : 0;
-    const footprint = estimateVisibleFootprintDistanceMeters(view, safeMaximum);
+    const footprintEstimate = estimateVisibleFootprint(
+      view,
+      safeMaximum,
+      minimumDatasetHeightMeters,
+    );
+    const footprint = footprintEstimate?.distanceMeters;
+    const usedFallback = footprintEstimate?.usedFallback ?? footprint === undefined;
     const hasFrustum = view.viewFrustum !== undefined;
     const fallbackDistance = hasFrustum
       ? safeMaximum
@@ -322,7 +358,7 @@ export class AdaptiveViewDistancePolicy {
     let shrinkCount = this.shrinkCount;
     let hysteresisHoldCount = this.hysteresisHoldCount;
     let fallbackCount = this.fallbackCount;
-    if (footprint === undefined) {
+    if (usedFallback) {
       transition = 'fallback';
       if (commit) fallbackCount += 1;
     } else if (this.currentDistanceMeters === undefined) {
@@ -354,7 +390,9 @@ export class AdaptiveViewDistancePolicy {
       ...view,
       viewDistanceMeters: effectiveDistanceMeters,
       viewDistanceDiagnostics: {
-        ...(footprint === undefined ? {} : { visibleFootprintMeters: footprint }),
+        ...(footprint === undefined || usedFallback
+          ? {}
+          : { visibleFootprintMeters: footprint }),
         targetDistanceMeters,
         effectiveDistanceMeters,
         maxRenderDistanceMeters: safeMaximum,

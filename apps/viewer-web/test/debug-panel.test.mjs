@@ -249,7 +249,7 @@ test('formats adaptive view-distance diagnostics for browser inspection', () => 
 
   assert.equal(
     view.viewDistance,
-    '125 m / 187.50000 m / 12000 m cap · initialized · overscan 1.5000000× · expand 0 / shrink 0 / hold 0',
+    '125 m / 187.50000 m / 12000 m cap · initialized · overscan 1.5000000× · expand 0 / shrink 0 / hold 0 / fallback 0',
   );
 });
 

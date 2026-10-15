@@ -117,6 +117,17 @@ test('higher and more oblique views produce larger world-footprint estimates', (
   assert.ok(obliqueEstimate > closeEstimate);
 });
 
+test('dataset elevations below sea level extend the footprint plane conservatively', () => {
+  const view = createView({ height: 0 });
+  const surfaceOnlyEstimate = estimateVisibleFootprintDistanceMeters(view, 12_000);
+  const datasetAwareEstimate = estimateVisibleFootprintDistanceMeters(view, 12_000, -100);
+  const adaptive = new AdaptiveViewDistancePolicy().apply(view, 12_000, -100);
+
+  assert.ok(surfaceOnlyEstimate < 100);
+  assert.ok(datasetAwareEstimate > 100);
+  assert.ok(adaptive.viewDistanceMeters > 100);
+});
+
 test('near-horizontal views stay inside the configured hard distance ceiling', () => {
   const view = createView({
     height: 500,
@@ -128,6 +139,9 @@ test('near-horizontal views stay inside the configured hard distance ceiling', (
   assert.equal(adaptive.viewDistanceMeters, 750);
   assert.equal(adaptive.viewDistanceDiagnostics.maxRenderDistanceMeters, 750);
   assert.equal(adaptive.viewDistanceDiagnostics.clampedToMaxRenderDistance, true);
+  assert.equal(adaptive.viewDistanceDiagnostics.transition, 'fallback');
+  assert.equal(adaptive.viewDistanceDiagnostics.fallbackCount, 1);
+  assert.equal(adaptive.viewDistanceDiagnostics.visibleFootprintMeters, undefined);
 });
 
 test('overscan is bounded and asymmetric hysteresis holds small changes', () => {

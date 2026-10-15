@@ -223,7 +223,7 @@ export function buildCopcDebugPanelView(
     viewDistance: snapshot.viewDistance
       ? `${snapshot.viewDistance.visibleFootprintMeters === undefined
         ? 'fallback'
-        : `${formatCoordinate(snapshot.viewDistance.visibleFootprintMeters)} m`} / ${formatCoordinate(snapshot.viewDistance.effectiveDistanceMeters)} m / ${formatCoordinate(snapshot.viewDistance.maxRenderDistanceMeters)} m cap · ${snapshot.viewDistance.transition}${snapshot.viewDistance.clampedToMaxRenderDistance ? ' · capped' : ''} · overscan ${formatCoordinate(snapshot.viewDistance.overscanFactor)}× · expand ${formatNumber(snapshot.viewDistance.expansionCount)} / shrink ${formatNumber(snapshot.viewDistance.shrinkCount)} / hold ${formatNumber(snapshot.viewDistance.hysteresisHoldCount)}`
+        : `${formatCoordinate(snapshot.viewDistance.visibleFootprintMeters)} m`} / ${formatCoordinate(snapshot.viewDistance.effectiveDistanceMeters)} m / ${formatCoordinate(snapshot.viewDistance.maxRenderDistanceMeters)} m cap · ${snapshot.viewDistance.transition}${snapshot.viewDistance.clampedToMaxRenderDistance ? ' · capped' : ''} · overscan ${formatCoordinate(snapshot.viewDistance.overscanFactor)}× · expand ${formatNumber(snapshot.viewDistance.expansionCount)} / shrink ${formatNumber(snapshot.viewDistance.shrinkCount)} / hold ${formatNumber(snapshot.viewDistance.hysteresisHoldCount)} / fallback ${formatNumber(snapshot.viewDistance.fallbackCount)}`
       : '—',
     activeReplacementGroups: formatNumber(snapshot.transition?.activeReplacementGroupCount ?? 0),
     coarseNodesRetained: formatNumber(snapshot.transition?.coarseNodesRetainedForCoverageCount ?? 0),
