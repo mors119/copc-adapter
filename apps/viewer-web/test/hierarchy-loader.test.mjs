@@ -463,11 +463,24 @@ test('HierarchyLoader surfaces a malformed child page and can reset its cache', 
   assert.equal(loader.getDiagnostics().loadedPageCount, 1);
 
   loader.reset();
-  assert.deepEqual(loader.getDiagnostics(), {
+  const resetDiagnostics = loader.getDiagnostics();
+  assert.deepEqual({
+    ...resetDiagnostics,
+    rootHierarchyLoadDurationMs: 0,
+    lastQueryDurationMs: 0,
+  }, {
     pageRequests: 0,
     pageCacheHits: 0,
     hierarchyBytesFetched: 0,
     loadedPageCount: 0,
+    discoveredPageCount: 0,
+    completedPageCount: 0,
+    activePageLoads: 0,
+    peakActivePageLoads: 0,
+    sourceOpenDurationMs: 0,
+    metadataLoadDurationMs: 0,
+    rootHierarchyLoadDurationMs: 0,
+    lastQueryDurationMs: 0,
     loadedEntryCount: 0,
   });
   assert.deepEqual(calls, ['0-0-0-0']);
@@ -484,4 +497,289 @@ test('a partial query requests fewer hierarchy pages than forced full traversal'
   await new HierarchyLoader(full.source, cubeBounds).load();
 
   assert.ok(partial.calls.length < full.calls.length);
+});
+
+function createDelayedHierarchySource(delayMs = 20) {
+  const rootPage = { key: '0-0-0-0', pageOffset: 0, pageLength: 32 };
+  const pages = new Map();
+  const calls = [];
+  const completed = new Set();
+  let active = 0;
+  let peakActive = 0;
+  const childPages = Array.from({ length: 8 }, (_, childIndex) => {
+    const x = childIndex & 1;
+    const y = (childIndex >> 1) & 1;
+    const z = (childIndex >> 2) & 1;
+    return {
+      key: `1-${x}-${y}-${z}`,
+      pageOffset: 100 + childIndex * 64,
+      pageLength: 32,
+    };
+  });
+  pages.set(rootPage.key, {
+    nodes: [{
+      key: rootPage.key,
+      level: 0,
+      x: 0,
+      y: 0,
+      z: 0,
+      pointCount: 1,
+      pointDataOffset: 10,
+      pointDataLength: 10,
+    }],
+    pages: childPages,
+  });
+
+  for (const page of childPages) {
+    const [, x, y, z] = page.key.split('-').map(Number);
+    const leaf = {
+      key: `2-${x * 2}-${y * 2}-${z * 2}`,
+      pageOffset: page.pageOffset + 32,
+      pageLength: 32,
+    };
+    pages.set(page.key, {
+      nodes: [{
+        key: page.key,
+        level: 1,
+        x,
+        y,
+        z,
+        pointCount: 1,
+        pointDataOffset: 10,
+        pointDataLength: 10,
+      }],
+      pages: [leaf],
+    });
+    pages.set(leaf.key, {
+      nodes: [{
+        key: leaf.key,
+        level: 2,
+        x: x * 2,
+        y: y * 2,
+        z: z * 2,
+        pointCount: 1,
+        pointDataOffset: 10,
+        pointDataLength: 10,
+      }],
+      pages: [],
+    });
+  }
+
+  return {
+    calls,
+    completed,
+    get peakActive() {
+      return peakActive;
+    },
+    source: {
+      getRootHierarchyPage() {
+        return rootPage;
+      },
+      async loadHierarchyPage(page) {
+        calls.push({ key: page.key, completedAtStart: new Set(completed) });
+        active += 1;
+        peakActive = Math.max(peakActive, active);
+        try {
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          const subtree = pages.get(page.key);
+          if (!subtree) throw new Error(`missing:${page.key}`);
+          completed.add(page.key);
+          return subtree;
+        } finally {
+          active -= 1;
+        }
+      },
+    },
+  };
+}
+
+test('HierarchyLoader bounds independent page work and preserves settled results', async (t) => {
+  const run = async (maxConcurrentPageLoads) => {
+    const fixture = createDelayedHierarchySource();
+    const loader = new HierarchyLoader(fixture.source, cubeBounds, {
+      maxConcurrentPageLoads,
+    });
+    const startedAt = performance.now();
+    const tree = await loader.query({ bounds: cubeBounds, maxLevel: 2 });
+    return {
+      fixture,
+      loader,
+      tree,
+      durationMs: performance.now() - startedAt,
+    };
+  };
+
+  const serial = await run(1);
+  const twoAtOnce = await run(2);
+  const fourAtOnce = await run(4);
+
+  assert.deepEqual(twoAtOnce.tree, serial.tree);
+  assert.deepEqual(fourAtOnce.tree, serial.tree);
+  assert.equal(serial.fixture.peakActive, 1);
+  assert.equal(twoAtOnce.fixture.peakActive, 2);
+  assert.equal(fourAtOnce.fixture.peakActive, 4);
+  assert.equal(fourAtOnce.loader.getDiagnostics().activePageLoads, 0);
+  assert.equal(fourAtOnce.loader.getDiagnostics().peakActivePageLoads, 4);
+  assert.equal(fourAtOnce.loader.getDiagnostics().completedPageCount, 17);
+  assert.equal(fourAtOnce.loader.getDiagnostics().discoveredPageCount, 17);
+  assert.ok(twoAtOnce.durationMs < serial.durationMs);
+  assert.ok(fourAtOnce.durationMs < twoAtOnce.durationMs);
+
+  t.diagnostic(JSON.stringify({
+    scenario: 'hierarchy-concurrency-simulated-latency',
+    pageCount: fourAtOnce.loader.getDiagnostics().completedPageCount,
+    measurementsMs: {
+      serial: serial.durationMs,
+      concurrency2: twoAtOnce.durationMs,
+      concurrency4: fourAtOnce.durationMs,
+    },
+    peakActive: {
+      serial: serial.fixture.peakActive,
+      concurrency2: twoAtOnce.fixture.peakActive,
+      concurrency4: fourAtOnce.fixture.peakActive,
+    },
+  }));
+
+  for (const runResult of [serial, twoAtOnce, fourAtOnce]) {
+    for (const call of runResult.fixture.calls) {
+      if (call.key.startsWith('2-')) {
+        const [, x, y, z] = call.key.split('-').map(Number);
+        const parent = `1-${Math.floor(x / 2)}-${Math.floor(y / 2)}-${Math.floor(z / 2)}`;
+        assert.ok(call.completedAtStart.has(parent), `${call.key} started before ${parent} completed`);
+      }
+    }
+  }
+});
+
+test('HierarchyLoader bounds active work across overlapping view queries', async () => {
+  const fixture = createDelayedHierarchySource(10);
+  const loader = new HierarchyLoader(fixture.source, cubeBounds, {
+    maxConcurrentPageLoads: 4,
+  });
+  const left = loader.query({ bounds: { ...cubeBounds, maxX: 3.9 }, maxLevel: 2 });
+  const right = loader.query({ bounds: { ...cubeBounds, minX: 4.1 }, maxLevel: 2 });
+
+  await Promise.all([left, right]);
+
+  assert.equal(fixture.peakActive, 4);
+  assert.equal(loader.getDiagnostics().activePageLoads, 0);
+  assert.equal(loader.getDiagnostics().peakActivePageLoads, 4);
+});
+
+test('HierarchyLoader waits for slower siblings to reveal more pages', async () => {
+  const rootPage = { key: '0-0-0-0', pageOffset: 0, pageLength: 32 };
+  const quickPage = { key: '1-0-0-0', pageOffset: 100, pageLength: 16 };
+  const slowPage = { key: '1-1-0-0', pageOffset: 116, pageLength: 16 };
+  const discoveredPage = { key: '2-2-0-0', pageOffset: 132, pageLength: 16 };
+  const sourceCalls = [];
+  let signalQuickPageStarted;
+  let resolveSlowPage;
+  const quickPageStarted = new Promise((resolve) => {
+    signalQuickPageStarted = resolve;
+  });
+  const slowPageResult = new Promise((resolve) => {
+    resolveSlowPage = resolve;
+  });
+  const source = {
+    getRootHierarchyPage: () => rootPage,
+    async loadHierarchyPage(page) {
+      sourceCalls.push(page.key);
+      if (page.key === rootPage.key) {
+        return { nodes: [], pages: [quickPage, slowPage] };
+      }
+      if (page.key === quickPage.key) {
+        signalQuickPageStarted();
+        return { nodes: [], pages: [] };
+      }
+      if (page.key === slowPage.key) {
+        return slowPageResult;
+      }
+      if (page.key === discoveredPage.key) {
+        return { nodes: [], pages: [] };
+      }
+      throw new Error(`unexpected page:${page.key}`);
+    },
+  };
+  const loader = new HierarchyLoader(source, cubeBounds, {
+    maxConcurrentPageLoads: 2,
+  });
+  const query = loader.query({ bounds: cubeBounds, maxLevel: 2 });
+
+  await quickPageStarted;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  resolveSlowPage({ nodes: [], pages: [discoveredPage] });
+  await query;
+
+  assert.ok(sourceCalls.includes(discoveredPage.key));
+  assert.equal(loader.getDiagnostics().completedPageCount, 4);
+});
+
+test('reset prevents an in-flight hierarchy page from mutating the new cache', async () => {
+  let resolveRoot;
+  const rootPage = { key: '0-0-0-0', pageOffset: 0, pageLength: 32 };
+  const source = {
+    getRootHierarchyPage: () => rootPage,
+    loadHierarchyPage: () => new Promise((resolve) => { resolveRoot = resolve; }),
+  };
+  const loader = new HierarchyLoader(source, cubeBounds);
+  const pending = loader.query({ bounds: cubeBounds, maxLevel: 0 });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  loader.reset();
+  resolveRoot({ nodes: [], pages: [] });
+
+  await assert.rejects(pending, CopcHierarchyTraversalError);
+  const diagnostics = loader.getDiagnostics();
+  assert.equal(diagnostics.pageRequests, 0);
+  assert.equal(diagnostics.loadedPageCount, 0);
+  assert.equal(diagnostics.completedPageCount, 0);
+  assert.equal(diagnostics.activePageLoads, 0);
+  assert.equal(diagnostics.loadedEntryCount, 0);
+  assert.equal(diagnostics.lastQueryDurationMs, 0);
+});
+
+test('reset drains queued page work without starting new source reads', async () => {
+  const rootPage = { key: '0-0-0-0', pageOffset: 0, pageLength: 32 };
+  const childPages = Array.from({ length: 8 }, (_, childIndex) => ({
+    key: `1-${childIndex & 1}-${(childIndex >> 1) & 1}-${(childIndex >> 2) & 1}`,
+    pageOffset: 100 + childIndex * 32,
+    pageLength: 16,
+  }));
+  const resolvers = new Map();
+  const sourceCalls = [];
+  const source = {
+    getRootHierarchyPage: () => rootPage,
+    async loadHierarchyPage(page) {
+      sourceCalls.push(page.key);
+      if (page.key === rootPage.key) {
+        return { nodes: [], pages: childPages };
+      }
+      return new Promise((resolve) => resolvers.set(page.key, resolve));
+    },
+  };
+  const loader = new HierarchyLoader(source, cubeBounds, {
+    maxConcurrentPageLoads: 4,
+  });
+  await loader.loadRoot();
+  const queryA = loader.query({
+    bounds: { ...cubeBounds, maxX: 3.9 },
+  });
+  const queryB = loader.query({
+    bounds: { ...cubeBounds, minX: 4.1 },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(loader.getDiagnostics().activePageLoads, 4);
+  assert.equal(sourceCalls.length, 5);
+  loader.reset();
+  for (const resolve of resolvers.values()) {
+    resolve({ nodes: [], pages: [] });
+  }
+
+  const settled = await Promise.allSettled([queryA, queryB]);
+  assert.ok(settled.every((result) => result.status === 'rejected'));
+  assert.equal(sourceCalls.length, 5, 'queued pages must not start after reset');
+  assert.equal(loader.getDiagnostics().activePageLoads, 0);
+  assert.equal(loader.getDiagnostics().loadedEntryCount, 0);
+  assert.equal(loader.getDiagnostics().completedPageCount, 0);
 });

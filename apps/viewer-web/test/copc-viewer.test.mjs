@@ -194,13 +194,18 @@ test('CopcCesiumLayer delegates source and streaming work to the shared core', a
   await layer.load();
   assert.equal(source.openCount, 1);
   assert.equal(layer.getSnapshot().lifecycle, 'ready');
-  assert.deepEqual(layer.getHierarchyDiagnostics(), {
-    pageRequests: 1,
-    pageCacheHits: 0,
-    hierarchyBytesFetched: 10,
-    loadedPageCount: 1,
-    loadedEntryCount: 1,
-  });
+  const hierarchy = layer.getHierarchyDiagnostics();
+  assert.equal(hierarchy.pageRequests, 1);
+  assert.equal(hierarchy.pageCacheHits, 0);
+  assert.equal(hierarchy.hierarchyBytesFetched, 10);
+  assert.equal(hierarchy.loadedPageCount, 1);
+  assert.equal(hierarchy.discoveredPageCount, 1);
+  assert.equal(hierarchy.completedPageCount, 1);
+  assert.equal(hierarchy.activePageLoads, 0);
+  assert.equal(hierarchy.peakActivePageLoads, 1);
+  assert.ok(hierarchy.rootHierarchyLoadDurationMs >= 0);
+  assert.equal(hierarchy.lastQueryDurationMs, 0);
+  assert.equal(hierarchy.loadedEntryCount, 1);
 
   layer.attachTo(viewer);
   await waitFor(() => layer.getSnapshot().renderedPointCount === 2);

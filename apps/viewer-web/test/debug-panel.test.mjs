@@ -136,6 +136,14 @@ test('maps layer diagnostics and metadata into browser-visible values', () => {
       pageCacheHits: 4,
       hierarchyBytesFetched: 1024,
       loadedPageCount: 3,
+      discoveredPageCount: 4,
+      completedPageCount: 3,
+      activePageLoads: 0,
+      peakActivePageLoads: 3,
+      sourceOpenDurationMs: 11,
+      metadataLoadDurationMs: 12,
+      rootHierarchyLoadDurationMs: 15,
+      lastQueryDurationMs: 275,
       loadedEntryCount: 28,
     },
     activeColorMode: 'classification',
@@ -166,6 +174,11 @@ test('maps layer diagnostics and metadata into browser-visible values', () => {
   assert.equal(view.hierarchyCacheHits, '4');
   assert.equal(view.hierarchyLoadedPages, '3');
   assert.equal(view.hierarchyLoadedEntries, '28');
+  assert.equal(view.hierarchyPageConcurrency, '0 active / 3 peak');
+  assert.equal(view.hierarchySourceDuration, '11 ms');
+  assert.equal(view.hierarchyMetadataDuration, '12 ms');
+  assert.equal(view.hierarchyRootDuration, '15 ms');
+  assert.equal(view.hierarchyQueryDuration, '275 ms');
   assert.equal(view.activeReplacementGroups, '1');
   assert.equal(view.coarseNodesRetained, '3');
   assert.equal(view.refinementReplacementCommits, '5');

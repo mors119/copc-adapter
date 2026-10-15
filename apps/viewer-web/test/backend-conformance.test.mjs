@@ -120,19 +120,20 @@ test('shared backend contract covers incremental hierarchy discovery from #41', 
       assert.equal(tree.nodes[0].childrenComplete, false);
       assert.equal(tree.pages.length, 1);
     }
-    assert.deepEqual(
-      loaders.map((loader) => loader.getDiagnostics()),
-      [
-        {
-          pageRequests: 1, pageCacheHits: 0, hierarchyBytesFetched: fixture.rootPage.pageLength,
-          loadedPageCount: 1, loadedEntryCount: 3,
-        },
-        {
-          pageRequests: 1, pageCacheHits: 0, hierarchyBytesFetched: fixture.rootPage.pageLength,
-          loadedPageCount: 1, loadedEntryCount: 3,
-        },
-      ],
-    );
+    for (const loader of loaders) {
+      const diagnostics = loader.getDiagnostics();
+      assert.equal(diagnostics.pageRequests, 1);
+      assert.equal(diagnostics.pageCacheHits, 0);
+      assert.equal(diagnostics.hierarchyBytesFetched, fixture.rootPage.pageLength);
+      assert.equal(diagnostics.loadedPageCount, 1);
+      assert.equal(diagnostics.discoveredPageCount, 2);
+      assert.equal(diagnostics.completedPageCount, 1);
+      assert.equal(diagnostics.activePageLoads, 0);
+      assert.equal(diagnostics.peakActivePageLoads, 1);
+      assert.equal(diagnostics.rootHierarchyLoadDurationMs, 0);
+      assert.ok(diagnostics.lastQueryDurationMs >= 0);
+      assert.equal(diagnostics.loadedEntryCount, 3);
+    }
 
     const deepTrees = await Promise.all(loaders.map((loader) => loader.query({
       bounds: rust.getMetadata().cube,

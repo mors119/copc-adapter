@@ -6,6 +6,22 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Improved
+
+- Load independent hierarchy pages with a source-local cap of four requests,
+  retaining parent-discovered dependencies, shared page caching, query bounds,
+  and `childrenComplete` behavior.
+- Expose source-open, metadata, root-page, and view-query timings plus active
+  hierarchy page counts in diagnostics.
+
+### Validation
+
+- Four SoFi runs per setting measured median first-visible-point latency of
+  67.17 s at serial page loading and 23.37 s at concurrency four. The median
+  initial hierarchy query fell from 59.25 s to 14.52 s. See the [issue #254
+  performance record](docs/benchmarks/issue-254-hierarchy-concurrency.md) for
+  environment, run spread, and limitations.
+
 ## [0.5.1] - 2026-10-16
 
 ### Added

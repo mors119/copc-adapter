@@ -66,6 +66,14 @@ export type CopcHierarchyDiagnostics = {
   pageCacheHits: number;
   hierarchyBytesFetched: number;
   loadedPageCount: number;
+  discoveredPageCount: number;
+  completedPageCount: number;
+  activePageLoads: number;
+  peakActivePageLoads: number;
+  sourceOpenDurationMs: number;
+  metadataLoadDurationMs: number;
+  rootHierarchyLoadDurationMs: number;
+  lastQueryDurationMs: number;
   loadedEntryCount: number;
 };
 
