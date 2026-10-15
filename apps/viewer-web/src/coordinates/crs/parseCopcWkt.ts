@@ -26,6 +26,42 @@ export function extractHorizontalWkt(wkt: string): string {
   throw new Error('Failed to parse projected CRS from COPC WKT');
 }
 
+/** Extract the horizontal WKT1 CRS, whether geographic or projected. */
+export function extractHorizontalCrsWkt(wkt: string): string {
+  const startTokens = ['PROJCS[', 'GEOGCS['];
+  const starts = startTokens
+    .map((token) => ({ token, index: wkt.indexOf(token) }))
+    .filter((entry) => entry.index >= 0)
+    .sort((left, right) => left.index - right.index);
+  const start = starts[0];
+  if (!start) {
+    throw new Error('COPC WKT does not contain a supported horizontal CRS');
+  }
+
+  let depth = 0;
+  let inString = false;
+  for (let index = start.index; index < wkt.length; index += 1) {
+    const character = wkt[index];
+    if (character === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) {
+      continue;
+    }
+    if (character === '[') {
+      depth += 1;
+    } else if (character === ']') {
+      depth -= 1;
+      if (depth === 0) {
+        return wkt.slice(start.index, index + 1);
+      }
+    }
+  }
+
+  throw new Error('Failed to parse horizontal CRS from COPC WKT');
+}
+
 export function extractHorizontalUnitScale(wkt: string): number {
   const horizontalWkt = extractHorizontalWkt(wkt);
 

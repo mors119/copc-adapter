@@ -14,7 +14,7 @@ import {
 } from '../../point/preparedPoint';
 import { geographicToEcef } from './worldCoordinates';
 import {
-  extractHorizontalWkt,
+  extractHorizontalCrsWkt,
   extractVerticalUnitScale,
 } from '../crs/parseCopcWkt';
 import { resolveHeightOffsetMeters } from './heightOffset';
@@ -49,7 +49,7 @@ export function createPointTransformer(
     );
   }
 
-  const horizontalWkt = extractHorizontalWkt(metadata.wkt);
+  const horizontalWkt = extractHorizontalCrsWkt(metadata.wkt);
   const verticalUnitScale = extractVerticalUnitScale(metadata.wkt);
   const projection = proj4(horizontalWkt, 'WGS84');
 
@@ -85,7 +85,7 @@ export function createProjectPointTransformer(
     );
   }
 
-  const horizontalWkt = extractHorizontalWkt(metadata.wkt);
+  const horizontalWkt = extractHorizontalCrsWkt(metadata.wkt);
   const verticalUnitScale = extractVerticalUnitScale(metadata.wkt);
   const projection = proj4(horizontalWkt, 'WGS84');
 

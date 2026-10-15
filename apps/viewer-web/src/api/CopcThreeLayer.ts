@@ -27,6 +27,7 @@ import {
   CopcStreamingCore,
   type CopcStreamingPerformanceSnapshot,
   type CopcStreamingProgressHandler,
+  type CopcStreamingWorkProgressHandler,
 } from '../viewer/streaming/CopcStreamingController';
 import type {
   StreamingProgress,
@@ -53,6 +54,28 @@ import {
   createCopcPointStyleState,
   getDatasetElevationRange,
 } from '../point/style/pointStyle';
+import {
+  CopcThreeLayerEventDispatcher,
+  CopcLayerEventLifecycle,
+  type CopcThreeLayerEventMap,
+  type CopcThreeLayerEventType,
+  type CopcViewCancellationReason,
+  snapshotCopcError,
+  snapshotCopcMetadata,
+} from './layerEventLifecycle';
+
+export type {
+  CopcLayerErrorEvent,
+  CopcThreeLayerEventMap,
+  CopcThreeLayerEventType,
+  CopcThreeLayerErrorEvent,
+  CopcThreeLayerFirstVisibleEvent,
+  CopcThreeLayerMetadataReadyEvent,
+  CopcThreeLayerProgressEvent,
+  CopcThreeLayerViewCancelledEvent,
+  CopcThreeLayerViewSettledEvent,
+  CopcViewCancellationReason,
+} from './layerEventLifecycle';
 
 export type CopcThreeLayerOptions = {
   /** Browser-readable COPC resource URL with HTTP range-request support. */
@@ -166,6 +189,7 @@ export interface CopcThreePointRenderer extends CopcPointRenderer {
 
 type ActiveReplacementGroup = StreamingReplacementGroup & {
   generation: number;
+  viewGeneration: number;
 };
 
 type ActiveStreamingUpdate = {
@@ -251,6 +275,8 @@ function createPickOwnerId(): string {
 
 /** Public Three.js façade over the renderer-neutral COPC streaming core. */
 export class CopcThreeLayer {
+  private readonly eventDispatcher: CopcThreeLayerEventDispatcher;
+  private readonly eventLifecycle = new CopcLayerEventLifecycle();
   private readonly core: CopcStreamingCore;
   private readonly options: CopcThreeLayerOptions;
   private readonly pointRenderer: CopcThreePointRenderer;
@@ -261,6 +287,8 @@ export class CopcThreeLayer {
   private localFrame?: DatasetLocalFrame;
   private lifecycle: CopcThreeLayerLifecycleState = 'idle';
   private loadGeneration = 0;
+  private loadOperationGeneration?: number;
+  private firstVisibleLoadGeneration?: number;
   private streamingGeneration = 0;
   private lastStreamingView?: StreamingView;
   private updatePending = false;
@@ -284,6 +312,7 @@ export class CopcThreeLayer {
     }
 
     this.options = options;
+    this.eventDispatcher = new CopcThreeLayerEventDispatcher(this);
     this.pointRenderer = options.renderer ?? new ThreePointRenderer();
     this.core = new CopcStreamingCore({
       url: options.url,
@@ -301,9 +330,23 @@ export class CopcThreeLayer {
     });
   }
 
+  addEventListener<TType extends CopcThreeLayerEventType>(
+    type: TType,
+    listener: (event: CopcThreeLayerEventMap[TType]) => void,
+  ): void {
+    this.eventDispatcher.addEventListener(type, listener);
+  }
+
+  removeEventListener<TType extends CopcThreeLayerEventType>(
+    type: TType,
+    listener: (event: CopcThreeLayerEventMap[TType]) => void,
+  ): void {
+    this.eventDispatcher.removeEventListener(type, listener);
+  }
+
   /** Attach only the layer-owned root group to an application scene. */
   attachTo(attachment: CopcThreeLayerAttachment): void {
-    if (this.lifecycle === 'destroyed') {
+    if (this.isDestroyed()) {
       throw new Error('CopcThreeLayer has been destroyed');
     }
     if (!attachment || !attachment.scene || typeof attachment.scene.add !== 'function') {
@@ -318,6 +361,9 @@ export class CopcThreeLayer {
     if (this.attachment) {
       this.detachFrom();
     }
+    if (this.isDestroyed()) {
+      throw new Error('CopcThreeLayer has been destroyed');
+    }
 
     this.attachment = attachment;
     this.pointRenderer.attachTo(attachment.scene);
@@ -329,10 +375,14 @@ export class CopcThreeLayer {
 
   /** Detach the root and integration state while retaining loaded source data. */
   detachFrom(): void {
-    if (this.lifecycle === 'destroyed') {
+    if (this.isDestroyed()) {
       return;
     }
 
+    this.cancelActiveView('detach');
+    if (this.isDestroyed()) {
+      return;
+    }
     this.streamingGeneration += 1;
     this.core.invalidateView();
     this.updatePending = false;
@@ -362,6 +412,7 @@ export class CopcThreeLayer {
 
     this.lifecycle = 'loading';
     const loadGeneration = ++this.loadGeneration;
+    this.loadOperationGeneration = loadGeneration;
     try {
       await this.core.load();
       if (loadGeneration !== this.loadGeneration) {
@@ -380,11 +431,27 @@ export class CopcThreeLayer {
       this.applyLocalFrame();
       this.lifecycle = 'ready';
       this.debug('COPC metadata and hierarchy loaded');
+      this.firstVisibleLoadGeneration = undefined;
+      this.eventDispatcher.dispatchEvent({
+        type: 'metadataready',
+        metadata: snapshotCopcMetadata(metadata),
+        loadGeneration,
+      });
     } catch (error: unknown) {
       if (loadGeneration === this.loadGeneration) {
-        this.unload();
+        this.eventDispatcher.dispatchEvent({
+          type: 'error',
+          error: snapshotCopcError(error),
+          phase: 'load',
+          loadGeneration,
+        });
+        this.unloadInternal('unload');
       }
       throw error;
+    } finally {
+      if (this.loadOperationGeneration === loadGeneration) {
+        this.loadOperationGeneration = undefined;
+      }
     }
   }
 
@@ -408,6 +475,10 @@ export class CopcThreeLayer {
         // camera returns to that generation before the stale update settles.
         this.lastStreamingView = undefined;
         this.core.invalidateView();
+        this.cancelActiveView('camera-change');
+        if (this.isDestroyed()) {
+          return this.updateInFlightPromise ?? Promise.resolve();
+        }
       }
       return this.updateInFlightPromise ?? Promise.resolve();
     }
@@ -435,10 +506,21 @@ export class CopcThreeLayer {
 
   /** Release loaded source and rendered nodes while retaining the attachment. */
   unload(): void {
-    if (this.lifecycle === 'destroyed') {
+    if (this.isDestroyed()) {
       return;
     }
 
+    this.unloadInternal('unload');
+  }
+
+  private unloadInternal(reason: CopcViewCancellationReason): void {
+    if (this.lifecycle === 'destroyed') {
+      return;
+    }
+    this.cancelActiveView(reason);
+    if (this.isDestroyed()) {
+      return;
+    }
     this.loadGeneration += 1;
     this.streamingGeneration += 1;
     this.updatePending = false;
@@ -458,7 +540,10 @@ export class CopcThreeLayer {
 
   /** Unload and load the configured COPC resource again. */
   async reload(): Promise<void> {
-    this.unload();
+    if (this.lifecycle === 'destroyed') {
+      throw new Error('CopcThreeLayer has been destroyed');
+    }
+    this.unloadInternal('reload');
     await this.load();
   }
 
@@ -468,12 +553,22 @@ export class CopcThreeLayer {
       return;
     }
 
+    this.lifecycle = 'destroyed';
     this.loadGeneration += 1;
+    this.streamingGeneration += 1;
+    this.cancelActiveView('destroy');
     this.core.destroy();
     this.updatePending = false;
-    this.detachFrom();
+    this.pointRenderer.detachFrom();
+    this.resetReplacementTransitions();
+    this.clearSelectedPoint();
+    this.lastStreamingView = undefined;
+    this.activeStreamingUpdate = undefined;
+    this.attachment = undefined;
+    this.localFrame = undefined;
+    this.resetRendererPerformance();
     this.pointRenderer.destroy();
-    this.lifecycle = 'destroyed';
+    this.eventDispatcher.dispose();
   }
 
   /** Return the layer-owned root group for optional application composition. */
@@ -640,27 +735,71 @@ export class CopcThreeLayer {
     if (this.lastStreamingView && areStreamingViewsEquivalent(this.lastStreamingView, view)) {
       return;
     }
+    const begunView = this.eventLifecycle.beginView();
+    if (begunView.superseded) {
+      this.eventDispatcher.dispatchEvent({
+        type: 'viewcancelled',
+        ...begunView.superseded,
+      });
+    }
+    const publicViewGeneration = begunView.viewGeneration;
+    if (this.isDestroyed()
+      || !this.eventLifecycle.isActiveView(publicViewGeneration)) {
+      return;
+    }
     this.lastStreamingView = view;
-    const activeStreamingUpdate: ActiveStreamingUpdate = { progressApplied: false };
+    const activeStreamingUpdate: ActiveStreamingUpdate = {
+      progressApplied: false,
+    };
     this.activeStreamingUpdate = activeStreamingUpdate;
     let progressApplied = false;
+    let lastQueuedNodeCount: number | undefined;
+    let lastActiveNodeCount: number | undefined;
     const onProgress: CopcStreamingProgressHandler = (progress) => {
-      if (!this.isCurrentStreamingGeneration(generation, attachment)) {
+      if (!this.isCurrentStreamingGeneration(generation, attachment)
+        || !this.eventLifecycle.isActiveView(publicViewGeneration)) {
         return;
       }
       progressApplied = true;
       if (progress.loadedNodePoints.size > 0) {
         activeStreamingUpdate.progressApplied = true;
       }
-      this.applyStreamingProgress(progress, generation);
+      this.applyStreamingProgress(progress, generation, publicViewGeneration);
     };
+    const onWorkProgress: CopcStreamingWorkProgressHandler | undefined =
+      this.eventDispatcher.hasEventListener('progress')
+        ? (progress) => {
+            if (!this.isCurrentStreamingGeneration(generation, attachment)
+              || !this.eventLifecycle.isActiveView(publicViewGeneration)
+              || (progress.queuedNodeCount === lastQueuedNodeCount
+                && progress.activeNodeCount === lastActiveNodeCount)) {
+              return;
+            }
+            lastQueuedNodeCount = progress.queuedNodeCount;
+            lastActiveNodeCount = progress.activeNodeCount;
+            this.eventDispatcher.dispatchEvent({
+              type: 'progress',
+              queuedNodeCount: progress.queuedNodeCount,
+              activeNodeCount: progress.activeNodeCount,
+              viewGeneration: publicViewGeneration,
+            });
+          }
+        : undefined;
 
     let update: Awaited<ReturnType<CopcStreamingCore['updateView']>>;
     try {
-      update = await this.core.updateView(view, onProgress);
+      update = await this.core.updateView(view, onProgress, onWorkProgress);
     } catch (error: unknown) {
       if (this.lastStreamingView === view) {
         this.lastStreamingView = undefined;
+      }
+      if (this.eventLifecycle.failView(publicViewGeneration)) {
+        this.eventDispatcher.dispatchEvent({
+          type: 'error',
+          error: snapshotCopcError(error),
+          phase: 'view',
+          viewGeneration: publicViewGeneration,
+        });
       }
       if (this.activeStreamingUpdate === activeStreamingUpdate) {
         this.activeStreamingUpdate = undefined;
@@ -671,21 +810,42 @@ export class CopcThreeLayer {
       this.activeStreamingUpdate = undefined;
     }
     if (!this.isCurrentStreamingGeneration(generation, attachment) || !update) {
+      if (this.eventLifecycle.isActiveView(publicViewGeneration)) {
+        this.cancelActiveView('camera-change');
+      }
       return;
     }
     if (!progressApplied) {
       this.applyStreamingProgress({
         ...update,
         completedBatchPointCount: update.loadedNodePoints.size,
-      }, generation);
+      }, generation, publicViewGeneration);
+    }
+    if (this.eventLifecycle.isActiveView(publicViewGeneration)
+      && this.isViewRendererCommitted(
+        update.selectedNodeKeys,
+        update.loadedNodePoints,
+        publicViewGeneration,
+      )
+      && this.eventLifecycle.settleView(publicViewGeneration)) {
+      this.eventDispatcher.dispatchEvent({
+        type: 'viewsettled',
+        viewGeneration: publicViewGeneration,
+        selectedNodeKeys: Object.freeze([...update.selectedNodeKeys]),
+      });
     }
   }
 
-  private applyStreamingProgress(progress: StreamingProgress, generation: number): void {
+  private applyStreamingProgress(
+    progress: StreamingProgress,
+    generation: number,
+    viewGeneration: number,
+  ): void {
     this.reconcileReplacementGroups(
       progress.replacementGroups ?? [],
       generation,
       progress.selectedNodeKeys,
+      viewGeneration,
     );
 
     for (const nodeKey of progress.removedNodeKeys) {
@@ -701,6 +861,19 @@ export class CopcThreeLayer {
         continue;
       }
       this.addRenderedNode(nodeKey, points);
+      if (points.pointCount > 0
+        && this.pointRenderer.hasNode(nodeKey)
+        && this.firstVisibleLoadGeneration !== this.loadGeneration) {
+        this.firstVisibleLoadGeneration = this.loadGeneration;
+        this.eventDispatcher.dispatchEvent({
+          type: 'firstvisible',
+          loadGeneration: this.loadGeneration,
+          viewGeneration,
+        });
+        if (generation !== this.streamingGeneration || this.isDestroyed()) {
+          return;
+        }
+      }
     }
 
     this.commitReadyReplacementGroups(generation);
@@ -731,6 +904,7 @@ export class CopcThreeLayer {
     replacementGroups: readonly StreamingReplacementGroup[],
     generation: number,
     selectedNodeKeys: readonly string[],
+    viewGeneration: number,
   ): void {
     if (this.transitionGeneration === generation) {
       return;
@@ -783,6 +957,7 @@ export class CopcThreeLayer {
         oldNodeKeys: [...group.oldNodeKeys].sort(),
         newNodeKeys: [...group.newNodeKeys].sort(),
         generation,
+        viewGeneration,
       });
     }
   }
@@ -852,6 +1027,38 @@ export class CopcThreeLayer {
     this.activeReplacementGroups.clear();
     this.transitionGeneration = 0;
     this.transitionDiagnostics = createTransitionDiagnostics();
+  }
+
+  private isViewRendererCommitted(
+    selectedNodeKeys: readonly string[],
+    readyPointBuffers: ReadonlyMap<string, PreparedPointData>,
+    viewGeneration: number,
+  ): boolean {
+    if ([...this.activeReplacementGroups.values()]
+      .some((group) => group.viewGeneration === viewGeneration)) {
+      return false;
+    }
+    return selectedNodeKeys.every((nodeKey) => {
+      if (this.pointRenderer.hasNode(nodeKey)) {
+        return true;
+      }
+      const readyPoints = readyPointBuffers.get(nodeKey);
+      return readyPoints === undefined || readyPoints.pointCount === 0;
+    });
+  }
+
+  private cancelActiveView(reason: CopcViewCancellationReason): void {
+    const cancelled = this.eventLifecycle.cancelView(reason);
+    if (cancelled) {
+      this.eventDispatcher.dispatchEvent({
+        type: 'viewcancelled',
+        ...cancelled,
+      });
+    }
+  }
+
+  private isDestroyed(): boolean {
+    return this.lifecycle === 'destroyed';
   }
 
   private removeRenderedNode(nodeKey: string): void {

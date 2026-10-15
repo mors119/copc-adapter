@@ -95,6 +95,8 @@ export type {
   CopcCesiumLayerSnapshot,
   CopcColorMode,
   CopcStreamingOptions,
+  CopcLayerErrorEvent,
+  CopcViewCancellationReason,
 } from './api/CopcCesiumLayer';
 export type {
   CopcCesiumPointStyle,

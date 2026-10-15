@@ -218,3 +218,9 @@ export type StreamingProgress = {
   replacementGroups: StreamingReplacementGroup[];
   generation: number;
 };
+
+/** Scheduler queue/active counts for one renderer-neutral view update. */
+export type StreamingWorkProgress = {
+  queuedNodeCount: number;
+  activeNodeCount: number;
+};

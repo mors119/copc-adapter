@@ -59,6 +59,7 @@ import type {
   StreamingSelectionOptions,
   StreamingUpdateResult,
   StreamingView,
+  StreamingWorkProgress,
 } from './types';
 import {
   StreamingPerformanceRecorder,
@@ -117,6 +118,7 @@ export type CopcStreamingControllerOptions = {
 export type CopcStreamingCoreOptions = CopcStreamingControllerOptions;
 
 export type CopcStreamingProgressHandler = (progress: StreamingProgress) => void;
+export type CopcStreamingWorkProgressHandler = (progress: StreamingWorkProgress) => void;
 
 /** Performance values owned by the core; renderer frame/GPU timings are excluded. */
 export type CopcStreamingPerformanceSnapshot = Pick<
@@ -487,6 +489,7 @@ export class CopcStreamingCore {
   async updateView(
     view: StreamingView,
     onProgress?: CopcStreamingProgressHandler,
+    onWorkProgress?: CopcStreamingWorkProgressHandler,
   ): Promise<StreamingUpdateResult | undefined> {
     if (this.lifecycle === 'destroyed') {
       throw new Error('CopcStreamingController has been destroyed');
@@ -545,6 +548,15 @@ export class CopcStreamingCore {
     };
     const update = await streamingState.manager.update(adaptiveView, applyProgress, {
       performanceAlreadyStarted: true,
+      ...(onWorkProgress
+        ? {
+            onWorkProgress: (progress: StreamingWorkProgress) => {
+              if (this.isCurrentView(viewGeneration, streamingState)) {
+                onWorkProgress(progress);
+              }
+            },
+          }
+        : {}),
     });
     if (!this.isCurrentView(viewGeneration, streamingState)) {
       return undefined;

@@ -11,6 +11,7 @@ import type {
   StreamingReplacementGroup,
   StreamingSelectedNode,
   StreamingUpdateResult,
+  StreamingWorkProgress,
 } from './types';
 import { performanceNow } from '../../copc/performance';
 import { StreamingPerformanceRecorder } from './performance';
@@ -30,6 +31,7 @@ export type StreamingManagerUpdateOptions = {
    * Keep that recording so the query remains part of this update's metrics.
    */
   performanceAlreadyStarted?: boolean;
+  onWorkProgress?: (progress: StreamingWorkProgress) => void;
 };
 
 function isQueuedDecodeCancellation(error: unknown): boolean {
@@ -302,6 +304,10 @@ export class StreamingManager {
         }
         if (updateGeneration === this.updateGeneration) {
           this.performanceRecorder.setSchedulingDiagnostics(diagnostics);
+          options.onWorkProgress?.({
+            queuedNodeCount: diagnostics.queuedNodeCount,
+            activeNodeCount: diagnostics.activeNodeCount,
+          });
         }
       },
       onStart: (node) => {
