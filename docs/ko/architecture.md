@@ -166,7 +166,7 @@ docs/benchmarks/
 - unit: deterministic semantics
 - E2E: 실제 browser/Cesium
 - packed consumer: npm package 경계
-- benchmark/validation doc: 한 번의 측정값과 한계 기록
+- benchmark/validation doc: 메인테이너가 승인한 장기 비교용 재현 가능한 성능 기준만 별도 보관 (일회성 검증은 PR 본문에 기록)
 
 ## 내가 수정하려는 기능은 어디인가?
 
