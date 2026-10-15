@@ -180,13 +180,18 @@ test('renderer-neutral core loads metadata and hierarchy without Cesium', async 
 
   assert.equal(controller.getMetadata().pointCount, 2);
   assert.equal(controller.getSnapshot().lifecycle, 'ready');
-  assert.deepEqual(controller.getHierarchyDiagnostics(), {
-    pageRequests: 1,
-    pageCacheHits: 0,
-    hierarchyBytesFetched: 10,
-    loadedPageCount: 1,
-    loadedEntryCount: 2,
-  });
+  const hierarchy = controller.getHierarchyDiagnostics();
+  assert.equal(hierarchy.pageRequests, 1);
+  assert.equal(hierarchy.pageCacheHits, 0);
+  assert.equal(hierarchy.hierarchyBytesFetched, 10);
+  assert.equal(hierarchy.loadedPageCount, 1);
+  assert.equal(hierarchy.discoveredPageCount, 1);
+  assert.equal(hierarchy.completedPageCount, 1);
+  assert.equal(hierarchy.activePageLoads, 0);
+  assert.equal(hierarchy.peakActivePageLoads, 1);
+  assert.ok(hierarchy.rootHierarchyLoadDurationMs >= 0);
+  assert.equal(hierarchy.lastQueryDurationMs, 0);
+  assert.equal(hierarchy.loadedEntryCount, 2);
 
   controller.destroy();
   assert.equal(source.destroyCount, 1);

@@ -18,6 +18,7 @@ import {
   CopcHierarchyTraversalError,
 } from './types';
 import { CopcLoadError } from '../errors';
+import { performanceNow } from '../performance';
 
 type MutableHierarchyTree = ReturnType<typeof createHierarchyTree>;
 
@@ -28,6 +29,15 @@ const DEFAULT_CUBE_BOUNDS: CopcHierarchyBounds = {
   maxX: 1,
   maxY: 1,
   maxZ: 1,
+};
+
+const DEFAULT_MAX_CONCURRENT_PAGE_LOADS = 4;
+
+type HierarchyLoaderOptions = {
+  /** Internal scheduler override used by deterministic hierarchy benchmarks. */
+  maxConcurrentPageLoads?: number;
+  sourceOpenDurationMs?: number;
+  metadataLoadDurationMs?: number;
 };
 
 function createPageCacheKey(page: CopcHierarchyPage): string {
@@ -175,21 +185,39 @@ function assertNoPageCycles(pageChildren: Map<string, string[]>): void {
 export class HierarchyLoader {
   private readonly source: CopcHierarchySource;
   private readonly cubeBounds: CopcHierarchyBounds;
+  private readonly maxConcurrentPageLoads: number;
   private tree: MutableHierarchyTree = createHierarchyTree();
   private readonly pageCache = new Map<string, Promise<CopcHierarchySubtree>>();
   private readonly pageChildren = new Map<string, string[]>();
   private readonly loadedPageKeys = new Set<string>();
+  private readonly pendingPageLoadSlots: Array<() => void> = [];
+  private activePageLoads = 0;
+  private peakActivePageLoads = 0;
   private pageRequests = 0;
   private pageCacheHits = 0;
   private hierarchyBytesFetched = 0;
+  private readonly sourceOpenDurationMs: number;
+  private readonly metadataLoadDurationMs: number;
+  private rootHierarchyLoadDurationMs = 0;
+  private lastQueryDurationMs = 0;
+  private cacheGeneration = 0;
 
   constructor(
     source: CopcHierarchySource,
     cubeBounds: CopcHierarchyBounds = DEFAULT_CUBE_BOUNDS,
+    options: HierarchyLoaderOptions = {},
   ) {
     assertBounds(cubeBounds, 'COPC cube');
+    const maxConcurrentPageLoads = options.maxConcurrentPageLoads
+      ?? DEFAULT_MAX_CONCURRENT_PAGE_LOADS;
+    if (!Number.isSafeInteger(maxConcurrentPageLoads) || maxConcurrentPageLoads < 1) {
+      throw new CopcHierarchyError('Hierarchy page concurrency must be a positive safe integer');
+    }
     this.source = source;
     this.cubeBounds = cubeBounds;
+    this.maxConcurrentPageLoads = maxConcurrentPageLoads;
+    this.sourceOpenDurationMs = options.sourceOpenDurationMs ?? 0;
+    this.metadataLoadDurationMs = options.metadataLoadDurationMs ?? 0;
   }
 
   /** Compatibility path for callers that explicitly need a full traversal. */
@@ -204,7 +232,16 @@ export class HierarchyLoader {
 
   /** Load only the root page and retain its child page references. */
   async loadRoot(): Promise<CopcHierarchyTree> {
-    await this.loadPage(this.source.getRootHierarchyPage());
+    const startedAt = performanceNow();
+    const generation = this.cacheGeneration;
+    try {
+      await this.loadPage(this.source.getRootHierarchyPage());
+    } finally {
+      if (generation === this.cacheGeneration) {
+        this.rootHierarchyLoadDurationMs = Math.max(0, performanceNow() - startedAt);
+      }
+    }
+    this.assertCurrentGeneration(generation);
     return finalizeHierarchyTree(this.tree, undefined, this.loadedPageKeys);
   }
 
@@ -214,43 +251,78 @@ export class HierarchyLoader {
    * per-loader cache and remain available for later view movement.
    */
   async query(query: CopcHierarchyQuery): Promise<CopcHierarchyTree> {
-    assertQuery(query);
-    await this.loadPage(this.source.getRootHierarchyPage());
+    const startedAt = performanceNow();
+    const generation = this.cacheGeneration;
+    try {
+      assertQuery(query);
+      await this.loadPage(this.source.getRootHierarchyPage());
+      this.assertCurrentGeneration(generation);
 
-    const pendingPages = [...this.tree.pageMap.values()];
-    const considered = new Set<string>();
-    for (let index = 0; index < pendingPages.length; index += 1) {
-      const page = pendingPages[index];
-      const cacheKey = createPageCacheKey(page);
-      if (considered.has(cacheKey)) {
-        continue;
-      }
-      considered.add(cacheKey);
+      const pendingPages = [...this.tree.pageMap.values()];
+      const considered = new Set<string>();
+      let nextPageIndex = 0;
+      let failed = false;
+      let failure: unknown;
 
-      const { level } = parseHierarchyKey(page.key);
-      if (
-        (query.maxLevel !== undefined && level > query.maxLevel) ||
-        !intersects(pageBounds(page, this.cubeBounds), query.bounds)
-      ) {
-        continue;
-      }
+      const worker = async (): Promise<void> => {
+        while (!failed) {
+          const page = pendingPages[nextPageIndex];
+          nextPageIndex += 1;
+          if (!page) {
+            return;
+          }
 
-      await this.loadPage(page);
-      for (const discoveredPage of this.tree.pageMap.values()) {
-        if (!considered.has(createPageCacheKey(discoveredPage))) {
-          pendingPages.push(discoveredPage);
+          const cacheKey = createPageCacheKey(page);
+          if (considered.has(cacheKey)) {
+            continue;
+          }
+          considered.add(cacheKey);
+
+          try {
+            const { level } = parseHierarchyKey(page.key);
+            if (
+              (query.maxLevel !== undefined && level > query.maxLevel) ||
+              !intersects(pageBounds(page, this.cubeBounds), query.bounds)
+            ) {
+              continue;
+            }
+
+            await this.loadPage(page);
+            this.assertCurrentGeneration(generation);
+            for (const discoveredPage of this.tree.pageMap.values()) {
+              if (!considered.has(createPageCacheKey(discoveredPage))) {
+                pendingPages.push(discoveredPage);
+              }
+            }
+          } catch (error: unknown) {
+            if (!failed) {
+              failed = true;
+              failure = error;
+            }
+          }
         }
+      };
+
+      const workerCount = Math.min(this.maxConcurrentPageLoads, Math.max(1, pendingPages.length));
+      await Promise.all(Array.from({ length: workerCount }, () => worker()));
+      if (failed) {
+        throw failure;
+      }
+
+      this.assertCurrentGeneration(generation);
+      assertNoPageCycles(this.pageChildren);
+      return finalizeHierarchyTree(
+        this.tree,
+        query.maxLevel,
+        this.loadedPageKeys,
+        query.bounds,
+        this.cubeBounds,
+      );
+    } finally {
+      if (generation === this.cacheGeneration) {
+        this.lastQueryDurationMs = Math.max(0, performanceNow() - startedAt);
       }
     }
-
-    assertNoPageCycles(this.pageChildren);
-    return finalizeHierarchyTree(
-      this.tree,
-      query.maxLevel,
-      this.loadedPageKeys,
-      query.bounds,
-      this.cubeBounds,
-    );
   }
 
   getDiagnostics(): CopcHierarchyDiagnostics {
@@ -259,12 +331,21 @@ export class HierarchyLoader {
       pageCacheHits: this.pageCacheHits,
       hierarchyBytesFetched: this.hierarchyBytesFetched,
       loadedPageCount: this.pageCache.size,
+      discoveredPageCount: this.tree.pageMap.size + Number(this.loadedPageKeys.size > 0),
+      completedPageCount: this.loadedPageKeys.size,
+      activePageLoads: this.activePageLoads,
+      peakActivePageLoads: this.peakActivePageLoads,
+      sourceOpenDurationMs: this.sourceOpenDurationMs,
+      metadataLoadDurationMs: this.metadataLoadDurationMs,
+      rootHierarchyLoadDurationMs: this.rootHierarchyLoadDurationMs,
+      lastQueryDurationMs: this.lastQueryDurationMs,
       loadedEntryCount: this.tree.nodeMap.size + this.tree.pageMap.size,
     };
   }
 
   /** Clear hierarchy pages and diagnostics when a source is explicitly reused. */
   reset(): void {
+    this.cacheGeneration += 1;
     this.tree = createHierarchyTree();
     this.pageCache.clear();
     this.pageChildren.clear();
@@ -272,30 +353,44 @@ export class HierarchyLoader {
     this.pageRequests = 0;
     this.pageCacheHits = 0;
     this.hierarchyBytesFetched = 0;
+    this.rootHierarchyLoadDurationMs = 0;
+    this.lastQueryDurationMs = 0;
+    this.peakActivePageLoads = this.activePageLoads;
   }
 
   private async loadPage(page: CopcHierarchyPage): Promise<CopcHierarchySubtree> {
     assertPageIsValid(page);
     const cacheKey = createPageCacheKey(page);
+    const generation = this.cacheGeneration;
     const cached = this.pageCache.get(cacheKey);
     if (cached) {
       this.pageCacheHits += 1;
       const subtree = await cached;
-      this.loadedPageKeys.add(page.key);
+      if (generation === this.cacheGeneration) {
+        this.loadedPageKeys.add(page.key);
+      }
       return subtree;
     }
 
     this.pageRequests += 1;
     this.hierarchyBytesFetched += page.pageLength;
-    const request = this.source.loadHierarchyPage(page)
+    const request = this.withPageLoadSlot(
+      generation,
+      () => this.source.loadHierarchyPage(page),
+    )
       .then((subtree) => {
+        if (generation !== this.cacheGeneration) {
+          return subtree;
+        }
         mergeHierarchySubtree(this.tree, subtree);
         this.loadedPageKeys.add(page.key);
         this.pageChildren.set(page.key, subtree.pages.map((child) => child.key));
         return subtree;
       })
       .catch((error: unknown) => {
-        this.pageCache.delete(cacheKey);
+        if (this.pageCache.get(cacheKey) === request) {
+          this.pageCache.delete(cacheKey);
+        }
         if (
           error instanceof CopcHierarchyError ||
           error instanceof CopcLoadError
@@ -309,5 +404,40 @@ export class HierarchyLoader {
       });
     this.pageCache.set(cacheKey, request);
     return request;
+  }
+
+  private async withPageLoadSlot<T>(
+    generation: number,
+    load: () => Promise<T>,
+  ): Promise<T> {
+    if (this.activePageLoads >= this.maxConcurrentPageLoads) {
+      await new Promise<void>((resolve) => {
+        this.pendingPageLoadSlots.push(resolve);
+      });
+    } else {
+      this.activePageLoads += 1;
+      this.peakActivePageLoads = Math.max(
+        this.peakActivePageLoads,
+        this.activePageLoads,
+      );
+    }
+
+    try {
+      this.assertCurrentGeneration(generation);
+      return await load();
+    } finally {
+      const next = this.pendingPageLoadSlots.shift();
+      if (next) {
+        next();
+      } else {
+        this.activePageLoads -= 1;
+      }
+    }
+  }
+
+  private assertCurrentGeneration(generation: number): void {
+    if (generation !== this.cacheGeneration) {
+      throw new CopcHierarchyTraversalError('Hierarchy loader was reset during a query');
+    }
   }
 }

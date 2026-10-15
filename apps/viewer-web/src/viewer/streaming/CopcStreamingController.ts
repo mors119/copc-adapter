@@ -338,6 +338,7 @@ export class CopcStreamingCore {
     let context: CopcSource | undefined;
 
     try {
+      const sourceOpenStartedAt = performanceNow();
       context = await createCopcContext(this.options.url, this.options.backend, {
         signal: lifecycleAbortController.signal,
         rangeRequestDiagnostics: this.rangeRequestDiagnostics,
@@ -345,6 +346,7 @@ export class CopcStreamingCore {
         maxRangeBytes: this.options.maxRangeBytes,
         maxConcurrentRangeRequests: this.options.maxConcurrentRangeRequests,
       });
+      const sourceOpenDurationMs = Math.max(0, performanceNow() - sourceOpenStartedAt);
       if (!this.isCurrentLoad(loadGeneration)) {
         context.destroy?.();
         return;
@@ -353,13 +355,21 @@ export class CopcStreamingCore {
       context.setPerformanceObserver?.(
         this.createPerformanceObserver(performanceRecorder),
       );
+      const metadataLoadStartedAt = performanceNow();
       const metadata = await loadCopcMetadata(context);
+      const metadataLoadDurationMs = Math.max(
+        0,
+        performanceNow() - metadataLoadStartedAt,
+      );
       if (!this.isCurrentLoad(loadGeneration)) {
         context.destroy?.();
         return;
       }
 
-      const hierarchyLoader = new HierarchyLoader(context, metadata.cube);
+      const hierarchyLoader = new HierarchyLoader(context, metadata.cube, {
+        sourceOpenDurationMs,
+        metadataLoadDurationMs,
+      });
       let rootHierarchy;
       try {
         rootHierarchy = await hierarchyLoader.loadRoot();
@@ -544,6 +554,7 @@ export class CopcStreamingCore {
     this.lifecycleAbortController = undefined;
     const state = this.streamingState;
     state?.manager.clear();
+    state?.hierarchyLoader.reset();
     state?.context.destroy?.();
     state?.cache.clear();
     this.streamingState = undefined;
