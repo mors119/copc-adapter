@@ -37,6 +37,7 @@ import type {
 } from '../viewer/streaming/types';
 import { DEFAULT_MAX_RENDERED_POINTS } from '../viewer/streaming/NodeSelector';
 import type { NodePointCacheDiagnostics } from '../viewer/streaming/createNodePointCache';
+import type { AdaptiveViewDistanceDiagnostics } from '../viewer/streaming/view';
 import type { RangeValidationPolicy } from '../copc/range/types';
 import {
   ThreePointRenderer,
@@ -131,6 +132,7 @@ export type CopcThreeLayerSnapshot = {
   performance: CopcStreamingPerformanceSnapshot;
   renderer: CopcThreeRendererPerformanceSnapshot;
   transition: CopcThreeLayerTransitionDiagnostics;
+  viewDistance?: AdaptiveViewDistanceDiagnostics;
   hierarchy?: import('../copc/hierarchy/types').CopcHierarchyDiagnostics;
   pointCache: NodePointCacheDiagnostics;
   worker?: CopcWorkerDiagnostics;
@@ -607,6 +609,7 @@ export class CopcThreeLayer {
       performance: coreSnapshot.performance,
       renderer: { ...this.rendererPerformance },
       transition: { ...this.transitionDiagnostics },
+      ...(coreSnapshot.viewDistance ? { viewDistance: coreSnapshot.viewDistance } : {}),
       ...(coreSnapshot.hierarchy ? { hierarchy: coreSnapshot.hierarchy } : {}),
       pointCache: coreSnapshot.pointCache,
       ...(coreSnapshot.worker ? { worker: coreSnapshot.worker } : {}),

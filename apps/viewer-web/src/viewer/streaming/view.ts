@@ -96,6 +96,328 @@ export type StreamingViewBounds = {
   effectiveFarMeters: number;
 };
 
+export type AdaptiveViewDistanceTransition =
+  | 'initialized'
+  | 'expanded'
+  | 'shrunk'
+  | 'held'
+  | 'fallback';
+
+/** Aggregate view-distance diagnostics attached to the current streaming view. */
+export type AdaptiveViewDistanceDiagnostics = {
+  /** Farthest sampled ground footprint along the perspective view, before overscan. */
+  visibleFootprintMeters?: number;
+  /** Current footprint plus the bounded overscan, before hysteresis. */
+  targetDistanceMeters: number;
+  /** Distance consumed by the streaming selector and hierarchy query. */
+  effectiveDistanceMeters: number;
+  maxRenderDistanceMeters: number;
+  overscanFactor: number;
+  clampedToMaxRenderDistance: boolean;
+  transition: AdaptiveViewDistanceTransition;
+  updateCount: number;
+  expansionCount: number;
+  shrinkCount: number;
+  hysteresisHoldCount: number;
+  fallbackCount: number;
+};
+
+type AdaptiveViewDistanceInput = {
+  longitude: number;
+  latitude: number;
+  height: number;
+  viewDistanceMeters: number;
+  viewFrustum?: ViewFrustum;
+};
+
+const ADAPTIVE_VIEW_OVERSCAN_FACTOR = 1.5;
+const ADAPTIVE_VIEW_EXPANSION_RATIO = 1.15;
+const ADAPTIVE_VIEW_SHRINK_RATIO = 0.75;
+const ADAPTIVE_VIEW_MIN_DISTANCE_METERS = 25;
+const ADAPTIVE_GROUND_CLEARANCE_METERS = 25;
+const ADAPTIVE_VIEW_RAY_EPSILON = 1e-8;
+
+function samplePerspectiveRayDirections(frustum: ViewFrustum): ViewVector3[] {
+  const verticalTangent = Math.tan(frustum.verticalFovRadians / 2);
+  const horizontalTangent = verticalTangent * frustum.aspectRatio;
+  if (!Number.isFinite(verticalTangent) || !Number.isFinite(horizontalTangent)) {
+    return [];
+  }
+  const direction = normalize(frustum.direction);
+  const up = normalize(frustum.up);
+  const right = normalize(frustum.right);
+
+  const directions: ViewVector3[] = [];
+  // Include the center, edge midpoints, and corners. This captures the
+  // farthest ground intersection for a perspective footprint without tying
+  // the estimate to a particular renderer's frustum implementation.
+  for (const horizontal of [-1, 0, 1]) {
+    for (const vertical of [-1, 0, 1]) {
+      directions.push(normalize(add(
+        add(
+          direction,
+          multiply(right, horizontal * horizontalTangent),
+        ),
+        multiply(up, vertical * verticalTangent),
+      )));
+    }
+  }
+  return directions;
+}
+
+/**
+ * Estimate the farthest ground footprint reached by the current perspective
+ * view. The local tangent plane is placed at least 25 m below the WGS84
+ * surface and below the dataset's minimum elevation, when known. A view whose
+ * cone reaches the horizon uses its configured hard distance cap as a fallback.
+ */
+export function estimateVisibleFootprintDistanceMeters(
+  view: AdaptiveViewDistanceInput,
+  maxRenderDistanceMeters: number,
+  minimumDatasetHeightMeters?: number,
+): number | undefined {
+  return estimateVisibleFootprint(view, maxRenderDistanceMeters, minimumDatasetHeightMeters)
+    ?.distanceMeters;
+}
+
+type VisibleFootprintEstimate = {
+  distanceMeters: number;
+  usedFallback: boolean;
+};
+
+function estimateVisibleFootprint(
+  view: AdaptiveViewDistanceInput,
+  maxRenderDistanceMeters: number,
+  minimumDatasetHeightMeters?: number,
+): VisibleFootprintEstimate | undefined {
+  const frustum = view.viewFrustum;
+  if (!isUsablePerspectiveFrustum(frustum)
+    || !Number.isFinite(maxRenderDistanceMeters)
+    || maxRenderDistanceMeters <= 0
+    || !Number.isFinite(view.longitude)
+    || !Number.isFinite(view.latitude)
+    || !Number.isFinite(view.height)) {
+    return undefined;
+  }
+
+  let directions: ViewVector3[];
+  let direction: ViewVector3;
+  let up: ViewVector3;
+  let right: ViewVector3;
+  try {
+    direction = normalize(frustum.direction);
+    up = normalize(frustum.up);
+    right = normalize(frustum.right);
+    directions = samplePerspectiveRayDirections(frustum);
+  } catch {
+    return undefined;
+  }
+  if (directions.length === 0) {
+    return undefined;
+  }
+
+  const longitudeRadians = (view.longitude * Math.PI) / 180;
+  const latitudeRadians = (view.latitude * Math.PI) / 180;
+  const localUp = {
+    x: Math.cos(latitudeRadians) * Math.cos(longitudeRadians),
+    y: Math.cos(latitudeRadians) * Math.sin(longitudeRadians),
+    z: Math.sin(latitudeRadians),
+  };
+  const verticalTangent = Math.tan(frustum.verticalFovRadians / 2);
+  const horizontalTangent = verticalTangent * frustum.aspectRatio;
+  const horizonReach = dot(direction, localUp)
+    + Math.abs(dot(right, localUp)) * horizontalTangent
+    + Math.abs(dot(up, localUp)) * verticalTangent;
+  if (!Number.isFinite(horizonReach)) {
+    return undefined;
+  }
+  // If the perspective cone touches the local horizon, ground range is
+  // unbounded in this approximation. Preserve coverage conservatively up to
+  // the frustum/application ceiling instead of trusting sparse ray samples.
+  if (horizonReach >= -ADAPTIVE_VIEW_RAY_EPSILON) {
+    return {
+      distanceMeters: Math.min(frustum.farMeters, maxRenderDistanceMeters),
+      usedFallback: true,
+    };
+  }
+
+  const datasetMinimumHeight = Number.isFinite(minimumDatasetHeightMeters)
+    ? minimumDatasetHeightMeters as number
+    : 0;
+  const groundPlaneHeight = Math.min(
+    -ADAPTIVE_GROUND_CLEARANCE_METERS,
+    datasetMinimumHeight - ADAPTIVE_GROUND_CLEARANCE_METERS,
+  );
+  const cameraGroundDistance = Math.max(
+    view.height - groundPlaneHeight,
+    ADAPTIVE_GROUND_CLEARANCE_METERS,
+  );
+  if (!Number.isFinite(cameraGroundDistance)) {
+    return undefined;
+  }
+
+  let farthestGroundDistance = 0;
+  for (const direction of directions) {
+    const downwardRate = -dot(direction, localUp);
+    if (!Number.isFinite(downwardRate) || downwardRate <= ADAPTIVE_VIEW_RAY_EPSILON) {
+      continue;
+    }
+
+    const intersectionDistance = cameraGroundDistance / downwardRate;
+    if (!Number.isFinite(intersectionDistance) || intersectionDistance < 0) {
+      continue;
+    }
+    farthestGroundDistance = Math.max(
+      farthestGroundDistance,
+      Math.min(intersectionDistance, frustum.farMeters, maxRenderDistanceMeters),
+    );
+  }
+
+  return farthestGroundDistance > 0
+    ? { distanceMeters: farthestGroundDistance, usedFallback: false }
+    : undefined;
+}
+
+/**
+ * Renderer-neutral asymmetric hysteresis for the current visible footprint.
+ * Expansions are immediate; a view must need less than 75% of the current
+ * range before the policy shrinks it. The 1.5x overscan retains adjacent edge
+ * coverage while remaining independent of any future-view prefetch policy.
+ */
+export class AdaptiveViewDistancePolicy {
+  private currentDistanceMeters?: number;
+  private updateCount = 0;
+  private expansionCount = 0;
+  private shrinkCount = 0;
+  private hysteresisHoldCount = 0;
+  private fallbackCount = 0;
+
+  apply(
+    view: AdaptiveViewDistanceInput,
+    maxRenderDistanceMeters: number,
+    minimumDatasetHeightMeters?: number,
+  ): AdaptiveViewDistanceInput & {
+    viewDistanceDiagnostics: AdaptiveViewDistanceDiagnostics;
+  } {
+    return this.resolve(view, maxRenderDistanceMeters, minimumDatasetHeightMeters, true);
+  }
+
+  /** Calculate an update view without changing hysteresis or aggregate counts. */
+  preview(
+    view: AdaptiveViewDistanceInput,
+    maxRenderDistanceMeters: number,
+    minimumDatasetHeightMeters?: number,
+  ): AdaptiveViewDistanceInput & {
+    viewDistanceDiagnostics: AdaptiveViewDistanceDiagnostics;
+  } {
+    return this.resolve(view, maxRenderDistanceMeters, minimumDatasetHeightMeters, false);
+  }
+
+  private resolve(
+    view: AdaptiveViewDistanceInput,
+    maxRenderDistanceMeters: number,
+    minimumDatasetHeightMeters: number | undefined,
+    commit: boolean,
+  ): AdaptiveViewDistanceInput & {
+    viewDistanceDiagnostics: AdaptiveViewDistanceDiagnostics;
+  } {
+    const safeMaximum = Number.isFinite(maxRenderDistanceMeters)
+      ? Math.max(maxRenderDistanceMeters, 0)
+      : 0;
+    const footprintEstimate = estimateVisibleFootprint(
+      view,
+      safeMaximum,
+      minimumDatasetHeightMeters,
+    );
+    const footprint = footprintEstimate?.distanceMeters;
+    const usedFallback = footprintEstimate?.usedFallback ?? footprint === undefined;
+    const hasFrustum = view.viewFrustum !== undefined;
+    const fallbackDistance = hasFrustum
+      ? safeMaximum
+      : Number.isFinite(view.viewDistanceMeters)
+        ? Math.max(view.viewDistanceMeters, 0)
+        : safeMaximum;
+    const unclampedTarget = footprint === undefined
+      ? fallbackDistance
+      : Math.max(
+        ADAPTIVE_VIEW_MIN_DISTANCE_METERS,
+        footprint * ADAPTIVE_VIEW_OVERSCAN_FACTOR,
+      );
+    const targetDistanceMeters = Math.min(
+      unclampedTarget,
+      safeMaximum,
+      isUsablePerspectiveFrustum(view.viewFrustum)
+        ? view.viewFrustum.farMeters
+        : safeMaximum,
+    );
+
+    let effectiveDistanceMeters = targetDistanceMeters;
+    let transition: AdaptiveViewDistanceTransition;
+    let expansionCount = this.expansionCount;
+    let updateCount = this.updateCount;
+    let shrinkCount = this.shrinkCount;
+    let hysteresisHoldCount = this.hysteresisHoldCount;
+    let fallbackCount = this.fallbackCount;
+    if (usedFallback) {
+      transition = 'fallback';
+      if (commit) fallbackCount += 1;
+    } else if (this.currentDistanceMeters === undefined) {
+      transition = 'initialized';
+    } else if (targetDistanceMeters > this.currentDistanceMeters * ADAPTIVE_VIEW_EXPANSION_RATIO) {
+      transition = 'expanded';
+      if (commit) expansionCount += 1;
+    } else if (targetDistanceMeters < this.currentDistanceMeters * ADAPTIVE_VIEW_SHRINK_RATIO) {
+      transition = 'shrunk';
+      if (commit) shrinkCount += 1;
+    } else {
+      transition = 'held';
+      if (commit) hysteresisHoldCount += 1;
+      effectiveDistanceMeters = this.currentDistanceMeters;
+    }
+
+    if (commit) {
+      this.currentDistanceMeters = effectiveDistanceMeters;
+      updateCount += 1;
+      this.updateCount = updateCount;
+      this.expansionCount = expansionCount;
+      this.shrinkCount = shrinkCount;
+      this.hysteresisHoldCount = hysteresisHoldCount;
+      this.fallbackCount = fallbackCount;
+    }
+    const clampedToMaxRenderDistance = unclampedTarget > safeMaximum
+      || (footprint === undefined && hasFrustum);
+    return {
+      ...view,
+      viewDistanceMeters: effectiveDistanceMeters,
+      viewDistanceDiagnostics: {
+        ...(footprint === undefined || usedFallback
+          ? {}
+          : { visibleFootprintMeters: footprint }),
+        targetDistanceMeters,
+        effectiveDistanceMeters,
+        maxRenderDistanceMeters: safeMaximum,
+        overscanFactor: ADAPTIVE_VIEW_OVERSCAN_FACTOR,
+        clampedToMaxRenderDistance,
+        transition,
+        updateCount,
+        expansionCount,
+        shrinkCount,
+        hysteresisHoldCount,
+        fallbackCount,
+      },
+    };
+  }
+
+  reset(): void {
+    this.currentDistanceMeters = undefined;
+    this.updateCount = 0;
+    this.expansionCount = 0;
+    this.shrinkCount = 0;
+    this.hysteresisHoldCount = 0;
+    this.fallbackCount = 0;
+  }
+}
+
 function dot(left: ViewVector3, right: ViewVector3): number {
   return left.x * right.x + left.y * right.y + left.z * right.z;
 }

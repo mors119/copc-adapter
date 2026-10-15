@@ -4,7 +4,11 @@ import type {
   GeographicPoint,
   PreparedPointData,
 } from '../../copc/types/copc';
-import type { BoundingSphere, ViewFrustum } from './view';
+import type {
+  AdaptiveViewDistanceDiagnostics,
+  BoundingSphere,
+  ViewFrustum,
+} from './view';
 
 export type {
   BoundingSphere,
@@ -32,6 +36,8 @@ export type BoundingBox = {
 export type StreamingView = GeographicCamera & {
   viewDistanceMeters: number;
   viewFrustum?: ViewFrustum;
+  /** Shared adaptive current-view estimate, when normalized by the core. */
+  viewDistanceDiagnostics?: AdaptiveViewDistanceDiagnostics;
 };
 
 /** Backward-compatible name for the project-owned streaming view contract. */

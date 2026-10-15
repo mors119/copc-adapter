@@ -39,6 +39,7 @@ type CopcDebugState = {
   renderedNodeKeys: string[];
   selectedNodeKeys: string[];
   transition: ReturnType<CopcCesiumLayer['getSnapshot']>['transition'];
+  viewDistance: ReturnType<CopcCesiumLayer['getSnapshot']>['viewDistance'];
   streamingUpdateCount: number;
   cameraMoveEventCount: number;
   cameraPitchDegrees: number;
@@ -205,6 +206,7 @@ function installDebugAdapter(
         renderedNodeKeys: snapshot.renderedNodeKeys,
         selectedNodeKeys: snapshot.selectedNodeKeys,
         transition: snapshot.transition,
+        viewDistance: snapshot.viewDistance,
         streamingUpdateCount: snapshot.streamingUpdateCount,
         cameraMoveEventCount,
         cameraPitchDegrees: Cesium.Math.toDegrees(viewer.camera.pitch),

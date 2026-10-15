@@ -228,6 +228,31 @@ test('maps layer diagnostics and metadata into browser-visible values', () => {
   assert.equal(view.sourceWarnings, '—');
 });
 
+test('formats adaptive view-distance diagnostics for browser inspection', () => {
+  const view = buildCopcDebugPanelView({
+    snapshot: createSnapshot({
+      viewDistance: {
+        visibleFootprintMeters: 125,
+        targetDistanceMeters: 187.5,
+        effectiveDistanceMeters: 187.5,
+        maxRenderDistanceMeters: 12_000,
+        overscanFactor: 1.5,
+        clampedToMaxRenderDistance: false,
+        transition: 'initialized',
+        expansionCount: 0,
+        shrinkCount: 0,
+        hysteresisHoldCount: 0,
+        fallbackCount: 0,
+      },
+    }),
+  });
+
+  assert.equal(
+    view.viewDistance,
+    '125 m / 187.50000 m / 12000 m cap · initialized · overscan 1.5000000× · expand 0 / shrink 0 / hold 0 / fallback 0',
+  );
+});
+
 test('shows loading placeholders and gives runtime errors precedence', () => {
   const loading = buildCopcDebugPanelView({
     snapshot: createSnapshot({ lifecycle: 'loading', selectedNodeKeys: [] }),

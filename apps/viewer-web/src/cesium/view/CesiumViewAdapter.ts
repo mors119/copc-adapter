@@ -86,7 +86,9 @@ export function createCesiumStreamingView(viewer: Cesium.Viewer): StreamingView 
 
     return {
       ...view,
-      viewDistanceMeters: Math.max(viewFrustum.farMeters, 2000),
+      // The shared streaming core replaces this far-plane seed with its
+      // renderer-neutral visible-footprint estimate.
+      viewDistanceMeters: viewFrustum.farMeters,
       viewFrustum,
     };
   } catch {

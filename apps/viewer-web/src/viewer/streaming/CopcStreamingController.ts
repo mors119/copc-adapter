@@ -21,6 +21,7 @@ import { loadCopcPointBuffer } from '../../copc/points/loadPointData';
 import { wasmCopcPointDecoder } from '../../wasm/copcDecoder';
 import { createCopcPointFieldSelection, type CopcPointFieldSelection } from '../../copc/points/fieldSelection';
 import {
+  createPointTransformer,
   createProjectPointTransformer,
   transformPointBufferToPreparedPointData,
 } from '../../coordinates/transform/createPointTransformer';
@@ -43,7 +44,11 @@ import {
 } from './createNodePointCache';
 import { DEFAULT_MAX_RENDERED_POINTS } from './NodeSelector';
 import { StreamingManager } from './StreamingManager';
-import { createStreamingViewBounds } from './view';
+import {
+  AdaptiveViewDistancePolicy,
+  createStreamingViewBounds,
+} from './view';
+import type { AdaptiveViewDistanceDiagnostics } from './view';
 import type {
   StreamingHierarchy,
   StreamingHierarchyNode,
@@ -195,6 +200,7 @@ export type CopcStreamingSnapshot = {
   streamingUpdateCount: number;
   performance: CopcStreamingPerformanceSnapshot;
   transition: CopcStreamingTransitionState;
+  viewDistance?: AdaptiveViewDistanceDiagnostics;
   hierarchy?: CopcHierarchyDiagnostics;
   pointCache: NodePointCacheDiagnostics;
   rangeRequests: RangeRequestDiagnostics;
@@ -204,6 +210,7 @@ export type CopcStreamingSnapshot = {
 type StreamingState = {
   context: CopcSource;
   metadata: CopcMetadata;
+  minimumDatasetHeightMeters?: number;
   hierarchyLoader: HierarchyLoader;
   nodes: StreamingHierarchy;
   nodesRef: { current: StreamingHierarchy };
@@ -285,6 +292,20 @@ function toProjectBounds(
   });
 }
 
+function getMinimumDatasetHeightMeters(metadata: CopcMetadata): number | undefined {
+  try {
+    const transformPoint = createPointTransformer(metadata);
+    const minimum = transformPoint({
+      x: metadata.bounds.minX,
+      y: metadata.bounds.minY,
+      z: metadata.bounds.minZ,
+    }).height;
+    return Number.isFinite(minimum) ? minimum : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Owns COPC loading and renderer-independent streaming state.
  *
@@ -304,6 +325,7 @@ export class CopcStreamingCore {
   private streamingUpdateCount = 0;
   private selectedNodeKeys = new Set<string>();
   private currentView?: StreamingView;
+  private readonly adaptiveViewDistancePolicy = new AdaptiveViewDistancePolicy();
   private transition = createTransitionState();
   private lifecycle: CopcStreamingLifecycleState = 'idle';
   private lifecycleAbortController?: AbortController;
@@ -410,6 +432,7 @@ export class CopcStreamingCore {
       this.streamingState = {
         context,
         metadata,
+        minimumDatasetHeightMeters: getMinimumDatasetHeightMeters(metadata),
         hierarchyLoader,
         nodes,
         nodesRef,
@@ -451,12 +474,17 @@ export class CopcStreamingCore {
     if (!streamingState || this.lifecycle !== 'ready') {
       throw new Error('COPC streaming controller is not loaded');
     }
+    const adaptiveView = this.adaptiveViewDistancePolicy.apply(
+      view,
+      this.getStreamingOptions().maxRenderDistanceMeters,
+      streamingState.minimumDatasetHeightMeters,
+    );
 
     const viewGeneration = ++this.viewGeneration;
     // Invalidate queued point work while the generation's hierarchy query is
     // still in flight. The manager also invalidates at update start, matching
     // the established stale-result semantics.
-    streamingState.manager.invalidate('superseded', view);
+    streamingState.manager.invalidate('superseded', adaptiveView);
     // Start measuring before a view can discover uncached hierarchy pages. The
     // manager is told to continue this recording after the query completes.
     this.performanceRecorder.beginUpdate();
@@ -464,7 +492,7 @@ export class CopcStreamingCore {
     let hierarchy;
     try {
       hierarchy = await streamingState.hierarchyLoader.query(
-        this.getHierarchyQuery(view),
+        this.createHierarchyQuery(adaptiveView),
       );
     } catch (error: unknown) {
       if (!this.isCurrentView(viewGeneration, streamingState)) {
@@ -493,7 +521,7 @@ export class CopcStreamingCore {
       progressApplied = true;
       this.applyProgress(progress, onProgress, viewGeneration);
     };
-    const update = await streamingState.manager.update(view, applyProgress, {
+    const update = await streamingState.manager.update(adaptiveView, applyProgress, {
       performanceAlreadyStarted: true,
     });
     if (!this.isCurrentView(viewGeneration, streamingState)) {
@@ -515,7 +543,7 @@ export class CopcStreamingCore {
       generation: viewGeneration,
       replacementGroups: update.replacementGroups ?? [],
     };
-    this.currentView = view;
+    this.currentView = adaptiveView;
     this.streamingUpdateCount += 1;
     this.debug(`streaming view updated (${this.streamingUpdateCount})`);
     return update;
@@ -523,6 +551,15 @@ export class CopcStreamingCore {
 
   /** Return the project-coordinate query generated for a plain view. */
   getHierarchyQuery(view: StreamingView): CopcHierarchyQuery {
+    const adaptiveView = this.adaptiveViewDistancePolicy.preview(
+      view,
+      this.getStreamingOptions().maxRenderDistanceMeters,
+      this.streamingState?.minimumDatasetHeightMeters,
+    );
+    return this.createHierarchyQuery(adaptiveView);
+  }
+
+  private createHierarchyQuery(view: StreamingView): CopcHierarchyQuery {
     const metadata = this.streamingState?.metadata;
     if (!metadata) {
       throw new Error('COPC streaming controller is not loaded');
@@ -560,6 +597,7 @@ export class CopcStreamingCore {
     this.streamingState = undefined;
     this.selectedNodeKeys.clear();
     this.currentView = undefined;
+    this.adaptiveViewDistancePolicy.reset();
     this.transition = createTransitionState();
     this.streamingUpdateCount = 0;
     // A pending decode may still complete after the source is destroyed. Give
@@ -596,6 +634,9 @@ export class CopcStreamingCore {
       streamingUpdateCount: this.streamingUpdateCount,
       performance: this.getPerformanceSnapshot(),
       transition: cloneTransitionState(this.transition),
+      ...(this.currentView?.viewDistanceDiagnostics
+        ? { viewDistance: { ...this.currentView.viewDistanceDiagnostics } }
+        : {}),
       ...(state ? { hierarchy: state.hierarchyLoader.getDiagnostics() } : {}),
       pointCache: state?.cache.getDiagnostics() ?? this.initialCache.getDiagnostics(),
       rangeRequests: this.rangeRequestDiagnostics.getSnapshot(),
@@ -636,7 +677,13 @@ export class CopcStreamingCore {
     }
 
     this.viewGeneration += 1;
-    this.streamingState?.manager.invalidate('superseded', view);
+    const adaptiveView = view
+      ? this.adaptiveViewDistancePolicy.preview(
+        view,
+        this.getStreamingOptions().maxRenderDistanceMeters,
+      )
+      : undefined;
+    this.streamingState?.manager.invalidate('superseded', adaptiveView);
   }
 
   getTransitionState(): CopcStreamingTransitionState {

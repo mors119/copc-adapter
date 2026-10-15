@@ -231,6 +231,8 @@ export type {
   StreamingUpdateResult,
 } from './viewer/streaming/types';
 export type {
+  AdaptiveViewDistanceDiagnostics,
+  AdaptiveViewDistanceTransition,
   FrustumPlane,
   GeographicViewBounds,
   StreamingViewBounds,
