@@ -237,6 +237,22 @@ superseded by a newer view or lifecycle operation.
 configured load slots, queued/active/completed/cancelled work, peak active
 loads, and first-priority-node ready latency.
 
+For a perspective view, the shared core estimates the current visible ground
+footprint from nine renderer-neutral frustum rays against a local plane 25 m
+below the WGS84 surface. It applies a 1.5× overscan, expands when the target
+grows by more than 15%, and shrinks when the target falls below 75% of the
+current distance. Views whose frustum reaches the local horizon use the
+nearer of the camera far plane and configured maximum as a conservative
+fallback. `maxRenderDistanceMeters` remains the hard application ceiling, and
+overscan only extends the current view envelope.
+
+The streaming and renderer layer snapshots include `viewDistance` after the
+first update. It reports the visible-footprint estimate, overscanned target,
+effective distance, hard cap, clamp state, and aggregate expansion, shrink,
+hysteresis-hold, fallback, and policy-update counts. The debug panel shows the
+same values. Autzen and SoFi measurements are recorded in the
+[issue 191 browser report](benchmarks/issue-191-adaptive-view-distance.md).
+
 The core lifecycle is `idle | loading | ready | destroyed`. It provides
 `getSnapshot()`, `getMetadata()`, `getHierarchyDiagnostics()`,
 `getPointCacheDiagnostics()`, `getCurrentSelection()`, `getCurrentView()`,

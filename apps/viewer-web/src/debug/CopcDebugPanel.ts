@@ -45,6 +45,7 @@ export type CopcDebugPanelView = {
   hierarchyMetadataDuration: string;
   hierarchyRootDuration: string;
   hierarchyQueryDuration: string;
+  viewDistance: string;
   activeReplacementGroups: string;
   coarseNodesRetained: string;
   refinementReplacementCommits: string;
@@ -219,6 +220,11 @@ export function buildCopcDebugPanelView(
     hierarchyMetadataDuration: `${formatCoordinate(hierarchy?.metadataLoadDurationMs ?? 0)} ms`,
     hierarchyRootDuration: `${formatCoordinate(hierarchy?.rootHierarchyLoadDurationMs ?? 0)} ms`,
     hierarchyQueryDuration: `${formatCoordinate(hierarchy?.lastQueryDurationMs ?? 0)} ms`,
+    viewDistance: snapshot.viewDistance
+      ? `${snapshot.viewDistance.visibleFootprintMeters === undefined
+        ? 'fallback'
+        : `${formatCoordinate(snapshot.viewDistance.visibleFootprintMeters)} m`} / ${formatCoordinate(snapshot.viewDistance.effectiveDistanceMeters)} m / ${formatCoordinate(snapshot.viewDistance.maxRenderDistanceMeters)} m cap · ${snapshot.viewDistance.transition}${snapshot.viewDistance.clampedToMaxRenderDistance ? ' · capped' : ''} · overscan ${formatCoordinate(snapshot.viewDistance.overscanFactor)}× · expand ${formatNumber(snapshot.viewDistance.expansionCount)} / shrink ${formatNumber(snapshot.viewDistance.shrinkCount)} / hold ${formatNumber(snapshot.viewDistance.hysteresisHoldCount)}`
+      : '—',
     activeReplacementGroups: formatNumber(snapshot.transition?.activeReplacementGroupCount ?? 0),
     coarseNodesRetained: formatNumber(snapshot.transition?.coarseNodesRetainedForCoverageCount ?? 0),
     refinementReplacementCommits: formatNumber(snapshot.transition?.refinementReplacementCommitCount ?? 0),
@@ -422,6 +428,7 @@ export function createCopcDebugPanel(
       <div><dt>Hierarchy requests / cache hits</dt><dd><span data-field="hierarchyRequests"></span> / <span data-field="hierarchyCacheHits"></span></dd></div>
       <div><dt>Hierarchy pages / entries</dt><dd><span data-field="hierarchyLoadedPages"></span> / <span data-field="hierarchyLoadedEntries"></span></dd></div>
       <div><dt>Source open / metadata / root / query</dt><dd><span data-field="hierarchySourceDuration"></span> / <span data-field="hierarchyMetadataDuration"></span> / <span data-field="hierarchyRootDuration"></span> / <span data-field="hierarchyQueryDuration"></span></dd></div>
+      <div><dt>View need / active distance / cap</dt><dd data-field="viewDistance"></dd></div>
       <div><dt>Hierarchy loads active / peak</dt><dd data-field="hierarchyPageConcurrency"></dd></div>
       <div><dt>Active replacements / coarse retained</dt><dd><span data-field="activeReplacementGroups"></span> / <span data-field="coarseNodesRetained"></span></dd></div>
       <div><dt>Refinement commits</dt><dd data-field="refinementReplacementCommits"></dd></div>

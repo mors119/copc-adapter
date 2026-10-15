@@ -13,6 +13,20 @@ type DebugState = {
   renderedNodeKeys: string[];
   selectedNodeKeys: string[];
   streamingUpdateCount: number;
+  viewDistance?: {
+    visibleFootprintMeters?: number;
+    targetDistanceMeters: number;
+    effectiveDistanceMeters: number;
+    maxRenderDistanceMeters: number;
+    overscanFactor: number;
+    clampedToMaxRenderDistance: boolean;
+    transition: string;
+    updateCount: number;
+    expansionCount: number;
+    shrinkCount: number;
+    hysteresisHoldCount: number;
+    fallbackCount: number;
+  };
   cameraMoveEventCount: number;
   cameraPitchDegrees: number;
   backend: string;
@@ -151,6 +165,7 @@ function summarize(state: DebugState): Record<string, unknown> {
     renderedNodeCount: state.renderedNodeKeys.length,
     selectedNodeCount: state.selectedNodeKeys.length,
     streamingUpdateCount: state.streamingUpdateCount,
+    viewDistance: state.viewDistance,
     performance: {
       updateDurationMs: state.performance.updateDurationMs,
       nodeSelectionMs: state.performance.nodeSelectionMs,
@@ -294,6 +309,11 @@ test('records bounded SoFi multi-GB Cesium browser streaming', async ({ page, br
         || [...current.selectedNodeKeys].sort().join('\0') !== previousNodeKeys;
     }, { timeout: 60_000 }).toBe(true);
     const firstUpdateMs = Date.now() - startedAt;
+    await expect.poll(async () => {
+      const current = await getState(page);
+      return (current.viewDistance?.updateCount ?? 0)
+        > (before.viewDistance?.updateCount ?? 0);
+    }, { timeout: 60_000 }).toBe(true);
     const state = await waitForIdle(page);
     transitions.push({
       label,
@@ -435,6 +455,9 @@ test('records bounded SoFi multi-GB Cesium browser streaming', async ({ page, br
   expect(initial.renderedPointCount).toBeGreaterThan(0);
   expect(initial.renderedPointCount).toBeLessThanOrEqual(POINT_BUDGET);
   expect(oblique.renderedPointCount).toBeGreaterThan(0);
+  expect(closeDownward.viewDistance?.effectiveDistanceMeters).toBeLessThan(9_000);
+  expect(highOverview.viewDistance?.effectiveDistanceMeters)
+    .toBeGreaterThan(closeDownward.viewDistance?.effectiveDistanceMeters ?? 0);
   const settledStates = [
     closeDownward,
     mediumOverview,
@@ -446,6 +469,9 @@ test('records bounded SoFi multi-GB Cesium browser streaming', async ({ page, br
     staleWork,
   ];
   expect(settledStates.every((state) => state.lastError === undefined)).toBe(true);
+  expect(settledStates.every((state) =>
+    (state.viewDistance?.effectiveDistanceMeters ?? Number.POSITIVE_INFINITY) <= 20_000,
+  )).toBe(true);
   expect(settledStates.every((state) => state.renderedPointCount <= POINT_BUDGET)).toBe(true);
   expect(settledStates.every((state) => state.pointCache.currentCacheBytes <= CACHE_BUDGET_BYTES)).toBe(true);
   expect(areaAReturn.pointCache.hits).toBeGreaterThan(areaB.pointCache.hits);

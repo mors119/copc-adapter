@@ -222,6 +222,48 @@ test('a plain project-owned view drives hierarchy query and deterministic select
   assert.equal(controller.getPointCacheDiagnostics().cachedNodeCount, 1);
 });
 
+test('the shared core derives its current distance from perspective footprint', async () => {
+  const source = createSourceFactory();
+  const controller = createController(source.backend);
+  await controller.load();
+
+  const longitude = 10.005;
+  const latitude = 20.005;
+  const longitudeRadians = (longitude * Math.PI) / 180;
+  const latitudeRadians = (latitude * Math.PI) / 180;
+  const localUp = {
+    x: Math.cos(latitudeRadians) * Math.cos(longitudeRadians),
+    y: Math.cos(latitudeRadians) * Math.sin(longitudeRadians),
+    z: Math.sin(latitudeRadians),
+  };
+  const position = geographicToEcef({ longitude, latitude, height: 100 });
+  const viewFrustum = createPerspectiveViewFrustum({
+    position,
+    direction: { x: -localUp.x, y: -localUp.y, z: -localUp.z },
+    up: {
+      x: -Math.sin(latitudeRadians) * Math.cos(longitudeRadians),
+      y: -Math.sin(latitudeRadians) * Math.sin(longitudeRadians),
+      z: Math.cos(latitudeRadians),
+    },
+    right: { x: -Math.sin(longitudeRadians), y: Math.cos(longitudeRadians), z: 0 },
+    verticalFovRadians: Math.PI / 6,
+    aspectRatio: 16 / 9,
+    nearMeters: 0.1,
+    farMeters: 100_000,
+  });
+
+  await controller.updateView(createView({ height: 100, viewFrustum }));
+  const currentView = controller.getCurrentView();
+
+  assert.ok(currentView.viewDistanceMeters < 500);
+  assert.ok(currentView.viewDistanceMeters < 2_000);
+  assert.ok(currentView.viewDistanceDiagnostics.visibleFootprintMeters > 0);
+  assert.equal(
+    controller.getSnapshot().viewDistance.effectiveDistanceMeters,
+    currentView.viewDistanceMeters,
+  );
+});
+
 test('streaming cache consumes a backend prepared result without a TypeScript transform pass', async () => {
   const source = createSourceFactory({ prepared: true });
   const controller = createController(source.backend, { decoder: undefined });
@@ -302,7 +344,10 @@ test('a changed view invalidates stale streaming generations', async () => {
   assert.equal(stale, undefined);
   assert.deepEqual(current.selectedNodeKeys, [ROOT_KEY]);
   assert.equal(controller.getSnapshot().streamingUpdateCount, 1);
-  assert.deepEqual(controller.getCurrentView(), createView({ height: 250 }));
+  const currentView = controller.getCurrentView();
+  const { viewDistanceDiagnostics, ...plainCurrentView } = currentView;
+  assert.deepEqual(plainCurrentView, createView({ height: 250 }));
+  assert.equal(viewDistanceDiagnostics.transition, 'fallback');
 });
 
 test('invalidating with a superseding view aborts obsolete point work immediately', async () => {

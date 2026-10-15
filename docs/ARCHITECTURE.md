@@ -65,7 +65,10 @@ renderer adapter
   worker orchestration, and maps results into project-owned types.
 - `CopcStreamingCore` and `CopcStreamingController` own hierarchy lifecycle,
   view-driven selection, `NodeSelector`, SSE/refinement policy, hysteresis,
-  workload budgets, cache policy, generations, cancellation, and diagnostics.
+  adaptive current-view distance, workload budgets, cache policy, generations,
+  cancellation, and diagnostics. The adaptive distance uses only plain
+  perspective-frustum values, so Cesium and Three.js feed the same footprint,
+  overscan, hard-cap, and hysteresis policy.
 - The `copc-js` path uses the project WKT parsing helpers and `proj4js` where a
   projected CRS is present, then computes WGS84 ECEF/world coordinates in
   TypeScript. The opt-in Rust path performs decode, CRS, ECEF preparation, and

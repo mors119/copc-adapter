@@ -41,9 +41,11 @@ export type {
 } from './scheduler';
 export { StreamingPerformanceRecorder } from './performance';
 export {
+  AdaptiveViewDistancePolicy,
   createBoundingSphereFromGeographicBounds,
   createPerspectiveViewFrustum,
   createStreamingViewBounds,
+  estimateVisibleFootprintDistanceMeters,
   ecefToGeographic,
   geographicToEcef,
   intersectsViewFrustum,
@@ -53,6 +55,8 @@ export type {
   NodePointCacheOptions,
 } from './createNodePointCache';
 export type {
+  AdaptiveViewDistanceDiagnostics,
+  AdaptiveViewDistanceTransition,
   BoundingSphere,
   BoundingSphereInput,
   FrustumPlane,

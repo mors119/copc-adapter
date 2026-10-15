@@ -41,6 +41,7 @@ import type {
 import { DEFAULT_MAX_RENDERED_POINTS } from './streaming/NodeSelector';
 import { StreamingPerformanceRecorder } from './streaming/performance';
 import type { NodePointCacheDiagnostics } from './streaming/createNodePointCache';
+import type { AdaptiveViewDistanceDiagnostics } from './streaming/view';
 import type { RangeRequestDiagnostics } from '../copc/range/requestDiagnostics';
 import type { RangeValidationPolicy } from '../copc/range/types';
 import type {
@@ -104,6 +105,7 @@ export type CopcLayerSnapshot = {
   backend: CopcBackendName | 'custom';
   performance: ReturnType<StreamingPerformanceRecorder['getSnapshot']>;
   transition: CopcLayerTransitionDiagnostics;
+  viewDistance?: AdaptiveViewDistanceDiagnostics;
   pointCache: NodePointCacheDiagnostics;
   rangeRequests: RangeRequestDiagnostics;
   worker?: CopcWorkerDiagnostics;
@@ -499,6 +501,7 @@ export class CopcLayerController {
         renderedPointCount,
       ),
       transition: { ...this.transitionDiagnostics },
+      ...(coreSnapshot.viewDistance ? { viewDistance: coreSnapshot.viewDistance } : {}),
       pointCache: coreSnapshot.pointCache,
       rangeRequests: coreSnapshot.rangeRequests,
       ...(coreSnapshot.worker ? { worker: coreSnapshot.worker } : {}),

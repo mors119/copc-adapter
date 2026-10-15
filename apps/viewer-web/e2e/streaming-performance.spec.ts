@@ -13,6 +13,20 @@ type DebugState = {
     coarseNodesRetainedForCoverageCount: number;
   };
   streamingUpdateCount: number;
+  viewDistance?: {
+    visibleFootprintMeters?: number;
+    targetDistanceMeters: number;
+    effectiveDistanceMeters: number;
+    maxRenderDistanceMeters: number;
+    overscanFactor: number;
+    clampedToMaxRenderDistance: boolean;
+    transition: string;
+    updateCount: number;
+    expansionCount: number;
+    shrinkCount: number;
+    hysteresisHoldCount: number;
+    fallbackCount: number;
+  };
   backend: string;
   performance: Record<string, number> & {
     configuredPointBudget: number;
@@ -163,6 +177,7 @@ function summarize(state: DebugState): Record<string, unknown> {
     renderedPointCount: state.renderedPointCount,
     selectedNodeCount: state.selectedNodeKeys.length,
     streamingUpdateCount: state.streamingUpdateCount,
+    viewDistance: state.viewDistance,
     transition: state.transition,
     performance: state.performance,
     pointCache: state.pointCache,
@@ -198,9 +213,12 @@ test('records the Autzen Far/Near, rotation, and stale-work streaming gate', asy
 
   const move = async (label: string, height: number): Promise<DebugState> => {
     const before = await getState(page);
+    const previousDistanceUpdateCount = before.viewDistance?.updateCount ?? 0;
     const startedAt = Date.now();
     await page.evaluate((nextHeight) => window.__COPC_DEBUG__?.setCameraHeight(nextHeight), height);
     await waitForViewChange(page, before);
+    await expect.poll(async () => (await getState(page)).viewDistance?.updateCount ?? 0)
+      .toBeGreaterThan(previousDistanceUpdateCount);
     const firstVisibleMs = Date.now() - startedAt;
     const state = await waitForIdle(page);
     transitions.push({
@@ -218,12 +236,19 @@ test('records the Autzen Far/Near, rotation, and stale-work streaming gate', asy
   const farAgain = await move('far-again', 100_000);
   const nearAgain = await move('near-again', 1_000);
 
+  expect(far.viewDistance?.effectiveDistanceMeters).toBeLessThanOrEqual(20_000);
+  expect(near.viewDistance?.effectiveDistanceMeters)
+    .toBeLessThan(far.viewDistance?.effectiveDistanceMeters ?? 0);
+
   const beforeRotation = await getState(page);
+  const previousRotationDistanceUpdateCount = beforeRotation.viewDistance?.updateCount ?? 0;
   await page.evaluate(() => {
     window.__COPC_DEBUG__?.setCameraPitch(-35);
     window.__COPC_DEBUG__?.setCameraHeading(90);
   });
   await waitForViewChange(page, beforeRotation);
+  await expect.poll(async () => (await getState(page)).viewDistance?.updateCount ?? 0)
+    .toBeGreaterThan(previousRotationDistanceUpdateCount);
   const rotated = await waitForIdle(page);
   transitions.push({ label: 'rotate-under-load', state: summarize(rotated), frames: await sampleFrames(page) });
 
