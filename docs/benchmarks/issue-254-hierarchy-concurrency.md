@@ -102,7 +102,7 @@ waiting for an update duration; running that test alone immediately afterward
 passed in 34.4 s. The separate Autzen streaming-performance gate also passed.
 This transient is recorded because it affects repeatability evidence.
 
-The final complete viewer unit run passed all 342 tests after the local
+The final complete viewer unit run passed all 343 tests after the local
 Autzen fixture was downloaded to ignored test-data directories. Focused
 hierarchy/controller/debug/backend tests also passed after lifecycle queue
 invalidation was added. No Rust or package export files changed.

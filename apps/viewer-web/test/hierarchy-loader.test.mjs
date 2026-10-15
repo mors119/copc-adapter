@@ -666,6 +666,54 @@ test('HierarchyLoader bounds active work across overlapping view queries', async
   assert.equal(loader.getDiagnostics().peakActivePageLoads, 4);
 });
 
+test('HierarchyLoader waits for slower siblings to reveal more pages', async () => {
+  const rootPage = { key: '0-0-0-0', pageOffset: 0, pageLength: 32 };
+  const quickPage = { key: '1-0-0-0', pageOffset: 100, pageLength: 16 };
+  const slowPage = { key: '1-1-0-0', pageOffset: 116, pageLength: 16 };
+  const discoveredPage = { key: '2-2-0-0', pageOffset: 132, pageLength: 16 };
+  const sourceCalls = [];
+  let signalQuickPageStarted;
+  let resolveSlowPage;
+  const quickPageStarted = new Promise((resolve) => {
+    signalQuickPageStarted = resolve;
+  });
+  const slowPageResult = new Promise((resolve) => {
+    resolveSlowPage = resolve;
+  });
+  const source = {
+    getRootHierarchyPage: () => rootPage,
+    async loadHierarchyPage(page) {
+      sourceCalls.push(page.key);
+      if (page.key === rootPage.key) {
+        return { nodes: [], pages: [quickPage, slowPage] };
+      }
+      if (page.key === quickPage.key) {
+        signalQuickPageStarted();
+        return { nodes: [], pages: [] };
+      }
+      if (page.key === slowPage.key) {
+        return slowPageResult;
+      }
+      if (page.key === discoveredPage.key) {
+        return { nodes: [], pages: [] };
+      }
+      throw new Error(`unexpected page:${page.key}`);
+    },
+  };
+  const loader = new HierarchyLoader(source, cubeBounds, {
+    maxConcurrentPageLoads: 2,
+  });
+  const query = loader.query({ bounds: cubeBounds, maxLevel: 2 });
+
+  await quickPageStarted;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  resolveSlowPage({ nodes: [], pages: [discoveredPage] });
+  await query;
+
+  assert.ok(sourceCalls.includes(discoveredPage.key));
+  assert.equal(loader.getDiagnostics().completedPageCount, 4);
+});
+
 test('reset prevents an in-flight hierarchy page from mutating the new cache', async () => {
   let resolveRoot;
   const rootPage = { key: '0-0-0-0', pageOffset: 0, pageLength: 32 };

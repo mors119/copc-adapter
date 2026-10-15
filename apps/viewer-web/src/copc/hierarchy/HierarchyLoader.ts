@@ -261,19 +261,41 @@ export class HierarchyLoader {
       const pendingPages = [...this.tree.pageMap.values()];
       const considered = new Set<string>();
       let nextPageIndex = 0;
+      let inFlightPages = 0;
       let failed = false;
       let failure: unknown;
+      const waitingWorkers = new Set<() => void>();
+
+      const wakeWaitingWorkers = (): void => {
+        const workers = [...waitingWorkers];
+        waitingWorkers.clear();
+        for (const wake of workers) {
+          wake();
+        }
+      };
 
       const worker = async (): Promise<void> => {
-        while (!failed) {
-          const page = pendingPages[nextPageIndex];
-          nextPageIndex += 1;
-          if (!page) {
+        while (true) {
+          if (failed) {
             return;
           }
+          const page = pendingPages[nextPageIndex];
+          if (!page) {
+            if (inFlightPages === 0) {
+              return;
+            }
+            await new Promise<void>((resolve) => {
+              waitingWorkers.add(resolve);
+            });
+            continue;
+          }
+          nextPageIndex += 1;
+          inFlightPages += 1;
 
           const cacheKey = createPageCacheKey(page);
           if (considered.has(cacheKey)) {
+            inFlightPages -= 1;
+            wakeWaitingWorkers();
             continue;
           }
           considered.add(cacheKey);
@@ -299,6 +321,9 @@ export class HierarchyLoader {
               failed = true;
               failure = error;
             }
+          } finally {
+            inFlightPages -= 1;
+            wakeWaitingWorkers();
           }
         }
       };
