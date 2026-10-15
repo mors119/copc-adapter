@@ -7,6 +7,7 @@ import {
   type RangeFetch,
   type RangeValidationLevel,
   type RangeValidationPolicy,
+  redactSourceForDiagnostics,
   validateByteRange,
 } from './range/types';
 
@@ -513,7 +514,7 @@ function resultBase(
   requestedRange: ByteRange,
 ): CopcSourceProbeResult {
   return {
-    source,
+    source: redactSourceForDiagnostics(source),
     reachable: false,
     rangeSupported: 'unknown',
     validationLevel: 'unknown',

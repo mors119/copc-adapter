@@ -45,6 +45,20 @@ export type RangeSourceErrorDetails = {
   readonly status?: number;
 };
 
+/** Remove URL credentials and query/fragment values before exposing diagnostics. */
+export function redactSourceForDiagnostics(source: string): string {
+  try {
+    const url = new URL(source);
+    url.username = '';
+    url.password = '';
+    url.search = '';
+    url.hash = '';
+    return url.href;
+  } catch {
+    return source.split(/[?#]/, 1)[0] || '[source]';
+  }
+}
+
 /** Structured failure from a random-access byte source. */
 export class RangeSourceError extends Error {
   readonly code: RangeSourceErrorCode;
@@ -62,7 +76,7 @@ export class RangeSourceError extends Error {
     super(message, options);
     this.name = 'RangeSourceError';
     this.code = code;
-    this.source = details.source;
+    this.source = redactSourceForDiagnostics(details.source);
     this.offset = details.offset;
     this.length = details.length;
     this.status = details.status;

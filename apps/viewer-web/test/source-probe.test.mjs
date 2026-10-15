@@ -121,6 +121,16 @@ test('probe reports a valid partial response and COPC metadata without fetching 
   });
 });
 
+test('probe omits URL credentials and query values from diagnostic results', async () => {
+  const source = 'https://viewer:password@example.test/data.copc.laz?token=secret#private';
+  const result = await probeCopcSource(source, {
+    fetch: async () => new Response(null, { status: 404 }),
+  });
+
+  assert.equal(result.source, 'https://example.test/data.copc.laz');
+  assert.doesNotMatch(JSON.stringify(result), /password|secret|private/);
+});
+
 test('probe labels an opt-in HEAD fallback as compatibility-limited', async () => {
   const bytes = makeLasFixture();
   const calls = [];

@@ -22,6 +22,8 @@ const MAX_COALESCED_RANGE_GAP_BYTES = 4 * 1024;
 const MAX_COALESCED_RANGE_BYTES = 1024 * 1024;
 // Matches the existing Rust limits for metadata, hierarchy pages, and chunks.
 const MAX_HTTP_RANGE_BYTES = 64 * 1024 * 1024;
+// Match the viewer's default node-load concurrency at the shared HTTP boundary.
+const MAX_ACTIVE_HTTP_RANGE_FETCHES = 4;
 
 type HeadMetadata = {
   readonly size: number;
@@ -49,6 +51,7 @@ type PendingRangeGroup = {
   readonly range: ByteRange;
   readonly members: PendingRangeRead[];
   readonly controller: AbortController;
+  started: boolean;
 };
 
 type PlannedRangeGroup = {
@@ -82,6 +85,8 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
   private headMetadata: HeadMetadata | undefined;
   private pendingHeadRequest: PendingHeadRequest | undefined;
   private pendingReads: PendingRangeRead[] = [];
+  private pendingRangeGroups: PendingRangeGroup[] = [];
+  private activeRangeFetches = 0;
   private flushScheduled = false;
 
   constructor(source: string, options: HttpRangeByteSourceOptions = {}) {
@@ -187,27 +192,49 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
       const activeGroup: PendingRangeGroup = {
         ...plannedGroup,
         controller: new AbortController(),
+        started: false,
       };
       for (const member of activeGroup.members) member.group = activeGroup;
+      this.pendingRangeGroups.push(activeGroup);
+    }
 
-      void this.fetchRange(activeGroup.range, activeGroup.controller.signal)
+    this.startPendingRangeGroups();
+    if (this.pendingReads.length > 0) this.scheduleFlush();
+  }
+
+  private startPendingRangeGroups(): void {
+    while (
+      this.activeRangeFetches < MAX_ACTIVE_HTTP_RANGE_FETCHES
+      && this.pendingRangeGroups.length > 0
+    ) {
+      const group = this.pendingRangeGroups.shift();
+      if (!group || group.members.every((member) => member.settled)) continue;
+
+      group.started = true;
+      this.activeRangeFetches += 1;
+      void this.fetchRange(group.range, group.controller.signal)
         .then((bytes) => {
-          for (const member of activeGroup.members) {
+          for (const member of group.members) {
             if (member.settled) continue;
-            const start = member.range.offset - activeGroup.range.offset;
+            const start = member.range.offset - group.range.offset;
             const end = start + member.range.length;
-            this.resolvePendingRead(member, bytes.slice(start, end));
+            const result = start === 0 && end === bytes.byteLength
+              ? bytes
+              : bytes.slice(start, end);
+            this.resolvePendingRead(member, result);
           }
         })
         .catch((error: unknown) => {
-          for (const member of activeGroup.members) {
+          for (const member of group.members) {
             if (member.settled) continue;
             this.rejectPendingRead(member, this.errorForRange(error, member.range));
           }
+        })
+        .finally(() => {
+          this.activeRangeFetches -= 1;
+          this.startPendingRangeGroups();
         });
     }
-
-    if (this.pendingReads.length > 0) this.scheduleFlush();
   }
 
   private cancelPendingRead(read: PendingRangeRead): void {
@@ -217,6 +244,10 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
     const group = read.group;
     if (group && group.members.every((member) => member.settled)) {
       group.controller.abort(read.signal?.reason);
+      if (!group.started) {
+        const pendingIndex = this.pendingRangeGroups.indexOf(group);
+        if (pendingIndex >= 0) this.pendingRangeGroups.splice(pendingIndex, 1);
+      }
     }
   }
 

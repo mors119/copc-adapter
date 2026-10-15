@@ -375,8 +375,14 @@ offset은 검증되지 않은 한계로 남습니다. `Content-Range`를 JavaScr
 
 HTTP reader는 단일 Range 요청을 기존 metadata, hierarchy page, point chunk 제한과
 맞춘 최대 64 MiB로 제한합니다. 읽을 수 있는 `Content-Length`를 미리 확인하고,
-정확한 크기의 buffer 하나에 스트리밍하며, 초과 body나 거부한 응답은 취소합니다.
-COPC 객체 경로의 gzip/Brotli 및 다른 byte 변환은 피하세요.
+정확한 크기의 buffer 하나에 스트리밍하며, 초과 chunk 또는 거부한 응답을
+확인하는 즉시 body를 취소합니다. 서로 떨어진 Range fetch는 source마다 최대
+4개까지 동시에 실행하고, 가까운 read는 제한된 하나의 coalesced fetch로 합칠 수
+있습니다. streaming core의 동시 node load 기본값도 4입니다. Range 요청은 자동
+재시도나 요청별 timeout을 사용하지 않으며, source lifecycle과 caller의
+`AbortSignal`로 pending 작업을 취소합니다. 오류와 probe 진단에는 URL 사용자
+정보, query, fragment를 포함하지 않습니다. COPC 객체에는 gzip/Brotli 또는 다른
+byte 변환을 적용하지 마세요.
 
 근거 자료: [Issue #212](https://github.com/mors119/copc-adapter/issues/212),
 [SoFi 검증 기록](../benchmarks/issue-212-sofi-multigb-streaming).

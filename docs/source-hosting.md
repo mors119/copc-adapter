@@ -382,9 +382,14 @@ cases. Fixing the source CORS exposure remains the recommended deployment.
 The HTTP reader enforces a 64 MiB maximum for each individual range, matching
 the existing metadata, hierarchy-page, and point-chunk limits. It checks a
 readable `Content-Length` before reading, streams into one exact-size buffer,
-and cancels the body on surplus bytes or rejected responses. Keep the COPC
-object on an identity representation without gzip/Brotli or other byte
-transformations.
+and cancels the body as soon as a surplus chunk or rejected response is
+observed. At most four disjoint range fetches are active per source; nearby
+reads may share one capped coalesced fetch. The streaming core also defaults
+to four concurrent node loads. Range requests have no automatic retry or
+per-request timeout; source lifecycle and caller `AbortSignal`s cancel pending
+work. Error and probe diagnostics omit URL credentials, query strings, and
+fragments. Keep the COPC object on an identity representation without
+gzip/Brotli or other byte transformations.
 
 For the corresponding evidence, see [issue #212](https://github.com/mors119/copc-adapter/issues/212)
 and the [SoFi validation record](benchmarks/issue-212-sofi-multigb-streaming).

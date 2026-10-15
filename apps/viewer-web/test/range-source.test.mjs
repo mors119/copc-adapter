@@ -43,12 +43,16 @@ function createIndexedRangeFetch(calls) {
 
 test('HttpRangeByteSource constructs exact byte ranges and validates 206 bytes', async () => {
   const requests = [];
+  const response = makeResponse(206, [3, 4, 5], {
+    'Content-Range': 'bytes 12-14/100',
+  });
+  response.arrayBuffer = async () => {
+    throw new Error('ranged responses must not be buffered with arrayBuffer()');
+  };
   const source = new HttpRangeByteSource('https://example.test/autzen.copc.laz', {
     fetch: async (input, init) => {
       requests.push({ input, init });
-      return makeResponse(206, [3, 4, 5], {
-        'Content-Range': 'bytes 12-14/100',
-      });
+      return response;
     },
   });
 
@@ -56,6 +60,22 @@ test('HttpRangeByteSource constructs exact byte ranges and validates 206 bytes',
   assert.equal(requests.length, 1);
   assert.equal(requests[0].init.headers.get('Range'), 'bytes=12-14');
   assert.equal(await source.size(), 100);
+});
+
+test('HttpRangeByteSource redacts URL credentials and query values from errors', async () => {
+  const source = new HttpRangeByteSource(
+    'https://viewer:password@example.test/data.copc.laz?X-Amz-Signature=secret#private',
+    { fetch: async () => makeResponse(200, [1]) },
+  );
+
+  await assert.rejects(
+    () => source.readRange(0, 1),
+    (error) => error instanceof RangeSourceError
+      && error.code === 'whole-file-response'
+      && error.source === 'https://example.test/data.copc.laz'
+      && !error.source.includes('password')
+      && !error.source.includes('secret'),
+  );
 });
 
 test('HttpRangeByteSource rejects invalid ranges before network access', async () => {
@@ -440,7 +460,7 @@ test('HttpRangeByteSource reports HTTP failures and short bodies structurally', 
   );
 });
 
-test('HttpRangeByteSource rejects declared oversized bodies before reading and cancels streamed surplus', async () => {
+test('HttpRangeByteSource rejects declared oversized bodies before reading and stops at first streamed surplus', async () => {
   let pulled = false;
   let declaredBodyCancelled = false;
   const declaredLengthSource = new HttpRangeByteSource('https://example.test/data', {
@@ -467,15 +487,17 @@ test('HttpRangeByteSource rejects declared oversized bodies before reading and c
   assert.equal(declaredBodyCancelled, true);
 
   let surplusCancelled = false;
+  let surplusBytesProduced = 0;
   const surplusSource = new HttpRangeByteSource('https://example.test/data', {
     fetch: async () => new Response(new ReadableStream({
-      start(controller) {
-        controller.enqueue(new Uint8Array([1, 2, 3, 4]));
+      pull(controller) {
+        surplusBytesProduced += 1;
+        controller.enqueue(new Uint8Array([surplusBytesProduced]));
       },
       cancel() {
         surplusCancelled = true;
       },
-    }), {
+    }, { highWaterMark: 0 }), {
       status: 206,
       headers: { 'Content-Range': 'bytes 0-1/100' },
     }),
@@ -485,6 +507,7 @@ test('HttpRangeByteSource rejects declared oversized bodies before reading and c
     (error) => error instanceof RangeSourceError && error.code === 'body-length',
   );
   assert.equal(surplusCancelled, true);
+  assert.equal(surplusBytesProduced, 3, 'the reader must cancel after one surplus byte');
 });
 
 test('HttpRangeByteSource rejects visible non-identity representations', async () => {
@@ -578,6 +601,91 @@ test('HttpRangeByteSource keeps far disjoint reads separate and concurrent', asy
   assert.deepEqual(result.map((bytes) => [...bytes]), [[0, 1], [32, 33, 34]]);
   assert.deepEqual(calls, ['bytes=0-1', 'bytes=20000-20002']);
   assert.equal(maximumActive, 2);
+});
+
+test('HttpRangeByteSource bounds active disjoint range fetches and starts queued work as slots free', async () => {
+  const pendingResponses = [];
+  let active = 0;
+  let maximumActive = 0;
+  const source = new HttpRangeByteSource('https://example.test/data', {
+    fetch: async (_input, init) => {
+      const match = /^bytes=(\d+)-(\d+)$/.exec(new Headers(init.headers).get('Range') ?? '');
+      assert.ok(match);
+      const offset = Number(match[1]);
+      const end = Number(match[2]);
+      active += 1;
+      maximumActive = Math.max(maximumActive, active);
+      return new Promise((resolve) => {
+        pendingResponses.push(() => {
+          active -= 1;
+          resolve(makeResponse(206, [offset % 256], {
+            'Content-Range': `bytes ${offset}-${end}/1000000`,
+          }));
+        });
+      });
+    },
+  });
+
+  const reads = Array.from({ length: 6 }, (_value, index) =>
+    source.readRange(index * 10_000, 1));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(pendingResponses.length, 4);
+  assert.equal(maximumActive, 4);
+
+  pendingResponses[0]();
+  assert.deepEqual([...await reads[0]], [0]);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(pendingResponses.length, 5, 'a queued fetch starts when one slot is released');
+
+  for (let index = 1; index < reads.length; index += 1) {
+    pendingResponses[index]();
+    await reads[index];
+  }
+  assert.equal(maximumActive, 4);
+  assert.equal(active, 0);
+});
+
+test('HttpRangeByteSource skips a queued group when its last caller cancels', async () => {
+  const pendingResponses = [];
+  let fetchCount = 0;
+  const source = new HttpRangeByteSource('https://example.test/data', {
+    fetch: async (_input, init) => {
+      const match = /^bytes=(\d+)-(\d+)$/.exec(new Headers(init.headers).get('Range') ?? '');
+      assert.ok(match);
+      const offset = Number(match[1]);
+      const end = Number(match[2]);
+      fetchCount += 1;
+      return new Promise((resolve) => {
+        pendingResponses.push(() => resolve(makeResponse(206, [offset % 256], {
+          'Content-Range': `bytes ${offset}-${end}/1000000`,
+        })));
+      });
+    },
+  });
+
+  const activeReads = Array.from({ length: 4 }, (_value, index) =>
+    source.readRange(index * 10_000, 1));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(fetchCount, 4);
+
+  const queuedController = new AbortController();
+  const queuedRead = source.readRange(100_000, 1, { signal: queuedController.signal });
+  await new Promise((resolve) => setImmediate(resolve));
+  queuedController.abort('no longer needed');
+  await assert.rejects(
+    () => queuedRead,
+    (error) => error instanceof RangeSourceError && error.code === 'aborted',
+  );
+
+  pendingResponses[0]();
+  assert.deepEqual([...await activeReads[0]], [0]);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(fetchCount, 4, 'a cancelled queued group must not start a fetch');
+
+  for (let index = 1; index < activeReads.length; index += 1) {
+    pendingResponses[index]();
+    await activeReads[index];
+  }
 });
 
 test('HttpRangeByteSource coalesces overlapping and adjacent direct reads into exact slices', async () => {
