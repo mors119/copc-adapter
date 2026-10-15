@@ -6,21 +6,28 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-10-16
+
 ### Improved
 
-- Load independent hierarchy pages with a source-local cap of four requests,
-  retaining parent-discovered dependencies, shared page caching, query bounds,
-  and `childrenComplete` behavior.
-- Expose source-open, metadata, root-page, and view-query timings plus active
-  hierarchy page counts in diagnostics.
+- Load independent hierarchy pages concurrently with a
+  bounded limit of four active requests.
+- Derive adaptive view distance from the visible world
+  footprint with overscan and hysteresis.
+- Preserve existing hierarchy, LoD, and point budgets.
+
+### Changed
+
+- Parallelize viewer CI validation without removing
+  existing test coverage.
 
 ### Validation
 
-- Four SoFi runs per setting measured median first-visible-point latency of
-  67.17 s at serial page loading and 23.37 s at concurrency four. The median
-  initial hierarchy query fell from 59.25 s to 14.52 s. See the [issue #254
-  performance record](docs/benchmarks/issue-254-hierarchy-concurrency.md) for
-  environment, run spread, and limitations.
+- SoFi median first-visible-point latency improved
+  from 67.17 s to 23.37 s.
+- SoFi median hierarchy query time improved
+  from 59.25 s to 14.52 s.
+- See the #254 and #191 benchmark records.
 
 ## [0.5.1] - 2026-10-16
 
@@ -185,7 +192,8 @@ original asset-resolution behavior.
 - Added packed-artifact smoke coverage for an external Cesium/Vite consumer.
 - Published the typed ESM library with package-local decoder runtime assets.
 
-[Unreleased]: https://github.com/mors119/copc-adapter/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/mors119/copc-adapter/compare/v0.5.2...HEAD
+[0.5.2]: https://github.com/mors119/copc-adapter/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/mors119/copc-adapter/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/mors119/copc-adapter/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/mors119/copc-adapter/compare/v0.3.0...v0.4.0

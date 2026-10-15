@@ -3,8 +3,9 @@
 This record evaluates the hierarchy-page serialization identified in [issue
 #254](https://github.com/mors119/copc-adapter/issues/254). It compares the
 existing serial traversal with a source-local limit of four independent page
-loads. The package manifest remains at `0.5.1`; this is a branch validation,
-not a release or publish.
+loads. Measurements were recorded against package manifest `0.5.1` on the
+feature branch; they are performance evidence, not release or publish
+validation.
 
 ## Method
 
