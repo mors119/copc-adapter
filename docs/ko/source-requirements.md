@@ -327,6 +327,57 @@ Range `curl` 확인에서는 `206`, `Content-Range: bytes 0-1023/2029696615`,
 부분 응답을 반환한다는 확인입니다. curl은 CORS를 적용하지 않으며 브라우저
 JavaScript가 `Content-Range`를 읽을 수 있음을 증명하지 않습니다.
 
+2026-10-15 추가 `curl -I` 및 `Range: bytes=0-3` 확인에서도 보고된 두 COPC
+객체가 같은 패턴을 보였습니다. Autzen은 `HEAD`에서 `200`과
+`Content-Length: 81123042`, SoFi는 `200`과 `Content-Length: 2029696615`를
+반환했습니다. 둘 다 Range `GET`에 `206`, body 4 bytes, wire 상의
+`Content-Range`를 반환했고 `GET, HEAD` 및 `Access-Control-Allow-Origin: *`를
+허용했지만 `Access-Control-Expose-Headers`는 없었습니다. Millsite는 두
+method 모두 계속 `404`였습니다. curl 결과만으로 브라우저의 header 가시성이나
+byte offset 정확성을 입증할 수는 없습니다.
+
+## `Content-Range`가 숨겨진 경우의 선택적 호환 모드
+
+가능하면 계속 `Content-Range`를 노출하세요. 기본
+`rangeValidation: 'strict'`는 브라우저 JavaScript에서 정확한 시작/끝 범위와
+전체 크기를 검증합니다. `206`은 반환하지만 브라우저에 해당 header를
+노출하지 않는 source에 한해 다음처럼 명시적으로 호환 모드를 켤 수 있습니다.
+
+```ts
+import { CopcCesiumLayer, probeCopcSource } from '@frillab/copc-adapter/cesium';
+
+const sourceUrl = 'https://example.com/data.copc.laz';
+const layer = new CopcCesiumLayer({
+  url: sourceUrl,
+  rangeValidation: 'head-fallback',
+});
+
+const probe = await probeCopcSource(sourceUrl, {
+  rangeValidation: 'head-fallback',
+});
+console.log(probe.validationLevel);
+```
+
+이 모드는 source instance마다 한 번 `HEAD`를 보내고 메타데이터를 캐시합니다.
+브라우저가 `HEAD`를 허용하고 양수의 안전한 정수 `Content-Length`를 읽을 수
+있어야 합니다. 각 `GET + Range`도 `206`과 요청한 길이와 정확히 일치하는 body를
+반환해야 합니다. 읽을 수 있지만 잘못되거나 요청과 다른 `Content-Range`는
+항상 거부합니다. `404`, `200`, 짧은 body, 실패한 `HEAD`, 모순되는 전체 크기도
+우회하지 않습니다. 전체 객체를 `GET`으로 받지 않습니다.
+
+검증 수준은 **compatibility-limited**입니다. `HEAD`의 크기와 정확한 body 길이만으로는
+응답이 요청한 byte offset에서 왔는지, 같은 크기의 객체가 그대로 유지되는지
+증명할 수 없습니다. 읽을 수 있는 validator/감지 가능한 크기 변경은 거부하지만,
+validator를 읽을 수 없거나 약한 ETag/`Last-Modified` 정밀도만 있으면 객체 버전과
+offset은 검증되지 않은 한계로 남습니다. `Content-Range`를 JavaScript에서 읽을 수
+없어도 실제로 없었는지 CORS가 숨겼는지는 브라우저에서 구분할 수 없습니다.
+올바른 CORS 노출 설정을 하는 것이 권장됩니다.
+
+HTTP reader는 단일 Range 요청을 기존 metadata, hierarchy page, point chunk 제한과
+맞춘 최대 64 MiB로 제한합니다. 읽을 수 있는 `Content-Length`를 미리 확인하고,
+정확한 크기의 buffer 하나에 스트리밍하며, 초과 body나 거부한 응답은 취소합니다.
+COPC 객체 경로의 gzip/Brotli 및 다른 byte 변환은 피하세요.
+
 근거 자료: [Issue #212](https://github.com/mors119/copc-adapter/issues/212),
 [SoFi 검증 기록](../benchmarks/issue-212-sofi-multigb-streaming).
 

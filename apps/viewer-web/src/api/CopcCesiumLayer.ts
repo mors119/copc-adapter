@@ -10,6 +10,7 @@ import type { CopcPointDecoder } from '../copc/points/types';
 import type { CopcHierarchyDiagnostics } from '../copc/hierarchy/types';
 import type { CesiumPointRenderer } from '../cesium/render/CopcPointRenderer';
 import type { CopcPointInspection } from '../copc/points/pointInspection';
+import type { RangeValidationPolicy } from '../copc/range/types';
 import type { NodePointCacheDiagnostics } from '../viewer/streaming/createNodePointCache';
 import type {
   CopcCesiumPointStyle,
@@ -61,6 +62,8 @@ export type CopcCesiumLayerOptions = {
   onPointPicked?: (point: CopcPointInspection | undefined) => void;
   /** Maximum retained decoded CPU point-buffer bytes. Defaults to 256 MiB. */
   maxPointCacheBytes?: number;
+  /** Defaults to strict Content-Range validation. */
+  rangeValidation?: RangeValidationPolicy;
 };
 export type CopcCesiumLayerSnapshot = CopcLayerSnapshot;
 

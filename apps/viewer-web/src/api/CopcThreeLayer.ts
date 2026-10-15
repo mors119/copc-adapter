@@ -37,6 +37,7 @@ import type {
 } from '../viewer/streaming/types';
 import { DEFAULT_MAX_RENDERED_POINTS } from '../viewer/streaming/NodeSelector';
 import type { NodePointCacheDiagnostics } from '../viewer/streaming/createNodePointCache';
+import type { RangeValidationPolicy } from '../copc/range/types';
 import {
   ThreePointRenderer,
   type ThreePointRendererOptions,
@@ -69,6 +70,8 @@ export type CopcThreeLayerOptions = {
   decoder?: import('../copc/points/types').CopcPointDecoder;
   /** Maximum retained decoded CPU point-buffer bytes. */
   maxPointCacheBytes?: number;
+  /** Defaults to strict Content-Range validation. */
+  rangeValidation?: RangeValidationPolicy;
   /** Emits layer/core lifecycle messages through console.debug. */
   debug?: boolean;
   /** Scene-unit threshold used by the default point raycaster. Defaults to 1. */
@@ -281,6 +284,7 @@ export class CopcThreeLayer {
       debug: options.debug,
       maxRenderedPoints: options.maxRenderedPoints,
       maxPointCacheBytes: options.maxPointCacheBytes,
+      rangeValidation: options.rangeValidation,
       pointFields: getCopcPointFieldSelection(options.colorMode ?? 'fixed'),
       streaming: options.streaming,
     });

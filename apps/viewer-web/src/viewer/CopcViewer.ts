@@ -42,6 +42,7 @@ import { DEFAULT_MAX_RENDERED_POINTS } from './streaming/NodeSelector';
 import { StreamingPerformanceRecorder } from './streaming/performance';
 import type { NodePointCacheDiagnostics } from './streaming/createNodePointCache';
 import type { RangeRequestDiagnostics } from '../copc/range/requestDiagnostics';
+import type { RangeValidationPolicy } from '../copc/range/types';
 import type {
   CopcCesiumPointStyle,
   CopcCesiumPointStyleUpdate,
@@ -68,6 +69,8 @@ export type CopcLayerOptions = {
   onPointPicked?: (point: CopcPointInspection | undefined) => void;
   /** Maximum retained decoded CPU point-buffer bytes. Defaults to 256 MiB. */
   maxPointCacheBytes?: number;
+  /** Defaults to strict Content-Range validation. */
+  rangeValidation?: RangeValidationPolicy;
 };
 
 export type CopcLayerLifecycleState =
@@ -317,6 +320,7 @@ export class CopcLayerController {
       debug: options.debug,
       maxRenderedPoints: options.maxRenderedPoints,
       maxPointCacheBytes: options.maxPointCacheBytes,
+      rangeValidation: options.rangeValidation,
       // Keep all supported style attributes in the decoded point cache so
       // runtime restyling can reuse the initial point-chunk read and decode.
       pointFields: allCopcPointFields(),

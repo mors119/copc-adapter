@@ -63,6 +63,7 @@ import {
   RangeRequestDiagnosticsRecorder,
 } from '../../copc/range/requestDiagnostics';
 import type { RangeRequestDiagnostics } from '../../copc/range/requestDiagnostics';
+import type { RangeValidationPolicy } from '../../copc/range/types';
 
 /** Lifecycle states that do not depend on an attached rendering engine. */
 export type CopcStreamingLifecycleState =
@@ -93,6 +94,8 @@ export type CopcStreamingControllerOptions = {
   pointFields?: CopcPointFieldSelection;
   /** Maximum retained decoded CPU point-buffer bytes. Defaults to 256 MiB. */
   maxPointCacheBytes?: number;
+  /** Defaults to strict Content-Range validation. */
+  rangeValidation?: RangeValidationPolicy;
   /** Emits lifecycle messages through console.debug. */
   debug?: boolean;
 };
@@ -334,6 +337,7 @@ export class CopcStreamingCore {
       context = await createCopcContext(this.options.url, this.options.backend, {
         signal: lifecycleAbortController.signal,
         rangeRequestDiagnostics: this.rangeRequestDiagnostics,
+        rangeValidation: this.options.rangeValidation,
       });
       if (!this.isCurrentLoad(loadGeneration)) {
         context.destroy?.();

@@ -8,6 +8,16 @@ export type RangeReadOptions = {
   readonly signal?: AbortSignal;
 };
 
+/** Validation assurance used by an HTTP byte source. */
+export type RangeValidationPolicy = 'strict' | 'head-fallback';
+
+/** Validation assurance observed by a source probe or HTTP byte source. */
+export type RangeValidationLevel =
+  | 'strict'
+  | 'compatibility-limited'
+  | 'incompatible'
+  | 'unknown';
+
 export type RangeFetch = (
   input: RequestInfo | URL,
   init?: RequestInit,
@@ -20,6 +30,11 @@ export type RangeSourceErrorCode =
   | 'network'
   | 'http-status'
   | 'whole-file-response'
+  | 'range-too-large'
+  | 'head-metadata'
+  | 'source-size-changed'
+  | 'source-changed'
+  | 'representation'
   | 'content-range'
   | 'body-length';
 

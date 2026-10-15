@@ -9,6 +9,7 @@ import type {
 import type { CopcPointFieldSelection } from '../points/fieldSelection';
 import type { CopcPerformanceObserver } from '../performance';
 import type { RangeRequestDiagnosticsRecorder } from '../range/requestDiagnostics';
+import type { RangeValidationPolicy } from '../range/types';
 
 export type CopcPointLoadOptions = {
   /** Cancels only this point-node read; shared hierarchy reads remain reusable. */
@@ -20,6 +21,8 @@ export type CopcBackendOpenOptions = {
   signal?: AbortSignal;
   /** Aggregate diagnostics for source-owned byte-range requests. */
   rangeRequestDiagnostics?: RangeRequestDiagnosticsRecorder;
+  /** Defaults to strict Content-Range validation. */
+  rangeValidation?: RangeValidationPolicy;
 };
 
 export type CopcWorkerDiagnostics = {

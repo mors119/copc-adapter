@@ -1,7 +1,7 @@
 import { Getter } from 'copc';
 import { HttpRangeByteSource } from '../range/httpRangeSource';
 import { ProjectOwnedByteSource, RangeRequestDiagnosticsRecorder } from '../range/requestDiagnostics';
-import type { RangeReadOptions } from '../range/types';
+import type { RangeReadOptions, RangeValidationPolicy } from '../range/types';
 
 export type CopcRangeGetter = (
   begin: number,
@@ -12,6 +12,7 @@ export type CopcRangeGetter = (
 export type CopcGetterOptions = {
   signal?: AbortSignal;
   rangeRequestDiagnostics?: RangeRequestDiagnosticsRecorder;
+  rangeValidation?: RangeValidationPolicy;
 };
 
 function isHttpSource(source: string): boolean {
@@ -28,7 +29,9 @@ export function createCopcGetter(source: string, options: CopcGetterOptions = {}
       ? source
       : new URL(source, window.location.href).toString();
     const byteSource = new ProjectOwnedByteSource(
-      new HttpRangeByteSource(resolvedSource),
+      new HttpRangeByteSource(resolvedSource, {
+        rangeValidation: options.rangeValidation,
+      }),
       options.signal,
       options.rangeRequestDiagnostics ?? new RangeRequestDiagnosticsRecorder(),
     );

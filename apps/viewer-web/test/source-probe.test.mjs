@@ -106,6 +106,7 @@ test('probe reports a valid partial response and COPC metadata without fetching 
 
     assert.equal(result.reachable, true);
     assert.equal(result.rangeSupported, true);
+    assert.equal(result.validationLevel, 'strict');
     assert.equal(result.status, 206);
     assert.equal(result.partialStatus, 206);
     assert.deepEqual(result.requestedRange, { offset: 0, length: 1024 });
@@ -118,6 +119,66 @@ test('probe reports a valid partial response and COPC metadata without fetching 
     assert.deepEqual(requests.map(({ range }) => range), [{ start: 0, end: 1023 }]);
     assert.ok(bytesSent < fixtureSize, 'the happy path must not fetch the whole fixture');
   });
+});
+
+test('probe labels an opt-in HEAD fallback as compatibility-limited', async () => {
+  const bytes = makeLasFixture();
+  const calls = [];
+  const result = await probeCopcSource('https://example.test/data.copc.laz', {
+    rangeValidation: 'head-fallback',
+    fetch: async (_input, init) => {
+      calls.push(init.method ?? 'GET');
+      if (init.method === 'HEAD') {
+        return new Response(null, {
+          status: 200,
+          headers: { 'Content-Length': String(bytes.byteLength) },
+        });
+      }
+      const range = new Headers(init.headers).get('Range');
+      assert.equal(range, 'bytes=0-1023');
+      return new Response(bytes.subarray(0, 1024), {
+        status: 206,
+        headers: { 'Content-Length': '1024' },
+      });
+    },
+  });
+
+  assert.equal(result.rangeSupported, true);
+  assert.equal(result.validationLevel, 'compatibility-limited');
+  assert.equal(result.contentLength, bytes.byteLength);
+  assert.equal(result.contentRange, undefined);
+  assert.equal(result.copcDetected, true);
+  assert.match(result.warnings.join(' '), /cannot prove the returned byte offset/);
+  assert.deepEqual(calls, ['GET', 'HEAD']);
+});
+
+test('probe does not use HEAD fallback for a readable invalid Content-Range', async () => {
+  let headCalls = 0;
+  const bytes = makeLasFixture().subarray(0, 1024);
+  const result = await probeCopcSource('https://example.test/data.copc.laz', {
+    rangeValidation: 'head-fallback',
+    fetch: async (_input, init) => {
+      if (init.method === 'HEAD') {
+        headCalls += 1;
+        return new Response(null, {
+          status: 200,
+          headers: { 'Content-Length': String(FIXTURE_SIZE) },
+        });
+      }
+      return new Response(bytes, {
+        status: 206,
+        headers: {
+          'Content-Length': '1024',
+          'Content-Range': 'bytes 1-1024/8192',
+        },
+      });
+    },
+  });
+
+  assert.equal(result.rangeSupported, false);
+  assert.equal(result.validationLevel, 'incompatible');
+  assert.match(result.warnings.join(' '), /does not match/);
+  assert.equal(headCalls, 0);
 });
 
 test('probe detects a server that ignores Range and reads only a bounded prefix', async () => {
@@ -140,6 +201,7 @@ test('probe reports invalid, mismatched, missing, unknown-total, and short parti
       assert.equal(result.reachable, true, mode);
       assert.equal(result.rangeSupported, mode === 'unknown-total', mode);
       assert.equal(result.status, 206, mode);
+      if (mode === 'missing') assert.equal(result.validationLevel, 'incompatible');
       if (mode !== 'unknown-total') {
         assert.ok(result.warnings.length > 0, mode);
       }
@@ -160,7 +222,7 @@ test('probe reports invalid, mismatched, missing, unknown-total, and short parti
   }
 });
 
-test('probe marks a failed metadata range as unsupported', async () => {
+test('probe marks an unreadable metadata range as unknown', async () => {
   for (const mode of ['200', 'invalid', 'short', 'network']) {
     const prefix = new Uint8Array(1200);
     prefix.set([76, 65, 83, 70]); // LASF
@@ -203,7 +265,8 @@ test('probe marks a failed metadata range as unsupported', async () => {
 
     const result = await probeCopcSource('https://example.test/large-metadata.copc.laz', { fetch });
 
-    assert.equal(result.rangeSupported, false, mode);
+    assert.equal(result.rangeSupported, mode === 'network' ? 'unknown' : false, mode);
+    if (mode === 'network') assert.equal(result.validationLevel, 'unknown');
     assert.deepEqual(requests, [
       { start: 0, end: 1023 },
       { start: 1024, end: 1199 },

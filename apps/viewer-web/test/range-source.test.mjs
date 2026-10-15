@@ -78,8 +78,18 @@ test('HttpRangeByteSource rejects invalid ranges before network access', async (
 });
 
 test('HttpRangeByteSource rejects a server that ignores Range with 200', async () => {
+  let pulled = false;
+  let cancelled = false;
   const source = new HttpRangeByteSource('https://example.test/data', {
-    fetch: async () => makeResponse(200, [1, 2, 3, 4]),
+    fetch: async () => new Response(new ReadableStream({
+      pull(controller) {
+        pulled = true;
+        controller.enqueue(new Uint8Array([1, 2, 3, 4]));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    }, { highWaterMark: 0 }), { status: 200 }),
   });
 
   await assert.rejects(
@@ -88,12 +98,18 @@ test('HttpRangeByteSource rejects a server that ignores Range with 200', async (
       && error.code === 'whole-file-response'
       && error.status === 200,
   );
+  assert.equal(pulled, false, 'a whole-file response must be rejected before body reads');
+  assert.equal(cancelled, true, 'the rejected response body should be cancelled');
 });
 
 test('HttpRangeByteSource rejects missing and malformed Content-Range headers', async () => {
+  let headCalls = 0;
   for (const headers of [{}, { 'Content-Range': 'bytes 1-3/100' }]) {
     const source = new HttpRangeByteSource('https://example.test/data', {
-      fetch: async () => makeResponse(206, [1, 2, 3], headers),
+      fetch: async (_input, init) => {
+        if (init.method === 'HEAD') headCalls += 1;
+        return makeResponse(206, [1, 2, 3], headers);
+      },
     });
 
     await assert.rejects(
@@ -101,6 +117,301 @@ test('HttpRangeByteSource rejects missing and malformed Content-Range headers', 
       (error) => error instanceof RangeSourceError && error.code === 'content-range',
     );
   }
+  assert.equal(headCalls, 0, 'strict mode must not add a HEAD request');
+});
+
+test('head-fallback validates an unreadable Content-Range with cached HEAD metadata and exact bytes', async () => {
+  const calls = [];
+  const source = new HttpRangeByteSource('https://example.test/data', {
+    rangeValidation: 'head-fallback',
+    fetch: async (_input, init) => {
+      const method = init.method ?? 'GET';
+      calls.push(method);
+      if (method === 'HEAD') {
+        return new Response(null, {
+          status: 200,
+          headers: { 'Content-Length': '100000', ETag: '"stable"' },
+        });
+      }
+      const range = new Headers(init.headers).get('Range');
+      const [offset, end] = range.slice('bytes='.length).split('-').map(Number);
+      return new Response(Uint8Array.from(
+        { length: end - offset + 1 },
+        (_value, index) => offset + index,
+      ), {
+        status: 206,
+        headers: { 'Content-Length': String(end - offset + 1), ETag: '"stable"' },
+      });
+    },
+  });
+
+  assert.deepEqual([...await source.readRange(8, 3)], [8, 9, 10]);
+  assert.deepEqual([...await source.readRange(30_000, 2)], [48, 49]);
+  assert.equal(await source.size(), 100_000);
+  assert.deepEqual(calls, ['GET', 'HEAD', 'GET']);
+});
+
+test('head-fallback shares in-flight HEAD work without coupling caller cancellation', async () => {
+  let headCalls = 0;
+  let headSignal;
+  let resolveHead;
+  const headStarted = new Promise((resolve) => {
+    const start = resolve;
+    resolveHead = start;
+  });
+  let finishHead;
+  const source = new HttpRangeByteSource('https://example.test/data', {
+    rangeValidation: 'head-fallback',
+    fetch: async (_input, init) => {
+      if (init.method === 'HEAD') {
+        headCalls += 1;
+        headSignal = init.signal;
+        resolveHead();
+        return new Promise((resolve) => {
+          finishHead = () => resolve(new Response(null, {
+            status: 200,
+            headers: { 'Content-Length': '100000' },
+          }));
+          init.signal.addEventListener('abort', () => {
+            resolve(new Response(null, { status: 499 }));
+          }, { once: true });
+        });
+      }
+      const range = new Headers(init.headers).get('Range');
+      const [offset, end] = range.slice('bytes='.length).split('-').map(Number);
+      return new Response(new Uint8Array(end - offset + 1).fill(offset % 256), {
+        status: 206,
+        headers: { 'Content-Length': String(end - offset + 1) },
+      });
+    },
+  });
+  const firstController = new AbortController();
+  const secondController = new AbortController();
+  const first = source.readRange(0, 2, { signal: firstController.signal });
+  const second = source.readRange(20_000, 2, { signal: secondController.signal });
+  await headStarted;
+  await new Promise((resolve) => setImmediate(resolve));
+
+  firstController.abort('superseded');
+  await assert.rejects(first, (error) => error instanceof RangeSourceError && error.code === 'aborted');
+  assert.equal(headSignal.aborted, false);
+  assert.equal(headCalls, 1);
+
+  finishHead();
+  assert.deepEqual([...await second], [32, 32]);
+});
+
+test('head-fallback aborts its shared HEAD request when the last range is cancelled', async () => {
+  let headSignal;
+  let resolveHeadStarted;
+  const headStarted = new Promise((resolve) => {
+    resolveHeadStarted = resolve;
+  });
+  const source = new HttpRangeByteSource('https://example.test/data', {
+    rangeValidation: 'head-fallback',
+    fetch: async (_input, init) => {
+      if (init.method === 'HEAD') {
+        headSignal = init.signal;
+        resolveHeadStarted();
+        return new Promise((_resolve, reject) => {
+          init.signal.addEventListener('abort', () => {
+            reject(new DOMException('aborted', 'AbortError'));
+          }, { once: true });
+        });
+      }
+      return makeResponse(206, [1], { 'Content-Length': '1' });
+    },
+  });
+  const controller = new AbortController();
+  const pending = source.readRange(0, 1, { signal: controller.signal });
+  await headStarted;
+  controller.abort('lifecycle');
+
+  await assert.rejects(
+    pending,
+    (error) => error instanceof RangeSourceError && error.code === 'aborted',
+  );
+  assert.equal(headSignal.aborted, true);
+});
+
+test('head-fallback rejects a HEAD size that contradicts the configured source size', async () => {
+  const source = new HttpRangeByteSource('https://example.test/data', {
+    size: 100,
+    rangeValidation: 'head-fallback',
+    fetch: async (_input, init) => init.method === 'HEAD'
+      ? new Response(null, { status: 200, headers: { 'Content-Length': '101' } })
+      : makeResponse(206, [1], { 'Content-Length': '1' }),
+  });
+
+  await assert.rejects(
+    () => source.readRange(0, 1),
+    (error) => error instanceof RangeSourceError && error.code === 'source-size-changed',
+  );
+});
+
+test('head-fallback rejects invalid visible Content-Range without downgrading', async () => {
+  let headCalls = 0;
+  const source = new HttpRangeByteSource('https://example.test/data', {
+    rangeValidation: 'head-fallback',
+    fetch: async (_input, init) => {
+      if (init.method === 'HEAD') {
+        headCalls += 1;
+        return new Response(null, { status: 200, headers: { 'Content-Length': '100' } });
+      }
+      return makeResponse(206, [1, 2], { 'Content-Range': 'bytes 1-2/100' });
+    },
+  });
+
+  await assert.rejects(
+    () => source.readRange(0, 2),
+    (error) => error instanceof RangeSourceError && error.code === 'content-range',
+  );
+  assert.equal(headCalls, 0);
+});
+
+test('HttpRangeByteSource rejects contradictory sizes and readable validator changes', async () => {
+  let call = 0;
+  const changingSize = new HttpRangeByteSource('https://example.test/data', {
+    fetch: async (_input, init) => {
+      const range = new Headers(init.headers).get('Range');
+      const [offset, end] = range.slice('bytes='.length).split('-').map(Number);
+      call += 1;
+      return new Response(new Uint8Array(end - offset + 1), {
+        status: 206,
+        headers: {
+          'Content-Range': `bytes ${offset}-${end}/${call === 1 ? 100 : 101}`,
+          'Content-Length': String(end - offset + 1),
+        },
+      });
+    },
+  });
+  await changingSize.readRange(0, 1);
+  await assert.rejects(
+    () => changingSize.readRange(10, 1),
+    (error) => error instanceof RangeSourceError && error.code === 'source-size-changed',
+  );
+
+  let etagCall = 0;
+  const changingValidator = new HttpRangeByteSource('https://example.test/data', {
+    rangeValidation: 'head-fallback',
+    fetch: async (_input, init) => {
+      if (init.method === 'HEAD') {
+        return new Response(null, {
+          status: 200,
+          headers: { 'Content-Length': '100', ETag: '"version-a"' },
+        });
+      }
+      etagCall += 1;
+      return makeResponse(206, [1], {
+        'Content-Length': '1',
+        ETag: etagCall === 1 ? '"version-a"' : '"version-b"',
+      });
+    },
+  });
+  await changingValidator.readRange(0, 1);
+  await assert.rejects(
+    () => changingValidator.readRange(2, 1),
+    (error) => error instanceof RangeSourceError && error.code === 'source-changed',
+  );
+});
+
+test('HttpRangeByteSource records validators before awaiting concurrent range bodies', async () => {
+  let releaseFirstBody;
+  let resolveFirstBodyRead;
+  const firstBodyRead = new Promise((resolve) => {
+    resolveFirstBodyRead = resolve;
+  });
+  let resolveSecondResponse;
+  let resolveSecondRequest;
+  const secondRequest = new Promise((resolve) => {
+    resolveSecondRequest = resolve;
+  });
+
+  const source = new HttpRangeByteSource('https://example.test/data', {
+    fetch: async (_input, init) => {
+      const range = new Headers(init.headers).get('Range');
+      if (range === 'bytes=0-0') {
+        return new Response(new ReadableStream({
+          pull(controller) {
+            resolveFirstBodyRead();
+            return new Promise((resolve) => {
+              releaseFirstBody = () => {
+                controller.enqueue(new Uint8Array([1]));
+                controller.close();
+                resolve();
+              };
+            });
+          },
+        }, { highWaterMark: 0 }), {
+          status: 206,
+          headers: {
+            'Content-Range': 'bytes 0-0/100001',
+            'Content-Length': '1',
+            ETag: '"version-a"',
+          },
+        });
+      }
+
+      assert.equal(range, 'bytes=10000-10000');
+      resolveSecondRequest();
+      return new Promise((resolve) => {
+        resolveSecondResponse = () => resolve(makeResponse(206, [2], {
+          'Content-Range': 'bytes 10000-10000/100001',
+          'Content-Length': '1',
+          ETag: '"version-b"',
+        }));
+      });
+    },
+  });
+
+  const first = source.readRange(0, 1);
+  const second = source.readRange(10_000, 1);
+  await Promise.all([firstBodyRead, secondRequest]);
+  resolveSecondResponse();
+
+  let secondOutcome;
+  try {
+    secondOutcome = await second.then(
+      (value) => ({ value }),
+      (error) => ({ error }),
+    );
+  } finally {
+    releaseFirstBody();
+  }
+  assert.ok(
+    secondOutcome.error instanceof RangeSourceError && secondOutcome.error.code === 'source-changed',
+  );
+  assert.deepEqual([...await first], [1]);
+});
+
+test('head-fallback rejects HEAD failures, invalid lengths, and out-of-bounds reads', async () => {
+  for (const response of [
+    new Response(null, { status: 405 }),
+    new Response(null, { status: 200 }),
+    new Response(null, { status: 200, headers: { 'Content-Length': '9007199254740992' } }),
+  ]) {
+    const source = new HttpRangeByteSource('https://example.test/data', {
+      rangeValidation: 'head-fallback',
+      fetch: async (_input, init) => init.method === 'HEAD'
+        ? response
+        : makeResponse(206, [1], { 'Content-Length': '1' }),
+    });
+    await assert.rejects(
+      () => source.readRange(0, 1),
+      (error) => error instanceof RangeSourceError && error.code === 'head-metadata',
+    );
+  }
+
+  const source = new HttpRangeByteSource('https://example.test/data', {
+    rangeValidation: 'head-fallback',
+    fetch: async (_input, init) => init.method === 'HEAD'
+      ? new Response(null, { status: 200, headers: { 'Content-Length': '1' } })
+      : makeResponse(206, [1, 2], { 'Content-Length': '2' }),
+  });
+  await assert.rejects(
+    () => source.readRange(0, 2),
+    (error) => error instanceof RangeSourceError && error.code === 'out-of-bounds',
+  );
 });
 
 test('HttpRangeByteSource reports HTTP failures and short bodies structurally', async () => {
@@ -127,6 +438,102 @@ test('HttpRangeByteSource reports HTTP failures and short bodies structurally', 
     () => source.readRange(0, 3),
     (error) => error instanceof RangeSourceError && error.code === 'body-length',
   );
+});
+
+test('HttpRangeByteSource rejects declared oversized bodies before reading and cancels streamed surplus', async () => {
+  let pulled = false;
+  let declaredBodyCancelled = false;
+  const declaredLengthSource = new HttpRangeByteSource('https://example.test/data', {
+    fetch: async () => new Response(new ReadableStream({
+      pull() {
+        pulled = true;
+      },
+      cancel() {
+        declaredBodyCancelled = true;
+      },
+    }, { highWaterMark: 0 }), {
+      status: 206,
+      headers: {
+        'Content-Range': 'bytes 0-1/100',
+        'Content-Length': '1000000',
+      },
+    }),
+  });
+  await assert.rejects(
+    () => declaredLengthSource.readRange(0, 2),
+    (error) => error instanceof RangeSourceError && error.code === 'body-length',
+  );
+  assert.equal(pulled, false);
+  assert.equal(declaredBodyCancelled, true);
+
+  let surplusCancelled = false;
+  const surplusSource = new HttpRangeByteSource('https://example.test/data', {
+    fetch: async () => new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(new Uint8Array([1, 2, 3, 4]));
+      },
+      cancel() {
+        surplusCancelled = true;
+      },
+    }), {
+      status: 206,
+      headers: { 'Content-Range': 'bytes 0-1/100' },
+    }),
+  });
+  await assert.rejects(
+    () => surplusSource.readRange(0, 2),
+    (error) => error instanceof RangeSourceError && error.code === 'body-length',
+  );
+  assert.equal(surplusCancelled, true);
+});
+
+test('HttpRangeByteSource rejects visible non-identity representations', async () => {
+  const encodedHead = new HttpRangeByteSource('https://example.test/data', {
+    rangeValidation: 'head-fallback',
+    fetch: async (_input, init) => init.method === 'HEAD'
+      ? new Response(null, {
+          status: 200,
+          headers: { 'Content-Length': '100', 'Content-Encoding': 'gzip' },
+        })
+      : makeResponse(206, [1], { 'Content-Length': '1' }),
+  });
+  await assert.rejects(
+    () => encodedHead.readRange(0, 1),
+    (error) => error instanceof RangeSourceError && error.code === 'representation',
+  );
+
+  const encodedRange = new HttpRangeByteSource('https://example.test/data', {
+    rangeValidation: 'head-fallback',
+    fetch: async (_input, init) => init.method === 'HEAD'
+      ? new Response(null, { status: 200, headers: { 'Content-Length': '100' } })
+      : makeResponse(206, [1], {
+          'Content-Length': '1',
+          'Content-Encoding': 'br',
+        }),
+  });
+  await assert.rejects(
+    () => encodedRange.readRange(0, 1),
+    (error) => error instanceof RangeSourceError && error.code === 'representation',
+  );
+});
+
+test('HttpRangeByteSource enforces a 64 MiB per-request ceiling before network access', async () => {
+  let fetchCount = 0;
+  const source = new HttpRangeByteSource('https://example.test/data', {
+    fetch: async () => {
+      fetchCount += 1;
+      return makeResponse(206, [1], { 'Content-Range': 'bytes 0-0/1' });
+    },
+  });
+
+  await assert.rejects(
+    () => source.readRanges([
+      { offset: 0, length: 1 },
+      { offset: 1, length: 64 * 1024 * 1024 + 1 },
+    ]),
+    (error) => error instanceof RangeSourceError && error.code === 'range-too-large',
+  );
+  assert.equal(fetchCount, 0);
 });
 
 test('HttpRangeByteSource reports network failures structurally', async () => {
@@ -158,7 +565,7 @@ test('HttpRangeByteSource keeps far disjoint reads separate and concurrent', asy
       return makeResponse(
         206,
         Array.from({ length: end - start + 1 }, (_, index) => start + index),
-        { 'Content-Range': `bytes ${range.slice('bytes='.length)}/${end + 10}` },
+        { 'Content-Range': `bytes ${range.slice('bytes='.length)}/1000000` },
       );
     },
   });
