@@ -40,3 +40,33 @@ test('shipped Rust WASM executes fused node preparation with host timing', async
     preparer.dispose();
   }
 });
+
+test('Rust fused node preparation applies the configured ellipsoidal offset once', async () => {
+  const source = fromHex(METADATA_HEX);
+  const preparer = await RustCopcNodePreparer.fromMetadata(source, undefined, undefined, 12.5);
+  try {
+    const result = preparer.prepare(
+      fromHex(CHUNK_HEX),
+      2,
+      createCopcPointFieldSelection(['position']),
+    );
+    assert.deepEqual([...result.prepared.source.coordinates], [11, 24, 39, 11.01, 24.02, 39.03]);
+    const geographic = result.prepared.geographic.coordinates;
+    assert.ok(Math.abs(geographic[0] - 11) < 1e-12);
+    assert.ok(Math.abs(geographic[1] - 24) < 1e-12);
+    assert.equal(geographic[2], 51.5);
+    assert.ok(Math.abs(geographic[3] - 11.01) < 1e-12);
+    assert.ok(Math.abs(geographic[4] - 24.02) < 1e-12);
+    assert.equal(geographic[5], 51.53);
+    assert.deepEqual(result.prepared.statistics.elevation, { min: 51.5, max: 51.53 });
+    const repeated = preparer.prepare(
+      fromHex(CHUNK_HEX),
+      2,
+      createCopcPointFieldSelection(['position']),
+    );
+    assert.deepEqual([...repeated.prepared.source.coordinates], [...result.prepared.source.coordinates]);
+    assert.deepEqual([...repeated.prepared.geographic.coordinates], [...geographic]);
+  } finally {
+    preparer.dispose();
+  }
+});

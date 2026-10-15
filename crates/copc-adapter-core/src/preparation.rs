@@ -48,6 +48,14 @@ impl CopcNodePreparer {
         metadata: &[u8],
         max_node_chunk_bytes: usize,
     ) -> Result<Self> {
+        Self::from_metadata_with_height_offset(metadata, max_node_chunk_bytes, 0.0)
+    }
+
+    pub fn from_metadata_with_height_offset(
+        metadata: &[u8],
+        max_node_chunk_bytes: usize,
+        height_offset_meters: f64,
+    ) -> Result<Self> {
         let decoder =
             CopcNodeDecoder::from_metadata_with_max_chunk_bytes(metadata, max_node_chunk_bytes)?;
         let header = decoder.header();
@@ -59,7 +67,8 @@ impl CopcNodePreparer {
                 header.bounds[3],
                 header.bounds[4],
             ],
-        )?;
+        )?
+        .with_height_offset_meters(height_offset_meters)?;
         Ok(Self { decoder, transform })
     }
 

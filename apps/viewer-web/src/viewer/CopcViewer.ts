@@ -60,6 +60,8 @@ export type CopcLayerOptions = {
   url: string;
   pointSize?: number;
   colorMode?: CopcColorMode;
+  /** Manual additive correction in metres applied to ellipsoidal point height. Defaults to 0. */
+  heightOffsetMeters?: number;
   debug?: boolean;
   maxRenderedPoints?: number;
   streaming?: Partial<StreamingSelectionOptions>;
@@ -322,6 +324,7 @@ export class CopcLayerController {
     this.core = new CopcStreamingCore({
       url: options.url,
       backend: options.backend,
+      heightOffsetMeters: options.heightOffsetMeters,
       decoder: options.decoder,
       debug: options.debug,
       maxRenderedPoints: options.maxRenderedPoints,
@@ -418,7 +421,10 @@ export class CopcLayerController {
 
       const metadata = this.core.getMetadata();
       if (metadata) {
-        this.datasetElevationRange = getDatasetElevationRange(metadata);
+        this.datasetElevationRange = getDatasetElevationRange(
+          metadata,
+          this.options.heightOffsetMeters,
+        );
       }
       this.lifecycle = 'ready';
       this.debug('COPC metadata and hierarchy loaded');
@@ -1071,7 +1077,7 @@ export class CopcLayerController {
       return;
     }
 
-    const transformPoint = createPointTransformer(metadata);
+    const transformPoint = createPointTransformer(metadata, this.options.heightOffsetMeters);
     const center = transformPoint({
       x: (metadata.cube.minX + metadata.cube.maxX) / 2,
       y: (metadata.cube.minY + metadata.cube.maxY) / 2,

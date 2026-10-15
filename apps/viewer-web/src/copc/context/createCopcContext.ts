@@ -29,6 +29,7 @@ import type { CopcWorkerDiagnostics } from '../backend/types';
  */
 export class CopcContext implements CopcSource {
   private readonly delegate: CopcSource;
+  readonly preparedHeightOffsetMeters?: number;
   readonly loadPointDataBuffer?: (
     node: CopcHierarchyNode,
     fields: CopcPointFieldSelection,
@@ -48,6 +49,7 @@ export class CopcContext implements CopcSource {
 
   private constructor(delegate: CopcSource) {
     this.delegate = delegate;
+    this.preparedHeightOffsetMeters = delegate.preparedHeightOffsetMeters;
     if (delegate.loadPointDataBuffer) {
       this.loadPointDataBuffer = delegate.loadPointDataBuffer.bind(delegate);
     }

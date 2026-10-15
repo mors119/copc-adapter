@@ -8,6 +8,7 @@ import type {
 import type { CopcWorkerDiagnostics } from './backend/types';
 import { getCopcWasmBinary } from '../wasm/copcWasm';
 import { resolveMaxRangeBytes } from './range/types';
+import { resolveHeightOffsetMeters } from '../coordinates/transform/heightOffset';
 
 export type RustCopcDecodeWorkerLike = {
   onmessage: ((event: MessageEvent<RustCopcDecodeWorkerResponse>) => void) | null;
@@ -21,6 +22,7 @@ export type RustCopcDecodeWorkerPoolOptions = {
   workerCount?: number;
   workerFactory?: () => RustCopcDecodeWorkerLike | Promise<RustCopcDecodeWorkerLike>;
   maxRangeBytes?: number;
+  heightOffsetMeters?: number;
 };
 
 export type RustCopcDecodeRequest = {
@@ -97,6 +99,7 @@ function bufferFrom(value: ArrayBuffer | undefined, type: 'u16' | 'u8'): Uint16A
 export class RustCopcDecodeWorkerPool {
   readonly workerCount: number;
   private readonly maxRangeBytes: number;
+  private readonly heightOffsetMeters: number;
   private readonly workerFactory: () => RustCopcDecodeWorkerLike | Promise<RustCopcDecodeWorkerLike>;
   private readonly workers: WorkerSlot[] = [];
   private readonly queue: QueueEntry[] = [];
@@ -120,6 +123,7 @@ export class RustCopcDecodeWorkerPool {
     }
     this.workerCount = workerCount;
     this.maxRangeBytes = resolveMaxRangeBytes('[worker pool]', options.maxRangeBytes);
+    this.heightOffsetMeters = resolveHeightOffsetMeters(options.heightOffsetMeters);
     this.workerFactory = options.workerFactory ?? defaultWorkerFactory;
   }
 
@@ -288,6 +292,7 @@ export class RustCopcDecodeWorkerPool {
           metadata,
           wasm,
           maxRangeBytes: this.maxRangeBytes,
+          heightOffsetMeters: this.heightOffsetMeters,
         }, [metadata, wasm]);
       } catch (error: unknown) {
         this.handleWorkerFailure(

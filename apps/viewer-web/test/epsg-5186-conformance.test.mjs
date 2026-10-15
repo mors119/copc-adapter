@@ -5,8 +5,10 @@ import { fileURLToPath } from 'node:url';
 
 import * as Cesium from 'cesium';
 import {
+  createPointTransformer,
   transformPointBufferToPointData,
 } from '../src/coordinates/transform/createPointTransformer.ts';
+import { RustCrsTransformer } from '../src/coordinates/transform/rustCrsTransformer.ts';
 import {
   toCartesian3ArrayFromWorldBuffer,
 } from '../src/cesium/render/renderPoints.ts';
@@ -130,5 +132,67 @@ test('EPSG:5186 prepared ECEF points place in the expected Korean region in Cesi
       && placed.longitude < Cesium.Math.toRadians(128));
     assert.ok(placed.latitude > Cesium.Math.toRadians(33)
       && placed.latitude < Cesium.Math.toRadians(39));
+  }
+});
+
+test('manual positive and negative offsets match Rust and JS for projected fixtures', async () => {
+  assert.ok(fixture, 'EPSG:5186 fixture must be checked in');
+  const metadata = createMetadata();
+  const points = createSourceBuffer();
+  const rust = await RustCrsTransformer.fromMetadata(metadata, 17.25);
+  const rustNegative = await RustCrsTransformer.fromMetadata(metadata, -8.5);
+
+  try {
+    const javaScript = transformPointBufferToPointData(metadata, points, 17.25);
+    const rustPrepared = rust.transform(points.coordinates);
+    const negativeRust = rustNegative.transform(new Float64Array([
+      fixture.points[0].x,
+      fixture.points[0].y,
+      fixture.points[0].z,
+    ]));
+    const negativeJs = createPointTransformer(metadata, -8.5)(fixture.points[0]);
+    assert.equal(
+      negativeJs.height,
+      fixture.points[0].z - 8.5,
+    );
+    assertNear(
+      negativeRust.geographicCoordinates[2],
+      negativeJs.height,
+      1e-9,
+      'Rust/JS negative corrected height',
+    );
+    for (let index = 0; index < fixture.points.length; index += 1) {
+      const offset = index * 3;
+      assertNear(
+        rustPrepared.geographicCoordinates[offset],
+        javaScript.geographic.coordinates[offset],
+        fixture.tolerance.longitude_degrees,
+        `Rust/JS longitude for point ${index}`,
+      );
+      assertNear(
+        rustPrepared.geographicCoordinates[offset + 1],
+        javaScript.geographic.coordinates[offset + 1],
+        fixture.tolerance.latitude_degrees,
+        `Rust/JS latitude for point ${index}`,
+      );
+      assertNear(
+        rustPrepared.geographicCoordinates[offset + 2],
+        javaScript.geographic.coordinates[offset + 2],
+        1e-9,
+        `Rust/JS corrected height for point ${index}`,
+      );
+      for (let axis = 0; axis < 3; axis += 1) {
+        assertNear(
+          rustPrepared.ecefCoordinates[offset + axis],
+          javaScript.world.coordinates[offset + axis],
+          0.05,
+          `Rust/JS corrected ECEF axis ${axis} for point ${index}`,
+        );
+      }
+    }
+    assert.deepEqual([...javaScript.source.coordinates], [...points.coordinates]);
+  } finally {
+    rust.dispose();
+    rustNegative.dispose();
   }
 });

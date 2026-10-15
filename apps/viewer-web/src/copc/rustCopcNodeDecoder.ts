@@ -13,6 +13,7 @@ import {
   DEFAULT_MAX_RANGE_BYTES,
   resolveWasmMaxRangeBytes,
 } from './range/types';
+import { resolveHeightOffsetMeters } from '../coordinates/transform/heightOffset';
 
 const FIELD_INTENSITY = 1 << 0;
 const FIELD_CLASSIFICATION = 1 << 1;
@@ -137,8 +138,10 @@ export class RustCopcNodePreparer {
     metadataBytes: Uint8Array,
     loadWasm: () => Promise<CopcWasmExports> = loadCopcWasm,
     maxChunkBytes = DEFAULT_MAX_RANGE_BYTES,
+    heightOffsetMeters = 0,
   ): Promise<RustCopcNodePreparer> {
     const maximum = resolveWasmMaxRangeBytes('[metadata]', maxChunkBytes);
+    const heightOffset = resolveHeightOffsetMeters(heightOffsetMeters);
     const wasm = await loadWasm();
     const metadataPointer = requireRustWasmPointer(
       wasm.alloc_bytes(metadataBytes.byteLength),
@@ -147,10 +150,11 @@ export class RustCopcNodePreparer {
     );
     new Uint8Array(wasm.memory.buffer, metadataPointer, metadataBytes.byteLength).set(metadataBytes);
     try {
-      const responsePointer = wasm.create_copc_node_preparer_with_limit_json(
+      const responsePointer = wasm.create_copc_node_preparer_with_limit_and_height_offset_json(
         metadataPointer,
         metadataBytes.byteLength,
         maximum,
+        heightOffset,
       );
       try {
         const response = JSON.parse(readCString(wasm.memory, responsePointer)) as RustParserResponse<RustPreparerHandle>;

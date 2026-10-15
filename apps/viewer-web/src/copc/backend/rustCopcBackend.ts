@@ -193,6 +193,7 @@ function mapRustError(
 
 class RustCopcSource implements CopcSource {
   readonly source: string;
+  readonly preparedHeightOffsetMeters: number;
   private readonly reader: RustCopcReader;
 
   constructor(
@@ -201,6 +202,7 @@ class RustCopcSource implements CopcSource {
   ) {
     this.source = source;
     this.reader = reader;
+    this.preparedHeightOffsetMeters = reader.heightOffsetMeters;
   }
 
   getMetadata(): ReturnType<CopcSource['getMetadata']> {
@@ -311,6 +313,7 @@ export class RustCopcBackend implements CopcBackend {
       );
       return new RustCopcSource(source, await RustCopcReader.open(ownedByteSource, {
         maxRangeBytes: options.maxRangeBytes,
+        heightOffsetMeters: options.heightOffsetMeters,
       }));
     } catch (error: unknown) {
       throw mapRustError(source, error, 'open');

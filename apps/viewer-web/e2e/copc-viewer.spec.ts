@@ -34,6 +34,8 @@ type CopcDebugState = {
     longitude: number;
     latitude: number;
     height: number;
+    source?: { x: number; y: number; z: number };
+    world?: { x: number; y: number; z: number };
     classification?: number;
     intensity?: number;
     rgb?: { red: number; green: number; blue: number };
@@ -80,6 +82,7 @@ type CopcDebugAdapter = {
   setCameraHeading(headingDegrees: number): void;
   recordError(error: unknown): void;
   runSyntheticRendererPerformanceBenchmark(): Array<Record<string, unknown>>;
+  setGlobeVisible(visible: boolean): void;
 };
 
 declare global {
@@ -465,4 +468,56 @@ test('uses the same constrained view hierarchy policy with copc-js', async ({ pa
     beforeRotation.hierarchy?.pageCacheHits ?? 0,
   );
   expect(rotated.lastError).toBeUndefined();
+});
+
+test('manual height offset keeps picked points aligned with the globe shown or hidden', async ({ page }) => {
+  test.setTimeout(180_000);
+  const pageErrors: Error[] = [];
+  page.on('pageerror', (error) => pageErrors.push(error));
+
+  await page.goto('/?backend=rust&heightOffsetMeters=25&debugPanel=false');
+  await expect.poll(() => getDebugState(page), { timeout: 120_000 }).toMatchObject({
+    viewerReady: true,
+    layerLoaded: true,
+    backend: 'rust',
+  });
+  await expect.poll(async () => (await getDebugState(page)).renderedPointCount, {
+    timeout: 120_000,
+  }).toBeGreaterThan(0);
+  await expect.poll(async () => (await getDebugState(page)).worker?.completedCount, {
+    timeout: 120_000,
+  }).toBeGreaterThan(0);
+  await expect.poll(async () => page.evaluate(() =>
+    window.__COPC_DEBUG__?.getPickablePointScreenPosition())).toBeTruthy();
+
+  const screenPosition = await page.evaluate(() =>
+    window.__COPC_DEBUG__?.getPickablePointScreenPosition());
+  if (!screenPosition) throw new Error('No rendered COPC point was available for picking');
+  await page.mouse.click(screenPosition.x, screenPosition.y);
+  await expect.poll(async () => (await getDebugState(page)).selectedPoint)
+    .toMatchObject({ nodeKey: expect.any(String), pointIndex: expect.any(Number) });
+  const visibleState = await getCompletedDebugState(page);
+  const visiblePoint = visibleState.selectedPoint;
+  expect(visiblePoint?.source?.z).toBeDefined();
+  expect(visiblePoint?.world).toBeDefined();
+  expect(visibleState.renderedPointCount).toBeGreaterThan(0);
+
+  await page.evaluate(() => window.__COPC_DEBUG__?.setGlobeVisible(false));
+  const hiddenState = await getCompletedDebugState(page);
+  expect(hiddenState.renderedPointCount).toBeGreaterThan(0);
+  expect(hiddenState.selectedPoint?.height).toBe(visiblePoint?.height);
+  expect(hiddenState.selectedPoint?.source?.z).toBe(visiblePoint?.source?.z);
+  expect(hiddenState.selectedPoint?.world).toEqual(visiblePoint?.world);
+
+  await page.evaluate(() => {
+    window.__COPC_DEBUG__?.setStyle({ colorMode: 'elevation' });
+  });
+  const restyledPoint = (await getDebugState(page)).selectedPoint;
+  expect(restyledPoint?.height).toBe(visiblePoint?.height);
+  expect(restyledPoint?.source?.z).toBe(visiblePoint?.source?.z);
+  expect(restyledPoint?.world).toEqual(visiblePoint?.world);
+
+  await page.evaluate(() => window.__COPC_DEBUG__?.setGlobeVisible(true));
+  expect((await getDebugState(page)).renderedPointCount).toBeGreaterThan(0);
+  expect(pageErrors).toEqual([]);
 });

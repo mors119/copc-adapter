@@ -15,7 +15,9 @@ export type CopcPointInspection = {
   pointIndex: number;
   longitude: number;
   latitude: number;
+  /** Corrected WGS84 ellipsoidal display height in metres. */
   height: number;
+  /** Unmodified COPC source XYZ; Z remains in the source CRS vertical units. */
   source?: { x: number; y: number; z: number };
   world?: {
     coordinateSystem: 'wgs84-ecef-meters';

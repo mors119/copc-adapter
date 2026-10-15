@@ -114,11 +114,13 @@ test('Rust decode worker pool passes the configured range limit to workers', asy
     workerCount: 1,
     workerFactory: harness.factory,
     maxRangeBytes: 128 * 1024 * 1024,
+    heightOffsetMeters: -22.5,
   });
   pool.setMetadata(new Uint8Array([9, 8, 7]));
 
   await pool.submit(request('configured-limit'));
   assert.equal(harness.initializations[0].maxRangeBytes, 128 * 1024 * 1024);
+  assert.equal(harness.initializations[0].heightOffsetMeters, -22.5);
   pool.destroy();
 });
 

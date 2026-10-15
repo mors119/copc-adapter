@@ -55,6 +55,7 @@ pub struct CrsTransform {
     target: Proj,
     source_proj_string: String,
     vertical_unit_scale: f64,
+    height_offset_meters: f64,
     source_is_geographic: bool,
     used_horizontal_fallback: bool,
 }
@@ -65,6 +66,7 @@ impl fmt::Debug for CrsTransform {
             .debug_struct("CrsTransform")
             .field("source_proj_string", &self.source_proj_string)
             .field("vertical_unit_scale", &self.vertical_unit_scale)
+            .field("height_offset_meters", &self.height_offset_meters)
             .field("source_is_geographic", &self.source_is_geographic)
             .field("used_horizontal_fallback", &self.used_horizontal_fallback)
             .finish()
@@ -179,8 +181,21 @@ impl CrsTransform {
             target,
             source_proj_string,
             vertical_unit_scale,
+            height_offset_meters: 0.0,
             used_horizontal_fallback,
         })
+    }
+
+    /// Set a manual additive correction in ellipsoidal metres.
+    pub fn with_height_offset_meters(mut self, height_offset_meters: f64) -> Result<Self> {
+        if !height_offset_meters.is_finite() {
+            return Err(CopcError::new(
+                "invalid-value",
+                "ellipsoidal height offset must be finite",
+            ));
+        }
+        self.height_offset_meters = height_offset_meters;
+        Ok(self)
     }
 
     pub fn source_proj_string(&self) -> &str {
@@ -218,10 +233,15 @@ impl CrsTransform {
             )
         })?;
 
+        let converted_height = source[2] * self.vertical_unit_scale;
         let point = GeographicPoint {
             longitude: transformed.0.to_degrees(),
             latitude: transformed.1.to_degrees(),
-            height: source[2] * self.vertical_unit_scale,
+            height: if self.height_offset_meters == 0.0 {
+                converted_height
+            } else {
+                converted_height + self.height_offset_meters
+            },
         };
         if [point.longitude, point.latitude, point.height]
             .iter()
@@ -514,6 +534,24 @@ mod tests {
             .unwrap();
         assert!((point.longitude + 118.33772305286695).abs() < 1e-7);
         assert!((point.height - 545.1945 * 0.304800609601219).abs() < 1e-12);
+    }
+
+    #[test]
+    fn applies_manual_offset_after_vertical_unit_conversion() {
+        let transform = CrsTransform::from_wkt(COMPOUND_UTM_WKT)
+            .unwrap()
+            .with_height_offset_meters(17.25)
+            .unwrap();
+        let point = transform
+            .transform_point([376392.9975, 3757833.2855, 545.1945])
+            .unwrap();
+        assert!((point.height - (545.1945 * 0.304800609601219 + 17.25)).abs() < 1e-12);
+        assert!(
+            CrsTransform::from_wkt(WGS84_GEOGRAPHIC_WKT)
+                .unwrap()
+                .with_height_offset_meters(f64::NAN)
+                .is_err()
+        );
     }
 
     #[test]
