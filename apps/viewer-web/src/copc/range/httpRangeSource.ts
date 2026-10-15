@@ -218,7 +218,9 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
             if (member.settled) continue;
             const start = member.range.offset - group.range.offset;
             const end = start + member.range.length;
-            const result = start === 0 && end === bytes.byteLength
+            const result = group.members.length === 1
+              && start === 0
+              && end === bytes.byteLength
               ? bytes
               : bytes.slice(start, end);
             this.resolvePendingRead(member, result);

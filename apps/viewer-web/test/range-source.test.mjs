@@ -11,6 +11,7 @@ import {
   InMemoryByteSource,
   RangeSourceError,
 } from '../src/index.ts';
+import { redactSourceForDiagnostics } from '../src/copc/range/types.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -75,6 +76,13 @@ test('HttpRangeByteSource redacts URL credentials and query values from errors',
       && error.source === 'https://example.test/data.copc.laz'
       && !error.source.includes('password')
       && !error.source.includes('secret'),
+  );
+});
+
+test('redactSourceForDiagnostics removes credentials from scheme-relative URLs', () => {
+  assert.equal(
+    redactSourceForDiagnostics('//viewer:password@example.test/data?token=secret#private'),
+    '//example.test/data',
   );
 });
 
@@ -707,6 +715,25 @@ test('HttpRangeByteSource coalesces overlapping and adjacent direct reads into e
   ]);
   assert.deepEqual(calls.map(({ offset, length }) => ({ offset, length })), [
     { offset: 10, length: 8 },
+  ]);
+});
+
+test('HttpRangeByteSource returns independent buffers for duplicate full-span reads', async () => {
+  const calls = [];
+  const source = new HttpRangeByteSource('https://example.test/data', {
+    fetch: createIndexedRangeFetch(calls),
+  });
+
+  const [first, second] = await Promise.all([
+    source.readRange(10, 4),
+    source.readRange(10, 4),
+  ]);
+
+  assert.deepEqual([...first], [10, 11, 12, 13]);
+  assert.deepEqual([...second], [10, 11, 12, 13]);
+  assert.notEqual(first.buffer, second.buffer);
+  assert.deepEqual(calls.map(({ offset, length }) => ({ offset, length })), [
+    { offset: 10, length: 4 },
   ]);
 });
 

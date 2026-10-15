@@ -47,6 +47,15 @@ export type RangeSourceErrorDetails = {
 
 /** Remove URL credentials and query/fragment values before exposing diagnostics. */
 export function redactSourceForDiagnostics(source: string): string {
+  if (source.startsWith('//')) {
+    try {
+      const url = new URL(source, 'https://diagnostic.invalid');
+      return `//${url.host}${url.pathname}`;
+    } catch {
+      return source.split(/[?#]/, 1)[0].replace(/^\/\/[^/]*@/, '//') || '[source]';
+    }
+  }
+
   try {
     const url = new URL(source);
     url.username = '';

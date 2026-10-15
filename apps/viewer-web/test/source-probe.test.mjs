@@ -131,6 +131,64 @@ test('probe omits URL credentials and query values from diagnostic results', asy
   assert.doesNotMatch(JSON.stringify(result), /password|secret|private/);
 });
 
+test('probe does not expose fetch error messages containing a signed source URL', async () => {
+  const source = 'https://viewer:password@example.test/data.copc.laz?token=secret#private';
+  const result = await probeCopcSource(source, {
+    fetch: async () => {
+      throw new Error(`Failed to fetch ${source}`);
+    },
+  });
+
+  assert.equal(result.source, 'https://example.test/data.copc.laz');
+  assert.match(result.warnings.join(' '), /network availability and CORS policy/);
+  assert.doesNotMatch(JSON.stringify(result), /viewer|password|secret|private/);
+});
+
+test('probe does not expose response body read errors containing a signed source URL', async () => {
+  const source = 'https://viewer:password@example.test/data.copc.laz?token=secret#private';
+  const result = await probeCopcSource(source, {
+    fetch: async () => new Response(new ReadableStream({
+      start(controller) {
+        controller.error(new Error(`Failed to read ${source}`));
+      },
+    }), {
+      status: 206,
+      headers: {
+        'Content-Length': '1024',
+        'Content-Range': 'bytes 0-1023/8192',
+      },
+    }),
+  });
+
+  assert.match(result.warnings.join(' '), /response body could not be read/);
+  assert.doesNotMatch(JSON.stringify(result), /viewer|password|secret|private/);
+});
+
+test('probe does not expose fetch errors from an additional metadata range', async () => {
+  const source = 'https://viewer:password@example.test/data.copc.laz?token=secret#private';
+  const bytes = makeLasFixture();
+  new DataView(bytes.buffer).setUint32(96, 1200, true);
+  let calls = 0;
+  const result = await probeCopcSource(source, {
+    fetch: async () => {
+      calls += 1;
+      if (calls > 1) throw new Error(`Failed to fetch ${source}`);
+      return new Response(bytes.subarray(0, 1024), {
+        status: 206,
+        headers: {
+          'Content-Length': '1024',
+          'Content-Range': 'bytes 0-1023/8192',
+        },
+      });
+    },
+  });
+
+  assert.equal(calls, 2);
+  assert.equal(result.source, 'https://example.test/data.copc.laz');
+  assert.match(result.warnings.join(' '), /additional range/);
+  assert.doesNotMatch(JSON.stringify(result), /viewer|password|secret|private/);
+});
+
 test('probe labels an opt-in HEAD fallback as compatibility-limited', async () => {
   const bytes = makeLasFixture();
   const calls = [];

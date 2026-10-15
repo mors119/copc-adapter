@@ -172,14 +172,13 @@ async function requestRange(
   let bytes: Uint8Array;
   try {
     bytes = await readBodyPrefix(response, bodyLimit);
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
+  } catch {
     return {
       response,
       contentRange,
       parsedContentRange: parsed?.ok ? parsed.value : undefined,
       contentRangeError: parsed && !parsed.ok ? parsed.message : undefined,
-      bodyReadError: `The response body could not be read (${message}).`,
+      bodyReadError: 'The response body could not be read.',
       bytes: new Uint8Array(),
     };
   }
@@ -545,11 +544,10 @@ export async function probeCopcSource(
   let first: ProbeResponse;
   try {
     first = await requestRange(source, requestedRange, options);
-  } catch (error: unknown) {
-    const detail = error instanceof Error ? error.message : String(error);
+  } catch {
     return withWarnings(
       base,
-      [`The response could not be inspected by the browser (${detail}). Check network availability and CORS policy.`],
+      ['The response could not be inspected by the browser. Check network availability and CORS policy.'],
     );
   }
 
@@ -642,11 +640,10 @@ export async function probeCopcSource(
           extraWarnings = extraWarnings.filter((warning) =>
             !warning.startsWith('COPC metadata extends to byte'));
         }
-      } catch (error: unknown) {
+      } catch {
         metadataRangeSupported = false;
         validationLevel = 'unknown';
-        const detail = error instanceof Error ? error.message : String(error);
-        extraWarnings.push(`COPC metadata could not be inspected from the additional range (${detail}).`);
+        extraWarnings.push('COPC metadata could not be inspected from the additional range.');
       }
     } else if (
       firstRangeUsable
