@@ -1,4 +1,4 @@
-use copc_core::{
+use copc_adapter_core::{
     CopcHeader, CopcNodePreparer, CrsTransform, PreparedCopcNode, RootHierarchy, decode_copc_node,
     decode_copc_node_with_max_chunk_bytes, interleave_xyz, parse_header, parse_root_hierarchy,
     parse_root_hierarchy_with_max_bytes,
@@ -462,7 +462,7 @@ pub extern "C" fn create_copc_node_preparer_with_limit_json(
 }
 
 fn prepared_range_json(
-    range: Option<copc_core::PreparedPointRange>,
+    range: Option<copc_adapter_core::PreparedPointRange>,
 ) -> Option<PreparedPointRangeJson> {
     range.map(|value| PreparedPointRangeJson {
         min: value.min,
@@ -670,7 +670,7 @@ pub extern "C" fn parse_root_hierarchy_with_limit_json(
 }
 
 fn copy_decoded_node(
-    decoded: copc_core::DecodedCopcNode,
+    decoded: copc_adapter_core::DecodedCopcNode,
     coordinates_ptr: *mut f64,
     intensity_ptr: *mut u16,
     classification_ptr: *mut u8,

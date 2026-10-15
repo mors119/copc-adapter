@@ -53,12 +53,12 @@ renderer adapter
 - `CopcJsBackend` uses the `copc` implementation for metadata, hierarchy, and
   point-view loading. The project-owned TypeScript boundary selects requested
   fields and converts point views into typed buffers.
-- `copc-core` owns renderer-neutral LAS/COPC metadata and hierarchy parsing,
+- `copc-adapter-core` owns renderer-neutral LAS/COPC metadata and hierarchy parsing,
   LAZ node decompression, supported point-format interpretation, requested
   field selection, source-coordinate buffer creation, the opt-in reusable
   `CrsTransform`, and WGS84 geographic/ECEF numeric preparation. It returns
   typed Rust results and errors and has no WebAssembly or browser dependency.
-- `copc-wasm` is the thin ABI wrapper around `copc-core`. It owns pointer/length
+- `copc-adapter-wasm` is the thin ABI wrapper around `copc-adapter-core`. It owns pointer/length
   validation, WASM allocation and deallocation, copying core-owned buffers into
   host-provided memory, JavaScript-safe integer checks, and JSON/status
   encoding. TypeScript still fetches the exact byte ranges, owns the reader and
@@ -121,7 +121,7 @@ preparation path. The opt-in Rust backend uses the fused Rust preparation path;
 its failure is reported to the caller and is not silently retried through the
 TypeScript transform path.
 
-The repository contains `crates/copc-core` and `crates/copc-wasm`. The former
+The repository contains `crates/copc-adapter-core` and `crates/copc-adapter-wasm`. The former
 is the native-testable domain implementation; the latter exposes the existing
 Rust/WASM ABI without owning COPC parsing or decoding rules. This extraction is
 complete for the supported release scope, including fused point preparation and
@@ -261,17 +261,17 @@ The current crate separation is:
 
 ```text
 crates/
-  copc-core/
-  copc-wasm/
+  copc-adapter-core/
+  copc-adapter-wasm/
 ```
 
-`copc-core` is pure Rust. It has no JavaScript, WebAssembly-specific pointer
+`copc-adapter-core` is pure Rust. It has no JavaScript, WebAssembly-specific pointer
 ABI, browser, Cesium, or Three.js dependency. Its native tests exercise the
 same metadata, hierarchy, and point-decoding behavior used by the WASM path.
 
-`copc-wasm` is a thin wrapper around that core. It owns memory allocation and
+`copc-adapter-wasm` is a thin wrapper around that core. It owns memory allocation and
 deallocation, ABI validation, JS/WASM result transfer, and WebAssembly-specific
-error/result encoding. COPC domain rules remain in `copc-core`; renderer
+error/result encoding. COPC domain rules remain in `copc-adapter-core`; renderer
 behavior remains outside both crates.
 
 ## CRS architecture

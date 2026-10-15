@@ -101,7 +101,7 @@ let bundledWasmUrlPromise: Promise<URL> | undefined;
 
 async function getBundledWasmUrl(): Promise<URL> {
   if (!bundledWasmUrlPromise) {
-    bundledWasmUrlPromise = import('./copc_wasm.wasm?url&no-inline').then(
+    bundledWasmUrlPromise = import('./copc_adapter_wasm.wasm?url&no-inline').then(
       ({ default: assetUrl }) => new URL(assetUrl, import.meta.url),
     );
   }
@@ -146,7 +146,7 @@ async function loadWasmBinary(): Promise<Uint8Array> {
     import('node:url'),
   ]);
   const modulePath = pathModule.resolve(
-    urlModule.fileURLToPath(new URL('./copc_wasm.wasm?no-inline', import.meta.url)),
+    urlModule.fileURLToPath(new URL('./copc_adapter_wasm.wasm?no-inline', import.meta.url)),
   );
   return new Uint8Array(await readFile(modulePath));
 }

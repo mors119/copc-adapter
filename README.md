@@ -435,7 +435,7 @@ controls, render loop, and UI.
   mixed-LoD coverage, gaze-aware priority, hysteresis, and node/point safety
   caps; occlusion culling is not implemented yet.
 - Browser Rust/WASM point preparation uses a bounded worker pool when `Worker`
-  is available; environments without workers use the same `copc-core`
+  is available; environments without workers use the same `copc-adapter-core`
   semantics on the main thread. Worker queue/concurrency diagnostics are
   exposed in snapshots. The thread-ownership audit and camera-input evidence
   are in the [Worker responsiveness

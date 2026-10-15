@@ -37,8 +37,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "copc-core"
-version = "0.1.0"
+name = "copc-adapter-core"
+version = "0.5.1"
 dependencies = [
  "laz",
  "proj4rs",
@@ -46,10 +46,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "copc-wasm"
-version = "0.1.0"
+name = "copc-adapter-wasm"
+version = "0.5.1"
 dependencies = [
- "copc-core",
+ "copc-adapter-core",
  "serde",
  "serde_json",
 ]
@@ -58,7 +58,7 @@ dependencies = [
 name = "crs-audit"
 version = "0.1.0"
 dependencies = [
- "copc-core",
+ "copc-adapter-core",
  "js-sys",
  "proj4wkt",
  "serde",

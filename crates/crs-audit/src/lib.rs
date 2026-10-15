@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use copc_core::{CrsTransform, geographic_buffer_to_ecef};
+use copc_adapter_core::{CrsTransform, geographic_buffer_to_ecef};
 use proj4wkt::wkt_to_projstring;
 use serde::{Deserialize, Serialize};
 
@@ -257,7 +257,7 @@ mod wasm_api {
 #[cfg(test)]
 mod tests {
     use super::{fixture_matrix, transform_fixture};
-    use copc_core::CrsTransform;
+    use copc_adapter_core::CrsTransform;
 
     #[test]
     fn fixture_matrix_contains_real_and_boundary_cases() {

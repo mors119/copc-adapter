@@ -1,12 +1,12 @@
 # Issue #173 Rust CRS integration
 
 This document records the production Rust CRS capability added to
-`copc-core`. It builds on the compatibility evidence in
+`copc-adapter-core`. It builds on the compatibility evidence in
 [issue #171](issue-171-proj4rs-compatibility.md).
 
 ## Implemented boundary
 
-`copc-core::CrsTransform` initializes a reusable source-WKT to WGS84
+`copc_adapter_core::CrsTransform` initializes a reusable source-WKT to WGS84
 transformation. Initialization performs:
 
 ```text
@@ -30,7 +30,7 @@ ECEF `f64` buffers. Projection and WKT initialization do not occur inside the
 point loop. `geographic_to_ecef` and `geographic_buffer_to_ecef` are also
 available as pure Rust numeric operations.
 
-`copc-wasm` exposes a reusable opaque transform handle:
+`copc-adapter-wasm` exposes a reusable opaque transform handle:
 
 - `create_crs_transform_json` initializes one handle from UTF-8 WKT;
 - `create_geographic_crs_transform_json` supports the existing no-WKT
@@ -45,7 +45,7 @@ is collected.
 
 ## Fixture and error behavior
 
-The checked-in matrix from #171 is executed through `copc-core`, including
+The checked-in matrix from #171 is executed through `copc-adapter-core`, including
 Autzen, SoFi, WGS84 geographic WKT1, and UTM WKT2. The resulting behavior is:
 
 | Fixture | WKT conversion | Rust transform | Height semantics |
@@ -92,8 +92,8 @@ not correctness assertions or release performance guarantees.
 
 - `proj4rs 0.1.10` and `proj4wkt 0.1.1` are used with default features
   disabled and `wasm-strict` enabled.
-- The release `copc-wasm` target builds for `wasm32-unknown-unknown`.
-- The raw release `copc_wasm.wasm` is `934,468` bytes and the shipped
+- The release `copc-adapter-wasm` target builds for `wasm32-unknown-unknown`.
+- The raw release `copc_adapter_wasm.wasm` is `934,468` bytes and the shipped
   name-section-stripped asset is `805,240` bytes in this checkout after adding
   the CRS dependencies and ABI; these are the current artifact-size baselines
   for subsequent migration work.
@@ -111,7 +111,7 @@ not correctness assertions or release performance guarantees.
 
 ```bash
 cargo test --workspace
-cargo build -p copc-wasm --target wasm32-unknown-unknown --release
+cargo build -p copc-adapter-wasm --target wasm32-unknown-unknown --release
 cargo test -p crs-audit
 cargo run -p crs-audit -- --benchmark
 npm run audit:crs -- --json

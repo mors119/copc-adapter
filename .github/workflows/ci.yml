@@ -64,7 +64,7 @@ jobs:
         run: npm --prefix apps/viewer-web run typecheck
 
       - name: Prepare Rust/WASM asset
-        run: npm --prefix apps/viewer-web run prepare-copc-wasm
+        run: npm --prefix apps/viewer-web run prepare-copc-adapter-wasm
 
       - name: Download sample dataset
         run: npm run download-samples -- autzen
@@ -80,7 +80,7 @@ jobs:
 
       - name: Run browser E2E regression gate
         env:
-          COPC_WASM_PREPARED: '1'
+          COPC_ADAPTER_WASM_PREPARED: '1'
         run: npm --prefix apps/viewer-web run test:e2e
 
       - name: Build and pack one library candidate

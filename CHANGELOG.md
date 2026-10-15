@@ -6,6 +6,23 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-16
+
+### Added
+
+- Added opt-in `head-fallback` validation for servers whose browser responses do
+  not expose `Content-Range`. It checks readable `HEAD` size and exact response
+  body length, but cannot prove the returned byte offset or immutable object
+  version. Strict `Content-Range` validation remains the default.
+
+### Security
+
+- Limited HTTP range reads to 64 MiB per request and four concurrent requests
+  per source by default. Oversized or surplus response bodies are rejected;
+  streamed surplus is canceled early. Applications that need larger valid
+  ranges can raise `maxRangeBytes` and `maxConcurrentRangeRequests`. A valid
+  single range larger than 64 MiB now needs an explicit higher limit.
+
 ## [0.5.0] - 2026-10-14
 
 ### Added
@@ -52,7 +69,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   the root Cesium import for compatibility.
 - Added the renderer-neutral shared streaming/view contracts and prepared-point
   data used by the Cesium and Three.js adapters.
-- Added the pure Rust `copc-core` processing engine and thin `copc-wasm` ABI,
+- Added the pure Rust `copc-adapter-core` processing engine and thin
+  `copc-adapter-wasm` ABI,
   including the validated Rust CRS scope, fused point preparation, and related
   diagnostics.
 - Added packed external Three.js/Vite consumer validation for the isolated
@@ -151,7 +169,8 @@ original asset-resolution behavior.
 - Added packed-artifact smoke coverage for an external Cesium/Vite consumer.
 - Published the typed ESM library with package-local decoder runtime assets.
 
-[Unreleased]: https://github.com/mors119/copc-adapter/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/mors119/copc-adapter/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/mors119/copc-adapter/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/mors119/copc-adapter/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/mors119/copc-adapter/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/mors119/copc-adapter/compare/v0.2.1...v0.3.0

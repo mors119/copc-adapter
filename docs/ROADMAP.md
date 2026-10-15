@@ -29,8 +29,8 @@ The current main branch provides:
   contracts.
 
 The default runtime still performs CRS transformation and WGS84/ECEF
-preparation in TypeScript. `copc-core` now provides an opt-in reusable Rust
-CRS/ECEF path through `copc-wasm`; browser Range I/O and streaming policy
+preparation in TypeScript. `copc-adapter-core` now provides an opt-in reusable Rust
+CRS/ECEF path through `copc-adapter-wasm`; browser Range I/O and streaming policy
 remain TypeScript responsibilities. See [ARCHITECTURE.md](ARCHITECTURE.md) for
 the current implementation boundaries.
 
@@ -39,15 +39,15 @@ the current implementation boundaries.
 ### Pure Rust processing domain
 
 The shipped extraction is complete for the current supported scope:
-`copc-core` owns native-testable COPC/LAS metadata and hierarchy parsing,
+`copc-adapter-core` owns native-testable COPC/LAS metadata and hierarchy parsing,
 supported LAZ point decoding, reusable CRS/WKT transformation, WGS84/ECEF
 preparation, fused point preparation, statistics, and typed domain errors,
-while `copc-wasm` remains the ABI and memory/transport wrapper. Broader Rust
+while `copc-adapter-wasm` remains the ABI and memory/transport wrapper. Broader Rust
 coverage and backend migration remain future work.
 
 ### Rust CRS capability
 
-The reusable Rust CRS pipeline is integrated into `copc-core` and the WASM
+The reusable Rust CRS pipeline is integrated into `copc-adapter-core` and the WASM
 boundary using real COPC WKT/CRS fixtures and differential validation against
 the current JavaScript path. The opt-in TypeScript wrapper reuses initialized
 handles but does not change the default runtime. The compatibility gate is
