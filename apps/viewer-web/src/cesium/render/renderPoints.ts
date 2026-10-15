@@ -106,46 +106,51 @@ export function renderCopcPoints(
   viewer: Cesium.Viewer,
   points: GeographicPointBuffer,
   options: CopcPointRenderOptions,
+  primitiveCollection: Cesium.PrimitiveCollection = viewer.scene.primitives,
 ): Cesium.PointPrimitiveCollection {
   const collectionStartedAt = performanceNow();
-  const collection = viewer.scene.primitives.add(
-    new Cesium.PointPrimitiveCollection(),
-  );
-  options.onPerformance?.('pointCollectionCreation', performanceNow() - collectionStartedAt);
-  const positionsStartedAt = performanceNow();
-  const positions = toCartesian3ArrayFromBuffer(points);
-  options.onPerformance?.(
-    points.worldCoordinates === undefined ? 'geographicToCartesian' : 'worldToCartesian',
-    performanceNow() - positionsStartedAt,
-  );
-  const styleOptions: CopcPointStyleOptions = resolveCopcPointStyleOptions(
-    points,
-    {
-      colorMode: options.colorMode,
-      elevationRange: options.elevationRange,
-      rgbMax: options.rgbMax,
-    },
-  );
+  const collection = new Cesium.PointPrimitiveCollection();
+  try {
+    primitiveCollection.add(collection);
+    options.onPerformance?.('pointCollectionCreation', performanceNow() - collectionStartedAt);
+    const positionsStartedAt = performanceNow();
+    const positions = toCartesian3ArrayFromBuffer(points);
+    options.onPerformance?.(
+      points.worldCoordinates === undefined ? 'geographicToCartesian' : 'worldToCartesian',
+      performanceNow() - positionsStartedAt,
+    );
+    const styleOptions: CopcPointStyleOptions = resolveCopcPointStyleOptions(
+      points,
+      {
+        colorMode: options.colorMode,
+        elevationRange: options.elevationRange,
+        rgbMax: options.rgbMax,
+      },
+    );
 
-  const styleStartedAt = performanceNow();
-  const colors = positions.map((_, index) => getPointColor(
-    points.coordinates[index * 3 + 2],
-    styleOptions,
-    points.attributes,
-    index,
-  ));
-  options.onPerformance?.('pointStylePreparation', performanceNow() - styleStartedAt);
-  const addStartedAt = performanceNow();
-  for (let index = 0; index < positions.length; index += 1) {
-    collection.add({
-      position: positions[index],
-      pixelSize: options.pointSize,
-      color: colors[index],
-      id: options.pointId?.(index),
-      show: options.pointFilter?.(index) ?? true,
-    });
+    const styleStartedAt = performanceNow();
+    const colors = positions.map((_, index) => getPointColor(
+      points.coordinates[index * 3 + 2],
+      styleOptions,
+      points.attributes,
+      index,
+    ));
+    options.onPerformance?.('pointStylePreparation', performanceNow() - styleStartedAt);
+    const addStartedAt = performanceNow();
+    for (let index = 0; index < positions.length; index += 1) {
+      collection.add({
+        position: positions[index],
+        pixelSize: options.pointSize,
+        color: colors[index],
+        id: options.pointId?.(index),
+        show: options.pointFilter?.(index) ?? true,
+      });
+    }
+    options.onPerformance?.('pointAdd', performanceNow() - addStartedAt);
+
+    return collection;
+  } catch (error: unknown) {
+    primitiveCollection.remove(collection);
+    throw error;
   }
-  options.onPerformance?.('pointAdd', performanceNow() - addStartedAt);
-
-  return collection;
 }

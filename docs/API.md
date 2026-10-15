@@ -32,7 +32,22 @@ const layer = new CopcCesiumLayer({
 
 await layer.load();
 layer.attachTo(viewer);
+layer.show = false; // hide this layer's primitives only
+layer.show = true;
 ```
+
+`show` defaults to `true`. The built-in renderer owns one
+`Cesium.PrimitiveCollection` per attached layer, with its node point
+collections below it. Changing `show` affects only that parent collection;
+it does not change point filters, streaming, or rendered-point diagnostics.
+The value survives detach/reattach and unload/reload. A custom renderer can
+implement the optional `setShow(show)` renderer method to receive visibility
+changes.
+
+`attachTo()` currently requires a `Cesium.Viewer`. A Scene/CesiumWidget attach
+contract is deferred because camera movement subscriptions and picking also
+depend on the Viewer camera and canvas lifecycle; those inputs do not yet have
+a separately defined and tested contract.
 
 ### `CopcCesiumLayerOptions`
 
@@ -61,7 +76,7 @@ layer.attachTo(viewer);
   Rust/WASM-backed XYZ interleaver; the Rust backend's direct buffer path is
   used when available.
 - `renderer`: optional Cesium renderer implementation. The default uses Cesium
-  point primitives.
+  point primitives inside the layer-owned primitive collection.
 - `maxPointCacheBytes`: decoded CPU point-buffer cache budget. Default:
   `256 * 1024 * 1024`.
 - `rangeValidation`: `'strict' | 'head-fallback'`. Default: `'strict'`.

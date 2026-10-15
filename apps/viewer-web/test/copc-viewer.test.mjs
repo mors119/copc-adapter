@@ -60,6 +60,10 @@ function createFakeViewer() {
   };
 }
 
+function getLayerPointCollection(viewer, layerIndex = 0) {
+  return viewer.addedCollections[layerIndex].get(0);
+}
+
 function createBackend({ onFields } = {}) {
   const node = {
     key: '0-0-0-0',
@@ -241,7 +245,7 @@ test('runtime Cesium styling filters cached points without another point-chunk r
   await layer.load();
   layer.attachTo(viewer);
   await waitFor(() => layer.getSnapshot().renderedPointCount === 2);
-  const collection = viewer.addedCollections[0];
+  const collection = getLayerPointCollection(viewer);
   const requestCount = source.pointChunkRequestCount;
   const decodeCount = source.decodeCount;
   const cacheBefore = layer.getPointCacheDiagnostics();
@@ -341,7 +345,7 @@ test('missing classification values use the color fallback and cannot pass an ac
   await layer.load();
   layer.attachTo(viewer);
   await waitFor(() => layer.getSnapshot().renderedNodeKeys.length === 1);
-  const collection = viewer.addedCollections[0];
+  const collection = getLayerPointCollection(viewer);
 
   layer.setStyle({
     colorMode: 'classification',
@@ -398,6 +402,76 @@ test('Cesium attachment listeners are stable and detach preserves loaded data', 
   assert.equal(secondViewer.destroyed, false);
   layer.destroy();
   assert.equal(secondViewer.destroyed, false);
+});
+
+test('Cesium layer show state is isolated and survives attachment and reload', async () => {
+  const firstSource = createBackend();
+  const secondSource = createBackend();
+  const firstLayer = new CopcCesiumLayer({
+    url: 'memory://first-layer.copc.laz',
+    backend: firstSource.backend,
+    decoder: firstSource.decoder,
+  });
+  const secondLayer = new CopcCesiumLayer({
+    url: 'memory://second-layer.copc.laz',
+    backend: secondSource.backend,
+    decoder: secondSource.decoder,
+  });
+  const viewer = createFakeViewer();
+
+  await Promise.all([firstLayer.load(), secondLayer.load()]);
+  firstLayer.attachTo(viewer);
+  secondLayer.attachTo(viewer);
+  await Promise.all([
+    waitFor(() => firstLayer.getSnapshot().renderedPointCount === 2),
+    waitFor(() => secondLayer.getSnapshot().renderedPointCount === 2),
+  ]);
+
+  const firstContainer = viewer.addedCollections[0];
+  const secondContainer = viewer.addedCollections[1];
+  const applicationPrimitive = { show: true };
+  viewer.scene.primitives.add(applicationPrimitive);
+  assert.notEqual(firstContainer, secondContainer);
+  assert.equal(firstContainer.length, 1);
+  assert.equal(secondContainer.length, 1);
+  assert.equal(firstLayer.show, true);
+  assert.equal(secondLayer.show, true);
+
+  firstLayer.show = false;
+  assert.equal(firstContainer.show, false);
+  assert.equal(secondContainer.show, true);
+  assert.equal(getLayerPointCollection(viewer, 0).get(0).show, true);
+  firstLayer.show = true;
+  assert.equal(firstContainer.show, true);
+
+  firstLayer.show = false;
+  firstLayer.detachFrom();
+  assert.equal(viewer.removedCollections.length, 1);
+  assert.equal(viewer.removedCollections[0], firstContainer);
+  assert.equal(secondLayer.getSnapshot().attached, true);
+  assert.equal(secondContainer.show, true);
+  assert.equal(applicationPrimitive.show, true);
+
+  firstLayer.attachTo(viewer);
+  await waitFor(() => firstLayer.getSnapshot().renderedPointCount === 2);
+  const reattachedContainer = viewer.addedCollections[3];
+  assert.equal(reattachedContainer.show, false);
+  assert.equal(firstLayer.show, false);
+
+  await firstLayer.reload();
+  assert.equal(viewer.addedCollections.length, 4);
+  assert.equal(reattachedContainer.show, false);
+  assert.equal(reattachedContainer.length, 1);
+  assert.equal(secondLayer.getSnapshot().renderedPointCount, 2);
+
+  firstLayer.destroy();
+  assert.equal(viewer.removedCollections.length, 2);
+  assert.equal(viewer.removedCollections[1], reattachedContainer);
+  assert.equal(viewer.removedCollections.includes(applicationPrimitive), false);
+  assert.equal(secondLayer.getSnapshot().attached, true);
+  assert.equal(secondLayer.getSnapshot().renderedPointCount, 2);
+  assert.equal(viewer.destroyed, false);
+  secondLayer.destroy();
 });
 
 test('detaching while loading preserves the loading lifecycle', async () => {
@@ -651,7 +725,8 @@ test('detach invalidates an in-flight core update before stale points reach Cesi
 
   assert.equal(layer.getSnapshot().attached, false);
   assert.equal(layer.getSnapshot().renderedPointCount, 0);
-  assert.equal(viewer.addedCollections.length, 0);
+  assert.equal(viewer.addedCollections.length, 1);
+  assert.equal(viewer.removedCollections.length, 1);
   layer.destroy();
 });
 

@@ -91,6 +91,15 @@ export class CopcCesiumLayer {
     this.controller.attachTo(viewer);
   }
 
+  /** Whether this layer's Cesium primitives are visible. Defaults to true. */
+  get show(): boolean {
+    return this.controller.show;
+  }
+
+  set show(value: boolean) {
+    this.controller.show = value;
+  }
+
   /** Detach from the current Cesium Viewer without unloading COPC data. */
   detachFrom(): void {
     this.controller.detachFrom();

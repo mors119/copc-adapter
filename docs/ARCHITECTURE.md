@@ -79,9 +79,12 @@ renderer adapter
   [issue-171-proj4rs-compatibility.md](benchmarks/issue-171-proj4rs-compatibility.md);
   it does not change this runtime boundary or remove `proj4js`.
 - Cesium and Three.js adapters convert the shared data into engine-specific
-  resources. Cesium owns `Viewer` and primitive integration; Three.js owns
-  `THREE.Group`, `THREE.Points`, `BufferGeometry`, materials, and its fixed
-  dataset-local ENU frame. Neither adapter parses COPC or owns streaming policy.
+  resources. The Cesium compatibility renderer owns one root
+  `Cesium.PrimitiveCollection` per attached layer and keeps node point
+  collections below it; the application owns its `Viewer`, camera, scene, and
+  canvas. Three.js owns `THREE.Group`, `THREE.Points`, `BufferGeometry`,
+  materials, and its fixed dataset-local ENU frame. Neither adapter parses
+  COPC or owns streaming policy.
 
 ### Browser thread ownership for the production backends
 
@@ -93,7 +96,7 @@ production ownership is:
 | Open, metadata, and hierarchy | Main thread: `Copc.create` and hierarchy loading/parsing through `copc`. | Main thread: `RustCopcReader` performs metadata and hierarchy parsing through Rust/WASM. | Not involved. |
 | Range I/O and streaming policy | Main thread owns Range requests, response validation, hierarchy selection, scheduling, cancellation, and caches. | Same; the Worker does not fetch source bytes or choose nodes. | Camera/view updates enter through the main-thread Cesium adapter. |
 | LAZ decode and point preparation | Main thread: `Copc.loadPointDataView`, followed by TypeScript coordinate preparation and typed-buffer creation. These decode events are marked `blocksMainThread: true`. | When browser `Worker` is available, the bounded Rust Worker pool decodes LAZ and prepares source/geographic/ECEF buffers, requested fields, and statistics. Input chunks and results cross the Worker boundary as transferred buffers. | Renderer-facing data is returned to the main thread. |
-| Renderer preparation and submission | Main thread. | Main thread, after Worker results arrive. | Cesium `Cartesian3` wrapping, `PointPrimitiveCollection` creation/update, and styling run on the main thread. Cesium submits WebGL work for browser/GPU execution; this does not make adapter-side primitive preparation a Worker task. |
+| Renderer preparation and submission | Main thread. | Main thread, after Worker results arrive. | Cesium layer and node `PrimitiveCollection` creation, `Cartesian3` wrapping, `PointPrimitiveCollection` updates, and styling run on the main thread. Cesium submits WebGL work for browser/GPU execution; this does not make adapter-side primitive preparation a Worker task. |
 
 The default Rust pool size is derived from `navigator.hardwareConcurrency` and
 capped at four Workers. Dispatch never assigns more active jobs than the
