@@ -126,8 +126,9 @@ entrypoints; applications install the renderer they use. The Three.js façade
 is available from the isolated `./three` export. It uses a
 fixed dataset-local ENU frame (`+X` east, `+Y` north, `+Z` up) for both camera
 views and rendered points, while the application retains ownership of the
-scene, camera, WebGL renderer, and render loop. See the [Three package boundary
-decision](docs/benchmarks/issue-139-three-package-boundary.md).
+scene, camera, WebGL renderer, and render loop. See the [package boundary
+architecture](docs/ARCHITECTURE.md#package-boundary) and the original
+[Issue #139 decision](https://github.com/mors119/copc-adapter/issues/139).
 
 ```ts
 import * as THREE from 'three';
