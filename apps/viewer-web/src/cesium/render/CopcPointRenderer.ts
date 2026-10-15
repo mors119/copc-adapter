@@ -42,6 +42,8 @@ export type { CopcPointRenderer } from '../../viewer/streaming/renderer';
 export interface CesiumPointRenderer extends CopcPointRenderer {
   attachTo(viewer: Cesium.Viewer): void;
   detachFrom(): void;
+  /** Apply layer-level visibility when the renderer supports it. */
+  setShow?(show: boolean): void;
   addOrUpdateNode(
     nodeKey: string,
     points: CesiumPointData,
@@ -62,6 +64,8 @@ export type CopcCesiumPointRenderer = CesiumPointRenderer;
 /** Compatibility renderer backed by Cesium.PointPrimitiveCollection. */
 export class PointPrimitiveRenderer implements CesiumPointRenderer {
   private viewer?: Cesium.Viewer;
+  private primitiveCollection?: Cesium.PrimitiveCollection;
+  private showState = true;
   private readonly pointCollections = new Map<string, Cesium.PointPrimitiveCollection>();
   private readonly visiblePointCounts = new Map<string, number>();
 
@@ -70,13 +74,27 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
       return;
     }
 
-    this.clear();
+    this.detachFrom();
     this.viewer = viewer;
+    this.primitiveCollection = viewer.scene.primitives.add(
+      new Cesium.PrimitiveCollection({ show: this.showState }),
+    );
   }
 
   detachFrom(): void {
     this.clear();
+    if (this.primitiveCollection) {
+      this.viewer?.scene.primitives.remove(this.primitiveCollection);
+      this.primitiveCollection = undefined;
+    }
     this.viewer = undefined;
+  }
+
+  setShow(show: boolean): void {
+    this.showState = show;
+    if (this.primitiveCollection) {
+      this.primitiveCollection.show = show;
+    }
   }
 
   addOrUpdateNode(
@@ -84,7 +102,7 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
     points: CesiumPointData,
     options: CopcCesiumPointRendererOptions,
   ): void {
-    if (!this.viewer) {
+    if (!this.viewer || !this.primitiveCollection) {
       throw new Error('PointPrimitiveRenderer is not attached to a Cesium viewer');
     }
 
@@ -93,12 +111,17 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
     }
 
     const startedAt = performanceNow();
-    const collection = renderCopcPoints(this.viewer, points, {
-      ...options,
-      onPerformance: (stage, durationMs) => {
-        options.onPerformance?.(stage, durationMs, points.pointCount);
+    const collection = renderCopcPoints(
+      this.viewer,
+      points,
+      {
+        ...options,
+        onPerformance: (stage, durationMs) => {
+          options.onPerformance?.(stage, durationMs, points.pointCount);
+        },
       },
-    });
+      this.primitiveCollection,
+    );
     this.pointCollections.set(nodeKey, collection);
     let visiblePointCount = 0;
     for (let index = 0; index < collection.length; index += 1) {
@@ -163,7 +186,8 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
     }
 
     const startedAt = performanceNow();
-    this.viewer?.scene.primitives.remove(collection);
+    const pointCount = collection.length;
+    this.primitiveCollection?.remove(collection);
     this.pointCollections.delete(nodeKey);
     this.visiblePointCounts.delete(nodeKey);
     // Removal is intentionally measured at the boundary where a future
@@ -171,7 +195,7 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
     // The compatibility path has no per-call observer, so this metric is
     // emitted through the optional node callback stored for the collection.
     const observer = this.nodePerformanceObservers.get(nodeKey);
-    observer?.('nodeRemoval', performanceNow() - startedAt, collection.length);
+    observer?.('nodeRemoval', performanceNow() - startedAt, pointCount);
     this.nodePerformanceObservers.delete(nodeKey);
   }
 
@@ -182,8 +206,7 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
   }
 
   destroy(): void {
-    this.clear();
-    this.viewer = undefined;
+    this.detachFrom();
     this.nodePerformanceObservers.clear();
   }
 

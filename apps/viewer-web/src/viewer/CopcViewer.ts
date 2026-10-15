@@ -291,6 +291,7 @@ export class CopcLayerController {
   private readonly rendererPerformance = new StreamingPerformanceRecorder();
   private datasetElevationRange?: { min: number; max: number };
   private viewer?: Cesium.Viewer;
+  private showState = true;
   private updateTimer?: number;
   private scheduledUpdateShouldInvalidate = false;
   private updateInFlight = false;
@@ -354,6 +355,7 @@ export class CopcLayerController {
 
     this.viewer = viewer;
     this.pointRenderer.attachTo(viewer);
+    this.pointRenderer.setShow?.(this.showState);
     this.viewer.camera.percentageChanged = 0.02;
     this.viewer.camera.moveEnd.addEventListener(this.handleCameraMoveEnd);
     this.viewer.camera.changed?.addEventListener(this.handleCameraChanged);
@@ -367,6 +369,21 @@ export class CopcLayerController {
       this.flyToDataset(metadata);
       this.startStreamingUpdate();
     }
+  }
+
+  get show(): boolean {
+    return this.showState;
+  }
+
+  set show(value: boolean) {
+    if (this.lifecycle === 'destroyed') {
+      throw new Error('CopcCesiumLayer has been destroyed');
+    }
+    if (typeof value !== 'boolean') {
+      throw new TypeError('COPC layer show must be a boolean');
+    }
+    this.showState = value;
+    this.pointRenderer.setShow?.(value);
   }
 
   /** Detach primitives and listeners without unloading COPC data. */

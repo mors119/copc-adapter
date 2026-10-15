@@ -99,6 +99,17 @@ function reportError(error) {
   console.error(lastError, error);
 }
 
+function* getPointPrimitiveCollections(collection) {
+  for (let index = 0; index < collection.length; index += 1) {
+    const primitive = collection.get(index);
+    if (primitive instanceof Cesium.PointPrimitiveCollection) {
+      yield primitive;
+    } else if (primitive instanceof Cesium.PrimitiveCollection) {
+      yield* getPointPrimitiveCollections(primitive);
+    }
+  }
+}
+
 function renderedDiagnostics() {
   let renderedPointCount = 0;
   let minRenderedHeight = Number.POSITIVE_INFINITY;
@@ -106,12 +117,7 @@ function renderedDiagnostics() {
   const colors = new Set();
   let firstPosition;
 
-  for (let collectionIndex = 0; collectionIndex < viewer.scene.primitives.length; collectionIndex += 1) {
-    const collection = viewer.scene.primitives.get(collectionIndex);
-    if (!(collection instanceof Cesium.PointPrimitiveCollection)) {
-      continue;
-    }
-
+  for (const collection of getPointPrimitiveCollections(viewer.scene.primitives)) {
     renderedPointCount += collection.length;
     const stride = Math.max(1, Math.floor(collection.length / 256));
     for (let pointIndex = 0; pointIndex < collection.length; pointIndex += stride) {

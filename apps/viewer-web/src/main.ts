@@ -29,6 +29,19 @@ function getCopcUrl(): string {
     ?? DEFAULT_COPC_URL;
 }
 
+function* getPointPrimitiveCollections(
+  collection: Cesium.PrimitiveCollection,
+): Generator<Cesium.PointPrimitiveCollection> {
+  for (let index = 0; index < collection.length; index += 1) {
+    const primitive = collection.get(index);
+    if (primitive instanceof Cesium.PointPrimitiveCollection) {
+      yield primitive;
+    } else if (primitive instanceof Cesium.PrimitiveCollection) {
+      yield* getPointPrimitiveCollections(primitive);
+    }
+  }
+}
+
 type CopcDebugState = {
   viewerReady: boolean;
   layerLoaded: boolean;
@@ -96,15 +109,7 @@ function getRenderedPointDiagnostics(viewer: Cesium.Viewer): {
   let maxRenderedHeight = Number.NEGATIVE_INFINITY;
   const colors = new Set<string>();
 
-  for (let collectionIndex = 0;
-    collectionIndex < viewer.scene.primitives.length;
-    collectionIndex += 1) {
-    const collection = viewer.scene.primitives.get(collectionIndex);
-
-    if (!(collection instanceof Cesium.PointPrimitiveCollection)) {
-      continue;
-    }
-
+  for (const collection of getPointPrimitiveCollections(viewer.scene.primitives)) {
     const stride = Math.max(1, Math.floor(collection.length / 256));
 
     for (let pointIndex = 0; pointIndex < collection.length; pointIndex += stride) {
@@ -280,11 +285,7 @@ function installDebugAdapter(
       warmups: 2,
     }),
     getPickablePointScreenPosition(): { x: number; y: number } | undefined {
-      for (let collectionIndex = 0;
-        collectionIndex < viewer.scene.primitives.length;
-        collectionIndex += 1) {
-        const collection = viewer.scene.primitives.get(collectionIndex);
-        if (!(collection instanceof Cesium.PointPrimitiveCollection)) continue;
+      for (const collection of getPointPrimitiveCollections(viewer.scene.primitives)) {
         for (let pointIndex = 0; pointIndex < collection.length; pointIndex += 1) {
           const position = Cesium.SceneTransforms.worldToWindowCoordinates(
             viewer.scene,
@@ -379,10 +380,8 @@ function getLayerOptions(): ConstructorParameters<typeof CopcCesiumLayer>[0] {
 function getScenePointCollectionCount(viewer: Cesium.Viewer): number {
   let count = 0;
 
-  for (let index = 0; index < viewer.scene.primitives.length; index += 1) {
-    if (viewer.scene.primitives.get(index) instanceof Cesium.PointPrimitiveCollection) {
-      count += 1;
-    }
+  for (const _collection of getPointPrimitiveCollections(viewer.scene.primitives)) {
+    count += 1;
   }
 
   return count;

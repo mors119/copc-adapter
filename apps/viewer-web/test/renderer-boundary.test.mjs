@@ -55,9 +55,12 @@ test('PointPrimitiveRenderer preserves node lifecycle and optional pick identity
     onPerformance: (stage) => stages.push(stage),
   });
 
+  const layerCollection = viewer.added[0];
+  const nodeCollection = layerCollection.get(0);
   assert.equal(renderer.hasNode('node-a'), true);
   assert.equal(renderer.getRenderedPointCount(), 2);
-  assert.equal(viewer.added[0].get(0).id, 'point-0');
+  assert.equal(nodeCollection.get(0).id, 'point-0');
+  assert.equal(layerCollection.length, 1);
   assert.ok(stages.includes('geographicToCartesian'));
   assert.ok(stages.includes('pointStylePreparation'));
   assert.ok(stages.includes('pointCollectionCreation'));
@@ -68,14 +71,17 @@ test('PointPrimitiveRenderer preserves node lifecycle and optional pick identity
     pointSize: 2,
     colorMode: 'classification',
   });
-  assert.equal(viewer.removed.length, 1);
+  assert.equal(viewer.removed.length, 0);
   assert.equal(renderer.getRenderedNodeKeys().join(','), 'node-a');
   assert.equal(renderer.getRenderedPointCount(), 2);
+  assert.equal(layerCollection.length, 1);
 
   renderer.removeNode('node-a');
   assert.equal(renderer.getRenderedPointCount(), 0);
+  assert.equal(layerCollection.length, 0);
   renderer.clear();
   renderer.destroy();
+  assert.deepEqual(viewer.removed, [layerCollection]);
   assert.throws(
     () => renderer.addOrUpdateNode('node-b', createPoints(), { pointSize: 2 }),
     /not attached/,
@@ -92,11 +98,11 @@ test('PointPrimitiveRenderer carries only the compact project-owned pick id', ()
     pointId: (pointIndex) => ({ nodeKey: '4-12-7-3', pointIndex }),
   });
 
-  assert.deepEqual(viewer.added[0].get(1).id, {
+  assert.deepEqual(viewer.added[0].get(0).get(1).id, {
     nodeKey: '4-12-7-3',
     pointIndex: 1,
   });
-  assert.equal(Object.keys(viewer.added[0].get(1).id).length, 2);
+  assert.equal(Object.keys(viewer.added[0].get(0).get(1).id).length, 2);
 });
 
 test('PointPrimitiveRenderer forwards every supported style mode through the boundary', () => {
@@ -114,4 +120,23 @@ test('PointPrimitiveRenderer forwards every supported style mode through the bou
 
   assert.equal(renderer.getRenderedNodeKeys().length, 5);
   assert.equal(renderer.getRenderedPointCount(), 10);
+  assert.equal(viewer.added[0].length, 5);
+});
+
+test('PointPrimitiveRenderer removes a partially prepared node on failure', () => {
+  const viewer = createViewer();
+  const renderer = new PointPrimitiveRenderer();
+  renderer.attachTo(viewer);
+
+  assert.throws(
+    () => renderer.addOrUpdateNode('invalid-node', {
+      ...createPoints(),
+      worldCoordinates: new Float64Array([Number.NaN, 0, 0, 0, 0, 0]),
+      worldCoordinateSystem: 'wgs84-ecef-meters',
+    }, { pointSize: 2 }),
+    /world coordinates must be finite/,
+  );
+  assert.equal(viewer.added[0].length, 0);
+  assert.deepEqual(renderer.getRenderedNodeKeys(), []);
+  renderer.destroy();
 });
