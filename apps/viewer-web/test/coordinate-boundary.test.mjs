@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  createProjectPointTransformer,
   transformPointBuffer,
   transformPointBufferToPointData,
 } from '../src/coordinates/transform/createPointTransformer.ts';
@@ -90,6 +91,46 @@ test('shared point data retains source, geographic, and ECEF values as Float64',
   });
 });
 
+test('manual height offset affects display and world height while retaining source coordinates', () => {
+  const metadata = createGeographicMetadata();
+  const sourceCoordinates = new Float64Array([10.25, 20.5, 100]);
+  const input = { pointCount: 1, coordinates: sourceCoordinates };
+  const prepared = transformPointBufferToPointData(metadata, input, 25);
+  const noOffset = transformPointBufferToPointData(metadata, input);
+  const explicitZero = transformPointBufferToPointData(metadata, input, 0);
+  const geographic = prepared.geographic.coordinates;
+  const unprojected = createProjectPointTransformer(metadata, 25)({
+    longitude: geographic[0],
+    latitude: geographic[1],
+    height: geographic[2],
+  });
+  const inspection = inspectCopcPoint(
+    { nodeKey: '0-0-0-0', pointIndex: 0 },
+    { level: 0 },
+    prepared,
+    'custom',
+  );
+
+  assert.equal(prepared.source.coordinates[2], 100);
+  assert.deepEqual([...explicitZero.geographic.coordinates], [...noOffset.geographic.coordinates]);
+  assert.deepEqual([...explicitZero.world.coordinates], [...noOffset.world.coordinates]);
+  assert.equal(sourceCoordinates[2], 100);
+  assert.equal(geographic[2], 125);
+  assert.equal(geographic[2] - noOffset.geographic.coordinates[2], 25);
+  assert.deepEqual(unprojected, { x: 10.25, y: 20.5, z: 100 });
+  assert.equal(inspection.height, 125);
+  assert.equal(inspection.source.z, 100);
+  assert.ok(Math.hypot(
+    inspection.world.x - noOffset.world.coordinates[0],
+    inspection.world.y - noOffset.world.coordinates[1],
+    inspection.world.z - noOffset.world.coordinates[2],
+  ) > 24.9);
+  assert.throws(
+    () => transformPointBufferToPointData(metadata, input, Number.NaN),
+    /heightOffsetMeters must be a finite number/,
+  );
+});
+
 test('world-to-local conversion subtracts a high-precision origin before GPU conversion', () => {
   const origin = {
     coordinateSystem: 'wgs84-ecef-meters',
@@ -145,6 +186,26 @@ test('dataset-local frame uses a deterministic cube-centre ENU origin', () => {
     ...Object.values(frame.north),
     ...Object.values(frame.up),
   ].every(Number.isFinite));
+});
+
+test('manual height offset shifts streaming bounds and the Three local origin consistently', () => {
+  const metadata = createGeographicMetadata();
+  const frame = createDatasetLocalFrame(metadata, -12.5);
+  const defaultFrame = createDatasetLocalFrame(metadata);
+  const hierarchy = buildStreamingHierarchy(metadata, [{
+    key: '0-0-0-0', level: 0, x: 0, y: 0, z: 0,
+    pointCount: 1, pointDataOffset: 0, pointDataLength: 0,
+  }], -12.5);
+  const node = hierarchy.get('0-0-0-0');
+
+  assert.ok(node);
+  assert.equal(node.bounds.minZ, 87.5);
+  assert.equal(node.bounds.maxZ, 88.5);
+  assert.notDeepEqual(frame.origin, defaultFrame.origin);
+  assert.ok(node.boundingSphere.center.z < buildStreamingHierarchy(metadata, [{
+    key: '0-0-0-0', level: 0, x: 0, y: 0, z: 0,
+    pointCount: 1, pointDataOffset: 0, pointDataLength: 0,
+  }]).get('0-0-0-0').boundingSphere.center.z);
 });
 
 test('dataset-local ENU positions and camera vectors round-trip consistently', () => {

@@ -46,6 +46,8 @@ export type CopcCesiumLayerOptions = {
   pointSize?: number;
   /** Point color mapping. Defaults to the backward-compatible fixed cyan. */
   colorMode?: CopcColorMode;
+  /** Manual additive correction in metres applied to ellipsoidal point height. Defaults to 0. */
+  heightOffsetMeters?: number;
   /** Emits COPC layer lifecycle messages through console.debug. */
   debug?: boolean;
   /** Maximum estimated points in the active current-view workload. */

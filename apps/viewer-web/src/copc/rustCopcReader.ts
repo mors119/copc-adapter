@@ -19,6 +19,7 @@ import type { CopcPointFieldSelection } from './points/fieldSelection';
 import type { CopcWorkerDiagnostics } from './backend/types';
 import { performanceNow, type CopcPerformanceObserver } from './performance';
 import { resolveMaxRangeBytes, resolveWasmMaxRangeBytes } from './range/types';
+import { resolveHeightOffsetMeters } from '../coordinates/transform/heightOffset';
 
 const INITIAL_LAS_HEADER_LENGTH = 375;
 const MAX_SAFE_INTEGER = Number.MAX_SAFE_INTEGER;
@@ -26,6 +27,7 @@ const MAX_DECODE_POINTS = 5_000_000;
 
 export type RustCopcReaderOptions = {
   readonly maxRangeBytes?: number;
+  readonly heightOffsetMeters?: number;
 };
 
 type RustHeaderValue = {
@@ -232,6 +234,7 @@ export class RustCopcReader {
   readonly source: string;
   readonly header: RustCopcHeader;
   readonly maxRangeBytes: number;
+  readonly heightOffsetMeters: number;
   private readonly byteSource: RandomAccessByteSource;
   private readonly decodeWorkerPool?: RustCopcDecodeWorkerPool;
   private nodePreparer?: Promise<RustCopcNodePreparer>;
@@ -241,13 +244,15 @@ export class RustCopcReader {
     byteSource: RandomAccessByteSource,
     header: RustCopcHeader,
     maxRangeBytes: number,
+    heightOffsetMeters: number,
   ) {
     this.byteSource = byteSource;
     this.source = byteSource.source;
     this.header = header;
     this.maxRangeBytes = maxRangeBytes;
+    this.heightOffsetMeters = heightOffsetMeters;
     this.decodeWorkerPool = typeof Worker !== 'undefined'
-      ? new RustCopcDecodeWorkerPool({ maxRangeBytes })
+      ? new RustCopcDecodeWorkerPool({ maxRangeBytes, heightOffsetMeters })
       : undefined;
   }
 
@@ -279,6 +284,7 @@ export class RustCopcReader {
     options: RustCopcReaderOptions = {},
   ): Promise<RustCopcReader> {
     const maxRangeBytes = resolveMaxRangeBytes(byteSource.source, options.maxRangeBytes);
+    const heightOffsetMeters = resolveHeightOffsetMeters(options.heightOffsetMeters);
     const initialBytes = await byteSource.readRange(0, INITIAL_LAS_HEADER_LENGTH);
     const { pointDataOffset } = headerLayout(initialBytes, maxRangeBytes);
     const metadataBytes = pointDataOffset <= initialBytes.byteLength
@@ -288,7 +294,7 @@ export class RustCopcReader {
       metadataBytes,
       (wasm, pointer, length) => wasm.parse_copc_header_json(pointer, length),
     );
-    const reader = new RustCopcReader(byteSource, header, maxRangeBytes);
+    const reader = new RustCopcReader(byteSource, header, maxRangeBytes, heightOffsetMeters);
     reader.metadataBytes = metadataBytes;
     reader.decodeWorkerPool?.setMetadata(metadataBytes);
     return reader;
@@ -441,6 +447,7 @@ export class RustCopcReader {
         metadataBytes,
         loadCopcWasm,
         this.maxRangeBytes,
+        this.heightOffsetMeters,
       );
     }
     const result = (await this.nodePreparer).prepare(chunkBytes, pointCount, fields);

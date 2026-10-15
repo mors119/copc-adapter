@@ -1,6 +1,7 @@
 import type { CopcMetadata } from '../../copc/types/copc';
 import { requireRustWasmPointer, RustCopcParseError } from '../../copc/rustCopcErrors';
 import { loadCopcWasm, type CopcWasmExports } from '../../wasm/copcWasm';
+import { resolveHeightOffsetMeters } from './heightOffset';
 
 type RustResponse<T> = {
   ok: boolean;
@@ -78,7 +79,11 @@ export class RustCrsTransformer {
     this.handle = handle;
   }
 
-  static async fromMetadata(metadata: Pick<CopcMetadata, 'wkt' | 'bounds'>): Promise<RustCrsTransformer> {
+  static async fromMetadata(
+    metadata: Pick<CopcMetadata, 'wkt' | 'bounds'>,
+    heightOffsetMeters = 0,
+  ): Promise<RustCrsTransformer> {
+    const heightOffset = resolveHeightOffsetMeters(heightOffsetMeters);
     const wasm = await loadCopcWasm();
     let responsePointer: number;
     let wktPointer = 0;
@@ -90,9 +95,13 @@ export class RustCrsTransformer {
         wktLength = bytes.byteLength;
         wktPointer = requireRustWasmPointer(wasm.alloc_bytes(wktLength), wktLength, 'CRS WKT');
         new Uint8Array(wasm.memory.buffer, wktPointer, wktLength).set(bytes);
-        responsePointer = wasm.create_crs_transform_json(wktPointer, wktLength);
+        responsePointer = wasm.create_crs_transform_with_height_offset_json(
+          wktPointer,
+          wktLength,
+          heightOffset,
+        );
       } else if (hasGeographicBounds(metadata)) {
-        responsePointer = wasm.create_geographic_crs_transform_json();
+        responsePointer = wasm.create_geographic_crs_transform_with_height_offset_json(heightOffset);
       } else {
         throw new RustCopcParseError(
           'missing-wkt',

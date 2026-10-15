@@ -311,6 +311,7 @@ export class RustCopcBackend implements CopcBackend {
       );
       return new RustCopcSource(source, await RustCopcReader.open(ownedByteSource, {
         maxRangeBytes: options.maxRangeBytes,
+        heightOffsetMeters: options.heightOffsetMeters,
       }));
     } catch (error: unknown) {
       throw mapRustError(source, error, 'open');

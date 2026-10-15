@@ -41,6 +41,9 @@ layer.attachTo(viewer);
 - `pointSize`: Cesium point size in pixels. Default: `3`.
 - `colorMode`: `'fixed' | 'elevation' | 'rgb' | 'intensity' |
   'classification'`. Default: `'fixed'`.
+- `heightOffsetMeters`: manual additive correction in metres applied after
+  source vertical-unit conversion and horizontal reprojection, before ECEF
+  preparation. Default: `0`.
 - `debug`: enable lifecycle messages through `console.debug`.
 - `maxRenderedPoints`: maximum estimated point workload in the active view.
   Default: `250000`.
@@ -163,7 +166,7 @@ animate();
 ```
 
 Current options include `url`, `pointSize` (default `3`), `colorMode`,
-`maxRenderedPoints`, `streaming`, `backend`, `decoder`,
+`heightOffsetMeters` (default `0`), `maxRenderedPoints`, `streaming`, `backend`, `decoder`,
 `maxPointCacheBytes`, `debug`, `pickingThreshold` (default `1` scene unit),
 an optional compatible `renderer`, and `onPointPicked`.
 
@@ -207,6 +210,7 @@ await core.updateView({
 - `url`;
 - `streaming`, with the shared selection limits;
 - `maxRenderedPoints`;
+- `heightOffsetMeters`, a manual additive ellipsoidal-height correction in metres;
 - `backend`;
 - `decoder`;
 - `pointFields`, a project-owned selection of `position`, `intensity`,
@@ -374,6 +378,28 @@ project-owned `{ nodeKey, pointIndex }` identity through the live decoded
 buffer. The inspection may include transformed position/height, source XYZ,
 WGS84 ECEF/world coordinates, node level, and requested attributes. Evicted or
 removed nodes clear stale selection safely.
+
+`heightOffsetMeters` defaults to `0`. When supplied, it is added to the
+ellipsoidal height after the source Z unit has been converted to metres and
+the horizontal coordinates have been reprojected. Point inspection keeps
+`source.z` unchanged in the source CRS units; `height` is the corrected WGS84
+ellipsoidal display height in metres, and `world` is its corrected ECEF
+position. Point buffers, hierarchy bounds, camera queries, and camera fly-to
+use that same corrected frame.
+
+This option is a manual correction, not a vertical CRS transformation or a
+geoid conversion. Use it only when you know the needed offset and sign for the
+dataset and its target ellipsoid. WKT vertical units are applied, but vertical
+datum definitions and geoid grids are not used to derive an offset. There is
+no universal correction for Korean data or any other region; do not assume a
+fixed 20–30 m value. The Rust/WASM fused path applies the same offset after
+unit conversion and before ECEF preparation. The option works with scenes
+that show terrain and scenes that hide it; it does not sample terrain or
+change terrain heights.
+
+The projected EPSG:5186 Rust/JavaScript differential fixture checks longitude
+and latitude within `1e-7` degrees, corrected height within `1e-9` metres, and
+ECEF coordinates within `0.05` metres.
 
 ## Source requirements
 

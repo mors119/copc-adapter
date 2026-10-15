@@ -257,6 +257,14 @@ reference implementation and is not silently used as a Rust fallback.
 The Rust CRS path covers the validated supported WKT/CRS matrix only; full
 PROJ and vertical-datum parity is not implied.
 
+Both layers accept `heightOffsetMeters` for a caller-supplied additive
+ellipsoidal-height correction. It defaults to `0` and is applied after
+vertical-unit conversion, before ECEF preparation. This is a manual correction
+only: it does not perform a geoid or vertical-datum conversion, sample terrain,
+or assume a universal offset for Korean datasets or any other region. Picked
+point `source.z` remains the original source value; `height` and `world` report
+the corrected display position.
+
 ## Styling Modes
 
 <table>

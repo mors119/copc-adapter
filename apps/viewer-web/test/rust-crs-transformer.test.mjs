@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { RustCrsTransformer } from '../src/coordinates/transform/rustCrsTransformer.ts';
+import { createPointTransformer } from '../src/coordinates/transform/createPointTransformer.ts';
 import { geographicToEcef } from '../src/coordinates/transform/worldCoordinates.ts';
 import { getCopcWasmBinary } from '../src/wasm/copcWasm.ts';
 import { loadCopcWasmWorker } from '../src/wasm/copcWasmWorker.ts';
@@ -51,6 +52,31 @@ test('Rust CRS transformer reuses a WASM handle for geographic and ECEF buffers'
     assert.equal(first.usedHorizontalFallback, false);
   } finally {
     transformer.dispose();
+  }
+});
+
+test('Rust and JavaScript apply the same offset to a geographic-height fixture', async () => {
+  const metadata = {
+    bounds: { minX: 10, minY: 20, minZ: 0, maxX: 11, maxY: 21, maxZ: 100 },
+  };
+  const sourcePoint = { x: 10.25, y: 20.5, z: 100 };
+  const offset = -13.75;
+  const rust = await RustCrsTransformer.fromMetadata(metadata, offset);
+  try {
+    const prepared = rust.transform(new Float64Array([
+      sourcePoint.x,
+      sourcePoint.y,
+      sourcePoint.z,
+    ]));
+    const javaScript = createPointTransformer(metadata, offset)(sourcePoint);
+    assert.equal(prepared.geographicCoordinates[2], javaScript.height);
+    assert.equal(javaScript.height, 86.25);
+    const reference = geographicToEcef(javaScript);
+    assert.ok(Math.abs(prepared.ecefCoordinates[0] - reference.x) < 1e-6);
+    assert.ok(Math.abs(prepared.ecefCoordinates[1] - reference.y) < 1e-6);
+    assert.ok(Math.abs(prepared.ecefCoordinates[2] - reference.z) < 1e-6);
+  } finally {
+    rust.dispose();
   }
 });
 

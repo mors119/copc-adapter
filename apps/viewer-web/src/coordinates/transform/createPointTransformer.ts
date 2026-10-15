@@ -16,6 +16,7 @@ import {
   extractHorizontalWkt,
   extractVerticalUnitScale,
 } from '../crs/parseCopcWkt';
+import { resolveHeightOffsetMeters } from './heightOffset';
 
 function hasGeographicBounds(metadata: CopcMetadata): boolean {
   const { minX, minY, maxX, maxY } = metadata.bounds;
@@ -30,13 +31,15 @@ function hasGeographicBounds(metadata: CopcMetadata): boolean {
 
 export function createPointTransformer(
   metadata: CopcMetadata,
+  heightOffsetMeters = 0,
 ): (point: CopcPoint) => GeographicPoint {
+  const heightOffset = resolveHeightOffsetMeters(heightOffsetMeters);
   if (!metadata.wkt) {
     if (hasGeographicBounds(metadata)) {
       return (point: CopcPoint): GeographicPoint => ({
         longitude: point.x,
         latitude: point.y,
-        height: point.z,
+        height: heightOffset === 0 ? point.z : point.z + heightOffset,
       });
     }
 
@@ -51,11 +54,12 @@ export function createPointTransformer(
 
   return (point: CopcPoint): GeographicPoint => {
     const [longitude, latitude] = projection.forward([point.x, point.y]);
+    const convertedHeight = point.z * verticalUnitScale;
 
     return {
       longitude,
       latitude,
-      height: point.z * verticalUnitScale,
+      height: heightOffset === 0 ? convertedHeight : convertedHeight + heightOffset,
     };
   };
 }
@@ -63,13 +67,15 @@ export function createPointTransformer(
 /** Convert adapter/view coordinates back into the COPC source coordinate space. */
 export function createProjectPointTransformer(
   metadata: CopcMetadata,
+  heightOffsetMeters = 0,
 ): (point: GeographicPoint) => CopcPoint {
+  const heightOffset = resolveHeightOffsetMeters(heightOffsetMeters);
   if (!metadata.wkt) {
     if (hasGeographicBounds(metadata)) {
       return (point: GeographicPoint): CopcPoint => ({
         x: point.longitude,
         y: point.latitude,
-        z: point.height,
+        z: point.height - heightOffset,
       });
     }
 
@@ -88,7 +94,7 @@ export function createProjectPointTransformer(
     return {
       x,
       y,
-      z: point.height / verticalUnitScale,
+      z: (point.height - heightOffset) / verticalUnitScale,
     };
   };
 }
@@ -96,9 +102,10 @@ export function createProjectPointTransformer(
 export function transformPointBuffer(
   metadata: CopcMetadata,
   points: CopcPointBuffer,
+  heightOffsetMeters = 0,
 ): GeographicPointBuffer {
   return preparedPointDataToGeographicBuffer(
-    transformPointBufferToPreparedPointData(metadata, points),
+    transformPointBufferToPreparedPointData(metadata, points, heightOffsetMeters),
   );
 }
 
@@ -110,16 +117,18 @@ export function transformPointBuffer(
 export function transformPointBufferToPointData(
   metadata: CopcMetadata,
   points: CopcPointBuffer,
+  heightOffsetMeters = 0,
 ): PreparedPointData {
-  return transformPointBufferToPreparedPointData(metadata, points);
+  return transformPointBufferToPreparedPointData(metadata, points, heightOffsetMeters);
 }
 
 /** Prepare source points into the shared, renderer-neutral data contract. */
 export function transformPointBufferToPreparedPointData(
   metadata: CopcMetadata,
   points: CopcPointBuffer,
+  heightOffsetMeters = 0,
 ): PreparedPointData {
-  const transformPoint = createPointTransformer(metadata);
+  const transformPoint = createPointTransformer(metadata, heightOffsetMeters);
   const sourceCoordinates = points.coordinates.slice();
   const geographicCoordinates = new Float64Array(points.coordinates.length);
   const worldCoordinates = new Float64Array(points.coordinates.length);

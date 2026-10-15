@@ -61,6 +61,8 @@ export type CopcThreeLayerOptions = {
   pointSize?: number;
   /** Point color mapping. Defaults to the fixed cyan fallback. */
   colorMode?: CopcColorMode;
+  /** Manual additive correction in metres applied to ellipsoidal point height. Defaults to 0. */
+  heightOffsetMeters?: number;
   /** Maximum estimated points in the active current-view workload. */
   maxRenderedPoints?: number;
   /** Overrides for the shared streaming selection limits. */
@@ -286,6 +288,7 @@ export class CopcThreeLayer {
     this.core = new CopcStreamingCore({
       url: options.url,
       backend: options.backend,
+      heightOffsetMeters: options.heightOffsetMeters,
       decoder: options.decoder,
       debug: options.debug,
       maxRenderedPoints: options.maxRenderedPoints,
@@ -369,8 +372,11 @@ export class CopcThreeLayer {
       if (!metadata) {
         throw new Error('COPC layer loaded without metadata');
       }
-      this.localFrame = createDatasetLocalFrame(metadata);
-      this.datasetElevationRange = getDatasetElevationRange(metadata);
+      this.localFrame = createDatasetLocalFrame(metadata, this.options.heightOffsetMeters);
+      this.datasetElevationRange = getDatasetElevationRange(
+        metadata,
+        this.options.heightOffsetMeters,
+      );
       this.applyLocalFrame();
       this.lifecycle = 'ready';
       this.debug('COPC metadata and hierarchy loaded');

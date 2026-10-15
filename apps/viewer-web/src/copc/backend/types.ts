@@ -27,6 +27,8 @@ export type CopcBackendOpenOptions = {
   maxRangeBytes?: number;
   /** Maximum active HTTP ranges per source. Defaults to 4; any positive safe integer is accepted. */
   maxConcurrentRangeRequests?: number;
+  /** Manual additive ellipsoidal-height correction in metres; defaults to 0. */
+  heightOffsetMeters?: number;
 };
 
 export type CopcWorkerDiagnostics = {

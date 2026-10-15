@@ -80,6 +80,7 @@ type CopcDebugAdapter = {
     headingDegrees: number;
     pitchDegrees: number;
   }): void;
+  setGlobeVisible(visible: boolean): void;
   recordError(error: unknown): void;
   probeSource(source: string): Promise<CopcSourceProbeResult>;
   runSyntheticRendererPerformanceBenchmark(): ReturnType<typeof runSyntheticRendererPerformanceBenchmark>;
@@ -267,6 +268,9 @@ function installDebugAdapter(
       });
       viewer.camera.moveEnd.raiseEvent();
     },
+    setGlobeVisible(visible: boolean): void {
+      viewer.scene.globe.show = visible;
+    },
     recordError,
     probeSource: probeCopcSource,
     runSyntheticRendererPerformanceBenchmark: () => runSyntheticRendererPerformanceBenchmark({
@@ -317,6 +321,13 @@ function getSelectedBackend(): CopcBackendName {
 function getLayerOptions(): ConstructorParameters<typeof CopcCesiumLayer>[0] {
   const params = new URLSearchParams(window.location.search);
   const copcUrl = getCopcUrl();
+  const heightOffsetParam = params.get('heightOffsetMeters');
+  const requestedHeightOffset = heightOffsetParam === null
+    ? undefined
+    : Number(heightOffsetParam);
+  const heightOffsetMeters = Number.isFinite(requestedHeightOffset)
+    ? requestedHeightOffset
+    : undefined;
   const requestedBudget = Number(params.get('budget'));
   const maxRenderedPoints = Number.isSafeInteger(requestedBudget) && requestedBudget > 0
     ? requestedBudget
@@ -346,6 +357,7 @@ function getLayerOptions(): ConstructorParameters<typeof CopcCesiumLayer>[0] {
       debug: true,
       ...(maxRenderedPoints === undefined ? {} : { maxRenderedPoints }),
       ...(maxPointCacheBytes === undefined ? {} : { maxPointCacheBytes }),
+      ...(heightOffsetMeters === undefined ? {} : { heightOffsetMeters }),
       streaming: {
         maxNodes: issue128 ? 16 : 32,
         maxDepth: issue128 ? 4 : 6,
@@ -360,6 +372,7 @@ function getLayerOptions(): ConstructorParameters<typeof CopcCesiumLayer>[0] {
     colorMode: 'rgb',
     backend: getSelectedBackend(),
     debug: true,
+    ...(heightOffsetMeters === undefined ? {} : { heightOffsetMeters }),
   };
 }
 

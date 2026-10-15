@@ -25,6 +25,7 @@ import {
   createProjectPointTransformer,
   transformPointBufferToPreparedPointData,
 } from '../../coordinates/transform/createPointTransformer';
+import { resolveHeightOffsetMeters } from '../../coordinates/transform/heightOffset';
 import type {
   CopcMetadata,
   GeographicPointBuffer,
@@ -93,6 +94,8 @@ export type CopcStreamingControllerOptions = {
   maxRenderedPoints?: number;
   /** Stable `copc-js` by default, Rust or a test backend by explicit choice. */
   backend?: CopcBackendSelection;
+  /** Manual additive correction in metres applied to ellipsoidal point height. Defaults to 0. */
+  heightOffsetMeters?: number;
   /** Decoder used when the source does not expose direct point buffers. */
   decoder?: CopcPointDecoder;
   /** Fields requested from each backend point chunk. Defaults to position only. */
@@ -259,8 +262,9 @@ function cloneTransitionState(
 function toProjectBounds(
   metadata: CopcMetadata,
   geographicBounds: CopcHierarchyBounds,
+  heightOffsetMeters: number,
 ): CopcProjectBounds {
-  const toProject = createProjectPointTransformer(metadata);
+  const toProject = createProjectPointTransformer(metadata, heightOffsetMeters);
   const corners = [
     [geographicBounds.minX, geographicBounds.minY, geographicBounds.minZ],
     [geographicBounds.minX, geographicBounds.minY, geographicBounds.maxZ],
@@ -292,9 +296,12 @@ function toProjectBounds(
   });
 }
 
-function getMinimumDatasetHeightMeters(metadata: CopcMetadata): number | undefined {
+function getMinimumDatasetHeightMeters(
+  metadata: CopcMetadata,
+  heightOffsetMeters: number,
+): number | undefined {
   try {
-    const transformPoint = createPointTransformer(metadata);
+    const transformPoint = createPointTransformer(metadata, heightOffsetMeters);
     const minimum = transformPoint({
       x: metadata.bounds.minX,
       y: metadata.bounds.minY,
@@ -315,6 +322,7 @@ function getMinimumDatasetHeightMeters(metadata: CopcMetadata): number | undefin
  */
 export class CopcStreamingCore {
   private readonly options: CopcStreamingControllerOptions;
+  private readonly heightOffsetMeters: number;
   private performanceRecorder: StreamingPerformanceRecorder;
   private readonly rangeRequestDiagnostics = new RangeRequestDiagnosticsRecorder();
   private readonly initialCache: NodePointCache<PreparedPointData>;
@@ -331,7 +339,11 @@ export class CopcStreamingCore {
   private lifecycleAbortController?: AbortController;
 
   constructor(options: CopcStreamingControllerOptions) {
-    this.options = options;
+    this.heightOffsetMeters = resolveHeightOffsetMeters(options.heightOffsetMeters);
+    this.options = {
+      ...options,
+      heightOffsetMeters: this.heightOffsetMeters,
+    };
     this.pointFields = createCopcPointFieldSelection([
       'position',
       ...(options.pointFields ?? []),
@@ -367,6 +379,7 @@ export class CopcStreamingCore {
         rangeValidation: this.options.rangeValidation,
         maxRangeBytes: this.options.maxRangeBytes,
         maxConcurrentRangeRequests: this.options.maxConcurrentRangeRequests,
+        heightOffsetMeters: this.heightOffsetMeters,
       });
       const sourceOpenDurationMs = Math.max(0, performanceNow() - sourceOpenStartedAt);
       if (!this.isCurrentLoad(loadGeneration)) {
@@ -407,7 +420,11 @@ export class CopcStreamingCore {
         return;
       }
 
-      const nodes = buildStreamingHierarchy(metadata, rootHierarchy.nodes);
+      const nodes = buildStreamingHierarchy(
+        metadata,
+        rootHierarchy.nodes,
+        this.heightOffsetMeters,
+      );
       const nodesRef = { current: nodes };
       const cache = this.createCache(
         context,
@@ -432,7 +449,10 @@ export class CopcStreamingCore {
       this.streamingState = {
         context,
         metadata,
-        minimumDatasetHeightMeters: getMinimumDatasetHeightMeters(metadata),
+        minimumDatasetHeightMeters: getMinimumDatasetHeightMeters(
+          metadata,
+          this.heightOffsetMeters,
+        ),
         hierarchyLoader,
         nodes,
         nodesRef,
@@ -507,6 +527,7 @@ export class CopcStreamingCore {
     const availableNodes = buildStreamingHierarchy(
       streamingState.metadata,
       hierarchy.nodes,
+      this.heightOffsetMeters,
     );
     streamingState.nodes = availableNodes;
     streamingState.nodesRef.current = availableNodes;
@@ -574,7 +595,11 @@ export class CopcStreamingCore {
     });
 
     return {
-      bounds: toProjectBounds(metadata, viewBounds.bounds),
+      bounds: toProjectBounds(
+        metadata,
+        viewBounds.bounds,
+        this.heightOffsetMeters,
+      ),
       maxLevel: streamingOptions.maxDepth,
     };
   }
@@ -787,7 +812,11 @@ export class CopcStreamingCore {
       throw createPointLoadAbortError(signal);
     }
     const transformStartedAt = performanceNow();
-    const transformed = transformPointBufferToPreparedPointData(metadata, points);
+    const transformed = transformPointBufferToPreparedPointData(
+      metadata,
+      points,
+      this.heightOffsetMeters,
+    );
     assertPreparedPointData(transformed);
     performanceRecorder.recordStage(
       'crsTransformDurationMs',

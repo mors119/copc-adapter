@@ -118,8 +118,9 @@ function toGeographicBounds(
 export function buildStreamingHierarchy(
   metadata: CopcMetadata,
   nodes: CopcHierarchyNode[],
+  heightOffsetMeters = 0,
 ): StreamingHierarchy {
-  const transformPoint = createPointTransformer(metadata);
+  const transformPoint = createPointTransformer(metadata, heightOffsetMeters);
   const nodeMap = new Map(nodes.map((node) => [node.key, node]));
   const streamingNodes: StreamingHierarchy = new Map();
   const horizontalUnitScale = getHorizontalUnitScale(metadata);

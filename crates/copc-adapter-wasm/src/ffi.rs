@@ -320,6 +320,21 @@ fn validate_max_range_bytes(max_range_bytes: usize) -> Result<usize, ParseError>
 
 fn create_crs_transform_value(wkt: &str) -> Result<CrsTransformHandle, ParseError> {
     let transform = CrsTransform::from_wkt(wkt).map_err(from_core)?;
+    create_crs_transform_handle(transform)
+}
+
+fn create_crs_transform_value_with_height_offset(
+    wkt: &str,
+    height_offset_meters: f64,
+) -> Result<CrsTransformHandle, ParseError> {
+    let transform = CrsTransform::from_wkt(wkt)
+        .map_err(from_core)?
+        .with_height_offset_meters(height_offset_meters)
+        .map_err(from_core)?;
+    create_crs_transform_handle(transform)
+}
+
+fn create_crs_transform_handle(transform: CrsTransform) -> Result<CrsTransformHandle, ParseError> {
     let vertical_unit_scale = transform.vertical_unit_scale();
     let used_horizontal_fallback = transform.used_horizontal_fallback();
     let handle = Box::into_raw(Box::new(transform)) as usize;
@@ -332,13 +347,17 @@ fn create_crs_transform_value(wkt: &str) -> Result<CrsTransformHandle, ParseErro
 
 fn create_geographic_crs_transform_value() -> Result<CrsTransformHandle, ParseError> {
     let transform = CrsTransform::from_geographic().map_err(from_core)?;
-    let vertical_unit_scale = transform.vertical_unit_scale();
-    let handle = Box::into_raw(Box::new(transform)) as usize;
-    Ok(CrsTransformHandle {
-        handle,
-        vertical_unit_scale,
-        used_horizontal_fallback: false,
-    })
+    create_crs_transform_handle(transform)
+}
+
+fn create_geographic_crs_transform_value_with_height_offset(
+    height_offset_meters: f64,
+) -> Result<CrsTransformHandle, ParseError> {
+    let transform = CrsTransform::from_geographic()
+        .map_err(from_core)?
+        .with_height_offset_meters(height_offset_meters)
+        .map_err(from_core)?;
+    create_crs_transform_handle(transform)
 }
 
 fn create_copc_node_preparer_value(metadata: &[u8]) -> Result<CopcNodePreparerHandle, ParseError> {
@@ -352,6 +371,20 @@ fn create_copc_node_preparer_value_with_max_chunk_bytes(
 ) -> Result<CopcNodePreparerHandle, ParseError> {
     let preparer = CopcNodePreparer::from_metadata_with_max_chunk_bytes(metadata, max_chunk_bytes)
         .map_err(from_core)?;
+    create_copc_node_preparer_handle(preparer)
+}
+
+fn create_copc_node_preparer_value_with_max_chunk_bytes_and_height_offset(
+    metadata: &[u8],
+    max_chunk_bytes: usize,
+    height_offset_meters: f64,
+) -> Result<CopcNodePreparerHandle, ParseError> {
+    let preparer = CopcNodePreparer::from_metadata_with_height_offset(
+        metadata,
+        max_chunk_bytes,
+        height_offset_meters,
+    )
+    .map_err(from_core)?;
     create_copc_node_preparer_handle(preparer)
 }
 
@@ -410,11 +443,42 @@ pub extern "C" fn create_crs_transform_json(ptr: *const u8, length: usize) -> *m
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn create_crs_transform_with_height_offset_json(
+    ptr: *const u8,
+    length: usize,
+    height_offset_meters: f64,
+) -> *mut c_char {
+    let response = match input_slice(ptr, length)
+        .and_then(|bytes| {
+            std::str::from_utf8(bytes)
+                .map_err(|_| error("malformed-wkt", "CRS WKT is not valid UTF-8"))
+        })
+        .and_then(|wkt| create_crs_transform_value_with_height_offset(wkt, height_offset_meters))
+    {
+        Ok(value) => ParseResponse::success(value),
+        Err(parse_error) => ParseResponse::failure(parse_error),
+    };
+    json_pointer(response)
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn create_geographic_crs_transform_json() -> *mut c_char {
     let response = match create_geographic_crs_transform_value() {
         Ok(value) => ParseResponse::success(value),
         Err(parse_error) => ParseResponse::failure(parse_error),
     };
+    json_pointer(response)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn create_geographic_crs_transform_with_height_offset_json(
+    height_offset_meters: f64,
+) -> *mut c_char {
+    let response =
+        match create_geographic_crs_transform_value_with_height_offset(height_offset_meters) {
+            Ok(value) => ParseResponse::success(value),
+            Err(parse_error) => ParseResponse::failure(parse_error),
+        };
     json_pointer(response)
 }
 
@@ -453,6 +517,28 @@ pub extern "C" fn create_copc_node_preparer_with_limit_json(
     let response = match validate_max_range_bytes(max_chunk_bytes).and_then(|limit| {
         input_slice(ptr, length).and_then(|metadata| {
             create_copc_node_preparer_value_with_max_chunk_bytes(metadata, limit)
+        })
+    }) {
+        Ok(value) => ParseResponse::success(value),
+        Err(parse_error) => ParseResponse::failure(parse_error),
+    };
+    json_pointer(response)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn create_copc_node_preparer_with_limit_and_height_offset_json(
+    ptr: *const u8,
+    length: usize,
+    max_chunk_bytes: usize,
+    height_offset_meters: f64,
+) -> *mut c_char {
+    let response = match validate_max_range_bytes(max_chunk_bytes).and_then(|limit| {
+        input_slice(ptr, length).and_then(|metadata| {
+            create_copc_node_preparer_value_with_max_chunk_bytes_and_height_offset(
+                metadata,
+                limit,
+                height_offset_meters,
+            )
         })
     }) {
         Ok(value) => ParseResponse::success(value),

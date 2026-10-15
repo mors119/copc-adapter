@@ -50,7 +50,13 @@ export type CopcWasmExports = {
     bluePointer: number,
   ): number;
   create_crs_transform_json(pointer: number, length: number): number;
+  create_crs_transform_with_height_offset_json(
+    pointer: number,
+    length: number,
+    heightOffsetMeters: number,
+  ): number;
   create_geographic_crs_transform_json(): number;
+  create_geographic_crs_transform_with_height_offset_json(heightOffsetMeters: number): number;
   transform_crs_points_json(
     handle: number,
     inputPointer: number,
@@ -61,6 +67,12 @@ export type CopcWasmExports = {
   free_crs_transform(handle: number): void;
   create_copc_node_preparer_json(pointer: number, length: number): number;
   create_copc_node_preparer_with_limit_json(pointer: number, length: number, maxChunkBytes: number): number;
+  create_copc_node_preparer_with_limit_and_height_offset_json(
+    pointer: number,
+    length: number,
+    maxChunkBytes: number,
+    heightOffsetMeters: number,
+  ): number;
   prepare_copc_node_json(
     handle: number,
     chunkPointer: number,

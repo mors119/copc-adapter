@@ -5,6 +5,7 @@ import type {
   GeographicPointBuffer,
 } from '../../copc/types/copc';
 import { extractVerticalUnitScale } from '../../coordinates/crs/parseCopcWkt';
+import { resolveHeightOffsetMeters } from '../../coordinates/transform/heightOffset';
 
 export type CopcValueRange = {
   min: number;
@@ -14,12 +15,18 @@ export type CopcValueRange = {
 export type CopcElevationRange = CopcValueRange;
 
 /** Return the stable WGS84 elevation range represented by dataset metadata. */
-export function getDatasetElevationRange(metadata: CopcMetadata): CopcElevationRange {
+export function getDatasetElevationRange(
+  metadata: CopcMetadata,
+  heightOffsetMeters = 0,
+): CopcElevationRange {
+  const heightOffset = resolveHeightOffsetMeters(heightOffsetMeters);
   const verticalUnitScale = metadata.wkt
     ? extractVerticalUnitScale(metadata.wkt)
     : 1;
-  const min = metadata.bounds.minZ * verticalUnitScale;
-  const max = metadata.bounds.maxZ * verticalUnitScale;
+  const convertedMin = metadata.bounds.minZ * verticalUnitScale;
+  const convertedMax = metadata.bounds.maxZ * verticalUnitScale;
+  const min = heightOffset === 0 ? convertedMin : convertedMin + heightOffset;
+  const max = heightOffset === 0 ? convertedMax : convertedMax + heightOffset;
 
   return {
     min: Math.min(min, max),

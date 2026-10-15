@@ -13,6 +13,7 @@ let metadataBytes: Uint8Array | undefined;
 let wasmBinary: Uint8Array | undefined;
 let nodePreparer: RustCopcNodePreparer | undefined;
 let maxRangeBytes = DEFAULT_MAX_RANGE_BYTES;
+let heightOffsetMeters = 0;
 const workerScope = self as unknown as {
   onmessage: (event: MessageEvent<RustCopcDecodeWorkerRequest>) => void;
   postMessage(message: unknown, transfer?: Transferable[]): void;
@@ -27,6 +28,7 @@ workerScope.onmessage = async (event: MessageEvent<RustCopcDecodeWorkerRequest>)
       metadataBytes = new Uint8Array(request.metadata);
       wasmBinary = new Uint8Array(request.wasm);
       maxRangeBytes = request.maxRangeBytes;
+      heightOffsetMeters = request.heightOffsetMeters;
       workerScope.postMessage({ type: 'ready' });
       return;
     }
@@ -45,6 +47,7 @@ workerScope.onmessage = async (event: MessageEvent<RustCopcDecodeWorkerRequest>)
           metadataBytes,
           () => Promise.resolve(wasm),
           maxRangeBytes,
+          heightOffsetMeters,
         );
       }
       const result = nodePreparer.prepare(

@@ -97,9 +97,10 @@ function getDatasetSourceOrigin(metadata: CopcMetadata): {
  */
 export function createDatasetLocalFrame(
   metadata: CopcMetadata,
+  heightOffsetMeters = 0,
 ): DatasetLocalFrame {
   const sourceOrigin = getDatasetSourceOrigin(metadata);
-  const geographicOrigin = createPointTransformer(metadata)(sourceOrigin);
+  const geographicOrigin = createPointTransformer(metadata, heightOffsetMeters)(sourceOrigin);
   const origin = geographicToEcef(geographicOrigin);
   const longitude = (geographicOrigin.longitude * Math.PI) / 180;
   const latitude = (geographicOrigin.latitude * Math.PI) / 180;

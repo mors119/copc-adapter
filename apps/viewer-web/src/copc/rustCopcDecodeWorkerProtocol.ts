@@ -3,6 +3,7 @@ export type RustCopcDecodeWorkerInit = {
   metadata: ArrayBuffer;
   wasm: ArrayBuffer;
   maxRangeBytes: number;
+  heightOffsetMeters: number;
 };
 
 export type RustCopcDecodeWorkerJob = {
