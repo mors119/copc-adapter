@@ -55,6 +55,6 @@ LAS classification을 categorical palette로 보려면 `classification`을 사�
 ## Build Note
 
 `npm --prefix apps/viewer-web run dev`, `test`, and `build` prepare the
-`copc-wasm` release asset. Library builds include the decoder assets in `dist`.
+`copc-adapter-wasm` release asset. Library builds include the decoder assets in `dist`.
 The default browser URL requires the downloaded Autzen sample at
 `apps/viewer-web/public/samples/autzen.copc.laz`.

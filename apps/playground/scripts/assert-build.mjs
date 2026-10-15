@@ -56,9 +56,9 @@ if (packageJson.name !== '@frillab/copc-adapter' || !packageJson.exports?.['./ce
 }
 for (const filename of [
   'dist/cesium.js',
-  'dist/copc_wasm.wasm',
+  'dist/copc_adapter_wasm.wasm',
   'dist/laz-perf.wasm',
-  'dist/copcWasmAsset.js',
+  'dist/copcAdapterWasmAsset.js',
   'dist/lazPerfAsset.js',
   'dist/rustCopcWorkerFactory.js',
 ]) {
@@ -80,10 +80,13 @@ if (cesiumWorkers.length === 0) {
   throw new Error('Cesium static Web Worker assets were not copied into the Playground build.');
 }
 const adapterWasmFiles = wasmFiles.filter((filename) =>
-  /^(?:copc_wasm|laz-perf)(?:-[\w-]+)?\.wasm$/u.test(path.basename(filename)));
-if (!adapterWasmFiles.some((filename) => /^copc_wasm/u.test(path.basename(filename))) ||
+  /^(?:copc_adapter_wasm|laz-perf)(?:-[\w-]+)?\.wasm$/u.test(path.basename(filename)));
+if (!adapterWasmFiles.some((filename) => /^copc_adapter_wasm/u.test(path.basename(filename))) ||
     !adapterWasmFiles.some((filename) => /^laz-perf/u.test(path.basename(filename)))) {
   throw new Error('The Playground build must emit both adapter WASM runtime assets.');
+}
+if (wasmFiles.some((filename) => path.basename(filename).startsWith('copc_wasm'))) {
+  throw new Error('The Playground build contains an asset with the retired Rust WASM name.');
 }
 if (!bundledJavaScript.includes(`${basePath}cesium/`)) {
   throw new Error('Cesium runtime assets are not rooted at the Playground production base path.');

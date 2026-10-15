@@ -1,4 +1,4 @@
-use copc_core::CopcError;
+use copc_adapter_core::CopcError;
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]

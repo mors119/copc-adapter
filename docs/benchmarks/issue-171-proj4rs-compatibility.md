@@ -175,7 +175,7 @@ itself.
 - The exported WASM transformer initializes deterministically from a fixture
   string and accepts/returns typed `Float64Array` buffers, so it can be moved
   into the existing Worker architecture without adding browser I/O.
-- The production `copc-wasm` crate and browser runtime were not changed by
+- The production `copc-adapter-wasm` crate and browser runtime were not changed by
   this audit; `proj4js` remains in the package and current runtime path.
 
 ## Reproduction

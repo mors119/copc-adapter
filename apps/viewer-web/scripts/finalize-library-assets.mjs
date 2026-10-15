@@ -5,11 +5,11 @@ import { fileURLToPath } from 'node:url';
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const appDirectory = path.resolve(scriptDirectory, '..');
 const distDirectory = path.resolve(appDirectory, 'dist');
-const assetModule = 'copcWasmAsset.js';
+const assetModule = 'copcAdapterWasmAsset.js';
 
 const distEntries = await readdir(distDirectory);
 const assetEntries = await readdir(path.resolve(distDirectory, 'assets'));
-const generatedAssetModules = distEntries.filter((entry) => /^copc_wasm-[\w-]+\.js$/u.test(entry));
+const generatedAssetModules = distEntries.filter((entry) => /^copc_adapter_wasm-[\w-]+\.js$/u.test(entry));
 if (generatedAssetModules.length !== 1) {
   throw new Error(`Expected one generated COPC WASM URL module, found ${generatedAssetModules.length}`);
 }
@@ -19,7 +19,7 @@ if (generatedLazModules.length !== 1) {
 }
 
 const generatedAssetModule = generatedAssetModules[0];
-const generatedWasmAssets = assetEntries.filter((entry) => /^copc_wasm-[\w-]+\.wasm$/u.test(entry));
+const generatedWasmAssets = assetEntries.filter((entry) => /^copc_adapter_wasm-[\w-]+\.wasm$/u.test(entry));
 if (generatedWasmAssets.length !== 1) {
   throw new Error(`Expected one generated COPC WASM asset, found ${generatedWasmAssets.length}`);
 }
@@ -87,7 +87,7 @@ await rm(workerPath);
 await rm(factoryPath);
 await writeFile(
   path.resolve(distDirectory, assetModule),
-  "import wasmAssetUrl from './copc_wasm.wasm?url&no-inline';\nexport default wasmAssetUrl;\n",
+  "import wasmAssetUrl from './copc_adapter_wasm.wasm?url&no-inline';\nexport default wasmAssetUrl;\n",
 );
 await writeFile(
   path.resolve(distDirectory, 'lazPerfAsset.js'),

@@ -52,9 +52,9 @@ assuming that `index.js` owns them. This preserves package-local resolution for
 both public entries while retaining the existing stable filenames:
 
 ```text
-dist/copc_wasm.wasm
+dist/copc_adapter_wasm.wasm
 dist/laz-perf.wasm
-dist/copcWasmAsset.js
+dist/copcAdapterWasmAsset.js
 dist/lazPerfAsset.js
 dist/rustCopcWorkerFactory.js
 ```

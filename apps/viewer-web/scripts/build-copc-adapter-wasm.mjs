@@ -1,4 +1,4 @@
-import { mkdir, copyFile, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, copyFile, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,11 +9,13 @@ const appDirectory = path.resolve(scriptDirectory, '..');
 const workspaceDirectory = path.resolve(appDirectory, '..', '..');
 const wasmOutputPath = path.resolve(
   workspaceDirectory,
-  'target/wasm32-unknown-unknown/release/copc_wasm.wasm',
+  'target/wasm32-unknown-unknown/release/copc_adapter_wasm.wasm',
 );
 const publicWasmDirectory = path.resolve(appDirectory, 'public/wasm');
-const publicWasmPath = path.resolve(publicWasmDirectory, 'copc_wasm.wasm');
-const libraryWasmPath = path.resolve(appDirectory, 'src/wasm/copc_wasm.wasm');
+const publicWasmPath = path.resolve(publicWasmDirectory, 'copc_adapter_wasm.wasm');
+const libraryWasmPath = path.resolve(appDirectory, 'src/wasm/copc_adapter_wasm.wasm');
+const legacyPublicWasmPath = path.resolve(publicWasmDirectory, 'copc_wasm.wasm');
+const legacyLibraryWasmPath = path.resolve(appDirectory, 'src/wasm/copc_wasm.wasm');
 
 function runCargoBuild() {
   return new Promise((resolve, reject) => {
@@ -24,7 +26,7 @@ function runCargoBuild() {
     ].filter(Boolean).join(' ');
     const child = spawn(
       'cargo',
-      ['build', '-p', 'copc-wasm', '--target', 'wasm32-unknown-unknown', '--release'],
+      ['build', '-p', 'copc-adapter-wasm', '--target', 'wasm32-unknown-unknown', '--release'],
       {
         cwd: workspaceDirectory,
         env: { ...process.env, RUSTFLAGS: rustFlags },
@@ -106,4 +108,8 @@ await mkdir(publicWasmDirectory, { recursive: true });
 await Promise.all([
   copyFile(wasmOutputPath, publicWasmPath),
   copyFile(wasmOutputPath, libraryWasmPath),
+]);
+await Promise.all([
+  rm(legacyPublicWasmPath, { force: true }),
+  rm(legacyLibraryWasmPath, { force: true }),
 ]);

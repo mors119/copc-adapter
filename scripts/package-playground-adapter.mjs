@@ -22,7 +22,7 @@ await access(path.join(playgroundDirectory, 'node_modules'));
 await rm(candidateDirectory, { recursive: true, force: true });
 await mkdir(candidateDirectory, { recursive: true });
 
-await run('npm', ['--prefix', 'apps/viewer-web', 'run', 'prepare-copc-wasm']);
+await run('npm', ['--prefix', 'apps/viewer-web', 'run', 'prepare-copc-adapter-wasm']);
 await run('npm', ['--prefix', 'apps/viewer-web', 'run', 'build:library:ci']);
 await run('npm', [
   'pack', './apps/viewer-web', '--ignore-scripts', '--pack-destination', candidateDirectory,

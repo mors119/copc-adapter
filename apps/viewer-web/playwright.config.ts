@@ -7,7 +7,7 @@ if (!Number.isSafeInteger(testPort) || testPort < 1 || testPort > 65_535) {
   throw new Error('PLAYWRIGHT_TEST_PORT must be an integer from 1 to 65535');
 }
 const testUrl = `http://127.0.0.1:${testPort}`;
-const devServerCommand = process.env.COPC_WASM_PREPARED === '1'
+const devServerCommand = process.env.COPC_ADAPTER_WASM_PREPARED === '1'
   ? 'npm run dev:ci'
   : 'npm run dev';
 

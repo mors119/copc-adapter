@@ -117,9 +117,9 @@ try {
     'package/dist/cesium.d.ts',
     'package/dist/three.js',
     'package/dist/three.d.ts',
-    'package/dist/copc_wasm.wasm',
+    'package/dist/copc_adapter_wasm.wasm',
     'package/dist/laz-perf.wasm',
-    'package/dist/copcWasmAsset.js',
+    'package/dist/copcAdapterWasmAsset.js',
     'package/dist/lazPerfAsset.js',
     'package/dist/rustCopcWorkerFactory.js',
   ]) {
@@ -176,7 +176,7 @@ try {
     stdio: 'inherit',
   });
   const consumerAssetEntries = await readdir(path.resolve(consumerDirectory, 'dist/assets'));
-  if (!consumerAssetEntries.some((entry) => entry.startsWith('copc_wasm-') && entry.endsWith('.wasm'))) {
+  if (!consumerAssetEntries.some((entry) => entry.startsWith('copc_adapter_wasm-') && entry.endsWith('.wasm'))) {
     throw new Error('Three consumer production build did not emit the Rust WASM asset');
   }
   if (!consumerAssetEntries.some((entry) => entry.startsWith('laz-perf-') && entry.endsWith('.wasm'))) {

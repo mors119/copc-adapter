@@ -36,7 +36,7 @@ async function loadRustPage(page, query = '?backend=rust&mode=rgb') {
         contentLength: Number(response.headers()['content-length'] ?? 0),
       });
     }
-    if (url.includes('copc_wasm') || url.includes('laz-perf') || url.includes('rustCopcDecodeWorker')) {
+    if (url.includes('copc_adapter_wasm') || url.includes('laz-perf') || url.includes('rustCopcDecodeWorker')) {
       assetResponses.push({
         url,
         status: response.status(),
@@ -135,12 +135,12 @@ test('validates the packed Rust backend in an external Vite consumer', async ({ 
   expect(copcResponses.reduce((total, response) => total + response.contentLength, 0))
     .toBeLessThan(81123042);
   expect(copcResponses.some((response) => response.requestRange === 'bytes=0-374')).toBe(true);
-  expect(assetResponses.some((response) => response.url.includes('copc_wasm') && response.status === 200))
+  expect(assetResponses.some((response) => response.url.includes('copc_adapter_wasm') && response.status === 200))
     .toBe(true);
-  const copcWasmResponses = assetResponses.filter((response) => /copc_wasm[^/]*\.wasm(?:$|\?)/i.test(response.url));
-  expect(copcWasmResponses.length).toBeGreaterThan(0);
-  expect(copcWasmResponses.every((response) => response.status === 200)).toBe(true);
-  expect(copcWasmResponses.every((response) => !response.url.includes('/.vite/deps/'))).toBe(true);
+  const copcAdapterWasmResponses = assetResponses.filter((response) => /copc_adapter_wasm[^/]*\.wasm(?:$|\?)/i.test(response.url));
+  expect(copcAdapterWasmResponses.length).toBeGreaterThan(0);
+  expect(copcAdapterWasmResponses.every((response) => response.status === 200)).toBe(true);
+  expect(copcAdapterWasmResponses.every((response) => !response.url.includes('/.vite/deps/'))).toBe(true);
   expect(initial.worker?.completedCount).toBeGreaterThan(0);
   expect(assetResponses.some((response) => response.url.includes('laz-perf'))).toBe(false);
   expect(requestUrls.some((url) => /\/public\/|\/target\/|copc-adapter\/feature-/i.test(url))).toBe(false);
@@ -202,7 +202,7 @@ test('keeps elevation styling and the copc-js backend available to consumers', a
   const elevation = await state(page);
   expect(elevation.renderedColorCount).toBeGreaterThan(1);
   expect(elevation.lastError).toBeUndefined();
-  expect(rust.assetResponses.some((response) => response.url.includes('copc_wasm'))).toBe(true);
+  expect(rust.assetResponses.some((response) => response.url.includes('copc_adapter_wasm'))).toBe(true);
 
   const jsPageErrors = [];
   const jsConsoleErrors = [];

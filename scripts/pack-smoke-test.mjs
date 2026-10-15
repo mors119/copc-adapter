@@ -104,9 +104,9 @@ try {
     'package/dist/index.d.ts',
     'package/dist/cesium.js',
     'package/dist/cesium.d.ts',
-    'package/dist/copc_wasm.wasm',
+    'package/dist/copc_adapter_wasm.wasm',
     'package/dist/laz-perf.wasm',
-    'package/dist/copcWasmAsset.js',
+    'package/dist/copcAdapterWasmAsset.js',
     'package/dist/lazPerfAsset.js',
   ]) {
     assertIncluded(entries, requiredEntry);
@@ -114,11 +114,14 @@ try {
   if ([...entries].some((entry) => entry.startsWith('package/dist/assets/rustCopcDecodeWorker-'))) {
     throw new Error('Packed adapter contains the retired external Rust decode worker chunk');
   }
-  if (!entries.has('package/dist/copcWasmAsset.js')) {
+  if (!entries.has('package/dist/copcAdapterWasmAsset.js')) {
     throw new Error('Packed adapter is missing the main-thread Rust WASM asset module');
   }
-  if (entries.has('package/dist/wasm/copc_wasm.wasm')) {
+  if (entries.has('package/dist/wasm/copc_adapter_wasm.wasm')) {
     throw new Error('Packed adapter contains the retired duplicate dist/wasm asset');
+  }
+  if ([...entries].some((entry) => entry.includes('copc_wasm'))) {
+    throw new Error('Packed adapter contains an asset with the retired Rust WASM name');
   }
 
   for (const forbiddenPrefix of [
@@ -149,7 +152,7 @@ try {
 
   const wasmEntries = [...entries].filter((entry) => entry.endsWith('.wasm'));
   const expectedWasmEntries = new Set([
-    'package/dist/copc_wasm.wasm',
+    'package/dist/copc_adapter_wasm.wasm',
     'package/dist/laz-perf.wasm',
   ]);
   if (wasmEntries.length !== expectedWasmEntries.size
@@ -257,7 +260,7 @@ try {
     stdio: 'inherit',
   });
   const consumerAssetEntries = await readdir(path.resolve(consumerDirectory, 'dist/assets'));
-  if (!consumerAssetEntries.some((entry) => entry.startsWith('copc_wasm-') && entry.endsWith('.wasm'))) {
+  if (!consumerAssetEntries.some((entry) => entry.startsWith('copc_adapter_wasm-') && entry.endsWith('.wasm'))) {
     throw new Error('Consumer production build did not emit the Rust WASM asset');
   }
   if (!consumerAssetEntries.some((entry) => entry.startsWith('laz-perf-') && entry.endsWith('.wasm'))) {
@@ -299,7 +302,7 @@ try {
   const explicitConsumerAssetEntries = await readdir(
     path.resolve(consumerDirectory, 'dist/assets'),
   );
-  if (!explicitConsumerAssetEntries.some((entry) => entry.startsWith('copc_wasm-') && entry.endsWith('.wasm'))) {
+  if (!explicitConsumerAssetEntries.some((entry) => entry.startsWith('copc_adapter_wasm-') && entry.endsWith('.wasm'))) {
     throw new Error('Explicit Cesium consumer build did not emit the Rust WASM asset');
   }
   if (!explicitConsumerAssetEntries.some((entry) => entry.startsWith('laz-perf-') && entry.endsWith('.wasm'))) {

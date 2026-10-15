@@ -108,8 +108,8 @@ apps/viewer-web/src/copc/backend/
 ## 5. Rust core / WASM
 
 ```text
-crates/copc-core/
-crates/copc-wasm/
+crates/copc-adapter-core/
+crates/copc-adapter-wasm/
 ```
 
 원칙:
@@ -124,7 +124,7 @@ Rust를 더 많이 쓰는 것 자체가 목표가 아니라 **재사용 가능�
 
 ```text
 apps/viewer-web/src/coordinates/
-crates/copc-core/
+crates/copc-adapter-core/
 crates/crs-audit/
 ```
 
