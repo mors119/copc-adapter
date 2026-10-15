@@ -24,12 +24,15 @@ pub use crs::{
     geographic_to_ecef,
 };
 pub use decoder::{
-    CopcNodeDecoder, DecodedCopcNode, FIELD_CLASSIFICATION, FIELD_INTENSITY, FIELD_RGB,
-    decode_copc_node,
+    CopcNodeDecoder, DEFAULT_MAX_NODE_CHUNK_BYTES, DecodedCopcNode, FIELD_CLASSIFICATION,
+    FIELD_INTENSITY, FIELD_RGB, decode_copc_node, decode_copc_node_with_max_chunk_bytes,
 };
 pub use error::{CopcError, Result};
 pub use header::{CopcHeader, parse_header};
-pub use hierarchy::{RootHierarchy, RootHierarchyNode, RootHierarchyPage, parse_root_hierarchy};
+pub use hierarchy::{
+    RootHierarchy, RootHierarchyNode, RootHierarchyPage, parse_root_hierarchy,
+    parse_root_hierarchy_with_max_bytes,
+};
 pub use interleave::interleave_xyz;
 pub use preparation::{
     CopcNodePreparer, PreparedCopcNode, PreparedPointRange, PreparedPointStatistics,

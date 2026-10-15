@@ -11,6 +11,8 @@ export type {
 export { InMemoryByteSource } from './inMemoryByteSource';
 export {
   RangeSourceError,
+  DEFAULT_MAX_RANGE_BYTES,
+  DEFAULT_MAX_CONCURRENT_RANGE_REQUESTS,
   validateByteRange,
 } from './types';
 export type {

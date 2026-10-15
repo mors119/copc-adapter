@@ -1,5 +1,5 @@
 use crate::crs::{CrsTransform, geographic_to_ecef};
-use crate::decoder::{CopcNodeDecoder, DecodedCopcNode};
+use crate::decoder::{CopcNodeDecoder, DEFAULT_MAX_NODE_CHUNK_BYTES, DecodedCopcNode};
 use crate::error::{CopcError, Result};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -41,7 +41,15 @@ pub struct CopcNodePreparer {
 
 impl CopcNodePreparer {
     pub fn from_metadata(metadata: &[u8]) -> Result<Self> {
-        let decoder = CopcNodeDecoder::from_metadata(metadata)?;
+        Self::from_metadata_with_max_chunk_bytes(metadata, DEFAULT_MAX_NODE_CHUNK_BYTES)
+    }
+
+    pub fn from_metadata_with_max_chunk_bytes(
+        metadata: &[u8],
+        max_node_chunk_bytes: usize,
+    ) -> Result<Self> {
+        let decoder =
+            CopcNodeDecoder::from_metadata_with_max_chunk_bytes(metadata, max_node_chunk_bytes)?;
         let header = decoder.header();
         let transform = CrsTransform::from_wkt_or_geographic(
             header.wkt.as_deref(),

@@ -23,6 +23,10 @@ export type CopcBackendOpenOptions = {
   rangeRequestDiagnostics?: RangeRequestDiagnosticsRecorder;
   /** Defaults to strict Content-Range validation. */
   rangeValidation?: RangeValidationPolicy;
+  /** Per-range byte ceiling. Defaults to 64 MiB; explicit values accept any positive safe integer. */
+  maxRangeBytes?: number;
+  /** Maximum active HTTP ranges per source. Defaults to 4; any positive safe integer is accepted. */
+  maxConcurrentRangeRequests?: number;
 };
 
 export type CopcWorkerDiagnostics = {

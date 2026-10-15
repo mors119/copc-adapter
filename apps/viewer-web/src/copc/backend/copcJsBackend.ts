@@ -356,6 +356,8 @@ export class CopcJsBackend implements CopcBackend {
         signal: options.signal,
         rangeRequestDiagnostics: options.rangeRequestDiagnostics,
         rangeValidation: options.rangeValidation,
+        maxRangeBytes: options.maxRangeBytes,
+        maxConcurrentRangeRequests: options.maxConcurrentRangeRequests,
       });
       const copc = await Copc.create(getter);
 

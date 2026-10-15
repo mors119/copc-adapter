@@ -379,12 +379,28 @@ selected response contract can be used. `Content-Range` is not readable means
 it may be absent or hidden by CORS; browser JavaScript cannot distinguish those
 cases. Fixing the source CORS exposure remains the recommended deployment.
 
-The HTTP reader enforces a 64 MiB maximum for each individual range, matching
-the existing metadata, hierarchy-page, and point-chunk limits. It checks a
-readable `Content-Length` before reading, streams into one exact-size buffer,
-and cancels the body on surplus bytes or rejected responses. Keep the COPC
-object on an identity representation without gzip/Brotli or other byte
-transformations.
+The HTTP reader defaults to a 64 MiB maximum for each individual range. Set
+`maxRangeBytes` on `CopcCesiumLayer`, `CopcThreeLayer`, or `CopcStreamingCore`
+to raise it when a valid source needs larger metadata, hierarchy pages, or
+point chunks. The setting accepts any positive safe integer and passes through
+both backends and the Rust/WASM parser. Raising the per-range limit can increase
+memory use.
+
+`maxConcurrentRangeRequests` defaults to four active HTTP range requests per
+source and can be raised to any positive safe integer. A higher setting can
+improve throughput when many ranges are available. The two settings together
+bound active response buffers: defaults allow up to 256 MiB (four 64 MiB
+ranges), and increasing either setting raises that possible memory use. The
+streaming core's separate `maxConcurrentNodeLoads` setting continues to control
+how many nodes the viewer requests at a time.
+
+The reader checks a readable `Content-Length` before reading, streams into one
+exact-size buffer, and cancels the body as soon as a surplus chunk or rejected
+response is observed. Nearby reads may share one capped coalesced fetch. Range
+requests have no automatic retry or per-request timeout; source lifecycle and
+caller `AbortSignal`s cancel pending work. Error and probe diagnostics omit URL
+credentials, query strings, and fragments. Keep the COPC object on an identity
+representation without gzip/Brotli or other byte transformations.
 
 For the corresponding evidence, see [issue #212](https://github.com/mors119/copc-adapter/issues/212)
 and the [SoFi validation record](benchmarks/issue-212-sofi-multigb-streaming).

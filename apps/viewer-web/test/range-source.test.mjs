@@ -11,6 +11,7 @@ import {
   InMemoryByteSource,
   RangeSourceError,
 } from '../src/index.ts';
+import { redactSourceForDiagnostics } from '../src/copc/range/types.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -43,12 +44,16 @@ function createIndexedRangeFetch(calls) {
 
 test('HttpRangeByteSource constructs exact byte ranges and validates 206 bytes', async () => {
   const requests = [];
+  const response = makeResponse(206, [3, 4, 5], {
+    'Content-Range': 'bytes 12-14/100',
+  });
+  response.arrayBuffer = async () => {
+    throw new Error('ranged responses must not be buffered with arrayBuffer()');
+  };
   const source = new HttpRangeByteSource('https://example.test/autzen.copc.laz', {
     fetch: async (input, init) => {
       requests.push({ input, init });
-      return makeResponse(206, [3, 4, 5], {
-        'Content-Range': 'bytes 12-14/100',
-      });
+      return response;
     },
   });
 
@@ -56,6 +61,29 @@ test('HttpRangeByteSource constructs exact byte ranges and validates 206 bytes',
   assert.equal(requests.length, 1);
   assert.equal(requests[0].init.headers.get('Range'), 'bytes=12-14');
   assert.equal(await source.size(), 100);
+});
+
+test('HttpRangeByteSource redacts URL credentials and query values from errors', async () => {
+  const source = new HttpRangeByteSource(
+    'https://viewer:password@example.test/data.copc.laz?X-Amz-Signature=secret#private',
+    { fetch: async () => makeResponse(200, [1]) },
+  );
+
+  await assert.rejects(
+    () => source.readRange(0, 1),
+    (error) => error instanceof RangeSourceError
+      && error.code === 'whole-file-response'
+      && error.source === 'https://example.test/data.copc.laz'
+      && !error.source.includes('password')
+      && !error.source.includes('secret'),
+  );
+});
+
+test('redactSourceForDiagnostics removes credentials from scheme-relative URLs', () => {
+  assert.equal(
+    redactSourceForDiagnostics('//viewer:password@example.test/data?token=secret#private'),
+    '//example.test/data',
+  );
 });
 
 test('HttpRangeByteSource rejects invalid ranges before network access', async () => {
@@ -440,7 +468,7 @@ test('HttpRangeByteSource reports HTTP failures and short bodies structurally', 
   );
 });
 
-test('HttpRangeByteSource rejects declared oversized bodies before reading and cancels streamed surplus', async () => {
+test('HttpRangeByteSource rejects declared oversized bodies before reading and stops at first streamed surplus', async () => {
   let pulled = false;
   let declaredBodyCancelled = false;
   const declaredLengthSource = new HttpRangeByteSource('https://example.test/data', {
@@ -467,15 +495,17 @@ test('HttpRangeByteSource rejects declared oversized bodies before reading and c
   assert.equal(declaredBodyCancelled, true);
 
   let surplusCancelled = false;
+  let surplusBytesProduced = 0;
   const surplusSource = new HttpRangeByteSource('https://example.test/data', {
     fetch: async () => new Response(new ReadableStream({
-      start(controller) {
-        controller.enqueue(new Uint8Array([1, 2, 3, 4]));
+      pull(controller) {
+        surplusBytesProduced += 1;
+        controller.enqueue(new Uint8Array([surplusBytesProduced]));
       },
       cancel() {
         surplusCancelled = true;
       },
-    }), {
+    }, { highWaterMark: 0 }), {
       status: 206,
       headers: { 'Content-Range': 'bytes 0-1/100' },
     }),
@@ -485,6 +515,7 @@ test('HttpRangeByteSource rejects declared oversized bodies before reading and c
     (error) => error instanceof RangeSourceError && error.code === 'body-length',
   );
   assert.equal(surplusCancelled, true);
+  assert.equal(surplusBytesProduced, 3, 'the reader must cancel after one surplus byte');
 });
 
 test('HttpRangeByteSource rejects visible non-identity representations', async () => {
@@ -517,7 +548,7 @@ test('HttpRangeByteSource rejects visible non-identity representations', async (
   );
 });
 
-test('HttpRangeByteSource enforces a 64 MiB per-request ceiling before network access', async () => {
+test('HttpRangeByteSource defaults to a 64 MiB per-request ceiling before network access', async () => {
   let fetchCount = 0;
   const source = new HttpRangeByteSource('https://example.test/data', {
     fetch: async () => {
@@ -534,6 +565,70 @@ test('HttpRangeByteSource enforces a 64 MiB per-request ceiling before network a
     (error) => error instanceof RangeSourceError && error.code === 'range-too-large',
   );
   assert.equal(fetchCount, 0);
+});
+
+test('HttpRangeByteSource allows a configured request above the former range ceiling', async () => {
+  const requestedRanges = [];
+  const source = new HttpRangeByteSource('https://example.test/data', {
+    maxRangeBytes: 300 * 1024 * 1024,
+    fetch: async (_input, init) => {
+      requestedRanges.push(init.headers.get('Range'));
+      return new Response(null, { status: 404 });
+    },
+  });
+
+  await assert.rejects(
+    () => source.readRange(0, 300 * 1024 * 1024),
+    (error) => error instanceof RangeSourceError && error.code === 'http-status',
+  );
+  assert.deepEqual(requestedRanges, ['bytes=0-314572799']);
+});
+
+test('HttpRangeByteSource rejects invalid configured limits before network access', () => {
+  for (const maxRangeBytes of [0, 1.5, Number.MAX_SAFE_INTEGER + 1, Infinity]) {
+    assert.throws(
+      () => new HttpRangeByteSource('https://example.test/data', { maxRangeBytes }),
+      (error) => error instanceof RangeSourceError && error.code === 'invalid-range',
+    );
+  }
+  assert.doesNotThrow(() => new HttpRangeByteSource('https://example.test/data', {
+    maxRangeBytes: Number.MAX_SAFE_INTEGER,
+  }));
+
+  for (const maxConcurrentRangeRequests of [0, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+    assert.throws(
+      () => new HttpRangeByteSource('https://example.test/data', { maxConcurrentRangeRequests }),
+      (error) => error instanceof RangeSourceError && error.code === 'invalid-range',
+    );
+  }
+  assert.doesNotThrow(() => new HttpRangeByteSource('https://example.test/data', {
+    maxConcurrentRangeRequests: Number.MAX_SAFE_INTEGER,
+  }));
+});
+
+test('HttpRangeByteSource allows configured large requests within the concurrency limit', async () => {
+  const pendingResponses = [];
+  const requestedRanges = [];
+  const source = new HttpRangeByteSource('https://example.test/data', {
+    maxRangeBytes: 300 * 1024 * 1024,
+    maxConcurrentRangeRequests: 1,
+    fetch: async (_input, init) => {
+      requestedRanges.push(init.headers.get('Range'));
+      return new Promise((resolve) => pendingResponses.push(resolve));
+    },
+  });
+  const firstRead = source.readRange(0, 200 * 1024 * 1024).catch((error) => error);
+  const secondRead = source.readRange(300 * 1024 * 1024, 100 * 1024 * 1024)
+    .catch((error) => error);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(requestedRanges, ['bytes=0-209715199']);
+  pendingResponses[0](new Response(null, { status: 404 }));
+  await firstRead;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(requestedRanges, ['bytes=0-209715199', 'bytes=314572800-419430399']);
+  pendingResponses[1](new Response(null, { status: 404 }));
+  await secondRead;
 });
 
 test('HttpRangeByteSource reports network failures structurally', async () => {
@@ -580,6 +675,116 @@ test('HttpRangeByteSource keeps far disjoint reads separate and concurrent', asy
   assert.equal(maximumActive, 2);
 });
 
+test('HttpRangeByteSource bounds active disjoint range fetches and starts queued work as slots free', async () => {
+  const pendingResponses = [];
+  let active = 0;
+  let maximumActive = 0;
+  const source = new HttpRangeByteSource('https://example.test/data', {
+    fetch: async (_input, init) => {
+      const match = /^bytes=(\d+)-(\d+)$/.exec(new Headers(init.headers).get('Range') ?? '');
+      assert.ok(match);
+      const offset = Number(match[1]);
+      const end = Number(match[2]);
+      active += 1;
+      maximumActive = Math.max(maximumActive, active);
+      return new Promise((resolve) => {
+        pendingResponses.push(() => {
+          active -= 1;
+          resolve(makeResponse(206, [offset % 256], {
+            'Content-Range': `bytes ${offset}-${end}/1000000`,
+          }));
+        });
+      });
+    },
+  });
+
+  const reads = Array.from({ length: 6 }, (_value, index) =>
+    source.readRange(index * 10_000, 1));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(pendingResponses.length, 4);
+  assert.equal(maximumActive, 4);
+
+  pendingResponses[0]();
+  assert.deepEqual([...await reads[0]], [0]);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(pendingResponses.length, 5, 'a queued fetch starts when one slot is released');
+
+  for (let index = 1; index < reads.length; index += 1) {
+    pendingResponses[index]();
+    await reads[index];
+  }
+  assert.equal(maximumActive, 4);
+  assert.equal(active, 0);
+});
+
+test('HttpRangeByteSource allows explicitly higher request concurrency', async () => {
+  const pendingResponses = [];
+  const source = new HttpRangeByteSource('https://example.test/data', {
+    maxConcurrentRangeRequests: 6,
+    fetch: async (_input, init) => {
+      const match = /^bytes=(\d+)-(\d+)$/.exec(new Headers(init.headers).get('Range') ?? '');
+      assert.ok(match);
+      const offset = Number(match[1]);
+      const end = Number(match[2]);
+      return new Promise((resolve) => pendingResponses.push(() => resolve(makeResponse(
+        206,
+        [offset % 256],
+        { 'Content-Range': `bytes ${offset}-${end}/1000000` },
+      ))));
+    },
+  });
+  const reads = Array.from({ length: 6 }, (_value, index) =>
+    source.readRange(index * 10_000, 1));
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(pendingResponses.length, 6);
+  for (const resolve of pendingResponses) resolve();
+  assert.deepEqual((await Promise.all(reads)).map((bytes) => bytes[0]), [0, 16, 32, 48, 64, 80]);
+});
+
+test('HttpRangeByteSource skips a queued group when its last caller cancels', async () => {
+  const pendingResponses = [];
+  let fetchCount = 0;
+  const source = new HttpRangeByteSource('https://example.test/data', {
+    fetch: async (_input, init) => {
+      const match = /^bytes=(\d+)-(\d+)$/.exec(new Headers(init.headers).get('Range') ?? '');
+      assert.ok(match);
+      const offset = Number(match[1]);
+      const end = Number(match[2]);
+      fetchCount += 1;
+      return new Promise((resolve) => {
+        pendingResponses.push(() => resolve(makeResponse(206, [offset % 256], {
+          'Content-Range': `bytes ${offset}-${end}/1000000`,
+        })));
+      });
+    },
+  });
+
+  const activeReads = Array.from({ length: 4 }, (_value, index) =>
+    source.readRange(index * 10_000, 1));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(fetchCount, 4);
+
+  const queuedController = new AbortController();
+  const queuedRead = source.readRange(100_000, 1, { signal: queuedController.signal });
+  await new Promise((resolve) => setImmediate(resolve));
+  queuedController.abort('no longer needed');
+  await assert.rejects(
+    () => queuedRead,
+    (error) => error instanceof RangeSourceError && error.code === 'aborted',
+  );
+
+  pendingResponses[0]();
+  assert.deepEqual([...await activeReads[0]], [0]);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(fetchCount, 4, 'a cancelled queued group must not start a fetch');
+
+  for (let index = 1; index < activeReads.length; index += 1) {
+    pendingResponses[index]();
+    await activeReads[index];
+  }
+});
+
 test('HttpRangeByteSource coalesces overlapping and adjacent direct reads into exact slices', async () => {
   const calls = [];
   const source = new HttpRangeByteSource('https://example.test/data', {
@@ -599,6 +804,25 @@ test('HttpRangeByteSource coalesces overlapping and adjacent direct reads into e
   ]);
   assert.deepEqual(calls.map(({ offset, length }) => ({ offset, length })), [
     { offset: 10, length: 8 },
+  ]);
+});
+
+test('HttpRangeByteSource returns independent buffers for duplicate full-span reads', async () => {
+  const calls = [];
+  const source = new HttpRangeByteSource('https://example.test/data', {
+    fetch: createIndexedRangeFetch(calls),
+  });
+
+  const [first, second] = await Promise.all([
+    source.readRange(10, 4),
+    source.readRange(10, 4),
+  ]);
+
+  assert.deepEqual([...first], [10, 11, 12, 13]);
+  assert.deepEqual([...second], [10, 11, 12, 13]);
+  assert.notEqual(first.buffer, second.buffer);
+  assert.deepEqual(calls.map(({ offset, length }) => ({ offset, length })), [
+    { offset: 10, length: 4 },
   ]);
 });
 

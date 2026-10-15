@@ -9,6 +9,10 @@ import type { CopcPointFieldSelection } from './points/fieldSelection';
 import { performanceNow } from './performance';
 import { loadCopcWasm, type CopcWasmExports } from '../wasm/copcWasm';
 import { requireRustWasmPointer, RustCopcParseError } from './rustCopcErrors';
+import {
+  DEFAULT_MAX_RANGE_BYTES,
+  resolveWasmMaxRangeBytes,
+} from './range/types';
 
 const FIELD_INTENSITY = 1 << 0;
 const FIELD_CLASSIFICATION = 1 << 1;
@@ -132,7 +136,9 @@ export class RustCopcNodePreparer {
   static async fromMetadata(
     metadataBytes: Uint8Array,
     loadWasm: () => Promise<CopcWasmExports> = loadCopcWasm,
+    maxChunkBytes = DEFAULT_MAX_RANGE_BYTES,
   ): Promise<RustCopcNodePreparer> {
+    const maximum = resolveWasmMaxRangeBytes('[metadata]', maxChunkBytes);
     const wasm = await loadWasm();
     const metadataPointer = requireRustWasmPointer(
       wasm.alloc_bytes(metadataBytes.byteLength),
@@ -141,9 +147,10 @@ export class RustCopcNodePreparer {
     );
     new Uint8Array(wasm.memory.buffer, metadataPointer, metadataBytes.byteLength).set(metadataBytes);
     try {
-      const responsePointer = wasm.create_copc_node_preparer_json(
+      const responsePointer = wasm.create_copc_node_preparer_with_limit_json(
         metadataPointer,
         metadataBytes.byteLength,
+        maximum,
       );
       try {
         const response = JSON.parse(readCString(wasm.memory, responsePointer)) as RustParserResponse<RustPreparerHandle>;
@@ -324,7 +331,9 @@ export async function decodeRustCopcNode(
   pointCount: number,
   fields: CopcPointFieldSelection,
   loadWasm: () => Promise<CopcWasmExports>,
+  maxChunkBytes = DEFAULT_MAX_RANGE_BYTES,
 ): Promise<RustCopcNodeDecodeResult> {
+  const maximum = resolveWasmMaxRangeBytes('[node chunk]', maxChunkBytes);
   const requestedFields = getRustPointFieldMask(fields);
   if (!Number.isSafeInteger(pointCount) || pointCount < 0 || pointCount > Number.MAX_SAFE_INTEGER / 3) {
     throw new RustCopcParseError('overflow', 'coordinate output length exceeds safe integer range');
@@ -375,13 +384,14 @@ export async function decodeRustCopcNode(
     new Uint8Array(memory, metadataPointer, metadataBytes.byteLength).set(metadataBytes);
     new Uint8Array(memory, chunkPointer, chunkBytes.byteLength).set(chunkBytes);
     const decodeStartedAt = performanceNow();
-    const responsePointer = wasm.decode_copc_node_json(
+    const responsePointer = wasm.decode_copc_node_with_limit_json(
       metadataPointer,
       metadataBytes.byteLength,
       chunkPointer,
       chunkBytes.byteLength,
       pointCount,
       requestedFields,
+      maximum,
       coordinatesPointer,
       intensityPointer,
       classificationPointer,

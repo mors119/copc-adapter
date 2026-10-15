@@ -15,7 +15,7 @@ pub const FIELD_RGB: u32 = 1 << 2;
 
 const KNOWN_FIELD_MASK: u32 = FIELD_INTENSITY | FIELD_CLASSIFICATION | FIELD_RGB;
 const MAX_DECODE_POINTS: usize = 5_000_000;
-const MAX_NODE_CHUNK_BYTES: usize = 64 * 1024 * 1024;
+pub const DEFAULT_MAX_NODE_CHUNK_BYTES: usize = 64 * 1024 * 1024;
 
 fn allocate_zeroed<T>(length: usize, what: &str) -> Result<Vec<T>>
 where
@@ -47,6 +47,7 @@ pub struct DecodedCopcNode {
 pub struct CopcNodeDecoder {
     header: CopcHeader,
     laz_vlr: LazVlr,
+    max_node_chunk_bytes: usize,
 }
 
 fn parse_laz_vlr(bytes: &[u8], header: &CopcHeader) -> Result<LazVlr> {
@@ -110,6 +111,19 @@ fn parse_laz_vlr(bytes: &[u8], header: &CopcHeader) -> Result<LazVlr> {
 
 impl CopcNodeDecoder {
     pub fn from_metadata(metadata: &[u8]) -> Result<Self> {
+        Self::from_metadata_with_max_chunk_bytes(metadata, DEFAULT_MAX_NODE_CHUNK_BYTES)
+    }
+
+    pub fn from_metadata_with_max_chunk_bytes(
+        metadata: &[u8],
+        max_node_chunk_bytes: usize,
+    ) -> Result<Self> {
+        if max_node_chunk_bytes == 0 {
+            return Err(CopcError::new(
+                "invalid-value",
+                "COPC node chunk byte limit must be positive",
+            ));
+        }
         let header = parse_header(metadata)?;
         let laz_vlr = parse_laz_vlr(metadata, &header)?;
         let record_length = usize::try_from(laz_vlr.items_size()).map_err(|_| {
@@ -125,7 +139,11 @@ impl CopcNodeDecoder {
             ));
         }
 
-        Ok(Self { header, laz_vlr })
+        Ok(Self {
+            header,
+            laz_vlr,
+            max_node_chunk_bytes,
+        })
     }
 
     pub fn header(&self) -> &CopcHeader {
@@ -156,10 +174,13 @@ impl CopcNodeDecoder {
                 format!("COPC node has more than the {MAX_DECODE_POINTS}-point safety limit"),
             ));
         }
-        if chunk.len() > MAX_NODE_CHUNK_BYTES {
+        if chunk.len() > self.max_node_chunk_bytes {
             return Err(CopcError::new(
                 "unsupported-value",
-                format!("COPC node chunk exceeds the {MAX_NODE_CHUNK_BYTES}-byte safety limit"),
+                format!(
+                    "COPC node chunk exceeds the {}-byte safety limit",
+                    self.max_node_chunk_bytes
+                ),
             ));
         }
         let header = &self.header;
@@ -356,6 +377,20 @@ pub fn decode_copc_node(
     CopcNodeDecoder::from_metadata(metadata)?.decode(chunk, point_count, requested_fields)
 }
 
+pub fn decode_copc_node_with_max_chunk_bytes(
+    metadata: &[u8],
+    chunk: &[u8],
+    point_count: usize,
+    requested_fields: u32,
+    max_node_chunk_bytes: usize,
+) -> Result<DecodedCopcNode> {
+    CopcNodeDecoder::from_metadata_with_max_chunk_bytes(metadata, max_node_chunk_bytes)?.decode(
+        chunk,
+        point_count,
+        requested_fields,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use laz::record::{LayeredPointRecordCompressor, RecordCompressor};
@@ -365,6 +400,7 @@ mod tests {
 
     use super::{
         DecodedCopcNode, FIELD_CLASSIFICATION, FIELD_INTENSITY, FIELD_RGB, decode_copc_node,
+        decode_copc_node_with_max_chunk_bytes,
     };
 
     fn put_u16(bytes: &mut [u8], offset: usize, value: u16) {
@@ -589,6 +625,23 @@ mod tests {
         assert_eq!(
             preparer.prepare_decoded(malformed).unwrap_err().code(),
             "chunk-length-mismatch"
+        );
+    }
+
+    #[test]
+    fn applies_the_caller_supplied_node_chunk_limit() {
+        let (metadata, chunk) = compressed_fixture();
+        assert_eq!(
+            decode_copc_node_with_max_chunk_bytes(&metadata, &chunk, 2, 0, 1)
+                .unwrap_err()
+                .code(),
+            "unsupported-value"
+        );
+        assert_eq!(
+            decode_copc_node_with_max_chunk_bytes(&metadata, &chunk, 2, 0, chunk.len())
+                .expect("chunk is within supplied limit")
+                .point_count,
+            2
         );
     }
 }
