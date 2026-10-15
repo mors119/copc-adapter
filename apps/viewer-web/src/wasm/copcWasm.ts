@@ -19,6 +19,7 @@ export type CopcWasmExports = {
   ): number;
   parse_copc_header_json(pointer: number, length: number): number;
   parse_root_hierarchy_json(pointer: number, length: number): number;
+  parse_root_hierarchy_with_limit_json(pointer: number, length: number, maxPageBytes: number): number;
   decode_copc_node_json(
     metadataPointer: number,
     metadataLength: number,
@@ -26,6 +27,21 @@ export type CopcWasmExports = {
     chunkLength: number,
     pointCount: number,
     requestedFields: number,
+    coordinatesPointer: number,
+    intensityPointer: number,
+    classificationPointer: number,
+    redPointer: number,
+    greenPointer: number,
+    bluePointer: number,
+  ): number;
+  decode_copc_node_with_limit_json(
+    metadataPointer: number,
+    metadataLength: number,
+    chunkPointer: number,
+    chunkLength: number,
+    pointCount: number,
+    requestedFields: number,
+    maxChunkBytes: number,
     coordinatesPointer: number,
     intensityPointer: number,
     classificationPointer: number,
@@ -44,6 +60,7 @@ export type CopcWasmExports = {
   ): number;
   free_crs_transform(handle: number): void;
   create_copc_node_preparer_json(pointer: number, length: number): number;
+  create_copc_node_preparer_with_limit_json(pointer: number, length: number, maxChunkBytes: number): number;
   prepare_copc_node_json(
     handle: number,
     chunkPointer: number,

@@ -2,7 +2,7 @@ use crate::binary::{read_i32, read_i64};
 use crate::error::{CopcError, Result};
 
 const HIERARCHY_ENTRY_SIZE: usize = 32;
-const MAX_HIERARCHY_PAGE_BYTES: usize = 64 * 1024 * 1024;
+const DEFAULT_MAX_HIERARCHY_PAGE_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RootHierarchyNode {
@@ -54,10 +54,23 @@ fn validate_key(level: i32, x: i32, y: i32, z: i32) -> Result<()> {
 }
 
 pub fn parse_root_hierarchy(bytes: &[u8]) -> Result<RootHierarchy> {
-    if bytes.len() > MAX_HIERARCHY_PAGE_BYTES {
+    parse_root_hierarchy_with_max_bytes(bytes, DEFAULT_MAX_HIERARCHY_PAGE_BYTES)
+}
+
+pub fn parse_root_hierarchy_with_max_bytes(
+    bytes: &[u8],
+    max_page_bytes: usize,
+) -> Result<RootHierarchy> {
+    if max_page_bytes == 0 {
+        return Err(CopcError::new(
+            "invalid-value",
+            "hierarchy page byte limit must be positive",
+        ));
+    }
+    if bytes.len() > max_page_bytes {
         return Err(CopcError::new(
             "unsupported-value",
-            format!("root hierarchy page exceeds {MAX_HIERARCHY_PAGE_BYTES} bytes"),
+            format!("root hierarchy page exceeds {max_page_bytes} bytes"),
         ));
     }
     if bytes.is_empty() || !bytes.len().is_multiple_of(HIERARCHY_ENTRY_SIZE) {
@@ -143,7 +156,7 @@ pub fn parse_root_hierarchy(bytes: &[u8]) -> Result<RootHierarchy> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_root_hierarchy;
+    use super::{parse_root_hierarchy, parse_root_hierarchy_with_max_bytes};
 
     fn put_i32(bytes: &mut [u8], offset: usize, value: i32) {
         bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
@@ -214,6 +227,28 @@ mod tests {
         assert_eq!(
             parse_root_hierarchy(&large).unwrap_err().code(),
             "unsupported-value"
+        );
+    }
+
+    #[test]
+    fn applies_the_caller_supplied_page_limit() {
+        let mut bytes = vec![0; 64];
+        put_i32(&mut bytes, 0, 0);
+        put_i32(&mut bytes, 28, 0);
+        put_i32(&mut bytes, 32, 1);
+        put_i32(&mut bytes, 60, 0);
+
+        assert_eq!(
+            parse_root_hierarchy_with_max_bytes(&bytes, 32)
+                .unwrap_err()
+                .code(),
+            "unsupported-value"
+        );
+        assert_eq!(
+            parse_root_hierarchy_with_max_bytes(&bytes, 64)
+                .expect("page is within supplied limit")
+                .entry_count,
+            2
         );
     }
 }

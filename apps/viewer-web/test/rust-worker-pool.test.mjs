@@ -8,6 +8,7 @@ import {
 
 function createFakeWorkerHarness({ delay = 5, fail = false, failPrepare = false, initFail = false } = {}) {
   const workers = [];
+  const initializations = [];
   let active = 0;
   let peak = 0;
   const order = [];
@@ -21,6 +22,7 @@ function createFakeWorkerHarness({ delay = 5, fail = false, failPrepare = false,
     postMessage(message) {
       if (this.terminated) throw new Error('worker terminated');
       if (message.type === 'init') {
+        initializations.push(message);
         if (initFail) {
           setTimeout(() => this.onmessage?.({ data: {
             type: 'error',
@@ -99,11 +101,26 @@ function createFakeWorkerHarness({ delay = 5, fail = false, failPrepare = false,
       return worker;
     },
     workers,
+    initializations,
     stats() {
       return { active, peak, order };
     },
   };
 }
+
+test('Rust decode worker pool passes the configured range limit to workers', async () => {
+  const harness = createFakeWorkerHarness();
+  const pool = new RustCopcDecodeWorkerPool({
+    workerCount: 1,
+    workerFactory: harness.factory,
+    maxRangeBytes: 128 * 1024 * 1024,
+  });
+  pool.setMetadata(new Uint8Array([9, 8, 7]));
+
+  await pool.submit(request('configured-limit'));
+  assert.equal(harness.initializations[0].maxRangeBytes, 128 * 1024 * 1024);
+  pool.destroy();
+});
 
 function request(nodeKey, pointCount = 1, requestedFields = 0) {
   return {

@@ -7,10 +7,12 @@ import { createCopcPointFieldSelection } from './points/fieldSelection';
 import type {
   RustCopcDecodeWorkerRequest,
 } from './rustCopcDecodeWorkerProtocol';
+import { DEFAULT_MAX_RANGE_BYTES } from './range/types';
 
 let metadataBytes: Uint8Array | undefined;
 let wasmBinary: Uint8Array | undefined;
 let nodePreparer: RustCopcNodePreparer | undefined;
+let maxRangeBytes = DEFAULT_MAX_RANGE_BYTES;
 const workerScope = self as unknown as {
   onmessage: (event: MessageEvent<RustCopcDecodeWorkerRequest>) => void;
   postMessage(message: unknown, transfer?: Transferable[]): void;
@@ -24,6 +26,7 @@ workerScope.onmessage = async (event: MessageEvent<RustCopcDecodeWorkerRequest>)
       nodePreparer = undefined;
       metadataBytes = new Uint8Array(request.metadata);
       wasmBinary = new Uint8Array(request.wasm);
+      maxRangeBytes = request.maxRangeBytes;
       workerScope.postMessage({ type: 'ready' });
       return;
     }
@@ -41,6 +44,7 @@ workerScope.onmessage = async (event: MessageEvent<RustCopcDecodeWorkerRequest>)
         nodePreparer = await RustCopcNodePreparer.fromMetadata(
           metadataBytes,
           () => Promise.resolve(wasm),
+          maxRangeBytes,
         );
       }
       const result = nodePreparer.prepare(
@@ -98,6 +102,7 @@ workerScope.onmessage = async (event: MessageEvent<RustCopcDecodeWorkerRequest>)
       request.pointCount,
       fields,
       () => loadCopcWasmWorker(wasmBinary!),
+      maxRangeBytes,
     );
     const attributes = result.buffer.attributes;
     const response = {

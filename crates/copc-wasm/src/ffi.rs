@@ -1,6 +1,7 @@
 use copc_core::{
     CopcHeader, CopcNodePreparer, CrsTransform, PreparedCopcNode, RootHierarchy, decode_copc_node,
-    interleave_xyz, parse_header, parse_root_hierarchy,
+    decode_copc_node_with_max_chunk_bytes, interleave_xyz, parse_header, parse_root_hierarchy,
+    parse_root_hierarchy_with_max_bytes,
 };
 use serde::Serialize;
 use std::ffi::{CString, c_char};
@@ -301,6 +302,22 @@ fn parse_hierarchy_value(bytes: &[u8]) -> Result<RootHierarchyJson, ParseError> 
         .and_then(hierarchy_json)
 }
 
+fn parse_hierarchy_value_with_max_bytes(
+    bytes: &[u8],
+    max_page_bytes: usize,
+) -> Result<RootHierarchyJson, ParseError> {
+    parse_root_hierarchy_with_max_bytes(bytes, max_page_bytes)
+        .map_err(from_core)
+        .and_then(hierarchy_json)
+}
+
+fn validate_max_range_bytes(max_range_bytes: usize) -> Result<usize, ParseError> {
+    if max_range_bytes == 0 {
+        return Err(error("invalid-value", "maxRangeBytes must be positive"));
+    }
+    Ok(max_range_bytes)
+}
+
 fn create_crs_transform_value(wkt: &str) -> Result<CrsTransformHandle, ParseError> {
     let transform = CrsTransform::from_wkt(wkt).map_err(from_core)?;
     let vertical_unit_scale = transform.vertical_unit_scale();
@@ -326,6 +343,21 @@ fn create_geographic_crs_transform_value() -> Result<CrsTransformHandle, ParseEr
 
 fn create_copc_node_preparer_value(metadata: &[u8]) -> Result<CopcNodePreparerHandle, ParseError> {
     let preparer = CopcNodePreparer::from_metadata(metadata).map_err(from_core)?;
+    create_copc_node_preparer_handle(preparer)
+}
+
+fn create_copc_node_preparer_value_with_max_chunk_bytes(
+    metadata: &[u8],
+    max_chunk_bytes: usize,
+) -> Result<CopcNodePreparerHandle, ParseError> {
+    let preparer = CopcNodePreparer::from_metadata_with_max_chunk_bytes(metadata, max_chunk_bytes)
+        .map_err(from_core)?;
+    create_copc_node_preparer_handle(preparer)
+}
+
+fn create_copc_node_preparer_handle(
+    preparer: CopcNodePreparer,
+) -> Result<CopcNodePreparerHandle, ParseError> {
     let vertical_unit_scale = preparer.transform().vertical_unit_scale();
     let used_horizontal_fallback = preparer.transform().used_horizontal_fallback();
     let handle = Box::into_raw(Box::new(preparer)) as usize;
@@ -406,6 +438,23 @@ pub extern "C" fn transform_crs_points_json(
 #[unsafe(no_mangle)]
 pub extern "C" fn create_copc_node_preparer_json(ptr: *const u8, length: usize) -> *mut c_char {
     let response = match input_slice(ptr, length).and_then(create_copc_node_preparer_value) {
+        Ok(value) => ParseResponse::success(value),
+        Err(parse_error) => ParseResponse::failure(parse_error),
+    };
+    json_pointer(response)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn create_copc_node_preparer_with_limit_json(
+    ptr: *const u8,
+    length: usize,
+    max_chunk_bytes: usize,
+) -> *mut c_char {
+    let response = match validate_max_range_bytes(max_chunk_bytes).and_then(|limit| {
+        input_slice(ptr, length).and_then(|metadata| {
+            create_copc_node_preparer_value_with_max_chunk_bytes(metadata, limit)
+        })
+    }) {
         Ok(value) => ParseResponse::success(value),
         Err(parse_error) => ParseResponse::failure(parse_error),
     };
@@ -604,6 +653,22 @@ pub extern "C" fn parse_root_hierarchy_json(ptr: *const u8, length: usize) -> *m
     json_pointer(response)
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn parse_root_hierarchy_with_limit_json(
+    ptr: *const u8,
+    length: usize,
+    max_page_bytes: usize,
+) -> *mut c_char {
+    let response = match validate_max_range_bytes(max_page_bytes).and_then(|limit| {
+        input_slice(ptr, length)
+            .and_then(|bytes| parse_hierarchy_value_with_max_bytes(bytes, limit))
+    }) {
+        Ok(value) => ParseResponse::success(value),
+        Err(parse_error) => ParseResponse::failure(parse_error),
+    };
+    json_pointer(response)
+}
+
 fn copy_decoded_node(
     decoded: copc_core::DecodedCopcNode,
     coordinates_ptr: *mut f64,
@@ -696,6 +761,60 @@ pub extern "C" fn decode_copc_node_json(
                 .unwrap_or_else(ParseResponse::failure)
         }
         (Err(parse_error), _) | (_, Err(parse_error)) => ParseResponse::failure(parse_error),
+    };
+    json_pointer(response)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn decode_copc_node_with_limit_json(
+    metadata_ptr: *const u8,
+    metadata_length: usize,
+    chunk_ptr: *const u8,
+    chunk_length: usize,
+    point_count: usize,
+    requested_fields: u32,
+    max_chunk_bytes: usize,
+    coordinates_ptr: *mut f64,
+    intensity_ptr: *mut u16,
+    classification_ptr: *mut u8,
+    red_ptr: *mut u16,
+    green_ptr: *mut u16,
+    blue_ptr: *mut u16,
+) -> *mut c_char {
+    let response = match validate_max_range_bytes(max_chunk_bytes).and_then(|limit| {
+        match (
+            input_slice(metadata_ptr, metadata_length),
+            input_slice(chunk_ptr, chunk_length),
+        ) {
+            (Ok(metadata), Ok(chunk)) => decode_copc_node_with_max_chunk_bytes(
+                metadata,
+                chunk,
+                point_count,
+                requested_fields,
+                limit,
+            )
+            .map_err(from_core)
+            .and_then(|decoded| {
+                parse_header(metadata)
+                    .map_err(from_core)
+                    .and_then(|header| validate_header_for_js(&header).map(|()| decoded))
+                    .and_then(|decoded| {
+                        copy_decoded_node(
+                            decoded,
+                            coordinates_ptr,
+                            intensity_ptr,
+                            classification_ptr,
+                            red_ptr,
+                            green_ptr,
+                            blue_ptr,
+                        )
+                    })
+            }),
+            (Err(parse_error), _) | (_, Err(parse_error)) => Err(parse_error),
+        }
+    }) {
+        Ok(value) => ParseResponse::success(value),
+        Err(parse_error) => ParseResponse::failure(parse_error),
     };
     json_pointer(response)
 }
@@ -800,12 +919,25 @@ mod tests {
 
     use super::{
         ParseResponse, create_crs_transform_value, free_crs_transform, json_pointer,
-        transform_crs_points_value, try_json_pointer,
+        transform_crs_points_value, try_json_pointer, validate_max_range_bytes,
     };
 
     const WGS84_GEOGRAPHIC_WKT: &str = "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]]";
 
     struct FailingSerialize;
+
+    #[test]
+    fn configured_range_limit_requires_a_positive_value_without_a_product_cap() {
+        assert_eq!(validate_max_range_bytes(1).unwrap(), 1);
+        assert_eq!(
+            validate_max_range_bytes(1024 * 1024 * 1024).unwrap(),
+            1024 * 1024 * 1024
+        );
+        assert_eq!(
+            validate_max_range_bytes(0).unwrap_err().code,
+            "invalid-value"
+        );
+    }
 
     impl serde::Serialize for FailingSerialize {
         fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>

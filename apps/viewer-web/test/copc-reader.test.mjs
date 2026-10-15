@@ -9,6 +9,8 @@ import {
   CopcHierarchyLoadError,
   CopcMetadataError,
   CopcSourceError,
+  DEFAULT_MAX_RANGE_BYTES,
+  DEFAULT_MAX_CONCURRENT_RANGE_REQUESTS,
   getCopcPointFieldSelection,
 } from '../src/index.ts';
 import { Getter } from 'copc';
@@ -1038,6 +1040,8 @@ test('createNodePointCache clears stored entries', async () => {
 test('public API exports CopcCesiumLayer', () => {
   assert.equal(typeof CopcCesiumLayer, 'function');
   assert.equal(typeof CopcJsBackend, 'function');
+  assert.equal(DEFAULT_MAX_RANGE_BYTES, 64 * 1024 * 1024);
+  assert.equal(DEFAULT_MAX_CONCURRENT_RANGE_REQUESTS, 4);
 });
 
 test('CopcCesiumLayer snapshot exposes lifecycle and dataset info', () => {

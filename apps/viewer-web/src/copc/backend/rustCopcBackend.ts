@@ -296,6 +296,8 @@ export class RustCopcBackend implements CopcBackend {
         ? this.createByteSource(source)
         : new HttpRangeByteSource(source, {
             rangeValidation: options.rangeValidation,
+            maxRangeBytes: options.maxRangeBytes,
+            maxConcurrentRangeRequests: options.maxConcurrentRangeRequests,
           });
     } catch (error: unknown) {
       throw mapRustError(source, error, 'open');
@@ -307,7 +309,9 @@ export class RustCopcBackend implements CopcBackend {
         options.signal,
         options.rangeRequestDiagnostics ?? new RangeRequestDiagnosticsRecorder(),
       );
-      return new RustCopcSource(source, await RustCopcReader.open(ownedByteSource));
+      return new RustCopcSource(source, await RustCopcReader.open(ownedByteSource, {
+        maxRangeBytes: options.maxRangeBytes,
+      }));
     } catch (error: unknown) {
       throw mapRustError(source, error, 'open');
     }

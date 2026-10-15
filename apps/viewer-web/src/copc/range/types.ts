@@ -45,6 +45,40 @@ export type RangeSourceErrorDetails = {
   readonly status?: number;
 };
 
+/** Default finite per-range allocation limit for HTTP and COPC readers. */
+export const DEFAULT_MAX_RANGE_BYTES = 64 * 1024 * 1024;
+/** Default maximum number of active HTTP range requests per source. */
+export const DEFAULT_MAX_CONCURRENT_RANGE_REQUESTS = 4;
+
+export function resolveMaxRangeBytes(source: string, requested?: number): number {
+  const maximum = requested ?? DEFAULT_MAX_RANGE_BYTES;
+  if (!Number.isSafeInteger(maximum) || maximum < 1) {
+    throw new RangeSourceError(
+      'invalid-range',
+      'maxRangeBytes must be a positive safe integer',
+      { source, length: maximum },
+    );
+  }
+  return maximum;
+}
+
+export function resolveMaxConcurrentRangeRequests(source: string, requested?: number): number {
+  const maximum = requested ?? DEFAULT_MAX_CONCURRENT_RANGE_REQUESTS;
+  if (!Number.isSafeInteger(maximum) || maximum < 1) {
+    throw new RangeSourceError(
+      'invalid-range',
+      'maxConcurrentRangeRequests must be a positive safe integer',
+      { source, length: maximum },
+    );
+  }
+  return maximum;
+}
+
+/** Clamp only for the WASM ABI; COPC range lengths are represented by u32 fields. */
+export function resolveWasmMaxRangeBytes(source: string, requested?: number): number {
+  return Math.min(resolveMaxRangeBytes(source, requested), 0xffff_ffff);
+}
+
 /** Remove URL credentials and query/fragment values before exposing diagnostics. */
 export function redactSourceForDiagnostics(source: string): string {
   if (source.startsWith('//')) {

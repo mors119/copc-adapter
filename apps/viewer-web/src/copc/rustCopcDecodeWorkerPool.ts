@@ -7,6 +7,7 @@ import type {
 } from './rustCopcDecodeWorkerProtocol';
 import type { CopcWorkerDiagnostics } from './backend/types';
 import { getCopcWasmBinary } from '../wasm/copcWasm';
+import { resolveMaxRangeBytes } from './range/types';
 
 export type RustCopcDecodeWorkerLike = {
   onmessage: ((event: MessageEvent<RustCopcDecodeWorkerResponse>) => void) | null;
@@ -19,6 +20,7 @@ export type RustCopcDecodeWorkerLike = {
 export type RustCopcDecodeWorkerPoolOptions = {
   workerCount?: number;
   workerFactory?: () => RustCopcDecodeWorkerLike | Promise<RustCopcDecodeWorkerLike>;
+  maxRangeBytes?: number;
 };
 
 export type RustCopcDecodeRequest = {
@@ -94,6 +96,7 @@ function bufferFrom(value: ArrayBuffer | undefined, type: 'u16' | 'u8'): Uint16A
 /** Bounded, FIFO Rust/WASM decode queue owned by one COPC source instance. */
 export class RustCopcDecodeWorkerPool {
   readonly workerCount: number;
+  private readonly maxRangeBytes: number;
   private readonly workerFactory: () => RustCopcDecodeWorkerLike | Promise<RustCopcDecodeWorkerLike>;
   private readonly workers: WorkerSlot[] = [];
   private readonly queue: QueueEntry[] = [];
@@ -116,6 +119,7 @@ export class RustCopcDecodeWorkerPool {
       throw new RangeError('Rust COPC worker count must be a positive integer');
     }
     this.workerCount = workerCount;
+    this.maxRangeBytes = resolveMaxRangeBytes('[worker pool]', options.maxRangeBytes);
     this.workerFactory = options.workerFactory ?? defaultWorkerFactory;
   }
 
@@ -279,7 +283,12 @@ export class RustCopcDecodeWorkerPool {
         const metadata = this.metadata!.slice().buffer;
         const wasm = (await getCopcWasmBinary()).slice().buffer;
         if (this.destroyed || slot.current !== entry) return;
-        slot.worker.postMessage({ type: 'init', metadata, wasm }, [metadata, wasm]);
+        slot.worker.postMessage({
+          type: 'init',
+          metadata,
+          wasm,
+          maxRangeBytes: this.maxRangeBytes,
+        }, [metadata, wasm]);
       } catch (error: unknown) {
         this.handleWorkerFailure(
           slot,

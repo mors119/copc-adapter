@@ -96,6 +96,10 @@ export type CopcStreamingControllerOptions = {
   maxPointCacheBytes?: number;
   /** Defaults to strict Content-Range validation. */
   rangeValidation?: RangeValidationPolicy;
+  /** Per-range byte ceiling. Defaults to 64 MiB; explicit values accept any positive safe integer. */
+  maxRangeBytes?: number;
+  /** Maximum active HTTP ranges per source. Defaults to 4; any positive safe integer is accepted. */
+  maxConcurrentRangeRequests?: number;
   /** Emits lifecycle messages through console.debug. */
   debug?: boolean;
 };
@@ -338,6 +342,8 @@ export class CopcStreamingCore {
         signal: lifecycleAbortController.signal,
         rangeRequestDiagnostics: this.rangeRequestDiagnostics,
         rangeValidation: this.options.rangeValidation,
+        maxRangeBytes: this.options.maxRangeBytes,
+        maxConcurrentRangeRequests: this.options.maxConcurrentRangeRequests,
       });
       if (!this.isCurrentLoad(loadGeneration)) {
         context.destroy?.();

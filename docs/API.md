@@ -67,6 +67,17 @@ layer.attachTo(viewer);
   with readable `Content-Length` and provides limited size/body-length checks.
   It cannot prove the returned byte offset or immutable object version. The
   option is also available on `CopcThreeLayer` and `CopcStreamingCore`.
+- `maxRangeBytes`: maximum bytes allowed in one HTTP range response. Default:
+  `64 * 1024 * 1024`. Set a larger positive safe integer when a valid source
+  needs larger chunks. The setting is passed through both backends and the
+  Rust/WASM decoder, and is also available on `CopcThreeLayer` and
+  `CopcStreamingCore`. Raising this value can increase memory use.
+- `maxConcurrentRangeRequests`: maximum active HTTP range requests per source.
+  Default: `4`. Set a larger positive safe integer for workloads that benefit
+  from more parallel ranges. The range-size and concurrency settings together
+  bound active response buffers; defaults allow up to 256 MiB. Raising either
+  setting increases that possible memory use. This option is also available on
+  `CopcThreeLayer` and `CopcStreamingCore`.
 - `onPointPicked`: called with a selected `CopcPointInspection`, or `undefined`
   when selection is cleared.
 

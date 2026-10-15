@@ -38,6 +38,17 @@ source를 위한 명시적 호환 모드입니다. 성공한 `HEAD` 응답에서
 객체 버전의 불변성을 증명하지는 못합니다. Three.js layer와 streaming core에도
 같은 옵션이 있습니다.
 
+`maxRangeBytes`는 HTTP range 응답 하나의 최대 크기이며 기본값은 64 MiB입니다.
+큰 metadata, hierarchy page 또는 point chunk를 읽어야 할 때 명시적으로 높일 수
+있습니다. 양의 안전한 정수라면 고정 상한은 없습니다. 값을 높이면 메모리 사용량도
+증가할 수 있습니다.
+
+`maxConcurrentRangeRequests`는 source마다 동시에 실행할 HTTP range 요청 수이며
+기본값은 4입니다. 작은 range가 여러 개일 때 병렬성을 높일 수 있도록 양의 안전한
+정수로 설정할 수 있습니다. 두 설정의 조합이 동시에 진행되는 응답 buffer를
+제한하며, 기본 설정에서 최대 약 256 MiB를 사용합니다. 둘 중 하나를 높이면 가능한
+메모리 사용량도 늘어납니다.
+
 ## Lifecycle
 
 ```ts

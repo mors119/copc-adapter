@@ -373,14 +373,25 @@ offset은 검증되지 않은 한계로 남습니다. `Content-Range`를 JavaScr
 없어도 실제로 없었는지 CORS가 숨겼는지는 브라우저에서 구분할 수 없습니다.
 올바른 CORS 노출 설정을 하는 것이 권장됩니다.
 
-HTTP reader는 단일 Range 요청을 기존 metadata, hierarchy page, point chunk 제한과
-맞춘 최대 64 MiB로 제한합니다. 읽을 수 있는 `Content-Length`를 미리 확인하고,
-정확한 크기의 buffer 하나에 스트리밍하며, 초과 chunk 또는 거부한 응답을
-확인하는 즉시 body를 취소합니다. 서로 떨어진 Range fetch는 source마다 최대
-4개까지 동시에 실행하고, 가까운 read는 제한된 하나의 coalesced fetch로 합칠 수
-있습니다. streaming core의 동시 node load 기본값도 4입니다. Range 요청은 자동
-재시도나 요청별 timeout을 사용하지 않으며, source lifecycle과 caller의
-`AbortSignal`로 pending 작업을 취소합니다. 오류와 probe 진단에는 URL 사용자
+HTTP reader는 Range 요청 하나를 기본 최대 64 MiB로 제한합니다. 큰 metadata,
+hierarchy page 또는 point chunk가 필요한 유효한 source에는
+`CopcCesiumLayer`, `CopcThreeLayer` 또는 `CopcStreamingCore`의 `maxRangeBytes`를
+명시적으로 높일 수 있습니다. 양의 안전한 정수라면 고정 상한은 없으며, 이 값은
+두 backend와 Rust/WASM parser에 전달됩니다. 요청당 제한을 높이면 메모리 사용량도
+늘 수 있습니다.
+
+`maxConcurrentRangeRequests`는 source마다 동시에 실행하는 HTTP range 요청 수이며
+기본값은 4입니다. 작은 range가 많을 때 처리량을 높이도록 양의 안전한 정수로
+설정할 수 있습니다. 두 설정의 조합이 동시에 진행되는 응답 buffer를 제한하며,
+기본 설정에서 최대 약 256 MiB를 사용합니다. 둘 중 하나를 높이면 가능한 메모리
+사용량도 늘어납니다. viewer의 `maxConcurrentNodeLoads`는 한 번에 요청할 node 수를
+별도로 제어합니다.
+
+reader는 읽을 수 있는 `Content-Length`를 미리 확인하고, 정확한 크기의 buffer
+하나에 스트리밍하며, 초과 chunk 또는 거부한 응답을 확인하는 즉시 body를
+취소합니다. 가까운 read는 제한된 하나의 coalesced fetch로 합칠 수 있습니다.
+Range 요청은 자동 재시도나 요청별 timeout을 사용하지 않으며, source lifecycle과
+caller의 `AbortSignal`로 pending 작업을 취소합니다. 오류와 probe 진단에는 URL 사용자
 정보, query, fragment를 포함하지 않습니다. COPC 객체에는 gzip/Brotli 또는 다른
 byte 변환을 적용하지 마세요.
 

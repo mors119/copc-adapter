@@ -1,10 +1,12 @@
 import {
   RangeSourceError,
+  resolveMaxConcurrentRangeRequests,
   type ByteRange,
   type RangeFetch,
   type RangeReadOptions,
   type RangeValidationPolicy,
   type RandomAccessByteSource,
+  resolveMaxRangeBytes,
   validateByteRange,
 } from './types';
 import { validateContentRange } from './contentRange';
@@ -15,16 +17,15 @@ export type HttpRangeByteSourceOptions = {
   readonly size?: number;
   /** Defaults to strict, request-matching Content-Range validation. */
   readonly rangeValidation?: RangeValidationPolicy;
+  /** Per-range byte ceiling. Defaults to 64 MiB; explicit values accept any positive safe integer. */
+  readonly maxRangeBytes?: number;
+  /** Maximum active HTTP ranges per source. Defaults to 4; any positive safe integer is accepted. */
+  readonly maxConcurrentRangeRequests?: number;
 };
 
 // Merge only same-turn reads, with a small gap and a strict per-fetch byte cap.
 const MAX_COALESCED_RANGE_GAP_BYTES = 4 * 1024;
 const MAX_COALESCED_RANGE_BYTES = 1024 * 1024;
-// Matches the existing Rust limits for metadata, hierarchy pages, and chunks.
-const MAX_HTTP_RANGE_BYTES = 64 * 1024 * 1024;
-// Match the viewer's default node-load concurrency at the shared HTTP boundary.
-const MAX_ACTIVE_HTTP_RANGE_FETCHES = 4;
-
 type HeadMetadata = {
   readonly size: number;
   readonly etag?: string;
@@ -79,6 +80,8 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
   private readonly fetchImpl: RangeFetch;
   private readonly headers: Headers;
   private readonly rangeValidation: RangeValidationPolicy;
+  private readonly maxRangeBytes: number;
+  private readonly maxConcurrentRangeRequests: number;
   private knownSize: number | undefined;
   private knownETag: string | undefined;
   private knownLastModified: string | undefined;
@@ -94,6 +97,11 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
     this.fetchImpl = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.headers = new Headers(options.headers);
     this.rangeValidation = options.rangeValidation ?? 'strict';
+    this.maxRangeBytes = resolveMaxRangeBytes(source, options.maxRangeBytes);
+    this.maxConcurrentRangeRequests = resolveMaxConcurrentRangeRequests(
+      source,
+      options.maxConcurrentRangeRequests,
+    );
 
     if (options.size !== undefined) {
       if (!Number.isSafeInteger(options.size) || options.size < 0) {
@@ -169,10 +177,10 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
 
   private validateReadRange(offset: number, length: number): ByteRange {
     const range = validateByteRange(this.source, offset, length);
-    if (range.length > MAX_HTTP_RANGE_BYTES) {
+    if (range.length > this.maxRangeBytes) {
       throw new RangeSourceError(
         'range-too-large',
-        `Requested range length ${range.length} exceeds the ${MAX_HTTP_RANGE_BYTES}-byte HTTP read limit`,
+        `Requested range length ${range.length} exceeds the ${this.maxRangeBytes}-byte HTTP read limit`,
         rangeDetails(this.source, range),
       );
     }
@@ -188,7 +196,10 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
   private flushPendingReads(): void {
     this.flushScheduled = false;
     const pending = this.pendingReads.splice(0).filter((read) => !read.settled);
-    for (const plannedGroup of coalescePendingReads(pending)) {
+    for (const plannedGroup of coalescePendingReads(
+      pending,
+      Math.min(MAX_COALESCED_RANGE_BYTES, this.maxRangeBytes),
+    )) {
       const activeGroup: PendingRangeGroup = {
         ...plannedGroup,
         controller: new AbortController(),
@@ -204,7 +215,7 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
 
   private startPendingRangeGroups(): void {
     while (
-      this.activeRangeFetches < MAX_ACTIVE_HTTP_RANGE_FETCHES
+      this.activeRangeFetches < this.maxConcurrentRangeRequests
       && this.pendingRangeGroups.length > 0
     ) {
       const group = this.pendingRangeGroups.shift();
@@ -719,7 +730,10 @@ async function cancelResponseBody(response: Response): Promise<void> {
   await response.body?.cancel().catch(() => undefined);
 }
 
-function coalescePendingReads(reads: PendingRangeRead[]): PlannedRangeGroup[] {
+function coalescePendingReads(
+  reads: PendingRangeRead[],
+  maximumMergedBytes: number,
+): PlannedRangeGroup[] {
   const ordered = [...reads].sort((left, right) =>
     left.range.offset - right.range.offset || left.range.length - right.range.length);
   const groups: PlannedRangeGroup[] = [];
@@ -739,7 +753,7 @@ function coalescePendingReads(reads: PendingRangeRead[]): PlannedRangeGroup[] {
 
     if (gap <= MAX_COALESCED_RANGE_GAP_BYTES
       && Number.isSafeInteger(mergedLength)
-      && mergedLength <= MAX_COALESCED_RANGE_BYTES) {
+      && mergedLength <= maximumMergedBytes) {
       group.members.push(read);
       group.range = { offset: groupOffset, length: mergedLength };
     } else {

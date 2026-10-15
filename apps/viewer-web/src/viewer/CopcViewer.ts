@@ -71,6 +71,10 @@ export type CopcLayerOptions = {
   maxPointCacheBytes?: number;
   /** Defaults to strict Content-Range validation. */
   rangeValidation?: RangeValidationPolicy;
+  /** Per-range byte ceiling. Defaults to 64 MiB; explicit values accept any positive safe integer. */
+  maxRangeBytes?: number;
+  /** Maximum active HTTP ranges per source. Defaults to 4; any positive safe integer is accepted. */
+  maxConcurrentRangeRequests?: number;
 };
 
 export type CopcLayerLifecycleState =
@@ -321,6 +325,8 @@ export class CopcLayerController {
       maxRenderedPoints: options.maxRenderedPoints,
       maxPointCacheBytes: options.maxPointCacheBytes,
       rangeValidation: options.rangeValidation,
+      maxRangeBytes: options.maxRangeBytes,
+      maxConcurrentRangeRequests: options.maxConcurrentRangeRequests,
       // Keep all supported style attributes in the decoded point cache so
       // runtime restyling can reuse the initial point-chunk read and decode.
       pointFields: allCopcPointFields(),
