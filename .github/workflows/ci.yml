@@ -29,9 +29,9 @@ jobs:
       - name: Run Rust Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-  viewer-web:
+  viewer-fast:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
 
     steps:
       - name: Check out repository
@@ -75,6 +75,40 @@ jobs:
       - name: Build production bundle
         run: npm --prefix apps/viewer-web run build:ci
 
+  viewer-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/viewer-web/package-lock.json
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install viewer dependencies
+        run: npm ci --prefix apps/viewer-web
+
+      - name: Prepare Rust/WASM asset
+        run: npm --prefix apps/viewer-web run prepare-copc-adapter-wasm
+
+      - name: Download sample dataset
+        run: npm run download-samples -- autzen
+
       - name: Install Chromium for browser validation
         run: npx --prefix apps/viewer-web playwright install --with-deps chromium
 
@@ -82,6 +116,40 @@ jobs:
         env:
           COPC_ADAPTER_WASM_PREPARED: '1'
         run: npm --prefix apps/viewer-web run test:e2e
+
+  viewer-package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/viewer-web/package-lock.json
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install viewer dependencies
+        run: npm ci --prefix apps/viewer-web
+
+      - name: Prepare Rust/WASM asset
+        run: npm --prefix apps/viewer-web run prepare-copc-adapter-wasm
+
+      - name: Download sample dataset
+        run: npm run download-samples -- autzen
 
       - name: Build and pack one library candidate
         run: |
@@ -107,3 +175,23 @@ jobs:
 
       - name: Run packed Three.js artifact smoke test
         run: node scripts/pack-three-smoke-test.mjs "$PACKAGE_CANDIDATE"
+
+  # Preserve the existing required status-check name from the main ruleset.
+  # A failure (or skipped/cancelled gate) must never appear as a green viewer-web check.
+  viewer-web:
+    needs: [viewer-fast, viewer-browser, viewer-package]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every viewer validation gate
+        env:
+          FAST_RESULT: ${{ needs.viewer-fast.result }}
+          BROWSER_RESULT: ${{ needs.viewer-browser.result }}
+          PACKAGE_RESULT: ${{ needs.viewer-package.result }}
+        run: |
+          for result in "$FAST_RESULT" "$BROWSER_RESULT" "$PACKAGE_RESULT"; do
+            if [ "$result" != "success" ]; then
+              echo "::error::All viewer gates must succeed (fast=$FAST_RESULT, browser=$BROWSER_RESULT, package=$PACKAGE_RESULT)"
+              exit 1
+            fi
+          done
