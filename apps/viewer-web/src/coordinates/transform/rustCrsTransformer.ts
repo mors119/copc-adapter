@@ -92,7 +92,10 @@ export class RustCrsTransformer {
    * projected bounds require WKT. The supplied height correction is applied to
    * WGS84 ellipsoidal height in metres.
    *
-   * @throws `RustCopcParseError` for missing projected CRS WKT, malformed WKT, or WASM failures.
+   * @throws `RangeError` if `heightOffsetMeters` is not finite.
+   * @throws `CopcWasmError` if the WASM asset cannot be fetched, compiled, or instantiated.
+   * @throws `RustCopcParseError` if projected WKT is missing, WKT parsing fails,
+   * or Rust rejects CRS creation.
    */
   static async fromMetadata(
     metadata: Pick<CopcMetadata, 'wkt' | 'bounds'>,

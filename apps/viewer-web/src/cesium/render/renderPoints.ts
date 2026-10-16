@@ -68,7 +68,8 @@ export function toCartesian3Array(points: GeographicPoint[]): Cesium.Cartesian3[
  *
  * @param points Buffer containing one of the supported prepared coordinate spaces.
  * @returns One Cesium ECEF Cartesian position per point.
- * @throws If retained ECEF coordinates are missing, malformed, or non-finite.
+ * @throws If retained ECEF data is malformed, uses an unsupported coordinate
+ * system, or contains non-finite values.
  */
 export function toCartesian3ArrayFromBuffer(
   points: GeographicPointBuffer,

@@ -128,10 +128,11 @@ export type CopcStreamingProgressHandler = (progress: StreamingProgress) => void
 export type CopcStreamingWorkProgressHandler = (progress: StreamingWorkProgress) => void;
 
 /**
- * Streaming, request, decode, point-preparation, and renderer-preparation measurements.
+ * Core-owned streaming, range-fetch, decode, and point-preparation measurements.
  *
- * Durations are in milliseconds and transferred bytes count byte-range
- * response bodies. GPU frame time is not included.
+ * Durations are in milliseconds and `rangeFetchBytes` counts byte-range
+ * response bodies. Renderer-side preparation and GPU frame time are not
+ * included; renderer adapters expose their own measurements separately.
  */
 export type CopcStreamingPerformanceSnapshot = Pick<
   StreamingPerformanceSnapshot,
@@ -232,7 +233,9 @@ export type CopcStreamingSnapshot = {
   hierarchy?: CopcHierarchyDiagnostics;
   /** Retained decoded CPU point-buffer bytes and cache activity. */
   pointCache: NodePointCacheDiagnostics;
-  /** Source-owned HTTP range request and transferred-byte counters. */
+  /** Source-owned HTTP range request lifecycle counters.
+   * Transferred bytes are reported in `performance.rangeFetchBytes`.
+   */
   rangeRequests: RangeRequestDiagnostics;
   /** Decode-worker queue counters when exposed by the selected backend. */
   worker?: CopcWorkerDiagnostics;
