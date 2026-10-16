@@ -127,7 +127,7 @@ preparation path. The opt-in Rust backend uses the fused Rust preparation path;
 its failure is reported to the caller and is not silently retried through the
 TypeScript transform path.
 
-The repository contains `crates/copc-adapter-core` and `crates/copc-adapter-wasm`. The former
+The repository contains `crates/core` and `crates/wasm`. The former
 is the native-testable domain implementation; the latter exposes the existing
 Rust/WASM ABI without owning COPC parsing or decoding rules. This extraction is
 complete for the supported release scope, including fused point preparation and
@@ -267,8 +267,8 @@ The current crate separation is:
 
 ```text
 crates/
-  copc-adapter-core/
-  copc-adapter-wasm/
+  core/
+  wasm/
 ```
 
 `copc-adapter-core` is pure Rust. It has no JavaScript, WebAssembly-specific pointer

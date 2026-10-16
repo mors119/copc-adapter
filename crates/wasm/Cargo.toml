@@ -9,6 +9,6 @@ license = "Apache-2.0"
 crate-type = ["cdylib"]
 
 [dependencies]
-copc-adapter-core = { path = "../copc-adapter-core", version = "0.5.1" }
+copc-adapter-core = { path = "../core", version = "0.5.1" }
 serde = { version = "1.0.205", features = ["derive"] }
 serde_json = "1.0.122"
