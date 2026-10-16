@@ -249,7 +249,7 @@ Range/CORS/COPC 형식을 먼저 점검하고 싶을 때 사용합니다.
 ## API를 변경할 때 볼 파일
 
 - `packages/copc-adapter/src/cesium/layer/CopcCesiumLayer.ts`
-- `packages/copc-adapter/src/cesium/layer/CopcViewer.ts`
+- `packages/copc-adapter/src/cesium/layer/CesiumLayerController.ts`
 - `packages/copc-adapter/src/core/streaming/CopcStreamingController.ts`
 - `packages/copc-adapter/src/cesium/style/CesiumPointStyle.ts`
 
