@@ -6,6 +6,7 @@ import {
 } from '../render/CopcPointRenderer';
 import { createCesiumStreamingView } from '../view/CesiumViewAdapter';
 import { createMetadataBoundingSphere } from '../geometry/metadataBoundingSphere';
+import { CesiumPointPicker } from '../picking/CesiumPointPicker';
 import { CopcCesiumEvent } from './cesiumLayerEvents';
 import {
   CopcLayerEventLifecycle,
@@ -25,9 +26,7 @@ import type {
 import type { CopcWorkerDiagnostics } from '../../core/copc/backend/types';
 import {
   inspectCopcPoint,
-  isCopcPointPickId,
   type CopcPointInspection,
-  type CopcPointPickId,
 } from '../../core/copc/points/pointInspection';
 import type { CopcMetadata, PreparedPointData } from '../../core/copc/types/copc';
 import { extractHorizontalUnitScale } from '../../core/coordinates/crs/parseCopcWkt';
@@ -207,13 +206,6 @@ function combinePerformance(
   };
 }
 
-let nextPickOwnerId = 0;
-
-function createPickOwnerId(): string {
-  nextPickOwnerId += 1;
-  return `copc-layer-${nextPickOwnerId}`;
-}
-
 const SUPPORTED_COLOR_MODES = new Set<CopcColorMode>([
   'fixed',
   'elevation',
@@ -293,6 +285,7 @@ export class CesiumLayerController {
   private readonly eventLifecycle = new CopcLayerEventLifecycle();
   private readonly options: CopcLayerOptions;
   private readonly pointRenderer: CesiumPointRenderer;
+  private readonly pointPicker: CesiumPointPicker;
   private readonly pointStyleState = createCopcPointStyleState();
   private style: CopcCesiumPointStyle;
   private readonly rendererPerformance = new StreamingPerformanceRecorder();
@@ -319,9 +312,6 @@ export class CesiumLayerController {
   private lastStreamingView?: import('../../core/streaming/types').StreamingView;
   private pendingInvalidatedView?: import('../../core/streaming/types').StreamingView;
   private activeStreamingUpdate?: ActiveStreamingUpdate;
-  private selectedPointPickId?: CopcPointPickId;
-  private pickHandler?: Cesium.ScreenSpaceEventHandler;
-  private readonly pickOwnerId = createPickOwnerId();
   private readonly handleCameraMoveEnd = (): void => {
     void this.scheduleStreamingUpdate(true);
   };
@@ -350,6 +340,17 @@ export class CesiumLayerController {
       pointFields: allCopcPointFields(),
       streaming: options.streaming,
     });
+    this.pointPicker = new CesiumPointPicker({
+      inspectPoint: (pickId) => {
+        const node = this.core.getHierarchyNode(pickId.nodeKey);
+        const points = this.core.getCachedPointBuffer(pickId.nodeKey);
+        return node && points
+          ? inspectCopcPoint(pickId, node.node, points, this.core.getSnapshot().backend)
+          : undefined;
+      },
+      hasNode: (nodeKey) => this.pointRenderer.hasNode(nodeKey),
+      onPointPicked: options.onPointPicked,
+    });
   }
 
   /** Attach the layer's Cesium primitives and camera listeners. */
@@ -371,7 +372,7 @@ export class CesiumLayerController {
     this.viewer.camera.percentageChanged = 0.02;
     this.viewer.camera.moveEnd.addEventListener(this.handleCameraMoveEnd);
     this.viewer.camera.changed?.addEventListener(this.handleCameraChanged);
-    this.attachPickHandler(viewer);
+    this.pointPicker.attach(viewer);
     if (this.lifecycle !== 'loading') {
       this.lifecycle = this.core.getMetadata() ? 'ready' : 'mounted';
     }
@@ -487,10 +488,10 @@ export class CesiumLayerController {
       this.viewer.camera.changed?.removeEventListener(this.handleCameraChanged);
     }
 
-    this.detachPickHandler();
+    this.pointPicker.detach();
     this.pointRenderer.detachFrom();
     this.resetReplacementTransitions();
-    this.clearSelectedPoint();
+    this.pointPicker.clear();
     this.rendererPerformance.reset();
     this.lastStreamingView = undefined;
     this.pendingInvalidatedView = undefined;
@@ -598,7 +599,7 @@ export class CesiumLayerController {
     this.pointRenderer.clear();
     this.pointStyleState.reset();
     this.resetReplacementTransitions();
-    this.clearSelectedPoint();
+    this.pointPicker.clear();
     this.rendererPerformance.reset();
     this.lastStreamingView = undefined;
     this.activeStreamingUpdate = undefined;
@@ -678,28 +679,7 @@ export class CesiumLayerController {
 
   /** Return the selected point while its node and decoded buffer are live. */
   getSelectedPoint(): CopcPointInspection | undefined {
-    const pickId = this.selectedPointPickId;
-    const node = pickId ? this.core.getHierarchyNode(pickId.nodeKey) : undefined;
-    if (!pickId || !node || !this.pointRenderer.hasNode(pickId.nodeKey)) {
-      if (pickId) {
-        this.clearSelectedPoint();
-      }
-      return undefined;
-    }
-
-    const points = this.core.getCachedPointBuffer(pickId.nodeKey);
-    const inspection = points
-      ? inspectCopcPoint(
-        pickId,
-        node.node,
-        points,
-        this.core.getSnapshot().backend,
-      )
-      : undefined;
-    if (!inspection) {
-      this.clearSelectedPoint();
-    }
-    return inspection;
+    return this.pointPicker.getSelectedPoint();
   }
 
   /** Return a detached snapshot of the current Cesium presentation style. */
@@ -769,12 +749,12 @@ export class CesiumLayerController {
       throw error;
     }
 
-    const selectedPick = this.selectedPointPickId;
+    const selectedPick = this.pointPicker.getSelectedPickId();
     if (selectedPick) {
       const selectedPoints = this.core.getCachedPreparedPointData(selectedPick.nodeKey);
       if (!selectedPoints
         || !isPointVisibleForStyle(selectedPoints, selectedPick.pointIndex, nextStyle)) {
-        this.clearSelectedPoint();
+        this.pointPicker.clear();
       }
     }
     this.rendererPerformance.setActiveRenderedPointCount(this.getRenderedPointCount());
@@ -1066,7 +1046,7 @@ export class CesiumLayerController {
       pointId: (pointIndex: number) => ({
         nodeKey,
         pointIndex,
-        ownerId: this.pickOwnerId,
+        ownerId: this.pointPicker.ownerId,
       }),
       onPerformance: (stage, durationMs) => {
         const metricStage = stage === 'geographicToCartesian'
@@ -1287,69 +1267,8 @@ export class CesiumLayerController {
   }
 
   private removePointCollection(nodeKey: string): void {
-    if (this.selectedPointPickId?.nodeKey === nodeKey) {
-      this.clearSelectedPoint();
-    }
+    this.pointPicker.clearIfNode(nodeKey);
     this.pointRenderer.removeNode(nodeKey);
-  }
-
-  private attachPickHandler(viewer: Cesium.Viewer): void {
-    const canvas = viewer.scene.canvas;
-    if (!canvas) {
-      return;
-    }
-
-    this.pickHandler = new Cesium.ScreenSpaceEventHandler(canvas);
-    this.pickHandler.setInputAction((movement: { position: Cesium.Cartesian2 }) => {
-      this.handlePick(viewer, movement.position);
-    }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
-  }
-
-  private handlePick(viewer: Cesium.Viewer, position: Cesium.Cartesian2): void {
-    const picked = viewer.scene.pick(position) as { id?: unknown } | undefined;
-    if (!picked || !isCopcPointPickId(picked.id)
-      || picked.id.ownerId !== this.pickOwnerId) {
-      this.clearSelectedPoint();
-      return;
-    }
-
-    const pickId = picked.id;
-    const node = this.core.getHierarchyNode(pickId.nodeKey);
-    const points = this.core.getCachedPointBuffer(pickId.nodeKey);
-    const inspection = node && points
-      ? inspectCopcPoint(
-        pickId,
-        node.node,
-        points,
-        this.core.getSnapshot().backend,
-      )
-      : undefined;
-
-    if (!inspection || !this.pointRenderer.hasNode(pickId.nodeKey)) {
-      this.clearSelectedPoint();
-      return;
-    }
-
-    this.selectedPointPickId = {
-      nodeKey: pickId.nodeKey,
-      pointIndex: pickId.pointIndex,
-      ...(pickId.ownerId === undefined ? {} : { ownerId: pickId.ownerId }),
-    };
-    this.options.onPointPicked?.(inspection);
-  }
-
-  private detachPickHandler(): void {
-    this.pickHandler?.destroy();
-    this.pickHandler = undefined;
-  }
-
-  private clearSelectedPoint(): void {
-    if (!this.selectedPointPickId) {
-      return;
-    }
-
-    this.selectedPointPickId = undefined;
-    this.options.onPointPicked?.(undefined);
   }
 
   private flyToDataset(metadata: CopcMetadata): void {

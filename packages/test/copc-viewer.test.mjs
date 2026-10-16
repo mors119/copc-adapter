@@ -635,9 +635,9 @@ test('runtime Cesium styling filters cached points without another point-chunk r
 
   const controller = layer.controller;
   viewer.scene.pick = () => ({
-    id: { nodeKey, pointIndex: 1, ownerId: controller.pickOwnerId },
+    id: { nodeKey, pointIndex: 1, ownerId: controller.pointPicker.ownerId },
   });
-  controller.handlePick(viewer, new Cesium.Cartesian2(10, 10));
+  controller.pointPicker.pick(viewer, new Cesium.Cartesian2(10, 10));
   assert.equal(layer.getSelectedPoint().pointIndex, 1);
   assert.equal(layer.getSelectedPoint().classification, 6);
   assert.equal(picked.at(-1).classification, 6);
@@ -1131,13 +1131,13 @@ test('Cesium picks resolve through the shared live node and point cache', async 
   layer.attachTo(viewer);
   await waitFor(() => layer.getSnapshot().renderedPointCount === 2);
 
-  // Private members are used here only to drive the adapter-side Cesium pick
-  // event without constructing a browser DOM or a real WebGL scene.
+  // Drive the adapter-owned picker without constructing a browser DOM or a
+  // real WebGL scene.
   const controller = layer.controller;
   viewer.scene.pick = () => ({
-    id: { nodeKey, pointIndex: 1, ownerId: controller.pickOwnerId },
+    id: { nodeKey, pointIndex: 1, ownerId: controller.pointPicker.ownerId },
   });
-  controller.handlePick(viewer, new Cesium.Cartesian2(10, 10));
+  controller.pointPicker.pick(viewer, new Cesium.Cartesian2(10, 10));
 
   assert.equal(layer.getSelectedPoint().nodeKey, nodeKey);
   assert.equal(layer.getSelectedPoint().pointIndex, 1);
@@ -1146,14 +1146,14 @@ test('Cesium picks resolve through the shared live node and point cache', async 
   viewer.scene.pick = () => ({
     id: { nodeKey, pointIndex: 1, ownerId: 'copc-layer-foreign' },
   });
-  controller.handlePick(viewer, new Cesium.Cartesian2(10, 10));
+  controller.pointPicker.pick(viewer, new Cesium.Cartesian2(10, 10));
   assert.equal(layer.getSelectedPoint(), undefined);
   assert.equal(picked.at(-1), undefined);
 
   viewer.scene.pick = () => ({
-    id: { nodeKey, pointIndex: 0, ownerId: controller.pickOwnerId },
+    id: { nodeKey, pointIndex: 0, ownerId: controller.pointPicker.ownerId },
   });
-  controller.handlePick(viewer, new Cesium.Cartesian2(10, 10));
+  controller.pointPicker.pick(viewer, new Cesium.Cartesian2(10, 10));
   controller.core.streamingState.cache.delete(nodeKey);
   assert.equal(layer.getSelectedPoint(), undefined);
   assert.equal(picked.at(-1), undefined);
@@ -1179,9 +1179,9 @@ test('selection is cleared across unload, reload, and removed transition coverag
   const controller = layer.controller;
 
   viewer.scene.pick = () => ({
-    id: { nodeKey, pointIndex: 0, ownerId: controller.pickOwnerId },
+    id: { nodeKey, pointIndex: 0, ownerId: controller.pointPicker.ownerId },
   });
-  controller.handlePick(viewer, new Cesium.Cartesian2(10, 10));
+  controller.pointPicker.pick(viewer, new Cesium.Cartesian2(10, 10));
   assert.ok(layer.getSelectedPoint());
 
   layer.unload();
@@ -1191,7 +1191,7 @@ test('selection is cleared across unload, reload, and removed transition coverag
 
   await layer.reload();
   await waitFor(() => layer.getSnapshot().renderedPointCount === 2);
-  controller.handlePick(viewer, new Cesium.Cartesian2(10, 10));
+  controller.pointPicker.pick(viewer, new Cesium.Cartesian2(10, 10));
   assert.ok(layer.getSelectedPoint());
 
   const childPoints = {
@@ -1218,9 +1218,9 @@ test('selection is cleared across unload, reload, and removed transition coverag
   // Keep the fixture explicit: old coverage is gone and cannot be picked
   // again even if a stale scene object is presented to the adapter.
   viewer.scene.pick = () => ({
-    id: { nodeKey, pointIndex: 0, ownerId: controller.pickOwnerId },
+    id: { nodeKey, pointIndex: 0, ownerId: controller.pointPicker.ownerId },
   });
-  controller.handlePick(viewer, new Cesium.Cartesian2(10, 10));
+  controller.pointPicker.pick(viewer, new Cesium.Cartesian2(10, 10));
   assert.equal(layer.getSelectedPoint(), undefined);
 
   layer.destroy();
