@@ -1,11 +1,6 @@
-import * as THREE from 'three';
+import type * as THREE from 'three';
 import { getCopcPointFieldSelection } from '../../core/copc/points/fieldSelection';
-import {
-  inspectCopcPoint,
-  isCopcPointPickId,
-  type CopcPointInspection,
-  type CopcPointPickId,
-} from '../../core/copc/points/pointInspection';
+import { inspectCopcPoint, type CopcPointInspection } from '../../core/copc/points/pointInspection';
 import type {
   CopcMetadata,
   PreparedPointData,
@@ -16,11 +11,11 @@ import {
   CopcStreamingCore,
   type CopcStreamingProgressHandler,
   type CopcStreamingWorkProgressHandler,
-} from '../../core/streaming/CopcStreamingController';
+} from '../../core/streaming/CopcStreamingCore';
+import { areStreamingViewsEquivalent } from '../../core/streaming/areStreamingViewsEquivalent';
+import { ReplacementTransitionManager } from '../../core/streaming/ReplacementTransitionManager';
 import type {
   StreamingProgress,
-  StreamingReplacementGroup,
-  StreamingReplacementKind,
   StreamingView,
 } from '../../core/streaming/types';
 import { DEFAULT_MAX_RENDERED_POINTS } from '../../core/streaming/NodeSelector';
@@ -37,11 +32,14 @@ import {
   createCopcPointStyleState,
   getDatasetElevationRange,
 } from '../../core/point/style/pointStyle';
+import { ThreePointPicker } from '../picking/ThreePointPicker';
 import {
   CopcThreeLayerEventDispatcher,
-  CopcLayerEventLifecycle,
   type CopcThreeLayerEventMap,
   type CopcThreeLayerEventType,
+} from '../events/CopcThreeLayerEvents';
+import {
+  CopcLayerEventLifecycle,
   type CopcViewCancellationReason,
   snapshotCopcError,
   snapshotCopcMetadata,
@@ -53,30 +51,13 @@ import type {
   CopcThreeLayerPickOptions,
   CopcThreeLayerPickPosition,
   CopcThreeLayerSnapshot,
-  CopcThreeLayerTransitionDiagnostics,
   CopcThreePointRenderer,
   CopcThreeRendererPerformanceSnapshot,
 } from './types';
 
-type ActiveReplacementGroup = StreamingReplacementGroup & {
-  generation: number;
-  viewGeneration: number;
-};
-
 type ActiveStreamingUpdate = {
   progressApplied: boolean;
 };
-
-function createTransitionDiagnostics(): CopcThreeLayerTransitionDiagnostics {
-  return {
-    activeReplacementGroupCount: 0,
-    replacementGroupsWaitingCount: 0,
-    refinementReplacementCommitCount: 0,
-    collapseReplacementCommitCount: 0,
-    staleReplacementCancellationCount: 0,
-    coarseNodesRetainedForCoverageCount: 0,
-  };
-}
 
 function createRendererPerformanceSnapshot(): CopcThreeRendererPerformanceSnapshot {
   return {
@@ -88,60 +69,8 @@ function createRendererPerformanceSnapshot(): CopcThreeRendererPerformanceSnapsh
   };
 }
 
-const STREAMING_VIEW_POSITION_EPSILON = 0.1;
-const STREAMING_VIEW_ANGLE_EPSILON = 1e-5;
-const STREAMING_VIEW_DISTANCE_EPSILON = 1;
-
-function isClose(left: number, right: number, epsilon: number): boolean {
-  return Math.abs(left - right) <= epsilon;
-}
-
-function areStreamingViewsEquivalent(left: StreamingView, right: StreamingView): boolean {
-  if (!isClose(left.longitude, right.longitude, 1e-7)
-    || !isClose(left.latitude, right.latitude, 1e-7)
-    || !isClose(left.height, right.height, STREAMING_VIEW_POSITION_EPSILON)
-    || !isClose(left.viewDistanceMeters, right.viewDistanceMeters, STREAMING_VIEW_DISTANCE_EPSILON)) {
-    return false;
-  }
-
-  const leftFrustum = left.viewFrustum;
-  const rightFrustum = right.viewFrustum;
-  if (!leftFrustum || !rightFrustum) {
-    return leftFrustum === rightFrustum;
-  }
-
-  return [
-    [leftFrustum.position, rightFrustum.position],
-    [leftFrustum.direction, rightFrustum.direction],
-    [leftFrustum.up, rightFrustum.up],
-    [leftFrustum.right, rightFrustum.right],
-  ].every(([leftVector, rightVector]) =>
-    isClose(leftVector.x, rightVector.x, STREAMING_VIEW_ANGLE_EPSILON)
-      && isClose(leftVector.y, rightVector.y, STREAMING_VIEW_ANGLE_EPSILON)
-      && isClose(leftVector.z, rightVector.z, STREAMING_VIEW_ANGLE_EPSILON),
-  )
-    && isClose(leftFrustum.verticalFovRadians, rightFrustum.verticalFovRadians, STREAMING_VIEW_ANGLE_EPSILON)
-    && isClose(leftFrustum.aspectRatio, rightFrustum.aspectRatio, STREAMING_VIEW_ANGLE_EPSILON)
-    && isClose(leftFrustum.viewportHeightPixels, rightFrustum.viewportHeightPixels, 1)
-    && isClose(leftFrustum.nearMeters, rightFrustum.nearMeters, STREAMING_VIEW_DISTANCE_EPSILON)
-    && isClose(leftFrustum.farMeters, rightFrustum.farMeters, STREAMING_VIEW_DISTANCE_EPSILON);
-}
-
-function isPickOptions(value: unknown): value is CopcThreeLayerPickOptions {
-  return value !== null
-    && typeof value === 'object'
-    && ('raycaster' in value || 'threshold' in value);
-}
-
 function isFinitePositive(value: number): boolean {
   return Number.isFinite(value) && value > 0;
-}
-
-let nextPickOwnerId = 0;
-
-function createPickOwnerId(): string {
-  nextPickOwnerId += 1;
-  return `copc-three-layer-${nextPickOwnerId}`;
 }
 
 /** Owns Three.js layer lifecycle, streaming state, and renderer coordination. */
@@ -151,9 +80,9 @@ export class ThreeLayerController {
   private readonly core: CopcStreamingCore;
   private readonly options: CopcThreeLayerOptions;
   private readonly pointRenderer: CopcThreePointRenderer;
+  private readonly pointPicker: ThreePointPicker;
   private readonly pointStyleState = createCopcPointStyleState();
   private datasetElevationRange?: { min: number; max: number };
-  private readonly pickOwnerId = createPickOwnerId();
   private attachment?: CopcThreeLayerAttachment;
   private localFrame?: DatasetLocalFrame;
   private lifecycle: CopcThreeLayerLifecycleState = 'idle';
@@ -166,12 +95,8 @@ export class ThreeLayerController {
   private updateInFlight = false;
   private updateInFlightPromise?: Promise<void>;
   private activeStreamingUpdate?: ActiveStreamingUpdate;
-  private readonly activeReplacementGroups = new Map<string, ActiveReplacementGroup>();
-  private transitionGeneration = 0;
-  private transitionDiagnostics = createTransitionDiagnostics();
+  private readonly replacementTransitions: ReplacementTransitionManager;
   private rendererPerformance = createRendererPerformanceSnapshot();
-  private selectedPointPickId?: CopcPointPickId;
-  private selectedPointLoadGeneration = 0;
 
   /**
    * Create an unloaded layer for a browser-readable COPC resource.
@@ -204,6 +129,26 @@ export class ThreeLayerController {
       maxConcurrentRangeRequests: options.maxConcurrentRangeRequests,
       pointFields: getCopcPointFieldSelection(options.colorMode ?? 'fixed'),
       streaming: options.streaming,
+    });
+    this.pointPicker = new ThreePointPicker({
+      getRoot: () => this.pointRenderer.getRoot(),
+      inspectPoint: (pickId) => {
+        const node = this.core.getHierarchyNode(pickId.nodeKey);
+        const points = this.core.getCachedPointBuffer(pickId.nodeKey);
+        return node && points
+          ? inspectCopcPoint(pickId, node.node, points, this.core.getSnapshot().backend)
+          : undefined;
+      },
+      hasNode: (nodeKey) => this.pointRenderer.hasNode(nodeKey),
+      getLoadGeneration: () => this.loadGeneration,
+      pickingThreshold: options.pickingThreshold,
+      onPointPicked: options.onPointPicked,
+    });
+    this.replacementTransitions = new ReplacementTransitionManager({
+      renderer: this.pointRenderer,
+      getHierarchyNodePointCount: (nodeKey) =>
+        this.core.getHierarchyNode(nodeKey)?.node.pointCount,
+      removeNode: (nodeKey) => this.removeRenderedNode(nodeKey),
     });
   }
 
@@ -274,8 +219,8 @@ export class ThreeLayerController {
     this.core.invalidateView();
     this.updatePending = false;
     this.pointRenderer.detachFrom();
-    this.resetReplacementTransitions();
-    this.clearSelectedPoint();
+    this.replacementTransitions.reset();
+    this.pointPicker.clear();
     this.lastStreamingView = undefined;
     this.activeStreamingUpdate = undefined;
     this.attachment = undefined;
@@ -431,8 +376,8 @@ export class ThreeLayerController {
     this.datasetElevationRange = undefined;
     this.pointRenderer.clear();
     this.pointStyleState.reset();
-    this.resetReplacementTransitions();
-    this.clearSelectedPoint();
+    this.replacementTransitions.reset();
+    this.pointPicker.clear();
     this.lastStreamingView = undefined;
     this.activeStreamingUpdate = undefined;
     this.localFrame = undefined;
@@ -463,8 +408,8 @@ export class ThreeLayerController {
     this.core.destroy();
     this.updatePending = false;
     this.pointRenderer.detachFrom();
-    this.resetReplacementTransitions();
-    this.clearSelectedPoint();
+    this.replacementTransitions.reset();
+    this.pointPicker.clear();
     this.lastStreamingView = undefined;
     this.activeStreamingUpdate = undefined;
     this.attachment = undefined;
@@ -516,23 +461,7 @@ export class ThreeLayerController {
 
   /** Return the selected point while its node and decoded buffer are live. */
   getSelectedPoint(): CopcPointInspection | undefined {
-    const pickId = this.selectedPointPickId;
-    if (!pickId || this.selectedPointLoadGeneration !== this.loadGeneration) {
-      if (pickId) {
-        this.clearSelectedPoint();
-      }
-      return undefined;
-    }
-
-    const node = this.core.getHierarchyNode(pickId.nodeKey);
-    const points = this.core.getCachedPointBuffer(pickId.nodeKey);
-    const inspection = node && points && this.pointRenderer.hasNode(pickId.nodeKey)
-      ? inspectCopcPoint(pickId, node.node, points, this.core.getSnapshot().backend)
-      : undefined;
-    if (!inspection) {
-      this.clearSelectedPoint();
-    }
-    return inspection;
+    return this.pointPicker.getSelectedPoint();
   }
 
   /**
@@ -549,64 +478,11 @@ export class ThreeLayerController {
     raycasterOrOptions?: THREE.Raycaster | CopcThreeLayerPickOptions,
   ): CopcPointInspection | undefined {
     const attachment = this.attachment;
-    if (!attachment || !this.localFrame || !Number.isFinite(position.x)
-      || !Number.isFinite(position.y)) {
-      this.clearSelectedPoint();
+    if (!attachment || !this.localFrame) {
+      this.pointPicker.clear();
       return undefined;
     }
-
-    const options = isPickOptions(raycasterOrOptions) ? raycasterOrOptions : undefined;
-    const raycaster = options?.raycaster
-      ?? (raycasterOrOptions && !isPickOptions(raycasterOrOptions)
-        ? raycasterOrOptions
-        : new THREE.Raycaster());
-    const threshold = options?.threshold
-      ?? this.options.pickingThreshold
-      ?? 1;
-    if (!isFinitePositive(threshold)) {
-      throw new Error('CopcThreeLayer pick threshold must be a positive finite number');
-    }
-
-    raycaster.params.Points.threshold = threshold;
-    raycaster.setFromCamera(new THREE.Vector2(position.x, position.y), attachment.camera);
-    const intersections = raycaster.intersectObject(this.pointRenderer.getRoot(), true);
-    for (const intersection of intersections) {
-      const pointObject = this.getOwnedPointObject(intersection.object);
-      const pointIndex = intersection.index;
-      if (!pointObject || pointIndex === undefined
-        || !Number.isSafeInteger(pointIndex) || pointIndex < 0) {
-        continue;
-      }
-
-      const pointIdFactory = pointObject.userData.copcPointId;
-      const pickId = typeof pointIdFactory === 'function'
-        ? pointIdFactory(pointIndex)
-        : undefined;
-      if (!isCopcPointPickId(pickId) || pickId.ownerId !== this.pickOwnerId) {
-        continue;
-      }
-
-      const node = this.core.getHierarchyNode(pickId.nodeKey);
-      const points = this.core.getCachedPointBuffer(pickId.nodeKey);
-      const inspection = node && points
-        ? inspectCopcPoint(pickId, node.node, points, this.core.getSnapshot().backend)
-        : undefined;
-      if (!inspection || !this.pointRenderer.hasNode(pickId.nodeKey)) {
-        continue;
-      }
-
-      this.selectedPointPickId = {
-        nodeKey: pickId.nodeKey,
-        pointIndex: pickId.pointIndex,
-        ownerId: pickId.ownerId,
-      };
-      this.selectedPointLoadGeneration = this.loadGeneration;
-      this.options.onPointPicked?.(inspection);
-      return inspection;
-    }
-
-    this.clearSelectedPoint();
-    return undefined;
+    return this.pointPicker.pick(position, attachment.camera, raycasterOrOptions);
   }
 
   /** Return a fresh diagnostics snapshot; the returned arrays/objects are not live views. */
@@ -624,7 +500,7 @@ export class ThreeLayerController {
         + (this.activeStreamingUpdate?.progressApplied ? 1 : 0),
       performance: coreSnapshot.performance,
       renderer: { ...this.rendererPerformance },
-      transition: { ...this.transitionDiagnostics },
+      transition: this.replacementTransitions.getDiagnostics(),
       ...(coreSnapshot.viewDistance ? { viewDistance: coreSnapshot.viewDistance } : {}),
       ...(coreSnapshot.hierarchy ? { hierarchy: coreSnapshot.hierarchy } : {}),
       pointCache: coreSnapshot.pointCache,
@@ -737,7 +613,7 @@ export class ThreeLayerController {
       }, generation, publicViewGeneration);
     }
     if (this.eventLifecycle.isActiveView(publicViewGeneration)
-      && this.isViewRendererCommitted(
+      && this.replacementTransitions.isViewRendererCommitted(
         update.selectedNodeKeys,
         update.loadedNodePoints,
         publicViewGeneration,
@@ -756,7 +632,7 @@ export class ThreeLayerController {
     generation: number,
     viewGeneration: number,
   ): void {
-    this.reconcileReplacementGroups(
+    this.replacementTransitions.reconcile(
       progress.replacementGroups ?? [],
       generation,
       progress.selectedNodeKeys,
@@ -764,7 +640,7 @@ export class ThreeLayerController {
     );
 
     for (const nodeKey of progress.removedNodeKeys) {
-      if (!this.isReplacementOldNode(nodeKey)) {
+      if (!this.replacementTransitions.isReplacementOldNode(nodeKey)) {
         this.removeRenderedNode(nodeKey);
       }
     }
@@ -772,7 +648,8 @@ export class ThreeLayerController {
       if (!progress.selectedNodeKeys.includes(nodeKey) || this.pointRenderer.hasNode(nodeKey)) {
         continue;
       }
-      if (this.getProjectedPointCount(nodeKey, points.pointCount) > this.getMaxRenderedPoints()) {
+      if (this.replacementTransitions.getProjectedPointCount(nodeKey, points.pointCount)
+        > this.getMaxRenderedPoints()) {
         continue;
       }
       this.addRenderedNode(nodeKey, points);
@@ -791,8 +668,8 @@ export class ThreeLayerController {
       }
     }
 
-    this.commitReadyReplacementGroups(generation);
-    this.updateTransitionDiagnostics();
+    this.replacementTransitions.commitReady(generation);
+    this.replacementTransitions.updateDiagnostics();
   }
 
   private addRenderedNode(nodeKey: string, points: PreparedPointData): void {
@@ -804,7 +681,7 @@ export class ThreeLayerController {
       pointId: (pointIndex) => ({
         nodeKey,
         pointIndex,
-        ownerId: this.pickOwnerId,
+        ownerId: this.pointPicker.ownerId,
       }),
       onPerformance: (stage: ThreePointRendererPerformanceStage, durationMs: number) => {
         const metric = `${stage}DurationMs` as keyof CopcThreeRendererPerformanceSnapshot;
@@ -813,153 +690,6 @@ export class ThreeLayerController {
         }
       },
     } satisfies ThreePointRendererOptions);
-  }
-
-  private reconcileReplacementGroups(
-    replacementGroups: readonly StreamingReplacementGroup[],
-    generation: number,
-    selectedNodeKeys: readonly string[],
-    viewGeneration: number,
-  ): void {
-    if (this.transitionGeneration === generation) {
-      return;
-    }
-
-    const previousGroups = [...this.activeReplacementGroups.values()];
-    const stagedNodeKeys = new Set(previousGroups.flatMap((group) => group.newNodeKeys));
-    for (const nodeKey of stagedNodeKeys) {
-      if (!selectedNodeKeys.includes(nodeKey)) {
-        this.removeRenderedNode(nodeKey);
-      }
-    }
-    if (previousGroups.length > 0) {
-      this.transitionDiagnostics.staleReplacementCancellationCount += 1;
-    }
-    this.activeReplacementGroups.clear();
-    this.transitionGeneration = generation;
-
-    const desiredNodeKeys = new Set(selectedNodeKeys);
-    const renderedOldNodeKeys = this.pointRenderer.getRenderedNodeKeys()
-      .filter((nodeKey) => !desiredNodeKeys.has(nodeKey));
-    const desiredNewNodeKeys = [...desiredNodeKeys]
-      .filter((nodeKey) => !this.pointRenderer.hasNode(nodeKey))
-      .sort();
-    if (renderedOldNodeKeys.length > 0 && desiredNewNodeKeys.length === 0) {
-      for (const nodeKey of renderedOldNodeKeys) {
-        this.removeRenderedNode(nodeKey);
-      }
-    }
-
-    const incomingOldNodeKeys = new Set(replacementGroups.flatMap((group) => group.oldNodeKeys));
-    const incomingNewNodeKeys = new Set(replacementGroups.flatMap((group) => group.newNodeKeys));
-    const groupsCoverRenderer = renderedOldNodeKeys.every((key) => incomingOldNodeKeys.has(key))
-      && desiredNewNodeKeys.every((key) => incomingNewNodeKeys.has(key));
-    const groups = renderedOldNodeKeys.length > 0 && desiredNewNodeKeys.length > 0
-      && !groupsCoverRenderer
-      ? [{
-          kind: this.inferReplacementKind(replacementGroups),
-          oldNodeKeys: renderedOldNodeKeys,
-          newNodeKeys: desiredNewNodeKeys,
-        }]
-      : replacementGroups;
-
-    for (const group of groups) {
-      if (group.newNodeKeys.length === 0) {
-        continue;
-      }
-      this.activeReplacementGroups.set(this.getReplacementGroupKey(group), {
-        ...group,
-        oldNodeKeys: [...group.oldNodeKeys].sort(),
-        newNodeKeys: [...group.newNodeKeys].sort(),
-        generation,
-        viewGeneration,
-      });
-    }
-  }
-
-  private inferReplacementKind(groups: readonly StreamingReplacementGroup[]): StreamingReplacementKind {
-    return groups.length === 1 ? groups[0].kind : 'retarget';
-  }
-
-  private getReplacementGroupKey(group: StreamingReplacementGroup): string {
-    return `${group.kind}:${[...group.oldNodeKeys].sort().join(',')}->${[...group.newNodeKeys].sort().join(',')}`;
-  }
-
-  private isReplacementOldNode(nodeKey: string): boolean {
-    return [...this.activeReplacementGroups.values()]
-      .some((group) => group.oldNodeKeys.includes(nodeKey));
-  }
-
-  private getProjectedPointCount(nodeKey: string, pointCount: number): number {
-    let projectedPointCount = this.getRenderedPointCount();
-    const replacedNodeKeys = new Set(
-      [...this.activeReplacementGroups.values()].flatMap((group) => group.oldNodeKeys),
-    );
-    for (const oldNodeKey of replacedNodeKeys) {
-      if (this.pointRenderer.hasNode(oldNodeKey)) {
-        projectedPointCount -= this.pointRenderer.getRenderedNodePointCount?.(oldNodeKey)
-          ?? this.core.getHierarchyNode(oldNodeKey)?.node.pointCount
-          ?? 0;
-      }
-    }
-    if (!this.pointRenderer.hasNode(nodeKey)) {
-      projectedPointCount += pointCount;
-    }
-    return projectedPointCount;
-  }
-
-  private commitReadyReplacementGroups(generation: number): void {
-    for (const [groupKey, group] of [...this.activeReplacementGroups.entries()]) {
-      if (group.generation !== generation
-        || !group.newNodeKeys.every((nodeKey) => this.pointRenderer.hasNode(nodeKey))) {
-        continue;
-      }
-      for (const oldNodeKey of group.oldNodeKeys) {
-        this.removeRenderedNode(oldNodeKey);
-      }
-      this.activeReplacementGroups.delete(groupKey);
-      if (group.kind === 'refinement') {
-        this.transitionDiagnostics.refinementReplacementCommitCount += 1;
-      } else if (group.kind === 'collapse') {
-        this.transitionDiagnostics.collapseReplacementCommitCount += 1;
-      }
-    }
-  }
-
-  private updateTransitionDiagnostics(): void {
-    this.transitionDiagnostics.activeReplacementGroupCount = this.activeReplacementGroups.size;
-    this.transitionDiagnostics.replacementGroupsWaitingCount = [...this.activeReplacementGroups.values()]
-      .filter((group) => !group.newNodeKeys.every((nodeKey) => this.pointRenderer.hasNode(nodeKey)))
-      .length;
-    this.transitionDiagnostics.coarseNodesRetainedForCoverageCount = [...this.activeReplacementGroups.values()]
-      .filter((group) => group.kind === 'refinement')
-      .flatMap((group) => group.oldNodeKeys)
-      .filter((nodeKey) => this.pointRenderer.hasNode(nodeKey))
-      .length;
-  }
-
-  private resetReplacementTransitions(): void {
-    this.activeReplacementGroups.clear();
-    this.transitionGeneration = 0;
-    this.transitionDiagnostics = createTransitionDiagnostics();
-  }
-
-  private isViewRendererCommitted(
-    selectedNodeKeys: readonly string[],
-    readyPointBuffers: ReadonlyMap<string, PreparedPointData>,
-    viewGeneration: number,
-  ): boolean {
-    if ([...this.activeReplacementGroups.values()]
-      .some((group) => group.viewGeneration === viewGeneration)) {
-      return false;
-    }
-    return selectedNodeKeys.every((nodeKey) => {
-      if (this.pointRenderer.hasNode(nodeKey)) {
-        return true;
-      }
-      const readyPoints = readyPointBuffers.get(nodeKey);
-      return readyPoints === undefined || readyPoints.pointCount === 0;
-    });
   }
 
   private cancelActiveView(reason: CopcViewCancellationReason): void {
@@ -977,34 +707,8 @@ export class ThreeLayerController {
   }
 
   private removeRenderedNode(nodeKey: string): void {
-    if (this.selectedPointPickId?.nodeKey === nodeKey) {
-      this.clearSelectedPoint();
-    }
+    this.pointPicker.clearIfNode(nodeKey);
     this.pointRenderer.removeNode(nodeKey);
-  }
-
-  private getOwnedPointObject(object: THREE.Object3D): THREE.Object3D | undefined {
-    const root = this.pointRenderer.getRoot();
-    let candidate: THREE.Object3D | null = object;
-    while (candidate && candidate.parent && candidate.parent !== root) {
-      candidate = candidate.parent;
-    }
-    if (!candidate || candidate.parent !== root) {
-      return undefined;
-    }
-    const nodeKey = candidate.userData.copcNodeKey;
-    return typeof nodeKey === 'string' && this.pointRenderer.hasNode(nodeKey)
-      ? candidate
-      : undefined;
-  }
-
-  private clearSelectedPoint(): void {
-    if (!this.selectedPointPickId) {
-      return;
-    }
-    this.selectedPointPickId = undefined;
-    this.selectedPointLoadGeneration = 0;
-    this.options.onPointPicked?.(undefined);
   }
 
   private createView(attachment: CopcThreeLayerAttachment): StreamingView {

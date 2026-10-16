@@ -201,7 +201,7 @@ export type { NodePointCacheDiagnostics } from './core/streaming/createNodePoint
 export {
   CopcStreamingCore,
   CopcStreamingController,
-} from './core/streaming/CopcStreamingController';
+} from './core/streaming/CopcStreamingCore';
 export type {
   CopcStreamingCoreOptions,
   CopcStreamingControllerOptions,
@@ -210,7 +210,7 @@ export type {
   CopcStreamingProgressHandler,
   CopcStreamingSnapshot,
   CopcStreamingTransitionState,
-} from './core/streaming/CopcStreamingController';
+} from './core/streaming/CopcStreamingCore';
 export type {
   BoundingSphere,
   BoundingSphereInput,
