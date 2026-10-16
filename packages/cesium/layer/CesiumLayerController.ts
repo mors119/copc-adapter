@@ -6,6 +6,7 @@ import {
 } from '../render/CopcPointRenderer';
 import { createCesiumStreamingView } from '../view/CesiumViewAdapter';
 import { createMetadataBoundingSphere } from '../geometry/metadataBoundingSphere';
+import { CesiumPointPicker } from '../picking/CesiumPointPicker';
 import { CopcCesiumEvent } from './cesiumLayerEvents';
 import {
   CopcLayerEventLifecycle,
@@ -25,9 +26,7 @@ import type {
 import type { CopcWorkerDiagnostics } from '../../core/copc/backend/types';
 import {
   inspectCopcPoint,
-  isCopcPointPickId,
   type CopcPointInspection,
-  type CopcPointPickId,
 } from '../../core/copc/points/pointInspection';
 import type { CopcMetadata, PreparedPointData } from '../../core/copc/types/copc';
 import { extractHorizontalUnitScale } from '../../core/coordinates/crs/parseCopcWkt';
@@ -43,10 +42,9 @@ import {
   type CopcStreamingWorkProgressHandler,
 } from '../../core/streaming/CopcStreamingCore';
 import { areStreamingViewsEquivalent } from '../../core/streaming/areStreamingViewsEquivalent';
+import { ReplacementTransitionManager } from '../../core/streaming/ReplacementTransitionManager';
 import type {
   StreamingProgress,
-  StreamingReplacementGroup,
-  StreamingReplacementKind,
   StreamingSelectionOptions,
 } from '../../core/streaming/types';
 import { DEFAULT_MAX_RENDERED_POINTS } from '../../core/streaming/NodeSelector';
@@ -152,11 +150,6 @@ export type CopcLayerSnapshot = {
   worker?: CopcWorkerDiagnostics;
 };
 
-type ActiveReplacementGroup = StreamingReplacementGroup & {
-  generation: number;
-  viewGeneration: number;
-};
-
 type ActiveCameraFlight = {
   viewer: Cesium.Viewer;
   settle: (completed: boolean) => void;
@@ -165,17 +158,6 @@ type ActiveCameraFlight = {
 type ActiveStreamingUpdate = {
   progressApplied: boolean;
 };
-
-function createTransitionDiagnostics(): CopcLayerTransitionDiagnostics {
-  return {
-    activeReplacementGroupCount: 0,
-    replacementGroupsWaitingCount: 0,
-    refinementReplacementCommitCount: 0,
-    collapseReplacementCommitCount: 0,
-    staleReplacementCancellationCount: 0,
-    coarseNodesRetainedForCoverageCount: 0,
-  };
-}
 
 function combinePerformance(
   corePerformance: CopcStreamingPerformanceSnapshot,
@@ -205,13 +187,6 @@ function combinePerformance(
       rendererPerformance.longestMainThreadBlockingSectionMs,
     ),
   };
-}
-
-let nextPickOwnerId = 0;
-
-function createPickOwnerId(): string {
-  nextPickOwnerId += 1;
-  return `copc-layer-${nextPickOwnerId}`;
 }
 
 const SUPPORTED_COLOR_MODES = new Set<CopcColorMode>([
@@ -293,6 +268,7 @@ export class CesiumLayerController {
   private readonly eventLifecycle = new CopcLayerEventLifecycle();
   private readonly options: CopcLayerOptions;
   private readonly pointRenderer: CesiumPointRenderer;
+  private readonly pointPicker: CesiumPointPicker;
   private readonly pointStyleState = createCopcPointStyleState();
   private style: CopcCesiumPointStyle;
   private readonly rendererPerformance = new StreamingPerformanceRecorder();
@@ -311,17 +287,12 @@ export class CesiumLayerController {
   private metadataBoundingSphere?: Cesium.BoundingSphere;
   private activeCameraFlight?: ActiveCameraFlight;
   private streamingGeneration = 0;
-  private transitionGeneration = 0;
-  private readonly activeReplacementGroups = new Map<string, ActiveReplacementGroup>();
-  private transitionDiagnostics = createTransitionDiagnostics();
+  private readonly replacementTransitions: ReplacementTransitionManager;
   private hasFlownToDataset = false;
   private lifecycle: CopcLayerLifecycleState = 'idle';
   private lastStreamingView?: import('../../core/streaming/types').StreamingView;
   private pendingInvalidatedView?: import('../../core/streaming/types').StreamingView;
   private activeStreamingUpdate?: ActiveStreamingUpdate;
-  private selectedPointPickId?: CopcPointPickId;
-  private pickHandler?: Cesium.ScreenSpaceEventHandler;
-  private readonly pickOwnerId = createPickOwnerId();
   private readonly handleCameraMoveEnd = (): void => {
     void this.scheduleStreamingUpdate(true);
   };
@@ -350,6 +321,23 @@ export class CesiumLayerController {
       pointFields: allCopcPointFields(),
       streaming: options.streaming,
     });
+    this.pointPicker = new CesiumPointPicker({
+      inspectPoint: (pickId) => {
+        const node = this.core.getHierarchyNode(pickId.nodeKey);
+        const points = this.core.getCachedPointBuffer(pickId.nodeKey);
+        return node && points
+          ? inspectCopcPoint(pickId, node.node, points, this.core.getSnapshot().backend)
+          : undefined;
+      },
+      hasNode: (nodeKey) => this.pointRenderer.hasNode(nodeKey),
+      onPointPicked: options.onPointPicked,
+    });
+    this.replacementTransitions = new ReplacementTransitionManager({
+      renderer: this.pointRenderer,
+      getHierarchyNodePointCount: (nodeKey) =>
+        this.core.getHierarchyNode(nodeKey)?.node.pointCount,
+      removeNode: (nodeKey) => this.removePointCollection(nodeKey),
+    });
   }
 
   /** Attach the layer's Cesium primitives and camera listeners. */
@@ -371,7 +359,7 @@ export class CesiumLayerController {
     this.viewer.camera.percentageChanged = 0.02;
     this.viewer.camera.moveEnd.addEventListener(this.handleCameraMoveEnd);
     this.viewer.camera.changed?.addEventListener(this.handleCameraChanged);
-    this.attachPickHandler(viewer);
+    this.pointPicker.attach(viewer);
     if (this.lifecycle !== 'loading') {
       this.lifecycle = this.core.getMetadata() ? 'ready' : 'mounted';
     }
@@ -487,10 +475,10 @@ export class CesiumLayerController {
       this.viewer.camera.changed?.removeEventListener(this.handleCameraChanged);
     }
 
-    this.detachPickHandler();
+    this.pointPicker.detach();
     this.pointRenderer.detachFrom();
-    this.resetReplacementTransitions();
-    this.clearSelectedPoint();
+    this.replacementTransitions.reset();
+    this.pointPicker.clear();
     this.rendererPerformance.reset();
     this.lastStreamingView = undefined;
     this.pendingInvalidatedView = undefined;
@@ -597,8 +585,8 @@ export class CesiumLayerController {
     this.firstVisibleLoadGeneration = undefined;
     this.pointRenderer.clear();
     this.pointStyleState.reset();
-    this.resetReplacementTransitions();
-    this.clearSelectedPoint();
+    this.replacementTransitions.reset();
+    this.pointPicker.clear();
     this.rendererPerformance.reset();
     this.lastStreamingView = undefined;
     this.activeStreamingUpdate = undefined;
@@ -656,7 +644,7 @@ export class CesiumLayerController {
         this.rendererPerformance.getSnapshot(),
         renderedPointCount,
       ),
-      transition: { ...this.transitionDiagnostics },
+      transition: this.replacementTransitions.getDiagnostics(),
       ...(coreSnapshot.viewDistance ? { viewDistance: coreSnapshot.viewDistance } : {}),
       pointCache: coreSnapshot.pointCache,
       rangeRequests: coreSnapshot.rangeRequests,
@@ -678,28 +666,7 @@ export class CesiumLayerController {
 
   /** Return the selected point while its node and decoded buffer are live. */
   getSelectedPoint(): CopcPointInspection | undefined {
-    const pickId = this.selectedPointPickId;
-    const node = pickId ? this.core.getHierarchyNode(pickId.nodeKey) : undefined;
-    if (!pickId || !node || !this.pointRenderer.hasNode(pickId.nodeKey)) {
-      if (pickId) {
-        this.clearSelectedPoint();
-      }
-      return undefined;
-    }
-
-    const points = this.core.getCachedPointBuffer(pickId.nodeKey);
-    const inspection = points
-      ? inspectCopcPoint(
-        pickId,
-        node.node,
-        points,
-        this.core.getSnapshot().backend,
-      )
-      : undefined;
-    if (!inspection) {
-      this.clearSelectedPoint();
-    }
-    return inspection;
+    return this.pointPicker.getSelectedPoint();
   }
 
   /** Return a detached snapshot of the current Cesium presentation style. */
@@ -769,12 +736,12 @@ export class CesiumLayerController {
       throw error;
     }
 
-    const selectedPick = this.selectedPointPickId;
+    const selectedPick = this.pointPicker.getSelectedPickId();
     if (selectedPick) {
       const selectedPoints = this.core.getCachedPreparedPointData(selectedPick.nodeKey);
       if (!selectedPoints
         || !isPointVisibleForStyle(selectedPoints, selectedPick.pointIndex, nextStyle)) {
-        this.clearSelectedPoint();
+        this.pointPicker.clear();
       }
     }
     this.rendererPerformance.setActiveRenderedPointCount(this.getRenderedPointCount());
@@ -968,7 +935,7 @@ export class CesiumLayerController {
     }
     if (!this.updatePending
       && this.eventLifecycle.isActiveView(publicViewGeneration)
-      && this.isViewRendererCommitted(
+      && this.replacementTransitions.isViewRendererCommitted(
         update.selectedNodeKeys,
         update.loadedNodePoints,
         publicViewGeneration,
@@ -987,7 +954,7 @@ export class CesiumLayerController {
     generation: number,
     viewGeneration: number,
   ): void {
-    this.reconcileReplacementGroups(
+    this.replacementTransitions.reconcile(
       progress.replacementGroups ?? [],
       generation,
       progress.selectedNodeKeys,
@@ -995,7 +962,7 @@ export class CesiumLayerController {
     );
 
     for (const nodeKey of progress.removedNodeKeys) {
-      if (!this.isReplacementOldNode(nodeKey)) {
+      if (!this.replacementTransitions.isReplacementOldNode(nodeKey)) {
         this.removePointCollection(nodeKey);
       }
     }
@@ -1008,7 +975,8 @@ export class CesiumLayerController {
         continue;
       }
 
-      if (this.getProjectedPointCount(nodeKey, points.pointCount) > this.getMaxRenderedPoints()) {
+      if (this.replacementTransitions.getProjectedPointCount(nodeKey, points.pointCount)
+        > this.getMaxRenderedPoints()) {
         // The shared manager owns workload-budget diagnostics. This adapter
         // guard only prevents a renderer-side replacement oversubscription.
         continue;
@@ -1026,9 +994,9 @@ export class CesiumLayerController {
       }
     }
 
-    this.commitReadyReplacementGroups(generation);
+    this.replacementTransitions.commitReady(generation);
     this.rendererPerformance.setActiveRenderedPointCount(this.getRenderedPointCount());
-    this.updateTransitionDiagnostics();
+    this.replacementTransitions.updateDiagnostics();
   }
 
   private addPointCollection(nodeKey: string, points: PreparedPointData): void {
@@ -1066,7 +1034,7 @@ export class CesiumLayerController {
       pointId: (pointIndex: number) => ({
         nodeKey,
         pointIndex,
-        ownerId: this.pickOwnerId,
+        ownerId: this.pointPicker.ownerId,
       }),
       onPerformance: (stage, durationMs) => {
         const metricStage = stage === 'geographicToCartesian'
@@ -1085,169 +1053,6 @@ export class CesiumLayerController {
         this.rendererPerformance.recordStage(metricStage, durationMs, true);
       },
     };
-  }
-
-  private reconcileReplacementGroups(
-    replacementGroups: readonly StreamingReplacementGroup[],
-    generation: number,
-    selectedNodeKeys: readonly string[],
-    viewGeneration: number,
-  ): void {
-    if (this.transitionGeneration === generation) {
-      return;
-    }
-
-    const previousGroups = [...this.activeReplacementGroups.values()];
-    const previousStagedNodeKeys = new Set(
-      previousGroups.flatMap((group) => group.newNodeKeys),
-    );
-    for (const nodeKey of previousStagedNodeKeys) {
-      if (!selectedNodeKeys.includes(nodeKey)) {
-        this.removePointCollection(nodeKey);
-      }
-    }
-    if (previousGroups.length > 0) {
-      this.transitionDiagnostics.staleReplacementCancellationCount += 1;
-    }
-    this.activeReplacementGroups.clear();
-    this.transitionGeneration = generation;
-
-    const desiredNodeKeys = new Set(selectedNodeKeys);
-    const renderedOldNodeKeys = this.pointRenderer.getRenderedNodeKeys()
-      .filter((nodeKey) => !desiredNodeKeys.has(nodeKey));
-    const desiredNewNodeKeys = [...desiredNodeKeys]
-      .filter((nodeKey) => !this.pointRenderer.hasNode(nodeKey))
-      .sort();
-
-    if (renderedOldNodeKeys.length > 0 && desiredNewNodeKeys.length === 0) {
-      for (const nodeKey of renderedOldNodeKeys) {
-        this.removePointCollection(nodeKey);
-      }
-    }
-
-    const incomingOldNodeKeys = new Set(
-      replacementGroups.flatMap((group) => group.oldNodeKeys),
-    );
-    const incomingNewNodeKeys = new Set(
-      replacementGroups.flatMap((group) => group.newNodeKeys),
-    );
-    const groupsCoverCurrentRenderer = renderedOldNodeKeys.every((nodeKey) =>
-      incomingOldNodeKeys.has(nodeKey))
-      && desiredNewNodeKeys.every((nodeKey) => incomingNewNodeKeys.has(nodeKey));
-    const groups = renderedOldNodeKeys.length > 0
-      && desiredNewNodeKeys.length > 0
-      && !groupsCoverCurrentRenderer
-      ? [{
-          kind: this.inferReplacementKind(replacementGroups),
-          oldNodeKeys: renderedOldNodeKeys,
-          newNodeKeys: desiredNewNodeKeys,
-        }]
-      : replacementGroups;
-
-    for (const group of groups) {
-      if (group.newNodeKeys.length === 0) {
-        continue;
-      }
-      this.activeReplacementGroups.set(this.getReplacementGroupKey(group), {
-        ...group,
-        oldNodeKeys: [...group.oldNodeKeys].sort(),
-        newNodeKeys: [...group.newNodeKeys].sort(),
-        generation,
-        viewGeneration,
-      });
-    }
-  }
-
-  private inferReplacementKind(
-    groups: readonly StreamingReplacementGroup[],
-  ): StreamingReplacementKind {
-    return groups.length === 1 ? groups[0].kind : 'retarget';
-  }
-
-  private getReplacementGroupKey(group: StreamingReplacementGroup): string {
-    return `${group.kind}:${[...group.oldNodeKeys].sort().join(',')}->${[...group.newNodeKeys].sort().join(',')}`;
-  }
-
-  private isReplacementOldNode(nodeKey: string): boolean {
-    return [...this.activeReplacementGroups.values()]
-      .some((group) => group.oldNodeKeys.includes(nodeKey));
-  }
-
-  private getProjectedPointCount(nodeKey: string, pointCount: number): number {
-    let projectedPointCount = this.getRenderedPointCount();
-    const replacedNodeKeys = new Set(
-      [...this.activeReplacementGroups.values()]
-        .flatMap((group) => group.oldNodeKeys),
-    );
-
-    for (const oldNodeKey of replacedNodeKeys) {
-      if (!this.pointRenderer.hasNode(oldNodeKey)) {
-        continue;
-      }
-      projectedPointCount -= this.pointRenderer.getRenderedNodePointCount?.(oldNodeKey)
-        ?? this.core.getHierarchyNode(oldNodeKey)?.node.pointCount
-        ?? 0;
-    }
-
-    if (!this.pointRenderer.hasNode(nodeKey)) {
-      projectedPointCount += pointCount;
-    }
-    return projectedPointCount;
-  }
-
-  private commitReadyReplacementGroups(generation: number): void {
-    for (const [groupKey, group] of [...this.activeReplacementGroups.entries()]) {
-      if (group.generation !== generation
-        || !group.newNodeKeys.every((nodeKey) => this.pointRenderer.hasNode(nodeKey))) {
-        continue;
-      }
-
-      for (const oldNodeKey of group.oldNodeKeys) {
-        this.removePointCollection(oldNodeKey);
-      }
-      this.activeReplacementGroups.delete(groupKey);
-      if (group.kind === 'refinement') {
-        this.transitionDiagnostics.refinementReplacementCommitCount += 1;
-      } else if (group.kind === 'collapse') {
-        this.transitionDiagnostics.collapseReplacementCommitCount += 1;
-      }
-    }
-  }
-
-  private updateTransitionDiagnostics(): void {
-    this.transitionDiagnostics.activeReplacementGroupCount = this.activeReplacementGroups.size;
-    this.transitionDiagnostics.replacementGroupsWaitingCount = [...this.activeReplacementGroups.values()]
-      .filter((group) => !group.newNodeKeys.every((nodeKey) => this.pointRenderer.hasNode(nodeKey)))
-      .length;
-    this.transitionDiagnostics.coarseNodesRetainedForCoverageCount = [...this.activeReplacementGroups.values()]
-      .filter((group) => group.kind === 'refinement')
-      .flatMap((group) => group.oldNodeKeys)
-      .filter((nodeKey) => this.pointRenderer.hasNode(nodeKey))
-      .length;
-  }
-
-  private resetReplacementTransitions(): void {
-    this.activeReplacementGroups.clear();
-    this.transitionGeneration = 0;
-    this.transitionDiagnostics = createTransitionDiagnostics();
-  }
-
-  private isViewRendererCommitted(
-    selectedNodeKeys: readonly string[],
-    readyPointBuffers: ReadonlyMap<string, PreparedPointData>,
-    viewGeneration: number,
-  ): boolean {
-    if ([...this.activeReplacementGroups.values()]
-      .some((group) => group.viewGeneration === viewGeneration)) {
-      return false;
-    }
-    return selectedNodeKeys.every((nodeKey) => {
-      if (this.pointRenderer.hasNode(nodeKey)) {
-        return true;
-      }
-      const readyPoints = readyPointBuffers.get(nodeKey);
-      return readyPoints === undefined || readyPoints.pointCount === 0;
-    });
   }
 
   private cancelActiveView(reason: CopcViewCancellationReason): void {
@@ -1287,69 +1092,8 @@ export class CesiumLayerController {
   }
 
   private removePointCollection(nodeKey: string): void {
-    if (this.selectedPointPickId?.nodeKey === nodeKey) {
-      this.clearSelectedPoint();
-    }
+    this.pointPicker.clearIfNode(nodeKey);
     this.pointRenderer.removeNode(nodeKey);
-  }
-
-  private attachPickHandler(viewer: Cesium.Viewer): void {
-    const canvas = viewer.scene.canvas;
-    if (!canvas) {
-      return;
-    }
-
-    this.pickHandler = new Cesium.ScreenSpaceEventHandler(canvas);
-    this.pickHandler.setInputAction((movement: { position: Cesium.Cartesian2 }) => {
-      this.handlePick(viewer, movement.position);
-    }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
-  }
-
-  private handlePick(viewer: Cesium.Viewer, position: Cesium.Cartesian2): void {
-    const picked = viewer.scene.pick(position) as { id?: unknown } | undefined;
-    if (!picked || !isCopcPointPickId(picked.id)
-      || picked.id.ownerId !== this.pickOwnerId) {
-      this.clearSelectedPoint();
-      return;
-    }
-
-    const pickId = picked.id;
-    const node = this.core.getHierarchyNode(pickId.nodeKey);
-    const points = this.core.getCachedPointBuffer(pickId.nodeKey);
-    const inspection = node && points
-      ? inspectCopcPoint(
-        pickId,
-        node.node,
-        points,
-        this.core.getSnapshot().backend,
-      )
-      : undefined;
-
-    if (!inspection || !this.pointRenderer.hasNode(pickId.nodeKey)) {
-      this.clearSelectedPoint();
-      return;
-    }
-
-    this.selectedPointPickId = {
-      nodeKey: pickId.nodeKey,
-      pointIndex: pickId.pointIndex,
-      ...(pickId.ownerId === undefined ? {} : { ownerId: pickId.ownerId }),
-    };
-    this.options.onPointPicked?.(inspection);
-  }
-
-  private detachPickHandler(): void {
-    this.pickHandler?.destroy();
-    this.pickHandler = undefined;
-  }
-
-  private clearSelectedPoint(): void {
-    if (!this.selectedPointPickId) {
-      return;
-    }
-
-    this.selectedPointPickId = undefined;
-    this.options.onPointPicked?.(undefined);
   }
 
   private flyToDataset(metadata: CopcMetadata): void {
