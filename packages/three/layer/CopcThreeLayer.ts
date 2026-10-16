@@ -7,7 +7,7 @@ import type { DatasetLocalFrame } from '../../core/coordinates/types';
 import type {
   CopcThreeLayerEventMap,
   CopcThreeLayerEventType,
-} from '../../core/events/layerEventLifecycle';
+} from '../events/CopcThreeLayerEvents';
 import { ThreeLayerController } from './ThreeLayerController';
 import type {
   CopcThreeLayerAttachment,
@@ -18,7 +18,6 @@ import type {
 } from './types';
 
 export type {
-  CopcLayerErrorEvent,
   CopcThreeLayerEventMap,
   CopcThreeLayerEventType,
   CopcThreeLayerErrorEvent,
@@ -27,6 +26,9 @@ export type {
   CopcThreeLayerProgressEvent,
   CopcThreeLayerViewCancelledEvent,
   CopcThreeLayerViewSettledEvent,
+} from '../events/CopcThreeLayerEvents';
+export type {
+  CopcLayerErrorEvent,
   CopcViewCancellationReason,
 } from '../../core/events/layerEventLifecycle';
 

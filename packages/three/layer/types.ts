@@ -4,7 +4,7 @@ import type { CopcWorkerDiagnostics } from '../../core/copc/backend/types';
 import type { CopcPointInspection } from '../../core/copc/points/pointInspection';
 import type { CopcColorMode } from '../../core/copc/points/fieldSelection';
 import type { GeographicPointBuffer, PreparedPointData } from '../../core/copc/types/copc';
-import type { CopcStreamingPerformanceSnapshot } from '../../core/streaming/CopcStreamingController';
+import type { CopcStreamingPerformanceSnapshot } from '../../core/streaming/CopcStreamingCore';
 import type { StreamingSelectionOptions } from '../../core/streaming/types';
 import type { NodePointCacheDiagnostics } from '../../core/streaming/createNodePointCache';
 import type { AdaptiveViewDistanceDiagnostics } from '../../core/streaming/view';

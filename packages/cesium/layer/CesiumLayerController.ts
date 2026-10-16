@@ -41,7 +41,8 @@ import {
   type CopcStreamingPerformanceSnapshot,
   type CopcStreamingProgressHandler,
   type CopcStreamingWorkProgressHandler,
-} from '../../core/streaming/CopcStreamingController';
+} from '../../core/streaming/CopcStreamingCore';
+import { areStreamingViewsEquivalent } from '../../core/streaming/areStreamingViewsEquivalent';
 import type {
   StreamingProgress,
   StreamingReplacementGroup,
@@ -213,14 +214,6 @@ function createPickOwnerId(): string {
   return `copc-layer-${nextPickOwnerId}`;
 }
 
-const STREAMING_VIEW_POSITION_EPSILON = 0.1;
-const STREAMING_VIEW_ANGLE_EPSILON = 1e-5;
-const STREAMING_VIEW_DISTANCE_EPSILON = 1;
-
-function isClose(left: number, right: number, epsilon: number): boolean {
-  return Math.abs(left - right) <= epsilon;
-}
-
 const SUPPORTED_COLOR_MODES = new Set<CopcColorMode>([
   'fixed',
   'elevation',
@@ -279,44 +272,6 @@ function isPointVisibleForStyle(
     return false;
   }
   return !filter.exclude?.includes(classification);
-}
-
-function areStreamingViewsEquivalent(
-  left: import('../../core/streaming/types').StreamingView,
-  right: import('../../core/streaming/types').StreamingView,
-): boolean {
-  if (!isClose(left.longitude, right.longitude, 1e-7)
-    || !isClose(left.latitude, right.latitude, 1e-7)
-    || !isClose(left.height, right.height, STREAMING_VIEW_POSITION_EPSILON)
-    || !isClose(left.viewDistanceMeters, right.viewDistanceMeters, STREAMING_VIEW_DISTANCE_EPSILON)) {
-    return false;
-  }
-
-  const leftFrustum = left.viewFrustum;
-  const rightFrustum = right.viewFrustum;
-  if (!leftFrustum || !rightFrustum) {
-    return leftFrustum === rightFrustum;
-  }
-
-  return [
-    [leftFrustum.position, rightFrustum.position],
-    [leftFrustum.direction, rightFrustum.direction],
-    [leftFrustum.up, rightFrustum.up],
-    [leftFrustum.right, rightFrustum.right],
-  ].every(([leftVector, rightVector]) =>
-    isClose(leftVector.x, rightVector.x, STREAMING_VIEW_ANGLE_EPSILON)
-      && isClose(leftVector.y, rightVector.y, STREAMING_VIEW_ANGLE_EPSILON)
-      && isClose(leftVector.z, rightVector.z, STREAMING_VIEW_ANGLE_EPSILON),
-  )
-    && isClose(
-      leftFrustum.verticalFovRadians,
-      rightFrustum.verticalFovRadians,
-      STREAMING_VIEW_ANGLE_EPSILON,
-    )
-    && isClose(leftFrustum.aspectRatio, rightFrustum.aspectRatio, STREAMING_VIEW_ANGLE_EPSILON)
-    && isClose(leftFrustum.viewportHeightPixels, rightFrustum.viewportHeightPixels, 1)
-    && isClose(leftFrustum.nearMeters, rightFrustum.nearMeters, STREAMING_VIEW_DISTANCE_EPSILON)
-    && isClose(leftFrustum.farMeters, rightFrustum.farMeters, STREAMING_VIEW_DISTANCE_EPSILON);
 }
 
 /**

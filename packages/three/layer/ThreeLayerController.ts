@@ -16,7 +16,8 @@ import {
   CopcStreamingCore,
   type CopcStreamingProgressHandler,
   type CopcStreamingWorkProgressHandler,
-} from '../../core/streaming/CopcStreamingController';
+} from '../../core/streaming/CopcStreamingCore';
+import { areStreamingViewsEquivalent } from '../../core/streaming/areStreamingViewsEquivalent';
 import type {
   StreamingProgress,
   StreamingReplacementGroup,
@@ -39,9 +40,11 @@ import {
 } from '../../core/point/style/pointStyle';
 import {
   CopcThreeLayerEventDispatcher,
-  CopcLayerEventLifecycle,
   type CopcThreeLayerEventMap,
   type CopcThreeLayerEventType,
+} from '../events/CopcThreeLayerEvents';
+import {
+  CopcLayerEventLifecycle,
   type CopcViewCancellationReason,
   snapshotCopcError,
   snapshotCopcMetadata,
@@ -86,45 +89,6 @@ function createRendererPerformanceSnapshot(): CopcThreeRendererPerformanceSnapsh
     rendererPreparationDurationMs: 0,
     nodeRemovalDurationMs: 0,
   };
-}
-
-const STREAMING_VIEW_POSITION_EPSILON = 0.1;
-const STREAMING_VIEW_ANGLE_EPSILON = 1e-5;
-const STREAMING_VIEW_DISTANCE_EPSILON = 1;
-
-function isClose(left: number, right: number, epsilon: number): boolean {
-  return Math.abs(left - right) <= epsilon;
-}
-
-function areStreamingViewsEquivalent(left: StreamingView, right: StreamingView): boolean {
-  if (!isClose(left.longitude, right.longitude, 1e-7)
-    || !isClose(left.latitude, right.latitude, 1e-7)
-    || !isClose(left.height, right.height, STREAMING_VIEW_POSITION_EPSILON)
-    || !isClose(left.viewDistanceMeters, right.viewDistanceMeters, STREAMING_VIEW_DISTANCE_EPSILON)) {
-    return false;
-  }
-
-  const leftFrustum = left.viewFrustum;
-  const rightFrustum = right.viewFrustum;
-  if (!leftFrustum || !rightFrustum) {
-    return leftFrustum === rightFrustum;
-  }
-
-  return [
-    [leftFrustum.position, rightFrustum.position],
-    [leftFrustum.direction, rightFrustum.direction],
-    [leftFrustum.up, rightFrustum.up],
-    [leftFrustum.right, rightFrustum.right],
-  ].every(([leftVector, rightVector]) =>
-    isClose(leftVector.x, rightVector.x, STREAMING_VIEW_ANGLE_EPSILON)
-      && isClose(leftVector.y, rightVector.y, STREAMING_VIEW_ANGLE_EPSILON)
-      && isClose(leftVector.z, rightVector.z, STREAMING_VIEW_ANGLE_EPSILON),
-  )
-    && isClose(leftFrustum.verticalFovRadians, rightFrustum.verticalFovRadians, STREAMING_VIEW_ANGLE_EPSILON)
-    && isClose(leftFrustum.aspectRatio, rightFrustum.aspectRatio, STREAMING_VIEW_ANGLE_EPSILON)
-    && isClose(leftFrustum.viewportHeightPixels, rightFrustum.viewportHeightPixels, 1)
-    && isClose(leftFrustum.nearMeters, rightFrustum.nearMeters, STREAMING_VIEW_DISTANCE_EPSILON)
-    && isClose(leftFrustum.farMeters, rightFrustum.farMeters, STREAMING_VIEW_DISTANCE_EPSILON);
 }
 
 function isPickOptions(value: unknown): value is CopcThreeLayerPickOptions {
