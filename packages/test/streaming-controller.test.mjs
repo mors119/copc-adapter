@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   CopcStreamingController,
-} from '../core/streaming/CopcStreamingCore.ts';
+} from '../core/streaming/CopcStreamingController.ts';
 import {
   createPerspectiveViewFrustum,
   geographicToEcef,
