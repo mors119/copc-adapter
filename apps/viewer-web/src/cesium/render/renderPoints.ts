@@ -16,13 +16,21 @@ export {
 } from '../../point/style/pointStyle';
 export type { CopcElevationRange } from '../../point/style/pointStyle';
 
+/** Configuration for converting a prepared point buffer into Cesium primitives. */
 export type CopcPointRenderOptions = {
+  /** Cesium point diameter in screen pixels. */
   pointSize: number;
+  /** Attribute-to-color mapping; defaults are resolved by the shared style helper. */
   colorMode?: CopcColorMode;
+  /** Optional height range in metres used by elevation coloring. */
   elevationRange?: CopcElevationRange;
+  /** Maximum expected source RGB channel value for normalization. */
   rgbMax?: 255 | 65535;
+  /** Supplies the Cesium pick id for each zero-based point index. */
   pointId?: (pointIndex: number) => unknown;
+  /** Controls whether each point primitive is shown. */
   pointFilter?: (pointIndex: number) => boolean;
+  /** Receives elapsed CPU time for each completed preparation/rendering stage. */
   onPerformance?: (
     stage: 'geographicToCartesian'
       | 'worldToCartesian'
@@ -33,6 +41,15 @@ export type CopcPointRenderOptions = {
   ) => void;
 };
 
+/**
+ * Convert WGS84 geographic points to Cesium world positions.
+ *
+ * Longitudes and latitudes are degrees; heights are metres above the WGS84
+ * ellipsoid, matching Cesium's `Cartesian3.fromDegrees` input convention.
+ *
+ * @param points Geographic positions to convert.
+ * @returns One Cesium ECEF Cartesian position per input point.
+ */
 export function toCartesian3Array(points: GeographicPoint[]): Cesium.Cartesian3[] {
   return points.map((point) =>
     Cesium.Cartesian3.fromDegrees(
@@ -43,6 +60,17 @@ export function toCartesian3Array(points: GeographicPoint[]): Cesium.Cartesian3[
   );
 }
 
+/**
+ * Convert a packed point buffer to Cesium world positions.
+ *
+ * Uses retained WGS84 ECEF metre coordinates when present; otherwise it
+ * converts the buffer's WGS84 longitude/latitude/height triples.
+ *
+ * @param points Buffer containing one of the supported prepared coordinate spaces.
+ * @returns One Cesium ECEF Cartesian position per point.
+ * @throws If retained ECEF data is malformed, uses an unsupported coordinate
+ * system, or contains non-finite values.
+ */
 export function toCartesian3ArrayFromBuffer(
   points: GeographicPointBuffer,
 ): Cesium.Cartesian3[] {
@@ -102,6 +130,20 @@ export function toCartesian3ArrayFromWorldBuffer(
   return positions;
 }
 
+/**
+ * Create and populate a Cesium point collection from prepared point data.
+ *
+ * The collection is added to `primitiveCollection`, which defaults to the
+ * viewer's scene primitives. The caller controls its visibility and lifetime
+ * through the returned collection or its parent collection.
+ *
+ * @param viewer Viewer whose Cesium scene supplies the default primitive collection.
+ * @param points Prepared WGS84 geographic data, optionally with retained ECEF coordinates.
+ * @param options Point size, styling, picking, filtering, and timing callbacks.
+ * @param primitiveCollection Parent collection to receive the created collection.
+ * @returns The populated point collection attached to `primitiveCollection`.
+ * @throws If point conversion, style preparation, or Cesium primitive creation fails.
+ */
 export function renderCopcPoints(
   viewer: Cesium.Viewer,
   points: GeographicPointBuffer,

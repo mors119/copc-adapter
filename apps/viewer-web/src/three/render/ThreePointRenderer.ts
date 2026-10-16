@@ -21,13 +21,20 @@ import type {
   CopcPointRendererOptions,
 } from '../../viewer/streaming/renderer';
 
+/** Three renderer preparation stage reported with a duration in milliseconds. */
 export type ThreePointRendererPerformanceStage =
+  /** Convert shared ECEF positions to the dataset's renderer-local frame. */
   | 'worldToLocal'
+  /** Allocate point geometry and attributes. */
   | 'geometryCreation'
+  /** Allocate the points material. */
   | 'materialCreation'
+  /** Total preparation time for the node. */
   | 'rendererPreparation'
+  /** Remove and release one node's geometry and material. */
   | 'nodeRemoval';
 
+/** Options passed to the Three point renderer for one node. */
 export type ThreePointRendererOptions = CopcPointRendererOptions & {
   /** Optional renderer preparation observer used by adapter diagnostics. */
   onPerformance?: (
@@ -37,6 +44,7 @@ export type ThreePointRendererOptions = CopcPointRendererOptions & {
   ) => void;
 };
 
+/** Initial origin or stable dataset-local frame for point geometry. */
 export type ThreePointRendererConstructorOptions = {
   /**
    * Fixed ECEF origin for the lifetime of the renderer. Passing the origin
@@ -209,7 +217,11 @@ export class ThreePointRenderer implements CopcPointRenderer {
     return origin ? { ...origin } : undefined;
   }
 
-  /** Set the fixed frame used by future node geometry. */
+  /**
+   * Set the fixed ENU metre frame used to convert ECEF points before GPU upload.
+   *
+   * @throws If the renderer is destroyed, already has rendered nodes, or the frame is not ENU metres.
+   */
   setLocalFrame(frame: DatasetLocalFrame): void {
     if (this.destroyed) {
       throw new Error('ThreePointRenderer has been destroyed');
@@ -231,6 +243,15 @@ export class ThreePointRenderer implements CopcPointRenderer {
     return this.localFrame;
   }
 
+  /**
+   * Create or replace one node's geometry and material in the attached scene.
+   *
+   * Source buffers are transformed into the fixed local frame in Float64 and
+   * only then narrowed to Float32 for the GPU. The renderer owns the resulting
+   * geometry and material and disposes them when the node is removed.
+   *
+   * @throws If the renderer is destroyed or unattached, the node key or point buffer is invalid, or point size is not positive and finite.
+   */
   addOrUpdateNode(
     nodeKey: string,
     points: GeographicPointBuffer | PreparedPointData,
@@ -328,6 +349,7 @@ export class ThreePointRenderer implements CopcPointRenderer {
     );
   }
 
+  /** Remove one node and dispose its geometry and material. */
   removeNode(nodeKey: string): void {
     const points = this.pointsByNode.get(nodeKey);
     if (!points) {
@@ -342,12 +364,14 @@ export class ThreePointRenderer implements CopcPointRenderer {
     observer?.('nodeRemoval', performanceNow() - startedAt, points.userData.copcPointCount ?? 0);
   }
 
+  /** Remove and dispose all node objects while keeping the renderer reusable. */
   clear(): void {
     for (const nodeKey of [...this.pointsByNode.keys()]) {
       this.removeNode(nodeKey);
     }
   }
 
+  /** Detach the root group and permanently release renderer-owned resources. */
   destroy(): void {
     if (this.destroyed) {
       return;
@@ -356,18 +380,22 @@ export class ThreePointRenderer implements CopcPointRenderer {
     this.destroyed = true;
   }
 
+  /** Return whether a node has a committed `THREE.Points` object. */
   hasNode(nodeKey: string): boolean {
     return this.pointsByNode.has(nodeKey);
   }
 
+  /** Return the point count for one committed node, or `undefined` when absent. */
   getRenderedNodePointCount(nodeKey: string): number | undefined {
     return this.pointsByNode.get(nodeKey)?.geometry.getAttribute('position')?.count;
   }
 
+  /** Return sorted keys for nodes currently committed to the scene. */
   getRenderedNodeKeys(): string[] {
     return [...this.pointsByNode.keys()].sort();
   }
 
+  /** Return the number of points currently committed to the scene. */
   getRenderedPointCount(): number {
     let total = 0;
     for (const points of this.pointsByNode.values()) {

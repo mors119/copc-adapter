@@ -11,6 +11,12 @@ export class CopcCesiumEvent<Args extends unknown[]> extends Cesium.Event<CopcCe
   >();
   private disposed = false;
 
+  /**
+   * Register a Cesium-style listener and return its layer-scoped removal callback.
+   * Duplicate listener/scope registrations reuse the existing callback.
+   *
+   * @throws If this event has been disposed.
+   */
   override addEventListener(
     listener: CopcCesiumListener<Args>,
     scope?: unknown,
@@ -54,6 +60,7 @@ export class CopcCesiumEvent<Args extends unknown[]> extends Cesium.Event<CopcCe
     return registration.remove;
   }
 
+  /** Remove a registered listener for the matching scope and report whether it existed. */
   override removeEventListener(
     listener: CopcCesiumListener<Args>,
     scope?: unknown,
@@ -66,12 +73,14 @@ export class CopcCesiumEvent<Args extends unknown[]> extends Cesium.Event<CopcCe
     return true;
   }
 
+  /** Notify current listeners unless the event has been disposed. Listener failures are reported. */
   override raiseEvent(...args: Parameters<CopcCesiumListener<Args>>): void {
     if (!this.disposed) {
       super.raiseEvent(...args);
     }
   }
 
+  /** Remove all layer-owned listener wrappers and ignore later raises. */
   dispose(): void {
     this.disposed = true;
     const registrations = [...this.registrations.values()]

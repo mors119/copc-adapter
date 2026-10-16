@@ -50,6 +50,13 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
+/**
+ * Estimate camera-to-node-centre distance using a spherical WGS84 surface approximation and height delta.
+ *
+ * @param camera Camera longitude/latitude in degrees and height in metres.
+ * @param node Hierarchy node with a geographic centre.
+ * @returns Approximate centre distance in metres.
+ */
 export function calculateDistanceMeters(
   camera: StreamingCameraState,
   node: StreamingHierarchyNode,
@@ -65,6 +72,13 @@ export function calculateDistanceMeters(
   return Math.hypot(surfaceDistance, heightDelta);
 }
 
+/**
+ * Estimate camera distance to the closest point in a node's geographic bounds.
+ *
+ * @param camera Camera longitude/latitude in degrees and height in metres.
+ * @param node Hierarchy node with WGS84 geographic bounds.
+ * @returns Approximate closest-bound distance in metres.
+ */
 export function calculateBoundsDistanceMeters(
   camera: StreamingCameraState,
   node: StreamingHierarchyNode,
@@ -512,6 +526,7 @@ function createSelectionMetrics(
   };
 }
 
+/** Compare nodes by level, camera distance, point count, then stable key. */
 export function compareNodePriority(
   camera: StreamingCameraState,
   left: StreamingHierarchyNode,
@@ -523,6 +538,14 @@ export function compareNodePriority(
     || left.node.key.localeCompare(right.node.key);
 }
 
+/**
+ * Select a visible hierarchy frontier for one geographic camera view.
+ *
+ * The selector culls by distance and optional frustum, then refines by
+ * screen-space error while respecting depth, node, and estimated point
+ * budgets. Separate refinement and scheduling priorities keep work ordering
+ * from changing the selected coverage frontier.
+ */
 export class NodeSelector {
   private readonly options: StreamingSelectionOptions;
   private lastSelectionMetrics: StreamingSelectionMetrics = createSelectionMetrics(
@@ -530,6 +553,15 @@ export class NodeSelector {
     DEFAULT_MAX_RENDERED_POINTS,
   );
 
+  /**
+   * Create a selector with required node/depth/distance limits.
+   *
+   * Screen-space error defaults to 8 pixels, its hold band to 12.5% of that
+   * threshold, and the current-view point budget to 250,000 points.
+   *
+   * @param options Required node/depth/distance limits and optional selection budgets.
+   * @throws `RangeError` if the hysteresis or point-budget configuration is invalid.
+   */
   constructor(options: StreamingSelectionOptions) {
     const maxScreenSpaceError = options.maxScreenSpaceError
       ?? DEFAULT_MAX_SCREEN_SPACE_ERROR;
@@ -551,10 +583,22 @@ export class NodeSelector {
     };
   }
 
+  /** Return a detached snapshot of the most recent selection counters. */
   getSelectionMetrics(): StreamingSelectionMetrics {
     return { ...this.lastSelectionMetrics };
   }
 
+  /**
+   * Select the current visible frontier and order it for point-data scheduling.
+   *
+   * Previous selection and cache state are optional inputs used for stable
+   * hysteresis decisions and tie-breaking; they do not change source data.
+   *
+   * @param camera Geographic camera state, view distance, and optional ECEF frustum.
+   * @param hierarchy Available hierarchy nodes keyed by their stable COPC keys.
+   * @param context Prior selection and cache information for this view update.
+   * @returns Selected nodes with separate refinement and scheduling scores.
+   */
   selectVisibleNodes(
     camera: StreamingCameraState,
     hierarchy: StreamingHierarchy,

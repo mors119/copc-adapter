@@ -12,16 +12,26 @@ import { renderCopcPoints } from './renderPoints';
 import { getPointColor } from '../style/pointStyle';
 import { resolveCopcPointStyleOptions } from '../../point/style/pointStyle';
 
+/** Cesium renderer preparation stage reported with a duration in milliseconds. */
 export type CopcCesiumPointRendererPerformanceStage =
+  /** Convert WGS84 geographic values to Cesium cartographic/cartesian coordinates. */
   | 'geographicToCartesian'
+  /** Convert shared ECEF buffers to Cesium Cartesian values. */
   | 'worldToCartesian'
+  /** Resolve normalized per-point colors. */
   | 'pointStylePreparation'
+  /** Create the Cesium point primitive collection for a node. */
   | 'pointCollectionCreation'
+  /** Add point primitives to the collection. */
   | 'pointAdd'
+  /** Total node renderer preparation. */
   | 'rendererPreparation'
+  /** Remove and release one node's primitives. */
   | 'nodeRemoval';
 
+/** Cesium-specific point styling and performance callback options. */
 export type CopcCesiumPointRendererOptions = NeutralCopcPointRendererOptions & {
+  /** Receives the measured stage, elapsed milliseconds, and affected point count. */
   onPerformance?: (
     stage: CopcCesiumPointRendererPerformanceStage,
     durationMs: number,
@@ -40,10 +50,13 @@ export type { CopcPointRenderer } from '../../viewer/streaming/renderer';
 
 /** Cesium-only part of the renderer boundary. */
 export interface CesiumPointRenderer extends CopcPointRenderer {
+  /** Attach renderer-owned primitives to a caller-owned Viewer. */
   attachTo(viewer: Cesium.Viewer): void;
+  /** Detach and release renderer-owned primitive resources. */
   detachFrom(): void;
   /** Apply layer-level visibility when the renderer supports it. */
   setShow?(show: boolean): void;
+  /** Create or replace one node's point primitives. */
   addOrUpdateNode(
     nodeKey: string,
     points: CesiumPointData,
@@ -55,6 +68,7 @@ export interface CesiumPointRenderer extends CopcPointRenderer {
     points: CesiumPointData,
     options: CopcCesiumPointRendererOptions,
   ): void;
+  /** Return a clone of the visible node bounds in WGS84 ECEF, when available. */
   getSelectionBoundingSphere(): Cesium.BoundingSphere | undefined;
 }
 
@@ -69,6 +83,7 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
   private readonly pointCollections = new Map<string, Cesium.PointPrimitiveCollection>();
   private readonly visiblePointCounts = new Map<string, number>();
 
+  /** Attach a new primitive collection to a Viewer owned by the application. */
   attachTo(viewer: Cesium.Viewer): void {
     if (this.viewer === viewer) {
       return;
@@ -81,6 +96,7 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
     );
   }
 
+  /** Remove and release renderer-owned point collections from the current Viewer. */
   detachFrom(): void {
     this.clear();
     if (this.primitiveCollection) {
@@ -90,6 +106,7 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
     this.viewer = undefined;
   }
 
+  /** Set visibility for the primitive collection and all its nodes. */
   setShow(show: boolean): void {
     this.showState = show;
     if (this.primitiveCollection) {
@@ -97,6 +114,7 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
     }
   }
 
+  /** Add a node's points or replace the existing node collection. */
   addOrUpdateNode(
     nodeKey: string,
     points: CesiumPointData,
@@ -138,6 +156,7 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
     );
   }
 
+  /** Update existing colors and point visibility without changing point identities. */
   updateNodeStyle(
     nodeKey: string,
     points: CesiumPointData,
@@ -179,6 +198,7 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
     this.rememberPerformanceObserver(nodeKey, options.onPerformance);
   }
 
+  /** Remove one node's primitive collection. */
   removeNode(nodeKey: string): void {
     const collection = this.pointCollections.get(nodeKey);
     if (!collection) {
@@ -199,29 +219,35 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
     this.nodePerformanceObservers.delete(nodeKey);
   }
 
+  /** Remove all nodes while leaving the Viewer attachment reusable. */
   clear(): void {
     for (const nodeKey of [...this.pointCollections.keys()]) {
       this.removeNode(nodeKey);
     }
   }
 
+  /** Detach and release all renderer-owned Cesium primitives. */
   destroy(): void {
     this.detachFrom();
     this.nodePerformanceObservers.clear();
   }
 
+  /** Return whether this renderer currently owns a collection for the node. */
   hasNode(nodeKey: string): boolean {
     return this.pointCollections.has(nodeKey);
   }
 
+  /** Return the number of points held by one rendered node, if present. */
   getRenderedNodePointCount(nodeKey: string): number | undefined {
     return this.visiblePointCounts.get(nodeKey);
   }
 
+  /** Return sorted keys for nodes currently committed to Cesium. */
   getRenderedNodeKeys(): string[] {
     return [...this.pointCollections.keys()].sort();
   }
 
+  /** Return the total point count currently committed to Cesium. */
   getRenderedPointCount(): number {
     let total = 0;
 
@@ -232,6 +258,7 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
     return total;
   }
 
+  /** Return a clone of the visible node bounds in WGS84 ECEF. */
   getSelectionBoundingSphere(): Cesium.BoundingSphere | undefined {
     if (this.pointCollections.size === 0) {
       return undefined;

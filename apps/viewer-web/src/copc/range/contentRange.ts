@@ -1,16 +1,26 @@
 import { RangeSourceError, type ByteRange } from './types';
 
+/** Numeric byte interval and optional total resource size parsed from a header. */
 export type ParsedContentRange = {
+  /** First byte offset, inclusive. */
   readonly start: number;
+  /** Last byte offset, inclusive. */
   readonly end: number;
+  /** Total resource size in bytes when the header specifies it. */
   readonly total?: number;
 };
 
+/** Parse success or a non-throwing syntax/value failure description. */
 export type ContentRangeParseResult =
   | { readonly ok: true; readonly value: ParsedContentRange }
   | { readonly ok: false; readonly message: string };
 
-/** Parse the syntax without applying a request-specific range constraint. */
+/**
+ * Parse `Content-Range: bytes start-end/total` without a request-specific check.
+ *
+ * A `*` total is represented by an omitted `total` property. Malformed or
+ * unsafe numeric fields are returned as `{ ok: false }`.
+ */
 export function parseContentRangeHeader(
   value: string | null,
 ): ContentRangeParseResult {
@@ -49,7 +59,12 @@ export function parseContentRangeHeader(
   return { ok: true, value: { start, end, total } };
 }
 
-/** Apply the same exact-range contract used by HttpRangeByteSource. */
+/**
+ * Validate that a Content-Range header describes the exact requested interval.
+ *
+ * @throws `RangeSourceError` with code `content-range` for absent, malformed,
+ * unsafe, or mismatched range values.
+ */
 export function validateContentRange(
   source: string,
   range: ByteRange,

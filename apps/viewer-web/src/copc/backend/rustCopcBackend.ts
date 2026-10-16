@@ -31,10 +31,12 @@ import type {
 import type { CopcPerformanceObserver } from '../performance';
 import { RustCopcWorkerError } from '../rustCopcDecodeWorkerPool';
 
+/** Factory for a random-access source, including host-owned file bridges. */
 export type RustByteSourceFactory = (
   source: string,
 ) => RandomAccessByteSource;
 
+/** Configuration for the Rust/WASM COPC backend. */
 export type RustCopcBackendOptions = {
   /** Optional source factory for tests, workers, or a host-owned file bridge. */
   readonly createByteSource?: RustByteSourceFactory;
@@ -288,6 +290,7 @@ export class RustCopcBackend implements CopcBackend {
     this.createByteSource = options.createByteSource;
   }
 
+  /** Open and parse a COPC source with the Rust/WASM reader. */
   async open(
     source: string,
     options: CopcBackendOpenOptions = {},
@@ -321,5 +324,5 @@ export class RustCopcBackend implements CopcBackend {
   }
 }
 
-/** Shared opt-in backend used by the string selector. */
+/** Shared Rust/WASM backend instance; selecting it is explicit opt-in. */
 export const rustCopcBackend: CopcBackend = new RustCopcBackend();

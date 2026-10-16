@@ -10,15 +10,21 @@ export {
 
 /** A small, serializable vector used at the renderer/streaming boundary. */
 export type ViewVector3 = {
+  /** X component in the coordinate space named by the containing contract. */
   x: number;
+  /** Y component in the coordinate space named by the containing contract. */
   y: number;
+  /** Z component in the coordinate space named by the containing contract. */
   z: number;
 };
 
+/** Sphere used for conservative renderer-neutral frustum tests. */
 export type BoundingSphere = {
   /** Bounding sphere coordinates are WGS84 ECEF metres, never renderer-local. */
   coordinateSystem: 'wgs84-ecef-meters';
+  /** Sphere center in WGS84 ECEF metres. */
   center: ViewVector3;
+  /** Radius in metres. */
   radiusMeters: number;
 };
 
@@ -30,9 +36,11 @@ export type BoundingSphereInput =
   | BoundingSphere
   | Omit<BoundingSphere, 'coordinateSystem'>;
 
+/** One inward-facing half-space plane in a WGS84 ECEF frustum. */
 export type FrustumPlane = {
   /** Plane interior is the non-negative side of this equation. */
   normal: ViewVector3;
+  /** Signed plane offset in metres for `dot(normal, point) + distance`. */
   distance: number;
 };
 
@@ -44,63 +52,110 @@ export type FrustumPlane = {
  * viewer implementation.
  */
 export type ViewFrustum = {
+  /** All camera-space vectors and plane equations use WGS84 ECEF metres. */
   coordinateSystem: 'wgs84-ecef-meters';
+  /** Camera position in ECEF metres. */
   position: ViewVector3;
+  /** Unit direction from the camera into the view. */
   direction: ViewVector3;
+  /** Unit camera up axis. */
   up: ViewVector3;
+  /** Unit camera right axis. */
   right: ViewVector3;
+  /** Six clipping planes, with the inside on each plane's non-negative side. */
   planes: FrustumPlane[];
+  /** Vertical field of view in radians. */
   verticalFovRadians: number;
   /** Drawing-buffer height used to convert projected size to pixels. */
   viewportHeightPixels: number;
+  /** Width-to-height ratio of the drawing buffer. */
   aspectRatio: number;
+  /** Near clipping distance in metres. */
   nearMeters: number;
+  /** Far clipping distance in metres. */
   farMeters: number;
 };
 
+/** Plain perspective-camera parameters used to construct a shared frustum. */
 export type PerspectiveViewInput = {
+  /** Camera position in WGS84 ECEF metres. */
   position: ViewVector3;
+  /** Camera forward direction. */
   direction: ViewVector3;
+  /** Camera up axis. */
   up: ViewVector3;
+  /** Camera right axis. */
   right: ViewVector3;
+  /** Vertical field of view in radians, strictly between 0 and π. */
   verticalFovRadians: number;
+  /** Drawing-buffer height in pixels; defaults to 1080. */
   viewportHeightPixels?: number;
+  /** Drawing-buffer width divided by height. */
   aspectRatio: number;
+  /** Near clipping distance in metres. */
   nearMeters: number;
+  /** Far clipping distance in metres and greater than the near distance. */
   farMeters: number;
 };
 
+/** Geographic axis-aligned bounds: longitude/latitude in degrees, height in metres. */
 export type GeographicViewBounds = {
+  /** Minimum longitude in degrees. */
   minX: number;
+  /** Minimum latitude in degrees. */
   minY: number;
+  /** Minimum WGS84 ellipsoidal height in metres. */
   minZ: number;
+  /** Maximum longitude in degrees. */
   maxX: number;
+  /** Maximum latitude in degrees. */
   maxY: number;
+  /** Maximum WGS84 ellipsoidal height in metres. */
   maxZ: number;
 };
 
+/** Camera inputs used to estimate the source hierarchy extent needed by a view. */
 export type StreamingViewBoundsInput = {
+  /** Camera position in WGS84 geographic coordinates. */
   camera: {
+    /** Camera longitude in WGS84 degrees. */
     longitude: number;
+    /** Camera latitude in WGS84 degrees. */
     latitude: number;
+    /** Camera WGS84 ellipsoidal height in metres. */
     height: number;
   };
+  /** Current camera view-distance estimate in metres. */
   viewDistanceMeters: number;
+  /** Hard maximum hierarchy-query distance in metres. */
   maxRenderDistanceMeters: number;
+  /** Optional ECEF perspective frustum used instead of a camera-radius fallback. */
   viewFrustum?: ViewFrustum;
 };
 
+/** Geographic query bounds and the strategy used to derive them. */
 export type StreamingViewBounds = {
+  /** WGS84 geographic query bounds. */
   bounds: GeographicViewBounds;
-  mode: 'frustum' | 'camera-fallback';
+  /** Query envelope source: valid perspective frustum or camera-centred fallback. */
+  mode:
+    /** Derived from the perspective frustum. */ 'frustum'
+    | /** Derived from camera position and a capped radius. */ 'camera-fallback';
+  /** Effective query far distance after view and configured limits, in metres. */
   effectiveFarMeters: number;
 };
 
+/** State transition reported by the adaptive current-view distance policy. */
 export type AdaptiveViewDistanceTransition =
+  /** First usable estimate established the initial distance. */
   | 'initialized'
+  /** The required visible footprint expanded the active distance. */
   | 'expanded'
+  /** The required visible footprint shrank below the hysteresis threshold. */
   | 'shrunk'
+  /** Hysteresis retained the existing distance. */
   | 'held'
+  /** A fallback distance was used because no usable footprint was available. */
   | 'fallback';
 
 /** Aggregate view-distance diagnostics attached to the current streaming view. */
@@ -111,14 +166,23 @@ export type AdaptiveViewDistanceDiagnostics = {
   targetDistanceMeters: number;
   /** Distance consumed by the streaming selector and hierarchy query. */
   effectiveDistanceMeters: number;
+  /** Configured hard distance cap in metres. */
   maxRenderDistanceMeters: number;
+  /** Multiplier applied to the visible footprint before hysteresis. */
   overscanFactor: number;
+  /** Whether the target was limited by the configured or frustum far distance. */
   clampedToMaxRenderDistance: boolean;
+  /** Outcome of the current hysteresis update. */
   transition: AdaptiveViewDistanceTransition;
+  /** Number of committed policy updates. */
   updateCount: number;
+  /** Updates that expanded the effective distance. */
   expansionCount: number;
+  /** Updates that reduced the effective distance. */
   shrinkCount: number;
+  /** Updates held the previous distance because shrink hysteresis was not crossed. */
   hysteresisHoldCount: number;
+  /** Updates that used a fallback distance. */
   fallbackCount: number;
 };
 
@@ -292,6 +356,17 @@ export class AdaptiveViewDistancePolicy {
   private hysteresisHoldCount = 0;
   private fallbackCount = 0;
 
+  /**
+   * Resolve and commit the current view-distance estimate and hysteresis state.
+   *
+   * Expansions apply immediately; small changes retain the previous effective
+   * distance. `maxRenderDistanceMeters` is a hard cap for the resulting range.
+   *
+   * @param view Geographic camera state and optional ECEF perspective frustum.
+   * @param maxRenderDistanceMeters Configured hard distance limit in metres.
+   * @param minimumDatasetHeightMeters Lowest known ellipsoidal dataset height, when available.
+   * @returns The view with effective distance and transition diagnostics.
+   */
   apply(
     view: AdaptiveViewDistanceInput,
     maxRenderDistanceMeters: number,
@@ -302,7 +377,14 @@ export class AdaptiveViewDistancePolicy {
     return this.resolve(view, maxRenderDistanceMeters, minimumDatasetHeightMeters, true);
   }
 
-  /** Calculate an update view without changing hysteresis or aggregate counts. */
+  /**
+   * Calculate a view-distance estimate without changing retained hysteresis state or counters.
+   *
+   * @param view Geographic camera state and optional ECEF perspective frustum.
+   * @param maxRenderDistanceMeters Configured hard distance limit in metres.
+   * @param minimumDatasetHeightMeters Lowest known ellipsoidal dataset height, when available.
+   * @returns The preview view with distance and diagnostics for this estimate.
+   */
   preview(
     view: AdaptiveViewDistanceInput,
     maxRenderDistanceMeters: number,
@@ -408,6 +490,7 @@ export class AdaptiveViewDistancePolicy {
     };
   }
 
+  /** Clear the retained distance and all transition counters. */
   reset(): void {
     this.currentDistanceMeters = undefined;
     this.updateCount = 0;
@@ -472,7 +555,13 @@ function validateInput(input: PerspectiveViewInput): void {
   }
 }
 
-/** Build a conservative six-plane perspective frustum from plain vectors. */
+/**
+ * Build a conservative six-plane perspective frustum from ECEF camera vectors.
+ *
+ * @param input Camera basis and clipping parameters; `viewportHeightPixels` defaults to 1080.
+ * @returns A serializable frustum with normalized axes and six clipping planes.
+ * @throws If vector or perspective parameters are non-finite or outside their valid ranges.
+ */
 export function createPerspectiveViewFrustum(
   input: PerspectiveViewInput,
 ): ViewFrustum {
@@ -604,6 +693,9 @@ function createCameraFallbackBounds(
  * Create a conservative geographic envelope for the hierarchy required by a
  * streaming view. A valid perspective view is padded around its truncated
  * frustum; callers without one retain the historical camera-radius query.
+ *
+ * @param input Camera position, view distance, hard range limit, and optional ECEF frustum.
+ * @returns WGS84 geographic query bounds, derivation mode, and effective far distance.
  */
 export function createStreamingViewBounds(
   input: StreamingViewBoundsInput,
@@ -708,6 +800,13 @@ export function createStreamingViewBounds(
   };
 }
 
+/**
+ * Enclose the geographic bounds' eight corners in a WGS84 ECEF sphere.
+ *
+ * @param center Sphere center in WGS84 longitude/latitude degrees and ellipsoidal metres.
+ * @param bounds Geographic bounds in degrees for longitude/latitude and metres for height.
+ * @returns A conservative bounding sphere in WGS84 ECEF metres.
+ */
 export function createBoundingSphereFromGeographicBounds(
   center: { longitude: number; latitude: number; height: number },
   bounds: {

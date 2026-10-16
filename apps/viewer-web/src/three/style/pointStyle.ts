@@ -5,22 +5,26 @@ import {
   type CopcPointStyleState,
 } from '../../point/style/pointStyle';
 
+/** Style inputs plus the Three.js point diameter in screen-space pixels. */
 export type CopcThreePointStyleOptions = CopcPointStyleInput & {
   /** Screen-space point size in pixels. */
   pointSize: number;
 };
 
-/**
- * Three.js MVP uses fixed-size points so `pointSize` retains the Cesium API's
- * screen-facing pixel meaning across camera distances.
- */
+/** Three.js world-distance size scaling is disabled to retain pixel-sized points. */
 export const THREE_POINT_SIZE_ATTENUATION = false;
 
+/** Material settings produced by {@link getThreePointsMaterialOptions}. */
 export type CopcThreePointsMaterialOptions = {
+  /** Point diameter in screen-space pixels. */
   size: number;
+  /** Fixed-size behavior matching {@link THREE_POINT_SIZE_ATTENUATION}. */
   sizeAttenuation: typeof THREE_POINT_SIZE_ATTENUATION;
+  /** Whether the material reads per-vertex point colors. */
   vertexColors: true;
+  /** Whether alpha blending is enabled. */
   transparent: true;
+  /** Fixed alpha used by the adapter's point style. */
   opacity: number;
 };
 

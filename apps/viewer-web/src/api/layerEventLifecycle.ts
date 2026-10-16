@@ -1,14 +1,23 @@
 import type { CopcMetadata } from '../copc/types/copc';
 
+/** Why the current view's asynchronous streaming work was invalidated. */
 export type CopcViewCancellationReason =
+  /** A newer camera state replaced the active view. */
   | 'camera-change'
+  /** The layer was detached from its viewer or scene. */
   | 'detach'
+  /** Loaded data was released. */
   | 'unload'
+  /** The configured source is being loaded again. */
   | 'reload'
+  /** The layer and its owned resources were permanently released. */
   | 'destroy';
 
+/** Identifier and cause for one cancelled public view generation. */
 export type CopcActiveViewCancellation = {
+  /** Monotonically increasing identifier assigned to the view. */
   viewGeneration: number;
+  /** Lifecycle change that invalidated the view. */
   reason: CopcViewCancellationReason;
 };
 
@@ -62,46 +71,77 @@ export class CopcLayerEventLifecycle {
   }
 }
 
+/** Scheduler queue occupancy snapshot for the active view generation. */
 export type CopcThreeLayerProgressEvent = {
+  /** Discriminator for the pending/active work event. */
   type: 'progress';
+  /** Layer instance that dispatched the event. */
   target?: object;
+  /** Number of node loads waiting for a scheduler slot. */
   queuedNodeCount: number;
+  /** Number of node loads currently active. */
   activeNodeCount: number;
+  /** View generation these queue counts describe. */
   viewGeneration: number;
 };
 
+/** Emitted after source metadata and the root hierarchy have loaded. */
 export type CopcThreeLayerMetadataReadyEvent = {
+  /** Discriminator for the metadata-ready event. */
   type: 'metadataready';
+  /** Layer instance that dispatched the event. */
   target?: object;
+  /** Immutable snapshot of source metadata; no point nodes are implied loaded. */
   metadata: import('../copc/types/copc').CopcMetadata;
+  /** Load attempt associated with this notification. */
   loadGeneration: number;
 };
 
+/** Emitted when the first nonempty selected node has been committed to the renderer. */
 export type CopcThreeLayerFirstVisibleEvent = {
+  /** Discriminator for the first-visible event. */
   type: 'firstvisible';
+  /** Layer instance that dispatched the event. */
   target?: object;
+  /** Load attempt that produced the visible node. */
   loadGeneration: number;
+  /** View update that committed the first node. */
   viewGeneration: number;
 };
 
+/** Emitted after the selected node work for a view has been committed. */
 export type CopcThreeLayerViewSettledEvent = {
+  /** Discriminator for the settled-view event. */
   type: 'viewsettled';
+  /** Layer instance that dispatched the event. */
   target?: object;
+  /** View generation that completed. */
   viewGeneration: number;
+  /** Selected hierarchy node keys for the settled view. */
   selectedNodeKeys: readonly string[];
 };
 
+/** Emitted when active work for a view is invalidated before settling. */
 export type CopcThreeLayerViewCancelledEvent = {
+  /** Discriminator for the cancelled-view event. */
   type: 'viewcancelled';
+  /** Layer instance that dispatched the event. */
   target?: object;
+  /** Invalidated view generation. */
   viewGeneration: number;
+  /** Lifecycle change that cancelled the generation. */
   reason: CopcViewCancellationReason;
 };
 
+/** Structured error payload for a layer load or background view update. */
 export type CopcLayerErrorEvent = {
+  /** Error snapshot; may be a non-Error value thrown by a dependency. */
   error: unknown;
+  /** Whether the failure occurred while loading the source or updating a view. */
   phase: 'load' | 'view';
+  /** Load attempt, when the failure belongs to a load operation. */
   loadGeneration?: number;
+  /** View generation, when the failure belongs to a streaming update. */
   viewGeneration?: number;
 };
 
@@ -144,20 +184,31 @@ export function snapshotCopcError(error: unknown): unknown {
   return Object.freeze(snapshot);
 }
 
+/** Three.js layer error event with a standard type and dispatch target. */
 export type CopcThreeLayerErrorEvent = CopcLayerErrorEvent & {
+  /** Discriminator for the error event. */
   type: 'error';
+  /** Layer instance that dispatched the event. */
   target?: object;
 };
 
+/** Event payload types accepted by {@link CopcThreeLayer.addEventListener}. */
 export type CopcThreeLayerEventMap = {
+  /** Scheduler queue occupancy changes for the active view. */
   progress: CopcThreeLayerProgressEvent;
+  /** Metadata and root hierarchy became available. */
   metadataready: CopcThreeLayerMetadataReadyEvent;
+  /** First nonempty node was committed to the renderer for a load. */
   firstvisible: CopcThreeLayerFirstVisibleEvent;
+  /** Selected nodes for a view were committed to the renderer. */
   viewsettled: CopcThreeLayerViewSettledEvent;
+  /** Active view work was invalidated before settling. */
   viewcancelled: CopcThreeLayerViewCancelledEvent;
+  /** A source load or background view update failed. */
   error: CopcThreeLayerErrorEvent;
 };
 
+/** Name of a public Three layer lifecycle event. */
 export type CopcThreeLayerEventType = keyof CopcThreeLayerEventMap;
 
 type CopcThreeLayerEventListener<TEvent> = (event: TEvent) => void;

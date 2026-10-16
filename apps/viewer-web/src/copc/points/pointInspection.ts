@@ -3,37 +3,69 @@ import type { GeographicPointBuffer } from '../types/copc';
 
 /** Small project-owned reference carried by a rendered point. */
 export type CopcPointPickId = Readonly<{
+  /** Stable hierarchy key for the node that owns the point. */
   nodeKey: string;
+  /** Zero-based point index within that node's decoded buffer. */
   pointIndex: number;
   /** Layer-local token used when multiple COPC layers share a scene. */
   ownerId?: string;
 }>;
 
+/** Coordinate and available source attributes for one picked point. */
 export type CopcPointInspection = {
+  /** Stable hierarchy key for the node containing the point. */
   nodeKey: string;
+  /** COPC octree level of the selected node. */
   level: number;
+  /** Zero-based index within the selected node. */
   pointIndex: number;
+  /** WGS84 longitude in degrees. */
   longitude: number;
+  /** WGS84 latitude in degrees. */
   latitude: number;
   /** Corrected WGS84 ellipsoidal display height in metres. */
   height: number;
   /** Unmodified COPC source XYZ; Z remains in the source CRS vertical units. */
-  source?: { x: number; y: number; z: number };
-  world?: {
-    coordinateSystem: 'wgs84-ecef-meters';
+  source?: {
+    /** X coordinate in the COPC source CRS units. */
     x: number;
+    /** Y coordinate in the COPC source CRS units. */
     y: number;
+    /** Z coordinate in the COPC source CRS vertical units. */
     z: number;
   };
+  /** Optional WGS84 ECEF point coordinates retained for renderer diagnostics. */
+  world?: {
+    /** Identifies WGS84 Earth-centred, Earth-fixed metre coordinates. */
+    coordinateSystem: 'wgs84-ecef-meters';
+    /** ECEF X coordinate in metres. */
+    x: number;
+    /** ECEF Y coordinate in metres. */
+    y: number;
+    /** ECEF Z coordinate in metres. */
+    z: number;
+  };
+  /** Raw LAS intensity when requested and available. */
   intensity?: number;
+  /** Raw LAS classification code when requested and available. */
   classification?: number;
+  /** Known ASPRS label for the classification code, when mapped. */
   classificationLabel?: string;
-  rgb?: { red: number; green: number; blue: number };
+  /** Raw source RGB channels when requested and available. */
+  rgb?: {
+    /** Raw source red channel value. */
+    red: number;
+    /** Raw source green channel value. */
+    green: number;
+    /** Raw source blue channel value. */
+    blue: number;
+  };
   /**
    * Requested extra schema dimensions (for example LAS extra bytes) by name.
    * 64-bit integer dimensions are `bigint`; all others are `number`.
    */
   dimensions?: Record<string, number | bigint>;
+  /** Built-in backend that decoded the point or `custom` for an injected backend. */
   backend: CopcBackendName | 'custom';
 };
 
@@ -47,6 +79,7 @@ const ASPRS_CLASSIFICATION_LABELS: Readonly<Record<number, string>> = {
   6: 'Building',
 };
 
+/** Check whether an unknown value has a node key and non-negative safe point index. */
 export function isCopcPointPickId(value: unknown): value is CopcPointPickId {
   if (value === null || typeof value !== 'object') {
     return false;

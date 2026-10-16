@@ -18,33 +18,53 @@ const COPC_INFO_RECORD_LENGTH = 160;
 const MAX_METADATA_BYTES = 64 * 1024 * 1024;
 const MAX_PROBE_METADATA_BYTES = 1024 * 1024;
 
+/**
+ * Three-state result used when browser/network limits can hide source facts.
+ *
+ * `true` means the tested condition was observed, `false` means it was
+ * disproven, and `'unknown'` means the browser could not establish it.
+ */
 export type ProbeTruth = boolean | 'unknown';
 
+/** Outcome of a bounded HTTP range probe for a remote COPC resource. */
 export type CopcSourceProbeResult = {
+  /** Redacted resource URL inspected by the probe. */
   readonly source: string;
   /** True means an HTTP response was received, including an HTTP error. */
   readonly reachable: boolean;
-  /** False is observed incompatibility; unknown means the browser could not test it. */
+  /** True means a range response was usable; false means observed incompatibility; unknown means evidence was insufficient. */
   readonly rangeSupported: ProbeTruth;
+  /** Status of the first HTTP response, including errors. */
   readonly status?: number;
   /** Status returned by the request carrying the Range header. */
   readonly partialStatus?: number;
-  /** Assurance established by the browser-visible response contract. */
+  /** Range validation assurance established by the response checks. */
   readonly validationLevel: RangeValidationLevel;
+  /** Initial byte interval requested by the probe. */
   readonly requestedRange: ByteRange;
+  /** Byte interval reported by the first response, when its Content-Range was readable. */
   readonly returnedRange?: ByteRange;
+  /** Full resource length when established; for a 200 response this may be that response's body length. */
   readonly contentLength?: number;
+  /** Raw Content-Range header from the first response, when exposed by the browser. */
   readonly contentRange?: string;
   /** True means the response was readable; unknown means fetch was blocked or failed. */
   readonly corsReadable: ProbeTruth;
+  /** Whether LAS/COPC metadata was detected in the bounded prefix. */
   readonly copcDetected: ProbeTruth;
+  /** LAS point-format byte observed in the header, when readable. */
   readonly pointFormat?: number;
+  /** Human-readable limitations and validation observations. */
   readonly warnings: readonly string[];
 };
 
+/** Fetch, authentication, and cancellation settings for {@link probeCopcSource}. */
 export type CopcSourceProbeOptions = {
+  /** Fetch-compatible implementation; defaults to the global `fetch`. */
   readonly fetch?: RangeFetch;
+  /** Headers sent with probe requests. */
   readonly headers?: HeadersInit;
+  /** Cancels the in-flight range or HEAD request. */
   readonly signal?: AbortSignal;
   /** Defaults to strict Content-Range validation. */
   readonly rangeValidation?: RangeValidationPolicy;
@@ -534,7 +554,14 @@ function withWarnings(
   };
 }
 
-/** Probe a remote source without downloading the whole COPC resource. */
+/**
+ * Probe a remote source without downloading the whole COPC resource.
+ *
+ * The result distinguishes an HTTP response from CORS readability, range
+ * support, and COPC detection; `unknown` means browser-visible evidence was
+ * insufficient. The probe reads a bounded metadata prefix and may issue a
+ * follow-up range or HEAD request to validate the representation.
+ */
 export async function probeCopcSource(
   source: string,
   options: CopcSourceProbeOptions = {},

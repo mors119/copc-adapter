@@ -75,11 +75,16 @@ import type { RangeValidationPolicy } from '../../copc/range/types';
 
 /** Lifecycle states that do not depend on an attached rendering engine. */
 export type CopcStreamingLifecycleState =
+  /** Constructed and not loading a source. */
   | 'idle'
+  /** Opening source, reading metadata, or loading the root hierarchy. */
   | 'loading'
+  /** Metadata and root hierarchy are ready for view-driven point loading. */
   | 'ready'
+  /** Permanently destroyed. */
   | 'destroyed';
 
+/** Renderer-facing coverage replacement intent for one view generation. */
 export type CopcStreamingTransitionState = {
   /** The view generation that produced this intent. */
   generation: number;
@@ -87,6 +92,7 @@ export type CopcStreamingTransitionState = {
   replacementGroups: StreamingReplacementGroup[];
 };
 
+/** Source, backend, and bounded resource policies for the shared streaming core. */
 export type CopcStreamingControllerOptions = {
   /** Source URL or source identity used by the selected backend. */
   url: string;
@@ -117,10 +123,17 @@ export type CopcStreamingControllerOptions = {
 /** Core terminology alias for applications that avoid the controller name. */
 export type CopcStreamingCoreOptions = CopcStreamingControllerOptions;
 
+/** Receives incremental prepared-node data while the current view is loading. */
 export type CopcStreamingProgressHandler = (progress: StreamingProgress) => void;
 export type CopcStreamingWorkProgressHandler = (progress: StreamingWorkProgress) => void;
 
-/** Performance values owned by the core; renderer frame/GPU timings are excluded. */
+/**
+ * Core-owned streaming, range-fetch, decode, and point-preparation measurements.
+ *
+ * Durations are in milliseconds and `rangeFetchBytes` counts byte-range
+ * response bodies. Renderer-side preparation and GPU frame time are not
+ * included; renderer adapters expose their own measurements separately.
+ */
 export type CopcStreamingPerformanceSnapshot = Pick<
   StreamingPerformanceSnapshot,
   | 'updateDurationMs'
@@ -198,18 +211,33 @@ export type CopcStreamingPerformanceSnapshot = Pick<
   | 'longestMainThreadBlockingSectionMs'
 >;
 
+/** Detached diagnostics for one shared streaming core. */
 export type CopcStreamingSnapshot = {
+  /** Current core lifecycle state. */
   lifecycle: CopcStreamingLifecycleState;
+  /** Open resource identity or configured source URL before opening. */
   source: string;
+  /** Built-in backend identifier or `custom`. */
   backend: CopcBackendName | 'custom';
+  /** Selected hierarchy nodes for the latest completed view update. */
   selectedNodeKeys: string[];
+  /** Number of view updates completed by the core. */
   streamingUpdateCount: number;
+  /** Core-owned timings, counts, and byte measurements. */
   performance: CopcStreamingPerformanceSnapshot;
+  /** Coverage replacement intent produced by the latest completed update. */
   transition: CopcStreamingTransitionState;
+  /** Adaptive view-distance diagnostics when a view has been evaluated. */
   viewDistance?: AdaptiveViewDistanceDiagnostics;
+  /** Hierarchy request, cache, and duration counters after loading. */
   hierarchy?: CopcHierarchyDiagnostics;
+  /** Retained decoded CPU point-buffer bytes and cache activity. */
   pointCache: NodePointCacheDiagnostics;
+  /** Source-owned HTTP range request lifecycle counters.
+   * Transferred bytes are reported in `performance.rangeFetchBytes`.
+   */
   rangeRequests: RangeRequestDiagnostics;
+  /** Decode-worker queue counters when exposed by the selected backend. */
   worker?: CopcWorkerDiagnostics;
 };
 
@@ -355,7 +383,15 @@ export class CopcStreamingCore {
     this.initialCache = this.createEmptyCache();
   }
 
-  /** Load metadata and the root hierarchy without requiring a renderer. */
+  /**
+   * Load source metadata and the root hierarchy without a rendering engine.
+   *
+   * Point chunks are fetched only by later view updates. When this method
+   * resolves, metadata and the root page are available, but child hierarchy
+   * pages and point data remain lazy.
+   *
+   * @throws If source opening, metadata parsing, or root hierarchy loading fails.
+   */
   async load(): Promise<void> {
     if (this.lifecycle === 'destroyed') {
       throw new Error('CopcStreamingController has been destroyed');
@@ -484,7 +520,11 @@ export class CopcStreamingCore {
    *
    * `undefined` means the update was superseded by a newer view or lifecycle
    * operation. Current-generation progress is delivered incrementally before
-   * the promise resolves, allowing adapters to prepare nodes progressively.
+   * the promise resolves. Returned point data is prepared but is not committed
+   * to any renderer; the adapter owns that commit and its completion event.
+   *
+   * @returns The selected keys and loaded prepared nodes, or `undefined` for stale work.
+   * @throws If the core is destroyed, not loaded, or the current view's hierarchy/point work fails.
    */
   async updateView(
     view: StreamingView,
@@ -583,7 +623,12 @@ export class CopcStreamingCore {
     return update;
   }
 
-  /** Return the project-coordinate query generated for a plain view. */
+  /**
+   * Return the source-coordinate hierarchy query for a view without advancing the adaptive-distance state.
+   *
+   * The bounds use the COPC source CRS and units; `maxLevel` follows the
+   * configured maximum depth.
+   */
   getHierarchyQuery(view: StreamingView): CopcHierarchyQuery {
     const adaptiveView = this.adaptiveViewDistancePolicy.preview(
       view,
@@ -617,7 +662,7 @@ export class CopcStreamingCore {
     };
   }
 
-  /** Remove source, hierarchy, cache, and selected-view state for reuse. */
+  /** Remove source, hierarchy, cache, and selected-view state while keeping the core reusable. */
   unload(): void {
     if (this.lifecycle === 'destroyed') {
       return;
@@ -645,13 +690,13 @@ export class CopcStreamingCore {
     this.debug('COPC streaming controller unloaded');
   }
 
-  /** Unload and load the configured source again. */
+  /** Unload current state and load the configured source again. */
   async reload(): Promise<void> {
     this.unload();
     await this.load();
   }
 
-  /** Permanently release all source-owned state. */
+  /** Permanently release all source-owned state; the core cannot be loaded again. */
   destroy(): void {
     if (this.lifecycle === 'destroyed') {
       return;
@@ -661,6 +706,7 @@ export class CopcStreamingCore {
     this.lifecycle = 'destroyed';
   }
 
+  /** Return a fresh diagnostics snapshot; it does not expose mutable live state. */
   getSnapshot(): CopcStreamingSnapshot {
     const state = this.streamingState;
     const worker = state?.context.getWorkerDiagnostics?.();
@@ -682,23 +728,28 @@ export class CopcStreamingCore {
     };
   }
 
+  /** Return source metadata after loading, or `undefined` before load/after unload. */
   getMetadata(): CopcMetadata | undefined {
     return this.streamingState?.metadata;
   }
 
+  /** Return page request/cache counters after the source has opened. */
   getHierarchyDiagnostics(): CopcHierarchyDiagnostics | undefined {
     return this.streamingState?.hierarchyLoader.getDiagnostics();
   }
 
+  /** Return current decoded CPU point-buffer cache counters. */
   getPointCacheDiagnostics(): NodePointCacheDiagnostics {
     return this.streamingState?.cache.getDiagnostics()
       ?? this.initialCache.getDiagnostics();
   }
 
+  /** Return sorted node keys selected for the most recent completed view. */
   getCurrentSelection(): string[] {
     return [...this.selectedNodeKeys].sort();
   }
 
+  /** Return the normalized current streaming view, when one has completed. */
   getCurrentView(): StreamingView | undefined {
     return this.currentView;
   }
@@ -724,6 +775,7 @@ export class CopcStreamingCore {
     this.streamingState?.manager.invalidate('superseded', adaptiveView);
   }
 
+  /** Return a detached copy of the current replacement intent. */
   getTransitionState(): CopcStreamingTransitionState {
     return cloneTransitionState(this.transition);
   }

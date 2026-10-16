@@ -93,6 +93,7 @@ function assertPageShape(page: CopcHierarchyPage): void {
   }
 }
 
+/** Create empty mutable maps for accumulating hierarchy nodes and page references. */
 export function createHierarchyTree(): MutableHierarchyTree {
   return {
     nodeMap: new Map<string, CopcHierarchyNode>(),
@@ -100,6 +101,15 @@ export function createHierarchyTree(): MutableHierarchyTree {
   };
 }
 
+/**
+ * Merge one decoded hierarchy subtree into the mutable accumulator.
+ *
+ * Repeated identical definitions are accepted; conflicting node or page
+ * offsets, lengths, or point counts are rejected.
+ *
+ * @throws `CopcHierarchyPageError` for invalid page ranges.
+ * @throws `CopcHierarchyTraversalError` for conflicting definitions.
+ */
 export function mergeHierarchySubtree(
   tree: MutableHierarchyTree,
   subtree: CopcHierarchySubtree,
@@ -144,6 +154,19 @@ export function mergeHierarchySubtree(
   }
 }
 
+/**
+ * Build sorted node and page arrays with child and completeness metadata.
+ *
+ * Sparse missing octants remain valid. Unloaded page references can mark a
+ * parent incomplete; bounded queries ignore unresolved pages outside their
+ * completeness bounds.
+ *
+ * @param maxLevel Optional deepest hierarchy level to retain.
+ * @param loadedPageKeys Page keys whose referenced subtrees have been loaded.
+ * @param completenessBounds Optional source-coordinate query bounds.
+ * @param cubeBounds Root COPC cube used to locate unresolved pages.
+ * @returns A snapshot safe to consume without the mutable accumulator maps.
+ */
 export function finalizeHierarchyTree(
   tree: MutableHierarchyTree,
   maxLevel?: number,

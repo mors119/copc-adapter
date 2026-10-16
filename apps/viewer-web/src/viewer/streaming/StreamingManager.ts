@@ -21,16 +21,19 @@ import {
   StreamingWorkConcurrencyLimiter,
 } from './scheduler';
 
+/** Loads renderer-neutral prepared points for one selected COPC hierarchy key. */
 export type StreamingNodePointLoader = (
   nodeKey: string,
 ) => Promise<PreparedPointData>;
 
+/** Optional timing and scheduler callbacks for one current-view update. */
 export type StreamingManagerUpdateOptions = {
   /**
    * The caller started performance recording before an async hierarchy query.
    * Keep that recording so the query remains part of this update's metrics.
    */
   performanceAlreadyStarted?: boolean;
+  /** Reports queued and active node-load counts while the update is running. */
   onWorkProgress?: (progress: StreamingWorkProgress) => void;
 };
 
@@ -137,6 +140,13 @@ function createReplacementGroups(
   return groups;
 }
 
+/**
+ * Coordinate current-view selection, cache access, and bounded node loading.
+ *
+ * Each update gets a generation token. Starting a newer view invalidates
+ * callbacks and loads from the previous token while preserving reusable cache
+ * entries and already prepared point data.
+ */
 export class StreamingManager {
   private hierarchy: StreamingHierarchy;
   private readonly selector: NodeSelector;
@@ -169,14 +179,27 @@ export class StreamingManager {
     this.onInvalidate = onInvalidate;
   }
 
+  /** Return cumulative selection, loading, cache, and renderer-preparation metrics. */
   getPerformanceSnapshot() {
     return this.performanceRecorder.getSnapshot();
   }
 
+  /** Replace the hierarchy used by subsequent view selection. */
   setHierarchy(hierarchy: StreamingHierarchy): void {
     this.hierarchy = hierarchy;
   }
 
+  /**
+   * Select the view frontier, load its prepared points, and emit incremental progress.
+   *
+   * Work from a superseded generation stops contributing results. Returned
+   * point data is prepared but renderer commitment remains the adapter's job.
+   *
+   * @param camera Geographic camera state and optional ECEF frustum.
+   * @param onProgress Receives initial selection and completed-node updates.
+   * @param options Timing and scheduler progress options.
+   * @returns Selected keys, removed keys, loaded points, replacements, and generation.
+   */
   async update(
     camera: StreamingCameraState,
     onProgress?: (progress: import('./types').StreamingProgress) => void,
@@ -354,6 +377,7 @@ export class StreamingManager {
     };
   }
 
+  /** Invalidate active work and clear selection state and retained point values. */
   clear(): void {
     this.invalidate('lifecycle');
     this.selectedNodeKeys.clear();

@@ -11,9 +11,13 @@ import {
 } from './types';
 import { validateContentRange } from './contentRange';
 
+/** Fetch, validation, and resource limits for {@link HttpRangeByteSource}. */
 export type HttpRangeByteSourceOptions = {
+  /** Fetch-compatible implementation; defaults to global `fetch`. */
   readonly fetch?: RangeFetch;
+  /** Headers sent with HEAD and range requests. */
   readonly headers?: HeadersInit;
+  /** Known resource size in bytes, used to avoid an initial HEAD request. */
   readonly size?: number;
   /** Defaults to strict, request-matching Content-Range validation. */
   readonly rangeValidation?: RangeValidationPolicy;
@@ -76,6 +80,7 @@ function isAbortError(error: unknown): boolean {
 
 /** HTTP implementation of the project-owned random-access byte source. */
 export class HttpRangeByteSource implements RandomAccessByteSource {
+  /** Resource URL used by the source; diagnostic errors redact credentials and query data. */
   readonly source: string;
   private readonly fetchImpl: RangeFetch;
   private readonly headers: Headers;
@@ -92,6 +97,7 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
   private activeRangeFetches = 0;
   private flushScheduled = false;
 
+  /** Create an HTTP random-access source; construction performs no network request. */
   constructor(source: string, options: HttpRangeByteSourceOptions = {}) {
     this.source = source;
     this.fetchImpl = options.fetch ?? globalThis.fetch.bind(globalThis);
@@ -115,10 +121,12 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
     }
   }
 
+  /** Return a known or HEAD-discovered content length in bytes. */
   async size(): Promise<number | undefined> {
     return this.knownSize;
   }
 
+  /** Read exactly one interval, rejecting if the server response does not match it. */
   async readRange(
     offset: number,
     length: number,
@@ -162,6 +170,7 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
     });
   }
 
+  /** Read several intervals and return their byte arrays in the input order. */
   async readRanges(
     ranges: readonly ByteRange[],
     options: RangeReadOptions = {},

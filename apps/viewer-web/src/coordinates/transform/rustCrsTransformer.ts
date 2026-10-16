@@ -19,11 +19,17 @@ type RustCrsTransformResult = {
   point_count: number;
 };
 
+/** Coordinate buffers and preparation metadata returned by the Rust CRS path. */
 export type RustPreparedCoordinateBuffer = {
+  /** Number of coordinate triples in each output buffer. */
   pointCount: number;
+  /** Interleaved WGS84 longitude (degrees), latitude (degrees), height (metres). */
   geographicCoordinates: Float64Array;
+  /** Interleaved WGS84 ECEF XYZ positions in metres. */
   ecefCoordinates: Float64Array;
+  /** Source vertical-unit conversion used before applying the height offset. */
   verticalUnitScale: number;
+  /** True when metadata without WKT used the geographic-coordinate fallback. */
   usedHorizontalFallback: boolean;
 };
 
@@ -79,6 +85,18 @@ export class RustCrsTransformer {
     this.handle = handle;
   }
 
+  /**
+   * Create a reusable Rust/WASM transform handle from source CRS metadata.
+   *
+   * Geographic bounds may use the built-in geographic path when WKT is absent;
+   * projected bounds require WKT. The supplied height correction is applied to
+   * WGS84 ellipsoidal height in metres.
+   *
+   * @throws `RangeError` if `heightOffsetMeters` is not finite.
+   * @throws `CopcWasmError` if the WASM asset cannot be fetched, compiled, or instantiated.
+   * @throws `RustCopcParseError` if projected WKT is missing, WKT parsing fails,
+   * or Rust rejects CRS creation.
+   */
   static async fromMetadata(
     metadata: Pick<CopcMetadata, 'wkt' | 'bounds'>,
     heightOffsetMeters = 0,
@@ -114,6 +132,14 @@ export class RustCrsTransformer {
     }
   }
 
+  /**
+   * Transform interleaved source-CRS XYZ triples to geographic and ECEF buffers.
+   *
+   * Source X/Y/Z units follow the dataset CRS. The outputs use longitude and
+   * latitude degrees with ellipsoidal metres, and WGS84 ECEF metres.
+   *
+   * @throws `RustCopcParseError` if the input is not XYZ triples, the handle was disposed, or Rust rejects the data.
+   */
   transform(sourceCoordinates: Float64Array): RustPreparedCoordinateBuffer {
     if (sourceCoordinates.length % 3 !== 0) {
       throw new RustCopcParseError(
@@ -192,6 +218,7 @@ export class RustCrsTransformer {
     }
   }
 
+  /** Release the dataset-specific Rust CRS handle; repeated calls are harmless. */
   dispose(): void {
     if (this.handle.handle !== 0) {
       this.wasm.free_crs_transform(this.handle.handle);

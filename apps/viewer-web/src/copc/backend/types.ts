@@ -11,11 +11,13 @@ import type { CopcPerformanceObserver } from '../performance';
 import type { RangeRequestDiagnosticsRecorder } from '../range/requestDiagnostics';
 import type { RangeValidationPolicy } from '../range/types';
 
+/** Cancellation options for one selected node's point-data operation. */
 export type CopcPointLoadOptions = {
   /** Cancels only this point-node read; shared hierarchy reads remain reusable. */
   signal?: AbortSignal;
 };
 
+/** Source-level options shared by built-in and custom COPC backends. */
 export type CopcBackendOpenOptions = {
   /** Aborted when this source is unloaded, reloaded, or destroyed. */
   signal?: AbortSignal;
@@ -31,24 +33,37 @@ export type CopcBackendOpenOptions = {
   heightOffsetMeters?: number;
 };
 
+/** Cumulative job and concurrency counters for a backend decode worker pool. */
 export type CopcWorkerDiagnostics = {
+  /** Number of worker slots configured for the pool. */
   workerCount: number;
+  /** Workers currently executing a job. */
   activeCount: number;
+  /** Jobs waiting for a worker slot. */
   queuedCount: number;
+  /** Highest simultaneous active worker count observed. */
   peakActiveCount: number;
+  /** Highest simultaneous queued job count observed. */
   peakQueuedCount: number;
+  /** Jobs submitted to the pool. */
   submittedCount: number;
+  /** Jobs that completed successfully. */
   completedCount: number;
+  /** Jobs cancelled before completion. */
   cancelledCount: number;
+  /** Jobs that failed. */
   failedCount: number;
 };
 
 /** An opened COPC resource expressed only in project-owned types. */
 export interface CopcSource extends CopcHierarchySource {
+  /** Resource identity used for range reads and diagnostics. */
   readonly source: string;
   /** Height offset already included by `loadPreparedPointData`; omitted means zero. */
   readonly preparedHeightOffsetMeters?: number;
+  /** Return metadata parsed during source initialization. */
   getMetadata(): CopcMetadata;
+  /** Load a requested point-field view for one hierarchy node. */
   loadPointDataView(
     node: CopcHierarchyNode,
     fields: CopcPointFieldSelection,
@@ -66,6 +81,11 @@ export interface CopcSource extends CopcHierarchySource {
     fields: CopcPointFieldSelection,
     options?: CopcPointLoadOptions,
   ): Promise<PreparedPointData>;
+  /**
+   * Subscribe to source-side range, decode, and point-preparation measurements.
+   *
+   * Pass `undefined` to clear the observer.
+   */
   setPerformanceObserver?(observer: CopcPerformanceObserver | undefined): void;
   /** Drop queued decode work that cannot contribute to the current view. */
   cancelPendingPointJobs?(): void;
@@ -77,5 +97,6 @@ export interface CopcSource extends CopcHierarchySource {
 
 /** Opens COPC resources without exposing the library used to read them. */
 export interface CopcBackend {
+  /** Open a COPC source for metadata, hierarchy, and point reads. */
   open(source: string, options?: CopcBackendOpenOptions): Promise<CopcSource>;
 }

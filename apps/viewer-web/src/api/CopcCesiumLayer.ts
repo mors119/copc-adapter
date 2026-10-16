@@ -27,20 +27,25 @@ export type {
 
 export type { CopcColorMode } from '../copc/points/fieldSelection';
 
+/** Selection and workload limits applied while choosing nodes for each view. */
 export type CopcStreamingOptions = {
+  /** Maximum number of nodes in the selected frontier; defaults to 24. */
   maxNodes?: number;
+  /** Deepest hierarchy level considered; defaults to 6. */
   maxDepth?: number;
-  /** Maximum allowed projected replacement error in pixels. Defaults to 8. */
+  /** Refine nodes whose estimated screen-space error exceeds this pixel threshold; defaults to 8 pixels. */
   maxScreenSpaceError?: number;
-  /** Half-width of the state-aware SSE hold band in pixels. */
+  /** Half-width of the state-aware SSE hold band in pixels; defaults to 12.5% of the error threshold. */
   screenSpaceErrorHysteresis?: number;
-  /** @deprecated Planned for removal in v0.9, after v0.8. Use maxScreenSpaceError. */
+  /** @deprecated Planned for removal in v0.9, after v0.8. Retained for compatibility; use maxScreenSpaceError. */
   refineDistanceMultiplier?: number;
+  /** Maximum camera-to-node selection distance in metres; defaults to 12,000. */
   maxRenderDistanceMeters?: number;
-  /** Maximum estimated points in the active current-view workload. */
+  /** Maximum estimated points in the active current-view workload; defaults to 250,000. */
   maxRenderedPoints?: number;
 };
 
+/** Options for a reusable Cesium layer backed by a browser-readable COPC URL. */
 export type CopcCesiumLayerOptions = {
   /** Browser-readable COPC resource URL with HTTP range-request support. */
   url: string;
@@ -52,7 +57,7 @@ export type CopcCesiumLayerOptions = {
   heightOffsetMeters?: number;
   /** Emits COPC layer lifecycle messages through console.debug. */
   debug?: boolean;
-  /** Maximum estimated points in the active current-view workload. */
+  /** Maximum estimated points in the active current-view workload; defaults to 250,000. */
   maxRenderedPoints?: number;
   /** Overrides for the default streaming selection limits. */
   streaming?: CopcStreamingOptions;
@@ -73,127 +78,156 @@ export type CopcCesiumLayerOptions = {
   /** Maximum active HTTP ranges per source. Defaults to 4; any positive safe integer is accepted. */
   maxConcurrentRangeRequests?: number;
 };
+/** Read-only snapshot of Cesium layer lifecycle, rendering, streaming, and cache state. */
 export type CopcCesiumLayerSnapshot = CopcLayerSnapshot;
 export type { CopcLayerErrorEvent, CopcViewCancellationReason };
 
 /**
- * A reusable COPC streaming layer for a caller-owned Cesium Viewer.
+ * A reusable, view-driven COPC streaming layer for a caller-owned Cesium Viewer.
  *
- * Loading is independent of attachment, so applications can prepare a COPC
- * layer before adding it to a viewer.
+ * `load()` reads metadata and the root hierarchy; point data is fetched only
+ * for selected camera views. Loading may happen before attachment. The layer
+ * owns its primitives and event listeners, but never destroys the supplied
+ * Viewer. Attaching or loading into an attached Viewer may fly the camera to
+ * the metadata extent.
+ *
+ * @example
+ * ```ts
+ * const layer = new CopcCesiumLayer({ url: '/data/area.copc.laz' });
+ * layer.attachTo(viewer);
+ * await layer.load();
+ * ```
  */
 export class CopcCesiumLayer {
   private readonly controller: CopcLayerController;
 
+  /** Create an unloaded layer configured for a COPC resource. */
   constructor(options: CopcCesiumLayerOptions) {
     this.controller = new CopcLayerController(options);
   }
 
-  /** Native Cesium event for queued and active COPC node work. */
+  /** Native Cesium event carrying queued count, active count, and view generation. */
   get loadProgress(): CopcCesiumEvent<[number, number, number]> {
     return this.controller.loadProgress;
   }
 
-  /** Fired after metadata and the root hierarchy are ready for this load. */
+  /** Fires with a metadata snapshot and load generation after metadata and the root hierarchy are ready. */
   get metadataReady(): CopcCesiumEvent<[CopcMetadata, number]> {
     return this.controller.metadataReady;
   }
 
-  /** Fired after the first nonempty node is committed to the renderer. */
+  /** Fires once per load after the first nonempty selected node is committed, with load and view generations. */
   get firstVisible(): CopcCesiumEvent<[number, number]> {
     return this.controller.firstVisible;
   }
 
-  /** Fired when the selected work for a current view is committed. */
+  /** Fires with the settled view generation and selected node keys after renderer commitment. */
   get viewSettled(): CopcCesiumEvent<[number, readonly string[]]> {
     return this.controller.viewSettled;
   }
 
-  /** Fired when an active view is invalidated. */
+  /** Fires with the invalidated view generation and cancellation reason. */
   get viewCancelled(): CopcCesiumEvent<[number, CopcViewCancellationReason]> {
     return this.controller.viewCancelled;
   }
 
-  /** Fired for load and background view failures. */
+  /** Fires with a structured load or view error; view failures are reported asynchronously. */
   get error(): CopcCesiumEvent<[CopcLayerErrorEvent]> {
     return this.controller.error;
   }
 
-  /** Full COPC metadata extent in WGS84 ECEF metres, when supported. */
+  /** Return a clone of the full metadata extent in WGS84 ECEF metres, when supported. */
   get boundingSphere(): Cesium.BoundingSphere | undefined {
     return this.controller.boundingSphere;
   }
 
-  /** Explicitly fly the attached Viewer camera to the metadata extent. */
+  /**
+   * Fly the attached Viewer camera to the metadata extent.
+   *
+   * @param offset Optional Cesium heading/pitch in radians and range in metres.
+   * @returns `true` when the flight completes and `false` when Cesium cancels it.
+   * @throws Rejects if the layer/viewer is unavailable, the scene is morphing, or no supported extent exists.
+   */
   zoomTo(offset?: Cesium.HeadingPitchRange): Promise<boolean> {
     return this.controller.zoomTo(offset);
   }
 
-  /** Attach the layer's rendered primitives to a Cesium Viewer. */
+  /**
+   * Attach layer-owned primitives and camera listeners to a caller-owned Viewer.
+   *
+   * If data is already loaded, attachment starts view streaming and flies to
+   * the dataset extent. The layer does not take ownership of the Viewer.
+   *
+   * @throws If the layer has been destroyed.
+   */
   attachTo(viewer: Cesium.Viewer): void {
     this.controller.attachTo(viewer);
   }
 
-  /** Whether this layer's Cesium primitives are visible. Defaults to true. */
+  /** Whether this layer's Cesium primitives are visible; defaults to `true`. */
   get show(): boolean {
     return this.controller.show;
   }
 
+  /** Set primitive visibility; changing this does not unload cached point data. */
   set show(value: boolean) {
     this.controller.show = value;
   }
 
-  /** Detach from the current Cesium Viewer without unloading COPC data. */
+  /** Detach primitives and camera/picking listeners without unloading COPC metadata or cached source data. */
   detachFrom(): void {
     this.controller.detachFrom();
   }
 
   /**
-   * Load metadata and hierarchy from the configured COPC URL.
+   * Load source metadata and the root hierarchy from the configured COPC URL.
    *
-   * Rejects with a project-owned CopcLoadError when source, metadata/CRS, or
-   * hierarchy initialization fails.
+   * Point nodes are streamed later for camera views. If attached, loading also
+   * flies to the dataset extent and waits for the initial view update; without
+   * a Viewer it resolves when the metadata and root hierarchy are ready.
+   *
+   * @throws `CopcLoadError` when source, metadata/CRS, or hierarchy initialization fails.
    */
   async load(): Promise<void> {
     await this.controller.load();
   }
 
-  /** Release loaded COPC data and rendered primitives. */
+  /** Release loaded source data, cached points, and rendered primitives; the Viewer attachment remains. */
   unload(): void {
     this.controller.unload();
   }
 
-  /** Unload and load the configured COPC URL again. */
+  /** Unload current state and load the configured COPC URL again. */
   async reload(): Promise<void> {
     await this.controller.reload();
   }
 
-  /** Permanently release layer resources without destroying the Cesium Viewer. */
+  /** Permanently release layer-owned resources and listeners without destroying the Cesium Viewer. */
   destroy(): void {
     this.controller.destroy();
   }
 
-  /** Return state suitable for application diagnostics. */
+  /** Return a fresh state snapshot suitable for application diagnostics. */
   getSnapshot(): CopcCesiumLayerSnapshot {
     return this.controller.getSnapshot();
   }
 
-  /** Return loaded COPC metadata, if available. */
+  /** Return loaded COPC metadata, or `undefined` before loading or after unloading. */
   getMetadata(): CopcMetadata | undefined {
     return this.controller.getMetadata();
   }
 
-  /** Return hierarchy request/cache counters for diagnostics and tests. */
+  /** Return hierarchy page-request/cache counters after the source has opened. */
   getHierarchyDiagnostics(): CopcHierarchyDiagnostics | undefined {
     return this.controller.getHierarchyDiagnostics();
   }
 
-  /** Return decoded CPU point-buffer cache counters for diagnostics and tests. */
+  /** Return decoded CPU point-buffer cache counters and retained bytes. */
   getPointCacheDiagnostics(): NodePointCacheDiagnostics {
     return this.controller.getPointCacheDiagnostics();
   }
 
-  /** Return the selected point while its node and decoded buffer are live. */
+  /** Return the selected point while its rendered node and decoded buffer remain live. */
   getSelectedPoint(): CopcPointInspection | undefined {
     return this.controller.getSelectedPoint();
   }
@@ -204,8 +238,11 @@ export class CopcCesiumLayer {
   }
 
   /**
-   * Update point colors and classification visibility from cached point data.
-   * This does not issue metadata, hierarchy, or point-chunk requests.
+   * Update point colors and classification visibility from retained point data.
+   *
+   * This restyles the current renderer contents without issuing metadata,
+   * hierarchy, or point-chunk requests. A later streamed node uses the same
+   * current style.
    */
   setStyle(style: CopcCesiumPointStyleUpdate): void {
     this.controller.setStyle(style);
