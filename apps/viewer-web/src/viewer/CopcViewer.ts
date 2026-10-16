@@ -90,36 +90,64 @@ export type CopcLayerOptions = {
   maxConcurrentRangeRequests?: number;
 };
 
+/** Lifecycle values included in the Cesium layer diagnostic snapshot. */
 export type CopcLayerLifecycleState =
+  /** Constructed but not attached or loading. */
   | 'idle'
+  /** Attached to a Viewer without loaded metadata. */
   | 'mounted'
+  /** Source metadata and root hierarchy are loading. */
   | 'loading'
+  /** Metadata and root hierarchy are ready for view-driven point streaming. */
   | 'ready'
+  /** Permanently destroyed. */
   | 'destroyed';
 
+/** Counts describing visible-node coverage transitions. */
 export type CopcLayerTransitionDiagnostics = {
+  /** Replacement groups currently awaiting completion. */
   activeReplacementGroupCount: number;
+  /** Groups waiting for required new nodes to be prepared. */
   replacementGroupsWaitingCount: number;
+  /** Refinement groups committed. */
   refinementReplacementCommitCount: number;
+  /** Collapse groups committed. */
   collapseReplacementCommitCount: number;
+  /** Groups cancelled because their view became stale. */
   staleReplacementCancellationCount: number;
+  /** Coarse nodes retained to preserve coverage during replacement. */
   coarseNodesRetainedForCoverageCount: number;
 };
 
+/** Diagnostic snapshot of the Cesium adapter and its shared streaming core. */
 export type CopcLayerSnapshot = {
+  /** Current layer lifecycle state. */
   lifecycle: CopcLayerLifecycleState;
+  /** Hierarchy nodes currently committed to the renderer. */
   renderedNodeKeys: string[];
+  /** Hierarchy nodes selected for the current view. */
   selectedNodeKeys: string[];
+  /** Number of points currently committed to the renderer. */
   renderedPointCount: number;
+  /** Number of view updates started. */
   streamingUpdateCount: number;
+  /** Configured COPC resource URL. */
   datasetUrl: string;
+  /** Whether the layer is attached to a Cesium Viewer. */
   attached: boolean;
+  /** Built-in backend name or `custom` for a supplied backend. */
   backend: CopcBackendName | 'custom';
+  /** Core range-fetch, decode, and point-preparation measurements. */
   performance: ReturnType<StreamingPerformanceRecorder['getSnapshot']>;
+  /** Visible-node replacement diagnostics. */
   transition: CopcLayerTransitionDiagnostics;
+  /** Adaptive current-view distance diagnostics, when a view has been evaluated. */
   viewDistance?: AdaptiveViewDistanceDiagnostics;
+  /** Decoded CPU point-buffer cache counters and retained bytes. */
   pointCache: NodePointCacheDiagnostics;
+  /** Source-owned HTTP range-request counters and transferred bytes. */
   rangeRequests: RangeRequestDiagnostics;
+  /** Decode worker counters when exposed by the selected backend. */
   worker?: CopcWorkerDiagnostics;
 };
 

@@ -30,6 +30,17 @@ function hasGeographicBounds(metadata: CopcMetadata): boolean {
   );
 }
 
+/**
+ * Create a source-XYZ to WGS84 geographic transform for one dataset.
+ *
+ * Horizontal results use longitude/latitude degrees; height is WGS84
+ * ellipsoidal metres. Projected source coordinates require metadata WKT. When
+ * WKT is absent, only metadata whose bounds look geographic can use the
+ * identity horizontal mapping.
+ *
+ * @param heightOffsetMeters Additive correction to transformed ellipsoidal height; defaults to 0.
+ * @throws If projected coordinates have no usable WKT.
+ */
 export function createPointTransformer(
   metadata: CopcMetadata,
   heightOffsetMeters = 0,
@@ -65,7 +76,12 @@ export function createPointTransformer(
   };
 }
 
-/** Convert adapter/view coordinates back into the COPC source coordinate space. */
+/**
+ * Create a WGS84 geographic to COPC source-XYZ transform for view queries.
+ *
+ * @param heightOffsetMeters Correction previously applied to ellipsoidal height; defaults to 0 and is removed before inverse transformation.
+ * @throws If projected source coordinates have no usable WKT.
+ */
 export function createProjectPointTransformer(
   metadata: CopcMetadata,
   heightOffsetMeters = 0,
@@ -100,6 +116,15 @@ export function createProjectPointTransformer(
   };
 }
 
+/**
+ * Transform decoded source triples to a geographic point buffer.
+ *
+ * Longitude/latitude are stored in degrees and height in WGS84 ellipsoidal
+ * metres. Source and ECEF buffers are retained by the returned compatibility
+ * shape when available.
+ *
+ * @param heightOffsetMeters Additive ellipsoidal-height correction; defaults to 0.
+ */
 export function transformPointBuffer(
   metadata: CopcMetadata,
   points: CopcPointBuffer,
@@ -111,9 +136,10 @@ export function transformPointBuffer(
 }
 
 /**
- * Decode output after the shared CRS path, retaining every useful coordinate
- * space in Float64 form for engine adapters. This is the renderer-neutral
- * prepared-point contract retained by the streaming cache.
+ * Prepare the shared point data after source CRS conversion.
+ *
+ * The result retains source, WGS84 geographic, and ECEF coordinate buffers in
+ * Float64 form for renderer adapters and the streaming cache.
  */
 export function transformPointBufferToPointData(
   metadata: CopcMetadata,
@@ -123,7 +149,13 @@ export function transformPointBufferToPointData(
   return transformPointBufferToPreparedPointData(metadata, points, heightOffsetMeters);
 }
 
-/** Prepare source points into the shared, renderer-neutral data contract. */
+/**
+ * Prepare source points into the shared, renderer-neutral data contract.
+ *
+ * Retains source CRS, WGS84 geographic, and ECEF buffers as Float64 arrays.
+ *
+ * @param heightOffsetMeters Additive ellipsoidal-height correction; defaults to 0.
+ */
 export function transformPointBufferToPreparedPointData(
   metadata: CopcMetadata,
   points: CopcPointBuffer,
@@ -161,7 +193,14 @@ export function transformPointBufferToPreparedPointData(
   });
 }
 
-/** Apply a residual ellipsoidal-height correction to an already prepared result. */
+/**
+ * Apply an additional ellipsoidal-height correction to prepared points.
+ *
+ * Source coordinates are unchanged; geographic heights and ECEF positions
+ * are recomputed. A zero correction returns the original prepared object.
+ *
+ * @param heightOffsetDeltaMeters Additional correction in metres.
+ */
 export function applyPreparedPointHeightOffset(
   prepared: PreparedPointData,
   heightOffsetDeltaMeters: number,

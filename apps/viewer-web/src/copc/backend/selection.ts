@@ -2,9 +2,17 @@ import type { CopcBackend } from './types';
 import { copcJsBackend } from './copcJsBackend';
 import { rustCopcBackend } from './rustCopcBackend';
 
-export type CopcBackendName = 'copc-js' | 'rust';
+/** Built-in COPC decoding backend identifiers. */
+export type CopcBackendName =
+  /** The JavaScript COPC backend; this is the default selection. */
+  | 'copc-js'
+  /** The opt-in Rust/WASM backend. Errors are surfaced without backend fallback. */
+  | 'rust';
+
+/** Select a built-in backend by name or supply a project-compatible backend. */
 export type CopcBackendSelection = CopcBackendName | CopcBackend;
 
+/** Resolve a name or custom backend object to the backend used for a source. */
 export function resolveCopcBackend(
   selection: CopcBackendSelection = 'copc-js',
 ): CopcBackend {
@@ -19,6 +27,7 @@ export function resolveCopcBackend(
   return selection;
 }
 
+/** Return the diagnostic name for a backend selection without opening it. */
 export function getCopcBackendName(
   selection: CopcBackendSelection | undefined,
 ): CopcBackendName | 'custom' {

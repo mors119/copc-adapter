@@ -1,20 +1,37 @@
+/** Stage at which a COPC resource operation failed. */
 export type CopcLoadStage =
+  /** Opening the byte source or establishing random access. */
   | 'source'
+  /** Reading or validating COPC/LAS header, VLR, or CRS metadata. */
   | 'metadata'
+  /** Reading or traversing hierarchy pages. */
   | 'hierarchy'
+  /** Reading a selected point-data byte range. */
   | 'point-data'
+  /** Decoding a selected point chunk. */
   | 'decode'
+  /** Loading or invoking the Rust/WASM runtime. */
   | 'wasm';
 
+/** Stable backend failure categories for programmatic error handling. */
 export type CopcBackendErrorCode =
+  /** Random-access source failure while reading bytes. */
   | 'source-range'
+  /** COPC/LAS header or metadata could not be parsed. */
   | 'header-parse'
+  /** Hierarchy page read, parse, or traversal failed. */
   | 'hierarchy'
+  /** Selected node point-data range could not be read. */
   | 'point-chunk'
+  /** LAZ point chunk could not be decoded. */
   | 'laz-decode'
+  /** Requested format, field, or feature is unsupported. */
   | 'unsupported'
+  /** Rust/WASM runtime or ABI failed. */
   | 'wasm'
+  /** Decode worker creation, communication, or execution failed. */
   | 'worker'
+  /** Failure did not match a more specific category. */
   | 'unknown';
 
 type CopcLoadErrorOptions = ErrorOptions & {
@@ -41,9 +58,12 @@ function displaySource(source: string): string {
 
 /** Project-owned error returned when a public COPC load stage fails. */
 export class CopcLoadError extends Error {
+  /** Public load stage associated with the failure. */
   readonly stage: CopcLoadStage;
+  /** Resource identifier supplied by the caller. */
   readonly source: string;
 
+  /** Create a project-owned load error and preserve an optional cause. */
   constructor(
     message: string,
     stage: CopcLoadStage,
@@ -100,7 +120,9 @@ export class CopcHierarchyLoadError extends CopcLoadError {
 
 /** Structured failure raised by a backend while reading or decoding COPC data. */
 export class CopcBackendError extends CopcLoadError {
+  /** Stable machine-readable backend failure category. */
   readonly code: CopcBackendErrorCode;
+  /** COPC hierarchy key associated with a node-level failure, when known. */
   readonly nodeKey?: string;
 
   constructor(

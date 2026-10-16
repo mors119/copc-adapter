@@ -7,14 +7,22 @@ import type {
 import { extractVerticalUnitScale } from '../../coordinates/crs/parseCopcWkt';
 import { resolveHeightOffsetMeters } from '../../coordinates/transform/heightOffset';
 
+/** Inclusive numeric range used to normalize a point attribute for display. */
 export type CopcValueRange = {
+  /** Minimum observed or caller-supplied value. */
   min: number;
+  /** Maximum observed or caller-supplied value. */
   max: number;
 };
 
+/** WGS84 ellipsoidal-height range in metres. */
 export type CopcElevationRange = CopcValueRange;
 
-/** Return the stable WGS84 elevation range represented by dataset metadata. */
+/**
+ * Return dataset metadata's WGS84 ellipsoidal-height range in metres.
+ *
+ * @param heightOffsetMeters Additive height correction in metres; defaults to 0.
+ */
 export function getDatasetElevationRange(
   metadata: CopcMetadata,
   heightOffsetMeters = 0,
@@ -36,22 +44,32 @@ export function getDatasetElevationRange(
 
 /** A renderer-neutral color in the normalized [0, 1] range. */
 export type CopcNormalizedColor = {
+  /** Red component in [0, 1]. */
   red: number;
+  /** Green component in [0, 1]. */
   green: number;
+  /** Blue component in [0, 1]. */
   blue: number;
+  /** Alpha component in [0, 1]. */
   alpha: number;
 };
 
+/** Fully resolved style settings used while preparing point colors. */
 export type CopcPointStyleOptions = {
+  /** Mapping applied to each point. */
   colorMode: CopcColorMode;
+  /** Height range in metres used by elevation coloring. */
   elevationRange: CopcElevationRange;
+  /** Source intensity range used by intensity coloring, when available. */
   intensityRange?: CopcValueRange;
   /** Source RGB precision. COPC RGB is retained as Uint16 until this step. */
   rgbMax?: 255 | 65535;
 };
 
+/** Partial style overrides; omitted values are inferred from the point buffer. */
 export type CopcPointStyleInput = Partial<CopcPointStyleOptions>;
 
+/** Per-layer state that keeps source-derived RGB scale consistent across nodes. */
 export type CopcPointStyleState = {
   /** Resolve the RGB display scale once for the owning dataset/layer. */
   getRgbMax(points: GeographicPointBuffer): 255 | 65535 | undefined;
@@ -111,6 +129,11 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
+/**
+ * Normalize a finite value to [0, 1], clamping outside the range.
+ *
+ * Degenerate or non-finite inputs map to 0.5.
+ */
 export function normalizeElevation(
   height: number,
   range: CopcElevationRange,
@@ -127,6 +150,7 @@ export function normalizeElevation(
   return clamp((height - range.min) / (range.max - range.min), 0, 1);
 }
 
+/** Normalize a LAS intensity value with the same clamped range rule as elevation. */
 export function normalizeIntensity(
   intensity: number,
   range: CopcValueRange,
@@ -134,6 +158,7 @@ export function normalizeIntensity(
   return normalizeElevation(intensity, range);
 }
 
+/** Return the prepared or measured WGS84 ellipsoidal-height range in metres. */
 export function getPointBufferElevationRange(
   points: GeographicPointBuffer,
 ): CopcElevationRange {
@@ -158,6 +183,7 @@ export function getPointBufferElevationRange(
     : { min: 0, max: 0 };
 }
 
+/** Return the prepared or measured intensity range, or `undefined` when absent. */
 export function getPointBufferIntensityRange(
   points: GeographicPointBuffer,
 ): CopcValueRange | undefined {
@@ -188,6 +214,7 @@ export function getPointBufferIntensityRange(
     : undefined;
 }
 
+/** Infer the source RGB display maximum (255 or 65,535), when RGB is present. */
 export function getPointBufferRgbMax(
   points: GeographicPointBuffer,
 ): 255 | 65535 | undefined {
@@ -314,8 +341,7 @@ function interpolateColor(
 
 /**
  * Prepare one renderer-neutral color using the shared adapter semantics.
- * Attribute modes intentionally return `undefined` when their field is not
- * available so callers can apply the documented fixed-color fallback.
+ * Missing source attributes use the fixed-color fallback.
  */
 export function getCopcPointColor(
   height: number,
@@ -354,7 +380,7 @@ export function getCopcPointColor(
   );
 }
 
-/** Resolve node-local ranges once before generating a node's color buffer. */
+/** Resolve omitted ranges and RGB scale from one decoded point buffer. */
 export function resolveCopcPointStyleOptions(
   points: GeographicPointBuffer,
   options: CopcPointStyleInput = {},
@@ -397,6 +423,7 @@ export function prepareCopcPointColorBuffer(
   return colors;
 }
 
+/** Return a fresh copy of the adapter's fixed cyan fallback color. */
 export function getFixedPointColor(): CopcNormalizedColor {
   return cloneColor(FIXED_POINT_COLOR);
 }

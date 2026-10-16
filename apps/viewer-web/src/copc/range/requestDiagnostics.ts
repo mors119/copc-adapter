@@ -1,26 +1,41 @@
 import type { RangeReadOptions, RandomAccessByteSource } from './types';
 
+/** Stable abort reasons used to distinguish view changes from source teardown. */
 export const RANGE_CANCELLATION_REASON = {
   superseded: 'superseded',
   lifecycle: 'lifecycle',
 } as const;
 
+/** Cancellation category recorded for an in-flight range read. */
 export type RangeCancellationReason =
   typeof RANGE_CANCELLATION_REASON[keyof typeof RANGE_CANCELLATION_REASON];
 
+/** One request lifecycle event accepted by the diagnostics recorder. */
 export type RangeRequestOutcome =
+  /** A range read started and incremented the active count. */
   | 'requested'
+  /** A range read returned its requested bytes. */
   | 'completed'
+  /** A range read failed for a reason other than cancellation. */
   | 'failed'
+  /** A range read was cancelled because a newer view no longer needed it. */
   | 'abortedSuperseded'
+  /** A range read was cancelled because its owning source lifecycle ended. */
   | 'abortedLifecycle';
 
+/** Aggregate range lifecycle counts; byte totals are recorded separately. */
 export type RangeRequestDiagnostics = {
+  /** Total range reads started. */
   requested: number;
+  /** Reads currently active according to recorded lifecycle events. */
   active: number;
+  /** Reads that completed successfully. */
   completed: number;
+  /** Reads that failed without cancellation. */
   failed: number;
+  /** Reads cancelled by a superseding view. */
   abortedSuperseded: number;
+  /** Reads cancelled by source lifecycle teardown. */
   abortedLifecycle: number;
 };
 
@@ -93,6 +108,7 @@ export class RangeRequestDiagnosticsRecorder {
     this.diagnostics.active = Math.max(0, this.diagnostics.active - 1);
   }
 
+  /** Return a detached snapshot of cumulative lifecycle counts. */
   getSnapshot(): RangeRequestDiagnostics {
     return { ...this.diagnostics };
   }
@@ -104,11 +120,13 @@ export class RangeRequestDiagnosticsRecorder {
  * only the source lifecycle signal so reusable page reads stay intact.
  */
 export class ProjectOwnedByteSource implements RandomAccessByteSource {
+  /** Resource identity exposed by the wrapped byte source. */
   readonly source: string;
   private readonly delegate: RandomAccessByteSource;
   private readonly lifecycleSignal?: AbortSignal;
   private readonly diagnostics: RangeRequestDiagnosticsRecorder;
 
+  /** Wrap a byte source with lifecycle cancellation and aggregate accounting. */
   constructor(
     delegate: RandomAccessByteSource,
     lifecycleSignal: AbortSignal | undefined,
@@ -120,6 +138,7 @@ export class ProjectOwnedByteSource implements RandomAccessByteSource {
     this.diagnostics = diagnostics;
   }
 
+  /** Read one range using both source lifecycle and caller cancellation signals. */
   async readRange(
     offset: number,
     length: number,
@@ -154,6 +173,7 @@ export class ProjectOwnedByteSource implements RandomAccessByteSource {
     }
   }
 
+  /** Read ranges concurrently and preserve the input order in the returned array. */
   readRanges(
     ranges: Parameters<RandomAccessByteSource['readRanges']>[0],
     options: RangeReadOptions = {},
@@ -162,6 +182,7 @@ export class ProjectOwnedByteSource implements RandomAccessByteSource {
       this.readRange(offset, length, options)));
   }
 
+  /** Return the delegate's known size without starting a range read. */
   size(): Promise<number | undefined> {
     return this.delegate.size();
   }

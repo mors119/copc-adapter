@@ -329,6 +329,7 @@ class CopcJsSource implements CopcSource {
   }
 }
 
+/** Options for the JavaScript COPC backend. */
 export type CopcJsBackendOptions = {
   /**
    * Extra schema dimensions (for example LAS extra bytes) to read for every
@@ -347,6 +348,7 @@ export class CopcJsBackend implements CopcBackend {
     this.extraDimensions = options.extraDimensions;
   }
 
+  /** Open a source through the JavaScript COPC reader and adapt it to project types. */
   async open(
     source: string,
     options: CopcBackendOpenOptions = {},
@@ -368,5 +370,5 @@ export class CopcJsBackend implements CopcBackend {
   }
 }
 
-/** Shared default backend used when callers do not provide one. */
+/** Shared default JavaScript backend used when callers do not select another backend. */
 export const copcJsBackend: CopcBackend = new CopcJsBackend();

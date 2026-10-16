@@ -1,43 +1,63 @@
+/** Asynchronous loader for one hierarchy node's decoded point value. */
 export type NodePointLoader<TValue> = (
   nodeKey: string,
   signal: AbortSignal,
 ) => Promise<TValue>;
 
+/** CPU-side cache occupancy and access counters; GPU allocations are excluded. */
 export type NodePointCacheDiagnostics = {
+  /** Configured retained-value budget in bytes; `Infinity` means no byte cap. */
   cacheByteBudget: number;
+  /** Estimated bytes currently retained by resolved values. */
   currentCacheBytes: number;
+  /** Resolved node values currently retained. */
   cachedNodeCount: number;
+  /** Reads served from the cache without invoking the loader. */
   hits: number;
+  /** Reads that created a loader operation. */
   misses: number;
+  /** Resolved entries evicted for entry-count or byte-budget pressure. */
   evictionCount: number;
+  /** Estimated retained bytes removed by eviction. */
   bytesEvicted: number;
+  /** Largest resolved entry retained since the cache was created, in bytes. */
   largestCachedEntryBytes: number;
 };
 
+/** Read and cancellation operations exposed by one node point cache. */
 export type NodePointCache<TValue> = {
+  /** Load a node once, sharing pending work for duplicate reads of its key. */
   load(nodeKey: string): Promise<TValue>;
   /** Return a resolved value without changing cache recency. */
   get(nodeKey: string): TValue | undefined;
+  /** Remove a resolved or pending entry. */
   delete(nodeKey: string): void;
+  /** Return whether a resolved or pending entry exists. */
   has(nodeKey: string): boolean;
+  /** Return the number of resolved and pending cache entries. */
   getSize(): number;
+  /** Protect selected nodes from eviction while the current view uses them. */
   setRequiredNodeKeys(nodeKeys: Iterable<string>): void;
   /** Abort and evict in-flight entries so a later generation can retry them. */
   cancelPending(reason?: 'superseded' | 'lifecycle'): void;
-  /** Keep in-flight entries that remain selected in the new view. */
+  /** Keep in-flight entries that remain selected in the replacement view. */
   cancelPendingExcept(
     nodeKeys: Iterable<string>,
     reason?: 'superseded' | 'lifecycle',
   ): void;
+  /** Return a detached counter snapshot. */
   getDiagnostics(): NodePointCacheDiagnostics;
+  /** Cancel pending work and release all retained values. */
   clear(): void;
 };
 
+/** Entry-count, byte-budget, and value-size policy for a node point cache. */
 export type NodePointCacheOptions<TValue = unknown> = {
+  /** Maximum resolved and pending node entries; must be a positive integer. */
   maxEntries: number;
   /** Maximum retained decoded CPU point-buffer bytes. Defaults to no byte cap. */
   maxBytes?: number;
-  /** Estimates the bytes owned by a resolved cache value. */
+  /** Estimate retained bytes for a resolved value; defaults to reachable typed-array storage. */
   estimateBytes?: (value: TValue) => number;
 };
 
@@ -132,6 +152,18 @@ export function estimateDecodedCpuPointBufferBytes(value: unknown): number {
   return visit(value);
 }
 
+/**
+ * Create an LRU cache that shares in-flight node loads and bounds retained CPU data.
+ *
+ * Entries required by the active view are protected from eviction. If all
+ * entries are required, the cache may temporarily exceed `maxEntries` or
+ * `maxBytes` until the required-key set changes.
+ *
+ * @param loader Loads decoded/prepared data for a hierarchy node.
+ * @param options Entry limit, optional byte budget, and optional size estimator.
+ * @returns Cache operations and detached occupancy diagnostics.
+ * @throws `RangeError` when configured entry or byte limits are invalid.
+ */
 export function createNodePointCache<TValue>(
   loader: NodePointLoader<TValue>,
   options: NodePointCacheOptions<TValue>,

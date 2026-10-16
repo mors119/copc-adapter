@@ -26,23 +26,38 @@ const MAX_SAFE_INTEGER = Number.MAX_SAFE_INTEGER;
 const MAX_DECODE_POINTS = 5_000_000;
 
 export type RustCopcReaderOptions = {
+  /** Maximum source range length in bytes; defaults to the shared 64 MiB limit. */
   readonly maxRangeBytes?: number;
+  /** Additive correction to WGS84 ellipsoidal point heights, in metres; defaults to 0. */
   readonly heightOffsetMeters?: number;
 };
 
 type RustHeaderValue = {
+  /** LAS file-format major version. */
   version_major: number;
+  /** LAS file-format minor version. */
   version_minor: number;
+  /** LAS point data record format identifier. */
   point_data_record_format: number;
+  /** Point record length in bytes. */
   point_data_record_length: number;
+  /** Total source point count. */
   point_count: number;
+  /** LAS X, Y, and Z scale factors. */
   scale: [number, number, number];
+  /** LAS X, Y, and Z offsets. */
   offset: [number, number, number];
+  /** Minimum and maximum source bounds in XYZ order. */
   bounds: [number, number, number, number, number, number];
+  /** COPC root cube bounds in source-coordinate units. */
   cube: [number, number, number, number, number, number];
+  /** Nominal point spacing in source-coordinate units. */
   spacing: number;
+  /** Root hierarchy page offset in bytes. */
   root_hierarchy_page_offset: number;
+  /** Root hierarchy page length in bytes. */
   root_hierarchy_page_length: number;
+  /** Source CRS WKT, when present. */
   wkt?: string;
 };
 
@@ -80,6 +95,7 @@ export { RustCopcParseError } from './rustCopcErrors';
 export type { RustCopcParseErrorCode } from './rustCopcErrors';
 import { requireRustWasmPointer, RustCopcParseError } from './rustCopcErrors';
 
+/** Header fields parsed from the COPC source by the Rust/WASM reader. */
 export type RustCopcHeader = RustHeaderValue;
 
 function requireDecodePointCount(value: number): number {
@@ -231,9 +247,13 @@ function toHierarchySubtree(
  * TypeScript owns I/O; Rust only validates and interprets COPC bytes.
  */
 export class RustCopcReader {
+  /** Resource identifier of the supplied byte source. */
   readonly source: string;
+  /** Parsed LAS/COPC header values. */
   readonly header: RustCopcHeader;
+  /** Per-range read ceiling in bytes used by the reader and worker pool. */
   readonly maxRangeBytes: number;
+  /** Additive ellipsoidal-height correction used by prepared-point reads. */
   readonly heightOffsetMeters: number;
   private readonly byteSource: RandomAccessByteSource;
   private readonly decodeWorkerPool?: RustCopcDecodeWorkerPool;
@@ -258,6 +278,7 @@ export class RustCopcReader {
 
   private metadataBytes: Uint8Array | undefined;
 
+  /** Replace or clear the observer for completed range, decode, and preparation measurements. */
   setPerformanceObserver(observer: CopcPerformanceObserver | undefined): void {
     this.performanceObserver = observer;
   }
@@ -279,6 +300,14 @@ export class RustCopcReader {
     return bytes;
   }
 
+  /**
+   * Read and validate source metadata, then create a reader over the supplied byte source.
+   *
+   * The reader owns its decode workers and preparer, but does not destroy the
+   * caller-supplied byte source.
+   *
+   * @throws Parser or byte-source errors when the header or metadata cannot be read or validated.
+   */
   static async open(
     byteSource: RandomAccessByteSource,
     options: RustCopcReaderOptions = {},
@@ -300,6 +329,7 @@ export class RustCopcReader {
     return reader;
   }
 
+  /** Return normalized COPC metadata, preserving source CRS units and WKT. */
   getMetadata(): CopcMetadata {
     const { bounds, cube, scale, offset } = this.header;
     return {
@@ -319,6 +349,7 @@ export class RustCopcReader {
     };
   }
 
+  /** Return the root hierarchy byte range parsed from the COPC header. */
   getRootHierarchyPage(): CopcHierarchyPage {
     return {
       key: '0-0-0-0',
@@ -333,6 +364,7 @@ export class RustCopcReader {
     };
   }
 
+  /** Fetch and parse one hierarchy page through the supplied random-access source. */
   async loadHierarchyPage(page: CopcHierarchyPage): Promise<CopcHierarchySubtree> {
     const pageOffset = requireSafeInteger(page.pageOffset, 'hierarchy page offset');
     const pageLength = requireHierarchyPageLength(page.pageLength, this.maxRangeBytes);
@@ -351,13 +383,18 @@ export class RustCopcReader {
     ), this.maxRangeBytes);
   }
 
+  /** Load the root page only; referenced child pages remain lazy. */
   async loadRootHierarchy(): Promise<CopcHierarchySubtree> {
     return this.loadHierarchyPage(this.getRootHierarchyPage());
   }
 
   /**
-   * Reads and decodes exactly one hierarchy node's compressed LAZ chunk.
-   * TypeScript owns both range requests; Rust owns LAZ and LAS field decoding.
+   * Read and decode one hierarchy node's compressed LAZ chunk.
+   *
+   * TypeScript performs the byte-range read and Rust decodes the requested
+   * fields. The returned coordinates remain in COPC source units.
+   *
+   * @throws If the node range, point count, requested fields, or LAZ data is invalid; abort rejects this operation.
    */
   async loadPointDataBuffer(
     node: CopcHierarchyNode,
@@ -406,7 +443,14 @@ export class RustCopcReader {
     return decoded.buffer;
   }
 
-  /** Prepare one node in the Rust worker/core path, including CRS and ECEF. */
+  /**
+   * Decode one node and prepare source, WGS84 geographic, and ECEF buffers.
+   *
+   * Height correction is applied in metres to WGS84 ellipsoidal height. When
+   * Workers are available, decode and preparation run off the main thread.
+   *
+   * @throws If reading, decoding, CRS preparation, or cancellation fails.
+   */
   async loadPreparedPointData(
     node: CopcHierarchyNode,
     fields: CopcPointFieldSelection,
@@ -500,14 +544,17 @@ export class RustCopcReader {
     return { metadataBytes, chunkBytes, pointCount };
   }
 
+  /** Cancel queued decode jobs; an already running worker job may finish. */
   cancelPendingPointJobs(): void {
     this.decodeWorkerPool?.cancelQueued();
   }
 
+  /** Return worker queue counters, or `undefined` when no worker pool is available. */
   getWorkerDiagnostics(): CopcWorkerDiagnostics | undefined {
     return this.decodeWorkerPool?.getDiagnostics();
   }
 
+  /** Release reader-owned worker and CRS preparation resources, not the supplied byte source. */
   destroy(): void {
     void this.nodePreparer?.then(
       (preparer) => preparer.dispose(),

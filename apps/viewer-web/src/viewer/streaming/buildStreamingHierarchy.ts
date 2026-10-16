@@ -115,6 +115,19 @@ function toGeographicBounds(
   });
 }
 
+/**
+ * Convert COPC hierarchy geometry into the shared geographic selection map.
+ *
+ * Source bounds and cube sizes are transformed using the dataset CRS; node
+ * centres, bounds, and conservative ECEF spheres are then stored alongside
+ * the original hierarchy entries.
+ *
+ * @param metadata Source metadata including bounds, cube, and CRS WKT.
+ * @param nodes Hierarchy nodes to include in the selection map.
+ * @param heightOffsetMeters Additive WGS84 ellipsoidal-height correction; defaults to 0.
+ * @returns Nodes keyed by hierarchy key, with WGS84 bounds and metric size estimates.
+ * @throws If the source CRS or required coordinate transform is unsupported.
+ */
 export function buildStreamingHierarchy(
   metadata: CopcMetadata,
   nodes: CopcHierarchyNode[],

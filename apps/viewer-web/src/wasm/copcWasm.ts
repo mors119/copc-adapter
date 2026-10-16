@@ -1,14 +1,30 @@
 import { rawWasmImports } from './copcWasmImports';
 
+/**
+ * TypeScript view of the package's Rust/WASM C-compatible exports.
+ *
+ * Pointer arguments are offsets in `memory`; JSON-returning functions return
+ * an owned response pointer that callers release with `free_parser_json`.
+ * The declarations mirror the bundled binary and are internal to the adapter.
+ */
 export type CopcWasmExports = {
+  /** WebAssembly linear memory shared by exported parser and transform calls. */
   memory: WebAssembly.Memory;
+  /** Allocate `length` bytes in WASM memory; returns a byte pointer. */
   alloc_bytes(length: number): number;
+  /** Free a byte allocation created by `alloc_bytes`. */
   dealloc_bytes(pointer: number, length: number): void;
+  /** Allocate `length` f64 values; returns a byte pointer. */
   alloc_f64(length: number): number;
+  /** Free an f64 allocation created by `alloc_f64`. */
   dealloc_f64(pointer: number, length: number): void;
+  /** Allocate `length` u16 values; returns a byte pointer. */
   alloc_u16(length: number): number;
+  /** Free a u16 allocation created by `alloc_u16`. */
   dealloc_u16(pointer: number, length: number): void;
+  /** Allocate `length` u8 values; returns a byte pointer. */
   alloc_u8(length: number): number;
+  /** Free a u8 allocation created by `alloc_u8`. */
   dealloc_u8(pointer: number, length: number): void;
   decode_xyz_to_interleaved(
     xPointer: number,
@@ -94,7 +110,11 @@ export type CopcWasmExports = {
 
 /** Runtime or asset failure while loading the shared Rust/WASM module. */
 export class CopcWasmError extends Error {
-  readonly stage: 'fetch' | 'compile' | 'instantiate';
+  /** Asset-fetch, compilation, or module-instantiation stage that failed. */
+  readonly stage:
+    /** Fetching the packaged WASM asset failed. */ 'fetch'
+    | /** WebAssembly compilation failed. */ 'compile'
+    | /** Required exports or runtime imports could not be initialized. */ 'instantiate';
 
   constructor(
     stage: CopcWasmError['stage'],
@@ -163,6 +183,14 @@ async function loadWasmBinary(): Promise<Uint8Array> {
   return new Uint8Array(await readFile(modulePath));
 }
 
+/**
+ * Compile and instantiate the package-owned Rust/WASM module once per thread.
+ *
+ * Concurrent callers share the same initialization promise.
+ *
+ * @returns The instantiated module's typed export table.
+ * @throws `CopcWasmError` with the fetch, compile, or instantiate stage and original cause.
+ */
 export async function loadCopcWasm(): Promise<CopcWasmExports> {
   if (!wasmPromise) {
     wasmPromise = (async () => {

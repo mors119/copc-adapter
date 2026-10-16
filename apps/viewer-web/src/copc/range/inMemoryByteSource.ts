@@ -8,9 +8,11 @@ import {
 
 /** Deterministic random-access source for parser and backend tests. */
 export class InMemoryByteSource implements RandomAccessByteSource {
+  /** Diagnostic identity for this byte array. */
   readonly source: string;
   private readonly bytes: Uint8Array;
 
+  /** Copy the supplied bytes so later caller mutations do not change this source. */
   constructor(bytes: ArrayBuffer | ArrayLike<number>, source = 'memory://copc') {
     this.source = source;
     this.bytes = bytes instanceof ArrayBuffer
@@ -18,10 +20,12 @@ export class InMemoryByteSource implements RandomAccessByteSource {
       : Uint8Array.from(bytes);
   }
 
+  /** Return the copied byte-array length. */
   async size(): Promise<number> {
     return this.bytes.byteLength;
   }
 
+  /** Read one exact interval, rejecting ranges that exceed the copied bytes. */
   async readRange(
     offset: number,
     length: number,
@@ -41,6 +45,7 @@ export class InMemoryByteSource implements RandomAccessByteSource {
     return this.bytes.slice(range.offset, end);
   }
 
+  /** Read several intervals concurrently and preserve their input order. */
   async readRanges(
     ranges: readonly ByteRange[],
     options: RangeReadOptions = {},

@@ -3,8 +3,10 @@ import type {
   StreamingSchedulingDiagnostics,
 } from './types';
 
+/** Default maximum of four concurrent node load operations per manager. */
 export const DEFAULT_MAX_CONCURRENT_NODE_LOADS = 4;
 
+/** Shared scheduler diagnostics contract used by streaming snapshots. */
 export type StreamingWorkSchedulerDiagnostics = StreamingSchedulingDiagnostics;
 
 /**
@@ -14,16 +16,27 @@ export type StreamingWorkSchedulerDiagnostics = StreamingSchedulingDiagnostics;
  * request.
  */
 export class StreamingWorkConcurrencyLimiter {
+  /** Configured maximum number of active load operations. */
   readonly maxConcurrentNodeLoads: number;
   private activeCount = 0;
   private readonly waiters = new Set<() => void>();
 
+  /**
+   * Create a shared limiter with a positive integer slot limit.
+   *
+   * @param maxConcurrentNodeLoads Maximum number of active node loads.
+   * @throws `RangeError` unless the limit is a positive integer.
+   */
   constructor(maxConcurrentNodeLoads: number) {
     this.maxConcurrentNodeLoads = maxConcurrentNodeLoads;
     validateConcurrency(maxConcurrentNodeLoads);
   }
 
-  /** Acquire a slot without yielding when capacity is immediately available. */
+  /**
+   * Attempt to acquire a slot without waiting.
+   *
+   * @returns `true` if acquired, `false` if work is stale, or `undefined` if full.
+   */
   tryAcquire(shouldContinue: () => boolean): boolean | undefined {
     if (!shouldContinue()) {
       return false;
@@ -36,6 +49,7 @@ export class StreamingWorkConcurrencyLimiter {
     return true;
   }
 
+  /** Wait for a slot, returning `false` if the owning work becomes stale first. */
   async acquire(shouldContinue: () => boolean): Promise<boolean> {
     while (this.activeCount >= this.maxConcurrentNodeLoads) {
       if (!shouldContinue()) {
@@ -59,6 +73,7 @@ export class StreamingWorkConcurrencyLimiter {
     return true;
   }
 
+  /** Release one acquired slot and wake waiting schedulers. */
   release(): void {
     if (this.activeCount === 0) {
       return;
@@ -77,11 +92,19 @@ export class StreamingWorkConcurrencyLimiter {
 }
 
 export type StreamingWorkBatch<TNode extends StreamingHierarchyNode = StreamingHierarchyNode> = {
+  /** Nodes kept together in their original priority order. */
   nodes: TNode[];
+  /** Sum of non-negative declared point counts for this batch. */
   estimatedPointCount: number;
 };
 
-/** Partition prioritised work before range/decode work starts. */
+/**
+ * Partition prioritised work before range/decode work starts.
+ *
+ * @param nodes Nodes already ordered by caller priority.
+ * @param maxPointsPerBatch Approximate point ceiling; invalid or non-positive values disable batching.
+ * @returns Ordered batches whose estimated point counts stay within the ceiling where possible.
+ */
 export function createStreamingWorkBatches<TNode extends StreamingHierarchyNode>(
   nodes: readonly TNode[],
   maxPointsPerBatch: number,
@@ -112,8 +135,11 @@ export function createStreamingWorkBatches<TNode extends StreamingHierarchyNode>
   return batches;
 }
 
+/** Callbacks and concurrency controls for one priority-ordered streaming run. */
 export type StreamingWorkSchedulerOptions<TNode, TResult> = {
+  /** Maximum simultaneous node loads; must be a positive integer. */
   maxConcurrentNodeLoads: number;
+  /** Start the point-data load for one selected node. */
   load: (node: TNode) => Promise<TResult>;
   /** Precomputed scheduling score used only for aggregate diagnostics. */
   getPriority?: (node: TNode) => number;
@@ -125,9 +151,13 @@ export type StreamingWorkSchedulerOptions<TNode, TResult> = {
   isReady?: (node: TNode) => boolean;
   /** Stop scheduling when the owning view generation is no longer current. */
   shouldContinue?: () => boolean;
+  /** Called when the node consumes a work slot and begins loading. */
   onStart?: (node: TNode) => void;
+  /** Called after a load succeeds; may await downstream processing. */
   onComplete?: (node: TNode, result: TResult) => void | Promise<void>;
+  /** Called when a selected node is cancelled before completion. */
   onCancel?: (node: TNode) => void;
+  /** Receives cumulative queue and completion diagnostics as scheduling changes. */
   onDiagnostics?: (diagnostics: StreamingWorkSchedulerDiagnostics) => void;
 };
 
@@ -162,6 +192,11 @@ function validateConcurrency(maxConcurrentNodeLoads: number): number {
  * while unrelated range/decode loads are still active. Every settled result
  * yields before more work is dispatched, which keeps progressive rendering
  * responsive in browser environments.
+ *
+ * @param nodes Nodes in priority order; that order is retained for dispatch.
+ * @param options Load, cancellation, callback, and concurrency configuration.
+ * @returns Final queue and completion diagnostics.
+ * @throws `RangeError` when `maxConcurrentNodeLoads` is not a positive integer.
  */
 export async function runBoundedPriorityWork<TNode, TResult>(
   nodes: readonly TNode[],
@@ -387,6 +422,7 @@ export async function runBoundedPriorityWork<TNode, TResult>(
   return getDiagnostics();
 }
 
+/** Yield one event-loop turn so browser rendering can respond between completions. */
 export function yieldToBrowser(): Promise<void> {
   if (typeof window === 'undefined') {
     return Promise.resolve();

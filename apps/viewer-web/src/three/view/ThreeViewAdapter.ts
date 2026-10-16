@@ -13,19 +13,30 @@ import type { StreamingView } from '../../viewer/streaming/types';
 
 /** The small renderer surface used to obtain a pixel viewport for SSE. */
 export type ThreeViewportSource = {
+  /** Return physical drawing-buffer dimensions, when supported. */
   getDrawingBufferSize?: (target: THREE.Vector2) => THREE.Vector2;
+  /** Return CSS or logical viewport dimensions, when supported. */
   getSize?: (target: THREE.Vector2) => THREE.Vector2;
+  /** DOM viewport dimensions used when no size method is available. */
   domElement?: {
+    /** Drawing-buffer width in pixels. */
     width?: number;
+    /** Drawing-buffer height in pixels. */
     height?: number;
+    /** CSS width fallback. */
     clientWidth?: number;
+    /** CSS height fallback. */
     clientHeight?: number;
   };
 };
 
+/** Camera, stable frame, and optional viewport data used to create a streaming view. */
 export type ThreeStreamingViewOptions = {
+  /** Perspective camera whose position and axes are expressed in the dataset-local frame. */
   camera: THREE.Camera;
+  /** Fixed dataset-local ENU metre frame shared with the point renderer. */
   frame: DatasetLocalFrame;
+  /** Optional renderer or canvas surface used to determine viewport pixel dimensions. */
   renderer?: ThreeViewportSource;
   /** Fallback when the camera does not expose a finite far plane. */
   maxRenderDistanceMeters?: number;

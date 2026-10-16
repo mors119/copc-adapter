@@ -39,11 +39,20 @@ export type RustCopcPreparedResult = {
   preparationDurationMs: number;
 };
 
+/** Structured worker-pool error with lifecycle category and optional node context. */
 export class RustCopcWorkerError extends Error {
-  readonly workerCode: 'worker-failure' | 'worker-message' | 'worker-cancelled' | 'worker-destroyed';
+  /** Worker lifecycle or message failure category. */
+  readonly workerCode:
+    /** Worker creation or execution failed. */ 'worker-failure'
+    | /** A worker returned a response inconsistent with its request. */ 'worker-message'
+    | /** Queued work was cancelled because the view was superseded. */ 'worker-cancelled'
+    | /** The owning pool was destroyed while work was pending. */ 'worker-destroyed';
+  /** Hierarchy key for the node job associated with this failure. */
   readonly nodeKey?: string;
+  /** Rust parser code when a worker returned a structured parser error. */
   readonly rustCode?: string;
 
+  /** Create a structured decode-worker failure. */
   constructor(
     workerCode: RustCopcWorkerError['workerCode'],
     message: string,
@@ -97,6 +106,7 @@ function bufferFrom(value: ArrayBuffer | undefined, type: 'u16' | 'u8'): Uint16A
 
 /** Bounded, FIFO Rust/WASM decode queue owned by one COPC source instance. */
 export class RustCopcDecodeWorkerPool {
+  /** Configured maximum number of concurrent worker slots. */
   readonly workerCount: number;
   private readonly maxRangeBytes: number;
   private readonly heightOffsetMeters: number;
@@ -127,11 +137,13 @@ export class RustCopcDecodeWorkerPool {
     this.workerFactory = options.workerFactory ?? defaultWorkerFactory;
   }
 
+  /** Copy parsed source metadata to workers before point jobs are submitted. */
   setMetadata(metadata: Uint8Array): void {
     if (this.destroyed) return;
     this.metadata = metadata.slice();
   }
 
+  /** Submit a worker-side decode and return source-space coordinates and attributes. */
   submit(request: RustCopcDecodeRequest): Promise<RustCopcDecodedResult> {
     return this.enqueue({ ...request, type: 'decode' }).then((result) => {
       if ('prepared' in result) {
@@ -145,6 +157,7 @@ export class RustCopcDecodeWorkerPool {
     });
   }
 
+  /** Submit fused decode, CRS transformation, and ECEF preparation. */
   submitPrepared(request: RustCopcDecodeRequest): Promise<RustCopcPreparedResult> {
     return this.enqueue({ ...request, type: 'prepare' }).then((result) => {
       if (!('prepared' in result)) {
@@ -200,6 +213,7 @@ export class RustCopcDecodeWorkerPool {
     this.dispatch();
   }
 
+  /** Return cumulative job and concurrency counters. */
   getDiagnostics(): CopcWorkerDiagnostics {
     const activeCount = this.workers.filter((slot) => slot.current !== undefined).length;
     return {
@@ -215,6 +229,7 @@ export class RustCopcDecodeWorkerPool {
     };
   }
 
+  /** Reject pending work and terminate workers owned by this pool. */
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;

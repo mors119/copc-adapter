@@ -77,6 +77,7 @@ export type {
   CopcViewCancellationReason,
 } from './layerEventLifecycle';
 
+/** Configuration for a {@link CopcThreeLayer} and its shared streaming core. */
 export type CopcThreeLayerOptions = {
   /** Browser-readable COPC resource URL with HTTP range-request support. */
   url: string;
@@ -86,15 +87,15 @@ export type CopcThreeLayerOptions = {
   colorMode?: CopcColorMode;
   /** Manual additive correction in metres applied to ellipsoidal point height. Defaults to 0. */
   heightOffsetMeters?: number;
-  /** Maximum estimated points in the active current-view workload. */
+  /** Maximum estimated points in the active current-view workload; defaults to 250,000. */
   maxRenderedPoints?: number;
-  /** Overrides for the shared streaming selection limits. */
+  /** Overrides for the shared streaming limits; unspecified values use core defaults. */
   streaming?: Partial<StreamingSelectionOptions>;
   /** Defaults to stable `copc-js`; `rust` is explicit opt-in. */
   backend?: CopcBackendSelection;
   /** Decoder used to convert point-data views into project point buffers. */
   decoder?: import('../copc/points/types').CopcPointDecoder;
-  /** Maximum retained decoded CPU point-buffer bytes. */
+  /** Maximum retained decoded CPU point-buffer bytes; defaults to 256 MiB. */
   maxPointCacheBytes?: number;
   /** Defaults to strict Content-Range validation. */
   rangeValidation?: RangeValidationPolicy;
@@ -112,6 +113,7 @@ export type CopcThreeLayerOptions = {
   onPointPicked?: (point: CopcPointInspection | undefined) => void;
 };
 
+/** Caller-owned Three.js objects used to attach and update a layer. */
 export type CopcThreeLayerAttachment = {
   /** Application-owned Three scene. */
   scene: THREE.Scene;
@@ -121,69 +123,114 @@ export type CopcThreeLayerAttachment = {
   renderer?: ThreeViewportSource;
 };
 
+/** Public lifecycle states reported in {@link CopcThreeLayerSnapshot}. */
 export type CopcThreeLayerLifecycleState =
+  /** Constructed but not attached or loading. */
   | 'idle'
+  /** Attached to a scene without loaded metadata. */
   | 'mounted'
+  /** Metadata and root hierarchy load is in progress. */
   | 'loading'
+  /** Metadata and root hierarchy are available; point nodes stream per view. */
   | 'ready'
+  /** Permanently destroyed; only repeated `destroy()` calls are harmless. */
   | 'destroyed';
 
+/** Counts describing visible-node replacement transitions. */
 export type CopcThreeLayerTransitionDiagnostics = {
+  /** Replacement groups currently awaiting completion. */
   activeReplacementGroupCount: number;
+  /** Replacement groups waiting for required new nodes to be prepared. */
   replacementGroupsWaitingCount: number;
+  /** Refinement groups whose new coverage was committed. */
   refinementReplacementCommitCount: number;
+  /** Collapse groups whose new coverage was committed. */
   collapseReplacementCommitCount: number;
+  /** Replacement work cancelled because its view became stale. */
   staleReplacementCancellationCount: number;
+  /** Coarse nodes retained to preserve coverage during replacement. */
   coarseNodesRetainedForCoverageCount: number;
 };
 
+/** Wall-clock durations measured by the default Three point renderer, in milliseconds. */
 export type CopcThreeRendererPerformanceSnapshot = {
+  /** Time to transform point positions from shared world coordinates to the dataset frame. */
   worldToLocalDurationMs: number;
+  /** Time to create node geometry. */
   geometryCreationDurationMs: number;
+  /** Time to create or update node materials. */
   materialCreationDurationMs: number;
+  /** Total renderer preparation time for node changes. */
   rendererPreparationDurationMs: number;
+  /** Time spent removing renderer nodes. */
   nodeRemovalDurationMs: number;
 };
 
+/** Read-only snapshot of current layer, streaming, cache, and renderer state. */
 export type CopcThreeLayerSnapshot = {
+  /** Current lifecycle state. */
   lifecycle: CopcThreeLayerLifecycleState;
+  /** Whether caller-owned scene/camera integration is currently attached. */
   attached: boolean;
+  /** Configured COPC resource URL supplied to the layer. */
   datasetUrl: string;
+  /** Built-in backend name or `custom` for a supplied backend object. */
   backend: CopcBackendName | 'custom';
+  /** Hierarchy nodes selected for the current streaming view. */
   selectedNodeKeys: string[];
+  /** Nodes currently committed to the renderer. */
   renderedNodeKeys: string[];
+  /** Total number of points currently committed to the renderer. */
   renderedPointCount: number;
+  /** Number of streaming updates started, including active incremental progress. */
   streamingUpdateCount: number;
+  /** Shared-core range, decode, and point-preparation performance measurements. */
   performance: CopcStreamingPerformanceSnapshot;
+  /** Default renderer preparation and removal durations in milliseconds. */
   renderer: CopcThreeRendererPerformanceSnapshot;
+  /** Visible-node coverage transition counters. */
   transition: CopcThreeLayerTransitionDiagnostics;
+  /** Adaptive view-distance estimate, when a camera view has been observed. */
   viewDistance?: AdaptiveViewDistanceDiagnostics;
+  /** Hierarchy request and page-cache counters, after source initialization. */
   hierarchy?: import('../copc/hierarchy/types').CopcHierarchyDiagnostics;
+  /** Decoded CPU point-buffer cache counters and retained bytes. */
   pointCache: NodePointCacheDiagnostics;
+  /** Rust/WASM worker queue counters, when that backend exposes them. */
   worker?: CopcWorkerDiagnostics;
 };
 
+/** Pointer location in Three.js normalized device coordinates. */
 export type CopcThreeLayerPickPosition = {
-  /** Normalized device coordinate in the range normally used by Three.js. */
+  /** Horizontal normalized device coordinate, passed unchanged to Raycaster. */
   x: number;
-  /** Normalized device coordinate in the range normally used by Three.js. */
+  /** Vertical normalized device coordinate, passed unchanged to Raycaster. */
   y: number;
 };
 
+/** Optional raycaster and point-distance threshold used for one pick. */
 export type CopcThreeLayerPickOptions = {
+  /** Caller-owned raycaster; its point threshold and ray are updated by `pick`. */
   raycaster?: THREE.Raycaster;
+  /** Positive finite distance threshold in Three.js scene units; defaults to the layer setting or 1. */
   threshold?: number;
 };
 
+/** Renderer seam required by {@link CopcThreeLayer}; implementations own their created GPU resources. */
 export interface CopcThreePointRenderer extends CopcPointRenderer {
+  /** Attach the renderer-owned root group to a caller-owned scene. */
   attachTo(scene: THREE.Scene): void;
+  /** Remove the root group from its current scene without disposing the scene. */
   detachFrom(): void;
+  /** Return the renderer-owned root group for picking or application composition. */
   getRoot(): THREE.Group;
+  /** Prepare or replace one node's renderable points using the layer's fixed local frame. */
   addOrUpdateNode(
     nodeKey: string,
     points: GeographicPointBuffer | PreparedPointData,
     options: ThreePointRendererOptions,
   ): void;
+  /** Install the dataset frame before adding local point geometry, when supported. */
   setLocalFrame?(frame: DatasetLocalFrame): void;
 }
 
@@ -273,7 +320,14 @@ function createPickOwnerId(): string {
   return `copc-three-layer-${nextPickOwnerId}`;
 }
 
-/** Public Three.js façade over the renderer-neutral COPC streaming core. */
+/**
+ * Streams a COPC resource into a caller-owned Three.js scene.
+ *
+ * `load()` reads metadata and the root hierarchy. Point nodes are fetched and
+ * committed as camera views are passed to `update()`; the application remains
+ * responsible for rendering frames and for disposing its scene, camera, and
+ * WebGL renderer.
+ */
 export class CopcThreeLayer {
   private readonly eventDispatcher: CopcThreeLayerEventDispatcher;
   private readonly eventLifecycle = new CopcLayerEventLifecycle();
@@ -302,6 +356,12 @@ export class CopcThreeLayer {
   private selectedPointPickId?: CopcPointPickId;
   private selectedPointLoadGeneration = 0;
 
+  /**
+   * Create an unloaded layer for a browser-readable COPC resource.
+   *
+   * @param options Source URL, backend, streaming limits, renderer, and callbacks.
+   * @throws If the URL is empty or `pickingThreshold` is not positive and finite.
+   */
   constructor(options: CopcThreeLayerOptions) {
     if (!options || typeof options.url !== 'string' || options.url.length === 0) {
       throw new Error('CopcThreeLayer requires a non-empty URL');
@@ -330,6 +390,7 @@ export class CopcThreeLayer {
     });
   }
 
+  /** Subscribe to a typed layer lifecycle event. Listener failures are reported to `console.error`. */
   addEventListener<TType extends CopcThreeLayerEventType>(
     type: TType,
     listener: (event: CopcThreeLayerEventMap[TType]) => void,
@@ -337,6 +398,7 @@ export class CopcThreeLayer {
     this.eventDispatcher.addEventListener(type, listener);
   }
 
+  /** Remove a listener previously registered for the same event and function. */
   removeEventListener<TType extends CopcThreeLayerEventType>(
     type: TType,
     listener: (event: CopcThreeLayerEventMap[TType]) => void,
@@ -344,7 +406,15 @@ export class CopcThreeLayer {
     this.eventDispatcher.removeEventListener(type, listener);
   }
 
-  /** Attach only the layer-owned root group to an application scene. */
+  /**
+   * Attach the layer-owned root group and camera integration to caller-owned objects.
+   *
+   * Reattaching replaces the previous attachment. Call {@link update} after
+   * camera movement; this method does not take ownership of or dispose the
+   * supplied scene, camera, or renderer.
+   *
+   * @throws If the layer is destroyed or the attachment lacks a usable scene or camera.
+   */
   attachTo(attachment: CopcThreeLayerAttachment): void {
     if (this.isDestroyed()) {
       throw new Error('CopcThreeLayer has been destroyed');
@@ -373,7 +443,7 @@ export class CopcThreeLayer {
     }
   }
 
-  /** Detach the root and integration state while retaining loaded source data. */
+  /** Detach the root and cancel active view work while retaining loaded metadata and hierarchy. */
   detachFrom(): void {
     if (this.isDestroyed()) {
       return;
@@ -398,7 +468,15 @@ export class CopcThreeLayer {
     }
   }
 
-  /** Load metadata and root hierarchy without requiring a scene attachment. */
+  /**
+   * Load source metadata and the root hierarchy; no point nodes are downloaded by this call.
+   *
+   * The layer may be loaded before it is attached. When it resolves, metadata
+   * and hierarchy are ready for view-driven streaming, but the dataset is not
+   * necessarily downloaded or rendered in full.
+   *
+   * @throws If the layer is destroyed, already loading/loaded, or source initialization fails.
+   */
   async load(): Promise<void> {
     if (this.lifecycle === 'destroyed') {
       throw new Error('CopcThreeLayer has been destroyed');
@@ -455,7 +533,15 @@ export class CopcThreeLayer {
     }
   }
 
-  /** Update streaming from the current camera; never renders or schedules frames. */
+  /**
+   * Recompute the current camera view and stream its selected nodes.
+   *
+   * Resolves after the coalesced current-view work and renderer commits finish.
+   * It does not call the application's render loop or schedule animation frames.
+   * An unattached or not-yet-loaded layer resolves without doing work.
+   *
+   * @throws If the layer has been destroyed.
+   */
   update(): Promise<void> {
     if (this.lifecycle === 'destroyed') {
       throw new Error('CopcThreeLayer has been destroyed');
@@ -504,7 +590,7 @@ export class CopcThreeLayer {
     return updatePromise;
   }
 
-  /** Release loaded source and rendered nodes while retaining the attachment. */
+  /** Release loaded source data and rendered nodes while retaining the scene attachment. */
   unload(): void {
     if (this.isDestroyed()) {
       return;
@@ -538,7 +624,7 @@ export class CopcThreeLayer {
     this.debug('COPC layer unloaded');
   }
 
-  /** Unload and load the configured COPC resource again. */
+  /** Unload the current source and load the configured COPC resource again. */
   async reload(): Promise<void> {
     if (this.lifecycle === 'destroyed') {
       throw new Error('CopcThreeLayer has been destroyed');
@@ -547,7 +633,7 @@ export class CopcThreeLayer {
     await this.load();
   }
 
-  /** Release layer-owned resources without touching scene, camera, or renderer. */
+  /** Permanently release layer-owned resources without disposing caller-owned scene, camera, or renderer. */
   destroy(): void {
     if (this.lifecycle === 'destroyed') {
       return;
@@ -571,7 +657,7 @@ export class CopcThreeLayer {
     this.eventDispatcher.dispose();
   }
 
-  /** Return the layer-owned root group for optional application composition. */
+  /** Return the layer-owned root group for picking or application composition. */
   getRoot(): THREE.Group {
     return this.pointRenderer.getRoot();
   }
@@ -581,26 +667,32 @@ export class CopcThreeLayer {
     return this.localFrame;
   }
 
+  /** Return source metadata after {@link load} has completed. */
   getMetadata(): CopcMetadata | undefined {
     return this.core.getMetadata();
   }
 
+  /** Return hierarchy request and page-cache counters when available. */
   getHierarchyDiagnostics() {
     return this.core.getHierarchyDiagnostics();
   }
 
+  /** Return decoded CPU point-buffer cache counters and retained bytes. */
   getPointCacheDiagnostics(): NodePointCacheDiagnostics {
     return this.core.getPointCacheDiagnostics();
   }
 
+  /** Return the selected hierarchy node keys for the most recent view. */
   getCurrentSelection(): string[] {
     return this.core.getCurrentSelection();
   }
 
+  /** Return node keys currently committed to the renderer. */
   getRenderedNodeKeys(): string[] {
     return this.pointRenderer.getRenderedNodeKeys();
   }
 
+  /** Return the number of points currently committed to the renderer. */
   getRenderedPointCount(): number {
     return this.pointRenderer.getRenderedPointCount();
   }
@@ -628,7 +720,12 @@ export class CopcThreeLayer {
 
   /**
    * Raycast in normalized device coordinates and resolve the first owned COPC
-   * point through the current decoded cache. The threshold is in scene units.
+   * point through the current decoded cache. The threshold is a positive
+   * finite distance in Three.js scene units; omitted values use the layer
+   * setting or 1. The supplied raycaster, when present, is updated in place.
+   * Returns `undefined` when there is no attached view or no live layer-owned hit.
+   *
+   * @throws If the effective point threshold is not positive and finite.
    */
   pick(
     position: CopcThreeLayerPickPosition,
@@ -695,6 +792,7 @@ export class CopcThreeLayer {
     return undefined;
   }
 
+  /** Return a fresh diagnostics snapshot; the returned arrays/objects are not live views. */
   getSnapshot(): CopcThreeLayerSnapshot {
     const coreSnapshot = this.core.getSnapshot();
     return {
