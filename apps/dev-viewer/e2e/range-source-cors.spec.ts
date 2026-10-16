@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 
 const packageEntryUrl = `/@fs/${fileURLToPath(
-  new URL('../../../packages/copc-adapter/src/index.ts', import.meta.url),
+  new URL('../../../packages/index.ts', import.meta.url),
 )}`;
 
 test('head-fallback works when browser CORS hides Content-Range', async ({ page }) => {

@@ -11,13 +11,13 @@ Prepare the representative local Autzen sample, then run:
 
 ```bash
 npm ci
-npm ci --prefix packages/copc-adapter
+npm ci --prefix packages
 npm ci --prefix apps/dev-viewer
 npm run download-samples -- autzen
 mkdir -p apps/dev-viewer/public/samples
 cp samples/local/autzen.copc.laz apps/dev-viewer/public/samples/autzen.copc.laz
 npm run benchmark:streaming --prefix apps/dev-viewer
-npm run benchmark:renderer --prefix packages/copc-adapter
+npm run benchmark:renderer --prefix packages
 npm run test:e2e --prefix apps/dev-viewer
 npm run test:pack
 ```

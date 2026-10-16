@@ -10,7 +10,7 @@ dependencies and the Rust WASM target once:
 
 ```bash
 npm ci
-npm ci --prefix packages/copc-adapter
+npm ci --prefix packages
 npm ci --prefix apps/dev-viewer
 npm ci --prefix apps/playground
 rustup target add wasm32-unknown-unknown

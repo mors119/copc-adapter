@@ -7,7 +7,7 @@
 # Node
 node_modules
 dist
-packages/copc-adapter/*.tgz
+packages/*.tgz
 
 # Vite
 .vite
@@ -33,7 +33,7 @@ samples/local/*
 apps/dev-viewer/public/samples/*
 apps/dev-viewer/public/laz-perf.wasm
 apps/dev-viewer/public/wasm/*
-packages/copc-adapter/src/core/wasm/*.wasm
+packages/core/wasm/*.wasm
 tests/environments/cesium-vite/public/samples/*
 tests/environments/cesium-vite/public/wasm/*
 tests/environments/cesium-vite/public/laz-perf.wasm

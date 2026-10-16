@@ -29,7 +29,7 @@ Cesium adapter
 ## 1. Public Cesium API
 
 ```text
-packages/copc-adapter/src/cesium/layer/CopcCesiumLayer.ts
+packages/cesium/layer/CopcCesiumLayer.ts
 ```
 
 사용자가 직접 만나는 layer API입니다.
@@ -47,7 +47,7 @@ packages/copc-adapter/src/cesium/layer/CopcCesiumLayer.ts
 ## 2. Streaming core
 
 ```text
-packages/copc-adapter/src/core/streaming/
+packages/core/streaming/
 ```
 
 핵심 파일:
@@ -77,7 +77,7 @@ Point cache
 ## 3. HTTP Range
 
 ```text
-packages/copc-adapter/src/core/copc/range/
+packages/core/copc/range/
 ```
 
 여기서는:
@@ -95,7 +95,7 @@ packages/copc-adapter/src/core/copc/range/
 ## 4. COPC backend
 
 ```text
-packages/copc-adapter/src/core/copc/backend/
+packages/core/copc/backend/
 ```
 
 현재 두 production 선택지가 있습니다.
@@ -123,7 +123,7 @@ Rust를 더 많이 쓰는 것 자체가 목표가 아니라 **재사용 가능�
 ## 6. 좌표 변환
 
 ```text
-packages/copc-adapter/src/core/coordinates/
+packages/core/coordinates/
 crates/copc-adapter-core/
 crates/crs-audit/
 ```
@@ -145,7 +145,7 @@ Cesium
 ## 7. Cesium renderer
 
 ```text
-packages/copc-adapter/src/cesium/
+packages/cesium/
 ```
 
 Cesium object 생성, style 적용, point identity/picking, resource disposal 같은 renderer-specific 작업이 이쪽에 위치합니다.
@@ -155,7 +155,7 @@ COPC parsing이나 NodeSelector를 Cesium 코드 안으로 다시 넣지 않는 
 ## 8. 테스트와 증거
 
 ```text
-packages/copc-adapter/test/
+packages/test/
 apps/dev-viewer/e2e/
 tests/environments/cesium-vite/
 docs/benchmarks/

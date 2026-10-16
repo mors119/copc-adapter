@@ -59,14 +59,14 @@ The full E2E run includes the SoFi scenario and the existing Autzen streaming re
 
 ```bash
 npm ci
-npm ci --prefix packages/copc-adapter
+npm ci --prefix packages
 npm ci --prefix apps/dev-viewer
 npm run download-samples -- autzen
 mkdir -p apps/dev-viewer/public/samples
 cp samples/local/autzen.copc.laz apps/dev-viewer/public/samples/autzen.copc.laz
-npm --prefix packages/copc-adapter run typecheck
-npm --prefix packages/copc-adapter test
-npm --prefix packages/copc-adapter run build
+npm --prefix packages run typecheck
+npm --prefix packages test
+npm --prefix packages run build
 npm --prefix apps/dev-viewer run test:e2e
 ```
 

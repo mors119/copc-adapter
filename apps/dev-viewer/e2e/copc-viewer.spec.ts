@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import type {
   CopcCesiumPointStyle,
   CopcCesiumPointStyleUpdate,
-} from '../../../packages/copc-adapter/src/index';
+} from '../../../packages/index';
 import { getCompletedStreamingState } from './streaming-state';
 
 type CopcDebugState = {

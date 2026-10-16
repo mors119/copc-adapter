@@ -382,14 +382,14 @@ npm run test:functional
 Core validation commands:
 
 ```bash
-npm --prefix packages/copc-adapter run typecheck
-npm --prefix packages/copc-adapter run test
-npm --prefix packages/copc-adapter run coverage
-npm --prefix packages/copc-adapter run build:library
+npm --prefix packages run typecheck
+npm --prefix packages run test
+npm --prefix packages run coverage
+npm --prefix packages run build:library
 npm run test:functional
-npm --prefix packages/copc-adapter run typecheck
+npm --prefix packages run typecheck
 npm --prefix apps/dev-viewer run test:e2e
-npm --prefix packages/copc-adapter run benchmark:renderer
+npm --prefix packages run benchmark:renderer
 npm --prefix apps/dev-viewer run benchmark:streaming
 npm --prefix apps/dev-viewer run test:e2e -- e2e/renderer-performance.spec.ts
 npm run test:pack
@@ -399,7 +399,7 @@ cargo test --workspace
 To build and inspect the library artifact:
 
 ```bash
-cd packages/copc-adapter
+cd packages
 npm run build:library
 npm pack
 ```

@@ -41,7 +41,7 @@ async function main() {
   }
 
   run('npm', ['ci']);
-  run('npm', ['ci', '--prefix', 'packages/copc-adapter']);
+  run('npm', ['ci', '--prefix', 'packages']);
   run('npm', ['ci', '--prefix', 'apps/dev-viewer']);
   run('npm', ['--prefix', 'apps/dev-viewer', 'run', 'prepare-assets']);
   run('npm', ['run', 'download-samples', '--', 'autzen']);

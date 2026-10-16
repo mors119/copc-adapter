@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const appDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryDirectory = path.resolve(appDirectory, '../..');
-const packageSourceDirectory = path.resolve(repositoryDirectory, 'packages/copc-adapter/src');
+const packageSourceDirectory = path.resolve(repositoryDirectory, 'packages');
 
 function localSampleRangeMiddleware() {
   return {

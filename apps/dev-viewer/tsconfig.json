@@ -15,11 +15,11 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true,
     "paths": {
-      "@frillab/copc-adapter": ["../../packages/copc-adapter/src/index.ts"]
+      "@frillab/copc-adapter": ["../../packages/index.ts"]
     }
   },
   "include": [
     "src",
-    "../../packages/copc-adapter/src/core/types/**/*.d.ts"
+    "../../packages/core/types/**/*.d.ts"
   ]
 }
