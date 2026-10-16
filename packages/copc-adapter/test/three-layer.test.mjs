@@ -421,10 +421,11 @@ test('retries an invalidated update when the camera returns to the recorded view
   const { layer, camera } = await createLoadedLayer();
   const cancellations = [];
   layer.addEventListener('viewcancelled', (event) => cancellations.push(event));
-  const previousUpdate = layer.core.updateView.bind(layer.core);
+  const core = layer.controller.core;
+  const previousUpdate = core.updateView.bind(core);
   const firstUpdate = createDeferred();
   let updateCallCount = 0;
-  layer.core.updateView = async (view, onProgress) => {
+  core.updateView = async (view, onProgress) => {
     updateCallCount += 1;
     if (updateCallCount === 1) {
       await firstUpdate.promise;
