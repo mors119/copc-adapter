@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "declarationDir": "./dist",
+    "rootDir": "./src"
+  },
+  "include": [
+    "src/index.ts",
+    "src/cesium.ts",
+    "src/three.ts",
+    "src/core/**/*.ts",
+    "src/cesium/**/*.ts",
+    "src/three/**/*.ts"
+  ]
+}

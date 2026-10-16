@@ -5,13 +5,13 @@ on:
     paths:
       - 'docs/**'
       - 'apps/playground/**'
-      - 'apps/viewer-web/src/**'
-      - 'apps/viewer-web/scripts/build-copc-adapter-wasm.mjs'
-      - 'apps/viewer-web/scripts/finalize-library-assets.mjs'
-      - 'apps/viewer-web/package.json'
-      - 'apps/viewer-web/package-lock.json'
-      - 'apps/viewer-web/vite.lib.config.ts'
-      - 'apps/viewer-web/tsconfig*.json'
+      - 'packages/copc-adapter/src/**'
+      - 'packages/copc-adapter/scripts/build-copc-adapter-wasm.mjs'
+      - 'packages/copc-adapter/scripts/finalize-library-assets.mjs'
+      - 'packages/copc-adapter/package.json'
+      - 'packages/copc-adapter/package-lock.json'
+      - 'packages/copc-adapter/vite.lib.config.ts'
+      - 'packages/copc-adapter/tsconfig*.json'
       - 'crates/**'
       - '.cargo/**'
       - 'Cargo.toml'
@@ -30,13 +30,13 @@ on:
     paths:
       - 'docs/**'
       - 'apps/playground/**'
-      - 'apps/viewer-web/src/**'
-      - 'apps/viewer-web/scripts/build-copc-adapter-wasm.mjs'
-      - 'apps/viewer-web/scripts/finalize-library-assets.mjs'
-      - 'apps/viewer-web/package.json'
-      - 'apps/viewer-web/package-lock.json'
-      - 'apps/viewer-web/vite.lib.config.ts'
-      - 'apps/viewer-web/tsconfig*.json'
+      - 'packages/copc-adapter/src/**'
+      - 'packages/copc-adapter/scripts/build-copc-adapter-wasm.mjs'
+      - 'packages/copc-adapter/scripts/finalize-library-assets.mjs'
+      - 'packages/copc-adapter/package.json'
+      - 'packages/copc-adapter/package-lock.json'
+      - 'packages/copc-adapter/vite.lib.config.ts'
+      - 'packages/copc-adapter/tsconfig*.json'
       - 'crates/**'
       - '.cargo/**'
       - 'Cargo.toml'
@@ -78,7 +78,7 @@ jobs:
           cache: npm
           cache-dependency-path: |
             package-lock.json
-            apps/viewer-web/package-lock.json
+            packages/copc-adapter/package-lock.json
             apps/playground/package-lock.json
 
       - name: Setup Rust WASM target
@@ -90,7 +90,7 @@ jobs:
         run: npm ci
 
       - name: Install adapter build dependencies
-        run: npm ci --prefix apps/viewer-web
+        run: npm ci --prefix packages/copc-adapter
 
       - name: Install Playground build dependencies
         run: npm ci --prefix apps/playground

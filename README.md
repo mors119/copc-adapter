@@ -382,15 +382,16 @@ npm run test:functional
 Core validation commands:
 
 ```bash
-npm --prefix apps/viewer-web run typecheck
-npm --prefix apps/viewer-web run test
-npm --prefix apps/viewer-web run coverage
-npm --prefix apps/viewer-web run build
+npm --prefix packages/copc-adapter run typecheck
+npm --prefix packages/copc-adapter run test
+npm --prefix packages/copc-adapter run coverage
+npm --prefix packages/copc-adapter run build:library
 npm run test:functional
-npm --prefix apps/viewer-web run test:e2e
-npm --prefix apps/viewer-web run benchmark:renderer
-npm --prefix apps/viewer-web run benchmark:streaming
-npm --prefix apps/viewer-web run test:e2e -- e2e/renderer-performance.spec.ts
+npm --prefix packages/copc-adapter run typecheck
+npm --prefix apps/dev-viewer run test:e2e
+npm --prefix packages/copc-adapter run benchmark:renderer
+npm --prefix apps/dev-viewer run benchmark:streaming
+npm --prefix apps/dev-viewer run test:e2e -- e2e/renderer-performance.spec.ts
 npm run test:pack
 cargo test --workspace
 ```
@@ -398,7 +399,7 @@ cargo test --workspace
 To build and inspect the library artifact:
 
 ```bash
-cd apps/viewer-web
+cd packages/copc-adapter
 npm run build:library
 npm pack
 ```

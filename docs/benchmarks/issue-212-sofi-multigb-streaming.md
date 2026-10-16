@@ -59,17 +59,18 @@ The full E2E run includes the SoFi scenario and the existing Autzen streaming re
 
 ```bash
 npm ci
-npm ci --prefix apps/viewer-web
+npm ci --prefix packages/copc-adapter
+npm ci --prefix apps/dev-viewer
 npm run download-samples -- autzen
-mkdir -p apps/viewer-web/public/samples
-cp samples/local/autzen.copc.laz apps/viewer-web/public/samples/autzen.copc.laz
-npm --prefix apps/viewer-web run typecheck
-npm --prefix apps/viewer-web test
-npm --prefix apps/viewer-web run build
-npm --prefix apps/viewer-web run test:e2e
+mkdir -p apps/dev-viewer/public/samples
+cp samples/local/autzen.copc.laz apps/dev-viewer/public/samples/autzen.copc.laz
+npm --prefix packages/copc-adapter run typecheck
+npm --prefix packages/copc-adapter test
+npm --prefix packages/copc-adapter run build
+npm --prefix apps/dev-viewer run test:e2e
 ```
 
-The SoFi test is `apps/viewer-web/e2e/sofi-multigb-validation.spec.ts`. It blocks any SoFi request without a `Range` header, verifies every returned range interval, exercises initial/close/medium/high/oblique views, visits two areas and returns to the first, and supersedes a deliberately held point-range response. No SoFi dataset copy is downloaded or stored in the repository. The Autzen sample remains ignored local test data.
+The SoFi test is `apps/dev-viewer/e2e/sofi-multigb-validation.spec.ts`. It blocks any SoFi request without a `Range` header, verifies every returned range interval, exercises initial/close/medium/high/oblique views, visits two areas and returns to the first, and supersedes a deliberately held point-range response. No SoFi dataset copy is downloaded or stored in the repository. The Autzen sample remains ignored local test data.
 
 ## Validation and decision
 

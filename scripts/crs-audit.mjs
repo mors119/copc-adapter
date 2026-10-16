@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url';
 import process from 'node:process';
 
 const require = createRequire(import.meta.url);
-const proj4 = require('../apps/viewer-web/node_modules/proj4');
+const proj4 = require('../packages/copc-adapter/node_modules/proj4');
 const repositoryDirectory = path.resolve(new URL('..', import.meta.url).pathname);
 const fixturePath = path.join(repositoryDirectory, 'crates/crs-audit/src/fixtures.json');
 const fixtures = JSON.parse(fs.readFileSync(fixturePath, 'utf8')).fixtures;

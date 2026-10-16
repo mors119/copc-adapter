@@ -400,6 +400,6 @@ byte 변환을 적용하지 마세요.
 
 ## 관련 구현
 
-- `apps/viewer-web/src/copc/range/httpRangeSource.ts`
-- `apps/viewer-web/src/copc/range/contentRange.ts`
-- `apps/viewer-web/src/copc/sourceProbe.ts`
+- `packages/copc-adapter/src/core/copc/range/httpRangeSource.ts`
+- `packages/copc-adapter/src/core/copc/range/contentRange.ts`
+- `packages/copc-adapter/src/core/copc/sourceProbe.ts`

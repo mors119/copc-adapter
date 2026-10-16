@@ -5,7 +5,11 @@ updates:
     schedule:
       interval: weekly
   - package-ecosystem: npm
-    directory: "/apps/viewer-web"
+    directory: "/packages/copc-adapter"
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directory: "/apps/dev-viewer"
     schedule:
       interval: weekly
   - package-ecosystem: cargo

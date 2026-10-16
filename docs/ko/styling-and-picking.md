@@ -123,10 +123,10 @@ const point = layer.getSelectedPoint();
 
 ## 관련 구현
 
-- `apps/viewer-web/src/cesium/style/CesiumPointStyle.ts`
-- `apps/viewer-web/src/copc/points/fieldSelection.ts`
-- `apps/viewer-web/src/copc/points/pointInspection.ts`
-- `apps/viewer-web/src/api/CopcCesiumLayer.ts`
+- `packages/copc-adapter/src/cesium/style/CesiumPointStyle.ts`
+- `packages/copc-adapter/src/core/copc/points/fieldSelection.ts`
+- `packages/copc-adapter/src/core/copc/points/pointInspection.ts`
+- `packages/copc-adapter/src/cesium/layer/CopcCesiumLayer.ts`
 
 ::: tip 공부할 때
 색상 표현과 “어떤 attribute를 decode해서 보관할 것인가”는 연결되어 있습니다. UI 색상만 바꾸는 문제처럼 보여도 cache 메모리와 point field selection에 영향을 줄 수 있으므로 둘을 같이 보는 것이 좋습니다.

@@ -1,0 +1,33 @@
+{
+  "name": "@frillab/copc-adapter-dev-viewer",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "npm run prepare-assets && vite",
+    "dev:ci": "npm run prepare-laz-perf && vite",
+    "build": "npm run typecheck && npm run prepare-assets && vite build",
+    "build:ci": "npm run typecheck && npm run prepare-laz-perf && vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run test:unit",
+    "test:unit": "node --import tsx --test test/*.test.mjs",
+    "test:e2e": "playwright test",
+    "test:functional": "playwright test e2e/functional-validation.spec.ts --reporter=line",
+    "benchmark:streaming": "playwright test e2e/streaming-performance.spec.ts --reporter=line",
+    "preview": "vite preview",
+    "prepare-assets": "npm --prefix ../../packages/copc-adapter run prepare-copc-adapter-wasm && npm run prepare-laz-perf",
+    "prepare-laz-perf": "cp ../../packages/copc-adapter/node_modules/laz-perf/lib/laz-perf.wasm public/laz-perf.wasm"
+  },
+  "devDependencies": {
+    "@frillab/copc-adapter": "file:../../packages/copc-adapter",
+    "@playwright/test": "^1.55.0",
+    "@types/node": "^26.6.5",
+    "@types/three": "^0.186.0",
+    "cesium": "^1.142.0",
+    "three": "^0.186.0",
+    "tsx": "^4.23.13",
+    "typescript": "~7.0.2",
+    "vite": "^8.0.12",
+    "vite-plugin-cesium": "^1.2.23"
+  }
+}

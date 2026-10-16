@@ -248,10 +248,10 @@ Range/CORS/COPC 형식을 먼저 점검하고 싶을 때 사용합니다.
 
 ## API를 변경할 때 볼 파일
 
-- `apps/viewer-web/src/api/CopcCesiumLayer.ts`
-- `apps/viewer-web/src/viewer/CopcViewer.ts`
-- `apps/viewer-web/src/viewer/streaming/CopcStreamingController.ts`
-- `apps/viewer-web/src/cesium/style/CesiumPointStyle.ts`
+- `packages/copc-adapter/src/cesium/layer/CopcCesiumLayer.ts`
+- `packages/copc-adapter/src/cesium/layer/CopcViewer.ts`
+- `packages/copc-adapter/src/core/streaming/CopcStreamingController.ts`
+- `packages/copc-adapter/src/cesium/style/CesiumPointStyle.ts`
 
 ::: warning Public API 변경
 새 메서드나 옵션을 추가할 때는 구현 편의보다 사용자가 실제로 필요로 하는 안정적인 계약인지 먼저 판단하세요. 내부 diagnostics나 renderer 세부 구현을 그대로 public API로 노출하지 않는 것이 좋습니다.

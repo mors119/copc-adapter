@@ -12,7 +12,7 @@ npm run download-samples -- autzen
 
 `npm run setup`은 검증용 Autzen의 설정된 파일 크기와 SHA-256을 확인합니다.
 Cesium 개발 서버는 `samples/local/` 파일을 same-origin HTTP Range
-미들웨어로 직접 제공합니다. 정적 호스트에 게시할 때만 `apps/viewer-web/public/samples/`
+미들웨어로 직접 제공합니다. 정적 호스트에 게시할 때만 `apps/dev-viewer/public/samples/`
 아래에 별도 복사본을 둘 수 있습니다.
 
 기본 저장 위치:

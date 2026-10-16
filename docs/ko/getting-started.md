@@ -99,10 +99,10 @@ const layer = new CopcCesiumLayer({
 
 직접 구현을 공부하고 싶다면 다음 파일부터 보는 것이 좋습니다.
 
-- `apps/viewer-web/src/api/CopcCesiumLayer.ts` — 공개 Cesium API
-- `apps/viewer-web/src/viewer/CopcViewer.ts` — Cesium layer/controller 연결
-- `apps/viewer-web/src/viewer/streaming/CopcStreamingController.ts` — renderer-neutral streaming 진입점
-- `apps/viewer-web/src/viewer/streaming/StreamingManager.ts` — 선택된 node load와 scheduling
+- `packages/copc-adapter/src/cesium/layer/CopcCesiumLayer.ts` — 공개 Cesium API
+- `packages/copc-adapter/src/cesium/layer/CopcViewer.ts` — Cesium layer/controller 연결
+- `packages/copc-adapter/src/core/streaming/CopcStreamingController.ts` — renderer-neutral streaming 진입점
+- `packages/copc-adapter/src/core/streaming/StreamingManager.ts` — 선택된 node load와 scheduling
 
 ::: tip 수정할 때
 사용자에게 노출되는 새 옵션을 추가한다면 먼저 `CopcCesiumLayerOptions`가 정말 필요한지 확인하세요. 내부 구현 세부사항은 가능한 한 public API로 올리지 않는 것이 현재 프로젝트 방향입니다.

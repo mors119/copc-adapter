@@ -56,7 +56,7 @@ viewport, and SwiftShader WebGL. Browser timing is specific to this software
 renderer and network session.
 
 ```sh
-cd apps/viewer-web
+cd apps/dev-viewer
 PLAYWRIGHT_TEST_PORT=4177 npx playwright test e2e/streaming-performance.spec.ts \
   --grep "records the Autzen Far/Near" --reporter=line
 
