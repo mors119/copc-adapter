@@ -8,7 +8,7 @@ does not create a WebGL context or claim GPU upload/frame performance.
 Command:
 
 ```sh
-npm run benchmark:three-renderer --prefix packages/copc-adapter
+npm run benchmark:three-renderer --prefix packages
 ```
 
 Representative local run (Node `v26.7.0`, macOS arm64, 100,000 points,

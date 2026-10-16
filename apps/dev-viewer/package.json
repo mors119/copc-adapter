@@ -15,11 +15,11 @@
     "test:functional": "playwright test e2e/functional-validation.spec.ts --reporter=line",
     "benchmark:streaming": "playwright test e2e/streaming-performance.spec.ts --reporter=line",
     "preview": "vite preview",
-    "prepare-assets": "npm --prefix ../../packages/copc-adapter run prepare-copc-adapter-wasm && npm run prepare-laz-perf",
-    "prepare-laz-perf": "cp ../../packages/copc-adapter/node_modules/laz-perf/lib/laz-perf.wasm public/laz-perf.wasm"
+    "prepare-assets": "npm --prefix ../../packages run prepare-copc-adapter-wasm && npm run prepare-laz-perf",
+    "prepare-laz-perf": "cp ../../packages/node_modules/laz-perf/lib/laz-perf.wasm public/laz-perf.wasm"
   },
   "devDependencies": {
-    "@frillab/copc-adapter": "file:../../packages/copc-adapter",
+    "@frillab/copc-adapter": "file:../../packages",
     "@playwright/test": "^1.55.0",
     "@types/node": "^26.6.5",
     "@types/three": "^0.186.0",

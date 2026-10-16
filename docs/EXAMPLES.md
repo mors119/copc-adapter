@@ -55,7 +55,7 @@ LAS classification을 categorical palette로 보려면 `classification`을 사�
 ## Build Note
 
 The dev viewer prepares the `copc-adapter-wasm` asset before running. Package
-unit tests use `packages/copc-adapter`; library builds include the decoder
+unit tests use `packages`; library builds include the decoder
 assets in `dist`.
 The default browser URL requires the downloaded Autzen sample at
 `apps/dev-viewer/public/samples/autzen.copc.laz`.

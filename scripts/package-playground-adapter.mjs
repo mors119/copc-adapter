@@ -22,10 +22,10 @@ await access(path.join(playgroundDirectory, 'node_modules'));
 await rm(candidateDirectory, { recursive: true, force: true });
 await mkdir(candidateDirectory, { recursive: true });
 
-await run('npm', ['--prefix', 'packages/copc-adapter', 'run', 'prepare-copc-adapter-wasm']);
-await run('npm', ['--prefix', 'packages/copc-adapter', 'run', 'build:library:ci']);
+await run('npm', ['--prefix', 'packages', 'run', 'prepare-copc-adapter-wasm']);
+await run('npm', ['--prefix', 'packages', 'run', 'build:library:ci']);
 await run('npm', [
-  'pack', './packages/copc-adapter', '--ignore-scripts', '--pack-destination', candidateDirectory,
+  'pack', './packages', '--ignore-scripts', '--pack-destination', candidateDirectory,
 ]);
 
 const candidates = (await readdir(candidateDirectory)).filter((filename) => filename.endsWith('.tgz'));

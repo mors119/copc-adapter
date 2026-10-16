@@ -181,7 +181,7 @@ itself.
 ## Reproduction
 
 ```bash
-npm ci --prefix packages/copc-adapter
+npm ci --prefix packages
 npm ci --prefix apps/dev-viewer
 npm run audit:crs -- --json
 npm run audit:crs -- --wasm --benchmark --json

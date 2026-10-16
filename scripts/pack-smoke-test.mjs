@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryDirectory = path.resolve(scriptDirectory, '..');
-const packageDirectory = path.resolve(repositoryDirectory, 'packages/copc-adapter');
+const packageDirectory = path.resolve(repositoryDirectory, 'packages');
 const consumerTemplateDirectory = path.resolve(
   repositoryDirectory,
   'tests/environments/cesium-vite',

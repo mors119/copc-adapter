@@ -1,13 +1,13 @@
 import * as Cesium from 'cesium';
-import type { CopcMetadata, CopcPointBuffer } from '../../../packages/copc-adapter/src/core/copc/types/copc';
-import { performanceNow } from '../../../packages/copc-adapter/src/core/copc/performance';
-import { transformPointBufferToPreparedPointData } from '../../../packages/copc-adapter/src/core/coordinates/transform/createPointTransformer';
+import type { CopcMetadata, CopcPointBuffer } from '../../../packages/core/copc/types/copc';
+import { performanceNow } from '../../../packages/core/copc/performance';
+import { transformPointBufferToPreparedPointData } from '../../../packages/core/coordinates/transform/createPointTransformer';
 import {
   PointPrimitiveRenderer,
   type CesiumPointRenderer,
   type CopcCesiumPointRendererOptions,
   type CopcPointRendererPerformanceStage,
-} from '../../../packages/copc-adapter/src/cesium/render/CopcPointRenderer';
+} from '../../../packages/cesium/render/CopcPointRenderer';
 
 type BenchmarkStage = CopcPointRendererPerformanceStage | 'nodeReplacement';
 

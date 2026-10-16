@@ -9,7 +9,7 @@ From the repository root, install dependencies and prepare the Rust/WASM target:
 
 ```bash
 npm ci
-npm ci --prefix packages/copc-adapter
+npm ci --prefix packages
 npm ci --prefix apps/dev-viewer
 rustup target add wasm32-unknown-unknown
 ```

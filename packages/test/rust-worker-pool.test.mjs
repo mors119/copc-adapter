@@ -1,0 +1,282 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import {
+  RustCopcDecodeWorkerPool,
+  RustCopcWorkerError,
+} from '../core/copc/rustCopcDecodeWorkerPool.ts';
+
+function createFakeWorkerHarness({ delay = 5, fail = false, failPrepare = false, initFail = false } = {}) {
+  const workers = [];
+  const initializations = [];
+  let active = 0;
+  let peak = 0;
+  const order = [];
+
+  class FakeWorker {
+    onmessage = null;
+    onerror = null;
+    onmessageerror = null;
+    terminated = false;
+
+    postMessage(message) {
+      if (this.terminated) throw new Error('worker terminated');
+      if (message.type === 'init') {
+        initializations.push(message);
+        if (initFail) {
+          setTimeout(() => this.onmessage?.({ data: {
+            type: 'error',
+            error: { name: 'RustCopcParseError', message: 'unsupported CRS', code: 'unsupported-crs' },
+          } }), 0);
+          return;
+        }
+        setTimeout(() => this.onmessage?.({ data: { type: 'ready' } }), 0);
+        return;
+      }
+      order.push(message.nodeKey);
+      active += 1;
+      peak = Math.max(peak, active);
+      setTimeout(() => {
+        active -= 1;
+        if (this.terminated) return;
+        if (fail || (failPrepare && message.type === 'prepare')) {
+          this.onmessage?.({ data: {
+            type: 'error',
+            id: message.id,
+            nodeKey: message.nodeKey,
+            error: { name: 'Error', message: 'synthetic worker failure', code: 'synthetic' },
+          } });
+          return;
+        }
+        const coordinates = new Float64Array([message.id, message.pointCount, 3]);
+        const intensity = message.requestedFields & 1 ? new Uint16Array([11]) : undefined;
+        const classification = message.requestedFields & 2 ? new Uint8Array([7]) : undefined;
+        const red = message.requestedFields & 4 ? new Uint16Array([101]) : undefined;
+        const green = message.requestedFields & 4 ? new Uint16Array([102]) : undefined;
+        const blue = message.requestedFields & 4 ? new Uint16Array([103]) : undefined;
+        const response = {
+          type: 'result',
+          id: message.id,
+          nodeKey: message.nodeKey,
+          pointCount: message.pointCount,
+          durationMs: delay,
+          operation: message.type,
+          coordinateSystem: message.type === 'prepare' ? 'wgs84-geographic' : 'copc-source',
+          sourceCoordinateSystem: message.type === 'prepare' ? 'copc-source' : undefined,
+          worldCoordinateSystem: message.type === 'prepare' ? 'wgs84-ecef-meters' : undefined,
+          coordinates: coordinates.buffer,
+          sourceCoordinates: message.type === 'prepare'
+            ? new Float64Array([4, 5, 6]).buffer
+            : undefined,
+          geographicCoordinates: message.type === 'prepare'
+            ? new Float64Array([7, 8, 9]).buffer
+            : undefined,
+          worldCoordinates: message.type === 'prepare'
+            ? new Float64Array([10, 11, 12]).buffer
+            : undefined,
+          statistics: message.type === 'prepare'
+            ? { elevation: { min: 8, max: 8 }, intensity: { min: 11, max: 11 }, rgbMax: 255 }
+            : undefined,
+          decodeDurationMs: message.type === 'prepare' ? 2 : undefined,
+          preparationDurationMs: message.type === 'prepare' ? 3 : undefined,
+          intensity: intensity?.buffer,
+          classification: classification?.buffer,
+          red: red?.buffer,
+          green: green?.buffer,
+          blue: blue?.buffer,
+        };
+        this.onmessage?.({ data: response });
+      }, delay);
+    }
+
+    terminate() {
+      this.terminated = true;
+    }
+  }
+
+  return {
+    factory() {
+      const worker = new FakeWorker();
+      workers.push(worker);
+      return worker;
+    },
+    workers,
+    initializations,
+    stats() {
+      return { active, peak, order };
+    },
+  };
+}
+
+test('Rust decode worker pool passes the configured range limit to workers', async () => {
+  const harness = createFakeWorkerHarness();
+  const pool = new RustCopcDecodeWorkerPool({
+    workerCount: 1,
+    workerFactory: harness.factory,
+    maxRangeBytes: 128 * 1024 * 1024,
+    heightOffsetMeters: -22.5,
+  });
+  pool.setMetadata(new Uint8Array([9, 8, 7]));
+
+  await pool.submit(request('configured-limit'));
+  assert.equal(harness.initializations[0].maxRangeBytes, 128 * 1024 * 1024);
+  assert.equal(harness.initializations[0].heightOffsetMeters, -22.5);
+  pool.destroy();
+});
+
+function request(nodeKey, pointCount = 1, requestedFields = 0) {
+  return {
+    nodeKey,
+    pointCount,
+    requestedFields,
+    chunk: new Uint8Array([1, 2, 3]),
+  };
+}
+
+test('Rust decode worker pool bounds concurrency and preserves FIFO order', async () => {
+  const harness = createFakeWorkerHarness({ delay: 10 });
+  const pool = new RustCopcDecodeWorkerPool({ workerCount: 2, workerFactory: harness.factory });
+  pool.setMetadata(new Uint8Array([9, 8, 7]));
+
+  const results = await Promise.all([
+    pool.submit(request('first', 1)),
+    pool.submit(request('second', 2)),
+    pool.submit(request('third', 3)),
+    pool.submit(request('fourth', 4)),
+  ]);
+
+  const diagnostics = pool.getDiagnostics();
+  assert.equal(harness.stats().peak, 2);
+  assert.equal(diagnostics.workerCount, 2);
+  assert.equal(diagnostics.peakActiveCount, 2);
+  assert.equal(diagnostics.peakQueuedCount, 2);
+  assert.equal(diagnostics.activeCount, 0);
+  assert.equal(diagnostics.queuedCount, 0);
+  assert.equal(diagnostics.submittedCount, 4);
+  assert.equal(diagnostics.completedCount, 4);
+  assert.equal(diagnostics.cancelledCount, 0);
+  assert.equal(diagnostics.failedCount, 0);
+  assert.deepEqual(harness.stats().order, ['first', 'second', 'third', 'fourth']);
+  assert.deepEqual(results.map((result) => result.pointCount), [1, 2, 3, 4]);
+  pool.destroy();
+  assert.equal(harness.workers.every((worker) => worker.terminated), true);
+});
+
+test('Rust decode worker pool records activity for newly created slots', async () => {
+  const harness = createFakeWorkerHarness();
+  const pool = new RustCopcDecodeWorkerPool({ workerCount: 2, workerFactory: harness.factory });
+  pool.setMetadata(new Uint8Array([9, 8, 7]));
+
+  await Promise.all([
+    pool.submit(request('first', 1)),
+    pool.submit(request('second', 2)),
+  ]);
+
+  assert.equal(pool.getDiagnostics().peakActiveCount, 2);
+  pool.destroy();
+});
+
+test('Rust decode worker pool transfers project-owned XYZ and attributes', async () => {
+  const harness = createFakeWorkerHarness();
+  const pool = new RustCopcDecodeWorkerPool({ workerCount: 1, workerFactory: harness.factory });
+  pool.setMetadata(new Uint8Array([1]));
+
+  const result = await pool.submit(request('attributes', 1, 7));
+  assert.deepEqual([...result.coordinates], [1, 1, 3]);
+  assert.deepEqual([...result.attributes.intensity], [11]);
+  assert.deepEqual([...result.attributes.classification], [7]);
+  assert.deepEqual([...result.attributes.red], [101]);
+  assert.deepEqual([...result.attributes.green], [102]);
+  assert.deepEqual([...result.attributes.blue], [103]);
+  assert.equal(result.decodeDurationMs, 5);
+  pool.destroy();
+});
+
+test('Rust worker pool returns the fused prepared-point contract and stage timings', async () => {
+  const harness = createFakeWorkerHarness();
+  const pool = new RustCopcDecodeWorkerPool({ workerCount: 1, workerFactory: harness.factory });
+  pool.setMetadata(new Uint8Array([1]));
+
+  const result = await pool.submitPrepared(request('prepared', 1, 1));
+  assert.equal(result.prepared.pointCount, 1);
+  assert.deepEqual([...result.prepared.source.coordinates], [4, 5, 6]);
+  assert.deepEqual([...result.prepared.geographic.coordinates], [7, 8, 9]);
+  assert.deepEqual([...result.prepared.world.coordinates], [10, 11, 12]);
+  assert.deepEqual(result.prepared.statistics, {
+    elevation: { min: 8, max: 8 },
+    intensity: { min: 11, max: 11 },
+    rgbMax: 255,
+  });
+  assert.equal(result.decodeDurationMs, 2);
+  assert.equal(result.preparationDurationMs, 3);
+  pool.destroy();
+});
+
+test('queued Rust decode work can be superseded while active work finishes', async () => {
+  const harness = createFakeWorkerHarness({ delay: 20 });
+  const pool = new RustCopcDecodeWorkerPool({ workerCount: 1, workerFactory: harness.factory });
+  pool.setMetadata(new Uint8Array([1]));
+  const active = pool.submit(request('active'));
+  const queued = pool.submit(request('obsolete'));
+  pool.cancelQueued();
+
+  await assert.rejects(queued, (error) =>
+    error instanceof RustCopcWorkerError && error.workerCode === 'worker-cancelled');
+  assert.equal((await active).pointCount, 1);
+  assert.deepEqual(harness.stats().order, ['active']);
+  pool.destroy();
+});
+
+test('worker failures are structured and include the node key', async () => {
+  const harness = createFakeWorkerHarness({ fail: true });
+  const pool = new RustCopcDecodeWorkerPool({ workerCount: 1, workerFactory: harness.factory });
+  pool.setMetadata(new Uint8Array([1]));
+
+  await assert.rejects(pool.submit(request('failed')), (error) =>
+    error instanceof RustCopcWorkerError
+      && error.workerCode === 'worker-failure'
+      && error.nodeKey === 'failed');
+  pool.destroy();
+});
+
+test('prepared worker failures preserve the job identity and Rust error code', async () => {
+  const harness = createFakeWorkerHarness({ failPrepare: true });
+  const pool = new RustCopcDecodeWorkerPool({ workerCount: 1, workerFactory: harness.factory });
+  pool.setMetadata(new Uint8Array([1]));
+
+  await assert.rejects(pool.submitPrepared(request('prepared-failed')), (error) =>
+    error instanceof RustCopcWorkerError
+      && error.workerCode === 'worker-failure'
+      && error.nodeKey === 'prepared-failed'
+      && error.rustCode === 'synthetic');
+  pool.destroy();
+});
+
+test('worker initialization failures preserve the Rust error code', async () => {
+  const harness = createFakeWorkerHarness({ initFail: true });
+  const pool = new RustCopcDecodeWorkerPool({ workerCount: 1, workerFactory: harness.factory });
+  pool.setMetadata(new Uint8Array([1]));
+
+  await assert.rejects(pool.submit(request('unsupported-crs')), (error) =>
+    error instanceof RustCopcWorkerError
+      && error.workerCode === 'worker-failure'
+      && error.nodeKey === 'unsupported-crs'
+      && error.rustCode === 'unsupported-crs');
+  assert.equal(pool.getDiagnostics().failedCount, 1);
+  pool.destroy();
+});
+
+test('destroy rejects queued and active decode work and is idempotent', async () => {
+  const harness = createFakeWorkerHarness({ delay: 30 });
+  const pool = new RustCopcDecodeWorkerPool({ workerCount: 1, workerFactory: harness.factory });
+  pool.setMetadata(new Uint8Array([1]));
+  const active = pool.submit(request('active'));
+  const queued = pool.submit(request('queued'));
+  pool.destroy();
+  pool.destroy();
+
+  await assert.rejects(active, (error) =>
+    error instanceof RustCopcWorkerError && error.workerCode === 'worker-destroyed');
+  await assert.rejects(queued, (error) =>
+    error instanceof RustCopcWorkerError && error.workerCode === 'worker-destroyed');
+});

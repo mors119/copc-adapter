@@ -44,7 +44,7 @@ jobs:
           cache: npm
           cache-dependency-path: |
             package-lock.json
-            packages/copc-adapter/package-lock.json
+            packages/package-lock.json
             apps/dev-viewer/package-lock.json
 
       - name: Set up Rust toolchain
@@ -56,7 +56,7 @@ jobs:
         run: npm ci
 
       - name: Install adapter dependencies
-        run: npm ci --prefix packages/copc-adapter
+        run: npm ci --prefix packages
 
       - name: Install viewer dependencies
         run: npm ci --prefix apps/dev-viewer
@@ -66,23 +66,23 @@ jobs:
 
       - name: Type check adapter and viewer
         run: |
-          npm --prefix packages/copc-adapter run typecheck
+          npm --prefix packages run typecheck
           npm --prefix apps/dev-viewer run typecheck
 
       - name: Prepare Rust/WASM asset
-        run: npm --prefix packages/copc-adapter run prepare-copc-adapter-wasm
+        run: npm --prefix packages run prepare-copc-adapter-wasm
 
       - name: Download sample dataset
         run: npm run download-samples -- autzen
 
       - name: Run full Node suite with coverage
         run: |
-          npm --prefix packages/copc-adapter run coverage:raw
+          npm --prefix packages run coverage:raw
           npm --prefix apps/dev-viewer run test:unit
 
       - name: Build package and development viewer
         run: |
-          npm --prefix packages/copc-adapter run build:library:ci
+          npm --prefix packages run build:library:ci
           npm --prefix apps/dev-viewer run build:ci
 
   viewer-browser:
@@ -106,7 +106,7 @@ jobs:
           cache: npm
           cache-dependency-path: |
             package-lock.json
-            packages/copc-adapter/package-lock.json
+            packages/package-lock.json
             apps/dev-viewer/package-lock.json
 
       - name: Set up Rust toolchain
@@ -118,13 +118,13 @@ jobs:
         run: npm ci
 
       - name: Install adapter dependencies
-        run: npm ci --prefix packages/copc-adapter
+        run: npm ci --prefix packages
 
       - name: Install viewer dependencies
         run: npm ci --prefix apps/dev-viewer
 
       - name: Prepare Rust/WASM asset
-        run: npm --prefix packages/copc-adapter run prepare-copc-adapter-wasm
+        run: npm --prefix packages run prepare-copc-adapter-wasm
 
       - name: Download sample dataset
         run: npm run download-samples -- autzen
@@ -152,7 +152,7 @@ jobs:
           cache: npm
           cache-dependency-path: |
             package-lock.json
-            packages/copc-adapter/package-lock.json
+            packages/package-lock.json
             apps/dev-viewer/package-lock.json
 
       - name: Set up Rust toolchain
@@ -164,13 +164,13 @@ jobs:
         run: npm ci
 
       - name: Install adapter dependencies
-        run: npm ci --prefix packages/copc-adapter
+        run: npm ci --prefix packages
 
       - name: Install viewer dependencies
         run: npm ci --prefix apps/dev-viewer
 
       - name: Prepare Rust/WASM asset
-        run: npm --prefix packages/copc-adapter run prepare-copc-adapter-wasm
+        run: npm --prefix packages run prepare-copc-adapter-wasm
 
       - name: Download sample dataset
         run: npm run download-samples -- autzen
@@ -179,8 +179,8 @@ jobs:
         run: |
           rm -rf .ci-artifacts
           mkdir -p .ci-artifacts
-          npm --prefix packages/copc-adapter run build:library:ci
-          npm pack ./packages/copc-adapter --ignore-scripts --pack-destination .ci-artifacts
+          npm --prefix packages run build:library:ci
+          npm pack ./packages --ignore-scripts --pack-destination .ci-artifacts
 
           candidates=()
           while IFS= read -r candidate; do

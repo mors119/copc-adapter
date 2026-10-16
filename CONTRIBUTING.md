@@ -23,7 +23,7 @@ Requirements:
 ```bash
 rustup target add wasm32-unknown-unknown
 npm ci
-npm ci --prefix packages/copc-adapter
+npm ci --prefix packages
 npm ci --prefix apps/dev-viewer
 ```
 
@@ -60,8 +60,8 @@ normally need `git diff --check` and validation of changed Markdown links.
 - TypeScript or shared runtime changes:
 
 ```bash
-npm --prefix packages/copc-adapter run typecheck
-npm --prefix packages/copc-adapter test
+npm --prefix packages run typecheck
+npm --prefix packages test
 ```
 
 - Rust changes:

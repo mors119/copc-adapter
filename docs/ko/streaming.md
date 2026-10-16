@@ -52,8 +52,8 @@ COPC의 hierarchy는 점군을 공간적으로 나눈 구조입니다.
 
 관련 코드:
 
-- `packages/copc-adapter/src/core/copc/hierarchy/`
-- `packages/copc-adapter/src/core/streaming/CopcStreamingController.ts`
+- `packages/core/copc/hierarchy/`
+- `packages/core/streaming/CopcStreamingController.ts`
 
 ## LoD
 
@@ -137,15 +137,15 @@ B의 작업을 우선 진행
 
 ## 어디를 읽어보면 좋은가
 
-- `packages/copc-adapter/src/core/streaming/NodeSelector.ts`
+- `packages/core/streaming/NodeSelector.ts`
   - 어떤 node를 선택할지
-- `packages/copc-adapter/src/core/streaming/StreamingManager.ts`
+- `packages/core/streaming/StreamingManager.ts`
   - 선택된 node를 어떤 순서와 동시성으로 처리할지
-- `packages/copc-adapter/src/core/streaming/scheduler.ts`
+- `packages/core/streaming/scheduler.ts`
   - bounded scheduling
-- `packages/copc-adapter/src/core/copc/range/`
+- `packages/core/copc/range/`
   - HTTP Range 검증, 취소, coalescing
-- `packages/copc-adapter/src/core/streaming/createNodePointCache.ts`
+- `packages/core/streaming/createNodePointCache.ts`
   - decoded point cache
 
 ::: warning 혼동하기 쉬운 부분
