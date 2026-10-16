@@ -13,10 +13,9 @@ import {
   type CopcStreamingWorkProgressHandler,
 } from '../../core/streaming/CopcStreamingCore';
 import { areStreamingViewsEquivalent } from '../../core/streaming/areStreamingViewsEquivalent';
+import { ReplacementTransitionManager } from '../../core/streaming/ReplacementTransitionManager';
 import type {
   StreamingProgress,
-  StreamingReplacementGroup,
-  StreamingReplacementKind,
   StreamingView,
 } from '../../core/streaming/types';
 import { DEFAULT_MAX_RENDERED_POINTS } from '../../core/streaming/NodeSelector';
@@ -52,30 +51,13 @@ import type {
   CopcThreeLayerPickOptions,
   CopcThreeLayerPickPosition,
   CopcThreeLayerSnapshot,
-  CopcThreeLayerTransitionDiagnostics,
   CopcThreePointRenderer,
   CopcThreeRendererPerformanceSnapshot,
 } from './types';
 
-type ActiveReplacementGroup = StreamingReplacementGroup & {
-  generation: number;
-  viewGeneration: number;
-};
-
 type ActiveStreamingUpdate = {
   progressApplied: boolean;
 };
-
-function createTransitionDiagnostics(): CopcThreeLayerTransitionDiagnostics {
-  return {
-    activeReplacementGroupCount: 0,
-    replacementGroupsWaitingCount: 0,
-    refinementReplacementCommitCount: 0,
-    collapseReplacementCommitCount: 0,
-    staleReplacementCancellationCount: 0,
-    coarseNodesRetainedForCoverageCount: 0,
-  };
-}
 
 function createRendererPerformanceSnapshot(): CopcThreeRendererPerformanceSnapshot {
   return {
@@ -113,9 +95,7 @@ export class ThreeLayerController {
   private updateInFlight = false;
   private updateInFlightPromise?: Promise<void>;
   private activeStreamingUpdate?: ActiveStreamingUpdate;
-  private readonly activeReplacementGroups = new Map<string, ActiveReplacementGroup>();
-  private transitionGeneration = 0;
-  private transitionDiagnostics = createTransitionDiagnostics();
+  private readonly replacementTransitions: ReplacementTransitionManager;
   private rendererPerformance = createRendererPerformanceSnapshot();
 
   /**
@@ -163,6 +143,12 @@ export class ThreeLayerController {
       getLoadGeneration: () => this.loadGeneration,
       pickingThreshold: options.pickingThreshold,
       onPointPicked: options.onPointPicked,
+    });
+    this.replacementTransitions = new ReplacementTransitionManager({
+      renderer: this.pointRenderer,
+      getHierarchyNodePointCount: (nodeKey) =>
+        this.core.getHierarchyNode(nodeKey)?.node.pointCount,
+      removeNode: (nodeKey) => this.removeRenderedNode(nodeKey),
     });
   }
 
@@ -233,7 +219,7 @@ export class ThreeLayerController {
     this.core.invalidateView();
     this.updatePending = false;
     this.pointRenderer.detachFrom();
-    this.resetReplacementTransitions();
+    this.replacementTransitions.reset();
     this.pointPicker.clear();
     this.lastStreamingView = undefined;
     this.activeStreamingUpdate = undefined;
@@ -390,7 +376,7 @@ export class ThreeLayerController {
     this.datasetElevationRange = undefined;
     this.pointRenderer.clear();
     this.pointStyleState.reset();
-    this.resetReplacementTransitions();
+    this.replacementTransitions.reset();
     this.pointPicker.clear();
     this.lastStreamingView = undefined;
     this.activeStreamingUpdate = undefined;
@@ -422,7 +408,7 @@ export class ThreeLayerController {
     this.core.destroy();
     this.updatePending = false;
     this.pointRenderer.detachFrom();
-    this.resetReplacementTransitions();
+    this.replacementTransitions.reset();
     this.pointPicker.clear();
     this.lastStreamingView = undefined;
     this.activeStreamingUpdate = undefined;
@@ -514,7 +500,7 @@ export class ThreeLayerController {
         + (this.activeStreamingUpdate?.progressApplied ? 1 : 0),
       performance: coreSnapshot.performance,
       renderer: { ...this.rendererPerformance },
-      transition: { ...this.transitionDiagnostics },
+      transition: this.replacementTransitions.getDiagnostics(),
       ...(coreSnapshot.viewDistance ? { viewDistance: coreSnapshot.viewDistance } : {}),
       ...(coreSnapshot.hierarchy ? { hierarchy: coreSnapshot.hierarchy } : {}),
       pointCache: coreSnapshot.pointCache,
@@ -627,7 +613,7 @@ export class ThreeLayerController {
       }, generation, publicViewGeneration);
     }
     if (this.eventLifecycle.isActiveView(publicViewGeneration)
-      && this.isViewRendererCommitted(
+      && this.replacementTransitions.isViewRendererCommitted(
         update.selectedNodeKeys,
         update.loadedNodePoints,
         publicViewGeneration,
@@ -646,7 +632,7 @@ export class ThreeLayerController {
     generation: number,
     viewGeneration: number,
   ): void {
-    this.reconcileReplacementGroups(
+    this.replacementTransitions.reconcile(
       progress.replacementGroups ?? [],
       generation,
       progress.selectedNodeKeys,
@@ -654,7 +640,7 @@ export class ThreeLayerController {
     );
 
     for (const nodeKey of progress.removedNodeKeys) {
-      if (!this.isReplacementOldNode(nodeKey)) {
+      if (!this.replacementTransitions.isReplacementOldNode(nodeKey)) {
         this.removeRenderedNode(nodeKey);
       }
     }
@@ -662,7 +648,8 @@ export class ThreeLayerController {
       if (!progress.selectedNodeKeys.includes(nodeKey) || this.pointRenderer.hasNode(nodeKey)) {
         continue;
       }
-      if (this.getProjectedPointCount(nodeKey, points.pointCount) > this.getMaxRenderedPoints()) {
+      if (this.replacementTransitions.getProjectedPointCount(nodeKey, points.pointCount)
+        > this.getMaxRenderedPoints()) {
         continue;
       }
       this.addRenderedNode(nodeKey, points);
@@ -681,8 +668,8 @@ export class ThreeLayerController {
       }
     }
 
-    this.commitReadyReplacementGroups(generation);
-    this.updateTransitionDiagnostics();
+    this.replacementTransitions.commitReady(generation);
+    this.replacementTransitions.updateDiagnostics();
   }
 
   private addRenderedNode(nodeKey: string, points: PreparedPointData): void {
@@ -703,153 +690,6 @@ export class ThreeLayerController {
         }
       },
     } satisfies ThreePointRendererOptions);
-  }
-
-  private reconcileReplacementGroups(
-    replacementGroups: readonly StreamingReplacementGroup[],
-    generation: number,
-    selectedNodeKeys: readonly string[],
-    viewGeneration: number,
-  ): void {
-    if (this.transitionGeneration === generation) {
-      return;
-    }
-
-    const previousGroups = [...this.activeReplacementGroups.values()];
-    const stagedNodeKeys = new Set(previousGroups.flatMap((group) => group.newNodeKeys));
-    for (const nodeKey of stagedNodeKeys) {
-      if (!selectedNodeKeys.includes(nodeKey)) {
-        this.removeRenderedNode(nodeKey);
-      }
-    }
-    if (previousGroups.length > 0) {
-      this.transitionDiagnostics.staleReplacementCancellationCount += 1;
-    }
-    this.activeReplacementGroups.clear();
-    this.transitionGeneration = generation;
-
-    const desiredNodeKeys = new Set(selectedNodeKeys);
-    const renderedOldNodeKeys = this.pointRenderer.getRenderedNodeKeys()
-      .filter((nodeKey) => !desiredNodeKeys.has(nodeKey));
-    const desiredNewNodeKeys = [...desiredNodeKeys]
-      .filter((nodeKey) => !this.pointRenderer.hasNode(nodeKey))
-      .sort();
-    if (renderedOldNodeKeys.length > 0 && desiredNewNodeKeys.length === 0) {
-      for (const nodeKey of renderedOldNodeKeys) {
-        this.removeRenderedNode(nodeKey);
-      }
-    }
-
-    const incomingOldNodeKeys = new Set(replacementGroups.flatMap((group) => group.oldNodeKeys));
-    const incomingNewNodeKeys = new Set(replacementGroups.flatMap((group) => group.newNodeKeys));
-    const groupsCoverRenderer = renderedOldNodeKeys.every((key) => incomingOldNodeKeys.has(key))
-      && desiredNewNodeKeys.every((key) => incomingNewNodeKeys.has(key));
-    const groups = renderedOldNodeKeys.length > 0 && desiredNewNodeKeys.length > 0
-      && !groupsCoverRenderer
-      ? [{
-          kind: this.inferReplacementKind(replacementGroups),
-          oldNodeKeys: renderedOldNodeKeys,
-          newNodeKeys: desiredNewNodeKeys,
-        }]
-      : replacementGroups;
-
-    for (const group of groups) {
-      if (group.newNodeKeys.length === 0) {
-        continue;
-      }
-      this.activeReplacementGroups.set(this.getReplacementGroupKey(group), {
-        ...group,
-        oldNodeKeys: [...group.oldNodeKeys].sort(),
-        newNodeKeys: [...group.newNodeKeys].sort(),
-        generation,
-        viewGeneration,
-      });
-    }
-  }
-
-  private inferReplacementKind(groups: readonly StreamingReplacementGroup[]): StreamingReplacementKind {
-    return groups.length === 1 ? groups[0].kind : 'retarget';
-  }
-
-  private getReplacementGroupKey(group: StreamingReplacementGroup): string {
-    return `${group.kind}:${[...group.oldNodeKeys].sort().join(',')}->${[...group.newNodeKeys].sort().join(',')}`;
-  }
-
-  private isReplacementOldNode(nodeKey: string): boolean {
-    return [...this.activeReplacementGroups.values()]
-      .some((group) => group.oldNodeKeys.includes(nodeKey));
-  }
-
-  private getProjectedPointCount(nodeKey: string, pointCount: number): number {
-    let projectedPointCount = this.getRenderedPointCount();
-    const replacedNodeKeys = new Set(
-      [...this.activeReplacementGroups.values()].flatMap((group) => group.oldNodeKeys),
-    );
-    for (const oldNodeKey of replacedNodeKeys) {
-      if (this.pointRenderer.hasNode(oldNodeKey)) {
-        projectedPointCount -= this.pointRenderer.getRenderedNodePointCount?.(oldNodeKey)
-          ?? this.core.getHierarchyNode(oldNodeKey)?.node.pointCount
-          ?? 0;
-      }
-    }
-    if (!this.pointRenderer.hasNode(nodeKey)) {
-      projectedPointCount += pointCount;
-    }
-    return projectedPointCount;
-  }
-
-  private commitReadyReplacementGroups(generation: number): void {
-    for (const [groupKey, group] of [...this.activeReplacementGroups.entries()]) {
-      if (group.generation !== generation
-        || !group.newNodeKeys.every((nodeKey) => this.pointRenderer.hasNode(nodeKey))) {
-        continue;
-      }
-      for (const oldNodeKey of group.oldNodeKeys) {
-        this.removeRenderedNode(oldNodeKey);
-      }
-      this.activeReplacementGroups.delete(groupKey);
-      if (group.kind === 'refinement') {
-        this.transitionDiagnostics.refinementReplacementCommitCount += 1;
-      } else if (group.kind === 'collapse') {
-        this.transitionDiagnostics.collapseReplacementCommitCount += 1;
-      }
-    }
-  }
-
-  private updateTransitionDiagnostics(): void {
-    this.transitionDiagnostics.activeReplacementGroupCount = this.activeReplacementGroups.size;
-    this.transitionDiagnostics.replacementGroupsWaitingCount = [...this.activeReplacementGroups.values()]
-      .filter((group) => !group.newNodeKeys.every((nodeKey) => this.pointRenderer.hasNode(nodeKey)))
-      .length;
-    this.transitionDiagnostics.coarseNodesRetainedForCoverageCount = [...this.activeReplacementGroups.values()]
-      .filter((group) => group.kind === 'refinement')
-      .flatMap((group) => group.oldNodeKeys)
-      .filter((nodeKey) => this.pointRenderer.hasNode(nodeKey))
-      .length;
-  }
-
-  private resetReplacementTransitions(): void {
-    this.activeReplacementGroups.clear();
-    this.transitionGeneration = 0;
-    this.transitionDiagnostics = createTransitionDiagnostics();
-  }
-
-  private isViewRendererCommitted(
-    selectedNodeKeys: readonly string[],
-    readyPointBuffers: ReadonlyMap<string, PreparedPointData>,
-    viewGeneration: number,
-  ): boolean {
-    if ([...this.activeReplacementGroups.values()]
-      .some((group) => group.viewGeneration === viewGeneration)) {
-      return false;
-    }
-    return selectedNodeKeys.every((nodeKey) => {
-      if (this.pointRenderer.hasNode(nodeKey)) {
-        return true;
-      }
-      const readyPoints = readyPointBuffers.get(nodeKey);
-      return readyPoints === undefined || readyPoints.pointCount === 0;
-    });
   }
 
   private cancelActiveView(reason: CopcViewCancellationReason): void {
