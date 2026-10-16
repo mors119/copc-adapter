@@ -34,7 +34,7 @@ export type CopcStreamingOptions = {
   maxScreenSpaceError?: number;
   /** Half-width of the state-aware SSE hold band in pixels. */
   screenSpaceErrorHysteresis?: number;
-  /** @deprecated SSE refinement replaces the distance multiplier policy. */
+  /** @deprecated Planned for removal in v0.9, after v0.8. Use maxScreenSpaceError. */
   refineDistanceMultiplier?: number;
   maxRenderDistanceMeters?: number;
   /** Maximum estimated points in the active current-view workload. */

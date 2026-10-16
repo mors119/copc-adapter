@@ -253,6 +253,59 @@ test('CopcCesiumLayer delegates source and streaming work to the shared core', a
   assert.equal(viewer.destroyed, false);
 });
 
+test('Cesium layers load geographic-WKT metadata with automatic framing before or after attachment', async () => {
+  const metadata = {
+    pointCount: 2,
+    bounds: {
+      minX: -123,
+      minY: 44,
+      minZ: 10,
+      maxX: -122,
+      maxY: 45,
+      maxZ: 20,
+    },
+    cube: {
+      minX: -123,
+      minY: 44,
+      minZ: 10,
+      maxX: -122,
+      maxY: 45,
+      maxZ: 20,
+    },
+    wkt: 'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]]',
+  };
+
+  for (const attachBeforeLoad of [true, false]) {
+    const source = createBackend({ metadata: metadata });
+    const layer = new CopcCesiumLayer({
+      url: `memory://geographic-wkt-${attachBeforeLoad}.copc.laz`,
+      backend: source.backend,
+      decoder: source.decoder,
+    });
+    const viewer = createFakeViewer();
+    const automaticFlights = [];
+    const nativeFlyTo = viewer.camera.flyTo.bind(viewer.camera);
+    viewer.camera.flyTo = (options) => {
+      automaticFlights.push(options);
+      nativeFlyTo(options);
+    };
+
+    if (attachBeforeLoad) {
+      layer.attachTo(viewer);
+    }
+    await layer.load();
+    if (!attachBeforeLoad) {
+      layer.attachTo(viewer);
+    }
+    await waitFor(() => layer.getSnapshot().renderedPointCount === 2);
+
+    assert.equal(automaticFlights.length, 1);
+    assert.ok(Number.isFinite(automaticFlights[0].destination.z));
+    assert.ok(layer.boundingSphere);
+    layer.destroy();
+  }
+});
+
 test('Cesium metadata and view events describe real milestones with one public view generation', async () => {
   const source = createBackend();
   const layer = new CopcCesiumLayer({

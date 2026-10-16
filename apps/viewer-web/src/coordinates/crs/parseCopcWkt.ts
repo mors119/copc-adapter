@@ -63,7 +63,10 @@ export function extractHorizontalCrsWkt(wkt: string): string {
 }
 
 export function extractHorizontalUnitScale(wkt: string): number {
-  const horizontalWkt = extractHorizontalWkt(wkt);
+  const horizontalWkt = wkt.includes('PROJCS[')
+    ? extractHorizontalWkt(wkt)
+    : extractHorizontalCrsWkt(wkt);
+  const geographic = horizontalWkt.startsWith('GEOGCS[');
 
   let depth = 0;
   let inString = false;
@@ -90,7 +93,7 @@ export function extractHorizontalUnitScale(wkt: string): number {
       continue;
     }
 
-    // Ignore nested angular units and read only the projected coordinate unit.
+    // Ignore nested units and read only the horizontal CRS's own unit.
     if (
       depth === 1 &&
       horizontalWkt.slice(index).toUpperCase().startsWith('UNIT[')
@@ -102,11 +105,30 @@ export function extractHorizontalUnitScale(wkt: string): number {
       );
 
       if (!match) {
+        if (geographic) {
+          throw new Error('COPC geographic WKT has an invalid angular unit');
+        }
         return 1;
       }
 
-      return Number(match[1]);
+      const unitScale = Number(match[1]);
+      if (!Number.isFinite(unitScale) || unitScale <= 0) {
+        if (geographic) {
+          throw new Error('COPC geographic WKT has an invalid angular unit');
+        }
+        return 1;
+      }
+
+      // A single scalar is used by the renderer-neutral LoD estimates. For
+      // angular coordinates, use a conservative metres-per-radian upper
+      // bound (the polar meridional radius) rather than interpreting degrees
+      // as metres. This is intentionally an estimate, not a local projection.
+      return geographic ? unitScale * 6_400_000 : unitScale;
     }
+  }
+
+  if (geographic) {
+    throw new Error('COPC geographic WKT does not declare an angular unit');
   }
 
   return 1;

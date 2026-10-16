@@ -29,12 +29,12 @@ export type CopcCesiumPointRendererOptions = NeutralCopcPointRendererOptions & {
   ) => void;
 };
 
-/** @deprecated Use `CopcCesiumPointRendererPerformanceStage`. */
+/** @deprecated Planned for removal in v0.9, after v0.8; use `CopcCesiumPointRendererPerformanceStage`. */
 export type CopcPointRendererPerformanceStage = CopcCesiumPointRendererPerformanceStage;
 
 type CesiumPointData = GeographicPointBuffer | PreparedPointData;
 
-/** @deprecated Use the renderer-neutral options from `viewer/streaming/renderer`. */
+/** @deprecated Planned for removal in v0.9, after v0.8; use `CopcCesiumPointRendererOptions`. */
 export type { CopcPointRendererOptions } from '../../viewer/streaming/renderer';
 export type { CopcPointRenderer } from '../../viewer/streaming/renderer';
 

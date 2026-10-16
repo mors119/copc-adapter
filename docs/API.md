@@ -144,8 +144,9 @@ a separately defined and tested contract.
   `6`), `maxScreenSpaceError` in pixels (default `8`),
   `screenSpaceErrorHysteresis` in pixels, `maxRenderDistanceMeters` (default
   `12000`), and `maxRenderedPoints`.
-- `refineDistanceMultiplier`: accepted for source compatibility but deprecated;
-  the current selector uses screen-space error instead.
+- `refineDistanceMultiplier`: accepted for source compatibility but deprecated
+  and planned for removal in v0.9, after v0.8; the current selector uses
+  screen-space error instead.
 - `backend`: `'copc-js' | 'rust' | CopcBackend`. Default: `'copc-js'`.
   `'rust'` explicitly selects the Rust/WASM backend. Backend failures are not
   silently retried through `copc-js`.
@@ -341,6 +342,20 @@ settles. `maxPointsPerBatch` is retained for source compatibility but no longer
 creates completion barriers.
 `refineDistanceMultiplier` is accepted for compatibility but is deprecated and
 no longer controls refinement.
+
+### Deprecated compatibility APIs
+
+The following compatibility APIs remain available through v0.8 and are planned
+for removal starting in v0.9:
+
+| Deprecated API | Replacement |
+| --- | --- |
+| `streaming.refineDistanceMultiplier` | `streaming.maxScreenSpaceError` and, when needed, `streaming.screenSpaceErrorHysteresis` |
+| `maxPointsPerBatch` | `maxConcurrentNodeLoads`; this limits active work and does not recreate the old batch completion barrier |
+| `CopcPointRendererPerformanceStage` | `CopcCesiumPointRendererPerformanceStage` |
+| Cesium entrypoint's `CopcPointRendererOptions` | `CopcCesiumPointRendererOptions` |
+
+The deprecated TypeScript declarations carry the same v0.9 removal notice.
 
 `load()` reads metadata and the root hierarchy. `updateView(view,
 onProgress?)` performs view-driven hierarchy loading and selection and reports
