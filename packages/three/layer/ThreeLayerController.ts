@@ -1,11 +1,6 @@
-import * as THREE from 'three';
+import type * as THREE from 'three';
 import { getCopcPointFieldSelection } from '../../core/copc/points/fieldSelection';
-import {
-  inspectCopcPoint,
-  isCopcPointPickId,
-  type CopcPointInspection,
-  type CopcPointPickId,
-} from '../../core/copc/points/pointInspection';
+import { inspectCopcPoint, type CopcPointInspection } from '../../core/copc/points/pointInspection';
 import type {
   CopcMetadata,
   PreparedPointData,
@@ -38,6 +33,7 @@ import {
   createCopcPointStyleState,
   getDatasetElevationRange,
 } from '../../core/point/style/pointStyle';
+import { ThreePointPicker } from '../picking/ThreePointPicker';
 import {
   CopcThreeLayerEventDispatcher,
   type CopcThreeLayerEventMap,
@@ -91,21 +87,8 @@ function createRendererPerformanceSnapshot(): CopcThreeRendererPerformanceSnapsh
   };
 }
 
-function isPickOptions(value: unknown): value is CopcThreeLayerPickOptions {
-  return value !== null
-    && typeof value === 'object'
-    && ('raycaster' in value || 'threshold' in value);
-}
-
 function isFinitePositive(value: number): boolean {
   return Number.isFinite(value) && value > 0;
-}
-
-let nextPickOwnerId = 0;
-
-function createPickOwnerId(): string {
-  nextPickOwnerId += 1;
-  return `copc-three-layer-${nextPickOwnerId}`;
 }
 
 /** Owns Three.js layer lifecycle, streaming state, and renderer coordination. */
@@ -115,9 +98,9 @@ export class ThreeLayerController {
   private readonly core: CopcStreamingCore;
   private readonly options: CopcThreeLayerOptions;
   private readonly pointRenderer: CopcThreePointRenderer;
+  private readonly pointPicker: ThreePointPicker;
   private readonly pointStyleState = createCopcPointStyleState();
   private datasetElevationRange?: { min: number; max: number };
-  private readonly pickOwnerId = createPickOwnerId();
   private attachment?: CopcThreeLayerAttachment;
   private localFrame?: DatasetLocalFrame;
   private lifecycle: CopcThreeLayerLifecycleState = 'idle';
@@ -134,8 +117,6 @@ export class ThreeLayerController {
   private transitionGeneration = 0;
   private transitionDiagnostics = createTransitionDiagnostics();
   private rendererPerformance = createRendererPerformanceSnapshot();
-  private selectedPointPickId?: CopcPointPickId;
-  private selectedPointLoadGeneration = 0;
 
   /**
    * Create an unloaded layer for a browser-readable COPC resource.
@@ -168,6 +149,20 @@ export class ThreeLayerController {
       maxConcurrentRangeRequests: options.maxConcurrentRangeRequests,
       pointFields: getCopcPointFieldSelection(options.colorMode ?? 'fixed'),
       streaming: options.streaming,
+    });
+    this.pointPicker = new ThreePointPicker({
+      getRoot: () => this.pointRenderer.getRoot(),
+      inspectPoint: (pickId) => {
+        const node = this.core.getHierarchyNode(pickId.nodeKey);
+        const points = this.core.getCachedPointBuffer(pickId.nodeKey);
+        return node && points
+          ? inspectCopcPoint(pickId, node.node, points, this.core.getSnapshot().backend)
+          : undefined;
+      },
+      hasNode: (nodeKey) => this.pointRenderer.hasNode(nodeKey),
+      getLoadGeneration: () => this.loadGeneration,
+      pickingThreshold: options.pickingThreshold,
+      onPointPicked: options.onPointPicked,
     });
   }
 
@@ -239,7 +234,7 @@ export class ThreeLayerController {
     this.updatePending = false;
     this.pointRenderer.detachFrom();
     this.resetReplacementTransitions();
-    this.clearSelectedPoint();
+    this.pointPicker.clear();
     this.lastStreamingView = undefined;
     this.activeStreamingUpdate = undefined;
     this.attachment = undefined;
@@ -396,7 +391,7 @@ export class ThreeLayerController {
     this.pointRenderer.clear();
     this.pointStyleState.reset();
     this.resetReplacementTransitions();
-    this.clearSelectedPoint();
+    this.pointPicker.clear();
     this.lastStreamingView = undefined;
     this.activeStreamingUpdate = undefined;
     this.localFrame = undefined;
@@ -428,7 +423,7 @@ export class ThreeLayerController {
     this.updatePending = false;
     this.pointRenderer.detachFrom();
     this.resetReplacementTransitions();
-    this.clearSelectedPoint();
+    this.pointPicker.clear();
     this.lastStreamingView = undefined;
     this.activeStreamingUpdate = undefined;
     this.attachment = undefined;
@@ -480,23 +475,7 @@ export class ThreeLayerController {
 
   /** Return the selected point while its node and decoded buffer are live. */
   getSelectedPoint(): CopcPointInspection | undefined {
-    const pickId = this.selectedPointPickId;
-    if (!pickId || this.selectedPointLoadGeneration !== this.loadGeneration) {
-      if (pickId) {
-        this.clearSelectedPoint();
-      }
-      return undefined;
-    }
-
-    const node = this.core.getHierarchyNode(pickId.nodeKey);
-    const points = this.core.getCachedPointBuffer(pickId.nodeKey);
-    const inspection = node && points && this.pointRenderer.hasNode(pickId.nodeKey)
-      ? inspectCopcPoint(pickId, node.node, points, this.core.getSnapshot().backend)
-      : undefined;
-    if (!inspection) {
-      this.clearSelectedPoint();
-    }
-    return inspection;
+    return this.pointPicker.getSelectedPoint();
   }
 
   /**
@@ -513,64 +492,11 @@ export class ThreeLayerController {
     raycasterOrOptions?: THREE.Raycaster | CopcThreeLayerPickOptions,
   ): CopcPointInspection | undefined {
     const attachment = this.attachment;
-    if (!attachment || !this.localFrame || !Number.isFinite(position.x)
-      || !Number.isFinite(position.y)) {
-      this.clearSelectedPoint();
+    if (!attachment || !this.localFrame) {
+      this.pointPicker.clear();
       return undefined;
     }
-
-    const options = isPickOptions(raycasterOrOptions) ? raycasterOrOptions : undefined;
-    const raycaster = options?.raycaster
-      ?? (raycasterOrOptions && !isPickOptions(raycasterOrOptions)
-        ? raycasterOrOptions
-        : new THREE.Raycaster());
-    const threshold = options?.threshold
-      ?? this.options.pickingThreshold
-      ?? 1;
-    if (!isFinitePositive(threshold)) {
-      throw new Error('CopcThreeLayer pick threshold must be a positive finite number');
-    }
-
-    raycaster.params.Points.threshold = threshold;
-    raycaster.setFromCamera(new THREE.Vector2(position.x, position.y), attachment.camera);
-    const intersections = raycaster.intersectObject(this.pointRenderer.getRoot(), true);
-    for (const intersection of intersections) {
-      const pointObject = this.getOwnedPointObject(intersection.object);
-      const pointIndex = intersection.index;
-      if (!pointObject || pointIndex === undefined
-        || !Number.isSafeInteger(pointIndex) || pointIndex < 0) {
-        continue;
-      }
-
-      const pointIdFactory = pointObject.userData.copcPointId;
-      const pickId = typeof pointIdFactory === 'function'
-        ? pointIdFactory(pointIndex)
-        : undefined;
-      if (!isCopcPointPickId(pickId) || pickId.ownerId !== this.pickOwnerId) {
-        continue;
-      }
-
-      const node = this.core.getHierarchyNode(pickId.nodeKey);
-      const points = this.core.getCachedPointBuffer(pickId.nodeKey);
-      const inspection = node && points
-        ? inspectCopcPoint(pickId, node.node, points, this.core.getSnapshot().backend)
-        : undefined;
-      if (!inspection || !this.pointRenderer.hasNode(pickId.nodeKey)) {
-        continue;
-      }
-
-      this.selectedPointPickId = {
-        nodeKey: pickId.nodeKey,
-        pointIndex: pickId.pointIndex,
-        ownerId: pickId.ownerId,
-      };
-      this.selectedPointLoadGeneration = this.loadGeneration;
-      this.options.onPointPicked?.(inspection);
-      return inspection;
-    }
-
-    this.clearSelectedPoint();
-    return undefined;
+    return this.pointPicker.pick(position, attachment.camera, raycasterOrOptions);
   }
 
   /** Return a fresh diagnostics snapshot; the returned arrays/objects are not live views. */
@@ -768,7 +694,7 @@ export class ThreeLayerController {
       pointId: (pointIndex) => ({
         nodeKey,
         pointIndex,
-        ownerId: this.pickOwnerId,
+        ownerId: this.pointPicker.ownerId,
       }),
       onPerformance: (stage: ThreePointRendererPerformanceStage, durationMs: number) => {
         const metric = `${stage}DurationMs` as keyof CopcThreeRendererPerformanceSnapshot;
@@ -941,34 +867,8 @@ export class ThreeLayerController {
   }
 
   private removeRenderedNode(nodeKey: string): void {
-    if (this.selectedPointPickId?.nodeKey === nodeKey) {
-      this.clearSelectedPoint();
-    }
+    this.pointPicker.clearIfNode(nodeKey);
     this.pointRenderer.removeNode(nodeKey);
-  }
-
-  private getOwnedPointObject(object: THREE.Object3D): THREE.Object3D | undefined {
-    const root = this.pointRenderer.getRoot();
-    let candidate: THREE.Object3D | null = object;
-    while (candidate && candidate.parent && candidate.parent !== root) {
-      candidate = candidate.parent;
-    }
-    if (!candidate || candidate.parent !== root) {
-      return undefined;
-    }
-    const nodeKey = candidate.userData.copcNodeKey;
-    return typeof nodeKey === 'string' && this.pointRenderer.hasNode(nodeKey)
-      ? candidate
-      : undefined;
-  }
-
-  private clearSelectedPoint(): void {
-    if (!this.selectedPointPickId) {
-      return;
-    }
-    this.selectedPointPickId = undefined;
-    this.selectedPointLoadGeneration = 0;
-    this.options.onPointPicked?.(undefined);
   }
 
   private createView(attachment: CopcThreeLayerAttachment): StreamingView {
