@@ -100,7 +100,7 @@ const layer = new CopcCesiumLayer({
 직접 구현을 공부하고 싶다면 다음 파일부터 보는 것이 좋습니다.
 
 - `packages/copc-adapter/src/cesium/layer/CopcCesiumLayer.ts` — 공개 Cesium API
-- `packages/copc-adapter/src/cesium/layer/CopcViewer.ts` — Cesium layer/controller 연결
+- `packages/copc-adapter/src/cesium/layer/CesiumLayerController.ts` — Cesium layer/controller 연결
 - `packages/copc-adapter/src/core/streaming/CopcStreamingController.ts` — renderer-neutral streaming 진입점
 - `packages/copc-adapter/src/core/streaming/StreamingManager.ts` — 선택된 node load와 scheduling
 

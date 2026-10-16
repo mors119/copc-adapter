@@ -326,7 +326,7 @@ function areStreamingViewsEquivalent(
  * reconciliation, and picking. Source loading, hierarchy traversal,
  * selection, point caching, and view generations belong to `CopcStreamingCore`.
  */
-export class CopcLayerController {
+export class CesiumLayerController {
   readonly loadProgress = new CopcCesiumEvent<[number, number, number]>();
   readonly metadataReady = new CopcCesiumEvent<[CopcMetadata, number]>();
   readonly firstVisible = new CopcCesiumEvent<[number, number]>();
