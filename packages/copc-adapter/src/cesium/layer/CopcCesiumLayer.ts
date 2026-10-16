@@ -1,8 +1,8 @@
 import * as Cesium from 'cesium';
 import {
-  CopcLayerController,
+  CesiumLayerController,
   type CopcLayerSnapshot,
-} from './CopcViewer';
+} from './CesiumLayerController';
 import type { CopcMetadata } from '../../core/copc/types/copc';
 import type { CopcCesiumEvent } from './cesiumLayerEvents';
 import type { CopcLayerErrorEvent, CopcViewCancellationReason } from '../../core/events/layerEventLifecycle';
@@ -99,11 +99,11 @@ export type { CopcLayerErrorEvent, CopcViewCancellationReason };
  * ```
  */
 export class CopcCesiumLayer {
-  private readonly controller: CopcLayerController;
+  private readonly controller: CesiumLayerController;
 
   /** Create an unloaded layer configured for a COPC resource. */
   constructor(options: CopcCesiumLayerOptions) {
-    this.controller = new CopcLayerController(options);
+    this.controller = new CesiumLayerController(options);
   }
 
   /** Native Cesium event carrying queued count, active count, and view generation. */
