@@ -6,6 +6,26 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Added Cesium `boundingSphere` from full metadata bounds in WGS84 ECEF metres
+  and explicit `zoomTo()` using the native Cesium camera flight API.
+- Added Cesium progress and lifecycle events backed by native `Cesium.Event`,
+  plus typed Three.js progress and lifecycle events.
+- Added lifecycle generations and terminal view outcomes for settlement,
+  cancellation, and errors while preserving each adapter's existing `load()`
+  completion behavior.
+
+### Compatibility and limitations
+
+- Existing constructors, lifecycle methods, Cesium visibility isolation, Three
+  root composition, package entrypoints, and streaming defaults remain intact.
+- Cesium bounds use bounded CRS sampling with documented extent limits; invalid
+  or unsupported metadata returns `undefined`. Three.js native `Box3` bounds
+  describe instantiated root geometry, not the complete COPC dataset.
+- No GPU renderer rewrite, complete 3D Tiles compatibility, or automatic
+  vertical datum conversion is included.
+
 ## [0.5.2] - 2026-10-16
 
 ### Improved

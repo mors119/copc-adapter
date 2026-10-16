@@ -198,14 +198,24 @@ export {
 } from './api/CopcThreeLayer';
 export type {
   CopcThreeLayerAttachment,
+  CopcThreeLayerErrorEvent,
+  CopcThreeLayerEventMap,
+  CopcThreeLayerEventType,
+  CopcThreeLayerFirstVisibleEvent,
   CopcThreeLayerLifecycleState,
+  CopcThreeLayerMetadataReadyEvent,
   CopcThreeLayerOptions,
   CopcThreeLayerPickOptions,
   CopcThreeLayerPickPosition,
+  CopcThreeLayerProgressEvent,
   CopcThreeLayerSnapshot,
   CopcThreeLayerTransitionDiagnostics,
   CopcThreePointRenderer,
   CopcThreeRendererPerformanceSnapshot,
+  CopcThreeLayerViewCancelledEvent,
+  CopcThreeLayerViewSettledEvent,
+  CopcLayerErrorEvent,
+  CopcViewCancellationReason,
 } from './api/CopcThreeLayer';
 export {
   ThreePointRenderer,

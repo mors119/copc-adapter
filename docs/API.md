@@ -15,6 +15,9 @@ by the application. The internal point-processing implementation is not part
 of the public API contract; its placement may change between TypeScript and
 Rust/WASM while these interfaces remain compatible.
 
+The issue #239 API and event semantics are summarized in the
+[layer API semantics matrix](proposals/issue-239-layer-api.md).
+
 ## `CopcCesiumLayer`
 
 `CopcCesiumLayer` connects a streamed COPC resource to a caller-owned Cesium
@@ -44,6 +47,81 @@ The value survives detach/reattach and unload/reload. A custom renderer can
 implement the optional `setShow(show)` renderer method to receive visibility
 changes.
 
+### Metadata bounds and explicit camera framing
+
+`boundingSphere` is available after metadata and the root hierarchy load. It
+uses the full `metadata.bounds` extent, transformed through the existing CRS
+path to WGS84 ECEF metres, and includes `heightOffsetMeters` once. It is not
+derived from the nodes currently selected or rendered. The getter returns a
+clone, so mutating it does not change the cached value.
+
+The implementation supports inferred geographic bounds without WKT and the
+WKT1 geographic/projected coordinate systems supported by the existing
+`proj4` transformation. Projected bounds are accepted up to 2,000 km on each
+horizontal axis, with up to 1,000 km vertical span. The bounds algorithm
+samples grid edges and cell interiors and pads the sampled sphere by cell
+spacing and observed curvature residual. It rejects invalid values, sampled
+transform discontinuities, unsupported CRS data, and larger extents. This is
+a bounded method for supported local extents, not a guarantee for arbitrary
+projection singularities or malformed CRS definitions. In those cases
+`boundingSphere` is `undefined`.
+
+`zoomTo()` is an explicit caller request that uses Cesium's native
+`Camera.flyToBoundingSphere`. It resolves `true` on completion and `false`
+when Cesium cancels or supersedes the flight, or when the layer is detached,
+unloaded, reloaded, or destroyed. It rejects if the layer is destroyed,
+detached, has no supported sphere, receives an invalid offset, or Cesium
+cannot start the flight. The application continues to own the Viewer and
+camera. Existing automatic initial `flyToDataset()` framing remains in place.
+`layer.zoomTo()`, that legacy initial framing, and native `viewer.zoomTo(...)`
+are separate operations; `viewer.zoomTo(layer)` is not supported.
+
+### Lifecycle events
+
+Subscribe before `load()` if an initial milestone matters. `metadataReady` /
+`metadataready` can fire before `load()` settles. The `load()` Promise keeps
+its existing adapter-specific behavior: Cesium awaits the initial streaming
+view when attached, while Three.js `load()` prepares metadata and the root
+hierarchy without driving `update()`.
+
+| Event | Payload | Meaning |
+| --- | --- | --- |
+| `loadProgress` / `progress` | queued node count, active node count, public view generation | Current selected COPC node jobs waiting for scheduling or doing range/decode/preparation work. These are not HTTP counts, bytes, or source download percentage. |
+| `metadataReady` / `metadataready` | metadata snapshot, load generation | Metadata and root hierarchy are ready; point work may still be pending. |
+| `firstVisible` / `firstvisible` | load generation, view generation | The first nonempty point node was committed to the renderer. This does not promise a GPU frame, pixel visibility, or terrain/viewport visibility. Hiding the layer does not suppress this renderer-commit milestone. |
+| `viewSettled` / `viewsettled` | view generation, selected node keys | Selected work completed and ready results were applied by the renderer. A still-pending replacement group does not settle. The full source is not necessarily loaded. |
+| `viewCancelled` / `viewcancelled` | view generation, cancellation reason | An active view was invalidated by camera change, detach, unload, reload, or destroy. |
+| `error` | error, phase, applicable load or view generation | A load failure or current background view failure. Load and reload promises still reject. A failed view does not also settle or cancel. |
+
+Public load and view generation numbers are monotonically increasing and
+independent. Each active view has one terminal outcome: settled, cancelled, or
+failed. Stale work cannot emit later progress or terminal events. Cesium uses
+native `Cesium.Event`; Three uses typed listener methods. Listener exceptions
+are caught and reported with `console.error`, and `destroy()` removes that
+layer's listeners.
+
+```ts
+const removeProgress = layer.loadProgress.addEventListener(
+  (queuedNodeCount, activeNodeCount, viewGeneration) => {
+    console.log({ queuedNodeCount, activeNodeCount, viewGeneration });
+  },
+);
+layer.metadataReady.addEventListener((metadata, loadGeneration) => {
+  console.log({ metadata, loadGeneration });
+});
+layer.viewSettled.addEventListener((viewGeneration, selectedNodeKeys) => {
+  console.log({ viewGeneration, selectedNodeKeys });
+});
+
+layer.attachTo(viewer);
+await layer.load();
+const completed = await layer.zoomTo(
+  new Cesium.HeadingPitchRange(0, -0.5, 0),
+);
+removeProgress();
+layer.destroy();
+```
+
 `attachTo()` currently requires a `Cesium.Viewer`. A Scene/CesiumWidget attach
 contract is deferred because camera movement subscriptions and picking also
 depend on the Viewer camera and canvas lifecycle; those inputs do not yet have
@@ -66,8 +144,9 @@ a separately defined and tested contract.
   `6`), `maxScreenSpaceError` in pixels (default `8`),
   `screenSpaceErrorHysteresis` in pixels, `maxRenderDistanceMeters` (default
   `12000`), and `maxRenderedPoints`.
-- `refineDistanceMultiplier`: accepted for source compatibility but deprecated;
-  the current selector uses screen-space error instead.
+- `refineDistanceMultiplier`: accepted for source compatibility but deprecated
+  and planned for removal in v0.9, after v0.8; the current selector uses
+  screen-space error instead.
 - `backend`: `'copc-js' | 'rust' | CopcBackend`. Default: `'copc-js'`.
   `'rust'` explicitly selects the Rust/WASM backend. Backend failures are not
   silently retried through `copc-js`.
@@ -139,7 +218,8 @@ hidden by the new filter.
 ### Lifecycle
 
 ```ts
-await layer.load();       // metadata and the root hierarchy page
+await layer.load();       // metadata and root hierarchy; if already attached,
+                          // also awaits the initial streaming view
 layer.attachTo(viewer);   // camera/view updates and rendering
 layer.detachFrom();       // detach without unloading or destroying viewer
 await layer.reload();     // unload and load the configured URL again
@@ -149,7 +229,8 @@ layer.destroy();          // permanently release layer-owned resources
 
 `load()` and `reload()` reject with project-owned errors when source, metadata,
 CRS, or hierarchy initialization fails. `getMetadata()` returns the loaded
-metadata, when available.
+metadata, when available. `metadataReady` is dispatched as soon as metadata
+and the root hierarchy are available. Register its listener before `load()`.
 
 ## `CopcThreeLayer`
 
@@ -159,7 +240,10 @@ loop.
 
 ```ts
 import * as THREE from 'three';
-import { CopcThreeLayer } from '@frillab/copc-adapter/three';
+import {
+  CopcThreeLayer,
+  type CopcThreeLayerViewSettledEvent,
+} from '@frillab/copc-adapter/three';
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 20_000);
@@ -168,6 +252,10 @@ const layer = new CopcThreeLayer({
   url: 'https://example.com/data.copc.laz',
   colorMode: 'rgb',
 });
+const onSettled = (event: CopcThreeLayerViewSettledEvent) => {
+  console.log(event.viewGeneration, event.selectedNodeKeys);
+};
+layer.addEventListener('viewsettled', onSettled);
 
 await layer.load();
 layer.attachTo({ scene, camera, renderer });
@@ -178,6 +266,11 @@ function animate() {
   renderer.render(scene, camera);
 }
 animate();
+
+function disposeLayer() {
+  layer.removeEventListener('viewsettled', onSettled);
+  layer.destroy();
+}
 ```
 
 Current options include `url`, `pointSize` (default `3`), `colorMode`,
@@ -196,6 +289,11 @@ and +Z up. `pick({ x, y })` accepts normalized device coordinates and returns a
 `CopcPointInspection` or `undefined`. An optional `THREE.Raycaster` and
 threshold can be supplied. `detachFrom()`, `unload()`, `reload()`, and
 `destroy()` do not dispose application-owned Three.js resources.
+
+For a native bounds query, call `layer.getRoot().updateWorldMatrix(true, true)`
+and use `new THREE.Box3().setFromObject(layer.getRoot())`. This is the
+currently instantiated root geometry's world-space bound, not a full-source
+COPC extent.
 
 ## `CopcStreamingController`
 
@@ -244,6 +342,20 @@ settles. `maxPointsPerBatch` is retained for source compatibility but no longer
 creates completion barriers.
 `refineDistanceMultiplier` is accepted for compatibility but is deprecated and
 no longer controls refinement.
+
+### Deprecated compatibility APIs
+
+The following compatibility APIs remain available through v0.8 and are planned
+for removal starting in v0.9:
+
+| Deprecated API | Replacement |
+| --- | --- |
+| `streaming.refineDistanceMultiplier` | `streaming.maxScreenSpaceError` and, when needed, `streaming.screenSpaceErrorHysteresis` |
+| `maxPointsPerBatch` | `maxConcurrentNodeLoads`; this limits active work and does not recreate the old batch completion barrier |
+| `CopcPointRendererPerformanceStage` | `CopcCesiumPointRendererPerformanceStage` |
+| Cesium entrypoint's `CopcPointRendererOptions` | `CopcCesiumPointRendererOptions` |
+
+The deprecated TypeScript declarations carry the same v0.9 removal notice.
 
 `load()` reads metadata and the root hierarchy. `updateView(view,
 onProgress?)` performs view-driven hierarchy loading and selection and reports

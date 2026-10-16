@@ -63,7 +63,8 @@ layer.destroy();
 
 ### load
 
-source metadata와 초기 hierarchy를 준비합니다.
+source metadata와 root hierarchy를 준비합니다. Viewer가 이미 연결되어 있으면
+Cesium layer의 `load()`는 기존 동작대로 초기 streaming view도 기다립니다.
 
 ### attachTo
 
@@ -80,6 +81,94 @@ Viewer에서 분리하지만 source 전체를 반드시 폐기하는 동작은 �
 ### destroy
 
 layer를 영구적으로 종료합니다.
+
+`metadataReady` 이벤트는 metadata와 root hierarchy가 준비된 즉시 발생하므로
+`load()` Promise의 완료와 별개입니다. 초기 이벤트를 받으려면 `load()`보다 먼저
+listener를 등록하세요.
+
+### Metadata bounds와 camera 이동
+
+```ts
+const sphere = layer.boundingSphere;
+if (sphere) {
+  const completed = await layer.zoomTo(
+    new Cesium.HeadingPitchRange(0, -0.5, 0),
+  );
+}
+```
+
+`boundingSphere`는 현재 렌더링된 node가 아니라 COPC metadata 전체 bounds를 지원되는
+CRS 경로로 WGS84 ECEF 미터 단위로 변환합니다. `heightOffsetMeters`는 한 번 적용되며
+getter는 내부 값을 보호하는 clone을 반환합니다. 잘못된 bounds, 지원되지 않는 CRS,
+제한 범위를 벗어난 projection은 `undefined`입니다. 현재 제한은 지원되는 WKT1
+geographic/projected 변환, projected 축마다 최대 2,000 km, 수직 범위 최대 1,000 km입니다.
+grid sampling과 padding을 사용하지만 임의 projection singularity에 대한 보편적인
+수학적 보장을 뜻하지는 않습니다.
+
+`zoomTo()`는 명시적인 호출에서만 Cesium bounding-sphere flight를 시작합니다. 완료는
+`true`, 취소·대체·detach·unload·reload·destroy는 `false`이며, 시작할 수 없는 상태나
+Cesium 오류는 reject됩니다. 기존 최초 자동 `flyToDataset()`은 유지됩니다.
+`layer.zoomTo()`, 최초 자동 framing, native `viewer.zoomTo(...)`는 서로 별도 동작이며
+`viewer.zoomTo(layer)`는 지원하지 않습니다.
+
+### Layer lifecycle events
+
+```ts
+layer.loadProgress.addEventListener(
+  (queuedNodeCount, activeNodeCount, viewGeneration) => {
+    console.log({ queuedNodeCount, activeNodeCount, viewGeneration });
+  },
+);
+layer.metadataReady.addEventListener((metadata, loadGeneration) => {
+  console.log({ metadata, loadGeneration });
+});
+layer.viewSettled.addEventListener((viewGeneration, selectedNodeKeys) => {
+  console.log({ viewGeneration, selectedNodeKeys });
+});
+```
+
+`loadProgress`는 scheduling 대기 중인 node 수와 현재 node 작업 수입니다. HTTP 요청 수나
+byte progress가 아닙니다. `firstVisible`은 첫 nonempty node가 renderer에 commit된
+시점이며 GPU frame이나 화면 pixel의 가시성을 보장하지 않습니다. layer를 숨겨도 이
+renderer-commit milestone은 발생할 수 있습니다. `viewSettled`는 현재 view에서 선택된
+작업이 적용된 시점이며 전체 COPC source의 다운로드 완료를 의미하지 않습니다.
+`viewCancelled`는 active view가 무효화될 때만 `camera-change`, `detach`, `unload`,
+`reload`, `destroy` 이유 중 하나로 발생합니다. `error`는 load와 background view 오류를
+구분하며 기존 Promise rejection을 유지합니다.
+
+Public `loadGeneration`과 `viewGeneration`은 서로 독립적으로 증가합니다. 한 active
+view에는 `viewSettled`, `viewCancelled`, `error` 중 하나의 terminal outcome만 발생합니다.
+Cesium은 native `Cesium.Event`를 사용하고, listener 예외는 `console.error`로 보고되어
+streaming 상태를 중단하지 않습니다. `destroy()` 이후 해당 layer event는 더 전달되지
+않습니다.
+
+## CopcThreeLayer event 및 native bounds
+
+Three.js layer는 `show`, `zoomTo()`, `flyTo()`를 추가하지 않습니다. visibility는
+`layer.getRoot().visible`로 제어하고 앱은 기존 render loop에서 `layer.update()`를
+호출합니다. 이벤트는 `progress`, `metadataready`, `firstvisible`, `viewsettled`,
+`viewcancelled`, `error`를 지원합니다.
+
+```ts
+import * as THREE from 'three';
+import {
+  CopcThreeLayer,
+  type CopcThreeLayerViewSettledEvent,
+} from '@frillab/copc-adapter/three';
+
+const layer = new CopcThreeLayer({ url });
+const onSettled = (event: CopcThreeLayerViewSettledEvent) => {
+  console.log(event.viewGeneration, event.selectedNodeKeys);
+};
+layer.addEventListener('viewsettled', onSettled);
+layer.attachTo({ scene, camera, renderer });
+await layer.load();
+```
+
+`layer.getRoot().updateWorldMatrix(true, true)` 후
+`new THREE.Box3().setFromObject(layer.getRoot())`는 현재 instantiate된 root geometry의
+world-space bounds를 반환합니다. 전체 COPC dataset extent는 아닙니다. Three layer는
+Scene, Camera, Renderer 또는 application render loop를 소유하지 않습니다.
 
 ## Style
 

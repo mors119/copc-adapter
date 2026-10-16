@@ -57,7 +57,7 @@ export type StreamingSelectionOptions = {
    * the selector derives a conservative band from maxScreenSpaceError.
    */
   screenSpaceErrorHysteresis?: number;
-  /** @deprecated Retained for source compatibility; SSE no longer uses it. */
+  /** @deprecated Planned for removal in v0.9, after v0.8; SSE no longer uses it. */
   refineDistanceMultiplier?: number;
   maxRenderDistanceMeters: number;
   /** Maximum estimated points allowed in the active current-view workload. */
@@ -67,7 +67,7 @@ export type StreamingSelectionOptions = {
    * independent of the rendered-point budget.
    */
   maxConcurrentNodeLoads?: number;
-  /** @deprecated Retained for source compatibility; use maxConcurrentNodeLoads. */
+  /** @deprecated Planned for removal in v0.9, after v0.8; use maxConcurrentNodeLoads. */
   maxPointsPerBatch?: number;
 };
 
@@ -217,4 +217,10 @@ export type StreamingProgress = {
   completedBatchPointCount: number;
   replacementGroups: StreamingReplacementGroup[];
   generation: number;
+};
+
+/** Scheduler queue/active counts for one renderer-neutral view update. */
+export type StreamingWorkProgress = {
+  queuedNodeCount: number;
+  activeNodeCount: number;
 };

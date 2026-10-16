@@ -4,6 +4,8 @@ import {
   type CopcLayerSnapshot,
 } from '../viewer/CopcViewer';
 import type { CopcMetadata } from '../copc/types/copc';
+import type { CopcCesiumEvent } from './cesiumLayerEvents';
+import type { CopcLayerErrorEvent, CopcViewCancellationReason } from './layerEventLifecycle';
 import type { CopcColorMode } from '../copc/points/fieldSelection';
 import type { CopcBackendSelection } from '../copc/backend/selection';
 import type { CopcPointDecoder } from '../copc/points/types';
@@ -32,7 +34,7 @@ export type CopcStreamingOptions = {
   maxScreenSpaceError?: number;
   /** Half-width of the state-aware SSE hold band in pixels. */
   screenSpaceErrorHysteresis?: number;
-  /** @deprecated SSE refinement replaces the distance multiplier policy. */
+  /** @deprecated Planned for removal in v0.9, after v0.8. Use maxScreenSpaceError. */
   refineDistanceMultiplier?: number;
   maxRenderDistanceMeters?: number;
   /** Maximum estimated points in the active current-view workload. */
@@ -72,6 +74,7 @@ export type CopcCesiumLayerOptions = {
   maxConcurrentRangeRequests?: number;
 };
 export type CopcCesiumLayerSnapshot = CopcLayerSnapshot;
+export type { CopcLayerErrorEvent, CopcViewCancellationReason };
 
 /**
  * A reusable COPC streaming layer for a caller-owned Cesium Viewer.
@@ -84,6 +87,46 @@ export class CopcCesiumLayer {
 
   constructor(options: CopcCesiumLayerOptions) {
     this.controller = new CopcLayerController(options);
+  }
+
+  /** Native Cesium event for queued and active COPC node work. */
+  get loadProgress(): CopcCesiumEvent<[number, number, number]> {
+    return this.controller.loadProgress;
+  }
+
+  /** Fired after metadata and the root hierarchy are ready for this load. */
+  get metadataReady(): CopcCesiumEvent<[CopcMetadata, number]> {
+    return this.controller.metadataReady;
+  }
+
+  /** Fired after the first nonempty node is committed to the renderer. */
+  get firstVisible(): CopcCesiumEvent<[number, number]> {
+    return this.controller.firstVisible;
+  }
+
+  /** Fired when the selected work for a current view is committed. */
+  get viewSettled(): CopcCesiumEvent<[number, readonly string[]]> {
+    return this.controller.viewSettled;
+  }
+
+  /** Fired when an active view is invalidated. */
+  get viewCancelled(): CopcCesiumEvent<[number, CopcViewCancellationReason]> {
+    return this.controller.viewCancelled;
+  }
+
+  /** Fired for load and background view failures. */
+  get error(): CopcCesiumEvent<[CopcLayerErrorEvent]> {
+    return this.controller.error;
+  }
+
+  /** Full COPC metadata extent in WGS84 ECEF metres, when supported. */
+  get boundingSphere(): Cesium.BoundingSphere | undefined {
+    return this.controller.boundingSphere;
+  }
+
+  /** Explicitly fly the attached Viewer camera to the metadata extent. */
+  zoomTo(offset?: Cesium.HeadingPitchRange): Promise<boolean> {
+    return this.controller.zoomTo(offset);
   }
 
   /** Attach the layer's rendered primitives to a Cesium Viewer. */

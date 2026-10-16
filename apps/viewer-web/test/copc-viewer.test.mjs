@@ -26,6 +26,7 @@ function createFakeViewer() {
   const changed = createEvent();
   const removedCollections = [];
   const addedCollections = [];
+  let activeBoundingSphereFlight;
 
   return {
     moveEnd,
@@ -33,6 +34,9 @@ function createFakeViewer() {
     removedCollections,
     addedCollections,
     destroyed: false,
+    isDestroyed() {
+      return this.destroyed;
+    },
     scene: {
       primitives: {
         add(collection) {
@@ -51,7 +55,27 @@ function createFakeViewer() {
       moveEnd,
       changed,
       flyTo(options) {
+        const flight = activeBoundingSphereFlight;
+        activeBoundingSphereFlight = undefined;
+        flight?.cancel?.();
         this.positionWC = options.destination;
+      },
+      flyToBoundingSphere(sphere, options) {
+        const previousFlight = activeBoundingSphereFlight;
+        activeBoundingSphereFlight = undefined;
+        previousFlight?.cancel?.();
+        this.lastBoundingSphereFlight = { sphere, options };
+        activeBoundingSphereFlight = options;
+      },
+      cancelFlight() {
+        const flight = activeBoundingSphereFlight;
+        activeBoundingSphereFlight = undefined;
+        flight?.cancel?.();
+      },
+      completeBoundingSphereFlight() {
+        const flight = activeBoundingSphereFlight;
+        activeBoundingSphereFlight = undefined;
+        flight?.complete?.();
       },
     },
     destroy() {
@@ -64,7 +88,7 @@ function getLayerPointCollection(viewer, layerIndex = 0) {
   return viewer.addedCollections[layerIndex].get(0);
 }
 
-function createBackend({ onFields } = {}) {
+function createBackend({ onFields, metadata: metadataOverride } = {}) {
   const node = {
     key: '0-0-0-0',
     level: 0,
@@ -99,7 +123,7 @@ function createBackend({ onFields } = {}) {
         return {
           source,
           getMetadata() {
-            return {
+            return metadataOverride ?? {
               pointCount: 2,
               bounds: {
                 minX: -123,
@@ -226,6 +250,338 @@ test('CopcCesiumLayer delegates source and streaming work to the shared core', a
 
   layer.destroy();
   assert.equal(source.destroyCount, 1);
+  assert.equal(viewer.destroyed, false);
+});
+
+test('Cesium layers load geographic-WKT metadata with automatic framing before or after attachment', async () => {
+  const metadata = {
+    pointCount: 2,
+    bounds: {
+      minX: -123,
+      minY: 44,
+      minZ: 10,
+      maxX: -122,
+      maxY: 45,
+      maxZ: 20,
+    },
+    cube: {
+      minX: -123,
+      minY: 44,
+      minZ: 10,
+      maxX: -122,
+      maxY: 45,
+      maxZ: 20,
+    },
+    wkt: 'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]]',
+  };
+
+  for (const attachBeforeLoad of [true, false]) {
+    const source = createBackend({ metadata: metadata });
+    const layer = new CopcCesiumLayer({
+      url: `memory://geographic-wkt-${attachBeforeLoad}.copc.laz`,
+      backend: source.backend,
+      decoder: source.decoder,
+    });
+    const viewer = createFakeViewer();
+    const automaticFlights = [];
+    const nativeFlyTo = viewer.camera.flyTo.bind(viewer.camera);
+    viewer.camera.flyTo = (options) => {
+      automaticFlights.push(options);
+      nativeFlyTo(options);
+    };
+
+    if (attachBeforeLoad) {
+      layer.attachTo(viewer);
+    }
+    await layer.load();
+    if (!attachBeforeLoad) {
+      layer.attachTo(viewer);
+    }
+    await waitFor(() => layer.getSnapshot().renderedPointCount === 2);
+
+    assert.equal(automaticFlights.length, 1);
+    assert.ok(Number.isFinite(automaticFlights[0].destination.z));
+    assert.ok(layer.boundingSphere);
+    layer.destroy();
+  }
+});
+
+test('Cesium metadata and view events describe real milestones with one public view generation', async () => {
+  const source = createBackend();
+  const layer = new CopcCesiumLayer({
+    url: 'memory://layer-events.copc.laz',
+    backend: source.backend,
+    decoder: source.decoder,
+  });
+  layer.show = false;
+  const viewer = createFakeViewer();
+  const events = [];
+  let releaseDecode;
+  let decodeStartedResolve;
+  const decodeStarted = new Promise((resolve) => { decodeStartedResolve = resolve; });
+  const decodeGate = new Promise((resolve) => { releaseDecode = resolve; });
+  const normalDecode = source.decoder.decode.bind(source.decoder);
+  source.decoder.decode = async (...args) => {
+    decodeStartedResolve();
+    await decodeGate;
+    return normalDecode(...args);
+  };
+  layer.metadataReady.addEventListener((metadata, loadGeneration) => {
+    events.push(['metadataready', metadata, loadGeneration]);
+  });
+  layer.loadProgress.addEventListener((queued, active, viewGeneration) => {
+    events.push(['progress', queued, active, viewGeneration]);
+  });
+  layer.firstVisible.addEventListener((loadGeneration, viewGeneration) => {
+    events.push(['firstvisible', loadGeneration, viewGeneration]);
+  });
+  layer.viewSettled.addEventListener((viewGeneration, selectedNodeKeys) => {
+    events.push(['viewsettled', viewGeneration, selectedNodeKeys]);
+  });
+  layer.attachTo(viewer);
+
+  let loadSettled = false;
+  const loadPromise = layer.load().then(() => { loadSettled = true; });
+  await decodeStarted;
+  assert.equal(viewer.addedCollections[0].show, false);
+  assert.equal(events.filter(([type]) => type === 'metadataready').length, 1);
+  assert.equal(loadSettled, false, 'metadata readiness must precede the attached initial view completion');
+  releaseDecode();
+  await loadPromise;
+
+  const metadataEvent = events.find(([type]) => type === 'metadataready');
+  const firstVisibleEvent = events.find(([type]) => type === 'firstvisible');
+  const settledEvent = events.find(([type]) => type === 'viewsettled');
+  const progressEvents = events.filter(([type]) => type === 'progress');
+  assert.ok(metadataEvent);
+  assert.ok(firstVisibleEvent);
+  assert.ok(settledEvent);
+  assert.ok(progressEvents.length > 0);
+  assert.ok(events.indexOf(metadataEvent) < events.indexOf(progressEvents[0]));
+  assert.equal(firstVisibleEvent[1], metadataEvent[2]);
+  assert.equal(firstVisibleEvent[2], settledEvent[1]);
+  assert.equal(settledEvent[2].includes('0-0-0-0'), true);
+  const sourceBounds = layer.boundingSphere;
+  const renderedBounds = layer.controller.getSelectionBoundingSphere();
+  assert.ok(sourceBounds && renderedBounds);
+  assert.ok(sourceBounds.radius > renderedBounds.radius);
+  layer.show = true;
+  assert.equal(viewer.addedCollections[0].show, true);
+  for (let index = 1; index < progressEvents.length; index += 1) {
+    assert.notDeepEqual(progressEvents[index].slice(1, 3), progressEvents[index - 1].slice(1, 3));
+    assert.equal(progressEvents[index][3], settledEvent[1]);
+  }
+  layer.destroy();
+});
+
+test('Cesium lifecycle events preserve native listener deduplication and removal behavior', () => {
+  const layer = new CopcCesiumLayer({ url: 'memory://cesium-event-listeners.copc.laz' });
+  const event = layer.metadataReady;
+  assert.ok(event instanceof Cesium.Event);
+  let calls = 0;
+  const scope = {};
+  const listener = () => { calls += 1; };
+  const remove = event.addEventListener(listener, scope);
+  const removeDuplicate = event.addEventListener(listener, scope);
+  assert.equal(event.numberOfListeners, 1);
+
+  event.raiseEvent({ pointCount: 1 }, 1);
+  assert.equal(calls, 1);
+  remove();
+  removeDuplicate();
+  assert.equal(event.numberOfListeners, 0);
+
+  event.addEventListener(listener, scope);
+  assert.equal(event.removeEventListener(listener, scope), true);
+  assert.equal(event.removeEventListener(listener, scope), false);
+  assert.equal(event.numberOfListeners, 0);
+
+  event.addEventListener(listener);
+  layer.destroy();
+  event.raiseEvent({ pointCount: 1 }, 2);
+  assert.equal(event.numberOfListeners, 0);
+  assert.equal(calls, 1, 'destroy removes listeners and shuts event delivery down');
+});
+
+test('Cesium boundingSphere caches full metadata extent, clones on access, and clears on unload', async () => {
+  const source = createBackend();
+  const layer = new CopcCesiumLayer({
+    url: 'memory://metadata-sphere.copc.laz',
+    backend: source.backend,
+    decoder: source.decoder,
+    heightOffsetMeters: 20,
+  });
+  assert.equal(layer.boundingSphere, undefined);
+  await layer.load();
+  const first = layer.boundingSphere;
+  assert.ok(first instanceof Cesium.BoundingSphere);
+  const expected = Cesium.BoundingSphere.clone(first);
+  first.radius = 0;
+  first.center.x = 123;
+  const second = layer.boundingSphere;
+  assert.ok(second);
+  assert.equal(second.radius, expected.radius);
+  assert.equal(second.center.x, expected.center.x);
+
+  layer.unload();
+  assert.equal(layer.boundingSphere, undefined);
+  await layer.reload();
+  assert.ok(layer.boundingSphere instanceof Cesium.BoundingSphere);
+  layer.destroy();
+});
+
+test('unsupported Cesium extent leaves boundingSphere unavailable', async () => {
+  const bounds = {
+    minX: -1_100_000,
+    minY: -1_100_000,
+    minZ: 0,
+    maxX: 1_100_000,
+    maxY: 1_100_000,
+    maxZ: 10,
+  };
+  const source = createBackend({
+    metadata: {
+      pointCount: 2,
+      bounds,
+      cube: bounds,
+      wkt: 'PROJCS["WGS 84 / Pseudo-Mercator",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],PROJECTION["Mercator_1SP"],PARAMETER["central_meridian",0],PARAMETER["scale_factor",1],PARAMETER["false_easting",0],PARAMETER["false_northing",0],UNIT["metre",1]]',
+    },
+  });
+  const layer = new CopcCesiumLayer({
+    url: 'memory://unsupported-bounds.copc.laz',
+    backend: source.backend,
+    decoder: source.decoder,
+  });
+  await layer.load();
+  assert.equal(layer.boundingSphere, undefined);
+  layer.destroy();
+});
+
+test('Cesium load failure emits a load error while preserving Promise rejection', async () => {
+  const layer = new CopcCesiumLayer({
+    url: 'memory://load-error.copc.laz',
+    backend: {
+      async open() {
+        throw new Error('controlled Cesium source failure');
+      },
+    },
+  });
+  const errors = [];
+  layer.error.addEventListener((event) => errors.push(event));
+  await assert.rejects(
+    layer.load(),
+    (error) => error.cause?.message === 'controlled Cesium source failure',
+  );
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].phase, 'load');
+  assert.ok(Number.isInteger(errors[0].loadGeneration));
+  assert.equal('viewGeneration' in errors[0], false);
+  layer.destroy();
+});
+
+test('Cesium zoomTo resolves completion and cancellation and rejects invalid state', async () => {
+  const source = createBackend();
+  const layer = new CopcCesiumLayer({
+    url: 'memory://zoom-to.copc.laz',
+    backend: source.backend,
+    decoder: source.decoder,
+  });
+  await assert.rejects(layer.zoomTo(), /must be attached/);
+  await layer.load();
+  const viewer = createFakeViewer();
+  layer.attachTo(viewer);
+  viewer.scene.mode = Cesium.SceneMode.MORPHING;
+  await assert.rejects(layer.zoomTo(), /scene is morphing/);
+  delete viewer.scene.mode;
+  viewer.destroyed = true;
+  await assert.rejects(layer.zoomTo(), /Viewer has been destroyed/);
+  viewer.destroyed = false;
+  await assert.rejects(
+    layer.zoomTo({ heading: Number.NaN, pitch: 0, range: 1 }),
+    /finite values/,
+  );
+
+  const firstFlight = layer.zoomTo(new Cesium.HeadingPitchRange(0, -0.5, 0));
+  const secondFlight = layer.zoomTo();
+  assert.equal(await firstFlight, false);
+  viewer.camera.completeBoundingSphereFlight();
+  assert.equal(await secondFlight, true);
+
+  const cancelledFlight = layer.zoomTo();
+  viewer.camera.cancelFlight();
+  assert.equal(await cancelledFlight, false);
+
+  const applicationSupersededFlight = layer.zoomTo();
+  viewer.camera.flyTo({ destination: Cesium.Cartesian3.fromDegrees(-122, 44, 2000) });
+  assert.equal(await applicationSupersededFlight, false);
+
+  const unloadedFlight = layer.zoomTo();
+  layer.unload();
+  assert.equal(await unloadedFlight, false);
+  await assert.rejects(layer.zoomTo(), /supported bounding sphere/);
+  await layer.reload();
+
+  const detachedFlight = layer.zoomTo();
+  layer.detachFrom();
+  assert.equal(await detachedFlight, false);
+  await assert.rejects(layer.zoomTo(), /must be attached/);
+  layer.attachTo(viewer);
+  const destroyedFlight = layer.zoomTo();
+  layer.destroy();
+  assert.equal(await destroyedFlight, false);
+  await assert.rejects(layer.zoomTo(), /destroyed/);
+});
+
+test('explicit zoomTo remains separate from legacy automatic initial framing', async () => {
+  const source = createBackend();
+  const layer = new CopcCesiumLayer({
+    url: 'memory://automatic-and-explicit-framing.copc.laz',
+    backend: source.backend,
+    decoder: source.decoder,
+  });
+  const viewer = createFakeViewer();
+  let automaticFlights = 0;
+  const nativeFlyTo = viewer.camera.flyTo.bind(viewer.camera);
+  viewer.camera.flyTo = (options) => {
+    automaticFlights += 1;
+    nativeFlyTo(options);
+  };
+  layer.attachTo(viewer);
+  await layer.load();
+  assert.equal(automaticFlights, 1);
+
+  const explicitFlight = layer.zoomTo();
+  assert.equal(automaticFlights, 1);
+  viewer.camera.completeBoundingSphereFlight();
+  assert.equal(await explicitFlight, true);
+  layer.destroy();
+});
+
+test('two Cesium layers can supersede camera flights without destroying their shared Viewer', async () => {
+  const firstSource = createBackend();
+  const secondSource = createBackend();
+  const first = new CopcCesiumLayer({
+    url: 'memory://first-zoom.copc.laz',
+    backend: firstSource.backend,
+    decoder: firstSource.decoder,
+  });
+  const second = new CopcCesiumLayer({
+    url: 'memory://second-zoom.copc.laz',
+    backend: secondSource.backend,
+    decoder: secondSource.decoder,
+  });
+  const viewer = createFakeViewer();
+  await Promise.all([first.load(), second.load()]);
+  first.attachTo(viewer);
+  second.attachTo(viewer);
+
+  const firstFlight = first.zoomTo();
+  const secondFlight = second.zoomTo();
+  assert.equal(await firstFlight, false);
+  viewer.camera.completeBoundingSphereFlight();
+  assert.equal(await secondFlight, true);
+  first.destroy();
+  second.destroy();
   assert.equal(viewer.destroyed, false);
 });
 
@@ -677,9 +1033,15 @@ test('a failed first render rolls back the shared core and keeps the viewer usab
     },
   });
   const viewer = createFakeViewer();
+  const errors = [];
+  layer.error.addEventListener((event) => errors.push(event));
   layer.attachTo(viewer);
 
   await assert.rejects(() => layer.load(), /point decode failed/);
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].phase, 'view');
+  assert.ok(Number.isInteger(errors[0].viewGeneration));
+  assert.equal('loadGeneration' in errors[0], false);
   assert.equal(layer.getSnapshot().lifecycle, 'mounted');
   assert.equal(layer.getMetadata(), undefined);
   assert.deepEqual(layer.getSnapshot().renderedNodeKeys, []);
