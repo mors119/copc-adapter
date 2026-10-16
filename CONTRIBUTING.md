@@ -23,15 +23,16 @@ Requirements:
 ```bash
 rustup target add wasm32-unknown-unknown
 npm ci
-npm ci --prefix apps/viewer-web
+npm ci --prefix packages/copc-adapter
+npm ci --prefix apps/dev-viewer
 ```
 
 The viewer tests and examples use the Autzen sample. Download it when needed:
 
 ```bash
 npm run download-samples -- autzen
-mkdir -p apps/viewer-web/public/samples
-cp samples/local/autzen.copc.laz apps/viewer-web/public/samples/autzen.copc.laz
+mkdir -p apps/dev-viewer/public/samples
+cp samples/local/autzen.copc.laz apps/dev-viewer/public/samples/autzen.copc.laz
 ```
 
 ## Development guidelines
@@ -59,8 +60,8 @@ normally need `git diff --check` and validation of changed Markdown links.
 - TypeScript or shared runtime changes:
 
 ```bash
-npm --prefix apps/viewer-web run typecheck
-npm --prefix apps/viewer-web test
+npm --prefix packages/copc-adapter run typecheck
+npm --prefix packages/copc-adapter test
 ```
 
 - Rust changes:

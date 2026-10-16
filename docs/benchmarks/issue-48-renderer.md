@@ -8,12 +8,13 @@ browser timings are deterministic.
 
 ```bash
 npm ci
-npm ci --prefix apps/viewer-web
+npm ci --prefix packages/copc-adapter
+npm ci --prefix apps/dev-viewer
 npm run download-samples -- autzen
-mkdir -p apps/viewer-web/public/samples
-cp samples/local/autzen.copc.laz apps/viewer-web/public/samples/autzen.copc.laz
-npm run benchmark:renderer --prefix apps/viewer-web
-npm run test:e2e --prefix apps/viewer-web -- e2e/renderer-performance.spec.ts
+mkdir -p apps/dev-viewer/public/samples
+cp samples/local/autzen.copc.laz apps/dev-viewer/public/samples/autzen.copc.laz
+npm run benchmark:renderer --prefix packages/copc-adapter
+npm run test:e2e --prefix apps/dev-viewer -- e2e/renderer-performance.spec.ts
 ```
 
 The synthetic command uses deterministic projected coordinates and all point

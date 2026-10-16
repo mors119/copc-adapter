@@ -1,16 +1,17 @@
 # COPC Adapter Playground
 
 The public Playground is a separate Vite application. It keeps
-`apps/viewer-web` as the internal regression, E2E, and benchmark harness.
+`apps/dev-viewer` as the internal regression, E2E, and benchmark harness.
 
 ## Local development
 
-From the repository root, install the three dependency sets and the Rust WASM
-target once:
+From the repository root, install the package, dev viewer, and Playground
+dependencies and the Rust WASM target once:
 
 ```bash
 npm ci
-npm ci --prefix apps/viewer-web
+npm ci --prefix packages/copc-adapter
+npm ci --prefix apps/dev-viewer
 npm ci --prefix apps/playground
 rustup target add wasm32-unknown-unknown
 ```

@@ -42,7 +42,7 @@ For the Autzen browser scenario, prepare the repository sample as described in
 [`issue-68-streaming.md`](issue-68-streaming.md), then run:
 
 ```bash
-npm run benchmark:streaming --prefix apps/viewer-web
+npm run benchmark:streaming --prefix apps/dev-viewer
 ```
 
 The Range request offsets and lengths were captured from the browser's request
@@ -64,4 +64,4 @@ the requested node ranges and the actual HTTP `206` responses.
 - The server response is validated against the merged byte interval before
   slices are returned.
 
-Unit coverage is in `apps/viewer-web/test/range-source.test.mjs`.
+Unit coverage is in `packages/copc-adapter/test/range-source.test.mjs`.

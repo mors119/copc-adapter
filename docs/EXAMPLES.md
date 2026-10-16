@@ -3,7 +3,7 @@
 ## Browser App Example
 
 실행 가능한 최소 예제는
-[`apps/viewer-web/src/main.ts`](https://github.com/mors119/copc-adapter/blob/main/apps/viewer-web/src/main.ts) 이다.
+[`apps/dev-viewer/src/main.ts`](https://github.com/mors119/copc-adapter/blob/main/apps/dev-viewer/src/main.ts) 이다.
 
 동작 흐름:
 
@@ -54,7 +54,8 @@ LAS classification을 categorical palette로 보려면 `classification`을 사�
 
 ## Build Note
 
-`npm --prefix apps/viewer-web run dev`, `test`, and `build` prepare the
-`copc-adapter-wasm` release asset. Library builds include the decoder assets in `dist`.
+The dev viewer prepares the `copc-adapter-wasm` asset before running. Package
+unit tests use `packages/copc-adapter`; library builds include the decoder
+assets in `dist`.
 The default browser URL requires the downloaded Autzen sample at
-`apps/viewer-web/public/samples/autzen.copc.laz`.
+`apps/dev-viewer/public/samples/autzen.copc.laz`.

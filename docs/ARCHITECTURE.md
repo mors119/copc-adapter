@@ -103,12 +103,12 @@ capped at four Workers. Dispatch never assigns more active jobs than the
 configured pool size; the streaming scheduler separately bounds node loads.
 
 The trace follows `CopcJsSource.loadPointDataView` in
-`apps/viewer-web/src/copc/backend/copcJsBackend.ts`, Rust range reads and
-prepared-node dispatch in `apps/viewer-web/src/copc/rustCopcReader.ts`, Worker
-jobs in `apps/viewer-web/src/copc/rustCopcDecodeWorker.ts` and
+`packages/copc-adapter/src/core/copc/backend/copcJsBackend.ts`, Rust range reads and
+prepared-node dispatch in `packages/copc-adapter/src/core/copc/rustCopcReader.ts`, Worker
+jobs in `packages/copc-adapter/src/core/copc/rustCopcDecodeWorker.ts` and
 `rustCopcDecodeWorkerPool.ts`, streaming/cache/render handoff in
-`apps/viewer-web/src/viewer/streaming/CopcStreamingController.ts`, and Cesium
-primitive updates in `apps/viewer-web/src/cesium/render/CopcPointRenderer.ts`.
+`packages/copc-adapter/src/core/streaming/CopcStreamingController.ts`, and Cesium
+primitive updates in `packages/copc-adapter/src/cesium/render/CopcPointRenderer.ts`.
 
 If `Worker` is unavailable, the Rust backend uses its Rust/WASM decode and
 preparation path on the main thread. This is an environment capability path,
