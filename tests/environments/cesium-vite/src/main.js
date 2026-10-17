@@ -3,6 +3,7 @@ import 'cesium/Build/Cesium/Widgets/widgets.css';
 import * as Cesium from 'cesium';
 import {
   CopcCesiumLayer,
+  CopcJsBackend,
   RustCopcBackend,
   RustCrsTransformer,
 } from '@packed-adapter';
@@ -249,6 +250,48 @@ async function probeRustAttributes() {
 }
 
 window.__PACKED_CONSUMER__ = {
+  async compareUrlAndFile(file) {
+    const backend = new CopcJsBackend();
+    const [urlSource, fileSource] = await Promise.all([
+      backend.open(datasetUrl),
+      backend.open(file),
+    ]);
+    const urlMetadata = urlSource.getMetadata();
+    const fileMetadata = fileSource.getMetadata();
+    const [urlPage, filePage] = await Promise.all([
+      urlSource.loadHierarchyPage(urlSource.getRootHierarchyPage()),
+      fileSource.loadHierarchyPage(fileSource.getRootHierarchyPage()),
+    ]);
+    const compact = (page) => page.nodes
+      .map(({ key, pointCount, pointDataOffset, pointDataLength }) => ({
+        key, pointCount, pointDataOffset, pointDataLength,
+      }))
+      .sort((left, right) => left.key.localeCompare(right.key));
+    const urlNodes = compact(urlPage);
+    const fileNodes = compact(filePage);
+    const sampleNode = urlPage.nodes
+      .filter((node) => node.pointCount > 0 && node.pointCount <= 20_000)
+      .sort((left, right) => left.pointCount - right.pointCount)[0];
+    if (!sampleNode) throw new Error('No bounded COPC node was available for source parity');
+    const fileNode = filePage.nodes.find((node) => node.key === sampleNode.key);
+    const [urlPoints, filePoints] = await Promise.all([
+      urlSource.loadPointDataView(sampleNode, new Set(['position'])),
+      fileSource.loadPointDataView(fileNode, new Set(['position'])),
+    ]);
+    const sample = Array.from({ length: Math.min(8, sampleNode.pointCount) }, (_, index) =>
+      ['x', 'y', 'z'].map((component) => [
+        urlPoints.getter(component)(index), filePoints.getter(component)(index),
+      ]));
+    return {
+      urlPointCount: urlMetadata.pointCount,
+      filePointCount: fileMetadata.pointCount,
+      urlNodes,
+      fileNodes,
+      urlSource: urlSource.source,
+      fileSource: fileSource.source,
+      sample,
+    };
+  },
   rustCrsTransformerExportAvailable: typeof RustCrsTransformer === 'function',
   getState,
   beginResponsivenessCapture() {

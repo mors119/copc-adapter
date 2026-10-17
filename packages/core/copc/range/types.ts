@@ -208,6 +208,9 @@ export interface RandomAccessByteSource {
   size(): Promise<number | undefined>;
 }
 
+/** A caller-supplied URL, Blob/File, or random-access source for COPC data. */
+export type CopcInputSource = string | Blob | RandomAccessByteSource;
+
 /**
  * Validate a positive byte interval using safe integer bounds.
  *

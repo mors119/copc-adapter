@@ -30,6 +30,9 @@ import type {
 } from './types';
 import type { CopcPerformanceObserver } from '../performance';
 import { RustCopcWorkerError } from '../rustCopcDecodeWorkerPool';
+import { BlobByteSource } from '../range/blobByteSource';
+import { getCopcSourceIdentity, isBlobSource } from '../getter/createCopcGetter';
+import type { CopcInputSource } from '../range/types';
 
 /** Factory for a random-access source, including host-owned file bridges. */
 export type RustByteSourceFactory = (
@@ -292,20 +295,25 @@ export class RustCopcBackend implements CopcBackend {
 
   /** Open and parse a COPC source with the Rust/WASM reader. */
   async open(
-    source: string,
+    source: CopcInputSource,
     options: CopcBackendOpenOptions = {},
   ): Promise<CopcSource> {
     let byteSource: RandomAccessByteSource;
     try {
+      const identity = getCopcSourceIdentity(source);
       byteSource = this.createByteSource
-        ? this.createByteSource(source)
-        : new HttpRangeByteSource(source, {
+        ? this.createByteSource(identity)
+        : typeof source === 'string'
+          ? new HttpRangeByteSource(source, {
             rangeValidation: options.rangeValidation,
             maxRangeBytes: options.maxRangeBytes,
             maxConcurrentRangeRequests: options.maxConcurrentRangeRequests,
-          });
+          })
+          : isBlobSource(source)
+            ? new BlobByteSource(source, identity)
+            : source;
     } catch (error: unknown) {
-      throw mapRustError(source, error, 'open');
+      throw mapRustError(getCopcSourceIdentity(source), error, 'open');
     }
 
     try {
@@ -314,12 +322,12 @@ export class RustCopcBackend implements CopcBackend {
         options.signal,
         options.rangeRequestDiagnostics ?? new RangeRequestDiagnosticsRecorder(),
       );
-      return new RustCopcSource(source, await RustCopcReader.open(ownedByteSource, {
+      return new RustCopcSource(getCopcSourceIdentity(source), await RustCopcReader.open(ownedByteSource, {
         maxRangeBytes: options.maxRangeBytes,
         heightOffsetMeters: options.heightOffsetMeters,
       }));
     } catch (error: unknown) {
-      throw mapRustError(source, error, 'open');
+      throw mapRustError(getCopcSourceIdentity(source), error, 'open');
     }
   }
 }

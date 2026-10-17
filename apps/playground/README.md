@@ -59,3 +59,8 @@ complete artifact once.
 - Documentation: https://mors119.github.io/copc-adapter/
 - Korean documentation: https://mors119.github.io/copc-adapter/ko/
 - Playground: https://mors119.github.io/copc-adapter/playground/
+
+The Playground accepts local `.copc.laz` files through its file picker. The
+browser reads requested byte slices from the selected `File`; it does not
+upload or store the dataset. Ordinary LAS/LAZ files without COPC hierarchy
+metadata are unsupported.

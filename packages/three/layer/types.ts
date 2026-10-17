@@ -9,6 +9,7 @@ import type { StreamingSelectionOptions } from '../../core/streaming/types';
 import type { NodePointCacheDiagnostics } from '../../core/streaming/createNodePointCache';
 import type { AdaptiveViewDistanceDiagnostics } from '../../core/streaming/view';
 import type { RangeValidationPolicy } from '../../core/copc/range/types';
+import type { CopcInputSource } from '../../core/copc/range/types';
 import type { CopcPointRenderer } from '../../core/streaming/renderer';
 import type { DatasetLocalFrame } from '../../core/coordinates/types';
 import type { ThreePointRendererOptions } from '../render/ThreePointRenderer';
@@ -17,8 +18,8 @@ import type { CopcThreeLayer } from './CopcThreeLayer';
 
 /** Configuration for a {@link CopcThreeLayer} and its shared streaming core. */
 export type CopcThreeLayerOptions = {
-  /** Browser-readable COPC resource URL with HTTP range-request support. */
-  url: string;
+  /** COPC URL, Blob/File, or random-access source. Ordinary LAS/LAZ files are unsupported. */
+  url: CopcInputSource;
   /** Three.js point size in screen-facing pixels. Defaults to 3. */
   pointSize?: number;
   /** Point color mapping. Defaults to the fixed cyan fallback. */

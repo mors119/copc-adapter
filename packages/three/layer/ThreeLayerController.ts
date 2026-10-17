@@ -54,6 +54,7 @@ import type {
   CopcThreePointRenderer,
   CopcThreeRendererPerformanceSnapshot,
 } from './types';
+import { getCopcSourceIdentity } from '../../core/copc/getter/createCopcGetter';
 
 type ActiveStreamingUpdate = {
   progressApplied: boolean;
@@ -105,8 +106,9 @@ export class ThreeLayerController {
    * @throws If the URL is empty or `pickingThreshold` is not positive and finite.
    */
   constructor(options: CopcThreeLayerOptions, eventTarget: object) {
-    if (!options || typeof options.url !== 'string' || options.url.length === 0) {
-      throw new Error('CopcThreeLayer requires a non-empty URL');
+    if (!options || options.url === undefined || options.url === null
+      || (typeof options.url === 'string' && options.url.length === 0)) {
+      throw new Error('CopcThreeLayer requires a COPC source');
     }
     if (options.pickingThreshold !== undefined
       && !isFinitePositive(options.pickingThreshold)) {
@@ -491,7 +493,7 @@ export class ThreeLayerController {
     return {
       lifecycle: this.lifecycle,
       attached: this.attachment !== undefined,
-      datasetUrl: this.options.url,
+      datasetUrl: getCopcSourceIdentity(this.options.url),
       backend: coreSnapshot.backend,
       selectedNodeKeys: coreSnapshot.selectedNodeKeys,
       renderedNodeKeys: this.getRenderedNodeKeys(),

@@ -8,10 +8,12 @@ import { fileURLToPath } from 'node:url';
 
 import {
   HttpRangeByteSource,
+  BlobByteSource,
   InMemoryByteSource,
   RangeSourceError,
 } from '../index.ts';
 import { redactSourceForDiagnostics } from '../core/copc/range/types.ts';
+import { createCopcGetter } from '../core/copc/getter/createCopcGetter.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -19,6 +21,51 @@ const samplePath = path.resolve(
   __dirname,
   '../../samples/local/autzen.copc.laz',
 );
+
+test('BlobByteSource reads bounded slices and reports exact size', async () => {
+  const blob = new Blob([Uint8Array.from([0, 1, 2, 3, 4, 5])]);
+  const source = new BlobByteSource(blob);
+  assert.equal(await source.size(), 6);
+  assert.deepEqual([...await source.readRange(2, 3)], [2, 3, 4]);
+  assert.deepEqual((await source.readRanges([{ offset: 0, length: 2 }, { offset: 4, length: 2 }]))
+    .map((bytes) => [...bytes]), [[0, 1], [4, 5]]);
+  await assert.rejects(source.readRange(5, 2), (error) => error.code === 'out-of-bounds');
+  await assert.rejects(source.readRange(Number.MAX_SAFE_INTEGER, 2), (error) => error.code === 'invalid-range');
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(source.readRange(0, 1, { signal: controller.signal }), (error) => error.code === 'aborted');
+
+  let resolveRead;
+  const delayedSource = new BlobByteSource({
+    size: 1,
+    slice: () => ({ arrayBuffer: () => new Promise((resolve) => { resolveRead = resolve; }) }),
+  });
+  const inFlight = new AbortController();
+  const pendingRead = delayedSource.readRange(0, 1, { signal: inFlight.signal });
+  inFlight.abort();
+  resolveRead(new Uint8Array([9]).buffer);
+  await assert.rejects(pendingRead, (error) => error.code === 'aborted');
+});
+
+test('BlobByteSource preserves safe offsets beyond 2 GiB', async () => {
+  const requested = [];
+  const largeBlob = {
+    size: 0x80000020,
+    slice(start, end) {
+      requested.push({ start, end });
+      return { arrayBuffer: async () => new Uint8Array(end - start).buffer };
+    },
+  };
+  const source = new BlobByteSource(largeBlob);
+  assert.equal(await source.size(), 0x80000020);
+  assert.equal((await source.readRange(0x80000001, 4)).byteLength, 4);
+  assert.deepEqual(requested, [{ start: 0x80000001, end: 0x80000005 }]);
+});
+
+test('COPC getter rejects malformed random-access sources predictably', () => {
+  assert.throws(() => createCopcGetter({}), /URL, Blob\/File, or RandomAccessByteSource/);
+  assert.throws(() => createCopcGetter({ source: 'memory://bad', readRange() {} }), /URL, Blob\/File, or RandomAccessByteSource/);
+});
 
 function makeResponse(status, bytes, headers = {}) {
   return new Response(Uint8Array.from(bytes), { status, headers });
