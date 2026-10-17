@@ -6,23 +6,33 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-10-17
+
 ### Added
 
-- Added Cesium `boundingSphere` from full metadata bounds in WGS84 ECEF metres
-  and explicit `zoomTo()` using the native Cesium camera flight API.
-- Added Cesium progress and lifecycle events backed by native `Cesium.Event`,
-  plus typed Three.js progress and lifecycle events.
+- Added native-style Cesium and Three.js layer APIs, including Cesium
+  ellipsoidal height offsets, visibility controls, and automatic framing for
+  geographic WKT.
+- Added Cesium `boundingSphere` from full metadata bounds in WGS84 ECEF metres,
+  explicit `zoomTo()`, and typed progress and lifecycle events for both
+  renderers.
 - Added lifecycle generations and terminal view outcomes for settlement,
   cancellation, and errors while preserving each adapter's existing `load()`
   completion behavior.
 
+### Improved
+
+- Applied height offsets consistently to prepared custom data and preserved
+  the streaming controller module path.
+- Simplified package and Rust crate layouts, clarified API documentation, and
+  improved browser regression sharding.
+
 ### Compatibility and limitations
 
-- Existing constructors, lifecycle methods, Cesium visibility isolation, Three
-  root composition, package entrypoints, and streaming defaults remain intact.
-- Cesium bounds use bounded CRS sampling with documented extent limits; invalid
-  or unsupported metadata returns `undefined`. Three.js native `Box3` bounds
-  describe instantiated root geometry, not the complete COPC dataset.
+- Existing package entrypoints and streaming defaults remain intact. Cesium
+  bounds use bounded CRS sampling; invalid or unsupported metadata returns
+  `undefined`. Three.js native `Box3` bounds describe instantiated root
+  geometry, not the complete COPC dataset.
 - No GPU renderer rewrite, complete 3D Tiles compatibility, or automatic
   vertical datum conversion is included.
 
@@ -212,7 +222,8 @@ original asset-resolution behavior.
 - Added packed-artifact smoke coverage for an external Cesium/Vite consumer.
 - Published the typed ESM library with package-local decoder runtime assets.
 
-[Unreleased]: https://github.com/mors119/copc-adapter/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/mors119/copc-adapter/compare/v0.5.3...HEAD
+[0.5.3]: https://github.com/mors119/copc-adapter/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/mors119/copc-adapter/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/mors119/copc-adapter/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/mors119/copc-adapter/compare/v0.4.0...v0.5.0
