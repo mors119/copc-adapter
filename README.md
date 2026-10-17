@@ -50,7 +50,7 @@ data without a separate conversion step.
 
 ## Features
 
-- Direct COPC streaming from a browser-readable URL
+- Direct COPC streaming from a browser-readable URL or local `File`/`Blob`
 - HTTP Range random access and recursive hierarchy traversal
 - Incremental view-driven hierarchy loading with perspective frustum filtering
 - Coverage-preserving mixed-LoD streaming with screen-space-error refinement
@@ -88,6 +88,9 @@ layer.attachTo(viewer);
 ```
 
 The caller owns the Cesium `Viewer` and is responsible for destroying it.
+For local COPC, pass a browser `File` or `Blob` as `url`; the adapter reads
+only requested byte slices and does not upload the file. Ordinary LAS/LAZ
+without COPC hierarchy metadata is unsupported.
 
 The historical root import remains supported for existing Cesium consumers:
 

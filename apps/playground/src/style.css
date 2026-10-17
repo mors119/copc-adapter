@@ -43,7 +43,12 @@ a { color: inherit; text-decoration: none; }
 .eyebrow { display: block; color: var(--subtle); font-size: 9px; letter-spacing: .11em; }
 .step-icon, .section-number { color: #4e6570; font-family: var(--mono); font-size: 11px; }
 .panel-intro { margin: 12px 0 23px; color: var(--muted); font-size: 12px; line-height: 1.6; }
-.source-empty { min-height: 205px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; padding: 20px; border: 1px dashed #33434f; border-radius: 9px; text-align: center; }
+.file-picker { min-height: 205px; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; padding: 20px; border: 1px dashed #3d655e; border-radius: 9px; background: #11201f; text-align: center; cursor: pointer; }
+.file-picker:hover, .file-picker:focus-within { border-color: var(--accent); background: #142622; }
+.file-picker strong { font-size: 12px; font-weight: 600; }
+.file-picker > span:last-of-type { max-width: 190px; color: var(--muted); font-size: 11px; line-height: 1.55; }
+.file-picker input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.source-status { min-height: 30px; margin: 11px 0 0; color: #a7c5bd; font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
 .source-symbol { width: 34px; height: 34px; display: grid; place-items: center; margin-bottom: 2px; border: 1px solid #35534f; border-radius: 50%; color: var(--accent); font-size: 20px; font-weight: 300; }
 .source-empty strong { font-size: 12px; font-weight: 600; }
 .source-empty span:last-child { max-width: 190px; color: var(--muted); font-size: 11px; line-height: 1.55; }

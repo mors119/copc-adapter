@@ -13,6 +13,7 @@ import type { CopcHierarchyDiagnostics } from '../../core/copc/hierarchy/types';
 import type { CesiumPointRenderer } from '../render/CopcPointRenderer';
 import type { CopcPointInspection } from '../../core/copc/points/pointInspection';
 import type { RangeValidationPolicy } from '../../core/copc/range/types';
+import type { CopcInputSource } from '../../core/copc/range/types';
 import type { NodePointCacheDiagnostics } from '../../core/streaming/createNodePointCache';
 import type {
   CopcCesiumPointStyle,
@@ -45,10 +46,10 @@ export type CopcStreamingOptions = {
   maxRenderedPoints?: number;
 };
 
-/** Options for a reusable Cesium layer backed by a browser-readable COPC URL. */
+/** Options for a reusable Cesium layer backed by a URL, Blob/File, or random-access byte source. */
 export type CopcCesiumLayerOptions = {
-  /** Browser-readable COPC resource URL with HTTP range-request support. */
-  url: string;
+  /** COPC source. Blob/File inputs are read incrementally; ordinary LAS/LAZ files are unsupported. */
+  url: CopcInputSource;
   /** Cesium point primitive size in pixels. Defaults to 3. */
   pointSize?: number;
   /** Point color mapping. Defaults to the backward-compatible fixed cyan. */

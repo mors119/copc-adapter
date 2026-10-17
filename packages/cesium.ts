@@ -58,6 +58,7 @@ export type {
 export type { CopcPointDecoder } from './core/copc/points/types';
 export {
   HttpRangeByteSource,
+  BlobByteSource,
   InMemoryByteSource,
   RangeSourceError,
   DEFAULT_MAX_RANGE_BYTES,
@@ -79,6 +80,7 @@ export type {
   RangeSourceErrorCode,
   RangeSourceErrorDetails,
   RandomAccessByteSource,
+  CopcInputSource,
 } from './core/copc/range';
 export {
   allCopcPointFields,

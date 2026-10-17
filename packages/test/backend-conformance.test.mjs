@@ -103,6 +103,29 @@ test('shared backend contract covers deterministic metadata and hierarchy semant
   });
 });
 
+test('both built-in backends open Blob inputs with partial reads and matching metadata', async () => {
+  const fixture = createDeterministicCopcFixture();
+  const ranges = [];
+  class RecordingBlob extends Blob {
+    slice(start, end, contentType) {
+      ranges.push({ start, end });
+      return super.slice(start, end, contentType);
+    }
+  }
+  const blobBytes = new Uint8Array(fixture.bytes.length + 70_000);
+  blobBytes.set(fixture.bytes);
+  const blob = new RecordingBlob([blobBytes]);
+  const rust = await new RustCopcBackend().open(blob);
+  const copcJs = await new CopcJsBackend().open(blob);
+  assert.equal(rust.source, 'blob://local-copc');
+  assert.equal(copcJs.source, 'blob://local-copc');
+  assertMetadataParity(rust.getMetadata(), copcJs.getMetadata());
+  await assertHierarchyParity(rust, copcJs);
+  assert.ok(ranges.length > 0);
+  assert.ok(ranges.every(({ start, end }) => end - start < blobBytes.length));
+  assert.ok(ranges.every(({ start }) => Number.isSafeInteger(start) && start >= 0));
+});
+
 test('shared backend contract covers incremental hierarchy discovery from #41', async () => {
   await withFixture(async (fixture, fixturePath) => {
     const { rust, copcJs } = await openBackendPair(fixturePath, fixture.bytes);

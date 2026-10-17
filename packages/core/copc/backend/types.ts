@@ -10,6 +10,7 @@ import type { CopcPointFieldSelection } from '../points/fieldSelection';
 import type { CopcPerformanceObserver } from '../performance';
 import type { RangeRequestDiagnosticsRecorder } from '../range/requestDiagnostics';
 import type { RangeValidationPolicy } from '../range/types';
+import type { CopcInputSource } from '../range/types';
 
 /** Cancellation options for one selected node's point-data operation. */
 export type CopcPointLoadOptions = {
@@ -98,5 +99,5 @@ export interface CopcSource extends CopcHierarchySource {
 /** Opens COPC resources without exposing the library used to read them. */
 export interface CopcBackend {
   /** Open a COPC source for metadata, hierarchy, and point reads. */
-  open(source: string, options?: CopcBackendOpenOptions): Promise<CopcSource>;
+  open(source: CopcInputSource, options?: CopcBackendOpenOptions): Promise<CopcSource>;
 }

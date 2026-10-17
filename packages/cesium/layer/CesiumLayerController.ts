@@ -53,6 +53,8 @@ import type { NodePointCacheDiagnostics } from '../../core/streaming/createNodeP
 import type { AdaptiveViewDistanceDiagnostics } from '../../core/streaming/view';
 import type { RangeRequestDiagnostics } from '../../core/copc/range/requestDiagnostics';
 import type { RangeValidationPolicy } from '../../core/copc/range/types';
+import type { CopcInputSource } from '../../core/copc/range/types';
+import { getCopcSourceIdentity } from '../../core/copc/getter/createCopcGetter';
 import type {
   CopcCesiumPointStyle,
   CopcCesiumPointStyleUpdate,
@@ -66,7 +68,7 @@ export type {
 } from '../style/CesiumPointStyle';
 
 export type CopcLayerOptions = {
-  url: string;
+  url: CopcInputSource;
   pointSize?: number;
   colorMode?: CopcColorMode;
   /** Manual additive correction in metres applied to ellipsoidal point height. Defaults to 0. */
@@ -636,7 +638,7 @@ export class CesiumLayerController {
       selectedNodeKeys: this.core.getCurrentSelection(),
       renderedPointCount,
       streamingUpdateCount,
-      datasetUrl: this.options.url,
+      datasetUrl: getCopcSourceIdentity(this.options.url),
       attached: this.viewer !== undefined,
       backend: coreSnapshot.backend,
       performance: combinePerformance(
