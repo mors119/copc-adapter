@@ -58,7 +58,10 @@ export function createCopcGetter(input: CopcInputSource, options: CopcGetterOpti
   const source = getCopcSourceIdentity(input);
   if (typeof input !== 'string') {
     const byteSource: RandomAccessByteSource = isBlobSource(input)
-      ? new BlobByteSource(input, source)
+      ? new BlobByteSource(input, source, {
+          maxRangeBytes: options.maxRangeBytes,
+          maxConcurrentRangeRequests: options.maxConcurrentRangeRequests,
+        })
       : input;
     const owned = new ProjectOwnedByteSource(
       byteSource,

@@ -9,8 +9,10 @@ import { fileURLToPath } from 'node:url';
 import {
   HttpRangeByteSource,
   BlobByteSource,
+  CopcJsBackend,
   InMemoryByteSource,
   RangeSourceError,
+  RustCopcBackend,
 } from '../index.ts';
 import { redactSourceForDiagnostics } from '../core/copc/range/types.ts';
 import { createCopcGetter } from '../core/copc/getter/createCopcGetter.ts';
@@ -62,9 +64,150 @@ test('BlobByteSource preserves safe offsets beyond 2 GiB', async () => {
   assert.deepEqual(requested, [{ start: 0x80000001, end: 0x80000005 }]);
 });
 
+test('BlobByteSource enforces the default and configured per-read byte limits', async () => {
+  const calls = [];
+  const fakeBlob = {
+    size: 70 * 1024 * 1024,
+    slice(start, end) {
+      calls.push({ start, end });
+      return { arrayBuffer: async () => new ArrayBuffer(0) };
+    },
+  };
+  const source = new BlobByteSource(fakeBlob);
+  await assert.rejects(
+    source.readRange(0, 64 * 1024 * 1024),
+    (error) => error.code === 'source-size-changed',
+  );
+  assert.deepEqual(calls, [{ start: 0, end: 64 * 1024 * 1024 }]);
+  calls.length = 0;
+  await assert.rejects(
+    source.readRange(0, 64 * 1024 * 1024 + 1),
+    (error) => error.code === 'range-too-large'
+      && error.source === source.source
+      && error.offset === 0
+      && error.length === 64 * 1024 * 1024 + 1,
+  );
+  assert.deepEqual(calls, []);
+
+  const custom = new BlobByteSource(fakeBlob, 'blob://custom-limit', { maxRangeBytes: 3 });
+  await assert.rejects(custom.readRange(4, 4), (error) => error.code === 'range-too-large');
+  assert.throws(() => new BlobByteSource(fakeBlob, undefined, { maxRangeBytes: 0 }), (error) => error.code === 'invalid-range');
+  assert.throws(() => new BlobByteSource(fakeBlob, undefined, { maxRangeBytes: 1.5 }), (error) => error.code === 'invalid-range');
+  assert.throws(() => new BlobByteSource(fakeBlob, undefined, { maxRangeBytes: Infinity }), (error) => error.code === 'invalid-range');
+  assert.throws(() => new BlobByteSource(fakeBlob, undefined, { maxRangeBytes: Number.MAX_SAFE_INTEGER + 1 }), (error) => error.code === 'invalid-range');
+  assert.throws(() => new BlobByteSource(fakeBlob, undefined, { maxConcurrentRangeRequests: 0 }), (error) => error.code === 'invalid-range');
+});
+
+test('BlobByteSource validates a batch before reads and bounds active slices', async () => {
+  const started = [];
+  const resolvers = [];
+  let active = 0;
+  let peakActive = 0;
+  const fakeBlob = {
+    size: 32,
+    slice(offset, end) {
+      started.push(offset);
+      return {
+        arrayBuffer: () => new Promise((resolve) => {
+          active += 1;
+          peakActive = Math.max(peakActive, active);
+          resolvers.push(() => {
+            active -= 1;
+            const bytes = new Uint8Array(end - offset).fill(offset);
+            resolve(bytes.buffer);
+          });
+        }),
+      };
+    },
+  };
+  const source = new BlobByteSource(fakeBlob, undefined, {
+    maxRangeBytes: 8,
+    maxConcurrentRangeRequests: 2,
+  });
+  await assert.rejects(
+    source.readRanges([{ offset: 0, length: 1 }, { offset: 8, length: 9 }]),
+    (error) => error.code === 'range-too-large',
+  );
+  assert.deepEqual(started, []);
+
+  const reads = source.readRanges([
+    { offset: 1, length: 2 },
+    { offset: 4, length: 2 },
+    { offset: 7, length: 2 },
+  ]);
+  assert.deepEqual(started, [1, 4]);
+  resolvers.shift()();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(started, [1, 4, 7]);
+  resolvers.shift()();
+  resolvers.shift()();
+  const results = await reads;
+  assert.equal(peakActive, 2);
+  assert.deepEqual(results.map((bytes) => bytes[0]), [1, 4, 7]);
+});
+
+test('BlobByteSource skips queued reads cancelled before their slice starts', async () => {
+  const started = [];
+  const resolvers = [];
+  const fakeBlob = {
+    size: 16,
+    slice(offset, end) {
+      started.push(offset);
+      return {
+        arrayBuffer: () => new Promise((resolve) => {
+          resolvers.push(() => resolve(new Uint8Array(end - offset).buffer));
+        }),
+      };
+    },
+  };
+  const source = new BlobByteSource(fakeBlob, undefined, { maxConcurrentRangeRequests: 1 });
+  const first = source.readRange(0, 1);
+  const controller = new AbortController();
+  const cancelled = source.readRange(4, 1, { signal: controller.signal });
+  const third = source.readRange(8, 1);
+  assert.deepEqual(started, [0]);
+
+  controller.abort();
+  await assert.rejects(cancelled, (error) => error.code === 'aborted');
+  assert.deepEqual(started, [0]);
+
+  resolvers.shift()();
+  await first;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(started, [0, 8]);
+  resolvers.shift()();
+  await third;
+});
+
 test('COPC getter rejects malformed random-access sources predictably', () => {
   assert.throws(() => createCopcGetter({}), /URL, Blob\/File, or RandomAccessByteSource/);
   assert.throws(() => createCopcGetter({ source: 'memory://bad', readRange() {} }), /URL, Blob\/File, or RandomAccessByteSource/);
+});
+
+test('COPC getter and Rust backend pass local read limits to the Blob source', async () => {
+  let sliceCalls = 0;
+  class SpyingBlob extends Blob {
+    constructor() {
+      super([new Uint8Array(100_000)]);
+    }
+
+    slice() {
+      sliceCalls += 1;
+      throw new Error('oversized reads must fail before slice');
+    }
+  }
+  const fakeBlob = new SpyingBlob();
+  const getter = createCopcGetter(fakeBlob, { maxRangeBytes: 128 });
+  await assert.rejects(getter(0, 129), (error) => error.code === 'range-too-large');
+  await assert.rejects(
+    new RustCopcBackend().open(fakeBlob, { maxRangeBytes: 128 }),
+    (error) => error.cause?.code === 'range-too-large',
+  );
+  await assert.rejects(
+    new CopcJsBackend().open(fakeBlob, { maxRangeBytes: 128 }),
+    (error) => error.cause?.code === 'range-too-large',
+  );
+  assert.equal(sliceCalls, 0);
 });
 
 function makeResponse(status, bytes, headers = {}) {

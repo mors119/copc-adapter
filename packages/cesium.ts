@@ -65,6 +65,7 @@ export {
   DEFAULT_MAX_CONCURRENT_RANGE_REQUESTS,
   validateByteRange,
 } from './core/copc/range';
+export type { BlobByteSourceOptions } from './core/copc/range';
 export { probeCopcSource } from './core/copc/sourceProbe';
 export type {
   CopcSourceProbeOptions,

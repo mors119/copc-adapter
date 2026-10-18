@@ -310,7 +310,10 @@ export class RustCopcBackend implements CopcBackend {
             maxConcurrentRangeRequests: options.maxConcurrentRangeRequests,
           })
           : isBlobSource(source)
-            ? new BlobByteSource(source, identity)
+            ? new BlobByteSource(source, identity, {
+                maxRangeBytes: options.maxRangeBytes,
+                maxConcurrentRangeRequests: options.maxConcurrentRangeRequests,
+              })
             : source;
     } catch (error: unknown) {
       throw mapRustError(getCopcSourceIdentity(source), error, 'open');
