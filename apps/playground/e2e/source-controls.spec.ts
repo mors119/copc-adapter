@@ -203,6 +203,95 @@ test('point-size changes restore the current camera pose after layer reload', as
   expect(restored?.roll).toBeCloseTo(testCamera.roll, 5);
 });
 
+test('a source selection change disposes an in-flight layer load', async ({ page }) => {
+  await page.goto('./');
+  await page.evaluate(() => {
+    const hooks = (window as Window & {
+      __COPC_PLAYGROUND_TEST__?: {
+        useCameraResetLayerMock(): void;
+        delayNextLoad(): void;
+        getMockDestroyCount(): number;
+      };
+    }).__COPC_PLAYGROUND_TEST__;
+    if (!hooks) throw new Error('Playground test hooks are unavailable');
+    hooks.useCameraResetLayerMock();
+    hooks.delayNextLoad();
+  });
+  await page.locator('#copc-file').setInputFiles({
+    name: 'pending.copc.laz',
+    mimeType: 'application/octet-stream',
+    buffer: Buffer.from('test source'),
+  });
+  await expect(page.locator('#source-status')).toHaveText('Loading pending.copc.laz…');
+  await page.locator('#remote-source').selectOption('chicago');
+  await expect(page.locator('#source-status')).toHaveText('Source selection changed. Choose a source and load it.');
+  const destroyCount = await page.evaluate(() => (window as Window & {
+    __COPC_PLAYGROUND_TEST__?: { getMockDestroyCount(): number };
+  }).__COPC_PLAYGROUND_TEST__?.getMockDestroyCount());
+  expect(destroyCount).toBe(1);
+});
+
+test('camera movement during a layer reload is preserved', async ({ page }) => {
+  await page.goto('./');
+  await page.evaluate(() => {
+    const hooks = (window as Window & {
+      __COPC_PLAYGROUND_TEST__?: {
+        useCameraResetLayerMock(): void;
+        delayNextLoad(): void;
+        releaseDelayedLoad(): void;
+        setCameraView(view: PlaygroundCameraView): void;
+        getCameraView(): PlaygroundCameraView;
+      };
+    }).__COPC_PLAYGROUND_TEST__;
+    if (!hooks) throw new Error('Playground test hooks are unavailable');
+    hooks.useCameraResetLayerMock();
+  });
+  await page.locator('#copc-file').setInputFiles({
+    name: 'camera-during-load.copc.laz',
+    mimeType: 'application/octet-stream',
+    buffer: Buffer.from('test source'),
+  });
+  await expect(page.locator('#source-status')).toHaveText('Loaded camera-during-load.copc.laz');
+  const userCamera = {
+    longitude: -104.9876,
+    latitude: 39.7654,
+    height: 9876.5,
+    heading: 91,
+    pitch: -52,
+    roll: 0,
+  };
+  await page.evaluate(() => {
+    const hooks = (window as Window & { __COPC_PLAYGROUND_TEST__?: { delayNextLoad(): void } }).__COPC_PLAYGROUND_TEST__;
+    hooks?.delayNextLoad();
+  });
+  await page.locator('#point-size').evaluate((element: HTMLInputElement) => {
+    element.value = '8';
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await expect(page.locator('#source-status')).toHaveText('Loading camera-during-load.copc.laz…');
+  await page.locator('#cesium-container').dispatchEvent('pointerdown');
+  await page.evaluate((camera) => {
+    const hooks = (window as Window & {
+      __COPC_PLAYGROUND_TEST__?: { setCameraView(view: PlaygroundCameraView): void };
+    }).__COPC_PLAYGROUND_TEST__;
+    hooks?.setCameraView(camera);
+  }, userCamera);
+  await page.evaluate(() => {
+    const hooks = (window as Window & { __COPC_PLAYGROUND_TEST__?: { releaseDelayedLoad(): void } }).__COPC_PLAYGROUND_TEST__;
+    hooks?.releaseDelayedLoad();
+  });
+  await expect(page.locator('#source-status')).toHaveText('Loaded camera-during-load.copc.laz');
+  const actual = await page.evaluate(() => (window as Window & {
+    __COPC_PLAYGROUND_TEST__?: { getCameraView(): PlaygroundCameraView };
+  }).__COPC_PLAYGROUND_TEST__?.getCameraView());
+  expect(actual?.longitude).toBeCloseTo(userCamera.longitude, 5);
+  expect(actual?.latitude).toBeCloseTo(userCamera.latitude, 5);
+  expect(actual?.height).toBeCloseTo(userCamera.height, 2);
+  expect(actual?.heading).toBeCloseTo(userCamera.heading, 5);
+  expect(actual?.pitch).toBeCloseTo(userCamera.pitch, 5);
+});
+
 type PlaygroundCameraView = {
   longitude: number;
   latitude: number;

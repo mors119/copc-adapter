@@ -130,6 +130,12 @@ let maxRenderedPoints = 250_000;
 let colorMode: CopcColorMode = 'rgb';
 let sourceGeneration = 0;
 let invalidateSourceRequest = (): number => ++sourceGeneration;
+let activeLoadPending = false;
+let cameraInteractionVersion = 0;
+
+for (const eventName of ['pointerdown', 'wheel', 'keydown', 'touchstart']) {
+  viewerElement.addEventListener(eventName, () => { cameraInteractionVersion += 1; }, { passive: true });
+}
 
 type CameraPose = {
   destination: Cesium.Cartesian3;
@@ -164,6 +170,9 @@ declare global {
   interface Window {
     __COPC_PLAYGROUND_TEST__?: {
       useCameraResetLayerMock(): void;
+      delayNextLoad(): void;
+      releaseDelayedLoad(): void;
+      getMockDestroyCount(): number;
       setCameraView(view: PlaygroundTestCameraView): void;
       getCameraView(): PlaygroundTestCameraView;
       getMockLoadCount(): number;
@@ -173,6 +182,9 @@ declare global {
 
 if (import.meta.env.DEV) {
   let mockLoadCount = 0;
+  let mockDestroyCount = 0;
+  let delayNextMockLoad = false;
+  let releaseMockLoad: (() => void) | undefined;
   window.__COPC_PLAYGROUND_TEST__ = {
     useCameraResetLayerMock(): void {
       layerFactory = () => ({
@@ -187,11 +199,17 @@ if (import.meta.env.DEV) {
               roll: 0,
             },
           });
+          if (delayNextMockLoad) {
+            delayNextMockLoad = false;
+            await new Promise<void>((resolve) => { releaseMockLoad = resolve; });
+          }
         },
-        destroy(): void {},
+        destroy(): void { mockDestroyCount += 1; },
         setStyle(): void {},
       } as unknown as CopcCesiumLayer);
     },
+    delayNextLoad(): void { delayNextMockLoad = true; },
+    releaseDelayedLoad(): void { releaseMockLoad?.(); releaseMockLoad = undefined; },
     setCameraView(view): void {
       viewer.camera.setView({
         destination: Cesium.Cartesian3.fromDegrees(view.longitude, view.latitude, view.height),
@@ -214,6 +232,7 @@ if (import.meta.env.DEV) {
       };
     },
     getMockLoadCount: () => mockLoadCount,
+    getMockDestroyCount: () => mockDestroyCount,
   };
 }
 
@@ -225,6 +244,7 @@ const loadSource = async (
   const generation = options.generation ?? invalidateSourceRequest();
   if (generation !== sourceGeneration) return;
   const cameraPose = options.preserveCamera ? captureCameraPose() : undefined;
+  const capturedInteractionVersion = cameraInteractionVersion;
   activeSource = source;
   activeSourceName = sourceName;
   activeLayer?.destroy();
@@ -236,16 +256,38 @@ const loadSource = async (
     streaming: { maxNodes },
   });
   activeLayer = layer;
+  activeLoadPending = true;
   layer.attachTo(viewer);
   if (sourceStatus) sourceStatus.textContent = `Loading ${sourceName}…`;
   try {
     await layer.load();
-    if (generation !== sourceGeneration || activeLayer !== layer) return;
-    if (cameraPose) restoreCameraPose(cameraPose);
+    if (generation !== sourceGeneration || activeLayer !== layer) {
+      if (activeLayer === layer) {
+        layer.destroy();
+        activeLayer = undefined;
+        activeLoadPending = false;
+        if (sourceStatus?.textContent === `Loading ${sourceName}…`) {
+          sourceStatus.textContent = 'Source selection changed. Choose a source and load it.';
+        }
+      }
+      return;
+    }
+    activeLoadPending = false;
+    if (cameraPose && capturedInteractionVersion === cameraInteractionVersion) restoreCameraPose(cameraPose);
     if (sourceStatus) sourceStatus.textContent = `Loaded ${sourceName}`;
   } catch (error) {
+    if (generation !== sourceGeneration && activeLayer === layer) {
+      layer.destroy();
+      activeLayer = undefined;
+      activeLoadPending = false;
+      if (sourceStatus?.textContent === `Loading ${sourceName}…`) {
+        sourceStatus.textContent = 'Source selection changed. Choose a source and load it.';
+      }
+      return;
+    }
     if (generation === sourceGeneration && activeLayer === layer && sourceStatus) {
-      if (cameraPose) restoreCameraPose(cameraPose);
+      activeLoadPending = false;
+      if (cameraPose && capturedInteractionVersion === cameraInteractionVersion) restoreCameraPose(cameraPose);
       const message = error instanceof Error ? error.message : String(error);
       sourceStatus.textContent = /fetch|cors|range|http/i.test(message)
         ? `${message} Check that the host permits browser CORS requests and HTTP Range.`
@@ -268,6 +310,14 @@ const remoteLoadButton = document.querySelector<HTMLButtonElement>('#load-remote
 invalidateSourceRequest = () => {
   const probeWasPending = Boolean(remoteLoadButton?.disabled);
   const generation = ++sourceGeneration;
+  if (activeLoadPending && activeLayer) {
+    activeLayer.destroy();
+    activeLayer = undefined;
+    activeLoadPending = false;
+    if (sourceStatus?.textContent?.startsWith('Loading ')) {
+      sourceStatus.textContent = 'Source selection changed. Choose a source and load it.';
+    }
+  }
   if (remoteLoadButton && remoteSelect) {
     remoteLoadButton.disabled = false;
     remoteLoadButton.textContent = remoteSelect.value === 'custom' ? 'Probe and load URL' : 'Probe and load source';
