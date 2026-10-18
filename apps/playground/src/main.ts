@@ -190,6 +190,7 @@ declare global {
       delayNextLoad(): void;
       releaseDelayedLoad(): void;
       getMockDestroyCount(): number;
+      getMockZoomCount(): number;
       setCameraView(view: PlaygroundTestCameraView): void;
       getCameraView(): PlaygroundTestCameraView;
       getMockLoadCount(): number;
@@ -201,6 +202,7 @@ declare global {
 if (import.meta.env.DEV) {
   let mockLoadCount = 0;
   let mockDestroyCount = 0;
+  let mockZoomCount = 0;
   let delayNextMockLoad = false;
   let releaseMockLoad: (() => void) | undefined;
   window.__COPC_PLAYGROUND_TEST__ = {
@@ -224,7 +226,18 @@ if (import.meta.env.DEV) {
           }
         },
         destroy(): void { mockDestroyCount += 1; },
-        zoomTo(): Promise<boolean> { return Promise.resolve(true); },
+        zoomTo(): Promise<boolean> {
+          mockZoomCount += 1;
+          activeRuntime?.setCameraState({
+            longitude: -12,
+            latitude: 24,
+            height: 19_000_000,
+            heading: 0,
+            pitch: -90,
+            roll: 0,
+          });
+          return Promise.resolve(true);
+        },
         getSelectedPoint(): undefined { return undefined; },
         getSnapshot(): ReturnType<CopcCesiumLayer['getSnapshot']> {
           return {
@@ -242,6 +255,7 @@ if (import.meta.env.DEV) {
     releaseDelayedLoad(): void { releaseMockLoad?.(); releaseMockLoad = undefined; },
     getMockLoadCount: () => mockLoadCount,
     getMockDestroyCount: () => mockDestroyCount,
+    getMockZoomCount: () => mockZoomCount,
     setCameraView(view): void { activeRuntime?.setCameraState(view); },
     getCameraView(): PlaygroundTestCameraView {
       return activeRuntime?.getCameraState() ?? {
@@ -331,6 +345,7 @@ const backendControl = mountSegmentedControl<PlaygroundBackend>(byId('backend-co
   ],
   onChange: (value) => {
     backend = value;
+    syncRendererLabels();
     reloadActiveSource();
   },
 });
@@ -508,6 +523,7 @@ const loadSource = async (
       container: viewport,
       onPointPicked: renderPoint,
       isCurrent: () => generation === sourceGeneration,
+      canAutoZoom: () => capturedInteractionVersion === cameraInteractionVersion,
       onError: (message) => {
         if (runtime && activeRuntime === runtime) setStatus(safeErrorText(message), 'error');
       },
