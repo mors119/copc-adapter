@@ -1,3 +1,5 @@
+@import '../../shared/ui.css';
+
 :root {
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   color: #e7edf1;
@@ -23,7 +25,6 @@ a { color: inherit; text-decoration: none; }
 .playground-shell { min-height: 100vh; display: flex; flex-direction: column; }
 .topbar { height: 68px; flex: 0 0 68px; display: grid; grid-template-columns: 1fr 1fr 1fr; align-items: center; padding: 0 26px; border-bottom: 1px solid var(--line); background: #0e151d; }
 .brand { display: inline-flex; width: max-content; align-items: center; gap: 10px; }
-.brand-mark { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 8px; color: #07120f; background: var(--accent); font-size: 18px; font-weight: 700; }
 .brand-copy { display: grid; gap: 2px; }
 .brand-copy strong { font-size: 13px; letter-spacing: .015em; }
 .brand-copy small, .eyebrow, .topbar-center, .docs-link, .viewer-ready, .scene-coordinate, .statusbar { font-family: var(--mono); }
@@ -49,6 +50,11 @@ a { color: inherit; text-decoration: none; }
 .file-picker > span:last-of-type { max-width: 190px; color: var(--muted); font-size: 11px; line-height: 1.55; }
 .file-picker input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .source-status { min-height: 30px; margin: 11px 0 0; color: #a7c5bd; font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
+.source-probe { min-height: 30px; margin: 8px 0; color: var(--muted); font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
+.source-load { width: 100%; min-height: 36px; border: 1px solid #4c796f; border-radius: 6px; color: #07120f; background: var(--accent); font-size: 11px; font-weight: 700; cursor: pointer; }
+.source-load:disabled { opacity: .65; cursor: progress; }
+.source-separator { display: flex; align-items: center; gap: 9px; margin: 15px 0 10px; color: var(--subtle); font-size: 9px; }
+.source-separator::before, .source-separator::after { height: 1px; flex: 1; background: var(--line); content: ''; }
 .source-symbol { width: 34px; height: 34px; display: grid; place-items: center; margin-bottom: 2px; border: 1px solid #35534f; border-radius: 50%; color: var(--accent); font-size: 20px; font-weight: 300; }
 .source-empty strong { font-size: 12px; font-weight: 600; }
 .source-empty span:last-child { max-width: 190px; color: var(--muted); font-size: 11px; line-height: 1.55; }
@@ -115,7 +121,6 @@ a { color: inherit; text-decoration: none; }
 @media (max-width: 700px) {
   .topbar { height: 58px; flex-basis: 58px; grid-template-columns: 1fr auto; padding: 0 15px; }
   .topbar-center { display: none; }
-  .brand-mark { width: 27px; height: 27px; }
   .workbench { display: flex; flex-direction: column; min-height: initial; }
   .viewer-column { order: 0; min-height: 440px; }
   .source-panel { order: 1; min-height: 290px; border-right: 0; border-top: 1px solid var(--line); }
@@ -132,4 +137,10 @@ a { color: inherit; text-decoration: none; }
   .docs-link { font-size: 9px; }
   .viewer-toolbar { padding: 0 15px; }
   .viewer-ready { font-size: 8px; }
+}
+
+@media (max-width: 700px) {
+  body { overflow: auto; }
+  .workbench { min-height: 0; }
+  .viewer-column { min-height: 55vh; }
 }
