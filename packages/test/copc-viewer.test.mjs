@@ -105,6 +105,7 @@ function createBackend({ onFields, metadata: metadataOverride } = {}) {
   let destroyCount = 0;
   let pointChunkRequestCount = 0;
   let decodeCount = 0;
+  let lastOpenOptions;
 
   return {
     get openCount() {
@@ -119,8 +120,12 @@ function createBackend({ onFields, metadata: metadataOverride } = {}) {
     get decodeCount() {
       return decodeCount;
     },
+    get lastOpenOptions() {
+      return lastOpenOptions;
+    },
     backend: {
-      async open(source) {
+      async open(source, options) {
+        lastOpenOptions = options;
         openCount += 1;
         return {
           source,
@@ -223,6 +228,7 @@ test('CopcCesiumLayer delegates source and streaming work to the shared core', a
 
   await layer.load();
   assert.equal(source.openCount, 1);
+  assert.equal(source.lastOpenOptions.rangeValidation, undefined);
   assert.equal(layer.getSnapshot().lifecycle, 'ready');
   const hierarchy = layer.getHierarchyDiagnostics();
   assert.equal(hierarchy.pageRequests, 1);
@@ -253,6 +259,20 @@ test('CopcCesiumLayer delegates source and streaming work to the shared core', a
   layer.destroy();
   assert.equal(source.destroyCount, 1);
   assert.equal(viewer.destroyed, false);
+});
+
+test('CopcCesiumLayer forwards an explicit strict HTTP validation policy', async () => {
+  const source = createBackend();
+  const layer = new CopcCesiumLayer({
+    url: 'memory://strict-policy.copc.laz',
+    backend: source.backend,
+    decoder: source.decoder,
+    rangeValidation: 'strict',
+  });
+
+  await layer.load();
+  assert.equal(source.lastOpenOptions.rangeValidation, 'strict');
+  layer.destroy();
 });
 
 test('Cesium layers load geographic-WKT metadata with automatic framing before or after attachment', async () => {

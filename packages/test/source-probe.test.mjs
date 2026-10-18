@@ -189,11 +189,10 @@ test('probe does not expose fetch errors from an additional metadata range', asy
   assert.doesNotMatch(JSON.stringify(result), /viewer|password|secret|private/);
 });
 
-test('probe labels an opt-in HEAD fallback as compatibility-limited', async () => {
+test('probe defaults to HEAD fallback and labels it compatibility-limited', async () => {
   const bytes = makeLasFixture();
   const calls = [];
   const result = await probeCopcSource('https://example.test/data.copc.laz', {
-    rangeValidation: 'head-fallback',
     fetch: async (_input, init) => {
       calls.push(init.method ?? 'GET');
       if (init.method === 'HEAD') {
@@ -220,11 +219,63 @@ test('probe labels an opt-in HEAD fallback as compatibility-limited', async () =
   assert.deepEqual(calls, ['GET', 'HEAD']);
 });
 
+test('probe reuses one HEAD validation for its initial and extended metadata ranges', async () => {
+  const bytes = makeLasFixture();
+  new DataView(bytes.buffer).setUint32(96, 1200, true);
+  const calls = [];
+  const result = await probeCopcSource('https://example.test/extended.copc.laz', {
+    fetch: async (_input, init) => {
+      const method = init.method ?? 'GET';
+      calls.push(method);
+      if (method === 'HEAD') {
+        return new Response(null, {
+          status: 200,
+          headers: { 'Content-Length': String(bytes.byteLength) },
+        });
+      }
+      const match = /^bytes=(\d+)-(\d+)$/.exec(new Headers(init.headers).get('Range') ?? '');
+      assert.ok(match);
+      const start = Number(match[1]);
+      const end = Number(match[2]);
+      const body = bytes.subarray(start, end + 1);
+      return new Response(body, {
+        status: 206,
+        headers: { 'Content-Length': String(body.byteLength) },
+      });
+    },
+  });
+
+  assert.equal(result.rangeSupported, true);
+  assert.equal(result.validationLevel, 'compatibility-limited');
+  assert.deepEqual(calls, ['GET', 'HEAD', 'GET']);
+});
+
+test('probe strict mode rejects unreadable Content-Range without HEAD', async () => {
+  const calls = [];
+  const result = await probeCopcSource('https://example.test/data.copc.laz', {
+    rangeValidation: 'strict',
+    fetch: async (_input, init) => {
+      calls.push(init.method ?? 'GET');
+      if (init.method === 'HEAD') {
+        return new Response(null, { status: 200, headers: { 'Content-Length': String(FIXTURE_SIZE) } });
+      }
+      return new Response(makeLasFixture().subarray(0, 1024), {
+        status: 206,
+        headers: { 'Content-Length': '1024' },
+      });
+    },
+  });
+
+  assert.equal(result.rangeSupported, false);
+  assert.equal(result.validationLevel, 'incompatible');
+  assert.match(result.warnings.join(' '), /Content-Range was not readable/);
+  assert.deepEqual(calls, ['GET']);
+});
+
 test('probe does not use HEAD fallback for a readable invalid Content-Range', async () => {
   let headCalls = 0;
   const bytes = makeLasFixture().subarray(0, 1024);
   const result = await probeCopcSource('https://example.test/data.copc.laz', {
-    rangeValidation: 'head-fallback',
     fetch: async (_input, init) => {
       if (init.method === 'HEAD') {
         headCalls += 1;
@@ -264,7 +315,7 @@ test('probe detects a server that ignores Range and reads only a bounded prefix'
 test('probe reports invalid, mismatched, missing, unknown-total, and short partial responses', async () => {
   for (const mode of ['invalid', 'mismatch', 'missing', 'unknown-total', 'short']) {
     await withFixture(mode, async ({ url }) => {
-      const result = await probeCopcSource(url);
+      const result = await probeCopcSource(url, { rangeValidation: 'strict' });
 
       assert.equal(result.reachable, true, mode);
       assert.equal(result.rangeSupported, mode === 'unknown-total', mode);

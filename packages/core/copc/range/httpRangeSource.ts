@@ -19,7 +19,7 @@ export type HttpRangeByteSourceOptions = {
   readonly headers?: HeadersInit;
   /** Known resource size in bytes, used to avoid an initial HEAD request. */
   readonly size?: number;
-  /** Defaults to strict, request-matching Content-Range validation. */
+  /** Defaults to `head-fallback`; set `strict` to require a readable matching Content-Range. */
   readonly rangeValidation?: RangeValidationPolicy;
   /** Per-range byte ceiling. Defaults to 64 MiB; explicit values accept any positive safe integer. */
   readonly maxRangeBytes?: number;
@@ -92,6 +92,7 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
   private knownLastModified: string | undefined;
   private headMetadata: HeadMetadata | undefined;
   private pendingHeadRequest: PendingHeadRequest | undefined;
+  private warnedHeadFallback = false;
   private pendingReads: PendingRangeRead[] = [];
   private pendingRangeGroups: PendingRangeGroup[] = [];
   private activeRangeFetches = 0;
@@ -102,7 +103,7 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
     this.source = source;
     this.fetchImpl = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.headers = new Headers(options.headers);
-    this.rangeValidation = options.rangeValidation ?? 'strict';
+    this.rangeValidation = options.rangeValidation ?? 'head-fallback';
     this.maxRangeBytes = resolveMaxRangeBytes(source, options.maxRangeBytes);
     this.maxConcurrentRangeRequests = resolveMaxConcurrentRangeRequests(
       source,
@@ -372,6 +373,19 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
   private rememberRepresentation(headers: Headers): void {
     this.knownETag ??= headers.get('ETag') || undefined;
     this.knownLastModified ??= headers.get('Last-Modified') || undefined;
+  }
+
+  private warnHeadFallback(): void {
+    if (this.warnedHeadFallback) return;
+    this.warnedHeadFallback = true;
+    console.warn(
+      '[COPC] Using HEAD-based Range compatibility validation.\n\n'
+      + 'Content-Range is not readable by JavaScript.\n'
+      + 'Exact response length is verified, but byte-offset\n'
+      + 'correctness cannot be fully established.\n\n'
+      + 'For strict validation, expose Content-Range through CORS\n'
+      + "and set rangeValidation: 'strict'.",
+    );
   }
 
   private async getHeadMetadata(
@@ -701,6 +715,7 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
     try {
       const rawContentRange = response.headers.get('Content-Range');
       let responseSize: number | undefined;
+      let usedHeadFallback = false;
       if (rawContentRange !== null) {
         const contentRange = validateContentRange(
           this.source,
@@ -716,6 +731,7 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
         const metadata = await this.getHeadMetadata(range, signal);
         this.rememberSize(metadata.size, range, response.status);
         this.checkHeadRange(metadata.size, range);
+        usedHeadFallback = true;
       } else {
         validateContentRange(this.source, range, null, response.status);
       }
@@ -727,6 +743,7 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
       if (responseSize !== undefined) {
         this.rememberSize(responseSize, range, response.status);
       }
+      if (usedHeadFallback) this.warnHeadFallback();
       return bytes;
     } catch (error: unknown) {
       await cancelResponseBody(response);

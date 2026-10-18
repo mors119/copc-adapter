@@ -164,12 +164,28 @@ a separately defined and tested contract.
   point primitives inside the layer-owned primitive collection.
 - `maxPointCacheBytes`: decoded CPU point-buffer cache budget. Default:
   `256 * 1024 * 1024`.
-- `rangeValidation`: `'strict' | 'head-fallback'`. Default: `'strict'`.
-  `head-fallback` is an explicit compatibility mode for sources whose browser
-  response does not expose `Content-Range`; it requires a successful `HEAD`
-  with readable `Content-Length` and provides limited size/body-length checks.
-  It cannot prove the returned byte offset or immutable object version. The
-  option is also available on `CopcThreeLayer` and `CopcStreamingCore`.
+- `rangeValidation`: `'strict' | 'head-fallback'`. Default:
+  `'head-fallback'` for HTTP sources. Both modes require `206`, an exact body
+  length, and reject readable malformed or mismatched `Content-Range` values.
+  When `Content-Range` is not readable, the default mode requires a successful
+  `HEAD` with readable `Content-Length`, checks the requested range against
+  that size, and verifies the exact response body length. It compares readable
+  representation validators and rejects detectable size or validator changes,
+  but cannot establish the byte offset returned by the server or prove that a
+  same-sized representation stayed unchanged. It warns once per HTTP source
+  instance after a fallback-validated read succeeds. Set
+  `rangeValidation: 'strict'` to require readable, valid, request-matching
+  `Content-Range`; strict mode never falls back to `HEAD` and rejects when that
+  information is unavailable. Strict mode also checks exact body length,
+  known resource size, visible validators, and visible non-identity content
+  encoding. HTTP checks are not cryptographic integrity verification and do
+  not defend against a malicious server that returns fabricated consistent
+  metadata. Cross-origin JavaScript cannot distinguish an absent
+  `Content-Encoding` from one hidden by CORS, so strict mode can only reject a
+  non-identity encoding when that header is readable. This option has no
+  effect on `File`, `Blob`, or caller-provided
+  `RandomAccessByteSource` inputs. The option is also available on
+  `CopcThreeLayer` and `CopcStreamingCore`.
 - `maxRangeBytes`: maximum bytes allowed in one HTTP range response. Default:
   `64 * 1024 * 1024`. Set a larger positive safe integer when a valid source
   needs larger chunks. The setting is passed through both backends and the
@@ -574,16 +590,23 @@ ECEF coordinates within `0.05` metres.
 
 ## Source requirements
 
-COPC sources must support byte Range requests. Cross-origin sources should
-expose `Content-Range` to browser JavaScript; this remains required by the
-default strict policy. A single byte-range `GET` is CORS-safelisted and does
-not by itself require preflight; custom request headers or the fallback `HEAD`
-method can require CORS permission. `probeCopcSource(url)` performs a bounded
-prefix probe and returns structured reachability, Range, validation assurance,
+HTTP COPC sources must support byte Range requests and return `206` with the
+exact requested body. Cross-origin sources should expose `Content-Range` to
+browser JavaScript so strict validation can check the reported byte offsets.
+The default `head-fallback` policy uses a successful, readable `HEAD` response
+only when JavaScript cannot read `Content-Range`; it can check size and body
+length but cannot prove byte-offset correctness. Choose
+`rangeValidation: 'strict'` to disable that fallback and fail when
+`Content-Range` is unavailable. A single byte-range `GET` is CORS-safelisted
+and does not by itself require preflight; custom request headers or the
+fallback `HEAD` method can require CORS permission. These HTTP policies do not
+apply to local `File`/`Blob` inputs or caller-provided byte sources.
+`probeCopcSource(url)` uses the same default policy, performs a bounded prefix
+probe, and returns structured reachability, Range, validation assurance,
 CORS-observability, LAS/COPC, and warning fields without downloading the whole
-source. Pass `{ rangeValidation: 'head-fallback' }` to probe the explicit
-compatibility path. See the [HTTP Range / CORS hosting guide](source-hosting.md)
-for deployment examples and browser checks.
+source. Pass `{ rangeValidation: 'strict' }` to make the probe require
+readable, matching `Content-Range`. See the [HTTP Range / CORS hosting
+guide](source-hosting.md) for deployment examples and browser checks.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for implementation ownership and
 [CONFORMANCE.md](CONFORMANCE.md) for backend and CRS correctness strategy.

@@ -12,11 +12,11 @@ export type RangeReadOptions = {
   readonly signal?: AbortSignal;
 };
 
-/** Validation assurance requested from an HTTP byte source. */
+/** Validation policy requested for HTTP byte sources; defaults to `head-fallback`. */
 export type RangeValidationPolicy =
-  /** Require a valid partial-content response and matching Content-Range. */
+  /** Require a valid partial-content response and readable, matching Content-Range; never use HEAD fallback. */
   | 'strict'
-  /** Permit limited HEAD-based compatibility checks when strict validation cannot be established. */
+  /** Use limited HEAD checks only when JavaScript cannot read Content-Range. */
   | 'head-fallback';
 
 /** Validation assurance observed by a source probe or HTTP byte source. */

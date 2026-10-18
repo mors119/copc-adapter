@@ -21,6 +21,7 @@ function createBackend({ pointCount = 2 } = {}) {
   let openCount = 0;
   let destroyCount = 0;
   let hierarchyRequestCount = 0;
+  let lastOpenOptions;
 
   return {
     get openCount() {
@@ -32,8 +33,12 @@ function createBackend({ pointCount = 2 } = {}) {
     get hierarchyRequestCount() {
       return hierarchyRequestCount;
     },
+    get lastOpenOptions() {
+      return lastOpenOptions;
+    },
     backend: {
-      async open(source) {
+      async open(source, options) {
+        lastOpenOptions = options;
         openCount += 1;
         return {
           source,
@@ -158,6 +163,7 @@ async function createLoadedLayer(renderer) {
 test('loads without a scene, attaches one root, and update is a no-op for an unchanged camera', async () => {
   const { layer, source, scene, applicationMesh, attachment } = await createLoadedLayer();
 
+  assert.equal(source.lastOpenOptions.rangeValidation, undefined);
   assert.equal(layer.getSnapshot().lifecycle, 'ready');
   assert.equal(scene.children.includes(applicationMesh), true);
   assert.equal(scene.children.filter((child) => child === layer.getRoot()).length, 1);
@@ -170,6 +176,20 @@ test('loads without a scene, attaches one root, and update is a no-op for an unc
   assert.equal(source.hierarchyRequestCount, 1);
   assert.equal(layer.getSnapshot().streamingUpdateCount, 1);
 
+  layer.destroy();
+});
+
+test('CopcThreeLayer forwards an explicit strict HTTP validation policy', async () => {
+  const source = createBackend();
+  const layer = new CopcThreeLayer({
+    url: 'memory://three-strict-policy.copc.laz',
+    backend: source.backend,
+    decoder: source.decoder,
+    rangeValidation: 'strict',
+  });
+
+  await layer.load();
+  assert.equal(source.lastOpenOptions.rangeValidation, 'strict');
   layer.destroy();
 });
 
