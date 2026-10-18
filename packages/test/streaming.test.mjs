@@ -22,6 +22,10 @@ import {
   calculateRefinementInfluence,
   DEFAULT_MAX_REFINEMENT_DETAIL_BIAS,
 } from '../core/streaming/refinementInfluence.ts';
+import {
+  DEFAULT_REFINEMENT_ALGORITHM,
+  MAX_REFINEMENT_FOCUS_DETAIL_BIAS,
+} from '../core/streaming/refinementStrategies.ts';
 import { StreamingManager } from '../core/streaming/StreamingManager.ts';
 import { createStreamingWorkBatches } from '../core/streaming/scheduler.ts';
 
@@ -66,6 +70,7 @@ function createSelector(options = {}) {
     maxScreenSpaceError: 8,
     refineDistanceMultiplier: 6,
     maxRenderDistanceMeters: 12000,
+    refinementAlgorithm: 'screen-projection',
     ...options,
   });
 }
@@ -1450,6 +1455,231 @@ test('NodeSelector preserves centre priority through the final work order', () =
   );
   assert.equal(selector.getSelectionMetrics().frontierNodeCount, 2);
   assert.equal(selector.getSelectionMetrics().frontierPointCount, 2);
+});
+
+test('the omitted strategy is the foveated default and differs from the legacy screen projection', () => {
+  const options = {
+    maxNodes: 2,
+    maxDepth: 4,
+    maxScreenSpaceError: 8,
+    maxRenderDistanceMeters: 12000,
+  };
+  const camera = createProjectionCamera({ height: 1000 });
+  const hierarchy = createFinalPriorityHierarchy();
+  const omitted = new NodeSelector(options);
+  const explicitFoveated = new NodeSelector({
+    ...options,
+    refinementAlgorithm: 'foveated',
+  });
+  const legacy = new NodeSelector({
+    ...options,
+    refinementAlgorithm: 'screen-projection',
+  });
+
+  const omittedNodes = omitted.selectVisibleNodes(camera, hierarchy);
+  const explicitNodes = explicitFoveated.selectVisibleNodes(camera, hierarchy);
+  const legacyNodes = legacy.selectVisibleNodes(camera, hierarchy);
+  assert.equal(DEFAULT_REFINEMENT_ALGORITHM, 'foveated');
+  assert.equal(omitted.getSelectionMetrics().refinementAlgorithm, 'foveated');
+  assert.deepEqual(omittedNodes, explicitNodes);
+
+  const foveatedPeripheral = omittedNodes.find((node) => node.node.key === '0-a-peripheral');
+  const legacyPeripheral = legacyNodes.find((node) => node.node.key === '0-a-peripheral');
+  assert.ok(foveatedPeripheral);
+  assert.ok(legacyPeripheral);
+  assert.ok(legacyPeripheral.centerWeight > foveatedPeripheral.centerWeight);
+  assert.notEqual(legacyPeripheral.schedulingCenterWeight, foveatedPeripheral.schedulingCenterWeight);
+});
+
+test('foveated relevance follows the true view direction from level to steep pitch', () => {
+  for (const pitchDegrees of [0, 45, 80]) {
+    const pitch = pitchDegrees * Math.PI / 180;
+    const direction = { x: 0, y: Math.sin(pitch), z: Math.cos(pitch) };
+    const up = { x: 0, y: Math.cos(pitch), z: -Math.sin(pitch) };
+    const right = { x: 1, y: 0, z: 0 };
+    const camera = createCamera({
+      viewFrustum: createPerspectiveViewFrustum({
+        position: { x: 0, y: 0, z: 0 },
+        direction,
+        up,
+        right,
+        verticalFovRadians: Math.PI / 3,
+        viewportHeightPixels: 1000,
+        aspectRatio: 1,
+        nearMeters: 1,
+        farMeters: 100,
+      }),
+    });
+    const centerNode = createFrustumNode(`0-center-${pitchDegrees}`, {
+      center: {
+        x: direction.x * 10,
+        y: direction.y * 10,
+        z: direction.z * 10,
+      },
+      radiusMeters: 0.1,
+    });
+    const peripheralNode = createFrustumNode(`0-peripheral-${pitchDegrees}`, {
+      center: {
+        x: direction.x * 10 + right.x * 2.5,
+        y: direction.y * 10 + right.y * 2.5,
+        z: direction.z * 10 + right.z * 2.5,
+      },
+      radiusMeters: 0.1,
+    });
+    const selector = new NodeSelector({
+      maxNodes: 4,
+      maxDepth: 4,
+      maxScreenSpaceError: 8,
+      maxRenderDistanceMeters: 12000,
+    });
+    const selected = selector.selectVisibleNodes(camera, new Map([
+      [centerNode.node.key, centerNode],
+      [peripheralNode.node.key, peripheralNode],
+    ]));
+    const center = selected.find((node) => node.node.key === centerNode.node.key);
+    const peripheral = selected.find((node) => node.node.key === peripheralNode.node.key);
+
+    assert.ok(center, `${pitchDegrees}° center-ray node remains visible`);
+    assert.ok(peripheral, `${pitchDegrees}° peripheral node remains visible`);
+    assert.ok(
+      center.centerWeight > peripheral.centerWeight,
+      `${pitchDegrees}° center-ray node receives greater foveated relevance`,
+    );
+  }
+});
+
+test('screen-circle focus follows a stationary view and accepts bounding-sphere overlap', () => {
+  const selector = createSelector({ maxNodes: 2, maxRenderedPoints: 2 });
+  const camera = createProjectionCamera({ height: 1000 });
+  const hierarchy = createFinalPriorityHierarchy();
+  const leftKey = '0-a-peripheral';
+  const rightKey = '0-z-centre';
+  hierarchy.get(leftKey).boundingSphere.center.x = -1.5;
+  hierarchy.get(rightKey).boundingSphere.center.x = 1.5;
+  selector.setRefinementFocus({
+    type: 'screen-circle',
+    center: { x: 0.25, y: 0.5 },
+    radius: 0.08,
+    detailBias: 2,
+  });
+  const leftFocus = selector.selectVisibleNodes(camera, hierarchy)
+    .find((node) => node.node.key === leftKey);
+  assert.ok(leftFocus);
+  assert.ok(leftFocus.focusWeight > 0);
+  assert.equal(selector.getSelectionMetrics().refinementFocusEnabled, true);
+  assert.equal(selector.getSelectionMetrics().focusCandidateCount > 0, true);
+  assert.ok(selector.getSelectionMetrics().detailBiasMax <= MAX_REFINEMENT_FOCUS_DETAIL_BIAS);
+
+  selector.setRefinementFocus({
+    type: 'screen-circle',
+    center: { x: 0.75, y: 0.5 },
+    radius: 0.08,
+    detailBias: 2,
+  });
+  const moved = selector.selectVisibleNodes(camera, hierarchy);
+  const movedLeft = moved.find((node) => node.node.key === leftKey);
+  const movedRight = moved.find((node) => node.node.key === rightKey);
+  assert.ok(movedLeft);
+  assert.ok(movedRight);
+  assert.ok(movedRight.focusWeight > movedLeft.focusWeight);
+
+  // The sphere center sits outside this lens, but its projected extent crosses
+  // the circle and still receives focus relevance.
+  hierarchy.get(rightKey).boundingSphere.center.x = 2;
+  hierarchy.get(rightKey).boundingSphere.radiusMeters = 1;
+  selector.setRefinementFocus({
+    type: 'screen-circle',
+    center: { x: 0.7, y: 0.5 },
+    radius: 0.1,
+    detailBias: 2,
+  });
+  const overlap = selector.selectVisibleNodes(camera, hierarchy)
+    .find((node) => node.node.key === rightKey);
+  assert.ok(overlap);
+  assert.ok(overlap.focusWeight > 0);
+});
+
+test('focus radius keeps circular meaning across wide and tall viewports', () => {
+  const minDimensionDistance = 0.16;
+  const weights = [2, 0.5].map((aspectRatio) => {
+    const camera = createProjectionCamera({
+      viewFrustum: createPerspectiveViewFrustum({
+        position: { x: 0, y: 0, z: 0 },
+        direction: { x: 0, y: 0, z: 1 },
+        up: { x: 0, y: 1, z: 0 },
+        right: { x: 1, y: 0, z: 0 },
+        verticalFovRadians: Math.PI / 3,
+        viewportHeightPixels: 1000,
+        aspectRatio,
+        nearMeters: 1,
+        farMeters: 100000,
+      }),
+    });
+    const horizontalScale = Math.max(1, aspectRatio);
+    const screenX = 0.5 + minDimensionDistance / horizontalScale;
+    const node = createFrustumNode('0-viewport-node', {
+      center: {
+        x: (2 * (screenX - 0.5))
+          * 10
+          * Math.tan(Math.PI / 6)
+          * aspectRatio,
+        y: 0,
+        z: 10,
+      },
+      radiusMeters: 0.000001,
+    });
+    const selector = createSelector({
+      refinementAlgorithm: 'screen-projection',
+    });
+    selector.setRefinementFocus({
+      type: 'screen-circle',
+      center: { x: 0.5, y: 0.5 },
+      radius: 0.15,
+      detailBias: 2,
+    });
+    return selector.selectVisibleNodes(camera, new Map([[node.node.key, node]]))[0].focusWeight;
+  });
+
+  assert.ok(weights.every((weight) => weight > 0));
+  assert.ok(Math.abs(weights[0] - weights[1]) < 0.001);
+});
+
+test('focus detail bias can request below-threshold refinement and clears cleanly', () => {
+  const camera = createProjectionCamera({ height: 1000 });
+  const hierarchy = createThresholdHierarchy(6, camera);
+  hierarchy.get('0-threshold-root').boundingSphere = {
+    coordinateSystem: 'wgs84-ecef-meters',
+    center: { x: 0, y: 0, z: 5 },
+    radiusMeters: 0.1,
+  };
+  const selector = createSelector({
+    maxNodes: 4,
+    maxRenderedPoints: 200,
+    refinementAlgorithm: 'screen-projection',
+  });
+
+  assert.deepEqual(
+    selector.selectVisibleNodes(camera, hierarchy).map((node) => node.node.key),
+    ['0-threshold-root'],
+  );
+  selector.setRefinementFocus({
+    type: 'screen-circle',
+    center: { x: 0.5, y: 0.5 },
+    radius: 0.1,
+    detailBias: 2,
+  });
+  assert.deepEqual(
+    selector.selectVisibleNodes(camera, hierarchy).map((node) => node.node.key),
+    ['1-threshold-child'],
+  );
+  assert.ok(selector.getSelectionMetrics().focusInfluencedRefinementCount > 0);
+
+  selector.setRefinementFocus(undefined);
+  assert.deepEqual(
+    selector.selectVisibleNodes(camera, hierarchy).map((node) => node.node.key),
+    ['0-threshold-root'],
+  );
+  assert.equal(selector.getSelectionMetrics().refinementFocusEnabled, false);
 });
 
 test('sharp scheduling relevance separates broad refinement influence from work order', () => {

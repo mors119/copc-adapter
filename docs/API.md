@@ -149,10 +149,54 @@ a separately defined and tested contract.
 - `streaming`: overrides for `maxNodes` (default `24`), `maxDepth` (default
   `6`), `maxScreenSpaceError` in pixels (default `8`),
   `screenSpaceErrorHysteresis` in pixels, `maxRenderDistanceMeters` (default
-  `12000`), and `maxRenderedPoints`.
+  `12000`), `maxRenderedPoints`, and `refinementAlgorithm` (default
+  `'foveated'`; `'screen-projection'` selects the v0.5 passive gaze behavior).
 - `refineDistanceMultiplier`: accepted for source compatibility but deprecated
   and planned for removal in v0.9, after v0.8; the current selector uses
-  screen-space error instead.
+screen-space error instead.
+
+### Refinement strategy and Focus Lens
+
+The v0.6 default is `streaming.refinementAlgorithm: 'foveated'`. It weights
+refinement pressure and scheduling from the camera's actual view direction and
+node bounding-sphere overlap. Set the value to `'screen-projection'` to retain
+the v0.5 passive projection/gaze scoring, including its 1.25× passive
+refinement ceiling and separate scheduling preference. The selection frontier,
+raw SSE, hysteresis, coverage transitions, and hard budgets are shared by both
+strategies. Unknown values throw an actionable `TypeError`.
+
+```ts
+const foveated = new CopcCesiumLayer({
+  url: '/data/area.copc.laz',
+  streaming: { refinementAlgorithm: 'foveated' },
+});
+const legacy = new CopcCesiumLayer({
+  url: '/data/area.copc.laz',
+  streaming: { refinementAlgorithm: 'screen-projection' },
+});
+```
+
+Applications can set a runtime circular focus region on a Cesium layer:
+
+```ts
+layer.setRefinementFocus({
+  type: 'screen-circle',
+  center: { x: 0.8, y: 0.5 }, // normalized viewer canvas; y grows downward
+  radius: 0.15,               // fraction of min(canvas width, canvas height)
+  detailBias: 2,              // bounded refinement-pressure multiplier, 1–2
+});
+
+layer.setRefinementFocus(undefined); // restore the selected strategy's automatic center
+```
+
+The focus weight uses signed screen projection, projected node-sphere extent,
+and a feather outside the circle. It can increase both refinement pressure
+and scheduling relevance, but it does not clip points, force an octree level,
+or bypass node, depth, distance, or point budgets. A focus move invalidates the
+current selection generation and reuses the loaded source, hierarchy, and
+decoded cache. The library does not draw a DOM focus guide. The Three.js layer
+uses the same named strategy option; its layer facade does not yet expose a
+focus setter.
 - `backend`: `'copc-js' | 'rust' | CopcBackend`. Default: `'copc-js'`.
   `'rust'` explicitly selects the Rust/WASM backend. Backend failures are not
   silently retried through `copc-js`.
@@ -394,6 +438,10 @@ settles. `maxPointsPerBatch` is retained for source compatibility but no longer
 creates completion barriers.
 `refineDistanceMultiplier` is accepted for compatibility but is deprecated and
 no longer controls refinement.
+`streaming.refinementAlgorithm` is available to both Cesium and Three.js
+consumers and defaults to `'foveated'` in v0.6. Set it to
+`'screen-projection'` when migrating a v0.5 application that needs its previous
+passive gaze ranking preserved.
 
 ### Deprecated compatibility APIs
 

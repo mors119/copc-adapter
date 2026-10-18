@@ -101,6 +101,7 @@ export type {
   CopcLayerErrorEvent,
   CopcViewCancellationReason,
 } from './cesium/layer/CopcCesiumLayer';
+export type { RefinementAlgorithm, RefinementFocus } from './cesium/layer/CopcCesiumLayer';
 export type {
   CopcCesiumPointStyle,
   CopcCesiumPointStyleUpdate,
@@ -242,6 +243,7 @@ export type {
   StreamingSelectionOptions,
   StreamingUpdateResult,
 } from './core/streaming/types';
+export { DEFAULT_REFINEMENT_ALGORITHM, MAX_REFINEMENT_FOCUS_DETAIL_BIAS } from './core/streaming/refinementStrategies';
 export type {
   AdaptiveViewDistanceDiagnostics,
   AdaptiveViewDistanceTransition,

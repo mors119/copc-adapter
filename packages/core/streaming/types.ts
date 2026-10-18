@@ -9,6 +9,7 @@ import type {
   BoundingSphere,
   ViewFrustum,
 } from './view';
+import type { RefinementAlgorithm } from './refinementStrategies';
 
 export type {
   BoundingSphere,
@@ -81,6 +82,11 @@ export type StreamingSelectionOptions = {
    * independent of the rendered-point budget.
    */
   maxConcurrentNodeLoads?: number;
+  /**
+   * Named refinement relevance policy. Defaults to `foveated`; choose
+   * `screen-projection` to retain the v0.5 passive gaze scoring.
+   */
+  refinementAlgorithm?: RefinementAlgorithm;
   /** @deprecated Planned for removal in v0.9, after v0.8; use maxConcurrentNodeLoads. */
   maxPointsPerBatch?: number;
 };
@@ -136,10 +142,16 @@ export type StreamingSelectedNode = StreamingHierarchyNode & {
   centerWeight: number;
   /** Sharper bounded screen-centre relevance used only for scheduling, in [0, 1]. */
   schedulingCenterWeight: number;
+  /** Optional manual focus-lens relevance used in refinement and scheduling. */
+  focusWeight?: number;
 };
 
 /** Counts, point-cost estimates, and screen-space scores from one selection pass. */
 export type StreamingSelectionMetrics = {
+  /** Active shared-core strategy name for this selection pass. */
+  refinementAlgorithm?: RefinementAlgorithm;
+  /** Whether a runtime manual focus lens was enabled for this pass. */
+  refinementFocusEnabled?: boolean;
   /** Nodes considered before frustum and distance culling. */
   candidatesBeforeCulling: number;
   /** Candidates rejected by the camera frustum. */
@@ -204,6 +216,13 @@ export type StreamingSelectionMetrics = {
   detailBiasMax?: number;
   /** Candidates with any nonzero screen-centre influence. */
   candidatesWithNonZeroInfluenceCount?: number;
+  /** Candidates whose projected node volume received manual focus weight. */
+  focusCandidateCount?: number;
+  /** Minimum and maximum manual focus relevance observed. */
+  focusWeightMin?: number;
+  focusWeightMax?: number;
+  /** Accepted replacements affected by the manual focus lens. */
+  focusInfluencedRefinementCount?: number;
   /** Accepted refinements whose decision was affected by screen-centre influence. */
   acceptedGazeInfluencedRefinementCount?: number;
   /** Candidate influence values clamped to their configured safe bounds. */

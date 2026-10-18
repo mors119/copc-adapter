@@ -1,3 +1,5 @@
+import { MAX_REFINEMENT_FOCUS_DETAIL_BIAS } from './refinementStrategies';
+
 /**
  * The maximum amount of refinement pressure that passive gaze (and future
  * bounded signals) may add to raw screen-space error.
@@ -12,6 +14,8 @@ export type RefinementInfluenceInput = {
   rawScreenSpaceError: number;
   gazeWeight?: number;
   manualFocusWeight?: number;
+  /** Optional explicit-focus ceiling; omitted keeps the historical 1.25× policy. */
+  manualFocusDetailBias?: number;
   motionWeight?: number;
 };
 
@@ -65,7 +69,25 @@ export function calculateRefinementInfluence(
     0,
     1,
   );
-  const detailBias = 1 + combinedWeight * (DEFAULT_MAX_REFINEMENT_DETAIL_BIAS - 1);
+  const manualFocusBias = input.manualFocusDetailBias;
+  const hasManualFocusBias = manualFocusBias !== undefined && Number.isFinite(manualFocusBias);
+  const focusBiasWasClamped = manualFocusBias !== undefined
+    && (!Number.isFinite(manualFocusBias)
+      || manualFocusBias < 1
+      || manualFocusBias > MAX_REFINEMENT_FOCUS_DETAIL_BIAS);
+  const boundedManualFocusBias = hasManualFocusBias
+    ? clamp(manualFocusBias, 1, MAX_REFINEMENT_FOCUS_DETAIL_BIAS)
+    : DEFAULT_MAX_REFINEMENT_DETAIL_BIAS;
+  const detailBias = hasManualFocusBias
+    ? clamp(
+      1
+        + gaze.value * (DEFAULT_MAX_REFINEMENT_DETAIL_BIAS - 1)
+        + manualFocus.value * (boundedManualFocusBias - 1)
+        + motion.value * (DEFAULT_MAX_REFINEMENT_DETAIL_BIAS - 1),
+      1,
+      Math.max(DEFAULT_MAX_REFINEMENT_DETAIL_BIAS, boundedManualFocusBias),
+    )
+    : 1 + combinedWeight * (DEFAULT_MAX_REFINEMENT_DETAIL_BIAS - 1);
   const multipliedScreenSpaceError = rawScreenSpaceError * detailBias;
   const effectiveScreenSpaceError = Number.isFinite(multipliedScreenSpaceError)
     ? multipliedScreenSpaceError
@@ -82,6 +104,7 @@ export function calculateRefinementInfluence(
     wasClamped: rawWasClamped
       || gaze.wasClamped
       || manualFocus.wasClamped
+      || focusBiasWasClamped
       || motion.wasClamped
       || !Number.isFinite(multipliedScreenSpaceError)
       || combinedWeight < gaze.value + manualFocus.value + motion.value,

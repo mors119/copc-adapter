@@ -55,7 +55,8 @@ data without a separate conversion step.
 - Incremental view-driven hierarchy loading with perspective frustum filtering
 - Coverage-preserving mixed-LoD streaming with screen-space-error refinement
 - Bounded node/point workload and decoded-point cache
-- Gaze-aware refinement priority and LoD hysteresis
+- Selectable foveated or screen-projection refinement with LoD hysteresis
+- Runtime Cesium screen-circle Focus Lens with bounded refinement pressure
 - Coverage-safe asynchronous coarse/fine renderer transitions
 - CesiumJS rendering through a caller-owned `Viewer`
 - Three.js rendering through a caller-owned scene and render loop

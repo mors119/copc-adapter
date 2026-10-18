@@ -17,6 +17,12 @@ import {
   DEFAULT_MAX_REFINEMENT_DETAIL_BIAS,
   type RefinementInfluence,
 } from './refinementInfluence';
+import {
+  createRefinementRelevanceStrategy,
+  normalizeRefinementFocus,
+  type RefinementFocus,
+  type RefinementRelevanceStrategy,
+} from './refinementStrategies';
 
 function toRadians(value: number): number {
   return (value * Math.PI) / 180;
@@ -223,6 +229,8 @@ function dot(left: ViewVector3, right: ViewVector3): number {
 
 type ProjectedNodeCentre = {
   normalizedScreenDistance: number;
+  normalizedScreenX: number;
+  normalizedScreenY: number;
   forward: number;
 };
 
@@ -244,18 +252,107 @@ function projectNodeCentre(
     return undefined;
   }
 
-  const horizontalDisplacement = Math.abs(dot(vector, projection.right)) /
+  const signedHorizontalDisplacement = dot(vector, projection.right) /
     (forward * projection.horizontalTangent);
-  const verticalDisplacement = Math.abs(dot(vector, projection.up)) /
+  const signedVerticalDisplacement = dot(vector, projection.up) /
     (forward * projection.verticalTangent);
-  if (!Number.isFinite(horizontalDisplacement) || !Number.isFinite(verticalDisplacement)) {
+  if (!Number.isFinite(signedHorizontalDisplacement)
+    || !Number.isFinite(signedVerticalDisplacement)) {
     return undefined;
   }
 
   return {
-    normalizedScreenDistance: Math.hypot(horizontalDisplacement, verticalDisplacement),
+    normalizedScreenDistance: Math.hypot(
+      Math.abs(signedHorizontalDisplacement),
+      Math.abs(signedVerticalDisplacement),
+    ),
+    normalizedScreenX: 0.5 + signedHorizontalDisplacement / 2,
+    normalizedScreenY: 0.5 - signedVerticalDisplacement / 2,
     forward,
   };
+}
+
+function calculateAngularGapRadians(
+  node: StreamingHierarchyNode,
+  projection: GazeProjection | undefined,
+): number | undefined {
+  if (!projection || !node.boundingSphere || !isFiniteVector(node.boundingSphere.center)) {
+    return undefined;
+  }
+  const vector = {
+    x: node.boundingSphere.center.x - projection.position.x,
+    y: node.boundingSphere.center.y - projection.position.y,
+    z: node.boundingSphere.center.z - projection.position.z,
+  };
+  const distance = Math.hypot(vector.x, vector.y, vector.z);
+  const radius = Number.isFinite(node.boundingSphere.radiusMeters)
+    ? Math.max(node.boundingSphere.radiusMeters, 0)
+    : 0;
+  // A camera inside a node sphere overlaps every focus ray direction.
+  if (distance <= radius) {
+    return 0;
+  }
+  if (!Number.isFinite(distance) || distance <= 0) {
+    return undefined;
+  }
+  const direction = {
+    x: vector.x / distance,
+    y: vector.y / distance,
+    z: vector.z / distance,
+  };
+  const theta = Math.acos(clamp(dot(direction, projection.direction), -1, 1));
+  const angularRadius = Math.asin(clamp(radius / distance, 0, 1));
+  const gap = Math.max(0, theta - angularRadius);
+  return Number.isFinite(gap) ? gap : undefined;
+}
+
+function calculateManualFocusWeight(
+  node: StreamingHierarchyNode,
+  projection: GazeProjection | undefined,
+  focus: RefinementFocus | undefined,
+): number {
+  if (!focus || !projection || !node.boundingSphere
+    || !isFiniteVector(node.boundingSphere.center)) {
+    return 0;
+  }
+  const projected = projectNodeCentre(node, projection);
+  const radiusMeters = Number.isFinite(node.boundingSphere.radiusMeters)
+    ? Math.max(node.boundingSphere.radiusMeters, 0)
+    : 0;
+  const vector = {
+    x: node.boundingSphere.center.x - projection.position.x,
+    y: node.boundingSphere.center.y - projection.position.y,
+    z: node.boundingSphere.center.z - projection.position.z,
+  };
+  const distanceMeters = Math.hypot(vector.x, vector.y, vector.z);
+  if (Number.isFinite(distanceMeters) && distanceMeters <= radiusMeters) {
+    return 1;
+  }
+  if (!projected || !Number.isFinite(distanceMeters) || distanceMeters <= 0) {
+    return 0;
+  }
+
+  const aspect = projection.horizontalTangent / projection.verticalTangent;
+  const scaleX = Math.max(1, aspect);
+  const scaleY = Math.max(1, 1 / aspect);
+  const viewportDistance = Math.hypot(
+    (projected.normalizedScreenX - focus.center.x) * scaleX,
+    (projected.normalizedScreenY - focus.center.y) * scaleY,
+  );
+  const angularRadius = Math.asin(clamp(radiusMeters / distanceMeters, 0, 1));
+  const projectedRadius = angularRadius / (2 * projection.verticalTangent)
+    * Math.max(1, 1 / aspect);
+  if (!Number.isFinite(viewportDistance) || !Number.isFinite(projectedRadius)) {
+    return 0;
+  }
+
+  // Radius is measured in units of min(viewportWidth, viewportHeight). The
+  // 2% minimum feather keeps the boundary stable for small lens radii.
+  const distanceOutsideNode = Math.max(0, viewportDistance - projectedRadius);
+  const feather = Math.max(focus.radius * 0.25, 0.02);
+  const falloff = clamp((distanceOutsideNode - focus.radius) / feather, 0, 1);
+  const smoothFalloff = falloff * falloff * (3 - 2 * falloff);
+  return clamp(1 - smoothFalloff, 0, 1);
 }
 
 function calculateCenterWeightForProjection(
@@ -426,6 +523,7 @@ type PrioritisedNode = {
   influence: RefinementInfluence;
   centerWeight: number;
   schedulingCenterWeight: number;
+  focusWeight: number;
   refinementPriority: number;
   schedulingPriority: number;
   boundsDistanceMeters: number;
@@ -484,6 +582,7 @@ function toSelectedNode(candidate: PrioritisedNode): StreamingSelectedNode {
     effectiveScreenSpaceError: candidate.influence.effectiveScreenSpaceError,
     centerWeight: candidate.centerWeight,
     schedulingCenterWeight: candidate.schedulingCenterWeight,
+    focusWeight: candidate.focusWeight,
   };
 }
 
@@ -495,8 +594,12 @@ type RefinementCandidate = PrioritisedNode & {
 function createSelectionMetrics(
   maxScreenSpaceError: number,
   maxRenderedPoints: number,
+  refinementAlgorithm: StreamingSelectionOptions['refinementAlgorithm'],
+  refinementFocusEnabled: boolean,
 ): StreamingSelectionMetrics {
   return {
+    refinementAlgorithm: refinementAlgorithm ?? 'foveated',
+    refinementFocusEnabled,
     candidatesBeforeCulling: 0,
     frustumCulledCount: 0,
     maxScreenSpaceError,
@@ -517,6 +620,8 @@ function createSelectionMetrics(
     minimumFrontierExceedsNodeBudget: false,
     minimumFrontierExceedsPointBudget: false,
     candidatesWithNonZeroInfluenceCount: 0,
+    focusCandidateCount: 0,
+    focusInfluencedRefinementCount: 0,
     acceptedGazeInfluencedRefinementCount: 0,
     influenceClampCount: 0,
     candidatesWithCenterBoostCount: 0,
@@ -548,9 +653,13 @@ export function compareNodePriority(
  */
 export class NodeSelector {
   private readonly options: StreamingSelectionOptions;
+  private readonly strategy: RefinementRelevanceStrategy;
+  private refinementFocus?: RefinementFocus;
   private lastSelectionMetrics: StreamingSelectionMetrics = createSelectionMetrics(
     DEFAULT_MAX_SCREEN_SPACE_ERROR,
     DEFAULT_MAX_RENDERED_POINTS,
+    'foveated',
+    false,
   );
 
   /**
@@ -563,6 +672,7 @@ export class NodeSelector {
    * @throws `RangeError` if the hysteresis or point-budget configuration is invalid.
    */
   constructor(options: StreamingSelectionOptions) {
+    this.strategy = createRefinementRelevanceStrategy(options.refinementAlgorithm);
     const maxScreenSpaceError = options.maxScreenSpaceError
       ?? DEFAULT_MAX_SCREEN_SPACE_ERROR;
     const screenSpaceErrorHysteresis = options.screenSpaceErrorHysteresis
@@ -575,12 +685,18 @@ export class NodeSelector {
 
     this.options = {
       ...options,
+      refinementAlgorithm: this.strategy.algorithm,
       maxScreenSpaceError,
       screenSpaceErrorHysteresis,
       maxRenderedPoints: validateMaxRenderedPoints(
         options.maxRenderedPoints ?? DEFAULT_MAX_RENDERED_POINTS,
       ),
     };
+  }
+
+  /** Update the optional screen-circle focus without rebuilding hierarchy or cache state. */
+  setRefinementFocus(focus: RefinementFocus | undefined): void {
+    this.refinementFocus = normalizeRefinementFocus(focus);
   }
 
   /** Return a detached snapshot of the most recent selection counters. */
@@ -607,7 +723,12 @@ export class NodeSelector {
     const maxScreenSpaceError = this.options.maxScreenSpaceError
       ?? DEFAULT_MAX_SCREEN_SPACE_ERROR;
     const budget = this.options.maxRenderedPoints ?? DEFAULT_MAX_RENDERED_POINTS;
-    this.lastSelectionMetrics = createSelectionMetrics(maxScreenSpaceError, budget);
+    this.lastSelectionMetrics = createSelectionMetrics(
+      maxScreenSpaceError,
+      budget,
+      this.strategy.algorithm,
+      this.refinementFocus !== undefined,
+    );
 
     const frontier = new Map<string, StreamingHierarchyNode>();
     const gazeProjection = createGazeProjection(camera.viewFrustum);
@@ -615,6 +736,8 @@ export class NodeSelector {
       visible: boolean;
       screenSpaceErrorPixels: number;
       influence: RefinementInfluence;
+      focusWeight: number;
+      schedulingWeight: number;
     }>();
     const priorityMetricsRecorded = new Set<string>();
 
@@ -631,6 +754,8 @@ export class NodeSelector {
           visible: false,
           screenSpaceErrorPixels: 0,
           influence: calculateRefinementInfluence({ rawScreenSpaceError: 0 }),
+          focusWeight: 0,
+          schedulingWeight: 0,
         };
         evaluations.set(node.node.key, result);
         return result;
@@ -641,15 +766,42 @@ export class NodeSelector {
           visible: false,
           screenSpaceErrorPixels: 0,
           influence: calculateRefinementInfluence({ rawScreenSpaceError: 0 }),
+          focusWeight: 0,
+          schedulingWeight: 0,
         };
         evaluations.set(node.node.key, result);
         return result;
       }
 
       const screenSpaceErrorPixels = calculateScreenSpaceErrorPixels(camera, node);
+      const projected = projectNodeCentre(node, gazeProjection);
+      const angularGapRadians = calculateAngularGapRadians(node, gazeProjection);
+      const angularFalloffRadians = gazeProjection
+        ? Math.atan(gazeProjection.verticalTangent * DEFAULT_SCHEDULING_CENTER_FALLOFF)
+        : undefined;
+      const screenProjectionWeight = calculateCenterWeightForProjection(node, gazeProjection);
+      const screenProjectionSchedulingWeight =
+        calculateSchedulingCenterWeightForProjection(node, gazeProjection);
+      const relevance = this.strategy.evaluate({
+        screenX: projected?.normalizedScreenX,
+        screenY: projected?.normalizedScreenY,
+        screenProjectionWeight,
+        screenProjectionSchedulingWeight,
+        angularGapRadians,
+        angularFalloffRadians,
+      });
+      const focusWeight = calculateManualFocusWeight(
+        node,
+        gazeProjection,
+        this.refinementFocus,
+      );
       const influence = calculateRefinementInfluence({
         rawScreenSpaceError: screenSpaceErrorPixels,
-        gazeWeight: calculateCenterWeightForProjection(node, gazeProjection),
+        gazeWeight: relevance.refinementWeight,
+        manualFocusWeight: focusWeight,
+        ...(this.refinementFocus
+          ? { manualFocusDetailBias: this.refinementFocus.detailBias }
+          : {}),
       });
       this.lastSelectionMetrics.screenSpaceErrorMin = Math.min(
         this.lastSelectionMetrics.screenSpaceErrorMin ?? Number.POSITIVE_INFINITY,
@@ -659,7 +811,13 @@ export class NodeSelector {
         this.lastSelectionMetrics.screenSpaceErrorMax ?? Number.NEGATIVE_INFINITY,
         screenSpaceErrorPixels,
       );
-      const result = { visible: true, screenSpaceErrorPixels, influence };
+      const result = {
+        visible: true,
+        screenSpaceErrorPixels,
+        influence,
+        focusWeight,
+        schedulingWeight: relevance.schedulingWeight,
+      };
       evaluations.set(node.node.key, result);
       return result;
     };
@@ -731,10 +889,7 @@ export class NodeSelector {
     const toPrioritised = (node: StreamingHierarchyNode): PrioritisedNode => {
       const evaluation = evaluations.get(node.node.key) ?? evaluate(node);
       const refinementPriority = evaluation.influence.effectiveScreenSpaceError;
-      const schedulingCenterWeight = calculateSchedulingCenterWeightForProjection(
-        node,
-        gazeProjection,
-      );
+      const schedulingCenterWeight = evaluation.schedulingWeight;
       const schedulingMultiplier = 1
         + schedulingCenterWeight * DEFAULT_MAX_SCHEDULING_CENTER_BOOST;
       // Start from raw SSE so the conservative, extent-aware refinement
@@ -748,6 +903,7 @@ export class NodeSelector {
         influence: evaluation.influence,
         centerWeight: evaluation.influence.gazeWeight,
         schedulingCenterWeight,
+        focusWeight: evaluation.focusWeight,
         refinementPriority,
         schedulingPriority: Number.isFinite(schedulingProduct)
           ? schedulingProduct
@@ -804,6 +960,18 @@ export class NodeSelector {
         this.lastSelectionMetrics.schedulingCenterWeightMax ?? Number.NEGATIVE_INFINITY,
         candidate.schedulingCenterWeight,
       );
+      this.lastSelectionMetrics.focusWeightMin = Math.min(
+        this.lastSelectionMetrics.focusWeightMin ?? Number.POSITIVE_INFINITY,
+        candidate.focusWeight,
+      );
+      this.lastSelectionMetrics.focusWeightMax = Math.max(
+        this.lastSelectionMetrics.focusWeightMax ?? Number.NEGATIVE_INFINITY,
+        candidate.focusWeight,
+      );
+      if (candidate.focusWeight > 0) {
+        this.lastSelectionMetrics.focusCandidateCount =
+          (this.lastSelectionMetrics.focusCandidateCount ?? 0) + 1;
+      }
       this.lastSelectionMetrics.refinementPriorityMin = Math.min(
         this.lastSelectionMetrics.refinementPriorityMin ?? Number.POSITIVE_INFINITY,
         candidate.refinementPriority,
@@ -970,6 +1138,10 @@ export class NodeSelector {
         if (candidate.influence.gazeWeight > 0) {
           this.lastSelectionMetrics.acceptedGazeInfluencedRefinementCount =
             (this.lastSelectionMetrics.acceptedGazeInfluencedRefinementCount ?? 0) + 1;
+        }
+        if (candidate.focusWeight > 0) {
+          this.lastSelectionMetrics.focusInfluencedRefinementCount =
+            (this.lastSelectionMetrics.focusInfluencedRefinementCount ?? 0) + 1;
         }
 
         for (const child of candidate.replacement) {

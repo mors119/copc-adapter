@@ -74,6 +74,12 @@ import type { RangeRequestDiagnostics } from '../copc/range/requestDiagnostics';
 import type { RangeValidationPolicy } from '../copc/range/types';
 import type { CopcInputSource } from '../copc/range/types';
 import { getCopcSourceIdentity } from '../copc/getter/createCopcGetter';
+import {
+  DEFAULT_REFINEMENT_ALGORITHM,
+  normalizeRefinementFocus,
+  resolveRefinementAlgorithm,
+  type RefinementFocus,
+} from './refinementStrategies';
 
 /** Lifecycle states that do not depend on an attached rendering engine. */
 export type CopcStreamingLifecycleState =
@@ -190,6 +196,12 @@ export type CopcStreamingPerformanceSnapshot = Pick<
   | 'detailBiasMax'
   | 'candidatesWithNonZeroInfluenceCount'
   | 'acceptedGazeInfluencedRefinementCount'
+  | 'focusCandidateCount'
+  | 'focusWeightMin'
+  | 'focusWeightMax'
+  | 'focusInfluencedRefinementCount'
+  | 'refinementAlgorithm'
+  | 'refinementFocusEnabled'
   | 'influenceClampCount'
   | 'acceptedRefinementPriorityMin'
   | 'acceptedRefinementPriorityMax'
@@ -262,6 +274,7 @@ const DEFAULT_STREAMING_OPTIONS: StreamingSelectionOptions = {
   maxRenderDistanceMeters: 12000,
   maxRenderedPoints: DEFAULT_MAX_RENDERED_POINTS,
   maxConcurrentNodeLoads: DEFAULT_MAX_CONCURRENT_NODE_LOADS,
+  refinementAlgorithm: DEFAULT_REFINEMENT_ALGORITHM,
 };
 const MAX_CACHED_NODES = 48;
 const DEFAULT_POINT_CACHE_BYTES = 256 * 1024 * 1024;
@@ -370,11 +383,19 @@ export class CopcStreamingCore {
   private transition = createTransitionState();
   private lifecycle: CopcStreamingLifecycleState = 'idle';
   private lifecycleAbortController?: AbortController;
+  private refinementFocus?: RefinementFocus;
 
   constructor(options: CopcStreamingControllerOptions) {
     this.heightOffsetMeters = resolveHeightOffsetMeters(options.heightOffsetMeters);
+    const refinementAlgorithm = resolveRefinementAlgorithm(
+      options.streaming?.refinementAlgorithm,
+    );
     this.options = {
       ...options,
+      streaming: {
+        ...options.streaming,
+        refinementAlgorithm,
+      },
       heightOffsetMeters: this.heightOffsetMeters,
     };
     this.pointFields = createCopcPointFieldSelection([
@@ -486,6 +507,7 @@ export class CopcStreamingCore {
         this.performanceRecorder,
         context.cancelPendingPointJobs?.bind(context),
       );
+      manager.setRefinementFocus(this.refinementFocus);
 
       this.streamingState = {
         context,
@@ -756,6 +778,15 @@ export class CopcStreamingCore {
     return this.currentView;
   }
 
+  /**
+   * Update the optional screen-circle refinement focus without reopening the
+   * source or rebuilding hierarchy and cache state.
+   */
+  setRefinementFocus(focus: RefinementFocus | undefined): void {
+    this.refinementFocus = normalizeRefinementFocus(focus);
+    this.streamingState?.manager.setRefinementFocus(this.refinementFocus);
+  }
+
   /** Return the current hierarchy node for an adapter-side pick or transition. */
   getHierarchyNode(nodeKey: string): StreamingHierarchyNode | undefined {
     return this.streamingState?.nodes.get(nodeKey);
@@ -958,6 +989,9 @@ export class CopcStreamingCore {
       refinementDeferredByIncompleteHierarchyCount: snapshot.refinementDeferredByIncompleteHierarchyCount,
       minimumFrontierExceedsNodeBudget: snapshot.minimumFrontierExceedsNodeBudget,
       minimumFrontierExceedsPointBudget: snapshot.minimumFrontierExceedsPointBudget,
+      refinementAlgorithm: this.getStreamingOptions().refinementAlgorithm
+        ?? DEFAULT_REFINEMENT_ALGORITHM,
+      refinementFocusEnabled: this.refinementFocus !== undefined,
       ...(snapshot.maxConcurrentNodeLoads === undefined
         ? {}
         : {
@@ -1044,6 +1078,18 @@ export class CopcStreamingCore {
       ...(snapshot.acceptedGazeInfluencedRefinementCount === undefined
         ? {}
         : { acceptedGazeInfluencedRefinementCount: snapshot.acceptedGazeInfluencedRefinementCount }),
+      ...(snapshot.focusCandidateCount === undefined
+        ? {}
+        : { focusCandidateCount: snapshot.focusCandidateCount }),
+      ...(snapshot.focusWeightMin === undefined
+        ? {}
+        : { focusWeightMin: snapshot.focusWeightMin }),
+      ...(snapshot.focusWeightMax === undefined
+        ? {}
+        : { focusWeightMax: snapshot.focusWeightMax }),
+      ...(snapshot.focusInfluencedRefinementCount === undefined
+        ? {}
+        : { focusInfluencedRefinementCount: snapshot.focusInfluencedRefinementCount }),
       ...(snapshot.influenceClampCount === undefined
         ? {}
         : { influenceClampCount: snapshot.influenceClampCount }),
