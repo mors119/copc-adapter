@@ -28,7 +28,7 @@ void main() {
   if (v_show < 0.5) discard;
   vec2 point = gl_PointCoord - vec2(0.5);
   if (dot(point, point) > 0.25) discard;
-  out_FragColor = vec4(v_color, 1.0);
+  out_FragColor = vec4(v_color, 0.9);
 }`;
 
 type NodeRecord = {

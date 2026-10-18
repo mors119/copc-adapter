@@ -177,7 +177,10 @@ test('prints repeatable synthetic and Autzen renderer performance evidence', asy
   console.log(JSON.stringify({
     renderer: process.env.COPC_RENDERER_VARIANT ?? 'point-primitive',
     environment,
-    synthetic: synthetic.find((row) => row.pointCount === 100_000),
+    synthetic: {
+      renderer: 'point-primitive',
+      result: synthetic.find((row) => row.pointCount === 100_000),
+    },
     initialFrames,
     rendererEvidence,
   }, null, 2));
