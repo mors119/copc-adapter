@@ -8,6 +8,9 @@ const appDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryDirectory = path.resolve(appDirectory, '../..');
 const packageSourceDirectory = path.resolve(repositoryDirectory, 'packages');
 const isolatedCesiumPackageDirectory = process.env.COPC_TEST_CESIUM_PACKAGE_DIR;
+const adapterPackage = JSON.parse(fs.readFileSync(path.join(packageSourceDirectory, 'package.json'), 'utf8')) as {
+  version?: string;
+};
 
 function localSampleRangeMiddleware() {
   return {
@@ -61,6 +64,9 @@ function localSampleRangeMiddleware() {
 }
 
 export default defineConfig({
+  define: {
+    __COPC_ADAPTER_VERSION__: JSON.stringify(adapterPackage.version ?? 'unknown'),
+  },
   plugins: [
     localSampleRangeMiddleware(),
     cesium(isolatedCesiumPackageDirectory ? {
@@ -81,6 +87,10 @@ export default defineConfig({
       {
         find: /^@frillab\/copc-adapter\/cesium$/,
         replacement: path.resolve(packageSourceDirectory, 'cesium.ts'),
+      },
+      {
+        find: /^@frillab\/copc-adapter\/three$/,
+        replacement: path.resolve(packageSourceDirectory, 'three.ts'),
       },
     ],
   },

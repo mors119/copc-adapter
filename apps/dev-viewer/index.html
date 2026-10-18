@@ -7,7 +7,60 @@
     <title>COPC Adapter Dev Viewer</title>
   </head>
   <body>
-    <div id="cesium-container"></div>
+    <header class="dev-topbar">
+      <a class="dev-brand" href="/" aria-label="COPC Adapter Dev Viewer home"><span aria-hidden="true">C</span><strong>COPC Adapter</strong><small>DEV VIEWER</small></a>
+      <span class="dev-topbar__package" id="package-version">Local package</span>
+    </header>
+    <main class="dev-workbench" aria-label="COPC Adapter development viewer">
+      <div id="cesium-container" aria-label="Interactive COPC point cloud viewport"></div>
+      <aside class="dev-control-panel" aria-label="Viewer controls">
+        <details open>
+          <summary>Viewer controls</summary>
+          <label class="ui-field">Source
+            <select id="source-selection">
+              <option value="local-autzen">Autzen · local fixture</option>
+              <option value="autzen-remote">Autzen · public HTTP</option>
+              <option value="chicago-remote">Chicago · public HTTP</option>
+              <option value="custom">Custom HTTP URL</option>
+            </select>
+          </label>
+          <label class="ui-field" for="custom-source-url">COPC URL
+            <input id="custom-source-url" type="url" placeholder="https://host.example/area.copc.laz" disabled>
+          </label>
+          <button class="dev-action" id="load-source" type="button">Probe and load source</button>
+          <p class="dev-status" id="source-status" role="status" aria-live="polite">Loading configured source…</p>
+          <label class="dev-file" for="local-source-file">Open local COPC file
+            <input id="local-source-file" type="file" accept=".copc.laz,.laz,.copc,application/octet-stream">
+          </label>
+
+          <span class="control-label">Renderer</span><div id="renderer-control"></div>
+          <span class="control-label">Backend</span><div id="backend-control"></div>
+          <span class="control-label">Camera view</span><div id="camera-control"></div>
+
+          <span class="control-label">Color mode</span><div id="color-control"></div>
+          <div class="control-slider" id="point-size-control"></div>
+          <div class="control-slider" id="max-nodes-control"></div>
+          <div class="control-slider" id="max-points-control"></div>
+
+          <details class="dev-advanced-settings">
+            <summary>Advanced settings</summary>
+            <label class="ui-field" for="max-depth">Max depth<input id="max-depth" type="number" min="1" max="24" step="1"></label>
+            <label class="ui-field" for="max-sse">Screen-space error (px)<input id="max-sse" type="number" min="1" max="128" step="0.5"></label>
+            <label class="ui-field" for="camera-render-distance">Camera distance (m)<input id="camera-render-distance" type="number" min="1" step="1"></label>
+            <label class="ui-field" for="max-render-distance">Max render distance (m)<input id="max-render-distance" type="number" min="1" step="1"></label>
+            <button class="dev-action dev-action--secondary" id="apply-advanced" type="button">Apply advanced settings</button>
+            <button class="dev-action dev-action--secondary" id="reload-renderer" type="button">Reload renderer</button>
+          </details>
+        </details>
+      </aside>
+      <section class="dev-stream-hud" aria-label="Basic streaming status" aria-live="polite">
+        <span class="dev-stream-hud__state"><i id="stream-state-dot" aria-hidden="true"></i><b id="stream-state">Loading</b></span>
+        <span><b id="stream-points">0</b> points</span>
+        <span><b id="stream-nodes">0</b> nodes</span>
+        <span><b id="stream-selected">0</b> selected</span>
+        <span id="stream-range">HTTP Range · checking</span>
+      </section>
+    </main>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

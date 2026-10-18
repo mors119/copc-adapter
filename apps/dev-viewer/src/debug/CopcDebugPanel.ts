@@ -4,6 +4,7 @@ import type {
   CopcColorMode,
   CopcMetadata,
 } from '@frillab/copc-adapter';
+import type { CopcThreeLayerSnapshot } from '@frillab/copc-adapter/three';
 import type {
   CopcHierarchyDiagnostics,
   CopcSourceProbeResult,
@@ -11,7 +12,7 @@ import type {
 } from '@frillab/copc-adapter';
 
 export type CopcDebugPanelState = {
-  snapshot: CopcCesiumLayerSnapshot;
+  snapshot: CopcCesiumLayerSnapshot | CopcThreeLayerSnapshot;
   metadata?: CopcMetadata;
   hierarchy?: CopcHierarchyDiagnostics;
   sourceProbe?: CopcSourceProbeResult;
@@ -171,6 +172,7 @@ export function buildCopcDebugPanelView(
   state: CopcDebugPanelState,
 ): CopcDebugPanelView {
   const { snapshot, metadata, hierarchy, sourceProbe, lastError } = state;
+  const rangeRequests = 'rangeRequests' in snapshot ? snapshot.rangeRequests : undefined;
   const status = lastError
     ? 'Error'
     : snapshot.lifecycle === 'ready'
@@ -243,12 +245,12 @@ export function buildCopcDebugPanelView(
     activeNodeCount: formatNumber(snapshot.performance?.activeNodeCount ?? 0),
     completedNodeCount: formatNumber(snapshot.performance?.completedNodeCount ?? 0),
     cancelledNodeCount: formatNumber(snapshot.performance?.cancelledNodeCount ?? 0),
-    rangeRequestsRequested: formatNumber(snapshot.rangeRequests.requested),
-    rangeRequestsActive: formatNumber(snapshot.rangeRequests.active),
-    rangeRequestsCompleted: formatNumber(snapshot.rangeRequests.completed),
-    rangeRequestsFailed: formatNumber(snapshot.rangeRequests.failed),
-    rangeRequestsAbortedSuperseded: formatNumber(snapshot.rangeRequests.abortedSuperseded),
-    rangeRequestsAbortedLifecycle: formatNumber(snapshot.rangeRequests.abortedLifecycle),
+    rangeRequestsRequested: rangeRequests ? formatNumber(rangeRequests.requested) : '—',
+    rangeRequestsActive: rangeRequests ? formatNumber(rangeRequests.active) : '—',
+    rangeRequestsCompleted: rangeRequests ? formatNumber(rangeRequests.completed) : '—',
+    rangeRequestsFailed: rangeRequests ? formatNumber(rangeRequests.failed) : '—',
+    rangeRequestsAbortedSuperseded: rangeRequests ? formatNumber(rangeRequests.abortedSuperseded) : '—',
+    rangeRequestsAbortedLifecycle: rangeRequests ? formatNumber(rangeRequests.abortedLifecycle) : '—',
     peakActiveNodeCount: formatNumber(snapshot.performance?.peakActiveNodeCount ?? 0),
     firstHighPriorityNodeReadyLatency:
       snapshot.performance?.firstHighPriorityNodeReadyLatencyMs === undefined
@@ -412,6 +414,9 @@ export function createCopcDebugPanel(
       </div>
       <div class="copc-debug-panel__active-style"><span>Active color mode</span><strong data-field="activeColorMode"></strong></div>
     </section>
+    <section class="copc-debug-panel__advanced">
+      <button type="button" class="copc-debug-panel__advanced-toggle" data-action="toggle-advanced" aria-expanded="true" aria-controls="copc-advanced-diagnostics">Advanced diagnostics</button>
+      <div id="copc-advanced-diagnostics" class="copc-debug-panel__advanced-content" data-advanced-content>
     <details open>
       <summary>Source</summary>
       <dl>
@@ -421,8 +426,8 @@ export function createCopcDebugPanel(
         <div><dt>Point format</dt><dd data-field="sourcePointFormat"></dd></div>
         <div><dt>CORS</dt><dd data-field="sourceCors"></dd></div>
       </dl>
-      <p class="copc-debug-panel__source-warning" data-field="sourceWarnings"></p>
     </details>
+    <p class="copc-debug-panel__source-warning" data-field="sourceWarnings"></p>
     <dl>
       <div><dt>Points</dt><dd data-field="pointCount"></dd></div>
       <div><dt>Selected nodes</dt><dd data-field="selectedNodeCount"></dd></div>
@@ -525,6 +530,8 @@ export function createCopcDebugPanel(
       <code class="copc-debug-panel__nodes" data-field="renderedNodeKeys"></code>
     </details>
     <div class="copc-debug-panel__error" data-field="error" role="alert" hidden></div>
+      </div>
+    </section>
   `;
   document.body.append(panel);
 
@@ -567,6 +574,13 @@ export function createCopcDebugPanel(
   };
 
   panel.querySelector('[data-action="hide"]')?.addEventListener('click', hide);
+  const advancedToggle = panel.querySelector<HTMLButtonElement>('[data-action="toggle-advanced"]');
+  const advancedContent = panel.querySelector<HTMLElement>('[data-advanced-content]');
+  advancedToggle?.addEventListener('click', () => {
+    const expanded = advancedToggle.getAttribute('aria-expanded') === 'true';
+    advancedToggle.setAttribute('aria-expanded', String(!expanded));
+    if (advancedContent) advancedContent.hidden = expanded;
+  });
   panel.querySelectorAll<HTMLButtonElement>('[data-camera-preset]').forEach((button) => {
     button.addEventListener('click', () => {
       const preset = button.dataset.cameraPreset;
