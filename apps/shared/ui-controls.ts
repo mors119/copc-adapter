@@ -100,7 +100,10 @@ export function mountSegmentedControl<Value extends string>(
         buttons.delete(choiceValue);
       }
     }
-    group.replaceChildren(...choices.map((choice) => buttons.get(choice.value)!));
+    const orderedButtons = choices.map((choice) => buttons.get(choice.value)!);
+    const orderIsCurrent = group.childElementCount === orderedButtons.length
+      && orderedButtons.every((button, index) => group.children.item(index) === button);
+    if (!orderIsCurrent) group.replaceChildren(...orderedButtons);
   };
 
   const select = (next: Value, notify: boolean): void => {
