@@ -51,11 +51,17 @@ for (const url of htmlResources) {
 }
 
 const packageJson = JSON.parse(await readFile(path.join(packageDirectory, 'package.json'), 'utf8'));
-if (packageJson.name !== '@frillab/copc-adapter' || !packageJson.exports?.['./cesium']) {
-  throw new Error('Playground must use the packed adapter package and its public Cesium entrypoint.');
+const installLock = JSON.parse(await readFile(path.join(appDirectory, 'node_modules/.package-lock.json'), 'utf8'));
+const adapterResolved = installLock.packages?.['node_modules/@frillab/copc-adapter']?.resolved;
+const packageSourceLabel = adapterResolved?.startsWith('file:')
+  ? 'Local package tarball'
+  : adapterResolved?.includes('registry.npmjs.org') ? 'npm Registry' : 'Installed package';
+if (packageJson.name !== '@frillab/copc-adapter' || !packageJson.exports?.['./cesium'] || !packageJson.exports?.['./three']) {
+  throw new Error('Playground must use the installed adapter package and its public Cesium and Three entrypoints.');
 }
 for (const filename of [
   'dist/cesium.js',
+  'dist/three.js',
   'dist/copc_adapter_wasm.wasm',
   'dist/laz-perf.wasm',
   'dist/copcAdapterWasmAsset.js',
@@ -90,6 +96,9 @@ if (wasmFiles.some((filename) => path.basename(filename).startsWith('copc_wasm')
 }
 if (!bundledJavaScript.includes(`${basePath}cesium/`)) {
   throw new Error('Cesium runtime assets are not rooted at the Playground production base path.');
+}
+if (!bundledJavaScript.includes(packageJson.version) || !bundledJavaScript.includes(packageSourceLabel)) {
+  throw new Error('The Playground package card does not report the installed adapter version and source.');
 }
 if (!bundledJavaScript.includes('data:text/javascript;base64,')) {
   throw new Error('The packed adapter Rust Worker module was not included in the Playground bundle.');

@@ -186,8 +186,11 @@ test('point-size changes restore the current camera pose after layer reload', as
     if (!slider) throw new Error('Point-size slider is missing');
     slider.value = '7';
     slider.dispatchEvent(new Event('input', { bubbles: true }));
-    slider.dispatchEvent(new Event('change', { bubbles: true }));
   });
+  await expect.poll(() => page.evaluate(() => (window as Window & {
+    __COPC_PLAYGROUND_TEST__?: { getMockLoadCount(): number };
+  }).__COPC_PLAYGROUND_TEST__?.getMockLoadCount())).toBe(initialLoads);
+  await page.locator('#point-size').dispatchEvent('change');
   await expect.poll(() => page.evaluate(() => (window as Window & {
     __COPC_PLAYGROUND_TEST__?: { getMockLoadCount(): number };
   }).__COPC_PLAYGROUND_TEST__?.getMockLoadCount())).toBe((initialLoads ?? 0) + 1);
@@ -223,6 +226,9 @@ test('a source selection change disposes an in-flight layer load', async ({ page
     buffer: Buffer.from('test source'),
   });
   await expect(page.locator('#source-status')).toHaveText('Loading pending.copc.laz…');
+  await expect.poll(() => page.evaluate(() => (window as Window & {
+    __COPC_PLAYGROUND_TEST__?: { getMockLoadCount(): number };
+  }).__COPC_PLAYGROUND_TEST__?.getMockLoadCount())).toBe(1);
   await page.locator('#remote-source').selectOption('chicago');
   await expect(page.locator('#source-status')).toHaveText('Source selection changed. Choose a source and load it.');
   const destroyCount = await page.evaluate(() => (window as Window & {
@@ -290,6 +296,98 @@ test('camera movement during a layer reload is preserved', async ({ page }) => {
   expect(actual?.height).toBeCloseTo(userCamera.height, 2);
   expect(actual?.heading).toBeCloseTo(userCamera.heading, 5);
   expect(actual?.pitch).toBeCloseTo(userCamera.pitch, 5);
+});
+
+test('renderer, backend, and color controls expose keyboard-accessible applied choices', async ({ page }) => {
+  await page.goto('./');
+  const renderer = page.getByRole('radiogroup', { name: 'Renderer' });
+  const cesium = renderer.getByRole('radio', { name: 'Cesium' });
+  const three = renderer.getByRole('radio', { name: 'Three.js' });
+  await expect(cesium).toHaveAttribute('aria-checked', 'true');
+  await cesium.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(three).toHaveAttribute('aria-checked', 'true');
+  await expect(page.locator('#viewer-heading')).toHaveText('Three.js');
+  await expect(page.locator('#integration-example')).toContainText('CopcThreeLayer');
+
+  const backend = page.getByRole('radiogroup', { name: 'COPC backend' });
+  await expect(backend.getByRole('radio', { name: 'JavaScript' })).toHaveAttribute('aria-checked', 'true');
+  await backend.getByRole('radio', { name: 'Rust / WASM' }).click();
+  await expect(backend.getByRole('radio', { name: 'Rust / WASM' })).toHaveAttribute('aria-checked', 'true');
+
+  const colors = page.getByRole('radiogroup', { name: 'Color mode' });
+  await expect(colors.getByRole('radio', { name: 'RGB' })).toBeDisabled();
+  await expect(page.getByRole('slider', { name: 'Point size' })).toHaveValue('3');
+});
+
+test('responsive layout keeps the viewport visible and supports disclosures', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto('./');
+  let layout = await page.evaluate(() => ({
+    viewportWidth: document.querySelector('#cesium-container')?.getBoundingClientRect().width ?? 0,
+    documentWidth: document.documentElement.scrollWidth,
+    windowWidth: window.innerWidth,
+  }));
+  expect(layout.viewportWidth).toBeGreaterThan(300);
+  expect(layout.documentWidth).toBeLessThanOrEqual(layout.windowWidth);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  layout = await page.evaluate(() => ({
+    viewportWidth: document.querySelector('#cesium-container')?.getBoundingClientRect().width ?? 0,
+    documentWidth: document.documentElement.scrollWidth,
+    windowWidth: window.innerWidth,
+  }));
+  expect(layout.viewportWidth).toBeGreaterThan(300);
+  expect(layout.documentWidth).toBeLessThanOrEqual(layout.windowWidth);
+  await page.getByText('About supported sources').click();
+  await expect(page.locator('.source-help')).toHaveAttribute('open', '');
+});
+
+test('custom URL input rejects malformed addresses before making a request', async ({ page }) => {
+  await page.goto('./');
+  await page.locator('#remote-source').selectOption('custom');
+  await page.locator('#custom-url').fill('not a url');
+  await page.getByRole('button', { name: 'Probe and load URL' }).click();
+  await expect(page.locator('#source-probe')).toHaveText('Enter a valid absolute HTTP or HTTPS URL.');
+  await expect(page.locator('#source-status')).toHaveText('Waiting for a source');
+});
+
+for (const renderer of ['Cesium', 'Three.js'] as const) {
+  test(`${renderer} streams and inspects points from the public Autzen COPC`, async ({ page }) => {
+    test.setTimeout(150_000);
+    await page.goto('./');
+    if (renderer === 'Three.js') {
+      await page.getByRole('radio', { name: 'Three.js' }).click();
+    }
+    await page.getByRole('button', { name: 'Probe and load source' }).click();
+    await expect(page.locator('#source-status')).toHaveText('Loaded Autzen Stadium', { timeout: 120_000 });
+    await expect(page.locator('#diagnostic-range')).toHaveText('Supported');
+    await expect(page.locator('#diagnostic-validation')).toHaveText('Strict response validation');
+    await expect.poll(async () => Number((await page.locator('#diagnostic-points').textContent())?.replaceAll(',', '')),
+      { timeout: 60_000 }).toBeGreaterThan(0);
+
+    const pickPosition = () => page.evaluate(() => (window as Window & {
+      __COPC_PLAYGROUND_TEST__?: { getPickablePointScreenPosition(): { x: number; y: number } | undefined };
+    }).__COPC_PLAYGROUND_TEST__?.getPickablePointScreenPosition());
+    await expect.poll(pickPosition, { timeout: 30_000 }).toBeTruthy();
+    const point = await pickPosition();
+    if (!point) throw new Error('No pickable streamed point was found in the viewport.');
+    const box = await page.locator('#cesium-container').boundingBox();
+    if (!box) throw new Error('The point cloud viewport has no visible bounds.');
+    await page.mouse.click(box.x + point.x, box.y + point.y);
+    await expect(page.locator('#point-attributes')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#point-attributes')).toContainText('Height');
+  });
+}
+
+test('the optional Rust/WASM backend streams the public Autzen COPC', async ({ page }) => {
+  test.setTimeout(150_000);
+  await page.goto('./');
+  await page.getByRole('radio', { name: 'Rust / WASM' }).click();
+  await page.getByRole('button', { name: 'Probe and load source' }).click();
+  await expect(page.locator('#source-status')).toHaveText('Loaded Autzen Stadium', { timeout: 120_000 });
+  await expect.poll(async () => Number((await page.locator('#diagnostic-points').textContent())?.replaceAll(',', '')),
+    { timeout: 60_000 }).toBeGreaterThan(0);
 });
 
 type PlaygroundCameraView = {
