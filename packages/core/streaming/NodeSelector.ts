@@ -372,20 +372,38 @@ function calculateManualFocusWeight(
     const focusAngle = Math.acos(clamp(dot(centerDirection, focusRay), -1, 1));
     const angularGap = Math.max(0, focusAngle - angularRadius);
     const aspect = projection.horizontalTangent / projection.verticalTangent;
-    const lensSlopeRadius = 2 * projection.verticalTangent
-      * Math.min(1, aspect)
-      * focus.radius;
     const focusRayLength = Math.hypot(
       focusRayVector.x,
       focusRayVector.y,
       focusRayVector.z,
     );
-    const lensVectorRadius = lensSlopeRadius
-      * Math.sqrt(1 + Math.abs(dot(projection.right, projection.up)));
-    const lensAngularRadius = lensVectorRadius >= focusRayLength
-      ? Math.PI
-      : Math.asin(clamp(lensVectorRadius / focusRayLength, 0, 1));
-    return angularGap <= lensAngularRadius ? 1 : 0;
+    const angularRadiusForScreenCircle = (screenRadius: number): number => {
+      const slopeRadius = 2 * projection.verticalTangent
+        * Math.min(1, aspect)
+        * screenRadius;
+      const vectorRadius = slopeRadius
+        * Math.sqrt(1 + Math.abs(dot(projection.right, projection.up)));
+      return vectorRadius >= focusRayLength
+        ? Math.PI
+        : Math.asin(clamp(vectorRadius / focusRayLength, 0, 1));
+    };
+    const lensAngularRadius = angularRadiusForScreenCircle(focus.radius);
+    const feather = Math.max(focus.radius * 0.25, 0.02);
+    const featheredLensAngularRadius = angularRadiusForScreenCircle(focus.radius + feather);
+    if (angularGap <= lensAngularRadius) {
+      return 1;
+    }
+    if (angularGap >= featheredLensAngularRadius) {
+      return 0;
+    }
+
+    const angularFeather = featheredLensAngularRadius - lensAngularRadius;
+    if (angularFeather <= 0) {
+      return 0;
+    }
+    const falloff = clamp((angularGap - lensAngularRadius) / angularFeather, 0, 1);
+    const smoothFalloff = falloff * falloff * (3 - 2 * falloff);
+    return clamp(1 - smoothFalloff, 0, 1);
   }
   // Perspective projection is gnomonic: a sphere's outer cone edge projects
   // at tan(theta + alpha), not linearly in angle. Subtracting the projected

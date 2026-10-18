@@ -1651,6 +1651,11 @@ test('horizon-crossing focus overlap preserves the sphere direction', () => {
   // horizon and overlaps the right lens while remaining far from the left.
   assert.equal(focusWeightAt(0.05), 0);
   assert.ok(focusWeightAt(0.95) > 0);
+
+  const featherWeight = focusWeightAt(0.78);
+  assert.ok(featherWeight > 0);
+  assert.ok(featherWeight < 1);
+  assert.equal(focusWeightAt(0.76), 0);
 });
 
 test('focus radius keeps circular meaning across wide and tall viewports', () => {
