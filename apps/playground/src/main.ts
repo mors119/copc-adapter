@@ -3,6 +3,7 @@ import {
   CopcCesiumLayer,
   probeCopcSource,
   type CopcColorMode,
+  type CopcCesiumLayerOptions,
 } from '@frillab/copc-adapter/cesium';
 import './style.css';
 
@@ -120,18 +121,134 @@ const viewer = new Cesium.Viewer(viewerElement, {
 const fileInput = document.querySelector<HTMLInputElement>('#copc-file');
 const sourceStatus = document.querySelector<HTMLElement>('#source-status');
 let activeLayer: CopcCesiumLayer | undefined;
+let layerFactory = (options: CopcCesiumLayerOptions): CopcCesiumLayer => new CopcCesiumLayer(options);
 let activeSource: string | File | undefined;
 let activeSourceName = '';
 let pointSize = 3;
 let maxNodes = 24;
 let maxRenderedPoints = 250_000;
 let colorMode: CopcColorMode = 'rgb';
+let sourceGeneration = 0;
+let invalidateSourceRequest = (): number => ++sourceGeneration;
+let activeLoadPending = false;
+let cameraInteractionVersion = 0;
 
-const loadSource = async (source: string | File, sourceName: string): Promise<void> => {
+for (const eventName of ['pointerdown', 'wheel', 'keydown', 'touchstart']) {
+  viewerElement.addEventListener(eventName, () => { cameraInteractionVersion += 1; }, { passive: true });
+}
+
+type CameraPose = {
+  destination: Cesium.Cartesian3;
+  direction: Cesium.Cartesian3;
+  up: Cesium.Cartesian3;
+};
+
+const captureCameraPose = (): CameraPose => ({
+  destination: Cesium.Cartesian3.clone(viewer.camera.positionWC),
+  direction: Cesium.Cartesian3.clone(viewer.camera.directionWC),
+  up: Cesium.Cartesian3.clone(viewer.camera.upWC),
+});
+
+const restoreCameraPose = (pose: CameraPose): void => {
+  if (viewer.isDestroyed()) return;
+  viewer.camera.setView({
+    destination: pose.destination,
+    orientation: { direction: pose.direction, up: pose.up },
+  });
+};
+
+type PlaygroundTestCameraView = {
+  longitude: number;
+  latitude: number;
+  height: number;
+  heading: number;
+  pitch: number;
+  roll: number;
+};
+
+declare global {
+  interface Window {
+    __COPC_PLAYGROUND_TEST__?: {
+      useCameraResetLayerMock(): void;
+      delayNextLoad(): void;
+      releaseDelayedLoad(): void;
+      getMockDestroyCount(): number;
+      setCameraView(view: PlaygroundTestCameraView): void;
+      getCameraView(): PlaygroundTestCameraView;
+      getMockLoadCount(): number;
+    };
+  }
+}
+
+if (import.meta.env.DEV) {
+  let mockLoadCount = 0;
+  let mockDestroyCount = 0;
+  let delayNextMockLoad = false;
+  let releaseMockLoad: (() => void) | undefined;
+  window.__COPC_PLAYGROUND_TEST__ = {
+    useCameraResetLayerMock(): void {
+      layerFactory = () => ({
+        attachTo(): void {},
+        async load(): Promise<void> {
+          mockLoadCount += 1;
+          viewer.camera.setView({
+            destination: Cesium.Cartesian3.fromDegrees(-122.2, 44.1, 5000),
+            orientation: {
+              heading: Cesium.Math.toRadians(20),
+              pitch: Cesium.Math.toRadians(-40),
+              roll: 0,
+            },
+          });
+          if (delayNextMockLoad) {
+            delayNextMockLoad = false;
+            await new Promise<void>((resolve) => { releaseMockLoad = resolve; });
+          }
+        },
+        destroy(): void { mockDestroyCount += 1; },
+        setStyle(): void {},
+      } as unknown as CopcCesiumLayer);
+    },
+    delayNextLoad(): void { delayNextMockLoad = true; },
+    releaseDelayedLoad(): void { releaseMockLoad?.(); releaseMockLoad = undefined; },
+    setCameraView(view): void {
+      viewer.camera.setView({
+        destination: Cesium.Cartesian3.fromDegrees(view.longitude, view.latitude, view.height),
+        orientation: {
+          heading: Cesium.Math.toRadians(view.heading),
+          pitch: Cesium.Math.toRadians(view.pitch),
+          roll: Cesium.Math.toRadians(view.roll),
+        },
+      });
+    },
+    getCameraView(): PlaygroundTestCameraView {
+      const cartographic = Cesium.Cartographic.fromCartesian(viewer.camera.positionWC);
+      return {
+        longitude: Cesium.Math.toDegrees(cartographic.longitude),
+        latitude: Cesium.Math.toDegrees(cartographic.latitude),
+        height: cartographic.height,
+        heading: Cesium.Math.toDegrees(viewer.camera.heading),
+        pitch: Cesium.Math.toDegrees(viewer.camera.pitch),
+        roll: Cesium.Math.toDegrees(viewer.camera.roll),
+      };
+    },
+    getMockLoadCount: () => mockLoadCount,
+    getMockDestroyCount: () => mockDestroyCount,
+  };
+}
+
+const loadSource = async (
+  source: string | File,
+  sourceName: string,
+  options: { preserveCamera?: boolean; generation?: number } = {},
+): Promise<void> => {
+  const generation = options.generation ?? invalidateSourceRequest();
+  if (generation !== sourceGeneration) return;
+  const cameraPose = options.preserveCamera ? captureCameraPose() : undefined;
+  const capturedInteractionVersion = cameraInteractionVersion;
   activeSource = source;
   activeSourceName = sourceName;
   activeLayer?.destroy();
-  const layer = new CopcCesiumLayer({
+  const layer = layerFactory({
     url: source,
     pointSize,
     colorMode,
@@ -139,13 +256,38 @@ const loadSource = async (source: string | File, sourceName: string): Promise<vo
     streaming: { maxNodes },
   });
   activeLayer = layer;
+  activeLoadPending = true;
   layer.attachTo(viewer);
   if (sourceStatus) sourceStatus.textContent = `Loading ${sourceName}…`;
   try {
     await layer.load();
-    if (activeLayer === layer && sourceStatus) sourceStatus.textContent = `Loaded ${sourceName}`;
+    if (generation !== sourceGeneration || activeLayer !== layer) {
+      if (activeLayer === layer) {
+        layer.destroy();
+        activeLayer = undefined;
+        activeLoadPending = false;
+        if (sourceStatus?.textContent === `Loading ${sourceName}…`) {
+          sourceStatus.textContent = 'Source selection changed. Choose a source and load it.';
+        }
+      }
+      return;
+    }
+    activeLoadPending = false;
+    if (cameraPose && capturedInteractionVersion === cameraInteractionVersion) restoreCameraPose(cameraPose);
+    if (sourceStatus) sourceStatus.textContent = `Loaded ${sourceName}`;
   } catch (error) {
-    if (activeLayer === layer && sourceStatus) {
+    if (generation !== sourceGeneration && activeLayer === layer) {
+      layer.destroy();
+      activeLayer = undefined;
+      activeLoadPending = false;
+      if (sourceStatus?.textContent === `Loading ${sourceName}…`) {
+        sourceStatus.textContent = 'Source selection changed. Choose a source and load it.';
+      }
+      return;
+    }
+    if (generation === sourceGeneration && activeLayer === layer && sourceStatus) {
+      activeLoadPending = false;
+      if (cameraPose && capturedInteractionVersion === cameraInteractionVersion) restoreCameraPose(cameraPose);
       const message = error instanceof Error ? error.message : String(error);
       sourceStatus.textContent = /fetch|cors|range|http/i.test(message)
         ? `${message} Check that the host permits browser CORS requests and HTTP Range.`
@@ -157,6 +299,7 @@ const loadSource = async (source: string | File, sourceName: string): Promise<vo
 fileInput?.addEventListener('change', async () => {
   const file = fileInput.files?.[0];
   if (!file || !sourceStatus) return;
+  fileInput.value = '';
   await loadSource(file, file.name);
 });
 
@@ -164,14 +307,38 @@ const remoteSelect = document.querySelector<HTMLSelectElement>('#remote-source')
 const customUrlInput = document.querySelector<HTMLInputElement>('#custom-url');
 const sourceProbe = document.querySelector<HTMLElement>('#source-probe');
 const remoteLoadButton = document.querySelector<HTMLButtonElement>('#load-remote');
+invalidateSourceRequest = () => {
+  const probeWasPending = Boolean(remoteLoadButton?.disabled);
+  const generation = ++sourceGeneration;
+  if (activeLoadPending && activeLayer) {
+    activeLayer.destroy();
+    activeLayer = undefined;
+    activeLoadPending = false;
+    if (sourceStatus?.textContent?.startsWith('Loading ')) {
+      sourceStatus.textContent = 'Source selection changed. Choose a source and load it.';
+    }
+  }
+  if (remoteLoadButton && remoteSelect) {
+    remoteLoadButton.disabled = false;
+    remoteLoadButton.textContent = remoteSelect.value === 'custom' ? 'Probe and load URL' : 'Probe and load source';
+  }
+  if (probeWasPending && sourceProbe) {
+    sourceProbe.textContent = 'Source selection changed. Run the probe again to load it.';
+  }
+  return generation;
+};
 remoteSelect?.addEventListener('change', () => {
+  invalidateSourceRequest();
   const isCustom = remoteSelect.value === 'custom';
   if (customUrlInput) customUrlInput.disabled = !isCustom;
-  if (remoteLoadButton) remoteLoadButton.textContent = isCustom ? 'Probe and load URL' : 'Probe and load source';
 });
 if (customUrlInput) customUrlInput.disabled = true;
+customUrlInput?.addEventListener('input', () => {
+  if (remoteSelect?.value === 'custom') invalidateSourceRequest();
+});
 remoteLoadButton?.addEventListener('click', async () => {
   if (!remoteSelect || !sourceProbe || !remoteLoadButton || !sourceStatus) return;
+  const generation = invalidateSourceRequest();
   let sourceUrl: string;
   let sourceName: string;
   if (remoteSelect.value === 'custom') {
@@ -197,6 +364,7 @@ remoteLoadButton?.addEventListener('click', async () => {
   sourceProbe.textContent = 'Checking browser access, HTTP Range, and COPC metadata…';
   try {
     const probe = await probeCopcSource(sourceUrl);
+    if (generation !== sourceGeneration) return;
     if (probe.corsReadable !== true || probe.rangeSupported !== true) {
       sourceProbe.textContent = probe.warnings.join(' ') || 'This server did not provide a readable HTTP Range response. Check CORS and Range support.';
       return;
@@ -206,12 +374,16 @@ remoteLoadButton?.addEventListener('click', async () => {
       return;
     }
     sourceProbe.textContent = `CORS readable · HTTP Range supported · COPC ${probe.copcDetected === true ? 'detected' : 'not confirmed'}`;
-    await loadSource(sourceUrl, sourceName);
+    await loadSource(sourceUrl, sourceName, { generation });
   } catch (error) {
-    sourceProbe.textContent = error instanceof Error ? error.message : String(error);
+    if (generation === sourceGeneration) {
+      sourceProbe.textContent = error instanceof Error ? error.message : String(error);
+    }
   } finally {
-    remoteLoadButton.disabled = false;
-    remoteLoadButton.textContent = remoteSelect.value === 'custom' ? 'Probe and load URL' : 'Probe and load source';
+    if (generation === sourceGeneration) {
+      remoteLoadButton.disabled = false;
+      remoteLoadButton.textContent = remoteSelect.value === 'custom' ? 'Probe and load URL' : 'Probe and load source';
+    }
   }
 });
 
@@ -224,7 +396,11 @@ document.querySelector<HTMLSelectElement>('#color-mode')?.addEventListener('chan
   }
 });
 
-const reloadWhenReady = (): void => { if (activeSource !== undefined) void loadSource(activeSource, activeSourceName); };
+const reloadWhenReady = (): void => {
+  if (activeSource !== undefined) {
+    void loadSource(activeSource, activeSourceName, { preserveCamera: true });
+  }
+};
 document.querySelector<HTMLInputElement>('#point-size')?.addEventListener('input', (event) => {
   pointSize = Number((event.currentTarget as HTMLInputElement).value);
   document.querySelector<HTMLOutputElement>('#point-size-value')!.value = `${pointSize} px`;

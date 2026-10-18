@@ -5,6 +5,7 @@ on:
     paths:
       - 'docs/**'
       - 'apps/playground/**'
+      - 'apps/shared/**'
       - 'packages/**'
       - 'packages/scripts/build-copc-adapter-wasm.mjs'
       - 'packages/scripts/finalize-library-assets.mjs'
@@ -30,6 +31,7 @@ on:
     paths:
       - 'docs/**'
       - 'apps/playground/**'
+      - 'apps/shared/**'
       - 'packages/**'
       - 'packages/scripts/build-copc-adapter-wasm.mjs'
       - 'packages/scripts/finalize-library-assets.mjs'
@@ -94,6 +96,14 @@ jobs:
 
       - name: Install Playground build dependencies
         run: npm ci --prefix apps/playground
+
+      - name: Install Chromium for Playground browser tests
+        run: npx --prefix apps/playground playwright install --with-deps chromium
+
+      - name: Test Playground browser interactions
+        run: |
+          npm run playground:package
+          npm --prefix apps/playground run test:e2e
 
       - name: Build and validate complete site
         run: npm run pages:build

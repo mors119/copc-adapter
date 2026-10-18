@@ -5,12 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit",
     "build": "vite build && node scripts/relocate-cesium-assets.mjs && node scripts/assert-build.mjs",
     "preview": "vite preview"
   },
   "devDependencies": {
     "@frillab/copc-adapter": "^0.4.0",
+    "@playwright/test": "^1.64.1",
     "cesium": "^1.142.0",
     "typescript": "~7.0.2",
     "vite": "^8.0.12",
