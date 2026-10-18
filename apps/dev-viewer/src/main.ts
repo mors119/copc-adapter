@@ -6,10 +6,20 @@ import {
   CopcCesiumLayer,
   probeCopcSource,
   type CopcBackendName,
+  type CopcColorMode,
   type CopcCesiumPointStyle,
   type CopcCesiumPointStyleUpdate,
+  type CopcHierarchyDiagnostics,
+  type CopcMetadata,
+  type CopcPointInspection,
   type CopcSourceProbeResult,
 } from '@frillab/copc-adapter';
+import type { CopcCesiumLayerSnapshot } from '@frillab/copc-adapter';
+import {
+  mountSegmentedControl,
+  mountSlider,
+} from '../../shared/ui-controls';
+import type { CopcThreeLayerSnapshot } from '@frillab/copc-adapter/three';
 import { BatchedGeometryPointRenderer } from '@frillab/copc-adapter/cesium';
 import { createCesiumViewer } from './createViewer';
 import { createCopcDebugPanel } from './debug/CopcDebugPanel';
@@ -23,6 +33,7 @@ import {
   runCpuBatchedPickingProbe,
   runCpuBatchedPickingStress,
 } from './experimental/cpuBatchedPickingProbe';
+import { createDevThreeViewer, type DevThreeViewer } from './threeViewer';
 
 const cesiumRuntimeVersion = (Cesium as typeof Cesium & { VERSION: string }).VERSION;
 
@@ -120,7 +131,49 @@ type CopcDebugAdapter = {
   setPublicBatchVisibility(show: boolean): void;
   clearPublicBatchNodes(): number;
   getPickablePointScreenPosition(): { x: number; y: number } | undefined;
+  destroy(): void;
 };
+
+type RendererName = 'cesium' | 'three';
+
+type DevViewerSettings = {
+  renderer: RendererName;
+  backend: CopcBackendName;
+  colorMode: CopcColorMode;
+  pointSize: number;
+  maxNodes: number;
+  maxRenderedPoints: number;
+  maxDepth: number;
+  maxScreenSpaceError: number;
+  cameraRenderDistance: number;
+  maxRenderDistance: number;
+};
+
+type ViewerSession = {
+  renderer: RendererName;
+  ready: Promise<void>;
+  getSnapshot(): CopcCesiumLayerSnapshot | CopcThreeLayerSnapshot;
+  getMetadata(): CopcMetadata | undefined;
+  getHierarchyDiagnostics(): CopcHierarchyDiagnostics | undefined;
+  getSelectedPoint(): CopcPointInspection | undefined;
+  setCameraPreset(preset: CameraPreset): void;
+  setCameraRenderDistance(distance: number): void;
+  getPickablePointScreenPosition(): { x: number; y: number } | undefined;
+  getStyle(): CopcCesiumPointStyle;
+  setStyle(update: CopcCesiumPointStyleUpdate): void;
+  destroy(): void;
+};
+
+declare global {
+  interface Window {
+    __COPC_DEV_VIEWER__?: {
+      getSnapshot(): CopcCesiumLayerSnapshot | CopcThreeLayerSnapshot | undefined;
+      getSelectedPoint(): CopcPointInspection | undefined;
+      getPickablePointScreenPosition(): { x: number; y: number } | undefined;
+      getConfiguration(): Readonly<DevViewerSettings>;
+    };
+  }
+}
 
 function getRenderedPointDiagnostics(viewer: Cesium.Viewer): {
   minRenderedHeight?: number;
@@ -176,43 +229,50 @@ function installDebugAdapter(
   let longestMainThreadTaskMs = 0;
   let cesiumFrameDurationMs = 0;
   let cesiumFrameStartedAt = 0;
+  let performanceObserver: PerformanceObserver | undefined;
+  let destroyed = false;
 
   if (typeof PerformanceObserver !== 'undefined') {
     try {
-      const observer = new PerformanceObserver((list) => {
+      performanceObserver = new PerformanceObserver((list) => {
         for (const entry of list.getEntries()) {
           longestMainThreadTaskMs = Math.max(longestMainThreadTaskMs, entry.duration);
         }
       });
-      observer.observe({ type: 'longtask', buffered: true });
+      performanceObserver.observe({ type: 'longtask', buffered: true });
     } catch {
       // Long Task API is optional in browsers and test environments.
     }
   }
 
-  viewer.scene.preRender.addEventListener(() => {
+  const onPreRender = (): void => {
     cesiumFrameStartedAt = performance.now();
-  });
-  viewer.scene.postRender.addEventListener(() => {
+  };
+  const onPostRender = (): void => {
     if (cesiumFrameStartedAt > 0) {
       cesiumFrameDurationMs = performance.now() - cesiumFrameStartedAt;
     }
-  });
+  };
+  viewer.scene.preRender.addEventListener(onPreRender);
+  viewer.scene.postRender.addEventListener(onPostRender);
 
-  viewer.camera.moveEnd.addEventListener(() => {
+  const onMoveEnd = (): void => {
     cameraMoveEventCount += 1;
-  });
+  };
+  viewer.camera.moveEnd.addEventListener(onMoveEnd);
 
   const recordError = (error: unknown): void => {
     lastError = error instanceof Error ? error.message : String(error);
   };
 
-  window.addEventListener('error', (event) => {
+  const onWindowError = (event: ErrorEvent): void => {
     recordError(event.error ?? event.message);
-  });
-  window.addEventListener('unhandledrejection', (event) => {
+  };
+  const onUnhandledRejection = (event: PromiseRejectionEvent): void => {
     recordError(event.reason);
-  });
+  };
+  window.addEventListener('error', onWindowError);
+  window.addEventListener('unhandledrejection', onUnhandledRejection);
 
   const adapter: CopcDebugAdapter = {
     getStyle(): CopcCesiumPointStyle {
@@ -385,6 +445,17 @@ function installDebugAdapter(
       }
       return undefined;
     },
+    destroy(): void {
+      if (destroyed) return;
+      destroyed = true;
+      performanceObserver?.disconnect();
+      viewer.scene.preRender.removeEventListener(onPreRender);
+      viewer.scene.postRender.removeEventListener(onPostRender);
+      viewer.camera.moveEnd.removeEventListener(onMoveEnd);
+      window.removeEventListener('error', onWindowError);
+      window.removeEventListener('unhandledrejection', onUnhandledRejection);
+      if (window.__COPC_DEBUG__ === adapter) delete window.__COPC_DEBUG__;
+    },
   };
 
   if (exposeGlobally) {
@@ -400,9 +471,12 @@ function getSelectedBackend(): CopcBackendName {
     : 'copc-js';
 }
 
-function getLayerOptions(): ConstructorParameters<typeof CopcCesiumLayer>[0] {
+function getLayerOptions(
+  source: string | File = getCopcUrl(),
+  settings?: DevViewerSettings,
+): ConstructorParameters<typeof CopcCesiumLayer>[0] {
   const params = new URLSearchParams(window.location.search);
-  const copcUrl = getCopcUrl();
+  const copcUrl = source;
   const heightOffsetParam = params.get('heightOffsetMeters');
   const requestedHeightOffset = heightOffsetParam === null
     ? undefined
@@ -451,9 +525,19 @@ function getLayerOptions(): ConstructorParameters<typeof CopcCesiumLayer>[0] {
 
   return {
     url: copcUrl,
-    colorMode: 'rgb',
-    backend: getSelectedBackend(),
+    colorMode: settings?.colorMode ?? 'rgb',
+    backend: settings?.backend ?? getSelectedBackend(),
     debug: true,
+    ...(settings ? {
+      pointSize: settings.pointSize,
+      maxRenderedPoints: settings.maxRenderedPoints,
+      streaming: {
+        maxNodes: settings.maxNodes,
+        maxDepth: settings.maxDepth,
+        maxScreenSpaceError: settings.maxScreenSpaceError,
+        maxRenderDistanceMeters: settings.maxRenderDistance,
+      },
+    } : {}),
     ...(heightOffsetMeters === undefined ? {} : { heightOffsetMeters }),
   };
 }
@@ -481,11 +565,42 @@ function moveCameraToHeight(viewer: Cesium.Viewer, height: number): void {
   viewer.camera.moveEnd.raiseEvent();
 }
 
-async function main(): Promise<void> {
+const AUTZEN_REMOTE_URL = 'https://data.pointcloud.org/autzen/autzen-classified.copc.laz';
+const CHICAGO_REMOTE_URL = 'https://data.pointcloud.org/chicago-downtown/chicago-downtown.copc.laz';
+
+function getElement<T extends HTMLElement>(selector: string): T {
+  const element = document.querySelector<T>(selector);
+  if (!element) throw new Error(`Dev Viewer is missing required element: ${selector}`);
+  return element;
+}
+
+function safeErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message
+    .replace(/(https?:\/\/)[^/@\s]+@/gi, '$1[redacted]@')
+    .replace(/([?&][^=\s]+)=([^&\s]+)/g, '$1=[redacted]');
+}
+
+function getSourceLabel(source: string | File): string {
+  if (source instanceof File) return source.name;
+  try {
+    const url = new URL(source, window.location.href);
+    return `${url.hostname}${url.pathname}`;
+  } catch {
+    return source;
+  }
+}
+
+function createCesiumSession(
+  container: HTMLElement,
+  source: string | File,
+  settings: DevViewerSettings,
+  onError: (error: unknown) => void,
+): ViewerSession {
   const params = new URLSearchParams(window.location.search);
   const usePublicBatchedRenderer = params.get('renderer') === 'public-batched';
   const testHighDpiRendering = params.get('testDpr') === '1';
-  const viewer = createCesiumViewer('cesium-container', {
+  const viewer = createCesiumViewer(container, {
     scene3DOnly: usePublicBatchedRenderer,
     ...(testHighDpiRendering ? { useBrowserRecommendedResolution: false } : {}),
   });
@@ -493,46 +608,430 @@ async function main(): Promise<void> {
     ? new BatchedGeometryPointRenderer()
     : undefined;
   const layer = new CopcCesiumLayer({
-    ...getLayerOptions(),
+    ...getLayerOptions(source, settings),
     ...(researchRenderer ? { renderer: researchRenderer } : {}),
   });
   const debugAdapter = installDebugAdapter(viewer, layer, import.meta.env.DEV, researchRenderer);
+  const ready = layer.load().then(() => {
+    layer.attachTo(viewer);
+    return layer.getSnapshot();
+  }).catch((error: unknown) => {
+    debugAdapter.recordError(error);
+    onError(error);
+    throw error;
+  });
+
+  return {
+    renderer: 'cesium',
+    ready: ready.then(() => undefined),
+    getSnapshot: () => layer.getSnapshot(),
+    getMetadata: () => layer.getMetadata(),
+    getHierarchyDiagnostics: () => layer.getHierarchyDiagnostics(),
+    getSelectedPoint: () => layer.getSelectedPoint(),
+    setCameraPreset(preset) {
+      debugAdapter.setCameraPreset(preset);
+    },
+    setCameraRenderDistance(distance) {
+      moveCameraToHeight(viewer, distance);
+    },
+    getPickablePointScreenPosition: () => debugAdapter.getPickablePointScreenPosition(),
+    getStyle: () => layer.getStyle(),
+    setStyle: (update) => layer.setStyle(update),
+    destroy() {
+      debugAdapter.destroy();
+      layer.destroy();
+      if (!viewer.isDestroyed()) viewer.destroy();
+    },
+  };
+}
+
+function createThreeSession(
+  container: HTMLElement,
+  source: string | File,
+  sourceName: string,
+  settings: DevViewerSettings,
+  onError: (error: unknown) => void,
+  onStyleChange: () => void,
+): ViewerSession {
+  const viewer: DevThreeViewer = createDevThreeViewer({
+    container,
+    source,
+    sourceName,
+    backend: settings.backend,
+    colorMode: settings.colorMode,
+    pointSize: settings.pointSize,
+    maxRenderedPoints: settings.maxRenderedPoints,
+    streaming: {
+      maxNodes: settings.maxNodes,
+      maxDepth: settings.maxDepth,
+      maxScreenSpaceError: settings.maxScreenSpaceError,
+      maxRenderDistanceMeters: settings.maxRenderDistance,
+    },
+    onPointPicked: () => undefined,
+    onError,
+  });
+  return {
+    renderer: 'three',
+    ready: viewer.ready,
+    getSnapshot: () => viewer.getSnapshot(),
+    getMetadata: () => viewer.getMetadata(),
+    getHierarchyDiagnostics: () => viewer.getHierarchyDiagnostics(),
+    getSelectedPoint: () => viewer.getSelectedPoint(),
+    setCameraPreset(preset) {
+      viewer.setCameraPreset(preset);
+    },
+    setCameraRenderDistance(distance) {
+      viewer.setCameraDistance(distance);
+    },
+    getPickablePointScreenPosition: () => viewer.getPickablePointScreenPosition(),
+    getStyle: () => ({ colorMode: settings.colorMode }),
+    setStyle(update) {
+      if (update.colorMode) settings.colorMode = update.colorMode;
+      onStyleChange();
+    },
+    destroy: () => viewer.destroy(),
+  };
+}
+
+async function main(): Promise<void> {
+  const params = new URLSearchParams(window.location.search);
+  const initialOptions = getLayerOptions();
+  const initialStreaming = initialOptions.streaming;
+  const initialScenario = params.get('scenario');
+  const settings: DevViewerSettings = {
+    renderer: params.get('renderer') === 'three' ? 'three' : 'cesium',
+    backend: getSelectedBackend(),
+    colorMode: ['issue61', 'issue59', 'issue68', 'issue128'].includes(initialScenario ?? '')
+      ? 'elevation'
+      : 'rgb',
+    pointSize: initialScenario ? 2 : 3,
+    maxNodes: initialStreaming?.maxNodes ?? 24,
+    maxRenderedPoints: initialOptions.maxRenderedPoints
+      ?? initialStreaming?.maxRenderedPoints
+      ?? 250_000,
+    maxDepth: initialStreaming?.maxDepth ?? 6,
+    maxScreenSpaceError: initialStreaming?.maxScreenSpaceError ?? 8,
+    cameraRenderDistance: /chicago/i.test(getCopcUrl()) ? 14_000 : 5_000,
+    maxRenderDistance: initialStreaming?.maxRenderDistanceMeters ?? 12_000,
+  };
+  let selectedSource: string | File = getCopcUrl();
+  let activeSession: ViewerSession | undefined;
+  let activeDebugAdapter: CopcDebugAdapter | undefined;
   let sourceProbe: CopcSourceProbeResult | undefined;
-  if (isDebugPanelEnabled()) {
-    void probeCopcSource(getCopcUrl()).then((result) => {
-      sourceProbe = result;
-    });
+  let lastSnapshot: CopcCesiumLayerSnapshot | CopcThreeLayerSnapshot | undefined;
+  let lastError: string | undefined;
+  let generation = 0;
+  let updateTimer: number | undefined;
+  let disposed = false;
+  let syncColorControl: (value: CopcColorMode) => void = () => {};
+  const container = getElement<HTMLElement>('#cesium-container');
+  const status = getElement<HTMLElement>('#source-status');
+  const loadButton = getElement<HTMLButtonElement>('#load-source');
+  const packageVersion = getElement<HTMLElement>('#package-version');
+  packageVersion.textContent = `v${__COPC_ADAPTER_VERSION__} · workspace package`;
+
+  const updateStatus = (message: string, tone: 'loading' | 'ready' | 'error' | 'inactive'): void => {
+    status.textContent = message;
+    status.dataset.status = tone;
+    getElement<HTMLElement>('.dev-stream-hud').dataset.status = tone;
+    const state = getElement<HTMLElement>('#stream-state');
+    state.textContent = tone === 'ready' ? 'Ready' : tone === 'error' ? 'Error' : message;
+  };
+
+  const updateHud = (): void => {
+    const snapshot = activeSession?.getSnapshot();
+    if (!snapshot) return;
+    getElement<HTMLElement>('#stream-points').textContent = String(snapshot.renderedPointCount);
+    getElement<HTMLElement>('#stream-nodes').textContent = String(snapshot.renderedNodeKeys.length);
+    getElement<HTMLElement>('#stream-selected').textContent = String(snapshot.selectedNodeKeys.length);
+    const range = sourceProbe?.rangeSupported;
+    getElement<HTMLElement>('#stream-range').textContent = range === true
+      ? 'HTTP Range · supported'
+      : range === false ? 'HTTP Range · unavailable' : 'HTTP Range · checking';
+  };
+
+  const setActiveError = (error: unknown): void => {
+    lastError = safeErrorMessage(error);
+    updateStatus(lastError, 'error');
+  };
+
+  async function startSession(progressMessage = 'Loading configured source…'): Promise<void> {
+    const currentGeneration = ++generation;
+    activeDebugAdapter?.destroy();
+    activeDebugAdapter = undefined;
+    if (activeSession) {
+      lastSnapshot = activeSession.getSnapshot();
+      activeSession.destroy();
+      activeSession = undefined;
+    }
+    sourceProbe = undefined;
+    lastError = undefined;
+    updateStatus(progressMessage, 'loading');
+    loadButton.disabled = true;
+    const source = selectedSource;
+    const sourceName = getSourceLabel(source);
+
+    if (typeof source === 'string') {
+      void probeCopcSource(source).then((result) => {
+        if (currentGeneration !== generation || disposed) return;
+        sourceProbe = result;
+        updateHud();
+      }).catch((error: unknown) => {
+        if (currentGeneration === generation) sourceProbe = undefined;
+        console.warn('COPC source probe did not complete:', safeErrorMessage(error));
+      });
+    }
+
+    try {
+      const reportError = (error: unknown): void => {
+        if (currentGeneration === generation && !disposed) setActiveError(error);
+      };
+      const session = settings.renderer === 'cesium'
+        ? createCesiumSession(container, source, settings, reportError)
+        : createThreeSession(
+          container,
+          source,
+          sourceName,
+          settings,
+          reportError,
+          () => { void startSession('Applying point style…'); },
+        );
+      activeSession = session;
+      activeDebugAdapter = window.__COPC_DEBUG__;
+      window.__COPC_DEV_VIEWER__ = {
+        getSnapshot: () => activeSession?.getSnapshot(),
+        getSelectedPoint: () => activeSession?.getSelectedPoint(),
+        getPickablePointScreenPosition: () => activeSession?.getPickablePointScreenPosition(),
+        getConfiguration: () => ({ ...settings }),
+      };
+      updateHud();
+      await session.ready;
+      if (currentGeneration !== generation || disposed) {
+        session.destroy();
+        return;
+      }
+      lastSnapshot = session.getSnapshot();
+      updateStatus(`Ready · ${sourceName}`, 'ready');
+      updateHud();
+      if (settings.renderer === 'cesium') {
+        console.log('COPC Metadata:', session.getMetadata());
+        console.log('COPC Layer Snapshot:', session.getSnapshot());
+      }
+    } catch (error) {
+      if (currentGeneration === generation && !disposed) {
+        if (activeSession) lastSnapshot = activeSession.getSnapshot();
+        activeSession?.destroy();
+        activeSession = undefined;
+        activeDebugAdapter?.destroy();
+        activeDebugAdapter = undefined;
+        setActiveError(error);
+      }
+    } finally {
+      if (currentGeneration === generation) loadButton.disabled = false;
+    }
   }
+
+  const activeSnapshot = (): CopcCesiumLayerSnapshot | CopcThreeLayerSnapshot => {
+    const snapshot = activeSession?.getSnapshot() ?? lastSnapshot;
+    if (!snapshot) throw new Error('COPC layer has not initialized yet.');
+    return snapshot;
+  };
+  const setStyle = (update: CopcCesiumPointStyleUpdate): void => {
+    if (update.colorMode) settings.colorMode = update.colorMode;
+    syncColorControl(settings.colorMode);
+    if (activeSession?.renderer === 'cesium') activeSession.setStyle(update);
+    else void startSession('Applying point style…');
+  };
+
+  // startSession assigns the active session before its first await, so the
+  // diagnostics panel can safely bind to the loading snapshot immediately.
+  void startSession();
   const debugPanel = isDebugPanelEnabled()
     ? createCopcDebugPanel(() => ({
-        snapshot: layer.getSnapshot(),
-        metadata: layer.getMetadata(),
-        hierarchy: layer.getHierarchyDiagnostics(),
+        snapshot: activeSnapshot(),
+        metadata: activeSession?.getMetadata(),
+        hierarchy: activeSession?.getHierarchyDiagnostics(),
         sourceProbe,
-        activeColorMode: layer.getStyle().colorMode,
-        lastError: debugAdapter.getLastError(),
+        activeColorMode: activeSession?.getStyle().colorMode ?? settings.colorMode,
+        lastError: lastError ?? activeDebugAdapter?.getLastError(),
       }), {
-        setCameraPreset: (preset) => debugAdapter.setCameraPreset(preset),
-        setStyle: (update) => layer.setStyle(update),
+        setCameraPreset: (preset) => activeSession?.setCameraPreset(preset),
+        setStyle,
       })
     : undefined;
-  const pointInspector = createCopcPointInspector(() => layer.getSelectedPoint());
+  const pointInspector = createCopcPointInspector(() => activeSession?.getSelectedPoint());
 
+  const mountedControls: Array<{ destroy(): void }> = [];
+  const rendererControl = mountSegmentedControl(getElement('#renderer-control'), {
+    label: 'Renderer',
+    value: settings.renderer,
+    choices: [
+      { value: 'cesium', label: 'Cesium' },
+      { value: 'three', label: 'Three.js' },
+    ],
+    onChange(value) {
+      settings.renderer = value;
+      void startSession(`Switching to ${value === 'cesium' ? 'Cesium' : 'Three.js'}…`);
+    },
+  });
+  mountedControls.push(rendererControl);
+  const backendControl = mountSegmentedControl(getElement('#backend-control'), {
+    label: 'Backend',
+    value: settings.backend,
+    choices: [
+      { value: 'copc-js', label: 'JavaScript' },
+      { value: 'rust', label: 'Rust / WASM' },
+    ],
+    onChange(value) {
+      settings.backend = value;
+      void startSession(`Switching to ${value === 'rust' ? 'Rust / WASM' : 'JavaScript'}…`);
+    },
+  });
+  mountedControls.push(backendControl);
+  const cameraControl = mountSegmentedControl(getElement('#camera-control'), {
+    label: 'Camera view',
+    value: 'overview',
+    choices: [
+      { value: 'overview', label: 'Overview' },
+      { value: 'far', label: 'Far' },
+      { value: 'near', label: 'Near' },
+    ],
+    onChange(value) {
+      activeSession?.setCameraPreset(value);
+    },
+  });
+  mountedControls.push(cameraControl);
+  const colorControl = mountSegmentedControl(getElement('#color-control'), {
+    label: 'Point color mode',
+    value: settings.colorMode,
+    choices: [
+      { value: 'rgb', label: 'RGB' },
+      { value: 'elevation', label: 'Elevation' },
+      { value: 'intensity', label: 'Intensity' },
+      { value: 'classification', label: 'Class' },
+    ],
+    onChange(value) {
+      setStyle({ colorMode: value });
+    },
+  });
+  syncColorControl = (value) => colorControl.setValue(value);
+  mountedControls.push(colorControl);
+  const pointSizeSlider = mountSlider(getElement('#point-size-control'), {
+    id: 'dev-point-size', label: 'Point size', min: 1, max: 12, step: 0.5,
+    value: settings.pointSize, formatValue: (value) => `${value} px`,
+    onCommit(value) {
+      settings.pointSize = value;
+      void startSession('Applying point size…');
+    },
+  });
+  mountedControls.push(pointSizeSlider);
+  const nodesSlider = mountSlider(getElement('#max-nodes-control'), {
+    id: 'dev-max-nodes', label: 'Max selected nodes', min: 4, max: 64, step: 4,
+    value: settings.maxNodes,
+    onCommit(value) {
+      settings.maxNodes = value;
+      void startSession('Applying node limit…');
+    },
+  });
+  mountedControls.push(nodesSlider);
+  const pointsSlider = mountSlider(getElement('#max-points-control'), {
+    id: 'dev-max-points', label: 'Max rendered points', min: 50_000, max: 1_000_000, step: 50_000,
+    value: Math.min(1_000_000, settings.maxRenderedPoints),
+    onCommit(value) {
+      settings.maxRenderedPoints = value;
+      void startSession('Applying point budget…');
+    },
+  });
+  mountedControls.push(pointsSlider);
+
+  const sourceSelect = getElement<HTMLSelectElement>('#source-selection');
+  const customUrl = getElement<HTMLInputElement>('#custom-source-url');
+  const fileInput = getElement<HTMLInputElement>('#local-source-file');
+  const initialUrl = typeof selectedSource === 'string' ? selectedSource : '';
+  const sourcePresets = new Map([
+    ['local-autzen', DEFAULT_COPC_URL],
+    ['autzen-remote', AUTZEN_REMOTE_URL],
+    ['chicago-remote', CHICAGO_REMOTE_URL],
+  ]);
+  const initialPreset = [...sourcePresets].find(([, source]) => source === initialUrl)?.[0];
+  sourceSelect.value = initialPreset ?? 'custom';
+  customUrl.disabled = sourceSelect.value !== 'custom';
+  if (sourceSelect.value === 'custom') customUrl.value = initialUrl;
+  sourceSelect.addEventListener('change', () => {
+    const isCustom = sourceSelect.value === 'custom';
+    customUrl.disabled = !isCustom;
+    fileInput.value = '';
+    if (!isCustom) {
+      selectedSource = sourcePresets.get(sourceSelect.value) ?? DEFAULT_COPC_URL;
+    }
+  });
+  customUrl.addEventListener('input', () => {
+    if (sourceSelect.value === 'custom') selectedSource = customUrl.value.trim();
+  });
+  fileInput.addEventListener('change', () => {
+    const file = fileInput.files?.[0];
+    if (file) {
+      selectedSource = file;
+      sourceSelect.value = 'local-autzen';
+      customUrl.disabled = true;
+      void startSession(`Loading local file · ${file.name}…`);
+    }
+  });
+  loadButton.addEventListener('click', () => {
+    if (sourceSelect.value === 'custom') selectedSource = customUrl.value.trim();
+    if (typeof selectedSource === 'string' && selectedSource.length === 0) {
+      setActiveError(new Error('Enter a COPC URL before loading.'));
+      return;
+    }
+    void startSession('Probing and loading source…');
+  });
+
+  const advancedInputs = {
+    maxDepth: getElement<HTMLInputElement>('#max-depth'),
+    maxScreenSpaceError: getElement<HTMLInputElement>('#max-sse'),
+    cameraRenderDistance: getElement<HTMLInputElement>('#camera-render-distance'),
+    maxRenderDistance: getElement<HTMLInputElement>('#max-render-distance'),
+  };
+  const syncAdvancedInputs = (): void => {
+    advancedInputs.maxDepth.value = String(settings.maxDepth);
+    advancedInputs.maxScreenSpaceError.value = String(settings.maxScreenSpaceError);
+    advancedInputs.cameraRenderDistance.value = String(settings.cameraRenderDistance);
+    advancedInputs.maxRenderDistance.value = String(settings.maxRenderDistance);
+  };
+  syncAdvancedInputs();
+  getElement<HTMLButtonElement>('#apply-advanced').addEventListener('click', () => {
+    const values = Object.fromEntries(Object.entries(advancedInputs).map(([key, input]) => [key, Number(input.value)])) as Record<keyof typeof advancedInputs, number>;
+    if (Object.values(values).some((value) => !Number.isFinite(value) || value <= 0)
+      || !Number.isSafeInteger(values.maxDepth)
+      || values.maxDepth > 24
+      || values.maxScreenSpaceError > 128) {
+      setActiveError(new Error('Advanced values must be positive and within the displayed depth/SSE limits.'));
+      return;
+    }
+    Object.assign(settings, values);
+    void startSession('Applying advanced streaming settings…').then(() => {
+      activeSession?.setCameraRenderDistance(settings.cameraRenderDistance);
+    });
+  });
+  getElement<HTMLButtonElement>('#reload-renderer').addEventListener('click', () => {
+    void startSession('Reloading renderer…');
+  });
+
+  updateTimer = window.setInterval(() => {
+    if (activeSession) lastSnapshot = activeSession.getSnapshot();
+    updateHud();
+  }, 250);
   window.addEventListener('pagehide', () => {
+    disposed = true;
+    generation += 1;
+    if (updateTimer !== undefined) window.clearInterval(updateTimer);
     debugPanel?.destroy();
     pointInspector.destroy();
+    mountedControls.forEach((control) => control.destroy());
+    activeDebugAdapter?.destroy();
+    activeSession?.destroy();
+    delete window.__COPC_DEV_VIEWER__;
   }, { once: true });
-
-  try {
-    await layer.load();
-    layer.attachTo(viewer);
-
-    console.log('COPC Metadata:', layer.getMetadata());
-    console.log('COPC Layer Snapshot:', layer.getSnapshot());
-  } catch (error) {
-    debugAdapter.recordError(error);
-    throw error;
-  }
 }
 
 main().catch((error) => {
