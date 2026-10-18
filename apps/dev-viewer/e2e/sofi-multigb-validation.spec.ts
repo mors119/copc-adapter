@@ -86,6 +86,37 @@ type RangeResponse = {
   contentLength: number;
 };
 
+type FrameSummary = { count: number; medianMs: number; p95Ms: number; maxMs: number };
+
+function summarizeRendererStages(
+  label: string,
+  state: DebugState,
+  frames?: FrameSummary,
+): Record<string, unknown> {
+  const performance = state.performance;
+  return {
+    camera: label,
+    selectedNodeCount: state.selectedNodeKeys.length,
+    renderedNodeCount: state.renderedNodeKeys.length,
+    estimatedSelectedPoints: performance.estimatedSelectedPointCount,
+    loadedPoints: performance.loadedPointCount,
+    renderedPoints: state.renderedPointCount,
+    rangeFetchBytes: performance.rangeFetchBytes,
+    decodeMs: performance.decodeDurationMs,
+    pointPreparationMs: performance.pointPreparationDurationMs,
+    crsTransformMs: performance.crsTransformDurationMs,
+    coordinateConversionMs: performance.worldToCartesianDurationMs,
+    styleMs: performance.pointStylePreparationDurationMs,
+    primitiveCreationMs: performance.pointCollectionCreationDurationMs,
+    primitiveAddMs: performance.pointAddDurationMs,
+    rendererPreparationMs: performance.rendererPreparationDurationMs,
+    nodeRemovalMs: performance.nodeRemovalDurationMs,
+    longestMainThreadTaskMs: state.longestMainThreadTaskMs,
+    cesiumFrameDurationMs: state.cesiumFrameDurationMs,
+    frames,
+  };
+}
+
 type DebugAdapter = {
   getState(): DebugState;
   setCameraView(view: CameraView): void;
@@ -181,6 +212,15 @@ function summarize(state: DebugState): Record<string, unknown> {
       rangeFetchDurationMs: state.performance.rangeFetchDurationMs,
       rangeFetchBytes: state.performance.rangeFetchBytes,
       decodeDurationMs: state.performance.decodeDurationMs,
+      pointPreparationDurationMs: state.performance.pointPreparationDurationMs,
+      crsTransformDurationMs: state.performance.crsTransformDurationMs,
+      geographicToCartesianDurationMs: state.performance.geographicToCartesianDurationMs,
+      worldToCartesianDurationMs: state.performance.worldToCartesianDurationMs,
+      pointStylePreparationDurationMs: state.performance.pointStylePreparationDurationMs,
+      pointCollectionCreationDurationMs: state.performance.pointCollectionCreationDurationMs,
+      pointAddDurationMs: state.performance.pointAddDurationMs,
+      rendererPreparationDurationMs: state.performance.rendererPreparationDurationMs,
+      nodeRemovalDurationMs: state.performance.nodeRemovalDurationMs,
       firstHighPriorityNodeStartLatencyMs: state.performance.firstHighPriorityNodeStartLatencyMs,
       firstHighPriorityNodeReadyLatencyMs: state.performance.firstHighPriorityNodeReadyLatencyMs,
       longestMainThreadBlockingSectionMs: state.performance.longestMainThreadBlockingSectionMs,
@@ -284,13 +324,17 @@ test('records bounded SoFi multi-GB Cesium browser streaming', async ({ page, br
   });
 
   const sourceQuery = encodeURIComponent(SOFI_SOURCE);
-  await page.goto(`/?scenario=issue68&backend=rust&debugPanel=false&budget=${POINT_BUDGET}&source=${sourceQuery}`);
+  const renderer = process.env.COPC_RENDERER_VARIANT === 'public-batched'
+    ? '&renderer=public-batched'
+    : '';
+  await page.goto(`/?scenario=issue68&backend=rust&debugPanel=false&budget=${POINT_BUDGET}&source=${sourceQuery}${renderer}`);
   await expect.poll(async () => {
     const state = await getState(page);
     return state.layerLoaded && state.renderedPointCount > 0;
   }, { timeout: 180_000 }).toBe(true);
   const firstUsefulVisiblePointMs = Date.now() - pageStartedAt;
   const initial = await waitForIdle(page);
+  const rendererStageEvidence = [summarizeRendererStages('initial', initial, await sampleFrames(page))];
   console.log(JSON.stringify({
     scenario: 'issue-212-sofi-initial',
     firstUsefulVisiblePointMs,
@@ -315,12 +359,14 @@ test('records bounded SoFi multi-GB Cesium browser streaming', async ({ page, br
         > (before.viewDistance?.updateCount ?? 0);
     }, { timeout: 60_000 }).toBe(true);
     const state = await waitForIdle(page);
+    const frames = await sampleFrames(page);
+    rendererStageEvidence.push(summarizeRendererStages(label, state, frames));
     transitions.push({
       label,
       camera,
       firstUpdateMs,
       state: summarize(state),
-      frames: await sampleFrames(page),
+      frames,
     });
     return state;
   };
@@ -447,6 +493,10 @@ test('records bounded SoFi multi-GB Cesium browser streaming', async ({ page, br
     },
     initial: summarize(initial),
     transitions,
+  }, null, 2));
+  console.log(JSON.stringify({
+    renderer: process.env.COPC_RENDERER_VARIANT ?? 'point-primitive',
+    rendererStageEvidence,
   }, null, 2));
 
   expect(initial.backend).toBe('rust');
