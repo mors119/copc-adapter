@@ -147,6 +147,53 @@ test('validates the packed Rust backend in an external Vite consumer', async ({ 
   expect(requestUrls.some((url) => /\/public\/|\/target\/|copc-adapter\/feature-/i.test(url))).toBe(false);
 });
 
+test('loads the packed opt-in batched Cesium renderer without changing the default', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', (error) => pageErrors.push(error));
+  await page.goto('/?backend=rust&mode=rgb&renderer=batched');
+  await expect.poll(() => state(page)).toMatchObject({
+    viewerCreatedByConsumer: true,
+    viewerAlive: true,
+    layerAttachedToCallerViewer: true,
+    lifecycle: 'ready',
+    backend: 'rust',
+  });
+  await expect.poll(async () => (await state(page)).renderedPointCount)
+    .toBeGreaterThan(0);
+  const current = await state(page);
+  expect(current.renderedNodeKeys.length).toBeGreaterThan(0);
+  expect(
+    current.lastError,
+    await page.evaluate(() => window.__PACKED_CONSUMER__.getLastErrorStack()),
+  ).toBeUndefined();
+  expect(await page.evaluate(() => window.__PACKED_CONSUMER__.batchedRendererExportAvailable))
+    .toBe(true);
+  const pickTarget = await page.evaluate(() =>
+    window.__PACKED_CONSUMER__.getBatchedPointPickTarget());
+  expect(pickTarget).toMatchObject({
+    nodeKey: expect.any(String),
+    pointIndex: expect.any(Number),
+    screenPosition: { x: expect.any(Number), y: expect.any(Number) },
+  });
+  const canvasBounds = await page.locator('#cesium-container canvas').first().boundingBox();
+  expect(canvasBounds).not.toBeNull();
+  await page.mouse.click(
+    (canvasBounds?.x ?? 0) + (pickTarget?.screenPosition?.x ?? 0),
+    (canvasBounds?.y ?? 0) + (pickTarget?.screenPosition?.y ?? 0),
+  );
+  await expect.poll(async () => (await state(page)).selectedPoint?.pointIndex)
+    .toBe(pickTarget?.pointIndex);
+  expect((await state(page)).selectedPoint).toMatchObject({
+    nodeKey: pickTarget?.nodeKey,
+    pointIndex: pickTarget?.pointIndex,
+    longitude: expect.any(Number),
+    latitude: expect.any(Number),
+    height: expect.any(Number),
+    world: { coordinateSystem: 'wgs84-ecef-meters' },
+  });
+  expect(pageErrors).toEqual([]);
+});
+
 test('browser Blob source matches the URL source hierarchy and decoded points', async ({ page }) => {
   await page.goto('/?backend=copc-js');
   await expect.poll(() => state(page)).toMatchObject({ lifecycle: 'ready' });

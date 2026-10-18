@@ -3,6 +3,7 @@ import 'cesium/Build/Cesium/Widgets/widgets.css';
 import * as Cesium from 'cesium';
 import {
   CopcCesiumLayer,
+  BatchedGeometryPointRenderer,
   CopcJsBackend,
   RustCopcBackend,
   RustCrsTransformer,
@@ -12,6 +13,9 @@ const datasetUrl = '/samples/autzen.copc.laz';
 const params = new URLSearchParams(window.location.search);
 const backend = params.get('backend') === 'copc-js' ? 'copc-js' : 'rust';
 const colorMode = params.get('mode') ?? 'rgb';
+const renderer = params.get('renderer') === 'batched'
+  ? new BatchedGeometryPointRenderer()
+  : undefined;
 
 const viewer = new Cesium.Viewer('cesium-container', {
   animation: false,
@@ -28,6 +32,7 @@ const viewer = new Cesium.Viewer('cesium-container', {
 });
 const layer = new CopcCesiumLayer({
   url: datasetUrl,
+  ...(renderer ? { renderer } : {}),
   backend,
   colorMode,
   pointSize: 2,
@@ -41,6 +46,7 @@ const layer = new CopcCesiumLayer({
 });
 
 let lastError;
+let lastErrorStack;
 let cameraMoveEventCount = 0;
 let cameraChangeCount = 0;
 let lastWheelInputAt;
@@ -97,6 +103,7 @@ if (typeof PerformanceObserver !== 'undefined') {
 
 function reportError(error) {
   lastError = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+  lastErrorStack = error instanceof Error ? error.stack : undefined;
   console.error(lastError, error);
 }
 
@@ -163,6 +170,7 @@ function getState() {
     datasetUrl: snapshot.datasetUrl,
     metadata,
     hierarchy: layer.getHierarchyDiagnostics(),
+    selectedPoint: layer.getSelectedPoint(),
     selectedNodeKeys: snapshot.selectedNodeKeys,
     renderedNodeKeys: snapshot.renderedNodeKeys,
     streamingUpdateCount: snapshot.streamingUpdateCount,
@@ -179,6 +187,7 @@ function getState() {
     cesiumFrameDurationMs: cesiumFrameSamples.at(-1)?.durationMs ?? 0,
     lastError,
     ...diagnostics,
+    renderedPointCount: snapshot.renderedPointCount,
   };
 }
 
@@ -293,7 +302,31 @@ window.__PACKED_CONSUMER__ = {
     };
   },
   rustCrsTransformerExportAvailable: typeof RustCrsTransformer === 'function',
+  batchedRendererExportAvailable: typeof BatchedGeometryPointRenderer === 'function',
+  getLastErrorStack: () => lastErrorStack,
   getState,
+    getBatchedPointPickTarget() {
+      if (!renderer) return undefined;
+      for (const nodeKey of renderer.getRenderedNodeKeys()) {
+        const probe = renderer.probePick(viewer.scene, nodeKey);
+        if (probe.picked && probe.screenPosition && probe.targetSourcePointIndex !== undefined) {
+          const position = new Cesium.Cartesian2(
+            probe.screenPosition.x,
+            probe.screenPosition.y,
+          );
+          const pickedObject = viewer.scene.pick(position, 1, 1);
+          const identity = renderer.resolvePointPick(viewer.scene, position, pickedObject);
+          if (!identity || identity.nodeKey !== nodeKey) continue;
+          return {
+            nodeKey,
+            pointIndex: identity.pointIndex,
+            screenPosition: probe.screenPosition,
+            worldPosition: probe.worldPosition,
+          };
+        }
+      }
+      return undefined;
+    },
   beginResponsivenessCapture() {
     responsivenessCaptureStartedAt = performance.now();
   },

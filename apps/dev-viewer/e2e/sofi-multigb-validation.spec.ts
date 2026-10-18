@@ -120,6 +120,16 @@ function summarizeRendererStages(
 type DebugAdapter = {
   getState(): DebugState;
   setCameraView(view: CameraView): void;
+  probePublicBatchCpuPick?(offsetPx?: number, clickTolerancePx?: number): {
+    picked: boolean;
+    nodeKey?: string;
+    pointIndex?: number;
+    scannedPointCount: number;
+    candidateCount: number;
+    scenePickDurationMs: number;
+    cpuResolveDurationMs: number;
+    totalDurationMs: number;
+  };
 };
 
 declare global {
@@ -340,6 +350,38 @@ test('records bounded SoFi multi-GB Cesium browser streaming', async ({ page, br
     firstUsefulVisiblePointMs,
     state: summarize(initial),
   }));
+
+  if (process.env.COPC_RENDERER_VARIANT === 'public-batched') {
+    const cpuPickSamples = await page.evaluate(() => {
+      const probes = Array.from({ length: 5 }, () =>
+        window.__COPC_DEBUG__?.probePublicBatchCpuPick?.());
+      return probes.filter((probe) => probe !== undefined);
+    });
+    const cpuTimes = cpuPickSamples
+      .map((probe) => probe.cpuResolveDurationMs)
+      .sort((left, right) => left - right);
+    const fullTimes = cpuPickSamples
+      .map((probe) => probe.totalDurationMs)
+      .sort((left, right) => left - right);
+    console.log(JSON.stringify({
+      scenario: 'issue-233-sofi-cpu-pick-250k-budget',
+      totalRenderedPointCount: initial.renderedPointCount,
+      renderedNodeCount: initial.renderedNodeKeys.length,
+      cpuPickSamples,
+      medianCpuResolveMs: cpuTimes[Math.floor(cpuTimes.length / 2)] ?? 0,
+      medianFullPickMs: fullTimes[Math.floor(fullTimes.length / 2)] ?? 0,
+    }, null, 2));
+    expect(cpuPickSamples).toHaveLength(5);
+    for (const probe of cpuPickSamples) {
+      expect(probe).toMatchObject({
+        picked: true,
+        nodeKey: expect.any(String),
+        pointIndex: expect.any(Number),
+      });
+      expect(probe.scannedPointCount).toBeGreaterThan(0);
+      expect(probe.scannedPointCount).toBeLessThanOrEqual(POINT_BUDGET);
+    }
+  }
 
   const transitions: Record<string, unknown>[] = [];
   const view = async (label: string, camera: CameraView): Promise<DebugState> => {

@@ -180,9 +180,11 @@ Cesium, or GPU memory:
 console.log(layer.getPointCacheDiagnostics());
 ```
 
-Rendered points are picked with Cesium's normal `scene.pick` behavior. The
-layer keeps only a project-owned `{ nodeKey, pointIndex }` identity on each
-point and a layer-local ownership token, then resolves it through the current decoded node buffer. Use
+The compatibility renderer uses Cesium's default `scene.pick` window. The
+opt-in batched renderer requests a 1×1 pick sample so CPU refinement uses the
+same deterministic pixel rather than Cesium's undocumented 3×3 traversal
+order. Both resolve the project-owned `{ nodeKey, pointIndex }` identity
+through the current decoded node buffer. Use
 `onPointPicked` or `layer.getSelectedPoint()` after a click to read transformed
 position/height, retained source XYZ, and RGB/intensity/classification when
 those fields were requested and decoded. Missing fields remain unavailable,
@@ -455,7 +457,11 @@ controls, render loop, and UI.
   report](docs/benchmarks/issue-208-worker-responsiveness.md).
 - Rendering uses the compatibility `PointPrimitiveRenderer` boundary backed by
   `Cesium.PointPrimitiveCollection`; coverage-safe transitions keep old
-  coverage until a replacement is ready. Benchmark evidence is in the
+  coverage until a replacement is ready. `BatchedGeometryPointRenderer` is an
+  explicit Cesium entrypoint opt-in, with conservative CPU refinement for
+  point-level picks; ambiguous overlaps clear selection. It has been browser
+  validated with Cesium 1.142.0 and 1.146.0. Point identity resolution is
+  currently limited to 3D scene mode. Benchmark evidence is in the
   [renderer benchmark](docs/benchmarks/issue-48-renderer.md).
 - Dense refinement workloads can take time to finish progressively. The
   priority scheduler keeps range/decode/preparation work bounded, emits each

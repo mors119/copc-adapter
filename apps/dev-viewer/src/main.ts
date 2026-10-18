@@ -10,11 +10,21 @@ import {
   type CopcCesiumPointStyleUpdate,
   type CopcSourceProbeResult,
 } from '@frillab/copc-adapter';
+import { BatchedGeometryPointRenderer } from '@frillab/copc-adapter/cesium';
 import { createCesiumViewer } from './createViewer';
 import { createCopcDebugPanel } from './debug/CopcDebugPanel';
 import { createCopcPointInspector } from './debug/CopcPointInspector';
-import { runSyntheticRendererPerformanceBenchmark } from './rendererPerformanceBenchmark';
-import { BatchedGeometryPointRenderer } from '../../../packages/cesium/render/BatchedGeometryPointRenderer';
+import {
+  runSyntheticRendererPerformanceBenchmark,
+  type RendererBenchmarkKind,
+} from './rendererPerformanceBenchmark';
+import type { CpuPointPickProbe } from '../../../packages/cesium/render/BatchedGeometryPointRenderer';
+import {
+  runCpuBatchedPickingProbe,
+  runCpuBatchedPickingStress,
+} from './experimental/cpuBatchedPickingProbe';
+
+const cesiumRuntimeVersion = (Cesium as typeof Cesium & { VERSION: string }).VERSION;
 
 const DEFAULT_COPC_URL = '/samples/autzen.copc.laz';
 const CAMERA_PRESET_HEIGHTS = {
@@ -44,6 +54,7 @@ function* getPointPrimitiveCollections(
 }
 
 type CopcDebugState = {
+  cesiumVersion: string;
   viewerReady: boolean;
   layerLoaded: boolean;
   datasetUrl: string;
@@ -97,8 +108,15 @@ type CopcDebugAdapter = {
   setGlobeVisible(visible: boolean): void;
   recordError(error: unknown): void;
   probeSource(source: string): Promise<CopcSourceProbeResult>;
-  runSyntheticRendererPerformanceBenchmark(): ReturnType<typeof runSyntheticRendererPerformanceBenchmark>;
+  runSyntheticRendererPerformanceBenchmark(
+    renderer?: RendererBenchmarkKind,
+  ): ReturnType<typeof runSyntheticRendererPerformanceBenchmark>;
   probePublicBatchPick(): { picked: boolean; pickedNodeKey?: string; pointIndex?: number };
+  probePublicBatchCpuPick(offsetPx?: number, clickTolerancePx?: number):
+    | (CpuPointPickProbe & { targetPointIndex?: number; targetWorldPosition?: [number, number, number] })
+    | { picked: false };
+  runCpuBatchedPickingProbe(): Promise<Record<string, unknown>>;
+  runCpuBatchedPickingStress(): Promise<Record<string, unknown>>;
   setPublicBatchVisibility(show: boolean): void;
   clearPublicBatchNodes(): number;
   getPickablePointScreenPosition(): { x: number; y: number } | undefined;
@@ -208,6 +226,7 @@ function installDebugAdapter(
       const pointDiagnostics = getRenderedPointDiagnostics(viewer);
 
       return {
+        cesiumVersion: cesiumRuntimeVersion,
         viewerReady: !viewer.isDestroyed(),
         layerLoaded: snapshot.lifecycle === 'ready',
         datasetUrl: snapshot.datasetUrl,
@@ -283,11 +302,12 @@ function installDebugAdapter(
     },
     recordError,
     probeSource: probeCopcSource,
-    runSyntheticRendererPerformanceBenchmark: () => runSyntheticRendererPerformanceBenchmark({
+    runSyntheticRendererPerformanceBenchmark: (renderer = 'point-primitive') => runSyntheticRendererPerformanceBenchmark({
       viewer,
       pointCounts: [10_000, 50_000, 100_000],
       repetitions: 5,
       warmups: 2,
+      renderer,
     }),
     probePublicBatchPick: () => {
       const nodeKey = researchRenderer?.getRenderedNodeKeys()[0];
@@ -295,12 +315,57 @@ function installDebugAdapter(
         ? researchRenderer.probePick(viewer.scene, nodeKey)
         : { picked: false };
     },
+    probePublicBatchCpuPick: (offsetPx = 0, clickTolerancePx = 1.5) => {
+      const nodeKey = researchRenderer?.getRenderedNodeKeys()[0];
+      if (!nodeKey || !researchRenderer) return { picked: false };
+      const target = researchRenderer.probePick(viewer.scene, nodeKey);
+      if (!target.picked || !target.screenPosition) return { picked: false };
+      const probePosition = new Cesium.Cartesian2(
+        target.screenPosition.x + offsetPx,
+        target.screenPosition.y,
+      );
+      const probe = researchRenderer.probeCpuPointPick(viewer.scene, probePosition, clickTolerancePx);
+      return {
+        ...probe,
+        targetPointIndex: target.targetSourcePointIndex,
+        targetWorldPosition: target.worldPosition,
+      };
+    },
+    runCpuBatchedPickingProbe: () => researchRenderer
+      ? runCpuBatchedPickingProbe(viewer, researchRenderer)
+      : Promise.resolve({ skipped: true, reason: 'public-batched-renderer-not-active' }),
+    runCpuBatchedPickingStress: () => researchRenderer
+      ? runCpuBatchedPickingStress(viewer, researchRenderer)
+      : Promise.resolve({ skipped: true, reason: 'public-batched-renderer-not-active' }),
     setPublicBatchVisibility: (show) => researchRenderer?.setShow(show),
     clearPublicBatchNodes: () => {
       researchRenderer?.clear();
       return researchRenderer?.getRenderedNodeKeys().length ?? -1;
     },
     getPickablePointScreenPosition(): { x: number; y: number } | undefined {
+      if (researchRenderer) {
+        for (const nodeKey of researchRenderer.getRenderedNodeKeys()) {
+          const candidate = researchRenderer.probePick(viewer.scene, nodeKey);
+          if (!candidate.picked || !candidate.screenPosition
+            || candidate.screenPosition.x < 380
+            || candidate.screenPosition.x > viewer.scene.canvas.clientWidth - 4
+            || candidate.screenPosition.y < 4
+            || candidate.screenPosition.y > viewer.scene.canvas.clientHeight - 4) {
+            continue;
+          }
+          const position = new Cesium.Cartesian2(
+            candidate.screenPosition.x,
+            candidate.screenPosition.y,
+          );
+          const picked = viewer.scene.pick(position, 1, 1);
+          const resolved = researchRenderer.resolvePointPick(viewer.scene, position, picked);
+          if (resolved?.nodeKey === nodeKey
+            && resolved.pointIndex === candidate.targetSourcePointIndex) {
+            return candidate.screenPosition;
+          }
+        }
+        return undefined;
+      }
       for (const collection of getPointPrimitiveCollections(viewer.scene.primitives)) {
         for (let pointIndex = 0; pointIndex < collection.length; pointIndex += 1) {
           const position = Cesium.SceneTransforms.worldToWindowCoordinates(
@@ -417,8 +482,13 @@ function moveCameraToHeight(viewer: Cesium.Viewer, height: number): void {
 }
 
 async function main(): Promise<void> {
-  const usePublicBatchedRenderer = new URLSearchParams(window.location.search).get('renderer') === 'public-batched';
-  const viewer = createCesiumViewer('cesium-container', { scene3DOnly: usePublicBatchedRenderer });
+  const params = new URLSearchParams(window.location.search);
+  const usePublicBatchedRenderer = params.get('renderer') === 'public-batched';
+  const testHighDpiRendering = params.get('testDpr') === '1';
+  const viewer = createCesiumViewer('cesium-container', {
+    scene3DOnly: usePublicBatchedRenderer,
+    ...(testHighDpiRendering ? { useBrowserRecommendedResolution: false } : {}),
+  });
   const researchRenderer = usePublicBatchedRenderer
     ? new BatchedGeometryPointRenderer()
     : undefined;

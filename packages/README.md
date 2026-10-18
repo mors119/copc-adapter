@@ -30,6 +30,30 @@ await layer.load();
 layer.attachTo(viewer);
 ```
 
+An opt-in batched renderer is available through the Cesium entrypoint. The
+default remains `PointPrimitiveRenderer`:
+
+```ts
+import {
+  BatchedGeometryPointRenderer,
+  CopcCesiumLayer,
+} from '@frillab/copc-adapter/cesium';
+
+const layer = new CopcCesiumLayer({
+  url: 'https://example.com/data.copc.laz',
+  renderer: new BatchedGeometryPointRenderer(),
+});
+```
+
+The batched renderer passes the prepared absolute ECEF `Float64Array` to the
+public Cesium geometry pipeline, which creates high/low GPU position buffers.
+It keeps a node-relative `Float32Array` for CPU point resolution after
+Cesium's scene pick. Point identity resolution is supported in 3D mode;
+2D, Columbus View, and morphing scenes return no selection. Ambiguous overlap,
+including equal-depth ties, also returns no selected point. Browser validation
+covers Cesium 1.142.0 and 1.146.0; these checks do not establish behavior for
+every version accepted by the package's unchanged `cesium >=1.142.0` peer range.
+
 The historical root import remains supported for existing Cesium consumers:
 
 ```ts
