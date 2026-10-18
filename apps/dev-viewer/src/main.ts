@@ -953,6 +953,7 @@ async function main(): Promise<void> {
     ['autzen-remote', AUTZEN_REMOTE_URL],
     ['chicago-remote', CHICAGO_REMOTE_URL],
   ]);
+  let openedLocalFile: File | undefined;
   const initialPreset = [...sourcePresets].find(([, source]) => source === initialUrl)?.[0];
   sourceSelect.value = initialPreset ?? 'custom';
   customUrl.disabled = sourceSelect.value !== 'custom';
@@ -961,7 +962,9 @@ async function main(): Promise<void> {
     const isCustom = sourceSelect.value === 'custom';
     customUrl.disabled = !isCustom;
     fileInput.value = '';
-    if (!isCustom) {
+    if (sourceSelect.value === 'local-file') {
+      if (openedLocalFile) selectedSource = openedLocalFile;
+    } else if (!isCustom) {
       selectedSource = sourcePresets.get(sourceSelect.value) ?? DEFAULT_COPC_URL;
     }
   });
@@ -971,14 +974,24 @@ async function main(): Promise<void> {
   fileInput.addEventListener('change', () => {
     const file = fileInput.files?.[0];
     if (file) {
+      openedLocalFile = file;
+      let localFileOption = sourceSelect.querySelector<HTMLOptionElement>('option[value="local-file"]');
+      if (!localFileOption) {
+        localFileOption = document.createElement('option');
+        localFileOption.value = 'local-file';
+        sourceSelect.append(localFileOption);
+      }
+      localFileOption.textContent = `Local file · ${file.name}`;
       selectedSource = file;
-      sourceSelect.value = 'local-autzen';
+      sourceSelect.value = 'local-file';
       customUrl.disabled = true;
       void startSession(`Loading local file · ${file.name}…`);
     }
   });
   loadButton.addEventListener('click', () => {
     if (sourceSelect.value === 'custom') selectedSource = customUrl.value.trim();
+    else if (sourceSelect.value === 'local-file') selectedSource = openedLocalFile ?? selectedSource;
+    else selectedSource = sourcePresets.get(sourceSelect.value) ?? DEFAULT_COPC_URL;
     if (typeof selectedSource === 'string' && selectedSource.length === 0) {
       setActiveError(new Error('Enter a COPC URL before loading.'));
       return;

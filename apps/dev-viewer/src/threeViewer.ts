@@ -7,6 +7,7 @@ import {
   type CopcThreeLayerSnapshot,
 } from '@frillab/copc-adapter/three';
 import type { CopcBackendName, CopcColorMode } from '@frillab/copc-adapter';
+import { createCoalescedUpdate } from './coalescedUpdate';
 
 export type DevThreeCameraState = {
   readonly position: readonly [number, number, number];
@@ -123,17 +124,10 @@ export function createDevThreeViewer(options: DevThreeViewerOptions): DevThreeVi
   let destroyed = false;
   let animationFrame = 0;
   let updateTimer: number | undefined;
-  let updateInFlight = false;
-  const updateLayerView = (): void => {
-    if (destroyed || updateInFlight) return;
-    updateInFlight = true;
-    void layer.update().catch(options.onError).finally(() => {
-      updateInFlight = false;
-    });
-  };
+  const updateLayerView = createCoalescedUpdate(() => layer.update(), options.onError);
   const onCameraChange = (): void => {
     if (updateTimer !== undefined) window.clearTimeout(updateTimer);
-    updateTimer = window.setTimeout(updateLayerView, 90);
+    updateTimer = window.setTimeout(updateLayerView.request, 90);
   };
   controls.addEventListener('change', onCameraChange);
 
@@ -213,6 +207,7 @@ export function createDevThreeViewer(options: DevThreeViewerOptions): DevThreeVi
       destroyed = true;
       cancelAnimationFrame(animationFrame);
       if (updateTimer !== undefined) window.clearTimeout(updateTimer);
+      updateLayerView.destroy();
       resizeObserver.disconnect();
       controls.removeEventListener('change', onCameraChange);
       controls.dispose();

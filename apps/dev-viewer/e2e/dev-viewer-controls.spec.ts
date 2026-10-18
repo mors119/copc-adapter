@@ -41,6 +41,12 @@ test('switches renderer and backend, applies controls, and inspects a Three poin
   await expect(backendGroup).toBeVisible();
   await expect(page.locator('#source-status')).toContainText('Ready');
 
+  const threeRenderer = rendererGroup.getByRole('radio', { name: 'Three.js' });
+  await threeRenderer.click();
+  await page.keyboard.press('ArrowRight');
+  await expect(rendererGroup.getByRole('radio', { name: 'Cesium' })).toHaveAttribute('aria-checked', 'true');
+  await threeRenderer.click();
+
   const diagnostics = page.getByRole('complementary', { name: 'COPC runtime debug panel' });
   const advancedDiagnostics = diagnostics.getByRole('button', { name: 'Advanced diagnostics' });
   await expect(advancedDiagnostics).toHaveAttribute('aria-expanded', 'true');
@@ -144,4 +150,27 @@ test('applies advanced streaming inputs and keeps mobile controls reachable', as
   await expect(page.locator('#cesium-container')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth))
     .toBeLessThanOrEqual(390);
+});
+
+test('keeps an opened local file distinct from the local Autzen preset', async ({ page }) => {
+  const autzenFixtureRanges: string[] = [];
+  page.on('request', (request) => {
+    if (request.url().includes('/samples/autzen.copc.laz') && request.headers().range) {
+      autzenFixtureRanges.push(request.url());
+    }
+  });
+
+  await page.goto('/?debugPanel=0');
+  const source = page.locator('#source-selection');
+  await page.locator('#local-source-file').setInputFiles({
+    name: 'opened-by-user.copc.laz',
+    mimeType: 'application/octet-stream',
+    buffer: Buffer.from('invalid local COPC'),
+  });
+  await expect(source).toHaveValue('local-file');
+  await expect(source.locator('option:checked')).toHaveText('Local file · opened-by-user.copc.laz');
+
+  await source.selectOption('local-autzen');
+  await page.getByRole('button', { name: 'Probe and load source' }).click();
+  await expect.poll(() => autzenFixtureRanges.length, { timeout: 30_000 }).toBeGreaterThan(0);
 });
