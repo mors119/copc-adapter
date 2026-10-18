@@ -45,6 +45,31 @@ function createCenterPickScene() {
   };
 }
 
+function createPerspectiveCenterPickScene(logarithmicDepthBuffer) {
+  const viewMatrix = Cesium.Matrix4.clone(Cesium.Matrix4.IDENTITY);
+  viewMatrix[14] = -10;
+  const near = 1;
+  const far = 100;
+  const projectionMatrix = Cesium.Matrix4.clone(Cesium.Matrix4.IDENTITY);
+  projectionMatrix[0] = 1;
+  projectionMatrix[5] = 1;
+  projectionMatrix[10] = -(far + near) / (far - near);
+  projectionMatrix[11] = -1;
+  projectionMatrix[14] = -(2 * far * near) / (far - near);
+  projectionMatrix[15] = 0;
+  return {
+    mode: Cesium.SceneMode.SCENE3D,
+    logarithmicDepthBuffer,
+    camera: {
+      viewMatrix,
+      frustum: { projectionMatrix, near, far },
+    },
+    canvas: { clientWidth: 100, clientHeight: 100 },
+    drawingBufferWidth: 100,
+    drawingBufferHeight: 100,
+  };
+}
+
 test('BatchedGeometryPointRenderer removes owned nodes and preserves scene primitives', () => {
   const scenePrimitives = new Cesium.PrimitiveCollection();
   const applicationPrimitive = new Cesium.PrimitiveCollection();
@@ -149,6 +174,53 @@ test('BatchedGeometryPointRenderer resolves the current node generation to origi
   assert.equal(renderer.resolvePointPick(scene, new Cesium.Cartesian2(50, 50), stalePick), undefined);
   renderer.destroy();
   scenePrimitives.destroy();
+});
+
+test('BatchedGeometryPointRenderer fails closed when GPU depth values may tie', () => {
+  for (const logarithmicDepthBuffer of [false, true]) {
+    const scenePrimitives = new Cesium.PrimitiveCollection();
+    const renderer = new BatchedGeometryPointRenderer();
+    renderer.attachTo({ scene: { primitives: scenePrimitives } });
+    renderer.addOrUpdateNode('depth-node', createPreparedWorldPoints([
+      0, 0, 0,
+      0, 0, -0.00001,
+    ]), { pointSize: 3, colorMode: 'fixed' });
+    const pickId = scenePrimitives.get(0).get(0).geometryInstances.id;
+    const result = renderer.resolveCpuPointPick(
+      createPerspectiveCenterPickScene(logarithmicDepthBuffer),
+      new Cesium.Cartesian2(50, 50),
+      { id: pickId },
+      0.5,
+    );
+    assert.equal(result.picked, false);
+    assert.equal(result.reason, 'ambiguous-depth');
+    renderer.destroy();
+    scenePrimitives.destroy();
+  }
+});
+
+test('BatchedGeometryPointRenderer resolves a clear foreground point over ambiguous background points', () => {
+  for (const logarithmicDepthBuffer of [false, true]) {
+    const scenePrimitives = new Cesium.PrimitiveCollection();
+    const renderer = new BatchedGeometryPointRenderer();
+    renderer.attachTo({ scene: { primitives: scenePrimitives } });
+    renderer.addOrUpdateNode('depth-node', createPreparedWorldPoints([
+      0, 0, -0.00001,
+      0, 0, 0,
+      0, 0, 6,
+    ]), { pointSize: 3, colorMode: 'fixed' });
+    const pickId = scenePrimitives.get(0).get(0).geometryInstances.id;
+    const result = renderer.resolveCpuPointPick(
+      createPerspectiveCenterPickScene(logarithmicDepthBuffer),
+      new Cesium.Cartesian2(50, 50),
+      { id: pickId },
+      0.5,
+    );
+    assert.equal(result.picked, true);
+    assert.equal(result.pointIndex, 2);
+    renderer.destroy();
+    scenePrimitives.destroy();
+  }
 });
 
 test('BatchedGeometryPointRenderer keeps committed nodes when replacement preparation fails', () => {

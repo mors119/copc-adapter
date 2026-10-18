@@ -38,6 +38,7 @@ type NodeRecord = {
   sphere?: Cesium.BoundingSphere;
   origin: Cesium.Cartesian3;
   positions: Float32Array;
+  maxPositionErrorMeters: number;
   pointSizes: Float32Array;
   sourcePointCount: number;
   pointCount: number;
@@ -52,6 +53,61 @@ const scratchViewProjectionMatrix = new Cesium.Matrix4();
 function getPickWidth(clickTolerancePx: number): number {
   const tolerance = Number.isFinite(clickTolerancePx) ? Math.max(0, clickTolerancePx) : 1.5;
   return Math.max(1, 2 * Math.floor(tolerance) + 1);
+}
+
+// The WebGL minimum depth-buffer precision is 16 bits. Cesium's public pick
+// API does not expose the precision of its offscreen pick framebuffer, so use
+// that floor rather than assuming the Viewer framebuffer's format is shared.
+const PICK_DEPTH_QUANTUM = 1 / (2 ** 16 - 1);
+const GPU_POSITION_ROUNDING_ULPS = 16;
+
+/** Match the ideal depth value produced by Cesium's current public scene mode. */
+function projectPickDepth(scene: Cesium.Scene, viewDepth: number): number {
+  const frustum = scene.camera.frustum;
+  const projection = frustum.projectionMatrix;
+  const perspective = Math.abs(projection[11]) > Number.EPSILON;
+  if (scene.logarithmicDepthBuffer && perspective) {
+    // Cesium's log-depth shader writes log2(eyeDepth - near + 1), normalized
+    // by the current frustum's far-to-near span. The camera frustum is a
+    // conservative superset when Cesium splits rendering into sub-frustums.
+    const near = frustum.near;
+    const far = frustum.far;
+    const denominator = Math.log2(Math.max(1 + Number.EPSILON, far - near + 1));
+    const depth = Math.log2(Math.max(1, viewDepth - near + 1)) / denominator;
+    return Math.max(0, Math.min(1, depth));
+  }
+
+  // Cesium's ordinary perspective/orthographic projection maps NDC z into
+  // the [0, 1] depth range. Use the projection matrix so oblique and
+  // orthographic frustums retain their own mapping.
+  const clipZ = projection[10] * -viewDepth + projection[14];
+  const clipW = projection[11] * -viewDepth + projection[15];
+  if (!Number.isFinite(clipZ) || !Number.isFinite(clipW) || clipW === 0) {
+    return Number.NaN;
+  }
+  return Math.max(0, Math.min(1, (clipZ / clipW + 1) * 0.5));
+}
+
+/** Bound point-position uncertainty after Float32 staging and GPU arithmetic. */
+function getPickDepthPositionUncertainty(
+  scene: Cesium.Scene,
+  viewDepth: number,
+  maxPositionErrorMeters: number,
+): number {
+  const coordinateError = Math.sqrt(3) * maxPositionErrorMeters;
+  const gpuArithmeticError = GPU_POSITION_ROUNDING_ULPS
+    * 2 ** -23 * Math.max(1, viewDepth);
+  const errorMeters = coordinateError + gpuArithmeticError;
+  const centerDepth = projectPickDepth(scene, viewDepth);
+  const beforeDepth = projectPickDepth(
+    scene,
+    Math.max(scene.camera.frustum.near, viewDepth - errorMeters),
+  );
+  const afterDepth = projectPickDepth(
+    scene,
+    Math.min(scene.camera.frustum.far, viewDepth + errorMeters),
+  );
+  return Math.max(Math.abs(centerDepth - beforeDepth), Math.abs(afterDepth - centerDepth));
 }
 
 /** Result from the research-only CPU second-stage picking probe. */
@@ -79,8 +135,8 @@ export type CpuPointPickProbe = {
  * the renderer's current CPU staging buffers after Cesium's scene pick.
  *
  * CPU picking is conservative: if a pick window contains multiple possible
- * winners or equal-depth overlaps, it returns no identity. Tested with Cesium
- * 1.142.0 and 1.146.0; the package peer range remains broader.
+ * winners or depth intervals that overlap, it returns no identity. Tested
+ * with Cesium 1.142.0 and 1.146.0; the package peer range remains broader.
  * @experimental
  */
 export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
@@ -283,6 +339,7 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
       sphere: visibleSphere,
       origin,
       positions,
+      maxPositionErrorMeters: relative.maxAbsoluteError,
       pointSizes,
       sourcePointCount: points.pointCount,
       pointCount: visibleCount,
@@ -535,12 +592,16 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
     const sampleCount = pickWidth * pickWidth;
     const sampleX = new Float64Array(sampleCount);
     const sampleY = new Float64Array(sampleCount);
-    const sampleDepth = new Float64Array(sampleCount);
+    const sampleWinnerDepthLower = new Float64Array(sampleCount);
+    const sampleWinnerDepthUpper = new Float64Array(sampleCount);
+    const sampleOtherMinimumDepthLower = new Float64Array(sampleCount);
+    const sampleViewDepth = new Float64Array(sampleCount);
     const samplePointIndex = new Int32Array(sampleCount);
-    sampleDepth.fill(Number.POSITIVE_INFINITY);
+    sampleWinnerDepthLower.fill(Number.POSITIVE_INFINITY);
+    sampleWinnerDepthUpper.fill(Number.POSITIVE_INFINITY);
+    sampleOtherMinimumDepthLower.fill(Number.POSITIVE_INFINITY);
     samplePointIndex.fill(-1);
     const sampleValid = new Uint8Array(sampleCount);
-    const sampleAmbiguous = new Uint8Array(sampleCount);
     for (let row = 0; row < pickWidth; row += 1) {
       for (let column = 0; column < pickWidth; column += 1) {
         const sampleIndex = row * pickWidth + column;
@@ -572,6 +633,13 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
         + viewMatrix[10] * world.z
         + viewMatrix[14]);
       if (viewDepth <= camera.frustum.near || viewDepth >= camera.frustum.far) continue;
+      const gpuDepth = projectPickDepth(scene, viewDepth);
+      if (!Number.isFinite(gpuDepth)) continue;
+      const depthPositionUncertainty = getPickDepthPositionUncertainty(
+        scene,
+        viewDepth,
+        node.maxPositionErrorMeters,
+      );
 
       const clipX = viewProjection[0] * world.x
         + viewProjection[4] * world.y
@@ -605,15 +673,31 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
         const distanceSquared = dx * dx + dy * dy;
         if (distanceSquared > pointRadiusSquared) continue;
         intersectsPickPixels = true;
-        if (viewDepth < sampleDepth[sampleIndex]) {
-          sampleDepth[sampleIndex] = viewDepth;
+        const currentPointIndex = samplePointIndex[sampleIndex];
+        const depthQuantizationRadius = PICK_DEPTH_QUANTUM * 0.5;
+        const candidateDepthLower = gpuDepth - depthPositionUncertainty - depthQuantizationRadius;
+        const candidateDepthUpper = gpuDepth + depthPositionUncertainty + depthQuantizationRadius;
+        if (currentPointIndex < 0) {
+          sampleWinnerDepthLower[sampleIndex] = candidateDepthLower;
+          sampleWinnerDepthUpper[sampleIndex] = candidateDepthUpper;
+          sampleViewDepth[sampleIndex] = viewDepth;
           samplePointIndex[sampleIndex] = pointIndex;
-          sampleAmbiguous[sampleIndex] = 0;
-        } else if (viewDepth === sampleDepth[sampleIndex]
-          && samplePointIndex[sampleIndex] !== pointIndex) {
-          // Identical-depth tie order depends on Cesium/WebGL draw details and
-          // cannot be recovered from the node-level public pick result.
-          sampleAmbiguous[sampleIndex] = 1;
+        } else if (currentPointIndex !== pointIndex) {
+          if (candidateDepthUpper < sampleWinnerDepthUpper[sampleIndex]) {
+            sampleOtherMinimumDepthLower[sampleIndex] = Math.min(
+              sampleOtherMinimumDepthLower[sampleIndex],
+              sampleWinnerDepthLower[sampleIndex],
+            );
+            sampleWinnerDepthLower[sampleIndex] = candidateDepthLower;
+            sampleWinnerDepthUpper[sampleIndex] = candidateDepthUpper;
+            sampleViewDepth[sampleIndex] = viewDepth;
+            samplePointIndex[sampleIndex] = pointIndex;
+          } else {
+            sampleOtherMinimumDepthLower[sampleIndex] = Math.min(
+              sampleOtherMinimumDepthLower[sampleIndex],
+              candidateDepthLower,
+            );
+          }
         }
       }
       if (intersectsPickPixels) candidateCount += 1;
@@ -623,7 +707,11 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
     let bestViewDepth = Number.POSITIVE_INFINITY;
     let ambiguousReason: CpuPointPickProbe['reason'];
     for (let sampleIndex = 0; sampleIndex < sampleCount; sampleIndex += 1) {
-      if (sampleAmbiguous[sampleIndex]) {
+      if (samplePointIndex[sampleIndex] >= 0
+        && sampleOtherMinimumDepthLower[sampleIndex] <= sampleWinnerDepthUpper[sampleIndex]) {
+        // At least one candidate's GPU-equivalent depth interval overlaps the
+        // possible winner. The public node-level pick cannot reveal which
+        // fragment won after depth-buffer quantization, so fail closed.
         ambiguousReason = 'ambiguous-depth';
         break;
       }
@@ -631,7 +719,7 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
       if (pointAtSample < 0) continue;
       if (bestPointIndex < 0) {
         bestPointIndex = pointAtSample;
-        bestViewDepth = sampleDepth[sampleIndex];
+        bestViewDepth = sampleViewDepth[sampleIndex];
       } else if (bestPointIndex !== pointAtSample) {
         ambiguousReason = 'ambiguous-pick-window';
         break;

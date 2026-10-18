@@ -454,6 +454,12 @@ test('measures dense single-node CPU picking at 250k points at DPR 1 and 2', asy
         hitOwnedByLayerB: true,
         otherLayerDidNotResolve: true,
       });
+      expect(pixelPicking.depthQuantizationProbe).toMatchObject({
+        cesiumVersion: process.env.COPC_EXPECT_CESIUM_VERSION ?? '1.146.0',
+        centerPickHitNode: true,
+        pointSeparationMeters: 0.00001,
+        resolution: { picked: false, reason: 'ambiguous-depth' },
+      });
       expect(pixelPicking.removedNodeCannotBeSelected).toBe(true);
 
       const footprintProbe = await page.evaluate(() =>

@@ -89,6 +89,7 @@ export async function runCpuBatchedPickingProbe(
   const layerA = new BatchedGeometryPointRenderer();
   const layerB = new BatchedGeometryPointRenderer();
   const edgeRenderer = new BatchedGeometryPointRenderer();
+  const depthTieRenderer = new BatchedGeometryPointRenderer();
   const ownerA = 'cpu-pick-layer-a';
   const ownerB = 'cpu-pick-layer-b';
   const sharedKey = 'cpu-pick-shared';
@@ -154,6 +155,40 @@ export async function runCpuBatchedPickingProbe(
     const cpuFarPointErrorMeters = cpuWorldPosition
       ? Cesium.Cartesian3.distance(cpuWorldPosition, farWorld)
       : undefined;
+
+    // Distinct CPU depths may quantize to one GPU depth value. Put the farther
+    // vertex first so guessing the mathematical nearest point could return an
+    // identity different from Cesium's rasterized winner.
+    layerA.setShow(false);
+    depthTieRenderer.attachTo(viewer);
+    const depthTieNodeKey = 'cpu-pick-depth-quantization-tie';
+    addSyntheticNode(depthTieRenderer, depthTieNodeKey, createPreparedPoints([
+      positionAlongRay(ray, 75.00001),
+      positionAlongRay(ray, 75),
+    ]), { ownerId: ownerA, pointSize: 8 });
+    await renderNextFrame(scene);
+    const depthTieNodePick = scene.pick(center, 1, 1) as { id?: unknown } | undefined;
+    const depthTieResolution = depthTieRenderer.resolveCpuPointPick(
+      scene,
+      center,
+      depthTieNodePick,
+      0.5,
+    );
+    const depthQuantizationProbe = {
+      cesiumVersion: cesiumRuntimeVersion,
+      logarithmicDepthBuffer: scene.logarithmicDepthBuffer,
+      centerPickHitNode: (depthTieNodePick?.id as { nodeKey?: unknown } | undefined)?.nodeKey
+        === depthTieNodeKey,
+      pointSeparationMeters: 0.00001,
+      resolution: {
+        picked: depthTieResolution.picked,
+        reason: depthTieResolution.reason,
+        pointIndex: depthTieResolution.pointIndex,
+      },
+    };
+    depthTieRenderer.destroy();
+    layerA.setShow(true);
+    await renderNextFrame(scene);
 
     const toleranceCases = [
       { offsetPx: 0, label: 'center' },
@@ -254,6 +289,7 @@ export async function runCpuBatchedPickingProbe(
         nearPointErrorMeters: cpuNearPointErrorMeters,
         farPointErrorMeters: cpuFarPointErrorMeters,
       },
+      depthQuantizationProbe,
       toleranceCases,
       defaultPickWindowEdge,
       filteredProbe,
@@ -272,6 +308,7 @@ export async function runCpuBatchedPickingProbe(
     };
   } finally {
     if (pointOracle) scene.primitives.remove(pointOracle);
+    depthTieRenderer.destroy();
     edgeRenderer.destroy();
     layerB.destroy();
     layerA.destroy();
@@ -437,8 +474,8 @@ export async function runCpuBatchedPickingStress(
       sourceTypedArrayBytes: coordinates.byteLength + worldCoordinates.byteLength,
       rendererTypedArrayPayloadBytes: pointCount * (3 * Float32Array.BYTES_PER_ELEMENT
         + 3 * Float32Array.BYTES_PER_ELEMENT + Float32Array.BYTES_PER_ELEMENT * 2),
-      temporaryResolverTypedArrayBytes: 3 * 9 * Float64Array.BYTES_PER_ELEMENT
-        + 9 * Int32Array.BYTES_PER_ELEMENT + 2 * 9 * Uint8Array.BYTES_PER_ELEMENT,
+      temporaryResolverTypedArrayBytes: 6 * 9 * Float64Array.BYTES_PER_ELEMENT
+        + 9 * Int32Array.BYTES_PER_ELEMENT + 9 * Uint8Array.BYTES_PER_ELEMENT,
       note: 'Typed-array payload sizes are calculated from the buffers. JavaScript object overhead and GPU allocation are not measured.',
     };
   } finally {
