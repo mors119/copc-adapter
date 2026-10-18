@@ -1,3 +1,5 @@
+@import '../../shared/ui.css';
+
 html,
 body,
 #cesium-container {
