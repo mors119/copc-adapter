@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import * as Cesium from 'cesium';
 
 import { CopcCesiumLayer } from '../index.ts';
+import { PointPrimitiveRenderer } from '../cesium/render/CopcPointRenderer.ts';
+import { BatchedGeometryPointRenderer } from '../cesium/render/BatchedGeometryPointRenderer.ts';
 import { createCesiumStreamingView } from '../cesium/view/CesiumViewAdapter.ts';
 
 function createEvent() {
@@ -1159,6 +1161,93 @@ test('Cesium picks resolve through the shared live node and point cache', async 
   assert.equal(picked.at(-1), undefined);
 
   layer.destroy();
+});
+
+test('CesiumPointPicker delegates node-level hits to the injected renderer and inspects the returned identity', async () => {
+  const source = createBackend();
+  const renderer = new PointPrimitiveRenderer();
+  const picked = [];
+  const layer = new CopcCesiumLayer({
+    url: 'memory://batched-picker-delegation.copc.laz',
+    backend: source.backend,
+    decoder: source.decoder,
+    renderer,
+    onPointPicked: (point) => picked.push(point),
+  });
+  const viewer = createFakeViewer();
+  const nodeKey = '0-0-0-0';
+  let scenePickCalls = 0;
+  let resolverCalls = 0;
+
+  renderer.resolvePointPick = (scene, position, pickedObject) => {
+    resolverCalls += 1;
+    assert.equal(scene, viewer.scene);
+    assert.deepEqual([position.x, position.y], [10, 10]);
+    assert.equal(pickedObject.id.nodeKey, nodeKey);
+    return {
+      nodeKey,
+      pointIndex: 1,
+      ownerId: layer.controller.pointPicker.ownerId,
+    };
+  };
+
+  await layer.load();
+  layer.attachTo(viewer);
+  await waitFor(() => layer.getSnapshot().renderedPointCount === 2);
+  viewer.scene.pick = () => {
+    scenePickCalls += 1;
+    return { id: { nodeKey, ownerId: layer.controller.pointPicker.ownerId } };
+  };
+  layer.controller.pointPicker.pick(viewer, new Cesium.Cartesian2(10, 10));
+
+  assert.equal(scenePickCalls, 1);
+  assert.equal(resolverCalls, 1);
+  assert.equal(layer.getSelectedPoint().nodeKey, nodeKey);
+  assert.equal(layer.getSelectedPoint().pointIndex, 1);
+  assert.deepEqual(layer.getSelectedPoint().rgb, { red: 128, green: 128, blue: 255 });
+  assert.equal(picked.at(-1).pointIndex, 1);
+  layer.destroy();
+});
+
+test('batched renderer follows layer style, unload, reload, and reattach lifecycle', async () => {
+  const source = createBackend();
+  const renderer = new BatchedGeometryPointRenderer();
+  const layer = new CopcCesiumLayer({
+    url: 'memory://batched-lifecycle.copc.laz',
+    backend: source.backend,
+    decoder: source.decoder,
+    renderer,
+    colorMode: 'classification',
+  });
+  const viewer = createFakeViewer();
+
+  await layer.load();
+  layer.attachTo(viewer);
+  await waitFor(() => layer.getSnapshot().renderedPointCount === 2);
+  const nodeKey = layer.getSnapshot().renderedNodeKeys[0];
+  assert.ok(nodeKey);
+  const initialRequests = source.pointChunkRequestCount;
+  assert.equal(renderer.hasNode(nodeKey), true);
+
+  layer.setStyle({ classificationFilter: { include: [6] } });
+  assert.equal(layer.getSnapshot().renderedPointCount, 1);
+  assert.equal(renderer.getRenderedNodePointCount(nodeKey), 1);
+  assert.equal(source.pointChunkRequestCount, initialRequests);
+
+  layer.unload();
+  assert.equal(layer.getSnapshot().renderedPointCount, 0);
+  assert.equal(renderer.getRenderedNodeKeys().length, 0);
+  await layer.reload();
+  await waitFor(() => layer.getSnapshot().renderedPointCount === 1);
+  assert.equal(renderer.hasNode(nodeKey), true);
+
+  layer.detachFrom();
+  assert.equal(layer.getSnapshot().renderedPointCount, 0);
+  layer.attachTo(viewer);
+  await waitFor(() => layer.getSnapshot().renderedPointCount === 1);
+  layer.destroy();
+  assert.equal(renderer.getRenderedNodeKeys().length, 0);
+  assert.equal(viewer.destroyed, false);
 });
 
 test('selection is cleared across unload, reload, and removed transition coverage', async () => {

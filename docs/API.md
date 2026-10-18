@@ -178,6 +178,20 @@ a separately defined and tested contract.
 - `onPointPicked`: called with a selected `CopcPointInspection`, or `undefined`
   when selection is cleared.
 
+`BatchedGeometryPointRenderer` is an opt-in implementation exported from
+`@frillab/copc-adapter/cesium`. It submits one public Cesium `Geometry(POINTS)`
+primitive per node. It passes the prepared absolute ECEF Float64 positions
+through Cesium's public high/low position pipeline and keeps a node-relative
+Float32 buffer for CPU point refinement. It supports the existing color modes,
+classification filter, fixed point size, layer visibility, and renderer
+lifecycle. Picking uses the node-level Cesium result plus the current
+committed node buffer; ambiguous pick windows and equal-depth ties deliberately
+produce no selection. Point identity resolution is supported in 3D mode;
+2D, Columbus View, and morphing scenes return no selection. Browser validation
+has covered Cesium 1.142.0 and 1.146.0. The package peer range remains
+`cesium >=1.142.0`, so this validation is not a guarantee for every version in
+that open-ended range. The compatibility renderer remains the default.
+
 The Cesium layer retains the supported standard style attributes (intensity,
 classification, and RGB) in its decoded point buffers so the color mode can be
 changed later without requesting the point chunk again. This increases retained

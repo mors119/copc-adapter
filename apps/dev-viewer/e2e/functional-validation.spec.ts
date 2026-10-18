@@ -122,7 +122,10 @@ test('validates the eight core behaviors in the default Cesium viewer', async ({
     }
   });
 
-  await page.goto('/');
+  const renderer = process.env.COPC_RENDERER_VARIANT === 'public-batched'
+    ? '?renderer=public-batched'
+    : '';
+  await page.goto(`/${renderer}`);
 
   const debugPanel = page.getByRole('complementary', {
     name: 'COPC runtime debug panel',
@@ -132,7 +135,7 @@ test('validates the eight core behaviors in the default Cesium viewer', async ({
   });
 
   await test.step('1. Load and render the original COPC source', async () => {
-    expect(new URL(page.url()).search).toBe('');
+    expect(new URL(page.url()).search).toBe(renderer);
     await expect(debugPanel).toBeVisible();
     await expect(debugPanel.getByRole('region', { name: 'Validation controls' })).toBeVisible();
     await expect(pointInspector).toBeVisible();
@@ -145,7 +148,7 @@ test('validates the eight core behaviors in the default Cesium viewer', async ({
 
     const state = await getState(page);
     expect(state.datasetUrl).toContain('/samples/autzen.copc.laz');
-    expect(state.scenePointCollectionCount).toBeGreaterThan(0);
+    if (!renderer) expect(state.scenePointCollectionCount).toBeGreaterThan(0);
     expect(await page.evaluate(() => window.__COPC_DEBUG__!.getStyle().colorMode))
       .toBe('rgb');
   });
@@ -243,7 +246,12 @@ test('validates the eight core behaviors in the default Cesium viewer', async ({
     const position = await page.evaluate(() =>
       window.__COPC_DEBUG__?.getPickablePointScreenPosition());
     expect(position).toBeDefined();
-    await page.mouse.click(position!.x, position!.y);
+    const canvasBounds = await page.locator('#cesium-container canvas').first().boundingBox();
+    expect(canvasBounds).not.toBeNull();
+    await page.mouse.click(
+      (canvasBounds?.x ?? 0) + position!.x,
+      (canvasBounds?.y ?? 0) + position!.y,
+    );
     await expect.poll(async () => (await getState(page)).selectedPoint)
       .toMatchObject({ nodeKey: expect.any(String), pointIndex: expect.any(Number) });
 

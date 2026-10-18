@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as Cesium from 'cesium';
+import { prepareCopcPointColorBuffer } from '../core/point/style/pointStyle.ts';
 
 import { BatchedGeometryPointRenderer } from '../cesium/render/BatchedGeometryPointRenderer.ts';
 
@@ -13,6 +14,34 @@ function createPreparedPoints() {
       -2615000.24, -3930000.49, 3638000.76,
     ]),
     worldCoordinateSystem: 'wgs84-ecef-meters',
+  };
+}
+
+function createPreparedWorldPoints(worldCoordinates) {
+  return {
+    pointCount: worldCoordinates.length / 3,
+    coordinates: new Float64Array(worldCoordinates),
+    worldCoordinates: new Float64Array(worldCoordinates),
+    worldCoordinateSystem: 'wgs84-ecef-meters',
+  };
+}
+
+function createCenterPickScene() {
+  const viewMatrix = Cesium.Matrix4.clone(Cesium.Matrix4.IDENTITY);
+  viewMatrix[14] = -10;
+  const projectionMatrix = Cesium.Matrix4.clone(Cesium.Matrix4.IDENTITY);
+  projectionMatrix[0] = 100;
+  projectionMatrix[10] = 0;
+  projectionMatrix[14] = 0;
+  return {
+    mode: Cesium.SceneMode.SCENE3D,
+    camera: {
+      viewMatrix,
+      frustum: { projectionMatrix, near: 1, far: 100 },
+    },
+    canvas: { clientWidth: 100, clientHeight: 100 },
+    drawingBufferWidth: 100,
+    drawingBufferHeight: 100,
   };
 }
 
@@ -51,6 +80,213 @@ test('BatchedGeometryPointRenderer removes owned nodes and preserves scene primi
 
   assert.equal(scenePrimitives.length, 1);
   assert.equal(scenePrimitives.get(0), applicationPrimitive);
+  assert.equal(applicationPrimitive.isDestroyed(), false);
+  scenePrimitives.destroy();
+});
+
+test('BatchedGeometryPointRenderer reuses absolute ECEF doubles for Cesium precision and degenerate bounds', () => {
+  const scenePrimitives = new Cesium.PrimitiveCollection();
+  const renderer = new BatchedGeometryPointRenderer();
+  renderer.attachTo({ scene: { primitives: scenePrimitives } });
+  const points = createPreparedWorldPoints([
+    6_378_137.125, 0.25, -0.5,
+    6_378_137.125, 0.25, -0.5,
+  ]);
+  const originalWorldCoordinates = points.worldCoordinates.slice();
+
+  renderer.addOrUpdateNode('coincident-node', points, {
+    pointSize: 2,
+    colorMode: 'fixed',
+  });
+
+  const primitive = scenePrimitives.get(0).get(0);
+  const geometry = primitive.geometryInstances.geometry;
+  assert.equal(geometry.attributes.position.componentDatatype, Cesium.ComponentDatatype.DOUBLE);
+  assert.equal(geometry.attributes.position.values, points.worldCoordinates);
+  assert.deepEqual(Array.from(points.worldCoordinates), Array.from(originalWorldCoordinates));
+  assert.equal(Cesium.Matrix4.equals(primitive.modelMatrix, Cesium.Matrix4.IDENTITY), true);
+  assert.equal(geometry.boundingSphere.center.x, 6_378_137.125);
+  assert.ok(geometry.boundingSphere.radius >= 0.01);
+
+  renderer.destroy();
+  scenePrimitives.destroy();
+});
+
+test('BatchedGeometryPointRenderer resolves the current node generation to original point identity', () => {
+  const scenePrimitives = new Cesium.PrimitiveCollection();
+  const renderer = new BatchedGeometryPointRenderer();
+  renderer.attachTo({ scene: { primitives: scenePrimitives } });
+  renderer.addOrUpdateNode('node-a', createPreparedWorldPoints([0, 0, 0, 0.1, 0, 0]), {
+    pointSize: 3,
+    colorMode: 'fixed',
+    pointId: (pointIndex) => ({ nodeKey: 'node-a', pointIndex, ownerId: 'owner-a' }),
+  });
+
+  const scene = createCenterPickScene();
+  const nodePrimitive = scenePrimitives.get(0).get(0);
+  const pickId = nodePrimitive.geometryInstances.id;
+  const resolved = renderer.resolvePointPick(scene, new Cesium.Cartesian2(50, 50), { id: pickId });
+  assert.deepEqual(resolved, { nodeKey: 'node-a', pointIndex: 0, ownerId: 'owner-a' });
+  const non3dScene = { ...scene, mode: Cesium.SceneMode.SCENE2D };
+  assert.equal(renderer.resolveCpuPointPick(
+    non3dScene,
+    new Cesium.Cartesian2(50, 50),
+    { id: pickId },
+  ).reason, 'unsupported-scene-mode');
+  assert.equal(renderer.resolvePointPick(non3dScene, new Cesium.Cartesian2(50, 50), { id: pickId }), undefined);
+
+  const stalePick = { id: pickId };
+  renderer.addOrUpdateNode('node-a', createPreparedWorldPoints([0, 0, 0]), {
+    pointSize: 3,
+    colorMode: 'fixed',
+    pointId: (pointIndex) => ({ nodeKey: 'node-a', pointIndex, ownerId: 'owner-a' }),
+  });
+  assert.equal(renderer.resolvePointPick(scene, new Cesium.Cartesian2(50, 50), stalePick), undefined);
+  assert.equal(renderer.resolvePointPick(scene, new Cesium.Cartesian2(50, 50), {
+    id: { ...pickId, ownerId: 'owner-b' },
+  }), undefined);
+  renderer.removeNode('node-a');
+  assert.equal(renderer.resolvePointPick(scene, new Cesium.Cartesian2(50, 50), stalePick), undefined);
+  renderer.destroy();
+  scenePrimitives.destroy();
+});
+
+test('BatchedGeometryPointRenderer keeps committed nodes when replacement preparation fails', () => {
+  const scenePrimitives = new Cesium.PrimitiveCollection();
+  const renderer = new BatchedGeometryPointRenderer();
+  renderer.attachTo({ scene: { primitives: scenePrimitives } });
+  renderer.addOrUpdateNode('node-a', createPreparedPoints(), {
+    pointSize: 2,
+    colorMode: 'fixed',
+  });
+  const parent = scenePrimitives.get(0);
+  const originalPrimitive = parent.get(0);
+
+  assert.throws(() => renderer.addOrUpdateNode('node-a', {
+    pointCount: 1,
+    coordinates: new Float64Array([0, 0, 0]),
+  }, { pointSize: 2, colorMode: 'fixed' }), /requires prepared WGS84 ECEF/);
+  assert.throws(() => renderer.addOrUpdateNode('node-a', {
+    pointCount: 0,
+    coordinates: new Float64Array(),
+    worldCoordinates: new Float64Array(),
+    worldCoordinateSystem: 'wgs84-ecef-meters',
+  }, { pointSize: 2, colorMode: 'fixed' }), /requires a nonempty point buffer/);
+  assert.throws(() => renderer.addOrUpdateNode('node-a', createPreparedPoints(), {
+    pointSize: Number.NaN,
+    colorMode: 'fixed',
+  }), /requires a positive finite point size/);
+  assert.equal(renderer.hasNode('node-a'), true);
+  assert.equal(parent.length, 1);
+  assert.equal(parent.get(0), originalPrimitive);
+  renderer.destroy();
+  scenePrimitives.destroy();
+});
+
+test('BatchedGeometryPointRenderer preserves shared color modes and point filtering', () => {
+  const scenePrimitives = new Cesium.PrimitiveCollection();
+  const renderer = new BatchedGeometryPointRenderer();
+  renderer.attachTo({ scene: { primitives: scenePrimitives } });
+  const points = {
+    pointCount: 3,
+    coordinates: new Float64Array([0, 0, 5, 0, 0, 10, 0, 0, 15]),
+    worldCoordinates: new Float64Array([
+      6_378_137, 0, 0,
+      6_378_137.01, 0, 0,
+      6_378_137.02, 0, 0,
+    ]),
+    worldCoordinateSystem: 'wgs84-ecef-meters',
+    attributes: {
+      intensity: new Uint16Array([0, 100, 200]),
+      classification: new Uint8Array([2, 6, 6]),
+      red: new Uint16Array([255, 0, 64]),
+      green: new Uint16Array([0, 255, 128]),
+      blue: new Uint16Array([0, 0, 255]),
+    },
+  };
+  const nodeKey = 'styled-node';
+  const modes = ['fixed', 'rgb', 'elevation', 'intensity', 'classification'];
+  for (const colorMode of modes) {
+    const options = {
+      pointSize: 4,
+      colorMode,
+      elevationRange: { min: 0, max: 20 },
+      rgbMax: 255,
+      pointFilter: (index) => index !== 1,
+    };
+    renderer.addOrUpdateNode(nodeKey, points, options);
+    const geometry = scenePrimitives.get(0).get(0).geometryInstances.geometry;
+    assert.deepEqual(
+      Array.from(geometry.attributes.a_color.values),
+      Array.from(prepareCopcPointColorBuffer(points, options)),
+      `color mode ${colorMode}`,
+    );
+    assert.deepEqual(Array.from(geometry.attributes.a_pointSize.values), [4, -4, 4]);
+    assert.equal(renderer.getRenderedNodePointCount(nodeKey), 2);
+  }
+
+  renderer.updateNodeStyle(nodeKey, points, {
+    pointSize: 4,
+    colorMode: 'classification',
+    pointFilter: (index) => points.attributes.classification[index] === 6,
+  });
+  assert.equal(renderer.getRenderedNodePointCount(nodeKey), 2);
+  assert.deepEqual(
+    Array.from(scenePrimitives.get(0).get(0).geometryInstances.geometry.attributes.a_pointSize.values),
+    [-4, 4, 4],
+  );
+  renderer.destroy();
+  scenePrimitives.destroy();
+});
+
+test('BatchedGeometryPointRenderer handles multiple nodes and repeated lifecycle operations', () => {
+  const scenePrimitives = new Cesium.PrimitiveCollection();
+  const applicationPrimitive = new Cesium.PrimitiveCollection();
+  scenePrimitives.add(applicationPrimitive);
+  const viewer = { scene: { primitives: scenePrimitives } };
+  const renderer = new BatchedGeometryPointRenderer();
+  const points = createPreparedPoints();
+
+  renderer.attachTo(viewer);
+  renderer.addOrUpdateNode('node-b', points, { pointSize: 2, colorMode: 'fixed' });
+  renderer.addOrUpdateNode('node-a', points, {
+    pointSize: 2,
+    colorMode: 'fixed',
+    pointFilter: (index) => index === 0,
+  });
+  assert.deepEqual(renderer.getRenderedNodeKeys(), ['node-a', 'node-b']);
+  assert.equal(renderer.getRenderedNodePointCount('node-a'), 1);
+  assert.equal(renderer.getRenderedNodePointCount('node-b'), 2);
+  assert.equal(renderer.getRenderedPointCount(), 3);
+
+  const firstContainer = scenePrimitives.get(1);
+  const firstNodePrimitive = firstContainer.get(0);
+  renderer.setShow(false);
+  const hiddenResult = renderer.resolveCpuPointPick(
+    { camera: {}, canvas: {} },
+    new Cesium.Cartesian2(0, 0),
+    { id: firstNodePrimitive.geometryInstances.id },
+  );
+  assert.equal(hiddenResult.reason, 'hidden-node');
+  renderer.setShow(true);
+  renderer.removeNode('node-b');
+  assert.deepEqual(renderer.getRenderedNodeKeys(), ['node-a']);
+  renderer.clear();
+  renderer.clear();
+  assert.equal(renderer.getRenderedPointCount(), 0);
+  assert.equal(firstContainer.length, 0);
+
+  renderer.detachFrom();
+  renderer.detachFrom();
+  assert.equal(scenePrimitives.length, 1);
+  assert.equal(scenePrimitives.get(0), applicationPrimitive);
+  assert.equal(applicationPrimitive.isDestroyed(), false);
+
+  renderer.attachTo(viewer);
+  renderer.addOrUpdateNode('after-reattach', points, { pointSize: 2, colorMode: 'fixed' });
+  renderer.destroy();
+  renderer.destroy();
+  assert.equal(scenePrimitives.length, 1);
   assert.equal(applicationPrimitive.isDestroyed(), false);
   scenePrimitives.destroy();
 });

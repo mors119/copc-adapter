@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 const appDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryDirectory = path.resolve(appDirectory, '../..');
 const packageSourceDirectory = path.resolve(repositoryDirectory, 'packages');
+const isolatedCesiumPackageDirectory = process.env.COPC_TEST_CESIUM_PACKAGE_DIR;
 
 function localSampleRangeMiddleware() {
   return {
@@ -60,12 +61,26 @@ function localSampleRangeMiddleware() {
 }
 
 export default defineConfig({
-  plugins: [localSampleRangeMiddleware(), cesium()],
+  plugins: [
+    localSampleRangeMiddleware(),
+    cesium(isolatedCesiumPackageDirectory ? {
+      cesiumBuildRootPath: path.join(isolatedCesiumPackageDirectory, 'Build'),
+      cesiumBuildPath: path.join(isolatedCesiumPackageDirectory, 'Build/Cesium'),
+    } : {}),
+  ],
   resolve: {
     alias: [
+      ...(isolatedCesiumPackageDirectory ? [{
+        find: /^cesium$/,
+        replacement: path.join(isolatedCesiumPackageDirectory, 'Source/Cesium.js'),
+      }] : []),
       {
         find: /^@frillab\/copc-adapter$/,
         replacement: path.resolve(packageSourceDirectory, 'index.ts'),
+      },
+      {
+        find: /^@frillab\/copc-adapter\/cesium$/,
+        replacement: path.resolve(packageSourceDirectory, 'cesium.ts'),
       },
     ],
   },

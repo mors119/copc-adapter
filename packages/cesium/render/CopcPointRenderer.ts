@@ -3,6 +3,7 @@ import type {
   GeographicPointBuffer,
   PreparedPointData,
 } from '../../core/copc/types/copc';
+import type { CopcPointPickId } from '../../core/copc/points/pointInspection';
 import { performanceNow } from '../../core/copc/performance';
 import type {
   CopcPointRenderer,
@@ -68,6 +69,12 @@ export interface CesiumPointRenderer extends CopcPointRenderer {
     points: CesiumPointData,
     options: CopcCesiumPointRendererOptions,
   ): void;
+  /** Resolve a Cesium node-level pick to one source point when supported. */
+  resolvePointPick?(
+    scene: Cesium.Scene,
+    windowPosition: Cesium.Cartesian2,
+    pickedObject: unknown,
+  ): CopcPointPickId | undefined;
   /** Return a clone of the visible node bounds in WGS84 ECEF, when available. */
   getSelectionBoundingSphere(): Cesium.BoundingSphere | undefined;
 }

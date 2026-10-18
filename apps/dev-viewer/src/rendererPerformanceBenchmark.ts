@@ -8,6 +8,9 @@ import {
   type CopcCesiumPointRendererOptions,
   type CopcPointRendererPerformanceStage,
 } from '../../../packages/cesium/render/CopcPointRenderer';
+import { BatchedGeometryPointRenderer } from '@frillab/copc-adapter/cesium';
+
+export type RendererBenchmarkKind = 'point-primitive' | 'batched-geometry';
 
 type BenchmarkStage = CopcPointRendererPerformanceStage | 'nodeReplacement';
 
@@ -18,6 +21,7 @@ export type BenchmarkRange = {
 };
 
 export type RendererPerformanceBenchmarkRow = {
+  renderer: RendererBenchmarkKind;
   pointCount: number;
   crsTransform: BenchmarkRange;
   geographicToCartesian: BenchmarkRange;
@@ -27,6 +31,7 @@ export type RendererPerformanceBenchmarkRow = {
   pointAdd: BenchmarkRange;
   rendererPreparation: BenchmarkRange;
   nodeReplacement: BenchmarkRange;
+  styleUpdate: BenchmarkRange;
   nodeRemoval: BenchmarkRange;
 };
 
@@ -36,6 +41,7 @@ export type RendererPerformanceBenchmarkOptions = {
   repetitions?: number;
   warmups?: number;
   colorMode?: CopcCesiumPointRendererOptions['colorMode'];
+  renderer?: RendererBenchmarkKind;
 };
 
 const SYNTHETIC_METADATA: CopcMetadata = {
@@ -151,11 +157,13 @@ export function runSyntheticRendererPerformanceBenchmark(
   const warmups = Math.max(0, Math.floor(options.warmups ?? 2));
   const pointCounts = options.pointCounts ?? DEFAULT_POINT_COUNTS;
   const colorMode = options.colorMode ?? 'rgb';
+  const rendererKind = options.renderer ?? 'point-primitive';
   const rows: RendererPerformanceBenchmarkRow[] = [];
 
   for (const pointCount of pointCounts) {
     const points = createDeterministicPointBuffer(pointCount);
     const crsValues: number[] = [];
+    const styleUpdateValues: number[] = [];
     const stages: Partial<Record<BenchmarkStage, number[]>> = {};
 
     for (let repetition = 0; repetition < warmups + repetitions; repetition += 1) {
@@ -163,7 +171,9 @@ export function runSyntheticRendererPerformanceBenchmark(
       const preparedPoints = transformPointBufferToPreparedPointData(SYNTHETIC_METADATA, points);
       const crsDuration = performanceNow() - crsStartedAt;
       const firstStages: Partial<Record<BenchmarkStage, number[]>> = {};
-      const renderer: CesiumPointRenderer = new PointPrimitiveRenderer();
+      const renderer: CesiumPointRenderer = rendererKind === 'batched-geometry'
+        ? new BatchedGeometryPointRenderer()
+        : new PointPrimitiveRenderer();
       renderer.attachTo(viewer);
 
       renderer.addOrUpdateNode(
@@ -181,6 +191,14 @@ export function runSyntheticRendererPerformanceBenchmark(
       );
       const replacementDuration = performanceNow() - replacementStartedAt;
 
+      const styleUpdateStartedAt = performanceNow();
+      renderer.updateNodeStyle?.(
+        'synthetic-node',
+        preparedPoints,
+        rendererOptions(colorMode === 'fixed' ? 'rgb' : 'fixed', {}),
+      );
+      const styleUpdateDuration = performanceNow() - styleUpdateStartedAt;
+
       renderer.removeNode('synthetic-node');
       renderer.destroy();
 
@@ -189,6 +207,7 @@ export function runSyntheticRendererPerformanceBenchmark(
       }
 
       crsValues.push(crsDuration);
+      styleUpdateValues.push(styleUpdateDuration);
       for (const [stage, values] of Object.entries(firstStages)) {
         const duration = values?.[0];
         if (duration !== undefined) {
@@ -205,6 +224,7 @@ export function runSyntheticRendererPerformanceBenchmark(
     const range = (stage: BenchmarkStage): BenchmarkRange =>
       summarize(stages[stage] ?? []);
     rows.push({
+      renderer: rendererKind,
       pointCount,
       crsTransform: summarize(crsValues),
       geographicToCartesian: range('geographicToCartesian'),
@@ -214,6 +234,7 @@ export function runSyntheticRendererPerformanceBenchmark(
       pointAdd: range('pointAdd'),
       rendererPreparation: range('rendererPreparation'),
       nodeReplacement: range('nodeReplacement'),
+      styleUpdate: summarize(styleUpdateValues),
       nodeRemoval: range('nodeRemoval'),
     });
   }

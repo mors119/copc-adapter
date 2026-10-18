@@ -8,6 +8,11 @@ import { isCopcPointPickId } from '../../core/copc/points/pointInspection';
 type CesiumPointPickerOptions = {
   inspectPoint: (pickId: CopcPointPickId) => CopcPointInspection | undefined;
   hasNode: (nodeKey: string) => boolean;
+  resolveBatchedPoint?: (
+    scene: Cesium.Scene,
+    windowPosition: Cesium.Cartesian2,
+    pickedObject: unknown,
+  ) => CopcPointPickId | undefined;
   onPointPicked?: (point: CopcPointInspection | undefined) => void;
 };
 
@@ -92,13 +97,27 @@ export class CesiumPointPicker {
   /** @internal Process one screen-space hit; exposed for the layer's test seam. */
   pick(viewer: Cesium.Viewer, position: Cesium.Cartesian2): void {
     const picked = viewer.scene.pick(position) as { id?: unknown } | undefined;
-    if (!picked || !isCopcPointPickId(picked.id)
-      || picked.id.ownerId !== this.ownerId) {
+    if (!picked) {
       this.clear();
       return;
     }
 
-    const pickId = picked.id;
+    let pickId: CopcPointPickId | undefined;
+    if (isCopcPointPickId(picked.id)) {
+      // Preserve the existing one-stage path for PointPrimitiveRenderer.
+      if (picked.id.ownerId !== this.ownerId) {
+        this.clear();
+        return;
+      }
+      pickId = picked.id;
+    } else {
+      pickId = this.options.resolveBatchedPoint?.(viewer.scene, position, picked);
+      if (!isCopcPointPickId(pickId) || pickId.ownerId !== this.ownerId) {
+        this.clear();
+        return;
+      }
+    }
+
     const inspection = this.options.inspectPoint(pickId);
     if (!inspection || !this.options.hasNode(pickId.nodeKey)) {
       this.clear();

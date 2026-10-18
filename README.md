@@ -455,7 +455,11 @@ controls, render loop, and UI.
   report](docs/benchmarks/issue-208-worker-responsiveness.md).
 - Rendering uses the compatibility `PointPrimitiveRenderer` boundary backed by
   `Cesium.PointPrimitiveCollection`; coverage-safe transitions keep old
-  coverage until a replacement is ready. Benchmark evidence is in the
+  coverage until a replacement is ready. `BatchedGeometryPointRenderer` is an
+  explicit Cesium entrypoint opt-in, with conservative CPU refinement for
+  point-level picks; ambiguous overlaps clear selection. It has been browser
+  validated with Cesium 1.142.0 and 1.146.0. Point identity resolution is
+  currently limited to 3D scene mode. Benchmark evidence is in the
   [renderer benchmark](docs/benchmarks/issue-48-renderer.md).
 - Dense refinement workloads can take time to finish progressively. The
   priority scheduler keeps range/decode/preparation work bounded, emits each

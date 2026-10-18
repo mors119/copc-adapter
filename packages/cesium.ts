@@ -165,6 +165,7 @@ export type {
 export {
   PointPrimitiveRenderer,
 } from './cesium/render/CopcPointRenderer';
+export { BatchedGeometryPointRenderer } from './cesium/render/BatchedGeometryPointRenderer';
 export {
   toCartesian3Array,
   toCartesian3ArrayFromBuffer,

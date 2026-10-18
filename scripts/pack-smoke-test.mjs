@@ -235,6 +235,9 @@ try {
   if (/(?:from|import)\s+['"][^'"]*three/u.test(cesiumDeclaration)) {
     throw new Error('Cesium declarations contain a Three.js module reference');
   }
+  if (!cesiumDeclaration.includes('BatchedGeometryPointRenderer')) {
+    throw new Error('Cesium declarations do not export BatchedGeometryPointRenderer');
+  }
   const threeDeclaration = await readFile(
     path.resolve(installedPackageDirectory, 'dist/three.d.ts'),
     'utf8',
@@ -248,6 +251,9 @@ try {
   );
   if (/three/iu.test(cesiumEntrySource)) {
     throw new Error('Cesium entry contains a Three.js module reference');
+  }
+  if (!cesiumEntrySource.includes('BatchedGeometryPointRenderer')) {
+    throw new Error('Cesium entry does not export BatchedGeometryPointRenderer');
   }
   if (existsSync(path.resolve(consumerDirectory, 'node_modules/three'))) {
     throw new Error('Cesium-only consumer unexpectedly installed Three.js');
