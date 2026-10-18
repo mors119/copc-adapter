@@ -132,6 +132,12 @@ a separately defined and tested contract.
 - `url`: browser-readable COPC URL. The source must support HTTP Range
   requests and appropriate CORS headers.
 - `pointSize`: Cesium point size in pixels. Default: `3`.
+- `pointSizeMode`: `'fixed' | 'attenuated'`. Default: `'fixed'`. Attenuation
+  requires a renderer that advertises shader support, such as the opt-in
+  `BatchedGeometryPointRenderer`; unsupported renderers retain fixed sizing.
+- `minPointSize`: minimum attenuated diameter in CSS pixels. Default: `1`.
+- `maxPointSize`: maximum attenuated diameter in CSS pixels. Default: `12`;
+  values above `64` are rejected.
 - `colorMode`: `'fixed' | 'elevation' | 'rgb' | 'intensity' |
   'classification'`. Default: `'fixed'`.
 - `heightOffsetMeters`: manual additive correction in metres applied after
@@ -194,6 +200,19 @@ that open-ended range. The batched picker requests a 1×1 `scene.pick` window to
 match the CPU resolver's screen sample; the default compatibility renderer
 continues to use Cesium's normal pick window. The compatibility renderer
 remains the default.
+
+For `pointSizeMode: 'attenuated'`, the batched renderer derives local spacing
+from COPC metadata as `spacing / 2^level`. It converts source CRS offsets at
+each node center through the same transform used for rendering and measures
+them in WGS84 ECEF metres. This prevents geographic degrees from being used
+as metre values and accounts for latitude-dependent ground spacing. The
+vertex shader projects spacing with the current camera projection. Perspective
+sizes decrease with view depth; orthographic sizes do not. The shader clamps
+to `minPointSize`/`maxPointSize` in CSS pixels, then uses Cesium's pixel ratio
+for device pixel ratio and resolution scaling. Missing spacing uses fixed size.
+No node geometry is recreated for camera-only changes. CPU point picking
+applies the same per-point projected footprint. Other renderers retain the
+fixed-size path unless they explicitly advertise shader support.
 
 The Cesium layer retains the supported standard style attributes (intensity,
 classification, and RGB) in its decoded point buffers so the color mode can be

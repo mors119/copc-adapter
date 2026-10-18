@@ -176,8 +176,14 @@ export type {
   CopcCesiumPointRenderer,
   CopcCesiumPointRendererOptions,
   CopcCesiumPointRendererPerformanceStage,
+  CopcCesiumPointSizeMode,
   CopcPointRendererPerformanceStage,
 } from './cesium/render/CopcPointRenderer';
+export {
+  DEFAULT_MAX_ATTENUATED_POINT_SIZE_CSS_PIXELS,
+  DEFAULT_MIN_ATTENUATED_POINT_SIZE_CSS_PIXELS,
+  MAX_ATTENUATED_POINT_SIZE_CSS_PIXELS,
+} from './cesium/render/projectedPointSize';
 export type {
   CopcPointRenderer,
   CopcPointRendererOptions,

@@ -13,6 +13,8 @@ const datasetUrl = '/samples/autzen.copc.laz';
 const params = new URLSearchParams(window.location.search);
 const backend = params.get('backend') === 'copc-js' ? 'copc-js' : 'rust';
 const colorMode = params.get('mode') ?? 'rgb';
+const pointSizeMode = params.get('pointSizeMode') === 'attenuated' ? 'attenuated' : 'fixed';
+const maxRenderDistanceMeters = Number(params.get('maxRenderDistanceMeters')) || 20_000;
 const renderer = params.get('renderer') === 'batched'
   ? new BatchedGeometryPointRenderer()
   : undefined;
@@ -35,13 +37,16 @@ const layer = new CopcCesiumLayer({
   ...(renderer ? { renderer } : {}),
   backend,
   colorMode,
+  pointSizeMode,
+  minPointSize: 1,
+  maxPointSize: 8,
   pointSize: 2,
   debug: true,
   streaming: {
     maxNodes: 32,
     maxDepth: 6,
     maxScreenSpaceError: 8,
-    maxRenderDistanceMeters: 20_000,
+    maxRenderDistanceMeters,
   },
 });
 
@@ -160,6 +165,9 @@ function getState() {
   const metadata = layer.getMetadata();
   const diagnostics = renderedDiagnostics();
   const cameraPosition = Cesium.Cartographic.fromCartesian(viewer.camera.positionWC);
+  const datasetCenter = layer.boundingSphere
+    ? Cesium.Cartographic.fromCartesian(layer.boundingSphere.center)
+    : undefined;
   return {
     viewerCreatedByConsumer: true,
     viewerAlive: !viewer.isDestroyed(),
@@ -180,7 +188,17 @@ function getState() {
       latitude: Cesium.Math.toDegrees(cameraPosition.latitude),
       height: cameraPosition.height,
     },
+    datasetCenter: datasetCenter ? {
+      longitude: Cesium.Math.toDegrees(datasetCenter.longitude),
+      latitude: Cesium.Math.toDegrees(datasetCenter.latitude),
+    } : undefined,
+    cameraOrientation: {
+      heading: Cesium.Math.toDegrees(viewer.camera.heading),
+      pitch: Cesium.Math.toDegrees(viewer.camera.pitch),
+    },
     performance: snapshot.performance,
+    transition: snapshot.transition,
+    rangeRequests: snapshot.rangeRequests,
     worker: snapshot.worker,
     cameraChangeCount,
     longestMainThreadTaskMs,
@@ -305,6 +323,22 @@ window.__PACKED_CONSUMER__ = {
   batchedRendererExportAvailable: typeof BatchedGeometryPointRenderer === 'function',
   getLastErrorStack: () => lastErrorStack,
   getState,
+  getPointSizeDiagnostics() {
+    if (!renderer) return undefined;
+    return [...renderer.nodes.entries()].map(([nodeKey, node]) => ({
+      nodeKey,
+      mode: node.pointSizeMode,
+      spacingMeters: node.pointSpacingMeters,
+      minimumCssPixels: node.minPointSize,
+      maximumCssPixels: node.maxPointSize,
+      generation: node.generation,
+      geometrySpacingAttribute: node.primitive.geometryInstances.geometry
+        .attributes.a_spacingMeters?.values
+        ? Array.from(node.primitive.geometryInstances.geometry.attributes.a_spacingMeters.values)
+        : [],
+      vertexShaderSource: node.primitive.appearance.vertexShaderSource,
+    }));
+  },
     getBatchedPointPickTarget() {
       if (!renderer) return undefined;
       for (const nodeKey of renderer.getRenderedNodeKeys()) {
@@ -340,6 +374,17 @@ window.__PACKED_CONSUMER__ = {
     const current = Cesium.Cartographic.fromCartesian(viewer.camera.positionWC);
     viewer.camera.setView({
       destination: Cesium.Cartesian3.fromRadians(current.longitude, current.latitude, height),
+    });
+    viewer.camera.moveEnd.raiseEvent();
+  },
+  setCameraPose({ longitude, latitude, height, heading = 0, pitch = -45 }) {
+    viewer.camera.setView({
+      destination: Cesium.Cartesian3.fromDegrees(longitude, latitude, height),
+      orientation: {
+        heading: Cesium.Math.toRadians(heading),
+        pitch: Cesium.Math.toRadians(pitch),
+        roll: 0,
+      },
     });
     viewer.camera.moveEnd.raiseEvent();
   },

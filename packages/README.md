@@ -54,6 +54,31 @@ including equal-depth ties, also returns no selected point. Browser validation
 covers Cesium 1.142.0 and 1.146.0; these checks do not establish behavior for
 every version accepted by the package's unchanged `cesium >=1.142.0` peer range.
 
+Spacing-aware point sizing is opt-in and requires a renderer that advertises
+shader support. The public batched renderer supports it; other renderers keep
+the fixed-size path:
+
+```ts
+const layer = new CopcCesiumLayer({
+  url: 'https://example.com/data.copc.laz',
+  renderer: new BatchedGeometryPointRenderer(),
+  pointSizeMode: 'attenuated',
+  minPointSize: 1,
+  maxPointSize: 12,
+});
+```
+
+The shader projects nominal COPC spacing (`metadata.spacing / 2^level`) through
+the current perspective or orthographic camera and clamps the diameter to the
+configured CSS-pixel bounds. Bounds default to 1–12 CSS pixels, and the maximum
+cannot exceed 64. Device pixel ratio and Cesium resolution scaling are applied
+when converting CSS pixels to drawing-buffer pixels. Source spacing is
+transformed at each node center and measured in metres; geographic angular
+units use their local WGS84 ground distance. If spacing is absent or cannot be
+converted, that node uses fixed sizing. Camera-only changes update the shader
+projection without rebuilding node geometry. CPU point picking uses the same
+projected-size calculation.
+
 The historical root import remains supported for existing Cesium consumers:
 
 ```ts

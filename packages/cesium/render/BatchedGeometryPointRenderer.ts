@@ -5,10 +5,16 @@ import { prepareCopcPointColorBuffer } from '../../core/point/style/pointStyle';
 import type { CopcPointPickId } from '../../core/copc/points/pointInspection';
 import type { CopcCesiumPointRendererOptions, CesiumPointRenderer } from './CopcPointRenderer';
 import { packRelativeEcef } from './relativeEcef';
+import {
+  DEFAULT_MAX_ATTENUATED_POINT_SIZE_CSS_PIXELS,
+  DEFAULT_MIN_ATTENUATED_POINT_SIZE_CSS_PIXELS,
+  MAX_ATTENUATED_POINT_SIZE_CSS_PIXELS,
+  computeProjectedPointSizeCssPixels,
+} from './projectedPointSize';
 
 type PointData = GeographicPointBuffer | PreparedPointData;
 
-const VERTEX_SHADER = `
+const FIXED_VERTEX_SHADER = `
 in vec3 position3DHigh;
 in vec3 position3DLow;
 in vec3 a_color;
@@ -22,6 +28,39 @@ void main() {
   v_color = a_color;
   v_show = a_pointSize < 0.0 ? 0.0 : 1.0;
 }`;
+
+function createAttenuatedVertexShader(minPointSize: number, maxPointSize: number): string {
+  return `
+in vec3 position3DHigh;
+in vec3 position3DLow;
+in vec3 a_color;
+in float a_pointSize;
+in float a_spacingMeters;
+in float batchId;
+out vec3 v_color;
+out float v_show;
+void main() {
+  vec4 position = czm_computePosition();
+  vec4 positionEC = czm_modelViewRelativeToEye * position;
+  gl_Position = czm_modelViewProjectionRelativeToEye * position;
+  float viewportHeightCssPixels = czm_viewport.w / czm_pixelRatio;
+  float projectedSizeCssPixels = a_spacingMeters
+    * 0.5
+    * viewportHeightCssPixels
+    * abs(czm_projection[1][1]);
+  if (abs(czm_projection[2][3]) > 0.5) {
+    projectedSizeCssPixels /= max(-positionEC.z, 0.001);
+  }
+  float boundedSizeCssPixels = clamp(
+    projectedSizeCssPixels,
+    ${minPointSize.toPrecision(9)},
+    ${maxPointSize.toPrecision(9)}
+  );
+  gl_PointSize = boundedSizeCssPixels * czm_pixelRatio;
+  v_color = a_color;
+  v_show = a_pointSize < 0.0 ? 0.0 : 1.0;
+}`;
+}
 
 const FRAGMENT_SHADER = `
 in vec3 v_color;
@@ -44,6 +83,10 @@ type NodeRecord = {
   sourcePointCount: number;
   pointCount: number;
   pointSizePx: number;
+  pointSizeMode: 'fixed' | 'attenuated';
+  pointSpacingMeters?: number;
+  minPointSize: number;
+  maxPointSize: number;
   ownerId?: string;
   generation: number;
   observer?: CopcCesiumPointRendererOptions['onPerformance'];
@@ -54,6 +97,26 @@ const scratchViewProjectionMatrix = new Cesium.Matrix4();
 function getPickWidth(clickTolerancePx: number): number {
   const tolerance = Number.isFinite(clickTolerancePx) ? Math.max(0, clickTolerancePx) : 1.5;
   return Math.max(1, 2 * Math.floor(tolerance) + 1);
+}
+
+function getNodePointSizeCssPixels(
+  node: NodeRecord,
+  scene: Cesium.Scene,
+  viewDepthMeters: number,
+): number {
+  if (node.pointSizeMode !== 'attenuated' || node.pointSpacingMeters === undefined) {
+    return node.pointSizePx;
+  }
+  const projection = scene.camera.frustum.projectionMatrix;
+  return computeProjectedPointSizeCssPixels({
+    spacingMeters: node.pointSpacingMeters,
+    projectionYScale: Math.abs(projection[5]),
+    viewportHeightCssPixels: scene.canvas.clientHeight,
+    viewDepthMeters,
+    perspective: Math.abs(projection[11]) > Number.EPSILON,
+    minPointSize: node.minPointSize,
+    maxPointSize: node.maxPointSize,
+  }) ?? node.pointSizePx;
 }
 
 // The WebGL minimum depth-buffer precision is 16 bits. Cesium's public pick
@@ -139,6 +202,9 @@ export type CpuPointPickProbe = {
  * @experimental
  */
 export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
+  /** Supports spacing-aware point sizing through its per-node vertex shader. */
+  readonly supportsPointSizeAttenuation = true;
+
   private viewer?: Cesium.Viewer;
   private parent?: Cesium.PrimitiveCollection;
   private showState = true;
@@ -183,6 +249,22 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
     if (!Number.isFinite(options.pointSize) || options.pointSize <= 0) {
       throw new Error('Batched Geometry renderer requires a positive finite point size');
     }
+    if (options.pointSizeMode !== undefined
+      && options.pointSizeMode !== 'fixed'
+      && options.pointSizeMode !== 'attenuated') {
+      throw new TypeError('pointSizeMode must be "fixed" or "attenuated"');
+    }
+    const minPointSize = options.minPointSize
+      ?? DEFAULT_MIN_ATTENUATED_POINT_SIZE_CSS_PIXELS;
+    const maxPointSize = options.maxPointSize
+      ?? DEFAULT_MAX_ATTENUATED_POINT_SIZE_CSS_PIXELS;
+    if (!Number.isFinite(minPointSize) || minPointSize <= 0
+      || !Number.isFinite(maxPointSize) || maxPointSize < minPointSize
+      || maxPointSize > MAX_ATTENUATED_POINT_SIZE_CSS_PIXELS) {
+      throw new RangeError(
+        `minPointSize and maxPointSize must satisfy 0 < minPointSize <= maxPointSize <= ${MAX_ATTENUATED_POINT_SIZE_CSS_PIXELS}`,
+      );
+    }
     if (points.coordinates.length !== points.pointCount * 3) {
       throw new Error('Batched Geometry renderer requires XYZ coordinates for every point');
     }
@@ -210,6 +292,14 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
       rgbMax: options.rgbMax,
     });
     const pointSizes = new Float32Array(points.pointCount);
+    const pointSizeMode = options.pointSizeMode === 'attenuated'
+      && Number.isFinite(options.pointSpacingMeters)
+      && (options.pointSpacingMeters ?? 0) > 0
+      ? 'attenuated'
+      : 'fixed';
+    const pointSpacingValues = pointSizeMode === 'attenuated'
+      ? new Float32Array(points.pointCount).fill(options.pointSpacingMeters as number)
+      : undefined;
     const batchIds = new Float32Array(points.pointCount);
     const visibleMinimum = [Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY];
     const visibleMaximum = [Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY];
@@ -239,6 +329,7 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
     const attributes = new Cesium.GeometryAttributes() as Cesium.GeometryAttributes & {
       a_color: Cesium.GeometryAttribute;
       a_pointSize: Cesium.GeometryAttribute;
+      a_spacingMeters?: Cesium.GeometryAttribute;
       batchId: Cesium.GeometryAttribute;
     };
     attributes.position = new Cesium.GeometryAttribute({
@@ -261,6 +352,13 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
           componentsPerAttribute: 1,
           values: pointSizes,
         });
+    if (pointSpacingValues) {
+      attributes.a_spacingMeters = new Cesium.GeometryAttribute({
+        componentDatatype: Cesium.ComponentDatatype.FLOAT,
+        componentsPerAttribute: 1,
+        values: pointSpacingValues,
+      });
+    }
     attributes.batchId = new Cesium.GeometryAttribute({
       componentDatatype: Cesium.ComponentDatatype.FLOAT,
       componentsPerAttribute: 1,
@@ -282,7 +380,9 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
         },
       }),
       appearance: new Cesium.Appearance({
-        vertexShaderSource: VERTEX_SHADER,
+        vertexShaderSource: pointSizeMode === 'attenuated'
+          ? createAttenuatedVertexShader(minPointSize, maxPointSize)
+          : FIXED_VERTEX_SHADER,
         fragmentShaderSource: FRAGMENT_SHADER,
         renderState: {
           depthTest: { enabled: true },
@@ -343,6 +443,12 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
       sourcePointCount: points.pointCount,
       pointCount: visibleCount,
       pointSizePx: Math.abs(options.pointSize),
+      pointSizeMode,
+      ...(pointSizeMode === 'attenuated'
+        ? { pointSpacingMeters: options.pointSpacingMeters }
+        : {}),
+      minPointSize,
+      maxPointSize,
       ownerId,
       generation,
       observer: options.onPerformance,
@@ -615,11 +721,8 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
       }
     }
 
-    // Point sizes use CSS pixels, matching Cesium PointPrimitive. Projected
-    // coordinates are in drawing-buffer pixels, so convert with the current
-    // public canvas scale, including high-DPI and resolution scaling.
-    const pointRadius = node.pointSizePx * 0.5 * scaleX;
-    const pointRadiusSquared = pointRadius * pointRadius;
+    // GPU point sizes are in physical drawing-buffer pixels. Convert the CPU
+    // CSS-pixel size per candidate using the same current canvas scales.
     const world = new Cesium.Cartesian3();
     let candidateCount = 0;
     for (let pointIndex = 0; pointIndex < node.sourcePointCount; pointIndex += 1) {
@@ -634,6 +737,10 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
         + viewMatrix[10] * world.z
         + viewMatrix[14]);
       if (viewDepth <= camera.frustum.near || viewDepth >= camera.frustum.far) continue;
+      const pointRadiusX = getNodePointSizeCssPixels(node, scene, viewDepth) * 0.5 * scaleX;
+      const pointRadiusY = getNodePointSizeCssPixels(node, scene, viewDepth) * 0.5 * scaleY;
+      const pointRadiusX2 = pointRadiusX * pointRadiusX;
+      const pointRadiusY2 = pointRadiusY * pointRadiusY;
       const gpuDepth = projectPickDepth(scene, viewDepth);
       if (!Number.isFinite(gpuDepth)) continue;
       const depthPositionUncertainty = getPickDepthPositionUncertainty(
@@ -661,17 +768,17 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
       const screenX = (clipX / clipW + 1) * drawingBufferWidth * 0.5;
       const screenY = (1 - clipY / clipW) * drawingBufferHeight * 0.5;
       // Most points are immediately rejected by the small pick rectangle.
-      if (screenX < left - pointRadius - 0.5 || screenX > left + pickWidth - 0.5 + pointRadius
-        || drawingBufferHeight - screenY < bottom - pointRadius - 0.5
-        || drawingBufferHeight - screenY > bottom + pickWidth - 0.5 + pointRadius) continue;
+      if (screenX < left - pointRadiusX - 0.5 || screenX > left + pickWidth - 0.5 + pointRadiusX
+        || drawingBufferHeight - screenY < bottom - pointRadiusY - 0.5
+        || drawingBufferHeight - screenY > bottom + pickWidth - 0.5 + pointRadiusY) continue;
 
       let intersectsPickPixels = false;
       for (let sampleIndex = 0; sampleIndex < sampleCount; sampleIndex += 1) {
         if (!sampleValid[sampleIndex]) continue;
         const dx = screenX - sampleX[sampleIndex];
         const dy = drawingBufferHeight - screenY - sampleY[sampleIndex];
-        const distanceSquared = dx * dx + dy * dy;
-        if (distanceSquared > pointRadiusSquared) continue;
+        const normalizedDistanceSquared = dx * dx / pointRadiusX2 + dy * dy / pointRadiusY2;
+        if (normalizedDistanceSquared > 1) continue;
         intersectsPickPixels = true;
         const currentPointIndex = samplePointIndex[sampleIndex];
         const depthQuantizationRadius = PICK_DEPTH_QUANTUM * 0.5;

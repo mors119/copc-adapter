@@ -336,6 +336,84 @@ test('BatchedGeometryPointRenderer preserves shared color modes and point filter
   scenePrimitives.destroy();
 });
 
+test('BatchedGeometryPointRenderer computes bounded screen-space sizes from node spacing in the shader', () => {
+  const scenePrimitives = new Cesium.PrimitiveCollection();
+  const renderer = new BatchedGeometryPointRenderer();
+  renderer.attachTo({ scene: { primitives: scenePrimitives } });
+  assert.equal(renderer.supportsPointSizeAttenuation, true);
+  renderer.addOrUpdateNode('spacing-node', createPreparedPoints(), {
+    pointSize: 3,
+    pointSizeMode: 'attenuated',
+    pointSpacingMeters: 0.25,
+    minPointSize: 2,
+    maxPointSize: 10,
+    colorMode: 'fixed',
+    pointFilter: (index) => index === 0,
+  });
+
+  const primitive = scenePrimitives.get(0).get(0);
+  const geometry = primitive.geometryInstances.geometry;
+  assert.deepEqual(Array.from(geometry.attributes.a_spacingMeters.values), [0.25, 0.25]);
+  assert.deepEqual(Array.from(geometry.attributes.a_pointSize.values), [3, -3]);
+  assert.match(primitive.appearance.vertexShaderSource, /czm_projection\[1\]\[1\]/);
+  assert.match(primitive.appearance.vertexShaderSource, /czm_projection\[2\]\[3\]/);
+  assert.match(primitive.appearance.vertexShaderSource, /czm_viewport\.w \/ czm_pixelRatio/);
+  assert.match(primitive.appearance.vertexShaderSource, /clamp\([\s\S]*2\.00000000[\s\S]*10\.0000000/);
+  assert.match(primitive.appearance.vertexShaderSource, /boundedSizeCssPixels \* czm_pixelRatio/);
+
+  renderer.destroy();
+  scenePrimitives.destroy();
+});
+
+test('BatchedGeometryPointRenderer keeps missing node spacing on the fixed-size shader', () => {
+  const scenePrimitives = new Cesium.PrimitiveCollection();
+  const renderer = new BatchedGeometryPointRenderer();
+  renderer.attachTo({ scene: { primitives: scenePrimitives } });
+  renderer.addOrUpdateNode('no-spacing-node', createPreparedPoints(), {
+    pointSize: 4,
+    pointSizeMode: 'attenuated',
+    colorMode: 'fixed',
+  });
+
+  const primitive = scenePrimitives.get(0).get(0);
+  assert.equal(primitive.geometryInstances.geometry.attributes.a_spacingMeters, undefined);
+  assert.match(primitive.appearance.vertexShaderSource, /abs\(a_pointSize\) \* czm_pixelRatio/);
+  assert.doesNotMatch(primitive.appearance.vertexShaderSource, /a_spacingMeters/);
+
+  renderer.destroy();
+  scenePrimitives.destroy();
+});
+
+test('BatchedGeometryPointRenderer CPU picking follows attenuated sizes at high drawing-buffer scale', () => {
+  const scenePrimitives = new Cesium.PrimitiveCollection();
+  const renderer = new BatchedGeometryPointRenderer();
+  renderer.attachTo({ scene: { primitives: scenePrimitives } });
+  renderer.addOrUpdateNode('attenuated-pick-node', createPreparedWorldPoints([0, 0, 0]), {
+    pointSize: 2,
+    pointSizeMode: 'attenuated',
+    pointSpacingMeters: 2,
+    minPointSize: 1,
+    maxPointSize: 12,
+    colorMode: 'fixed',
+  });
+  const pickId = scenePrimitives.get(0).get(0).geometryInstances.id;
+  const scene = {
+    ...createPerspectiveCenterPickScene(false),
+    drawingBufferWidth: 300,
+    drawingBufferHeight: 300,
+  };
+  const result = renderer.resolveCpuPointPick(
+    scene,
+    new Cesium.Cartesian2(54, 50),
+    { id: pickId },
+    0.5,
+  );
+  assert.equal(result.picked, true);
+  assert.equal(result.pointIndex, 0);
+  renderer.destroy();
+  scenePrimitives.destroy();
+});
+
 test('BatchedGeometryPointRenderer handles multiple nodes and repeated lifecycle operations', () => {
   const scenePrimitives = new Cesium.PrimitiveCollection();
   const applicationPrimitive = new Cesium.PrimitiveCollection();
