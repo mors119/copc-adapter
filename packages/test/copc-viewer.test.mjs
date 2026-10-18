@@ -1128,6 +1128,7 @@ test('Cesium picks resolve through the shared live node and point cache', async 
   });
   const viewer = createFakeViewer();
   const nodeKey = '0-0-0-0';
+  let scenePickArguments;
 
   await layer.load();
   layer.attachTo(viewer);
@@ -1136,11 +1137,15 @@ test('Cesium picks resolve through the shared live node and point cache', async 
   // Drive the adapter-owned picker without constructing a browser DOM or a
   // real WebGL scene.
   const controller = layer.controller;
-  viewer.scene.pick = () => ({
-    id: { nodeKey, pointIndex: 1, ownerId: controller.pointPicker.ownerId },
-  });
+  viewer.scene.pick = (...args) => {
+    scenePickArguments = args;
+    return {
+      id: { nodeKey, pointIndex: 1, ownerId: controller.pointPicker.ownerId },
+    };
+  };
   controller.pointPicker.pick(viewer, new Cesium.Cartesian2(10, 10));
 
+  assert.equal(scenePickArguments.length, 1, 'default renderer keeps Cesium pick defaults');
   assert.equal(layer.getSelectedPoint().nodeKey, nodeKey);
   assert.equal(layer.getSelectedPoint().pointIndex, 1);
   assert.deepEqual(layer.getSelectedPoint().rgb, { red: 128, green: 128, blue: 255 });
@@ -1166,19 +1171,13 @@ test('Cesium picks resolve through the shared live node and point cache', async 
 test('CesiumPointPicker delegates node-level hits to the injected renderer and inspects the returned identity', async () => {
   const source = createBackend();
   const renderer = new PointPrimitiveRenderer();
-  const picked = [];
-  const layer = new CopcCesiumLayer({
-    url: 'memory://batched-picker-delegation.copc.laz',
-    backend: source.backend,
-    decoder: source.decoder,
-    renderer,
-    onPointPicked: (point) => picked.push(point),
-  });
   const viewer = createFakeViewer();
   const nodeKey = '0-0-0-0';
+  const picked = [];
+  let pointPickerOwnerId;
   let scenePickCalls = 0;
   let resolverCalls = 0;
-
+  let scenePickArguments;
   renderer.resolvePointPick = (scene, position, pickedObject) => {
     resolverCalls += 1;
     assert.equal(scene, viewer.scene);
@@ -1187,20 +1186,30 @@ test('CesiumPointPicker delegates node-level hits to the injected renderer and i
     return {
       nodeKey,
       pointIndex: 1,
-      ownerId: layer.controller.pointPicker.ownerId,
+      ownerId: pointPickerOwnerId,
     };
   };
+  const layer = new CopcCesiumLayer({
+    url: 'memory://batched-picker-delegation.copc.laz',
+    backend: source.backend,
+    decoder: source.decoder,
+    renderer,
+    onPointPicked: (point) => picked.push(point),
+  });
+  pointPickerOwnerId = layer.controller.pointPicker.ownerId;
 
   await layer.load();
   layer.attachTo(viewer);
   await waitFor(() => layer.getSnapshot().renderedPointCount === 2);
-  viewer.scene.pick = () => {
+  viewer.scene.pick = (...args) => {
     scenePickCalls += 1;
+    scenePickArguments = args;
     return { id: { nodeKey, ownerId: layer.controller.pointPicker.ownerId } };
   };
   layer.controller.pointPicker.pick(viewer, new Cesium.Cartesian2(10, 10));
 
   assert.equal(scenePickCalls, 1);
+  assert.deepEqual(scenePickArguments.slice(1), [1, 1]);
   assert.equal(resolverCalls, 1);
   assert.equal(layer.getSelectedPoint().nodeKey, nodeKey);
   assert.equal(layer.getSelectedPoint().pointIndex, 1);

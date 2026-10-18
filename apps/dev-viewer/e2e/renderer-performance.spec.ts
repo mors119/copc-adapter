@@ -421,6 +421,16 @@ test('measures dense single-node CPU picking at 250k points at DPR 1 and 2', asy
       });
       await expect.poll(async () => (await getState(page)).renderedPointCount)
         .toBeGreaterThan(0);
+      const pixelPicking = await page.evaluate(() =>
+        window.__COPC_DEBUG__?.runCpuBatchedPickingProbe() ?? {});
+      expect(pixelPicking.defaultPickWindowEdge).toMatchObject({
+        defaultWindowPickedNode: true,
+        batchedSinglePixelPickedNode: true,
+        batchedSinglePixelResolvedNodeKey: 'cpu-pick-default-window-edge',
+        batchedSinglePixelResolvedPointIndex: 0,
+      });
+      expect((pixelPicking.defaultPickWindowEdge as Record<string, unknown>)
+        .defaultWindowResolvedPointIndex).toBeUndefined();
       const pickPosition = await page.evaluate(() =>
         window.__COPC_DEBUG__?.getPickablePointScreenPosition());
       expect(pickPosition).toBeDefined();
@@ -432,8 +442,6 @@ test('measures dense single-node CPU picking at 250k points at DPR 1 and 2', asy
       );
       await expect.poll(async () => (await getState(page)).selectedPoint?.pointIndex)
         .toBeGreaterThanOrEqual(0);
-      const pixelPicking = await page.evaluate(() =>
-        window.__COPC_DEBUG__?.runCpuBatchedPickingProbe() ?? {});
       const sameDepths = pixelPicking.publicPointPickOracle as Record<string, unknown>;
       expect(sameDepths.matchesCpuIdentity).toBe(true);
       const toleranceCases = pixelPicking.toleranceCases as Array<Record<string, unknown>>;

@@ -96,7 +96,13 @@ export class CesiumPointPicker {
 
   /** @internal Process one screen-space hit; exposed for the layer's test seam. */
   pick(viewer: Cesium.Viewer, position: Cesium.Cartesian2): void {
-    const picked = viewer.scene.pick(position) as { id?: unknown } | undefined;
+    // Public scene.pick defaults to a 3x3 pixel window, but returns no pixel
+    // coordinate. Batched point refinement needs a deterministic pixel to
+    // preserve the exact source identity, so use a 1x1 pick for that optional
+    // capability. Keep the compatibility renderer's historical default.
+    const picked = (this.options.resolveBatchedPoint
+      ? viewer.scene.pick(position, 1, 1)
+      : viewer.scene.pick(position)) as { id?: unknown } | undefined;
     if (!picked) {
       this.clear();
       return;

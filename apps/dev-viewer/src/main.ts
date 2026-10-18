@@ -357,7 +357,7 @@ function installDebugAdapter(
             candidate.screenPosition.x,
             candidate.screenPosition.y,
           );
-          const picked = viewer.scene.pick(position);
+          const picked = viewer.scene.pick(position, 1, 1);
           const resolved = researchRenderer.resolvePointPick(viewer.scene, position, picked);
           if (resolved?.nodeKey === nodeKey
             && resolved.pointIndex === candidate.targetSourcePointIndex) {

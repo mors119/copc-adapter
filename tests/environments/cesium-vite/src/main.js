@@ -314,7 +314,7 @@ window.__PACKED_CONSUMER__ = {
             probe.screenPosition.x,
             probe.screenPosition.y,
           );
-          const pickedObject = viewer.scene.pick(position);
+          const pickedObject = viewer.scene.pick(position, 1, 1);
           const identity = renderer.resolvePointPick(viewer.scene, position, pickedObject);
           if (!identity || identity.nodeKey !== nodeKey) continue;
           return {

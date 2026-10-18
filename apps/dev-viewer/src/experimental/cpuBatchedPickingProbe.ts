@@ -88,6 +88,7 @@ export async function runCpuBatchedPickingProbe(
 
   const layerA = new BatchedGeometryPointRenderer();
   const layerB = new BatchedGeometryPointRenderer();
+  const edgeRenderer = new BatchedGeometryPointRenderer();
   const ownerA = 'cpu-pick-layer-a';
   const ownerB = 'cpu-pick-layer-b';
   const sharedKey = 'cpu-pick-shared';
@@ -168,6 +169,41 @@ export async function runCpuBatchedPickingProbe(
       };
     });
 
+    // Reproduce the review finding: default scene.pick sees this 2 CSS-pixel
+    // point in an outer 3x3 sample, but the center-only resolver cannot map it.
+    // The production batched picker explicitly requests one pixel instead.
+    layerA.setShow(false);
+    edgeRenderer.attachTo(viewer);
+    const edgeNodeKey = 'cpu-pick-default-window-edge';
+    addSyntheticNode(edgeRenderer, edgeNodeKey, createPreparedPoints([nearer]), {
+      ownerId: ownerA,
+      pointSize: 2,
+    });
+    await renderNextFrame(scene);
+    const edgePosition = new Cesium.Cartesian2(center.x + 1.25, center.y);
+    const defaultWindowPick = scene.pick(edgePosition) as { id?: unknown } | undefined;
+    const defaultWindowResolved = edgeRenderer.resolvePointPick(
+      scene,
+      edgePosition,
+      defaultWindowPick,
+    );
+    const batchedSinglePixelPick = scene.pick(center, 1, 1) as { id?: unknown } | undefined;
+    const singlePixelResolved = edgeRenderer.resolvePointPick(
+      scene,
+      center,
+      batchedSinglePixelPick,
+    );
+    const defaultPickWindowEdge = {
+      defaultWindowPickedNode: (defaultWindowPick?.id as { nodeKey?: unknown } | undefined)?.nodeKey === edgeNodeKey,
+      defaultWindowResolvedPointIndex: defaultWindowResolved?.pointIndex,
+      batchedSinglePixelPickedNode: (batchedSinglePixelPick?.id as { nodeKey?: unknown } | undefined)?.nodeKey === edgeNodeKey,
+      batchedSinglePixelResolvedNodeKey: singlePixelResolved?.nodeKey,
+      batchedSinglePixelResolvedPointIndex: singlePixelResolved?.pointIndex,
+    };
+    edgeRenderer.destroy();
+    layerA.setShow(true);
+    await renderNextFrame(scene);
+
     layerA.updateNodeStyle(sharedKey, sharedPoints, {
       pointSize: 8,
       colorMode: 'fixed',
@@ -219,6 +255,7 @@ export async function runCpuBatchedPickingProbe(
         farPointErrorMeters: cpuFarPointErrorMeters,
       },
       toleranceCases,
+      defaultPickWindowEdge,
       filteredProbe,
       hiddenLayerMiss,
       multipleNodesFrontmostHit: normalHit,
@@ -235,6 +272,7 @@ export async function runCpuBatchedPickingProbe(
     };
   } finally {
     if (pointOracle) scene.primitives.remove(pointOracle);
+    edgeRenderer.destroy();
     layerB.destroy();
     layerA.destroy();
     primaryRenderer.setShow(true);

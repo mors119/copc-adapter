@@ -180,9 +180,11 @@ Cesium, or GPU memory:
 console.log(layer.getPointCacheDiagnostics());
 ```
 
-Rendered points are picked with Cesium's normal `scene.pick` behavior. The
-layer keeps only a project-owned `{ nodeKey, pointIndex }` identity on each
-point and a layer-local ownership token, then resolves it through the current decoded node buffer. Use
+The compatibility renderer uses Cesium's default `scene.pick` window. The
+opt-in batched renderer requests a 1×1 pick sample so CPU refinement uses the
+same deterministic pixel rather than Cesium's undocumented 3×3 traversal
+order. Both resolve the project-owned `{ nodeKey, pointIndex }` identity
+through the current decoded node buffer. Use
 `onPointPicked` or `layer.getSelectedPoint()` after a click to read transformed
 position/height, retained source XYZ, and RGB/intensity/classification when
 those fields were requested and decoded. Missing fields remain unavailable,

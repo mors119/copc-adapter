@@ -332,8 +332,10 @@ export class CesiumLayerController {
           : undefined;
       },
       hasNode: (nodeKey) => this.pointRenderer.hasNode(nodeKey),
-      resolveBatchedPoint: (scene, position, pickedObject) =>
-        this.pointRenderer.resolvePointPick?.(scene, position, pickedObject),
+      resolveBatchedPoint: this.pointRenderer.resolvePointPick
+        ? (scene, position, pickedObject) =>
+          this.pointRenderer.resolvePointPick?.(scene, position, pickedObject)
+        : undefined,
       onPointPicked: options.onPointPicked,
     });
     this.replacementTransitions = new ReplacementTransitionManager({

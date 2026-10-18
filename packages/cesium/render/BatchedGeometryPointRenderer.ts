@@ -349,9 +349,8 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
     windowPosition: Cesium.Cartesian2,
     pickedObject: unknown,
   ): CopcPointPickId | undefined {
-    // CesiumPointPicker already issued one default-size scene.pick call. Match
-    // that framebuffer pixel here instead of widening it to a second pick
-    // rectangle with different traversal and overlap behavior.
+    // CesiumPointPicker requests one pixel for this optional capability, so
+    // the GPU hit and CPU refinement use the same deterministic sample.
     const result = this.resolveCpuPointPick(scene, windowPosition, pickedObject, 0.5);
     if (!result.picked || result.pointIndex === undefined || result.nodeKey === undefined) {
       return undefined;

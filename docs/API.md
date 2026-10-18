@@ -190,7 +190,10 @@ produce no selection. Point identity resolution is supported in 3D mode;
 2D, Columbus View, and morphing scenes return no selection. Browser validation
 has covered Cesium 1.142.0 and 1.146.0. The package peer range remains
 `cesium >=1.142.0`, so this validation is not a guarantee for every version in
-that open-ended range. The compatibility renderer remains the default.
+that open-ended range. The batched picker requests a 1×1 `scene.pick` window to
+match the CPU resolver's screen sample; the default compatibility renderer
+continues to use Cesium's normal pick window. The compatibility renderer
+remains the default.
 
 The Cesium layer retains the supported standard style attributes (intensity,
 classification, and RGB) in its decoded point buffers so the color mode can be
