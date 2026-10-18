@@ -6,6 +6,25 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Changed the default HTTP `rangeValidation` policy to `head-fallback` across
+  the Core, Cesium, Three.js, and source probe APIs. Readable `Content-Range`
+  values remain strictly checked; when JavaScript cannot read that header, the
+  default now requires a successful `HEAD` size check and an exact range body.
+- Kept explicit `rangeValidation: 'strict'` as the strongest available HTTP
+  validation policy. It requires readable request-matching `Content-Range` and
+  never uses `HEAD` fallback. Local `File`, `Blob`, and custom byte sources are
+  unaffected.
+
+### Security and compatibility
+
+- Successful HEAD-based compatibility validation warns once per HTTP source
+  instance. This path checks exact response length and detectable size or
+  readable validator changes, but cannot establish byte-offset correctness or
+  cryptographic data integrity. Existing users who require the previous
+  fail-closed behavior should set `rangeValidation: 'strict'` explicitly.
+
 ## [0.5.3] - 2026-10-17
 
 ### Added

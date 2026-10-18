@@ -36,7 +36,7 @@ export type CopcThreeLayerOptions = {
   decoder?: import('../../core/copc/points/types').CopcPointDecoder;
   /** Maximum retained decoded CPU point-buffer bytes; defaults to 256 MiB. */
   maxPointCacheBytes?: number;
-  /** Defaults to strict Content-Range validation. */
+  /** HTTP validation policy; defaults to `head-fallback`. Use `strict` to require readable Content-Range. */
   rangeValidation?: RangeValidationPolicy;
   /** Per-range byte ceiling. Defaults to 64 MiB; explicit values accept any positive safe integer. */
   maxRangeBytes?: number;

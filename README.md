@@ -191,13 +191,19 @@ those fields were requested and decoded. Missing fields remain unavailable,
 and picking never forces full-field decoding. The demo includes a compact
 lower-right inspector.
 
-The COPC source must support HTTP Range requests. Cross-origin sources must
-allow the consuming origin and expose `Content-Range` to browser JavaScript.
-A single byte-range `GET` is CORS-safelisted, so it does not by itself require
-preflight or `Range` in `Access-Control-Allow-Headers`; custom request headers
-can trigger preflight and must then be allowed. See the [HTTP Range / CORS
-hosting guide](https://mors119.github.io/copc-adapter/source-hosting) for
-provider settings and end-to-end checks.
+HTTP COPC sources must support Range requests and return exact `206` partial
+responses. The default `rangeValidation: 'head-fallback'` policy validates a
+readable `Content-Range` and uses a readable `HEAD` size only when JavaScript
+cannot read that header. Because `HEAD` cannot prove the returned byte offset,
+expose `Content-Range` for strict validation. Set
+`rangeValidation: 'strict'` to require that header and fail when it is
+unavailable. The fallback checks exact response length and detectable resource
+changes, but HTTP metadata is not cryptographic data integrity. Cross-origin
+sources need CORS permission for the consuming origin; the fallback also needs
+the browser to permit `HEAD` and read `Content-Length`. Local `File`/`Blob`
+inputs and caller-provided random-access sources do not use this HTTP policy.
+See the [HTTP Range / CORS hosting guide](https://mors119.github.io/copc-adapter/source-hosting)
+for provider settings and end-to-end checks.
 
 ### Diagnose a COPC source
 
@@ -214,10 +220,13 @@ console.table(source);
 
 The probe requests only bytes `0-1023`, reads a bounded response prefix, and
 may request the remainder of the LAS VLR area when that metadata is not in the
-first prefix. It does not download the whole file. A healthy result has
-`reachable: true`, `rangeSupported: true`, HTTP `206`, a returned range that
-matches the request, and `copcDetected: true`. `pointFormat` is the LAS point
-data record format when the header is observable.
+first prefix. It does not download the whole file and uses the same default
+validation policy as the layers. A healthy result has `reachable: true`,
+`rangeSupported: true`, HTTP `206`, `copcDetected: true`, and a
+`validationLevel` of `strict` or `compatibility-limited`. The compatibility
+level means `Content-Range` was not readable and byte-offset correctness could
+not be established. `pointFormat` is the LAS point data record format when the
+header is observable.
 
 `rangeSupported: false` means the browser observed an unusable response, such
 as HTTP `200` when the server ignored Range, a mismatched `Content-Range`, or a

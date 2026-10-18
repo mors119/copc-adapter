@@ -41,12 +41,17 @@ COPC object path because byte offsets must address the same stored bytes.
 ## HTTP Range and browser CORS are different
 
 - **Range support** is an HTTP behavior: the server returns `206`, a matching
-  `Content-Range`, and the requested bytes.
+  `Content-Range`, and the requested bytes. The adapter's default policy
+  validates a readable `Content-Range` strictly and uses bounded `HEAD`
+  compatibility checks only when JavaScript cannot read that header.
 - **CORS** controls whether JavaScript on another origin may read the response.
   The response needs `Access-Control-Allow-Origin` for the application
   origin. `Content-Range` is not a CORS-safelisted response header, so it also
-  needs to be named in `Access-Control-Expose-Headers`. `Content-Length` is
-  safelisted; listing it as well is harmless and can help diagnostics.
+  needs to be named in `Access-Control-Expose-Headers` for strict validation.
+  `Content-Length` is safelisted; listing it as well is harmless and can help
+  diagnostics. Expose `Content-Encoding`, `ETag`, and `Last-Modified` too when
+  the server returns them so the adapter can check visible representation and
+  resource changes.
 - **Preflight is conditional.** A single byte range such as
   `Range: bytes=0-1023` is a CORS-safelisted request header for a `GET`, so it
   does not by itself trigger an `OPTIONS` preflight. A multi-range value,
@@ -79,7 +84,7 @@ headers JavaScript can inspect.
       "AllowedOrigins": ["https://viewer.example.com"],
       "AllowedMethods": ["GET", "HEAD"],
       "AllowedHeaders": ["Range"],
-      "ExposeHeaders": ["Accept-Ranges", "Content-Length", "Content-Range"],
+      "ExposeHeaders": ["Accept-Ranges", "Content-Length", "Content-Range", "Content-Encoding", "ETag", "Last-Modified"],
       "MaxAgeSeconds": 600
     }
   ]
@@ -124,6 +129,9 @@ save this S3-compatible CORS document as `cors-config.xml`:
     <ExposeHeader>Accept-Ranges</ExposeHeader>
     <ExposeHeader>Content-Length</ExposeHeader>
     <ExposeHeader>Content-Range</ExposeHeader>
+    <ExposeHeader>Content-Encoding</ExposeHeader>
+    <ExposeHeader>ETag</ExposeHeader>
+    <ExposeHeader>Last-Modified</ExposeHeader>
     <MaxAgeSeconds>600</MaxAgeSeconds>
   </CORSRule>
 </CORSConfiguration>
@@ -198,7 +206,7 @@ server {
         add_header Access-Control-Allow-Origin $copc_cors_origin always;
         add_header Access-Control-Allow-Methods "GET, HEAD" always;
         add_header Access-Control-Allow-Headers "Range" always;
-        add_header Access-Control-Expose-Headers "Accept-Ranges, Content-Length, Content-Range" always;
+        add_header Access-Control-Expose-Headers "Accept-Ranges, Content-Length, Content-Range, Content-Encoding, ETag, Last-Modified" always;
         add_header Vary "Origin" always;
     }
 }
@@ -275,15 +283,18 @@ console.table({
 });
 ```
 
-A healthy COPC result has status `206`, requested and returned range
-`0-1023`, `Content-Range` readable as `bytes 0-1023/N` (or `*` if the total
-is unknown), `rangeSupported: true`, and `copcDetected: true`. For a `206`,
-`result.contentLength` is the full object size parsed from `Content-Range`; the
-HTTP `Content-Length`, if present, is the size of that response body. With an
-unknown `*` total, `result.contentLength` is absent even if the byte range is
-valid. `corsReadable: true` means fetch returned an inspectable response, but
-does not guarantee that every response header is exposed. Check
-`result.contentRange` directly.
+A healthy COPC result has status `206`, `rangeSupported: true`, and
+`copcDetected: true`. With a readable `Content-Range`, `validationLevel` is
+`strict` and `result.returnedRange` should match `0-1023`. If the browser cannot
+read `Content-Range`, the default probe uses `HEAD` and exact body length; a
+successful result reports `validationLevel: 'compatibility-limited'`, leaves
+`returnedRange`/`contentRange` unavailable, and reports the full size from
+`HEAD` as `result.contentLength`. A readable `Content-Range` total is reported
+as the full object size; an unknown `*` total leaves `contentLength` absent.
+The HTTP `Content-Length`, if present, describes the partial response body.
+`corsReadable: true` means fetch returned an inspectable response, but does not
+guarantee that every response header is exposed. Check
+`result.contentRange` and `result.validationLevel` directly.
 
 The browser's Network panel can show whether the request carried `Range`,
 whether the response was `206`, and whether the response contained
@@ -337,12 +348,14 @@ These curl observations do not establish browser header visibility or byte
 offset correctness; the browser fixture and the compatibility limitations
 below cover those separately.
 
-## Optional compatibility mode when `Content-Range` is hidden
+## Default compatibility checks and strict mode
 
 Keep exposing `Content-Range` where possible. The default `rangeValidation:
-'strict'` policy requires JavaScript to read and validate its exact start,
-end, and total. For a source that returns `206` but does not make that header
-readable, callers may explicitly opt in:
+'head-fallback'` policy first validates any readable header exactly. Only when
+JavaScript cannot read `Content-Range` does it issue one shared `HEAD` request
+per source instance and use the readable size for compatibility checks. Set
+`rangeValidation: 'strict'` to require a readable, valid, request-matching
+`Content-Range` and reject when it is unavailable:
 
 ```ts
 import { CopcCesiumLayer, probeCopcSource } from '@frillab/copc-adapter/cesium';
@@ -350,34 +363,42 @@ import { CopcCesiumLayer, probeCopcSource } from '@frillab/copc-adapter/cesium';
 const sourceUrl = 'https://example.com/data.copc.laz';
 const layer = new CopcCesiumLayer({
   url: sourceUrl,
-  rangeValidation: 'head-fallback',
+  rangeValidation: 'strict',
 });
 
-const probe = await probeCopcSource(sourceUrl, {
-  rangeValidation: 'head-fallback',
-});
-console.log(probe.validationLevel); // 'compatibility-limited' when fallback succeeds
+const probe = await probeCopcSource(sourceUrl); // same default policy as a layer
+console.log(probe.validationLevel); // 'strict' or 'compatibility-limited'
 ```
 
-On the first `206` whose `Content-Range` is not readable, this mode makes one
-`HEAD` request to the same resolved URL and caches its metadata for that source
-instance. The browser must allow `HEAD` and JavaScript must be able to read a
-positive, safe-integer `Content-Length`. Each `GET + Range` must still return
-`206` and exactly the requested number of bytes. A visible but malformed or
-mismatched `Content-Range` is always rejected; a `404`, `200`, short body,
-unsupported `HEAD`, or contradictory source size is never rescued. No whole
-object `GET` is used.
+Both policies require `206`, exact body length, reject readable malformed or
+mismatched `Content-Range`, and never replace a failed range request with a
+whole-object `GET`. The default fallback requires the browser to allow `HEAD`
+and expose a positive safe-integer `Content-Length`. It checks that the
+requested interval fits the reported resource size, checks exact response body
+length, and rejects detectable size or readable validator changes. It uses at
+most one in-flight/cached `HEAD` per source instance. A `404`, `200`, short
+body, unsupported `HEAD`, or contradictory size is rejected. Successful use
+of fallback emits one warning per HTTP source instance. `File`, `Blob`, and
+caller-provided `RandomAccessByteSource` inputs do not use this HTTP policy.
 
-This mode provides **compatibility-limited** validation. `HEAD` size and an
-exact body length cannot prove that a `206` body came from the requested byte
-offset or that same-sized content stayed immutable. Readable validator changes
-and detectable size changes are rejected, but unavailable validators, weak ETags, and
-`Last-Modified` granularity leave an unverified version/offset limitation.
-`probe.validationLevel` reports `strict`, `compatibility-limited`,
-`incompatible`, or `unknown`; `rangeSupported` remains `true` only when the
-selected response contract can be used. `Content-Range` is not readable means
-it may be absent or hidden by CORS; browser JavaScript cannot distinguish those
-cases. Fixing the source CORS exposure remains the recommended deployment.
+When the fallback succeeds, `probe.validationLevel` is
+`compatibility-limited`. `HEAD` size and exact body length cannot prove that a
+`206` body came from the requested byte offset or that same-sized content
+stayed immutable. Readable validator changes and detectable size changes are
+rejected, but hidden or unavailable validators, weak ETags, and
+`Last-Modified` granularity leave a resource-version limitation. Strict mode
+never sends `HEAD`; if the range response lacks readable `Content-Range`, the
+probe reports the source incompatible with the selected strict policy and the
+reader rejects it. The adapter also rejects visible non-identity content
+encoding and compares visible size/validators across reads. HTTP Range checks
+do not provide cryptographic integrity and cannot defend against a malicious
+server that fabricates consistent headers and bodies. A missing
+`Content-Range` and a CORS-hidden `Content-Range` are indistinguishable to
+browser JavaScript, so exposing the header remains the recommended setup.
+Cross-origin JavaScript also cannot distinguish an absent `Content-Encoding`
+from one hidden by CORS. Expose `Content-Encoding` and keep the object on an
+identity representation; the adapter rejects a non-identity value when it is
+readable, but cannot establish that a hidden value is absent.
 
 The HTTP reader defaults to a 64 MiB maximum for each individual range. Set
 `maxRangeBytes` on `CopcCesiumLayer`, `CopcThreeLayer`, or `CopcStreamingCore`

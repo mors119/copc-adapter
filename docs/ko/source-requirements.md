@@ -44,13 +44,17 @@ Range 요청에 대한 `200 OK`는 보통 서버, CDN 또는 proxy가 `Range`를
 ## HTTP Range와 브라우저 CORS는 별도 조건
 
 - **Range 지원**은 HTTP 동작입니다. 서버가 `206`, 요청과 일치하는
-  `Content-Range`, 요청한 byte를 반환해야 합니다.
+  `Content-Range`, 요청한 byte를 반환해야 합니다. adapter의 기본 정책은
+  읽을 수 있는 `Content-Range`를 엄격히 검사하고, JavaScript가 이 header를
+  읽지 못할 때만 제한된 `HEAD` 호환 검사를 사용합니다.
 - **CORS**는 다른 origin의 JavaScript가 응답을 읽을 수 있는지 정합니다.
   응답의 `Access-Control-Allow-Origin`에 애플리케이션 origin이 허용되어야
   합니다. `Content-Range`는 CORS 응답 safelist에 포함되지 않으므로
-  JavaScript에서 읽으려면 `Access-Control-Expose-Headers`에도 명시해야
-  합니다. `Content-Length`는 safelist에 포함되므로 꼭 노출 목록에 넣을
-  필요는 없지만, 진단 편의를 위해 함께 넣어도 됩니다.
+  JavaScript에서 strict 검증에 사용하려면 `Access-Control-Expose-Headers`에도
+  명시해야 합니다. `Content-Length`는 safelist에 포함되므로 꼭 노출 목록에
+  넣을 필요는 없지만, 진단 편의를 위해 함께 넣어도 됩니다. 서버가 반환하는
+  경우 `Content-Encoding`, `ETag`, `Last-Modified`도 노출하면 표현과 리소스
+  변경을 확인하는 데 도움이 됩니다.
 - **Preflight는 조건부입니다.** `Range: bytes=0-1023`처럼 단일 byte 범위를
   지정한 `GET`의 `Range`는 CORS 요청 safelist에 포함되므로 이것만으로는
   `OPTIONS` preflight가 발생하지 않습니다. 다중 범위 값,
@@ -84,7 +88,7 @@ cross-origin cookie에 의존하지 않는 요청을 대상으로 합니다. 자
       "AllowedOrigins": ["https://viewer.example.com"],
       "AllowedMethods": ["GET", "HEAD"],
       "AllowedHeaders": ["Range"],
-      "ExposeHeaders": ["Accept-Ranges", "Content-Length", "Content-Range"],
+      "ExposeHeaders": ["Accept-Ranges", "Content-Length", "Content-Range", "Content-Encoding", "ETag", "Last-Modified"],
       "MaxAgeSeconds": 600
     }
   ]
@@ -131,6 +135,9 @@ CloudFront URL에서 Range 동작을 검증하세요. 문서: [S3 CORS](https://
     <ExposeHeader>Accept-Ranges</ExposeHeader>
     <ExposeHeader>Content-Length</ExposeHeader>
     <ExposeHeader>Content-Range</ExposeHeader>
+    <ExposeHeader>Content-Encoding</ExposeHeader>
+    <ExposeHeader>ETag</ExposeHeader>
+    <ExposeHeader>Last-Modified</ExposeHeader>
     <MaxAgeSeconds>600</MaxAgeSeconds>
   </CORSRule>
 </CORSConfiguration>
@@ -203,7 +210,7 @@ server {
         add_header Access-Control-Allow-Origin $copc_cors_origin always;
         add_header Access-Control-Allow-Methods "GET, HEAD" always;
         add_header Access-Control-Allow-Headers "Range" always;
-        add_header Access-Control-Expose-Headers "Accept-Ranges, Content-Length, Content-Range" always;
+        add_header Access-Control-Expose-Headers "Accept-Ranges, Content-Length, Content-Range, Content-Encoding, ETag, Last-Modified" always;
         add_header Vary "Origin" always;
     }
 }
@@ -277,14 +284,18 @@ console.table({
 });
 ```
 
-정상 COPC 결과는 상태 `206`, 요청/반환 범위 `0-1023`, JavaScript에서 읽을
-수 있는 `Content-Range: bytes 0-1023/N`(전체 크기를 모르면 `*`),
-`rangeSupported: true`, `copcDetected: true`입니다. `206`에서
-`result.contentLength`는 `Content-Range`로부터 읽은 전체 객체 크기이고,
-전체 크기가 `*`라면 이 값은 없을 수 있습니다. HTTP `Content-Length`가
-있다면 응답 body 크기입니다. `corsReadable: true`는 fetch 응답을 검사할 수
-있었다는 뜻이지만 모든 응답 header가 노출됐다는 뜻은 아닙니다.
-`result.contentRange`도 직접 확인하세요.
+정상 COPC 결과는 상태 `206`, `rangeSupported: true`,
+`copcDetected: true`입니다. JavaScript가 `Content-Range`를 읽으면
+`validationLevel`은 `strict`이고 `result.returnedRange`는 요청 `0-1023`과
+일치해야 합니다. 읽을 수 없으면 기본 probe가 `HEAD`와 정확한 body 길이로
+호환 검사를 수행합니다. 이 검사가 성공하면 `validationLevel`은
+`compatibility-limited`이며 `returnedRange`와 `contentRange`는 없고,
+`result.contentLength`에는 `HEAD`에서 읽은 전체 크기가 표시됩니다. 읽을 수 있는
+`Content-Range`의 전체 크기는 `result.contentLength`로 나오며, 크기가 `*`이면
+이 값이 없을 수 있습니다. HTTP `Content-Length`는 부분 응답 body 크기입니다.
+`corsReadable: true`는 fetch 응답을 검사할 수 있었다는 뜻이지만 모든 응답
+header가 노출됐다는 뜻은 아닙니다. `result.contentRange`와
+`result.validationLevel`을 직접 확인하세요.
 
 브라우저 Network 패널에서 요청의 `Range`, 응답 상태 `206`, 응답에 포함된
 `Content-Range`를 확인할 수 있습니다. DevTools에는 header가 보이지만
@@ -336,12 +347,14 @@ JavaScript가 `Content-Range`를 읽을 수 있음을 증명하지 않습니다.
 method 모두 계속 `404`였습니다. curl 결과만으로 브라우저의 header 가시성이나
 byte offset 정확성을 입증할 수는 없습니다.
 
-## `Content-Range`가 숨겨진 경우의 선택적 호환 모드
+## 기본 호환 검사와 strict 모드
 
 가능하면 계속 `Content-Range`를 노출하세요. 기본
-`rangeValidation: 'strict'`는 브라우저 JavaScript에서 정확한 시작/끝 범위와
-전체 크기를 검증합니다. `206`은 반환하지만 브라우저에 해당 header를
-노출하지 않는 source에 한해 다음처럼 명시적으로 호환 모드를 켤 수 있습니다.
+`rangeValidation: 'head-fallback'`은 먼저 JavaScript가 읽을 수 있는 header를
+정확히 검사합니다. JavaScript가 `Content-Range`를 읽지 못할 때만 source
+instance마다 하나의 공유 `HEAD` 요청을 보내고 읽을 수 있는 크기로 호환 검사를
+수행합니다. 읽을 수 있고 유효하며 요청과 일치하는 `Content-Range`를 반드시
+요구하고 읽을 수 없으면 거부하려면 `rangeValidation: 'strict'`를 지정하세요.
 
 ```ts
 import { CopcCesiumLayer, probeCopcSource } from '@frillab/copc-adapter/cesium';
@@ -349,29 +362,37 @@ import { CopcCesiumLayer, probeCopcSource } from '@frillab/copc-adapter/cesium';
 const sourceUrl = 'https://example.com/data.copc.laz';
 const layer = new CopcCesiumLayer({
   url: sourceUrl,
-  rangeValidation: 'head-fallback',
+  rangeValidation: 'strict',
 });
 
-const probe = await probeCopcSource(sourceUrl, {
-  rangeValidation: 'head-fallback',
-});
-console.log(probe.validationLevel);
+const probe = await probeCopcSource(sourceUrl); // 레이어와 같은 기본 정책
+console.log(probe.validationLevel); // 'strict' 또는 'compatibility-limited'
 ```
 
-이 모드는 source instance마다 한 번 `HEAD`를 보내고 메타데이터를 캐시합니다.
-브라우저가 `HEAD`를 허용하고 양수의 안전한 정수 `Content-Length`를 읽을 수
-있어야 합니다. 각 `GET + Range`도 `206`과 요청한 길이와 정확히 일치하는 body를
-반환해야 합니다. 읽을 수 있지만 잘못되거나 요청과 다른 `Content-Range`는
-항상 거부합니다. `404`, `200`, 짧은 body, 실패한 `HEAD`, 모순되는 전체 크기도
-우회하지 않습니다. 전체 객체를 `GET`으로 받지 않습니다.
+두 정책은 `206`, 정확한 body 길이를 요구하고 읽을 수 있지만 잘못되거나 요청과
+다른 `Content-Range`는 거부합니다. 전체 객체 `GET`으로 대체하지 않습니다. 기본
+fallback은 브라우저가 `HEAD`를 허용하고 양수의 안전한 정수 `Content-Length`를
+노출해야 합니다. 요청 범위가 보고된 크기 안에 있는지, body가 요청한 길이와
+정확히 같은지 확인하고 감지 가능한 크기 및 읽을 수 있는 validator 변경을 거부합니다.
+source instance당 동시에 진행하거나 캐시하는 `HEAD`는 최대 하나입니다.
+`404`, `200`, 짧은 body, 지원되지 않는 `HEAD`, 모순되는 크기는 거부합니다.
+fallback 검증이 성공한 HTTP source instance마다 한 번 경고합니다. `File`, `Blob`,
+사용자 제공 `RandomAccessByteSource`에는 이 HTTP 정책을 적용하지 않습니다.
 
-검증 수준은 **compatibility-limited**입니다. `HEAD`의 크기와 정확한 body 길이만으로는
-응답이 요청한 byte offset에서 왔는지, 같은 크기의 객체가 그대로 유지되는지
-증명할 수 없습니다. 읽을 수 있는 validator/감지 가능한 크기 변경은 거부하지만,
-validator를 읽을 수 없거나 약한 ETag/`Last-Modified` 정밀도만 있으면 객체 버전과
-offset은 검증되지 않은 한계로 남습니다. `Content-Range`를 JavaScript에서 읽을 수
-없어도 실제로 없었는지 CORS가 숨겼는지는 브라우저에서 구분할 수 없습니다.
-올바른 CORS 노출 설정을 하는 것이 권장됩니다.
+fallback이 성공하면 `probe.validationLevel`은 **compatibility-limited**입니다.
+`HEAD` 크기와 정확한 body 길이로는 `206` body가 요청한 byte offset에서 왔는지,
+같은 크기의 표현이 그대로 유지됐는지 증명할 수 없습니다. 읽을 수 있는 validator와
+감지 가능한 크기 변경은 거부하지만, 숨겨지거나 없는 validator, 약한 ETag,
+`Last-Modified` 정밀도는 리소스 버전 검증 한계로 남습니다. strict는 `HEAD`를 보내지
+않습니다. Range 응답에서 `Content-Range`를 읽지 못하면 strict 정책에 호환되지 않는
+것으로 probe에 표시되고 reader도 거부합니다. adapter는 읽을 수 있는 비-identity
+content encoding을 거부하고 읽을 수 있는 크기/validator를 read 간 비교합니다.
+HTTP Range 검사는 암호학적 무결성 검증이 아니며, 일관된 header와 body를 만들어내는
+악의적인 서버를 방어하지 못합니다. 브라우저 JavaScript는 `Content-Range`가 없거나
+CORS가 숨긴 경우를 구분할 수 없으므로 header 노출 설정을 권장합니다.
+교차 출처 JavaScript는 `Content-Encoding`이 없거나 CORS에 숨겨진 경우도 구분할 수
+없습니다. 해당 header를 노출하고 identity 표현을 유지하세요. adapter는 읽을 수 있는
+비-identity 값을 거부하지만 숨겨진 값이 없다고 확인할 수는 없습니다.
 
 HTTP reader는 Range 요청 하나를 기본 최대 64 MiB로 제한합니다. 큰 metadata,
 hierarchy page 또는 point chunk가 필요한 유효한 source에는

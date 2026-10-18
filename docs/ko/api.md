@@ -17,7 +17,7 @@ const layer = new CopcCesiumLayer({
   url,
   pointSize: 3,
   colorMode: 'rgb',
-  rangeValidation: 'strict',
+  rangeValidation: 'head-fallback',
   maxRenderedPoints: 250_000,
   maxPointCacheBytes: 256 * 1024 * 1024,
   streaming: {
@@ -31,12 +31,23 @@ const layer = new CopcCesiumLayer({
 
 기본값은 버전에 따라 바뀔 수 있으므로 정확한 값이 중요할 때는 [Public API](../API)를 확인하세요.
 
-`rangeValidation`은 `'strict' | 'head-fallback'`이며 기본값은 `'strict'`입니다.
-`'head-fallback'`은 브라우저 JavaScript에서 `Content-Range`를 읽을 수 없는
-source를 위한 명시적 호환 모드입니다. 성공한 `HEAD` 응답에서 읽을 수 있는
-`Content-Length`와 정확한 Range body 길이를 확인하지만, 반환된 byte offset이나
-객체 버전의 불변성을 증명하지는 못합니다. Three.js layer와 streaming core에도
-같은 옵션이 있습니다.
+`rangeValidation`은 HTTP source의 `'strict' | 'head-fallback'` 정책이며
+기본값은 `'head-fallback'`입니다. 두 모드 모두 `206`, 정확한 body 길이,
+읽을 수 있는 잘못되거나 요청 범위와 다른 `Content-Range`의 거부를 요구합니다.
+기본 모드에서 JavaScript가 `Content-Range`를 읽지 못하면 성공한 `HEAD`의
+읽을 수 있는 `Content-Length`로 크기와 요청 범위를 확인하고 응답 body 길이도
+정확히 검사합니다. 읽을 수 있는 validator와 감지 가능한 크기/validator 변경은
+거부하지만 반환된 byte offset이나 같은 크기의 객체가 그대로 유지되는지는 증명하지
+못합니다. fallback 검증이 성공한 첫 read에서 HTTP source instance마다 한 번 경고합니다.
+`rangeValidation: 'strict'`는 읽을 수 있고 유효하며 요청 범위와 일치하는
+`Content-Range`를 필수로 요구하고, `HEAD` fallback을 사용하지 않습니다. header를
+읽을 수 없으면 거부합니다. strict도 body 길이, 알려진 크기, 읽을 수 있는 validator,
+읽을 수 있는 비-identity content encoding을 확인합니다. 교차 출처 JavaScript는
+`Content-Encoding`이 없거나 CORS에 숨겨진 경우를 구별할 수 없으므로 읽을 수 있는
+비-identity 값만 거부할 수 있습니다. HTTP 검사에는 암호학적 무결성 검증이 포함되지
+않으며, 일관된 metadata를 조작하는 악의적인 서버를 막지 못합니다. 이 옵션은 로컬
+`File`/`Blob`과 사용자 제공 `RandomAccessByteSource`에는
+영향을 주지 않습니다. Three.js layer와 streaming core에도 같은 HTTP 정책이 있습니다.
 
 `maxRangeBytes`는 HTTP range 응답 하나의 최대 크기이며 기본값은 64 MiB입니다.
 큰 metadata, hierarchy page 또는 point chunk를 읽어야 할 때 명시적으로 높일 수
@@ -241,8 +252,8 @@ const result = await probeCopcSource(url);
 ```
 
 Range/CORS/COPC 형식을 먼저 점검하고 싶을 때 사용합니다.
-기본 strict 검증을 사용하며, 호환 모드도 확인하려면
-`probeCopcSource(url, { rangeValidation: 'head-fallback' })`를 호출합니다.
+레이어와 같은 기본 `head-fallback` 검증을 사용합니다. strict 정책을 진단하려면
+`probeCopcSource(url, { rangeValidation: 'strict' })`를 호출합니다.
 결과의 `validationLevel`은 `strict`, `compatibility-limited`, `incompatible`,
 `unknown` 중 하나입니다.
 

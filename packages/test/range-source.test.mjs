@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { File } from 'node:buffer';
 import { createServer } from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -210,6 +211,45 @@ test('COPC getter and Rust backend pass local read limits to the Blob source', a
   assert.equal(sliceCalls, 0);
 });
 
+test('Blob and caller-owned byte sources ignore HTTP validation policy', async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = async () => {
+    fetchCalls += 1;
+    throw new Error('local sources must not use HTTP');
+  };
+  try {
+    const blobGetter = createCopcGetter(new Blob([Uint8Array.from([4, 5, 6])]), {
+      rangeValidation: 'strict',
+    });
+    assert.deepEqual([...await blobGetter(0, 3)], [4, 5, 6]);
+
+    const fileGetter = createCopcGetter(new File([Uint8Array.from([7, 8, 9])], 'local.copc.laz'), {
+      rangeValidation: 'head-fallback',
+    });
+    assert.deepEqual([...await fileGetter(0, 3)], [7, 8, 9]);
+
+    let customReads = 0;
+    const customSource = {
+      source: 'memory://custom',
+      async readRange(offset, length) {
+        customReads += 1;
+        return Uint8Array.from({ length }, (_value, index) => offset + index);
+      },
+      async readRanges(ranges) {
+        return Promise.all(ranges.map(({ offset, length }) => this.readRange(offset, length)));
+      },
+      async size() { return 10; },
+    };
+    const customGetter = createCopcGetter(customSource, { rangeValidation: 'head-fallback' });
+    assert.deepEqual([...await customGetter(2, 4)], [2, 3]);
+    assert.equal(customReads, 1);
+    assert.equal(fetchCalls, 0, 'Blob, File, and custom sources must not issue GET or HEAD');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 function makeResponse(status, bytes, headers = {}) {
   return new Response(Uint8Array.from(bytes), { status, headers });
 }
@@ -320,10 +360,16 @@ test('HttpRangeByteSource rejects a server that ignores Range with 200', async (
   assert.equal(cancelled, true, 'the rejected response body should be cancelled');
 });
 
-test('HttpRangeByteSource rejects missing and malformed Content-Range headers', async () => {
+test('HttpRangeByteSource strict mode rejects missing and malformed Content-Range headers without HEAD', async () => {
   let headCalls = 0;
-  for (const headers of [{}, { 'Content-Range': 'bytes 1-3/100' }]) {
+  for (const headers of [
+    {},
+    { 'Content-Range': 'bytes 1-3/100' },
+    { 'Content-Range': 'bytes 0-9007199254740991/9007199254740992' },
+    { 'Content-Range': 'bytes 0-2/2' },
+  ]) {
     const source = new HttpRangeByteSource('https://example.test/data', {
+      rangeValidation: 'strict',
       fetch: async (_input, init) => {
         if (init.method === 'HEAD') headCalls += 1;
         return makeResponse(206, [1, 2, 3], headers);
@@ -338,10 +384,27 @@ test('HttpRangeByteSource rejects missing and malformed Content-Range headers', 
   assert.equal(headCalls, 0, 'strict mode must not add a HEAD request');
 });
 
-test('head-fallback validates an unreadable Content-Range with cached HEAD metadata and exact bytes', async () => {
+test('strict Content-Range success does not emit a compatibility warning', async () => {
+  const originalWarn = console.warn;
+  let warningCount = 0;
+  console.warn = () => { warningCount += 1; };
+  try {
+    const source = new HttpRangeByteSource('https://example.test/data', {
+      rangeValidation: 'strict',
+      fetch: async () => makeResponse(206, [1, 2], {
+        'Content-Range': 'bytes 0-1/20',
+      }),
+    });
+    assert.deepEqual([...await source.readRange(0, 2)], [1, 2]);
+    assert.equal(warningCount, 0);
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
+test('default head-fallback validates an unreadable Content-Range with cached HEAD metadata and exact bytes', async () => {
   const calls = [];
   const source = new HttpRangeByteSource('https://example.test/data', {
-    rangeValidation: 'head-fallback',
     fetch: async (_input, init) => {
       const method = init.method ?? 'GET';
       calls.push(method);
@@ -367,6 +430,38 @@ test('head-fallback validates an unreadable Content-Range with cached HEAD metad
   assert.deepEqual([...await source.readRange(30_000, 2)], [48, 49]);
   assert.equal(await source.size(), 100_000);
   assert.deepEqual(calls, ['GET', 'HEAD', 'GET']);
+});
+
+test('default head-fallback warns once after a successful limited validation', async () => {
+  const originalWarn = console.warn;
+  const warnings = [];
+  console.warn = (...args) => warnings.push(args.join(' '));
+  try {
+    const source = new HttpRangeByteSource(
+      'https://user:password@example.test/data?token=secret',
+      {
+        fetch: async (_input, init) => init.method === 'HEAD'
+          ? new Response(null, { status: 200, headers: { 'Content-Length': '20' } })
+          : (() => {
+              const range = new Headers(init.headers).get('Range');
+              const [, start, end] = /^bytes=(\d+)-(\d+)$/.exec(range ?? '');
+              const length = Number(end) - Number(start) + 1;
+              return makeResponse(206, new Uint8Array(length), {
+                'Content-Length': String(length),
+              });
+            })(),
+      },
+    );
+    await source.readRange(0, 2);
+    await source.readRange(3, 2);
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /Using HEAD-based Range compatibility validation/);
+    assert.match(warnings[0], /byte-offset\ncorrectness cannot be fully established/);
+    assert.match(warnings[0], /rangeValidation: 'strict'/);
+    assert.doesNotMatch(warnings[0], /password|secret|example\.test/);
+  } finally {
+    console.warn = originalWarn;
+  }
 });
 
 test('head-fallback shares in-flight HEAD work without coupling caller cancellation', async () => {
@@ -470,7 +565,6 @@ test('head-fallback rejects a HEAD size that contradicts the configured source s
 test('head-fallback rejects invalid visible Content-Range without downgrading', async () => {
   let headCalls = 0;
   const source = new HttpRangeByteSource('https://example.test/data', {
-    rangeValidation: 'head-fallback',
     fetch: async (_input, init) => {
       if (init.method === 'HEAD') {
         headCalls += 1;
@@ -490,6 +584,7 @@ test('head-fallback rejects invalid visible Content-Range without downgrading', 
 test('HttpRangeByteSource rejects contradictory sizes and readable validator changes', async () => {
   let call = 0;
   const changingSize = new HttpRangeByteSource('https://example.test/data', {
+    rangeValidation: 'strict',
     fetch: async (_input, init) => {
       const range = new Headers(init.headers).get('Range');
       const [offset, end] = range.slice('bytes='.length).split('-').map(Number);
@@ -724,11 +819,12 @@ test('HttpRangeByteSource rejects visible non-identity representations', async (
   );
 
   const encodedRange = new HttpRangeByteSource('https://example.test/data', {
-    rangeValidation: 'head-fallback',
+    rangeValidation: 'strict',
     fetch: async (_input, init) => init.method === 'HEAD'
       ? new Response(null, { status: 200, headers: { 'Content-Length': '100' } })
       : makeResponse(206, [1], {
           'Content-Length': '1',
+          'Content-Range': 'bytes 0-0/100',
           'Content-Encoding': 'br',
         }),
   });
@@ -822,15 +918,37 @@ test('HttpRangeByteSource allows configured large requests within the concurrenc
 });
 
 test('HttpRangeByteSource reports network failures structurally', async () => {
+  const cause = new Error('connection reset');
   const source = new HttpRangeByteSource('https://example.test/data', {
     fetch: async () => {
-      throw new Error('connection reset');
+      throw cause;
     },
   });
 
   await assert.rejects(
     () => source.readRange(0, 3),
-    (error) => error instanceof RangeSourceError && error.code === 'network',
+    (error) => error instanceof RangeSourceError
+      && error.code === 'network'
+      && error.cause === cause
+      && error.status === undefined,
+  );
+});
+
+test('HTTP network errors preserve causes and redact signed source identifiers', async () => {
+  const cause = new Error('connection reset');
+  const source = new HttpRangeByteSource(
+    'https://viewer:password@example.test/data?token=secret',
+    { fetch: async () => { throw cause; } },
+  );
+
+  await assert.rejects(
+    () => source.readRange(0, 3),
+    (error) => error instanceof RangeSourceError
+      && error.code === 'network'
+      && error.cause === cause
+      && error.source === 'https://example.test/data'
+      && !error.message.includes('password')
+      && !error.message.includes('secret'),
   );
 });
 

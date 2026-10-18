@@ -96,7 +96,7 @@ export type CopcLayerOptions = {
   onPointPicked?: (point: CopcPointInspection | undefined) => void;
   /** Maximum retained decoded CPU point-buffer bytes. Defaults to 256 MiB. */
   maxPointCacheBytes?: number;
-  /** Defaults to strict Content-Range validation. */
+  /** HTTP validation policy; defaults to `head-fallback`. Use `strict` to require readable Content-Range. */
   rangeValidation?: RangeValidationPolicy;
   /** Per-range byte ceiling. Defaults to 64 MiB; explicit values accept any positive safe integer. */
   maxRangeBytes?: number;

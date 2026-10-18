@@ -66,7 +66,7 @@ export type CopcSourceProbeOptions = {
   readonly headers?: HeadersInit;
   /** Cancels the in-flight range or HEAD request. */
   readonly signal?: AbortSignal;
-  /** Defaults to strict Content-Range validation. */
+  /** Defaults to `head-fallback`; set `strict` to require a readable matching Content-Range. */
   readonly rangeValidation?: RangeValidationPolicy;
 };
 
@@ -566,6 +566,7 @@ export async function probeCopcSource(
   source: string,
   options: CopcSourceProbeOptions = {},
 ): Promise<CopcSourceProbeResult> {
+  const rangeValidation = options.rangeValidation ?? 'head-fallback';
   const requestedRange = validateByteRange(source, 0, DEFAULT_PROBE_LENGTH);
   const base = resultBase(source, requestedRange);
   let first: ProbeResponse;
@@ -621,7 +622,7 @@ export async function probeCopcSource(
     const initialValidation = await validateProbeRange(
       first,
       requestedRange,
-      options,
+      { ...options, rangeValidation },
       getHeadMetadata,
       representation,
     );
@@ -646,7 +647,7 @@ export async function probeCopcSource(
         const extensionValidation = await validateProbeRange(
           extension,
           extensionRange,
-          options,
+          { ...options, rangeValidation },
           getHeadMetadata,
           representation,
         );
