@@ -2,6 +2,14 @@
 
 이 페이지의 목표는 **COPC 파일 하나를 CesiumJS에 표시하는 최소 흐름**을 이해하는 것입니다.
 
+## 브라우저에서 먼저 체험하기
+
+[공개 Playground](https://mors119.github.io/copc-adapter/playground/)에서 Autzen·Chicago 공개 데이터, 직접 입력한 HTTP(S) URL, 로컬 파일을 열 수 있습니다. Cesium과 Three.js, JavaScript와 Rust/WASM 백엔드, 기본 색상 모드와 point size, 두 가지 streaming 한도를 선택하고 점을 클릭해 실제로 사용할 수 있는 속성을 확인할 수 있습니다.
+
+원격 주소는 브라우저에서 그대로 요청하므로 호스트가 CORS와 HTTP Range를 허용해야 합니다. Playground는 URL을 프록시로 바꾸지 않습니다. Probe 결과는 브라우저가 확인할 수 있었던 응답 조건을 보여 주며, 원본 바이트의 진위나 불변성을 증명하지는 않습니다. 로컬 파일은 브라우저 안에서 읽고 업로드하지 않습니다. 상세 Worker·cache·benchmark 진단은 공개 화면에 두지 않고 내부 Dev Viewer에서 확인합니다.
+
+화면의 패키지 표시는 실제 설치된 Adapter 버전과 출처를 읽습니다. 로컬 `.tgz` 소비자 빌드는 npm Registry 배포 버전으로 표시하지 않습니다.
+
 ## 1. 설치
 
 ```bash
