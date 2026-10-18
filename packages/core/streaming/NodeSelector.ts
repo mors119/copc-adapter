@@ -348,9 +348,44 @@ function calculateManualFocusWeight(
   const centerAngle = Math.acos(clamp(dot(centerDirection, projection.direction), -1, 1));
   const outerAngle = centerAngle + angularRadius;
   if (outerAngle >= Math.PI / 2) {
-    // The angular volume reaches the projection horizon, so its visible
-    // footprint can cover any screen-space focus region.
-    return 1;
+    // The projected silhouette is unbounded at the horizon, but remains on
+    // the sphere's angular side of the view. Compare the lens rays with the
+    // sphere's angular cap so an opposite-side lens does not get full weight.
+    const horizontalSlope = (2 * focus.center.x - 1) * projection.horizontalTangent;
+    const verticalSlope = (1 - 2 * focus.center.y) * projection.verticalTangent;
+    const focusRayVector = {
+      x: projection.direction.x
+        + horizontalSlope * projection.right.x
+        + verticalSlope * projection.up.x,
+      y: projection.direction.y
+        + horizontalSlope * projection.right.y
+        + verticalSlope * projection.up.y,
+      z: projection.direction.z
+        + horizontalSlope * projection.right.z
+        + verticalSlope * projection.up.z,
+    };
+    const focusRay = normalizeVector(focusRayVector);
+    if (!focusRay) {
+      return 0;
+    }
+
+    const focusAngle = Math.acos(clamp(dot(centerDirection, focusRay), -1, 1));
+    const angularGap = Math.max(0, focusAngle - angularRadius);
+    const aspect = projection.horizontalTangent / projection.verticalTangent;
+    const lensSlopeRadius = 2 * projection.verticalTangent
+      * Math.min(1, aspect)
+      * focus.radius;
+    const focusRayLength = Math.hypot(
+      focusRayVector.x,
+      focusRayVector.y,
+      focusRayVector.z,
+    );
+    const lensVectorRadius = lensSlopeRadius
+      * Math.sqrt(1 + Math.abs(dot(projection.right, projection.up)));
+    const lensAngularRadius = lensVectorRadius >= focusRayLength
+      ? Math.PI
+      : Math.asin(clamp(lensVectorRadius / focusRayLength, 0, 1));
+    return angularGap <= lensAngularRadius ? 1 : 0;
   }
   // Perspective projection is gnomonic: a sphere's outer cone edge projects
   // at tan(theta + alpha), not linearly in angle. Subtracting the projected

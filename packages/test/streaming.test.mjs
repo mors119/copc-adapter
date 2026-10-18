@@ -1622,6 +1622,37 @@ test('focus overlap uses perspective-projected extent for large off-axis spheres
   assert.ok(selected[0].focusWeight > 0);
 });
 
+test('horizon-crossing focus overlap preserves the sphere direction', () => {
+  const camera = createProjectionCamera({ height: 1000 });
+  const centerAngle = 55 * Math.PI / 180;
+  const angularRadius = 36 * Math.PI / 180;
+  const distance = 10;
+  const node = createFrustumNode('0-horizon-crossing', {
+    center: {
+      x: distance * Math.sin(centerAngle),
+      y: 0,
+      z: distance * Math.cos(centerAngle),
+    },
+    radiusMeters: distance * Math.sin(angularRadius),
+  });
+  const selector = createSelector({ refinementAlgorithm: 'screen-projection' });
+
+  const focusWeightAt = (x) => {
+    selector.setRefinementFocus({
+      type: 'screen-circle',
+      center: { x, y: 0.5 },
+      radius: 0.01,
+      detailBias: 2,
+    });
+    return selector.selectVisibleNodes(camera, new Map([[node.node.key, node]]))[0]?.focusWeight;
+  };
+
+  // The sphere spans roughly 19° to 91° on the right, so it reaches the
+  // horizon and overlaps the right lens while remaining far from the left.
+  assert.equal(focusWeightAt(0.05), 0);
+  assert.ok(focusWeightAt(0.95) > 0);
+});
+
 test('focus radius keeps circular meaning across wide and tall viewports', () => {
   const minDimensionDistance = 0.16;
   const weights = [2, 0.5].map((aspectRatio) => {
