@@ -1,6 +1,7 @@
 import * as Cesium from 'cesium';
 import { BatchedGeometryPointRenderer } from '../../../../packages/cesium/render/BatchedGeometryPointRenderer';
 import { PointPrimitiveRenderer } from '../../../../packages/cesium/render/CopcPointRenderer';
+import { packRelativeEcef } from '../../../../packages/cesium/render/relativeEcef';
 
 const cesiumRuntimeVersion = (Cesium as typeof Cesium & { VERSION: string }).VERSION;
 
@@ -90,6 +91,7 @@ export async function runCpuBatchedPickingProbe(
   const layerB = new BatchedGeometryPointRenderer();
   const edgeRenderer = new BatchedGeometryPointRenderer();
   const depthTieRenderer = new BatchedGeometryPointRenderer();
+  const stagingPrecisionRenderer = new BatchedGeometryPointRenderer();
   const ownerA = 'cpu-pick-layer-a';
   const ownerB = 'cpu-pick-layer-b';
   const sharedKey = 'cpu-pick-shared';
@@ -187,6 +189,62 @@ export async function runCpuBatchedPickingProbe(
       },
     };
     depthTieRenderer.destroy();
+    layerA.setShow(true);
+    await renderNextFrame(scene);
+
+    // Make node-relative Float32 staging move the source point by one metre,
+    // several screen pixels at this distance. GPU rendering still uses the
+    // original ECEF doubles, so CPU picking must project that shared source
+    // buffer rather than the node-relative staging coordinates.
+    layerA.setShow(false);
+    stagingPrecisionRenderer.attachTo(viewer);
+    const screenAxisWeights = [
+      viewer.camera.right.x ** 2 + viewer.camera.up.x ** 2,
+      viewer.camera.right.y ** 2 + viewer.camera.up.y ** 2,
+      viewer.camera.right.z ** 2 + viewer.camera.up.z ** 2,
+    ];
+    const shiftedAxis = screenAxisWeights.indexOf(Math.max(...screenAxisWeights));
+    const distantCoordinates = [nearer.x, nearer.y, nearer.z];
+    distantCoordinates[shiftedAxis] += 33_554_434;
+    const distantPoint = new Cesium.Cartesian3(...distantCoordinates);
+    const stagingNodeKey = 'cpu-pick-original-ecef-footprint';
+    const stagingPoints = createPreparedPoints([nearer, distantPoint]);
+    const staged = packRelativeEcef(stagingPoints.worldCoordinates);
+    addSyntheticNode(stagingPrecisionRenderer, stagingNodeKey, stagingPoints, {
+      ownerId: ownerA,
+      pointSize: 2,
+    });
+    await renderNextFrame(scene);
+    const stagedPoint = new Cesium.Cartesian3(
+      staged.origin[0] + staged.positions[0],
+      staged.origin[1] + staged.positions[1],
+      staged.origin[2] + staged.positions[2],
+    );
+    const sourceScreen = Cesium.SceneTransforms.worldToWindowCoordinates(scene, nearer);
+    const stagedScreen = Cesium.SceneTransforms.worldToWindowCoordinates(scene, stagedPoint);
+    const stagingPixelError = sourceScreen && stagedScreen
+      ? Cesium.Cartesian2.distance(sourceScreen, stagedScreen)
+      : undefined;
+    const stagingPick = scene.pick(center, 1, 1) as { id?: unknown } | undefined;
+    const stagingResolution = stagingPrecisionRenderer.resolveCpuPointPick(
+      scene,
+      center,
+      stagingPick,
+      0.5,
+    );
+    const stagingPrecisionProbe = {
+      cesiumVersion: cesiumRuntimeVersion,
+      centerPickHitNode: (stagingPick?.id as { nodeKey?: unknown } | undefined)?.nodeKey
+        === stagingNodeKey,
+      stagingPositionErrorMeters: staged.maxAbsoluteError,
+      projectedStagingErrorPx: stagingPixelError,
+      resolution: {
+        picked: stagingResolution.picked,
+        pointIndex: stagingResolution.pointIndex,
+        worldPosition: stagingResolution.worldPosition,
+      },
+    };
+    stagingPrecisionRenderer.destroy();
     layerA.setShow(true);
     await renderNextFrame(scene);
 
@@ -290,6 +348,7 @@ export async function runCpuBatchedPickingProbe(
         farPointErrorMeters: cpuFarPointErrorMeters,
       },
       depthQuantizationProbe,
+      stagingPrecisionProbe,
       toleranceCases,
       defaultPickWindowEdge,
       filteredProbe,
@@ -308,6 +367,7 @@ export async function runCpuBatchedPickingProbe(
     };
   } finally {
     if (pointOracle) scene.primitives.remove(pointOracle);
+    stagingPrecisionRenderer.destroy();
     depthTieRenderer.destroy();
     edgeRenderer.destroy();
     layerB.destroy();

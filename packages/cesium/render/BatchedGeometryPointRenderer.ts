@@ -38,7 +38,8 @@ type NodeRecord = {
   sphere?: Cesium.BoundingSphere;
   origin: Cesium.Cartesian3;
   positions: Float32Array;
-  maxPositionErrorMeters: number;
+  /** Shared prepared ECEF buffer also held by the Cesium Geometry attribute. */
+  worldCoordinates: Float64Array;
   pointSizes: Float32Array;
   sourcePointCount: number;
   pointCount: number;
@@ -92,12 +93,10 @@ function projectPickDepth(scene: Cesium.Scene, viewDepth: number): number {
 function getPickDepthPositionUncertainty(
   scene: Cesium.Scene,
   viewDepth: number,
-  maxPositionErrorMeters: number,
 ): number {
-  const coordinateError = Math.sqrt(3) * maxPositionErrorMeters;
   const gpuArithmeticError = GPU_POSITION_ROUNDING_ULPS
     * 2 ** -23 * Math.max(1, viewDepth);
-  const errorMeters = coordinateError + gpuArithmeticError;
+  const errorMeters = gpuArithmeticError;
   const centerDepth = projectPickDepth(scene, viewDepth);
   const beforeDepth = projectPickDepth(
     scene,
@@ -339,7 +338,7 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
       sphere: visibleSphere,
       origin,
       positions,
-      maxPositionErrorMeters: relative.maxAbsoluteError,
+      worldCoordinates: ecef,
       pointSizes,
       sourcePointCount: points.pointCount,
       pointCount: visibleCount,
@@ -436,9 +435,9 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
     for (let index = 0; index < node.sourcePointCount; index += stride) {
       if ((node.pointSizes[index] ?? 0) <= 0) continue;
       const offset = index * 3;
-      world.x = node.origin.x + node.positions[offset];
-      world.y = node.origin.y + node.positions[offset + 1];
-      world.z = node.origin.z + node.positions[offset + 2];
+      world.x = node.worldCoordinates[offset];
+      world.y = node.worldCoordinates[offset + 1];
+      world.z = node.worldCoordinates[offset + 2];
       const screen = Cesium.SceneTransforms.worldToWindowCoordinates(scene, world, windowPosition);
       if (!screen || screen.x < 0 || screen.y < 0
         || screen.x >= scene.canvas.clientWidth || screen.y >= scene.canvas.clientHeight) {
@@ -463,7 +462,9 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
 
   /**
    * Research-only second stage: use Cesium's node-level scene pick, then scan
-   * just that node's current prepared relative-coordinate buffer on demand.
+   * just that node's current prepared ECEF buffer on demand. This is the same
+   * Float64Array used by the Geometry position attribute, so no point buffer
+   * is copied and CPU point centers match Cesium's source coordinates.
    * It accepts a point only when every occupied sample pixel in Cesium's pick
    * rectangle has the same unique point winner. This intentionally avoids
    * depending on Cesium's undocumented pixel traversal order. No per-frame
@@ -624,9 +625,9 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
     for (let pointIndex = 0; pointIndex < node.sourcePointCount; pointIndex += 1) {
       if ((node.pointSizes[pointIndex] ?? 0) <= 0) continue;
       const offset = pointIndex * 3;
-      world.x = node.origin.x + node.positions[offset];
-      world.y = node.origin.y + node.positions[offset + 1];
-      world.z = node.origin.z + node.positions[offset + 2];
+      world.x = node.worldCoordinates[offset];
+      world.y = node.worldCoordinates[offset + 1];
+      world.z = node.worldCoordinates[offset + 2];
 
       const viewDepth = -(viewMatrix[2] * world.x
         + viewMatrix[6] * world.y
@@ -638,7 +639,6 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
       const depthPositionUncertainty = getPickDepthPositionUncertainty(
         scene,
         viewDepth,
-        node.maxPositionErrorMeters,
       );
 
       const clipX = viewProjection[0] * world.x
@@ -755,9 +755,9 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
     }
 
     const bestOffset = bestPointIndex * 3;
-    const bestWorldX = node.origin.x + node.positions[bestOffset];
-    const bestWorldY = node.origin.y + node.positions[bestOffset + 1];
-    const bestWorldZ = node.origin.z + node.positions[bestOffset + 2];
+    const bestWorldX = node.worldCoordinates[bestOffset];
+    const bestWorldY = node.worldCoordinates[bestOffset + 1];
+    const bestWorldZ = node.worldCoordinates[bestOffset + 2];
     const bestClipX = viewProjection[0] * bestWorldX + viewProjection[4] * bestWorldY
       + viewProjection[8] * bestWorldZ + viewProjection[12];
     const bestClipY = viewProjection[1] * bestWorldX + viewProjection[5] * bestWorldY
@@ -780,9 +780,9 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
       viewDepthMeters: bestViewDepth,
       pickWidth,
       worldPosition: [
-        node.origin.x + node.positions[offset],
-        node.origin.y + node.positions[offset + 1],
-        node.origin.z + node.positions[offset + 2],
+        node.worldCoordinates[offset],
+        node.worldCoordinates[offset + 1],
+        node.worldCoordinates[offset + 2],
       ],
       candidateCount,
       scannedPointCount: node.sourcePointCount,
@@ -804,9 +804,9 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
     }
     const offset = pointIndex * 3;
     const world = new Cesium.Cartesian3(
-      node.origin.x + node.positions[offset],
-      node.origin.y + node.positions[offset + 1],
-      node.origin.z + node.positions[offset + 2],
+      node.worldCoordinates[offset],
+      node.worldCoordinates[offset + 1],
+      node.worldCoordinates[offset + 2],
     );
     const screen = Cesium.SceneTransforms.worldToWindowCoordinates(scene, world);
     return {

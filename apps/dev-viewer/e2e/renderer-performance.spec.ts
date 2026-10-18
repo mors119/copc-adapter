@@ -460,6 +460,14 @@ test('measures dense single-node CPU picking at 250k points at DPR 1 and 2', asy
         pointSeparationMeters: 0.00001,
         resolution: { picked: false, reason: 'ambiguous-depth' },
       });
+      const stagingPrecisionProbe = pixelPicking.stagingPrecisionProbe as Record<string, unknown>;
+      expect(stagingPrecisionProbe).toMatchObject({
+        cesiumVersion: process.env.COPC_EXPECT_CESIUM_VERSION ?? '1.146.0',
+        centerPickHitNode: true,
+        resolution: { picked: true, pointIndex: 0 },
+      });
+      expect(stagingPrecisionProbe.stagingPositionErrorMeters).toBeGreaterThan(0.5);
+      expect(stagingPrecisionProbe.projectedStagingErrorPx).toBeGreaterThan(1);
       expect(pixelPicking.removedNodeCannotBeSelected).toBe(true);
 
       const footprintProbe = await page.evaluate(() =>

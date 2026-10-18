@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as Cesium from 'cesium';
 import { prepareCopcPointColorBuffer } from '../core/point/style/pointStyle.ts';
+import { packRelativeEcef } from '../cesium/render/relativeEcef.ts';
 
 import { BatchedGeometryPointRenderer } from '../cesium/render/BatchedGeometryPointRenderer.ts';
 
@@ -221,6 +222,30 @@ test('BatchedGeometryPointRenderer resolves a clear foreground point over ambigu
     renderer.destroy();
     scenePrimitives.destroy();
   }
+});
+
+test('BatchedGeometryPointRenderer projects original ECEF centers for the pick footprint', () => {
+  const scenePrimitives = new Cesium.PrimitiveCollection();
+  const renderer = new BatchedGeometryPointRenderer();
+  renderer.attachTo({ scene: { primitives: scenePrimitives } });
+  const points = createPreparedWorldPoints([
+    0, 0, 0,
+    33_554_434, 0, 0,
+  ]);
+  assert.equal(packRelativeEcef(points.worldCoordinates).maxAbsoluteError, 1);
+  renderer.addOrUpdateNode('wide-node', points, { pointSize: 2, colorMode: 'fixed' });
+  const pickId = scenePrimitives.get(0).get(0).geometryInstances.id;
+  const result = renderer.resolveCpuPointPick(
+    createCenterPickScene(),
+    new Cesium.Cartesian2(50, 50),
+    { id: pickId },
+    0.5,
+  );
+  assert.equal(result.picked, true);
+  assert.equal(result.pointIndex, 0);
+  assert.deepEqual(result.worldPosition, [0, 0, 0]);
+  renderer.destroy();
+  scenePrimitives.destroy();
 });
 
 test('BatchedGeometryPointRenderer keeps committed nodes when replacement preparation fails', () => {
