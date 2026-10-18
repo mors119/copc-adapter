@@ -1,6 +1,6 @@
 import {
   runSyntheticRendererPerformanceBenchmark,
-} from '../cesium/render/rendererPerformanceBenchmark.ts';
+} from '../../apps/dev-viewer/src/rendererPerformanceBenchmark.ts';
 
 const rows = runSyntheticRendererPerformanceBenchmark();
 

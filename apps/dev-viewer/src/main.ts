@@ -14,6 +14,7 @@ import { createCesiumViewer } from './createViewer';
 import { createCopcDebugPanel } from './debug/CopcDebugPanel';
 import { createCopcPointInspector } from './debug/CopcPointInspector';
 import { runSyntheticRendererPerformanceBenchmark } from './rendererPerformanceBenchmark';
+import { BatchedGeometryPointRenderer } from '../../../packages/cesium/render/BatchedGeometryPointRenderer';
 
 const DEFAULT_COPC_URL = '/samples/autzen.copc.laz';
 const CAMERA_PRESET_HEIGHTS = {
@@ -97,6 +98,9 @@ type CopcDebugAdapter = {
   recordError(error: unknown): void;
   probeSource(source: string): Promise<CopcSourceProbeResult>;
   runSyntheticRendererPerformanceBenchmark(): ReturnType<typeof runSyntheticRendererPerformanceBenchmark>;
+  probePublicBatchPick(): { picked: boolean; pickedNodeKey?: string; pointIndex?: number };
+  setPublicBatchVisibility(show: boolean): void;
+  clearPublicBatchNodes(): number;
   getPickablePointScreenPosition(): { x: number; y: number } | undefined;
 };
 
@@ -147,6 +151,7 @@ function installDebugAdapter(
   viewer: Cesium.Viewer,
   layer: CopcCesiumLayer,
   exposeGlobally: boolean,
+  researchRenderer?: BatchedGeometryPointRenderer,
 ): CopcDebugAdapter {
   let cameraMoveEventCount = 0;
   let lastError: string | undefined;
@@ -284,6 +289,17 @@ function installDebugAdapter(
       repetitions: 5,
       warmups: 2,
     }),
+    probePublicBatchPick: () => {
+      const nodeKey = researchRenderer?.getRenderedNodeKeys()[0];
+      return nodeKey && researchRenderer
+        ? researchRenderer.probePick(viewer.scene, nodeKey)
+        : { picked: false };
+    },
+    setPublicBatchVisibility: (show) => researchRenderer?.setShow(show),
+    clearPublicBatchNodes: () => {
+      researchRenderer?.clear();
+      return researchRenderer?.getRenderedNodeKeys().length ?? -1;
+    },
     getPickablePointScreenPosition(): { x: number; y: number } | undefined {
       for (const collection of getPointPrimitiveCollections(viewer.scene.primitives)) {
         for (let pointIndex = 0; pointIndex < collection.length; pointIndex += 1) {
@@ -401,9 +417,16 @@ function moveCameraToHeight(viewer: Cesium.Viewer, height: number): void {
 }
 
 async function main(): Promise<void> {
-  const viewer = createCesiumViewer('cesium-container');
-  const layer = new CopcCesiumLayer(getLayerOptions());
-  const debugAdapter = installDebugAdapter(viewer, layer, import.meta.env.DEV);
+  const usePublicBatchedRenderer = new URLSearchParams(window.location.search).get('renderer') === 'public-batched';
+  const viewer = createCesiumViewer('cesium-container', { scene3DOnly: usePublicBatchedRenderer });
+  const researchRenderer = usePublicBatchedRenderer
+    ? new BatchedGeometryPointRenderer()
+    : undefined;
+  const layer = new CopcCesiumLayer({
+    ...getLayerOptions(),
+    ...(researchRenderer ? { renderer: researchRenderer } : {}),
+  });
+  const debugAdapter = installDebugAdapter(viewer, layer, import.meta.env.DEV, researchRenderer);
   let sourceProbe: CopcSourceProbeResult | undefined;
   if (isDebugPanelEnabled()) {
     void probeCopcSource(getCopcUrl()).then((result) => {

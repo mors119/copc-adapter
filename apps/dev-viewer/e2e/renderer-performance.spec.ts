@@ -3,10 +3,12 @@ import { getCompletedStreamingState } from './streaming-state';
 
 type BenchmarkState = {
   renderedPointCount: number;
+  renderedNodeKeys: string[];
   streamingUpdateCount: number;
   performance: Record<string, number>;
   longestMainThreadTaskMs: number;
   cesiumFrameDurationMs: number;
+  lastError?: string;
 };
 
 type BenchmarkDebugAdapter = {
@@ -14,6 +16,13 @@ type BenchmarkDebugAdapter = {
   setCameraHeight(height: number): void;
   setCameraHeading(headingDegrees: number): void;
   runSyntheticRendererPerformanceBenchmark(): Array<Record<string, unknown>>;
+  setStyle(update: {
+    colorMode?: 'fixed' | 'rgb' | 'elevation' | 'intensity' | 'classification';
+    classificationFilter?: { include?: number[] } | null;
+  }): void;
+  probePublicBatchPick(): { picked: boolean; pickedNodeKey?: string; pointIndex?: number };
+  setPublicBatchVisibility(show: boolean): void;
+  clearPublicBatchNodes(): number;
 };
 
 declare global {
@@ -111,7 +120,10 @@ async function sampleCameraTransition(
 }
 
 test('prints repeatable synthetic and Autzen renderer performance evidence', async ({ page }) => {
-  await page.goto('/?scenario=issue61&debugPanel=false');
+  const renderer = process.env.COPC_RENDERER_VARIANT === 'public-batched'
+    ? '&renderer=public-batched'
+    : '';
+  await page.goto(`/?scenario=issue61&debugPanel=false${renderer}`);
   await expect.poll(() => getState(page)).toMatchObject({ renderedPointCount: expect.any(Number) });
   await expect.poll(async () => (await getState(page)).renderedPointCount).toBeGreaterThan(0);
 
@@ -136,7 +148,69 @@ test('prints repeatable synthetic and Autzen renderer performance evidence', asy
     });
   }
 
-  console.log(JSON.stringify({ environment, synthetic, initialFrames, scenarios }, null, 2));
+  const rendererEvidence = scenarios.map((scenario) => {
+    const state = scenario.state as BenchmarkState;
+    const performance = state.performance;
+    const frames = scenario.frames as { frameCount: number; medianFrameMs: number; p95FrameMs: number; maxFrameMs: number };
+    return {
+      camera: scenario.label,
+      selectedNodeCount: performance.selectedNodeCount,
+      renderedNodeCount: state.renderedNodeKeys.length,
+      estimatedSelectedPoints: performance.estimatedSelectedPointCount,
+      loadedPoints: performance.loadedPointCount,
+      renderedPoints: state.renderedPointCount,
+      rangeFetchBytes: performance.rangeFetchBytes,
+      rangeFetchMs: performance.rangeFetchDurationMs,
+      decodeMs: performance.decodeDurationMs,
+      pointPreparationMs: performance.pointPreparationDurationMs,
+      crsTransformMs: performance.crsTransformDurationMs,
+      coordinateConversionMs: performance.worldToCartesianDurationMs,
+      styleMs: performance.pointStylePreparationDurationMs,
+      collectionCreationMs: performance.pointCollectionCreationDurationMs,
+      pointAddMs: performance.pointAddDurationMs,
+      rendererPreparationMs: performance.rendererPreparationDurationMs,
+      longestMainThreadTaskMs: state.longestMainThreadTaskMs,
+      cesiumFrameDurationMs: state.cesiumFrameDurationMs,
+      frames,
+    };
+  });
+  console.log(JSON.stringify({
+    renderer: process.env.COPC_RENDERER_VARIANT ?? 'point-primitive',
+    environment,
+    synthetic: synthetic.find((row) => row.pointCount === 100_000),
+    initialFrames,
+    rendererEvidence,
+  }, null, 2));
+  if (renderer) {
+    const styleModes = ['fixed', 'rgb', 'elevation', 'intensity', 'classification'] as const;
+    for (const colorMode of styleModes) {
+      await page.evaluate((mode) => {
+        window.__COPC_DEBUG__?.setStyle({ colorMode: mode });
+      }, colorMode);
+      await expect.poll(async () => (await getState(page)).lastError).toBeUndefined();
+    }
+    const unfilteredPointCount = (await getState(page)).renderedPointCount;
+    await page.evaluate(() => {
+      window.__COPC_DEBUG__?.setStyle({ classificationFilter: { include: [2] } });
+    });
+    await expect.poll(async () => (await getState(page)).renderedPointCount)
+      .toBeLessThan(unfilteredPointCount);
+    await page.evaluate(() => {
+      window.__COPC_DEBUG__?.setStyle({ classificationFilter: null });
+    });
+    await expect.poll(async () => (await getState(page)).renderedPointCount)
+      .toBe(unfilteredPointCount);
+    await page.screenshot({ path: 'test-results/public-batched-autzen.png' });
+    const pickProbe = await page.evaluate(() => window.__COPC_DEBUG__?.probePublicBatchPick());
+    console.log(JSON.stringify({ publicBatchedPickProbe: pickProbe }, null, 2));
+    expect(pickProbe).toMatchObject({ picked: true, pickedNodeKey: expect.any(String) });
+    expect(pickProbe?.pointIndex).toBeUndefined();
+    await page.evaluate(() => window.__COPC_DEBUG__?.setPublicBatchVisibility(false));
+    expect(await page.evaluate(() => window.__COPC_DEBUG__?.probePublicBatchPick()))
+      .toMatchObject({ picked: false });
+    await page.evaluate(() => window.__COPC_DEBUG__?.setPublicBatchVisibility(true));
+    expect(await page.evaluate(() => window.__COPC_DEBUG__?.clearPublicBatchNodes())).toBe(0);
+  }
   expect(synthetic.length).toBe(3);
   expect(synthetic[2].pointCount).toBe(100_000);
   expect(scenarios.every((scenario) => scenario.state)).toBe(true);
@@ -147,7 +221,10 @@ test('keeps low/high rendered-point budgets bounded and reprioritises on rotatio
 }) => {
   const loadBudgetedState = async (budget: number) => {
     const page = await browser.newPage();
-    await page.goto(`/?scenario=issue59&budget=${budget}&debugPanel=false`);
+    const renderer = process.env.COPC_RENDERER_VARIANT === 'public-batched'
+      ? '&renderer=public-batched'
+      : '';
+    await page.goto(`/?scenario=issue59&budget=${budget}&debugPanel=false${renderer}`);
     await expect.poll(async () => (await getState(page)).renderedPointCount)
       .toBeGreaterThan(0);
     await expect.poll(async () => (await getState(page)).performance.configuredPointBudget)
