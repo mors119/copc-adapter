@@ -340,7 +340,23 @@ function calculateManualFocusWeight(
     (projected.normalizedScreenY - focus.center.y) * scaleY,
   );
   const angularRadius = Math.asin(clamp(radiusMeters / distanceMeters, 0, 1));
-  const projectedRadius = angularRadius / (2 * projection.verticalTangent)
+  const centerDirection = {
+    x: vector.x / distanceMeters,
+    y: vector.y / distanceMeters,
+    z: vector.z / distanceMeters,
+  };
+  const centerAngle = Math.acos(clamp(dot(centerDirection, projection.direction), -1, 1));
+  const outerAngle = centerAngle + angularRadius;
+  if (outerAngle >= Math.PI / 2) {
+    // The angular volume reaches the projection horizon, so its visible
+    // footprint can cover any screen-space focus region.
+    return 1;
+  }
+  // Perspective projection is gnomonic: a sphere's outer cone edge projects
+  // at tan(theta + alpha), not linearly in angle. Subtracting the projected
+  // center radius gives a conservative off-axis extent as well.
+  const projectedRadius = (Math.tan(outerAngle) - Math.tan(centerAngle))
+    / (2 * projection.verticalTangent)
     * Math.max(1, 1 / aspect);
   if (!Number.isFinite(viewportDistance) || !Number.isFinite(projectedRadius)) {
     return 0;

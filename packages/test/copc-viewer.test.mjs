@@ -299,12 +299,30 @@ test('focus changes reselect a stationary Cesium view without reopening or reloa
   const viewer = createFakeViewer();
   const originalWindow = globalThis.window;
   globalThis.window = { setTimeout, clearTimeout };
+  const waitForViewSettled = () => {
+    let removeListener = () => {};
+    let timeout;
+    return new Promise((resolve, reject) => {
+      timeout = setTimeout(() => {
+        removeListener();
+        reject(new Error('timed out waiting for Cesium view to settle'));
+      }, 5000);
+      removeListener = layer.viewSettled.addEventListener((viewGeneration, selectedNodeKeys) => {
+        clearTimeout(timeout);
+        removeListener();
+        resolve({ viewGeneration, selectedNodeKeys });
+      });
+    });
+  };
   try {
     await layer.load();
+    const initialSettled = waitForViewSettled();
     layer.attachTo(viewer);
-    await waitFor(() => layer.getSnapshot().renderedPointCount === 2);
+    await initialSettled;
+    assert.equal(layer.getSnapshot().renderedPointCount, 2);
     assert.equal(layer.getSnapshot().performance.refinementAlgorithm, 'foveated');
     const updatesBeforeFocus = layer.getSnapshot().streamingUpdateCount;
+    const focusSettled = waitForViewSettled();
 
     layer.setRefinementFocus({
       type: 'screen-circle',
@@ -312,8 +330,9 @@ test('focus changes reselect a stationary Cesium view without reopening or reloa
       radius: 0.15,
       detailBias: 2,
     });
-    await waitFor(() => layer.getSnapshot().streamingUpdateCount > updatesBeforeFocus, 600);
+    await focusSettled;
 
+    assert.ok(layer.getSnapshot().streamingUpdateCount > updatesBeforeFocus);
     assert.equal(layer.getSnapshot().performance.refinementFocusEnabled, true);
     assert.equal(source.openCount, 1);
     assert.equal(source.pointChunkRequestCount, 1);

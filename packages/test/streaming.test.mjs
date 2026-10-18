@@ -1603,6 +1603,25 @@ test('screen-circle focus follows a stationary view and accepts bounding-sphere 
   assert.ok(overlap.focusWeight > 0);
 });
 
+test('focus overlap uses perspective-projected extent for large off-axis spheres', () => {
+  const camera = createProjectionCamera({ height: 1000 });
+  const node = createFrustumNode('0-large-off-axis', {
+    center: { x: 4, y: 0, z: 8 },
+    radiusMeters: 4,
+  });
+  const selector = createSelector({ refinementAlgorithm: 'screen-projection' });
+  selector.setRefinementFocus({
+    type: 'screen-circle',
+    center: { x: 0.5, y: 0.5 },
+    radius: 0.005,
+    detailBias: 2,
+  });
+
+  const selected = selector.selectVisibleNodes(camera, new Map([[node.node.key, node]]));
+  assert.ok(selected[0]);
+  assert.ok(selected[0].focusWeight > 0);
+});
+
 test('focus radius keeps circular meaning across wide and tall viewports', () => {
   const minDimensionDistance = 0.16;
   const weights = [2, 0.5].map((aspectRatio) => {
