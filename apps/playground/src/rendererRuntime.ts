@@ -51,6 +51,8 @@ export type PlaygroundRuntimeOptions = {
   readonly onPointPicked: (point: CopcPointInspection | undefined) => void;
   readonly onError: (message: string) => void;
   readonly isCurrent: () => boolean;
+  /** Allow callers to keep camera input made while the source was loading. */
+  readonly canAutoZoom?: () => boolean;
 };
 
 type CesiumLayer = Pick<CopcCesiumLayer,
@@ -207,7 +209,7 @@ export async function createPlaygroundRuntime(
     layer.attachTo(viewer);
     let destroyed = false;
     const ready = layer.load().then(async () => {
-      if (!destroyed) await layer.zoomTo();
+      if (!destroyed && (options.canAutoZoom?.() ?? true)) await layer.zoomTo();
     });
 
     return {
@@ -276,14 +278,19 @@ export async function createPlaygroundRuntime(
     250_000,
   );
   camera.up.set(0, 0, 1);
-  const cameraDistance = getInitialThreeCameraDistance(options.sourceName);
-  camera.position.set(0, -cameraDistance, cameraDistance * 0.38);
-  camera.lookAt(0, 0, 0);
+  let cameraDistance = getInitialThreeCameraDistance(options.sourceName);
+  const cameraTarget = new THREE.Vector3(0, 0, 0);
+  const initialCameraDirection = new THREE.Vector3(0, -1, 0.38).normalize();
+  camera.position.copy(cameraTarget).addScaledVector(initialCameraDirection, cameraDistance);
+  camera.lookAt(cameraTarget);
 
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.target.set(0, 0, 0);
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
+  let userInteracted = false;
+  const onCameraStart = (): void => { userInteracted = true; };
+  controls.addEventListener('start', onCameraStart);
 
   const layerOptions = {
     url: options.source,
@@ -310,7 +317,9 @@ export async function createPlaygroundRuntime(
     renderer.render(scene, camera);
   };
   animationFrame = requestAnimationFrame(draw);
+  let synchronizingCamera = false;
   const onCameraChange = (): void => {
+    if (synchronizingCamera) return;
     void layer.update().catch((error: unknown) => {
       options.onError(error instanceof Error ? error.message : String(error));
     });
@@ -350,7 +359,23 @@ export async function createPlaygroundRuntime(
   renderer.domElement.addEventListener('pointerdown', onPointerDown);
   renderer.domElement.addEventListener('pointerup', onPointerUp);
 
-  const ready = layer.load().then(() => layer.update());
+  const ready = layer.load().then(async () => {
+    await layer.update();
+    if (destroyed || userInteracted) return;
+
+    const bounds = new THREE.Box3().setFromObject(layer.getRoot());
+    if (bounds.isEmpty()) return;
+    const sphere = bounds.getBoundingSphere(new THREE.Sphere());
+    cameraTarget.copy(sphere.center);
+    cameraDistance = Math.max(10, sphere.radius * 2.8);
+    camera.position.copy(cameraTarget).addScaledVector(initialCameraDirection, cameraDistance);
+    camera.lookAt(cameraTarget);
+    controls.target.copy(cameraTarget);
+    synchronizingCamera = true;
+    controls.update();
+    synchronizingCamera = false;
+    await layer.update();
+  });
   return {
     renderer: 'three',
     ready,
@@ -359,8 +384,8 @@ export async function createPlaygroundRuntime(
     async setCameraView(view) {
       if (destroyed) return;
       const distance = cameraDistance * (view === 'near' ? 0.55 : view === 'far' ? 2.5 : 1);
-      camera.position.set(0, -distance, distance * 0.38);
-      controls.target.set(0, 0, 0);
+      const direction = camera.position.clone().sub(controls.target).normalize();
+      camera.position.copy(controls.target).addScaledVector(direction, distance);
       controls.update();
       await layer.update();
     },
@@ -384,6 +409,7 @@ export async function createPlaygroundRuntime(
       destroyed = true;
       cancelAnimationFrame(animationFrame);
       resizeObserver.disconnect();
+      controls.removeEventListener('start', onCameraStart);
       controls.removeEventListener('change', onCameraChange);
       controls.dispose();
       renderer.domElement.removeEventListener('pointerdown', onPointerDown);

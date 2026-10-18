@@ -291,6 +291,10 @@ test('camera movement during a layer reload is preserved', async ({ page }) => {
   const actual = await page.evaluate(() => (window as Window & {
     __COPC_PLAYGROUND_TEST__?: { getCameraView(): PlaygroundCameraView };
   }).__COPC_PLAYGROUND_TEST__?.getCameraView());
+  const zoomCount = await page.evaluate(() => (window as Window & {
+    __COPC_PLAYGROUND_TEST__?: { getMockZoomCount(): number };
+  }).__COPC_PLAYGROUND_TEST__?.getMockZoomCount());
+  expect(zoomCount).toBe(1);
   expect(actual?.longitude).toBeCloseTo(userCamera.longitude, 5);
   expect(actual?.latitude).toBeCloseTo(userCamera.latitude, 5);
   expect(actual?.height).toBeCloseTo(userCamera.height, 2);
@@ -314,6 +318,7 @@ test('renderer, backend, and color controls expose keyboard-accessible applied c
   await expect(backend.getByRole('radio', { name: 'JavaScript' })).toHaveAttribute('aria-checked', 'true');
   await backend.getByRole('radio', { name: 'Rust / WASM' }).click();
   await expect(backend.getByRole('radio', { name: 'Rust / WASM' })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.locator('#integration-example')).toContainText("backend: 'rust'");
 
   const colors = page.getByRole('radiogroup', { name: 'Color mode' });
   await expect(colors.getByRole('radio', { name: 'RGB' })).toBeDisabled();
