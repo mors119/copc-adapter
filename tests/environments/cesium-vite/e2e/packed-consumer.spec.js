@@ -194,6 +194,102 @@ test('loads the packed opt-in batched Cesium renderer without changing the defau
   expect(pageErrors).toEqual([]);
 });
 
+test('compares fixed and spacing-aware point sizes in close and far packed Cesium views', async ({ page }, testInfo) => {
+  test.setTimeout(240_000);
+  const pageErrors = [];
+  page.on('pageerror', (error) => pageErrors.push(error));
+
+  let cameraOrigin;
+  async function captureMode(mode) {
+    await page.goto(`/?backend=rust&mode=rgb&renderer=batched&pointSizeMode=${mode}`);
+    await expect.poll(() => state(page)).toMatchObject({
+      viewerCreatedByConsumer: true,
+      viewerAlive: true,
+      layerAttachedToCallerViewer: true,
+      lifecycle: 'ready',
+      backend: 'rust',
+    });
+    await expect.poll(async () => (await state(page)).renderedPointCount)
+      .toBeGreaterThan(0);
+    const initial = await state(page);
+    cameraOrigin ??= {
+      longitude: initial.datasetCenter?.longitude ?? initial.cameraPosition.longitude,
+      latitude: initial.datasetCenter?.latitude ?? initial.cameraPosition.latitude,
+    };
+
+    const views = {};
+    for (const [label, height] of [['far', 10_000], ['close', 1_000]]) {
+      const before = await state(page);
+      await page.evaluate(({ longitude, latitude, cameraHeight }) =>
+        window.__PACKED_CONSUMER__.setCameraPose({
+          longitude,
+          latitude,
+          height: cameraHeight,
+          heading: 23,
+          pitch: -80,
+        }), { ...cameraOrigin, cameraHeight: height });
+      await expect.poll(async () => (await state(page)).cameraMoveEventCount)
+        .toBeGreaterThan(before.cameraMoveEventCount);
+      await expect.poll(async () => (await state(page)).cameraPosition.height)
+        .toBeCloseTo(height, 1);
+      await completedState(page);
+      await expect.poll(async () => {
+        const current = await state(page);
+        return current.performance.activeNodeCount === 0
+          && current.transition.activeReplacementGroupCount === 0
+          && current.rangeRequests.active === 0;
+      }).toBe(true);
+      expect((await state(page)).renderedPointCount).toBeGreaterThan(0);
+      await page.waitForTimeout(150);
+      views[label] = {
+        state: await state(page),
+        screenshot: await page.screenshot({ animations: 'disabled' }),
+      };
+      await testInfo.attach(`${mode}-${label}.png`, {
+        body: views[label].screenshot,
+        contentType: 'image/png',
+      });
+    }
+    return views;
+  }
+
+  const fixed = await captureMode('fixed');
+  const attenuated = await captureMode('attenuated');
+  for (const view of ['close', 'far']) {
+    expect(attenuated[view].state.cameraPosition.longitude)
+      .toBeCloseTo(fixed[view].state.cameraPosition.longitude, 7);
+    expect(attenuated[view].state.cameraPosition.latitude)
+      .toBeCloseTo(fixed[view].state.cameraPosition.latitude, 7);
+    expect(attenuated[view].state.cameraPosition.height)
+      .toBeCloseTo(fixed[view].state.cameraPosition.height, 1);
+    expect(attenuated[view].state.cameraOrientation.heading)
+      .toBeCloseTo(fixed[view].state.cameraOrientation.heading, 5);
+    expect(attenuated[view].state.cameraOrientation.pitch)
+      .toBeCloseTo(fixed[view].state.cameraOrientation.pitch, 5);
+    expect(attenuated[view].state.selectedNodeKeys)
+      .toEqual(fixed[view].state.selectedNodeKeys);
+    expect(attenuated[view].screenshot.equals(fixed[view].screenshot)).toBe(false);
+  }
+
+  const pointSizeDiagnostics = await page.evaluate(() =>
+    window.__PACKED_CONSUMER__.getPointSizeDiagnostics());
+  expect(pointSizeDiagnostics.length).toBeGreaterThan(0);
+  expect(pointSizeDiagnostics.every((node) =>
+    node.mode === 'attenuated'
+      && Number.isFinite(node.spacingMeters)
+      && node.spacingMeters > 0
+      && node.minimumCssPixels === 1
+      && node.maximumCssPixels === 8
+      && node.geometrySpacingAttribute.length > 0
+      && node.geometrySpacingAttribute.every(Number.isFinite)
+      && node.vertexShaderSource.includes('czm_projection[1][1]')
+      && node.vertexShaderSource.includes('czm_projection[2][3]')
+      && node.vertexShaderSource.includes('clamp('))).toBe(true);
+
+  expect(pageErrors).toEqual([]);
+  expect((await state(page)).lastError).toBeUndefined();
+});
+
 test('browser Blob source matches the URL source hierarchy and decoded points', async ({ page }) => {
   await page.goto('/?backend=copc-js');
   await expect.poll(() => state(page)).toMatchObject({ lifecycle: 'ready' });

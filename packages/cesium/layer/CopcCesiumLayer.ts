@@ -11,6 +11,7 @@ import type { CopcBackendSelection } from '../../core/copc/backend/selection';
 import type { CopcPointDecoder } from '../../core/copc/points/types';
 import type { CopcHierarchyDiagnostics } from '../../core/copc/hierarchy/types';
 import type { CesiumPointRenderer } from '../render/CopcPointRenderer';
+import type { CopcCesiumPointSizeMode } from '../render/CopcPointRenderer';
 import type { CopcPointInspection } from '../../core/copc/points/pointInspection';
 import type { RangeValidationPolicy } from '../../core/copc/range/types';
 import type { CopcInputSource } from '../../core/copc/range/types';
@@ -52,6 +53,16 @@ export type CopcCesiumLayerOptions = {
   url: CopcInputSource;
   /** Cesium point primitive size in pixels. Defaults to 3. */
   pointSize?: number;
+  /**
+   * Point-size calculation mode. Defaults to `fixed` for compatibility.
+   * `attenuated` needs a renderer with shader support, such as
+   * `BatchedGeometryPointRenderer`; other renderers keep the fixed-size path.
+   */
+  pointSizeMode?: CopcCesiumPointSizeMode;
+  /** Minimum point diameter in CSS pixels for `attenuated` mode. Defaults to 1. */
+  minPointSize?: number;
+  /** Maximum point diameter in CSS pixels for `attenuated` mode. Defaults to 12 and cannot exceed 64. */
+  maxPointSize?: number;
   /** Point color mapping. Defaults to the backward-compatible fixed cyan. */
   colorMode?: CopcColorMode;
   /** Manual additive correction in metres applied to ellipsoidal point height. Defaults to 0. */

@@ -4,6 +4,12 @@ import {
   type CesiumPointRenderer,
   type CopcCesiumPointRendererOptions,
 } from '../render/CopcPointRenderer';
+import {
+  DEFAULT_MAX_ATTENUATED_POINT_SIZE_CSS_PIXELS,
+  DEFAULT_MIN_ATTENUATED_POINT_SIZE_CSS_PIXELS,
+  MAX_ATTENUATED_POINT_SIZE_CSS_PIXELS,
+} from '../render/projectedPointSize';
+import { deriveNodePointSpacingMeters } from '../render/pointSpacing';
 import { createCesiumStreamingView } from '../view/CesiumViewAdapter';
 import { createMetadataBoundingSphere } from '../geometry/metadataBoundingSphere';
 import { CesiumPointPicker } from '../picking/CesiumPointPicker';
@@ -69,7 +75,14 @@ export type {
 
 export type CopcLayerOptions = {
   url: CopcInputSource;
+  /** Fixed CSS-pixel point diameter. Defaults to 3. */
   pointSize?: number;
+  /** Fixed by default; attenuation requires renderer shader support. */
+  pointSizeMode?: 'fixed' | 'attenuated';
+  /** Lower attenuated point diameter in CSS pixels. Defaults to 1. */
+  minPointSize?: number;
+  /** Upper attenuated point diameter in CSS pixels. Defaults to 12; maximum is 64. */
+  maxPointSize?: number;
   colorMode?: CopcColorMode;
   /** Manual additive correction in metres applied to ellipsoidal point height. Defaults to 0. */
   heightOffsetMeters?: number;
@@ -303,6 +316,26 @@ export class CesiumLayerController {
   };
 
   constructor(options: CopcLayerOptions) {
+    const pointSize = options.pointSize ?? 3;
+    const minPointSize = options.minPointSize
+      ?? DEFAULT_MIN_ATTENUATED_POINT_SIZE_CSS_PIXELS;
+    const maxPointSize = options.maxPointSize
+      ?? DEFAULT_MAX_ATTENUATED_POINT_SIZE_CSS_PIXELS;
+    if (!Number.isFinite(pointSize) || pointSize <= 0) {
+      throw new RangeError('pointSize must be a positive finite number');
+    }
+    if (options.pointSizeMode !== undefined
+      && options.pointSizeMode !== 'fixed'
+      && options.pointSizeMode !== 'attenuated') {
+      throw new TypeError('pointSizeMode must be "fixed" or "attenuated"');
+    }
+    if (!Number.isFinite(minPointSize) || minPointSize <= 0
+      || !Number.isFinite(maxPointSize) || maxPointSize < minPointSize
+      || maxPointSize > MAX_ATTENUATED_POINT_SIZE_CSS_PIXELS) {
+      throw new RangeError(
+        `minPointSize and maxPointSize must satisfy 0 < minPointSize <= maxPointSize <= ${MAX_ATTENUATED_POINT_SIZE_CSS_PIXELS}`,
+      );
+    }
     this.options = options;
     this.style = { colorMode: options.colorMode ?? 'fixed' };
     this.pointRenderer = options.renderer ?? new PointPrimitiveRenderer();
@@ -1031,8 +1064,24 @@ export class CesiumLayerController {
     points: PreparedPointData,
     style: CopcCesiumPointStyle,
   ): CopcCesiumPointRendererOptions {
+    const metadata = this.core.getMetadata();
+    const hierarchyNode = this.core.getHierarchyNode(nodeKey);
+    let pointSizeMode: 'fixed' | 'attenuated' = this.options.pointSizeMode === 'attenuated'
+      && this.pointRenderer.supportsPointSizeAttenuation === true
+      ? 'attenuated'
+      : 'fixed';
+    const pointSpacingMeters = pointSizeMode === 'attenuated' && metadata && hierarchyNode
+      ? deriveNodePointSpacingMeters(metadata, hierarchyNode.node.level, hierarchyNode.center)
+      : undefined;
+    if (pointSpacingMeters === undefined) pointSizeMode = 'fixed';
     return {
       pointSize: this.options.pointSize ?? 3,
+      pointSizeMode,
+      minPointSize: this.options.minPointSize
+        ?? DEFAULT_MIN_ATTENUATED_POINT_SIZE_CSS_PIXELS,
+      maxPointSize: this.options.maxPointSize
+        ?? DEFAULT_MAX_ATTENUATED_POINT_SIZE_CSS_PIXELS,
+      ...(pointSpacingMeters === undefined ? {} : { pointSpacingMeters }),
       colorMode: style.colorMode,
       elevationRange: this.datasetElevationRange,
       rgbMax: this.pointStyleState.getRgbMax(points),

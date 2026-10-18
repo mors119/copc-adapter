@@ -30,8 +30,23 @@ export type CopcCesiumPointRendererPerformanceStage =
   /** Remove and release one node's primitives. */
   | 'nodeRemoval';
 
+/** How the Cesium renderer chooses a point's screen-space diameter. */
+export type CopcCesiumPointSizeMode =
+  /** Use the configured fixed CSS-pixel diameter. */
+  | 'fixed'
+  /** Project node spacing through the current camera, then clamp to configured CSS-pixel bounds. */
+  | 'attenuated';
+
 /** Cesium-specific point styling and performance callback options. */
 export type CopcCesiumPointRendererOptions = NeutralCopcPointRendererOptions & {
+  /** Fixed sizing by default; attenuation requires a renderer that advertises shader support. */
+  pointSizeMode?: CopcCesiumPointSizeMode;
+  /** Lower point diameter bound in CSS pixels for `attenuated` mode. Defaults to 1. */
+  minPointSize?: number;
+  /** Upper point diameter bound in CSS pixels for `attenuated` mode. Defaults to 12, with a hard limit of 64. */
+  maxPointSize?: number;
+  /** Local nominal point spacing for this node in metres. */
+  pointSpacingMeters?: number;
   /** Receives the measured stage, elapsed milliseconds, and affected point count. */
   onPerformance?: (
     stage: CopcCesiumPointRendererPerformanceStage,
@@ -51,6 +66,8 @@ export type { CopcPointRenderer } from '../../core/streaming/renderer';
 
 /** Cesium-only part of the renderer boundary. */
 export interface CesiumPointRenderer extends CopcPointRenderer {
+  /** True when `pointSizeMode: 'attenuated'` is implemented by this renderer. */
+  readonly supportsPointSizeAttenuation?: boolean;
   /** Attach renderer-owned primitives to a caller-owned Viewer. */
   attachTo(viewer: Cesium.Viewer): void;
   /** Detach and release renderer-owned primitive resources. */
