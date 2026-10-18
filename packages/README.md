@@ -47,9 +47,23 @@ npm install @frillab/copc-adapter three
 import { CopcThreeLayer } from '@frillab/copc-adapter/three';
 ```
 
-The COPC URL must be browser-readable, support byte Range requests, and
-provide compatible CORS headers. To inspect a source before loading a layer,
-call `probeCopcSource(url)`; it performs a bounded prefix probe and returns
+URL sources must be browser-readable, support byte Range requests, and
+provide compatible CORS headers. Local files can be passed as a `File` or
+`Blob`; only requested slices are read, and file contents are not uploaded:
+
+```ts
+const file = fileInput.files?.[0];
+if (file) {
+  const layer = new CopcCesiumLayer({ url: file });
+  await layer.load();
+  layer.attachTo(viewer);
+}
+```
+
+Local input must contain COPC hierarchy metadata. Ordinary LAS/LAZ files are
+not converted or supported. Range/CORS/HTTP status diagnostics apply only to
+URL sources. To inspect a URL source before loading a layer, call
+`probeCopcSource(url)`; it performs a bounded prefix probe and returns
 structured Range, CORS-observability, LAS/COPC, and warning fields without
 downloading the whole file. Supported color modes are `fixed`,
 `elevation`, `rgb`, `intensity`, and `classification`. Use

@@ -4,7 +4,8 @@ import {
   toCopcHierarchyPage,
 } from '../adapters/hierarchyAdapter';
 import { toCopcMetadata } from '../adapters/metadataAdapter';
-import { createCopcGetter, type CopcRangeGetter } from '../getter/createCopcGetter';
+import { createCopcGetter, getCopcSourceIdentity, type CopcRangeGetter } from '../getter/createCopcGetter';
+import type { CopcInputSource } from '../range/types';
 import { decodeCopcPointBuffer } from '../../wasm/copcDecoder';
 import type { CopcHierarchySubtree } from '../hierarchy/types';
 import type {
@@ -350,10 +351,11 @@ export class CopcJsBackend implements CopcBackend {
 
   /** Open a source through the JavaScript COPC reader and adapt it to project types. */
   async open(
-    source: string,
+    source: CopcInputSource,
     options: CopcBackendOpenOptions = {},
   ): Promise<CopcSource> {
     try {
+      const identity = getCopcSourceIdentity(source);
       const getter = createCopcGetter(source, {
         signal: options.signal,
         rangeRequestDiagnostics: options.rangeRequestDiagnostics,
@@ -363,9 +365,9 @@ export class CopcJsBackend implements CopcBackend {
       });
       const copc = await Copc.create(getter);
 
-      return new CopcJsSource(source, getter, copc, this.extraDimensions);
+      return new CopcJsSource(identity, getter, copc, this.extraDimensions);
     } catch (error: unknown) {
-      throw mapCopcJsError(source, error, 'open');
+      throw mapCopcJsError(getCopcSourceIdentity(source), error, 'open');
     }
   }
 }

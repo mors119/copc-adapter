@@ -9,6 +9,8 @@ export type {
   ParsedContentRange,
 } from './contentRange';
 export { InMemoryByteSource } from './inMemoryByteSource';
+export { BlobByteSource } from './blobByteSource';
+export type { BlobByteSourceOptions } from './blobByteSource';
 export {
   RangeSourceError,
   DEFAULT_MAX_RANGE_BYTES,
@@ -24,4 +26,5 @@ export type {
   RangeSourceErrorCode,
   RangeSourceErrorDetails,
   RandomAccessByteSource,
+  CopcInputSource,
 } from './types';

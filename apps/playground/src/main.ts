@@ -14,7 +14,7 @@ app.innerHTML = `
         <span class="brand-mark" aria-hidden="true">C</span>
         <span class="brand-copy"><strong>COPC Adapter</strong><small>PLAYGROUND</small></span>
       </a>
-      <div class="topbar-center"><span class="live-dot" aria-hidden="true"></span> Application scaffold</div>
+      <div class="topbar-center"><span class="live-dot" aria-hidden="true"></span> Local COPC ready</div>
       <a class="docs-link" href="https://mors119.github.io/copc-adapter/">Documentation <span aria-hidden="true">↗</span></a>
     </header>
 
@@ -24,13 +24,15 @@ app.innerHTML = `
           <div><span class="eyebrow">01 / DATA</span><h1 id="source-heading">Source</h1></div>
           <span class="step-icon" aria-hidden="true">↗</span>
         </div>
-        <p class="panel-intro">Connect a browser-readable COPC resource to begin exploring.</p>
-        <div class="source-empty" role="status" aria-live="polite">
+        <p class="panel-intro">Open a local COPC file and stream its hierarchy and point chunks directly from your browser.</p>
+        <label class="file-picker" for="copc-file">
           <span class="source-symbol" aria-hidden="true">＋</span>
-          <strong>Ready for a source</strong>
-          <span>Source probing and loading controls are coming in a follow-up.</span>
-        </div>
-        <div class="small-note"><span class="note-icon" aria-hidden="true">i</span><span>Sources stay in your browser. The Playground does not upload or store data.</span></div>
+          <strong>Choose a COPC file</strong>
+          <span>Browse for a .copc.laz file</span>
+          <input id="copc-file" type="file" accept=".copc.laz,.laz,.copc,application/octet-stream">
+        </label>
+        <p class="source-status" id="source-status" role="status" aria-live="polite">Waiting for a local file</p>
+        <div class="small-note"><span class="note-icon" aria-hidden="true">i</span><span>File bytes stay in your browser. Ordinary LAS/LAZ files without COPC hierarchy are unsupported.</span></div>
       </aside>
 
       <section class="viewer-column" aria-labelledby="viewer-heading">
@@ -42,7 +44,7 @@ app.innerHTML = `
           <div id="cesium-container" role="region" aria-label="Interactive Cesium globe viewport"></div>
           <div class="scene-overlay" aria-hidden="true"><span class="scene-coordinate">WGS 84 · 3D</span></div>
         </div>
-        <p class="viewer-caption">The application owns this Cesium Viewer. Adapter layer controls will attach here in a later update.</p>
+        <p class="viewer-caption">The Playground owns this Cesium Viewer. COPC point data is read as the view refines.</p>
       </section>
 
       <aside class="side-panel config-panel" aria-label="Configuration areas">
@@ -72,10 +74,12 @@ app.innerHTML = `
       </section>
       <section class="bottom-card code-card" aria-labelledby="code-heading">
         <div class="bottom-title"><span class="eyebrow">06 / INTEGRATION</span><h2 id="code-heading">Generated code</h2></div>
-        <pre aria-label="Generated integration code placeholder"><code>Choose a source and configuration to generate an integration snippet.</code></pre>
+          <pre aria-label="Generated integration code"><code>const layer = new CopcCesiumLayer({ url: file });
+await layer.load();
+layer.attachTo(viewer);</code></pre>
       </section>
     </footer>
-    <div class="statusbar"><span>Scaffold <span class="status-divider">/</span> No source loaded</span><span>Static · Client-side</span></div>
+    <div class="statusbar"><span>Ready <span class="status-divider">/</span> No source loaded</span><span>Static · Client-side</span></div>
   </div>
 `;
 
@@ -105,6 +109,27 @@ const viewer = new Cesium.Viewer(viewerElement, {
   terrainProvider: new Cesium.EllipsoidTerrainProvider(),
 });
 
+const fileInput = document.querySelector<HTMLInputElement>('#copc-file');
+const sourceStatus = document.querySelector<HTMLElement>('#source-status');
+let activeLayer: CopcCesiumLayer | undefined;
+fileInput?.addEventListener('change', async () => {
+  const file = fileInput.files?.[0];
+  if (!file || !sourceStatus) return;
+  activeLayer?.destroy();
+  const layer = new CopcCesiumLayer({ url: file });
+  activeLayer = layer;
+  layer.attachTo(viewer);
+  sourceStatus.textContent = `Loading ${file.name}…`;
+  try {
+    await layer.load();
+    if (activeLayer === layer) sourceStatus.textContent = `Loaded ${file.name}`;
+  } catch (error) {
+    if (activeLayer === layer) {
+      sourceStatus.textContent = error instanceof Error ? error.message : String(error);
+    }
+  }
+});
+
 viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#111d25');
 viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#0b1118');
 viewer.camera.setView({
@@ -115,6 +140,7 @@ let destroyed = false;
 const destroyViewer = (): void => {
   if (destroyed) return;
   destroyed = true;
+  activeLayer?.destroy();
   if (!viewer.isDestroyed()) viewer.destroy();
 };
 

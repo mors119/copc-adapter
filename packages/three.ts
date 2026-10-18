@@ -53,12 +53,14 @@ export type {
 export type { CopcPointDecoder } from './core/copc/points/types';
 export {
   HttpRangeByteSource,
+  BlobByteSource,
   InMemoryByteSource,
   RangeSourceError,
   DEFAULT_MAX_RANGE_BYTES,
   DEFAULT_MAX_CONCURRENT_RANGE_REQUESTS,
   validateByteRange,
 } from './core/copc/range';
+export type { BlobByteSourceOptions } from './core/copc/range';
 export type {
   ByteRange,
   RangeFetch,
@@ -68,6 +70,7 @@ export type {
   RangeSourceErrorCode,
   RangeSourceErrorDetails,
   RandomAccessByteSource,
+  CopcInputSource,
 } from './core/copc/range';
 export { probeCopcSource } from './core/copc/sourceProbe';
 export type {

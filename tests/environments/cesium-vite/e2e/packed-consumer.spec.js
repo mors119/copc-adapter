@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import path from 'node:path';
 
 async function state(page) {
   return page.evaluate(() => window.__PACKED_CONSUMER__.getState());
@@ -144,6 +145,31 @@ test('validates the packed Rust backend in an external Vite consumer', async ({ 
   expect(initial.worker?.completedCount).toBeGreaterThan(0);
   expect(assetResponses.some((response) => response.url.includes('laz-perf'))).toBe(false);
   expect(requestUrls.some((url) => /\/public\/|\/target\/|copc-adapter\/feature-/i.test(url))).toBe(false);
+});
+
+test('browser Blob source matches the URL source hierarchy and decoded points', async ({ page }) => {
+  await page.goto('/?backend=copc-js');
+  await expect.poll(() => state(page)).toMatchObject({ lifecycle: 'ready' });
+  await page.evaluate(() => {
+    const input = document.createElement('input');
+    input.id = 'local-copc-file';
+    input.type = 'file';
+    document.body.append(input);
+  });
+  await page.locator('#local-copc-file').setInputFiles(
+    path.resolve(process.cwd(), 'public/samples/autzen.copc.laz'),
+  );
+  const result = await page.evaluate(() => {
+    const file = document.querySelector('#local-copc-file').files[0];
+    return window.__PACKED_CONSUMER__.compareUrlAndFile(file);
+  });
+
+  expect(result.urlPointCount).toBe(10653336);
+  expect(result.filePointCount).toBe(result.urlPointCount);
+  expect(result.fileSource).toMatch(/^file:\/\/autzen\.copc\.laz$/);
+  expect(result.fileNodes).toEqual(result.urlNodes);
+  expect(result.sample.every((point) => point.every(([urlValue, fileValue]) => urlValue === fileValue)))
+    .toBe(true);
 });
 
 test('processes Cesium camera input while packed Rust Workers prepare Autzen nodes', async ({ page }) => {

@@ -72,6 +72,8 @@ import {
 } from '../copc/range/requestDiagnostics';
 import type { RangeRequestDiagnostics } from '../copc/range/requestDiagnostics';
 import type { RangeValidationPolicy } from '../copc/range/types';
+import type { CopcInputSource } from '../copc/range/types';
+import { getCopcSourceIdentity } from '../copc/getter/createCopcGetter';
 
 /** Lifecycle states that do not depend on an attached rendering engine. */
 export type CopcStreamingLifecycleState =
@@ -95,7 +97,7 @@ export type CopcStreamingTransitionState = {
 /** Source, backend, and bounded resource policies for the shared streaming core. */
 export type CopcStreamingControllerOptions = {
   /** Source URL or source identity used by the selected backend. */
-  url: string;
+  url: CopcInputSource;
   /** Overrides for the shared selection and streaming limits. */
   streaming?: Partial<StreamingSelectionOptions>;
   /** Convenience override for the shared rendered-point workload budget. */
@@ -712,7 +714,7 @@ export class CopcStreamingCore {
     const worker = state?.context.getWorkerDiagnostics?.();
     return {
       lifecycle: this.lifecycle,
-      source: state?.context.source ?? this.options.url,
+      source: state?.context.source ?? getCopcSourceIdentity(this.options.url),
       backend: getCopcBackendName(this.options.backend),
       selectedNodeKeys: this.getCurrentSelection(),
       streamingUpdateCount: this.streamingUpdateCount,

@@ -20,6 +20,8 @@ import type {
 import type { CopcPointFieldSelection } from '../points/fieldSelection';
 import type { CopcPerformanceObserver } from '../performance';
 import type { CopcWorkerDiagnostics } from '../backend/types';
+import type { CopcInputSource } from '../range/types';
+import { getCopcSourceIdentity, isBlobSource } from '../getter/createCopcGetter';
 
 /**
  * Reusable project-owned context around an opened backend source.
@@ -75,7 +77,7 @@ export class CopcContext implements CopcSource {
   }
 
   static async create(
-    source: string,
+    source: CopcInputSource,
     backend: CopcBackendSelection = 'copc-js',
     options: CopcBackendOpenOptions = {},
   ): Promise<CopcContext> {
@@ -83,13 +85,13 @@ export class CopcContext implements CopcSource {
       return new CopcContext(await resolveCopcBackend(backend).open(source, options));
     } catch (error: unknown) {
       if (error instanceof CopcBackendError && error.stage === 'source') {
-        throw new CopcSourceError(source, { cause: error });
+        throw new CopcSourceError(getCopcSourceIdentity(source), { cause: error });
       }
       if (error instanceof CopcLoadError) {
         throw error;
       }
 
-      throw new CopcSourceError(source, { cause: error });
+      throw new CopcSourceError(getCopcSourceIdentity(source), { cause: error });
     }
   }
 
@@ -114,24 +116,24 @@ export class CopcContext implements CopcSource {
   }
 }
 
-export type CopcContextInput = string | CopcSource;
+export type CopcContextInput = CopcInputSource | CopcSource;
 
 /** Open a source using the selected backend. */
 export async function createCopcContext(
-  source: string,
+  source: CopcInputSource,
   backend: CopcBackendSelection = 'copc-js',
   options: CopcBackendOpenOptions = {},
 ): Promise<CopcContext> {
   return CopcContext.create(source, backend, options);
 }
 
-/** Resolve a URL to a context or reuse an already-open project source. */
+/** Resolve an input source to a context or reuse an already-open project source. */
 export async function resolveCopcContext(
   input: CopcContextInput,
   backend: CopcBackendSelection = 'copc-js',
 ): Promise<CopcSource> {
-  if (typeof input === 'string') {
-    return createCopcContext(input, backend);
+  if (typeof input === 'string' || isBlobSource(input) || 'readRange' in input) {
+    return createCopcContext(input as CopcInputSource, backend);
   }
 
   return input;
