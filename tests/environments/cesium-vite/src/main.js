@@ -310,9 +310,13 @@ window.__PACKED_CONSUMER__ = {
       for (const nodeKey of renderer.getRenderedNodeKeys()) {
         const probe = renderer.probePick(viewer.scene, nodeKey);
         if (probe.picked && probe.screenPosition && probe.targetSourcePointIndex !== undefined) {
+          // Browser mouse input is delivered at CSS-pixel coordinates. Probe
+          // and resolve against the same integer coordinate that the E2E
+          // click will use, rather than the projected point's fractional
+          // coordinate, which can land in an adjacent pick pixel.
           const position = new Cesium.Cartesian2(
-            probe.screenPosition.x,
-            probe.screenPosition.y,
+            Math.round(probe.screenPosition.x),
+            Math.round(probe.screenPosition.y),
           );
           const pickedObject = viewer.scene.pick(position, 1, 1);
           const identity = renderer.resolvePointPick(viewer.scene, position, pickedObject);
@@ -320,7 +324,7 @@ window.__PACKED_CONSUMER__ = {
           return {
             nodeKey,
             pointIndex: identity.pointIndex,
-            screenPosition: probe.screenPosition,
+            screenPosition: { x: position.x, y: position.y },
             worldPosition: probe.worldPosition,
           };
         }
