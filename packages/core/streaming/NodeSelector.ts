@@ -890,8 +890,16 @@ export class NodeSelector {
       const evaluation = evaluations.get(node.node.key) ?? evaluate(node);
       const refinementPriority = evaluation.influence.effectiveScreenSpaceError;
       const schedulingCenterWeight = evaluation.schedulingWeight;
+      // Combine automatic and explicit focus as one bounded scheduling signal.
+      // A single multiplier keeps the existing 1.5x ceiling and leaves the
+      // no-focus legacy score unchanged.
+      const schedulingInfluence = clamp(
+        schedulingCenterWeight + evaluation.focusWeight,
+        0,
+        1,
+      );
       const schedulingMultiplier = 1
-        + schedulingCenterWeight * DEFAULT_MAX_SCHEDULING_CENTER_BOOST;
+        + schedulingInfluence * DEFAULT_MAX_SCHEDULING_CENTER_BOOST;
       // Start from raw SSE so the conservative, extent-aware refinement
       // influence cannot leak back into scheduling through the broad sphere
       // overlap signal. The refinement score remains a deterministic visual

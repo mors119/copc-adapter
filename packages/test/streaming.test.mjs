@@ -1562,10 +1562,13 @@ test('screen-circle focus follows a stationary view and accepts bounding-sphere 
     radius: 0.08,
     detailBias: 2,
   });
-  const leftFocus = selector.selectVisibleNodes(camera, hierarchy)
-    .find((node) => node.node.key === leftKey);
+  const leftSelection = selector.selectVisibleNodes(camera, hierarchy);
+  const leftFocus = leftSelection.find((node) => node.node.key === leftKey);
+  const rightUnfocused = leftSelection.find((node) => node.node.key === rightKey);
   assert.ok(leftFocus);
+  assert.ok(rightUnfocused);
   assert.ok(leftFocus.focusWeight > 0);
+  assert.ok(leftFocus.schedulingPriority > rightUnfocused.schedulingPriority);
   assert.equal(selector.getSelectionMetrics().refinementFocusEnabled, true);
   assert.equal(selector.getSelectionMetrics().focusCandidateCount > 0, true);
   assert.ok(selector.getSelectionMetrics().detailBiasMax <= MAX_REFINEMENT_FOCUS_DETAIL_BIAS);
@@ -1582,6 +1585,7 @@ test('screen-circle focus follows a stationary view and accepts bounding-sphere 
   assert.ok(movedLeft);
   assert.ok(movedRight);
   assert.ok(movedRight.focusWeight > movedLeft.focusWeight);
+  assert.ok(movedRight.schedulingPriority > movedLeft.schedulingPriority);
 
   // The sphere center sits outside this lens, but its projected extent crosses
   // the circle and still receives focus relevance.
