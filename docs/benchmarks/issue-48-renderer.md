@@ -212,11 +212,56 @@ tested; the shader was exercised with Chrome 155 and SwiftShader only.
 
 ### Issue #232 recommendation
 
-**Abandon this public Primitive path as the production renderer while the
-current per-point picking identity is required.** The public Geometry/Primitive
-path is feasible on Cesium 1.146.0 and substantially lowers synchronous CPU
-renderer preparation in these runs, but its one-id-per-geometry-instance
-public picking model does not return point identity. Do not change the shipped
-default. Private `DrawCommand`/`VertexArray` APIs remain a possible
-version-pinned experiment for point-level picking, with upgrade and shader
-maintenance costs; this spike did not expose or ship that fallback.
+**CONDITIONAL — the rendering path is viable, but direct production
+replacement is blocked by point-level picking.** The public Geometry/Primitive
+path is feasible on Cesium 1.146.0 and lowers synchronous CPU renderer
+preparation in these runs, but its one-id-per-geometry-instance public picking
+model does not return point identity. Keep the shipped default. Issue #233
+should first prove a suitable point-level picking strategy; if a supported
+CPU-side strategy is not practical, abandon this public path or evaluate a
+version-pinned private API experiment with its shader and upgrade costs.
+
+## Issue #232 verification rerun (2026-10-18)
+
+The merged prototype was rerun locally against the same default renderer using
+the existing Playwright scenarios. Environment: macOS 26.6.2, Apple M2, Node.js
+26.7.0, Chrome 155.0.8059.82, 1280 × 720 at DPR 1, Cesium 1.146.0, WebGL2 via
+SwiftShader. Each row is one browser run; timings and frame samples vary with
+browser load and remote response timing.
+
+| dataset / view | renderer | points / nodes | range bytes | coordinate conversion | style | primitive creation | primitive add | renderer preparation | longest Long Task | frame median / p95 |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Autzen, 1 km | PointPrimitiveCollection | 233,908 / 8 | 1,450,612 | 5.6 ms | 27.2 ms | 0.1 ms | 34.6 ms | 71.4 ms | 432 ms | 199.9 / 433.3 ms (15 samples) |
+| Autzen, 1 km | public Geometry(POINTS) | 233,908 / 8 | 1,450,612 | 3.4 ms | 6.9 ms | 0.3 ms | 0.2 ms | 10.8 ms | 399 ms | 116.7 / 400.0 ms (20 samples) |
+| SoFi, initial | PointPrimitiveCollection | 247,960 / 15 | 3,386,421 | 4.2 ms | 26.3 ms | 0.3 ms | 48.8 ms | 82.7 ms | 429 ms | 250 / 250 ms (6 samples) |
+| SoFi, initial | public Geometry(POINTS) | 247,960 / 15 | 3,386,421 | 6.6 ms | 10.5 ms | 2.3 ms | 0.4 ms | 19.8 ms | 459 ms | 116.7 / 133.3 ms (10 samples) |
+
+The runs rendered equal point and node counts with equal range workloads for
+each paired view. The Autzen and SoFi default/prototype browser suites passed;
+the SoFi scenario also completed its existing close, overview, oblique, and
+area-return transitions under the 250,000-point and 256 MiB cache budgets.
+SoFi first-useful-visible time was 22.1 s for the default and 20.9 s for the
+prototype; these remote-source measurements are not attributed to rendering.
+
+This is evidence of lower synchronous renderer preparation for these samples,
+not an end-to-end speedup claim. The prototype's `PrimitiveCollection.add()`
+stage is only the synchronous CPU call. Cesium does not expose a supported
+draw-call counter in this harness, so one `Primitive` per node is not reported
+as a measured one-draw-call-per-node result. Frame intervals and Long Tasks
+also did not consistently improve. The four candidate typed vertex arrays use
+32 bytes per point before Cesium/GPU allocations; comparable default heap/GPU
+memory was not measured.
+
+The public pick probe hit the expected node id for Autzen but returned no
+`pointIndex`. A new focused lifecycle test also confirmed that node removal,
+clear, and renderer destruction leave a caller-owned scene primitive intact.
+The production recommendation remains **CONDITIONAL**: the public API path
+renders and cleans up on Cesium 1.146.0, but #233 must first prove a suitable
+point-level picking strategy (or explicitly revise that requirement). Keep
+the current default renderer until then. This rerun did not exercise a physical
+GPU, WebGL1, 2D/Columbus View, clipping, or a supported draw-call measurement.
+
+Validation on this checkout: package and dev-viewer typechecks; focused
+renderer/precision/lifecycle unit tests (7 passed); the 100,000-point
+`benchmark:renderer`; default and prototype Autzen E2E (2 passed each); default
+and prototype SoFi E2E (1 passed each); and dev-viewer production build.
