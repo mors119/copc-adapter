@@ -16,6 +16,7 @@ import type { CopcPointInspection } from '../../core/copc/points/pointInspection
 import type { RangeValidationPolicy } from '../../core/copc/range/types';
 import type { CopcInputSource } from '../../core/copc/range/types';
 import type { NodePointCacheDiagnostics } from '../../core/streaming/createNodePointCache';
+import type { RefinementAlgorithm, RefinementFocus } from '../../core/streaming/refinementStrategies';
 import type {
   CopcCesiumPointStyle,
   CopcCesiumPointStyleUpdate,
@@ -45,6 +46,11 @@ export type CopcStreamingOptions = {
   maxRenderDistanceMeters?: number;
   /** Maximum estimated points in the active current-view workload; defaults to 250,000. */
   maxRenderedPoints?: number;
+  /**
+   * Refinement relevance policy. Defaults to `foveated`; use
+   * `screen-projection` to retain the v0.5 passive gaze scoring.
+   */
+  refinementAlgorithm?: RefinementAlgorithm;
 };
 
 /** Options for a reusable Cesium layer backed by a URL, Blob/File, or random-access byte source. */
@@ -71,7 +77,7 @@ export type CopcCesiumLayerOptions = {
   debug?: boolean;
   /** Maximum estimated points in the active current-view workload; defaults to 250,000. */
   maxRenderedPoints?: number;
-  /** Overrides for the default streaming selection limits. */
+  /** Overrides for the default streaming selection limits and refinement strategy. */
   streaming?: CopcStreamingOptions;
   /** Defaults to stable `copc-js`; `rust` is explicit opt-in. */
   backend?: CopcBackendSelection;
@@ -93,6 +99,7 @@ export type CopcCesiumLayerOptions = {
 /** Read-only snapshot of Cesium layer lifecycle, rendering, streaming, and cache state. */
 export type CopcCesiumLayerSnapshot = CopcLayerSnapshot;
 export type { CopcLayerErrorEvent, CopcViewCancellationReason };
+export type { RefinementAlgorithm, RefinementFocus };
 
 /**
  * A reusable, view-driven COPC streaming layer for a caller-owned Cesium Viewer.
@@ -162,6 +169,23 @@ export class CopcCesiumLayer {
    */
   zoomTo(offset?: Cesium.HeadingPitchRange): Promise<boolean> {
     return this.controller.zoomTo(offset);
+  }
+
+  /**
+   * Set or clear the optional runtime screen-circle focus lens.
+   *
+   * Coordinates are normalized to the viewer canvas (`x` left→right, `y`
+   * top→bottom). `radius` is a fraction of the smaller drawing-buffer
+   * dimension, and `detailBias` bounds refinement pressure from 1× to 2×.
+   * The lens prioritizes node detail; it does not clip points or bypass
+   * selection budgets. Clearing it restores the chosen strategy's automatic
+   * center relevance. Focus updates reuse source, hierarchy, and point cache.
+   *
+   * @param focus Screen-circle focus, or `undefined` to clear it.
+   * @throws `TypeError` or `RangeError` if any supplied value is invalid.
+   */
+  setRefinementFocus(focus: RefinementFocus | undefined): void {
+    this.controller.setRefinementFocus(focus);
   }
 
   /**

@@ -181,6 +181,8 @@ export type {
   StreamingSelectionOptions,
   StreamingUpdateResult,
 } from './core/streaming/types';
+export type { RefinementAlgorithm, RefinementFocus } from './core/streaming/refinementStrategies';
+export { DEFAULT_REFINEMENT_ALGORITHM, MAX_REFINEMENT_FOCUS_DETAIL_BIAS } from './core/streaming/refinementStrategies';
 export type {
   AdaptiveViewDistanceDiagnostics,
   AdaptiveViewDistanceTransition,

@@ -1083,6 +1083,8 @@ test('CopcCesiumLayer snapshot exposes lifecycle and dataset info', () => {
       refinementDeferredByIncompleteHierarchyCount: 0,
       minimumFrontierExceedsNodeBudget: false,
       minimumFrontierExceedsPointBudget: false,
+      refinementAlgorithm: 'foveated',
+      refinementFocusEnabled: false,
       loadedNodeCount: 0,
       loadedPointCount: 0,
       rangeFetchDurationMs: 0,
@@ -1233,6 +1235,25 @@ test('CopcCesiumLayer loads, unloads, and reloads a COPC URL before attachment',
   await layer.reload();
   assert.equal(layer.getMetadata()?.pointCount, 10653336);
 
+  layer.destroy();
+});
+
+test('refinement diagnostics report the configured strategy and pending focus state', () => {
+  const layer = new CopcCesiumLayer({
+    url: '/samples/autzen.copc.laz',
+    streaming: { refinementAlgorithm: 'screen-projection' },
+  });
+  assert.equal(layer.getSnapshot().performance.refinementAlgorithm, 'screen-projection');
+
+  layer.setRefinementFocus({
+    type: 'screen-circle',
+    center: { x: 0.5, y: 0.5 },
+    radius: 0.2,
+    detailBias: 1.5,
+  });
+  assert.equal(layer.getSnapshot().performance.refinementFocusEnabled, true);
+  layer.setRefinementFocus(undefined);
+  assert.equal(layer.getSnapshot().performance.refinementFocusEnabled, false);
   layer.destroy();
 });
 

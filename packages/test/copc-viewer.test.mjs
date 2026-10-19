@@ -195,8 +195,8 @@ function createBackend({ onFields, metadata: metadataOverride } = {}) {
   };
 }
 
-async function waitFor(predicate) {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+async function waitFor(predicate, attempts = 100) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     if (predicate()) {
       return;
     }
@@ -259,6 +259,88 @@ test('CopcCesiumLayer delegates source and streaming work to the shared core', a
   layer.destroy();
   assert.equal(source.destroyCount, 1);
   assert.equal(viewer.destroyed, false);
+});
+
+test('CopcCesiumLayer validates refinement options and focus values', () => {
+  assert.throws(() => new CopcCesiumLayer({
+    url: 'memory://invalid-refinement-algorithm.copc.laz',
+    streaming: { refinementAlgorithm: 'nearest' },
+  }), /Unknown refinement algorithm.*foveated.*screen-projection/);
+
+  const layer = new CopcCesiumLayer({ url: 'memory://invalid-focus.copc.laz' });
+  assert.throws(() => layer.setRefinementFocus({
+    type: 'screen-circle',
+    center: { x: Number.NaN, y: 0.5 },
+    radius: 0.1,
+    detailBias: 2,
+  }), /center\.x/);
+  assert.throws(() => layer.setRefinementFocus({
+    type: 'screen-circle',
+    center: { x: 0.5, y: 0.5 },
+    radius: 0,
+    detailBias: 2,
+  }), /radius/);
+  assert.throws(() => layer.setRefinementFocus({
+    type: 'screen-circle',
+    center: { x: 0.5, y: 0.5 },
+    radius: 0.1,
+    detailBias: 2.1,
+  }), /detailBias/);
+  layer.destroy();
+});
+
+test('focus changes reselect a stationary Cesium view without reopening or reloading points', async () => {
+  const source = createBackend();
+  const layer = new CopcCesiumLayer({
+    url: 'memory://runtime-focus.copc.laz',
+    backend: source.backend,
+    decoder: source.decoder,
+  });
+  const viewer = createFakeViewer();
+  const originalWindow = globalThis.window;
+  globalThis.window = { setTimeout, clearTimeout };
+  const waitForViewSettled = () => {
+    let removeListener = () => {};
+    let timeout;
+    return new Promise((resolve, reject) => {
+      timeout = setTimeout(() => {
+        removeListener();
+        reject(new Error('timed out waiting for Cesium view to settle'));
+      }, 5000);
+      removeListener = layer.viewSettled.addEventListener((viewGeneration, selectedNodeKeys) => {
+        clearTimeout(timeout);
+        removeListener();
+        resolve({ viewGeneration, selectedNodeKeys });
+      });
+    });
+  };
+  try {
+    await layer.load();
+    const initialSettled = waitForViewSettled();
+    layer.attachTo(viewer);
+    await initialSettled;
+    assert.equal(layer.getSnapshot().renderedPointCount, 2);
+    assert.equal(layer.getSnapshot().performance.refinementAlgorithm, 'foveated');
+    const updatesBeforeFocus = layer.getSnapshot().streamingUpdateCount;
+    const focusSettled = waitForViewSettled();
+
+    layer.setRefinementFocus({
+      type: 'screen-circle',
+      center: { x: 0.8, y: 0.5 },
+      radius: 0.15,
+      detailBias: 2,
+    });
+    await focusSettled;
+
+    assert.ok(layer.getSnapshot().streamingUpdateCount > updatesBeforeFocus);
+    assert.equal(layer.getSnapshot().performance.refinementFocusEnabled, true);
+    assert.equal(source.openCount, 1);
+    assert.equal(source.pointChunkRequestCount, 1);
+    assert.equal(source.decodeCount, 1);
+  } finally {
+    layer.destroy();
+    globalThis.window = originalWindow;
+  }
 });
 
 test('CopcCesiumLayer forwards an explicit strict HTTP validation policy', async () => {

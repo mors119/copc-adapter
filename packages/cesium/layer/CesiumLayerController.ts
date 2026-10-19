@@ -54,6 +54,7 @@ import type {
   StreamingSelectionOptions,
 } from '../../core/streaming/types';
 import { DEFAULT_MAX_RENDERED_POINTS } from '../../core/streaming/NodeSelector';
+import { normalizeRefinementFocus, type RefinementFocus } from '../../core/streaming/refinementStrategies';
 import { StreamingPerformanceRecorder } from '../../core/streaming/performance';
 import type { NodePointCacheDiagnostics } from '../../core/streaming/createNodePointCache';
 import type { AdaptiveViewDistanceDiagnostics } from '../../core/streaming/view';
@@ -306,6 +307,7 @@ export class CesiumLayerController {
   private hasFlownToDataset = false;
   private lifecycle: CopcLayerLifecycleState = 'idle';
   private lastStreamingView?: import('../../core/streaming/types').StreamingView;
+  private refinementFocus?: RefinementFocus;
   private pendingInvalidatedView?: import('../../core/streaming/types').StreamingView;
   private activeStreamingUpdate?: ActiveStreamingUpdate;
   private readonly handleCameraMoveEnd = (): void => {
@@ -798,6 +800,32 @@ export class CesiumLayerController {
     return this.core.getCurrentSelection();
   }
 
+  setRefinementFocus(focus: RefinementFocus | undefined): void {
+    if (this.lifecycle === 'destroyed') {
+      throw new Error('CopcCesiumLayer has been destroyed');
+    }
+    const nextFocus = normalizeRefinementFocus(focus);
+    if (this.areRefinementFociEquivalent(this.refinementFocus, nextFocus)) {
+      return;
+    }
+    this.refinementFocus = nextFocus;
+    this.core.setRefinementFocus(nextFocus);
+
+    if (!this.viewer || !this.core.getMetadata()) {
+      return;
+    }
+
+    // Cancel stale commits immediately, retain source/hierarchy/cache state,
+    // and force a fresh selector pass even though the camera did not move.
+    this.streamingGeneration += 1;
+    this.lastStreamingView = undefined;
+    this.cancelActiveView('focus-change');
+    const currentView = createCesiumStreamingView(this.viewer);
+    this.pendingInvalidatedView = currentView;
+    this.core.invalidateView(currentView);
+    void this.scheduleStreamingUpdate(true);
+  }
+
   getSelectionBoundingSphere(): Cesium.BoundingSphere | undefined {
     return this.pointRenderer.getSelectionBoundingSphere();
   }
@@ -1206,6 +1234,19 @@ export class CesiumLayerController {
       this.updateTimer = undefined;
     }
     this.scheduledUpdateShouldInvalidate = false;
+  }
+
+  private areRefinementFociEquivalent(
+    left: RefinementFocus | undefined,
+    right: RefinementFocus | undefined,
+  ): boolean {
+    return left === undefined || right === undefined
+      ? left === right
+      : left.type === right.type
+        && left.center.x === right.center.x
+        && left.center.y === right.center.y
+        && left.radius === right.radius
+        && left.detailBias === right.detailBias;
   }
 
   private isCurrentStreamingGeneration(

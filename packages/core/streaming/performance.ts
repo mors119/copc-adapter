@@ -69,6 +69,10 @@ export type StreamingPerformanceSnapshot = {
   minimumFrontierExceedsNodeBudget: boolean;
   /** Whether the minimum coverage frontier exceeds the point budget. */
   minimumFrontierExceedsPointBudget: boolean;
+  /** Active refinement algorithm used by the latest selection. */
+  refinementAlgorithm?: NonNullable<StreamingSelectionMetrics['refinementAlgorithm']>;
+  /** Whether the latest selection used a manual focus lens. */
+  refinementFocusEnabled?: boolean;
   /** Lowest conservative screen-centre influence weight, in [0, 1]. */
   centerWeightMin?: number;
   /** Highest conservative screen-centre influence weight, in [0, 1]. */
@@ -89,6 +93,13 @@ export type StreamingPerformanceSnapshot = {
   candidatesWithNonZeroInfluenceCount?: number;
   /** Accepted refinements influenced by screen-centre weighting. */
   acceptedGazeInfluencedRefinementCount?: number;
+  /** Candidates whose projected volume received manual focus relevance. */
+  focusCandidateCount?: number;
+  /** Manual focus relevance range observed, in [0, 1]. */
+  focusWeightMin?: number;
+  focusWeightMax?: number;
+  /** Accepted replacements affected by manual focus relevance. */
+  focusInfluencedRefinementCount?: number;
   /** Candidate influence values clamped to their safe bounds. */
   influenceClampCount?: number;
   /** Lowest score among accepted refinement candidates. */
@@ -201,6 +212,8 @@ function emptySnapshot(): StreamingPerformanceSnapshot {
     refinementDeferredByIncompleteHierarchyCount: 0,
     minimumFrontierExceedsNodeBudget: false,
     minimumFrontierExceedsPointBudget: false,
+    refinementAlgorithm: 'foveated',
+    refinementFocusEnabled: false,
     loadedNodeCount: 0,
     loadedPointCount: 0,
     rangeFetchDurationMs: 0,
@@ -338,6 +351,8 @@ export class StreamingPerformanceRecorder {
     this.snapshot.refinementDeferredByIncompleteHierarchyCount = metrics.refinementDeferredByIncompleteHierarchyCount ?? 0;
     this.snapshot.minimumFrontierExceedsNodeBudget = metrics.minimumFrontierExceedsNodeBudget ?? false;
     this.snapshot.minimumFrontierExceedsPointBudget = metrics.minimumFrontierExceedsPointBudget ?? false;
+    this.snapshot.refinementAlgorithm = metrics.refinementAlgorithm ?? 'foveated';
+    this.snapshot.refinementFocusEnabled = metrics.refinementFocusEnabled ?? false;
     this.snapshot.centerWeightMin = metrics.centerWeightMin;
     this.snapshot.centerWeightMax = metrics.centerWeightMax;
     this.snapshot.refinementCenterWeightMin = metrics.refinementCenterWeightMin;
@@ -350,6 +365,11 @@ export class StreamingPerformanceRecorder {
       metrics.candidatesWithNonZeroInfluenceCount ?? 0;
     this.snapshot.acceptedGazeInfluencedRefinementCount =
       metrics.acceptedGazeInfluencedRefinementCount ?? 0;
+    this.snapshot.focusCandidateCount = metrics.focusCandidateCount ?? 0;
+    this.snapshot.focusWeightMin = metrics.focusWeightMin;
+    this.snapshot.focusWeightMax = metrics.focusWeightMax;
+    this.snapshot.focusInfluencedRefinementCount =
+      metrics.focusInfluencedRefinementCount ?? 0;
     this.snapshot.influenceClampCount = metrics.influenceClampCount ?? 0;
     this.snapshot.acceptedRefinementPriorityMin = metrics.acceptedRefinementPriorityMin;
     this.snapshot.acceptedRefinementPriorityMax = metrics.acceptedRefinementPriorityMax;

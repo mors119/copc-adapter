@@ -3,6 +3,7 @@ import type {
 } from '../copc/types/copc';
 import type { NodePointCache } from './createNodePointCache';
 import { NodeSelector } from './NodeSelector';
+import type { RefinementFocus } from './refinementStrategies';
 import type {
   StreamingCameraState,
   StreamingHierarchy,
@@ -187,6 +188,11 @@ export class StreamingManager {
   /** Replace the hierarchy used by subsequent view selection. */
   setHierarchy(hierarchy: StreamingHierarchy): void {
     this.hierarchy = hierarchy;
+  }
+
+  /** Change focus relevance while retaining this manager's hierarchy and cache. */
+  setRefinementFocus(focus: RefinementFocus | undefined): void {
+    this.selector.setRefinementFocus(focus);
   }
 
   /**

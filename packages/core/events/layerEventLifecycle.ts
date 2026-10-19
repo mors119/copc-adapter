@@ -4,6 +4,8 @@ import type { CopcMetadata } from '../copc/types/copc';
 export type CopcViewCancellationReason =
   /** A newer camera state replaced the active view. */
   | 'camera-change'
+  /** A runtime focus-lens change replaced the active selection. */
+  | 'focus-change'
   /** The layer was detached from its viewer or scene. */
   | 'detach'
   /** Loaded data was released. */
