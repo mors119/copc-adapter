@@ -6,6 +6,20 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-20
+
+### Added
+
+- Added incremental COPC reads from local browser `File` and `Blob` sources.
+- Added the opt-in Cesium `BatchedGeometryPointRenderer` and spacing-aware
+  point sizing for renderers with shader support.
+- Added selectable `foveated` and `screen-projection` refinement strategies,
+  plus a Cesium screen-circle Focus Lens.
+- Added bounded camera-motion lookahead and opt-in predictive prefetch for
+  likely next-view nodes.
+- Expanded the browser Playground with local and remote sources, Cesium and
+  Three.js views, and refinement and focus controls.
+
 ### Changed
 
 - Changed the default HTTP `rangeValidation` policy to `head-fallback` across
@@ -16,6 +30,14 @@ and versions follow [Semantic Versioning](https://semver.org/).
   validation policy. It requires readable request-matching `Content-Range` and
   never uses `HEAD` fallback. Local `File`, `Blob`, and custom byte sources are
   unaffected.
+- Changed the default refinement strategy to `foveated`; choose
+  `screen-projection` to retain the v0.5 ranking. Camera-motion lookahead now
+  defaults to enabled and changes priorities only among currently visible
+  candidates; set `motionLookahead: false` to disable it.
+
+### Fixed
+
+- Fixed Rust/WASM decoding of LAS 1.4 extra bytes in point records.
 
 ### Security and compatibility
 
@@ -24,6 +46,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
   readable validator changes, but cannot establish byte-offset correctness or
   cryptographic data integrity. Existing users who require the previous
   fail-closed behavior should set `rangeValidation: 'strict'` explicitly.
+- The Cesium point-primitive renderer remains the default. The batched
+  renderer's point identity picking is supported in 3D mode; ambiguous picks
+  and 2D, Columbus View, or morphing scenes return no selection.
+- Predictive prefetch remains opt-in and bounded. Attenuated point sizing needs
+  a renderer with shader support; the public batched renderer supports it.
 
 ## [0.5.3] - 2026-10-17
 
@@ -241,7 +268,8 @@ original asset-resolution behavior.
 - Added packed-artifact smoke coverage for an external Cesium/Vite consumer.
 - Published the typed ESM library with package-local decoder runtime assets.
 
-[Unreleased]: https://github.com/mors119/copc-adapter/compare/v0.5.3...HEAD
+[Unreleased]: https://github.com/mors119/copc-adapter/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/mors119/copc-adapter/compare/v0.5.3...v0.6.0
 [0.5.3]: https://github.com/mors119/copc-adapter/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/mors119/copc-adapter/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/mors119/copc-adapter/compare/v0.5.0...v0.5.1

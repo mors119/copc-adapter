@@ -1,6 +1,6 @@
 # Cesium contest functional-test runbook
 
-This CesiumJS walkthrough uses the repository's current development Viewer and records the proof to collect for each row. It is Cesium-only. The added controls validate this source checkout; they do not change or describe the already released `@frillab/copc-adapter@0.5.1` package.
+This CesiumJS walkthrough uses the repository's current development Viewer and records the proof to collect for each row. It is Cesium-only. The added controls validate this source checkout; they do not change or describe the published `@frillab/copc-adapter` package.
 
 ## Reproducibility record
 

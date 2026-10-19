@@ -38,7 +38,7 @@ dependencies = [
 
 [[package]]
 name = "copc-adapter-core"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "laz",
  "proj4rs",
@@ -47,7 +47,7 @@ dependencies = [
 
 [[package]]
 name = "copc-adapter-wasm"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "copc-adapter-core",
  "serde",
