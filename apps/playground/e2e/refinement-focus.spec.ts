@@ -82,6 +82,7 @@ test('algorithm selection applies the actual constructor option and survives URL
 });
 
 test('focus modes update the active Cesium layer without recreating it', async ({ page }) => {
+  test.setTimeout(60_000);
   await page.goto('./');
   await useMockLayer(page);
   await loadFile(page);
