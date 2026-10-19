@@ -88,12 +88,13 @@ jobs:
   viewer-browser:
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    # Separate isolated runners: keep Playwright workers=1 per WebGL process.
+    # Test-level shards spread large spec files across isolated runners while
+    # keeping Playwright workers=1 per WebGL process.
     strategy:
       fail-fast: false
-      max-parallel: 3
+      max-parallel: 4
       matrix:
-        shard: [1, 2, 3]
+        shard: [1, 2, 3, 4]
 
     steps:
       - name: Check out repository
@@ -135,11 +136,22 @@ jobs:
       - name: Run browser E2E regression gate
         env:
           COPC_ADAPTER_WASM_PREPARED: '1'
-        run: npm --prefix apps/dev-viewer run test:e2e -- --shard=${{ matrix.shard }}/3
+        run: npm --prefix apps/dev-viewer run test:e2e -- --shard=${{ matrix.shard }}/4
+
+      - name: Upload browser test timing report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-test-report-${{ matrix.shard }}
+          path: apps/dev-viewer/test-results/results.json
+          if-no-files-found: error
+          retention-days: 7
 
   viewer-package:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    outputs:
+      package_sha256: ${{ steps.pack.outputs.package_sha256 }}
 
     steps:
       - name: Check out repository
@@ -151,31 +163,21 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: |
-            package-lock.json
             packages/package-lock.json
-            apps/dev-viewer/package-lock.json
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
 
-      - name: Install root dependencies
-        run: npm ci
-
       - name: Install adapter dependencies
         run: npm ci --prefix packages
-
-      - name: Install viewer dependencies
-        run: npm ci --prefix apps/dev-viewer
 
       - name: Prepare Rust/WASM asset
         run: npm --prefix packages run prepare-copc-adapter-wasm
 
-      - name: Download sample dataset
-        run: npm run download-samples -- autzen
-
       - name: Build and pack one library candidate
+        id: pack
         run: |
           rm -rf .ci-artifacts
           mkdir -p .ci-artifacts
@@ -193,17 +195,84 @@ jobs:
           fi
 
           printf 'PACKAGE_CANDIDATE=%s\n' "${candidates[0]}" >> "$GITHUB_ENV"
-
-      - name: Run packed Cesium consumer validation
-        run: node scripts/pack-smoke-test.mjs "$PACKAGE_CANDIDATE"
+          package_sha256=$(sha256sum "${candidates[0]}" | cut -d ' ' -f 1)
+          printf 'package_sha256=%s\n' "$package_sha256" >> "$GITHUB_OUTPUT"
 
       - name: Run packed Three.js artifact smoke test
         run: node scripts/pack-three-smoke-test.mjs "$PACKAGE_CANDIDATE"
 
+      - name: Upload verified package candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: copc-adapter-package-candidate
+          path: .ci-artifacts/*.tgz
+          if-no-files-found: error
+          retention-days: 1
+
+  viewer-package-consumer:
+    needs: [viewer-package]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        consumer: [root-prod, cesium-prod, root-dev]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Download sample dataset
+        run: npm run download-samples -- autzen
+
+      - name: Download verified package candidate
+        uses: actions/download-artifact@v4
+        with:
+          name: copc-adapter-package-candidate
+          path: .ci-artifacts
+
+      - name: Verify package identity
+        env:
+          EXPECTED_PACKAGE_SHA256: ${{ needs.viewer-package.outputs.package_sha256 }}
+        run: |
+          set -euo pipefail
+          candidates=()
+          while IFS= read -r candidate; do
+            candidates+=("$candidate")
+          done < <(find .ci-artifacts -maxdepth 1 -type f -name '*.tgz' -print)
+
+          if [ "${#candidates[@]}" -ne 1 ]; then
+            printf 'Expected exactly one candidate tarball, found %s\n' "${#candidates[@]}"
+            exit 1
+          fi
+
+          actual_package_sha256=$(sha256sum "${candidates[0]}" | cut -d ' ' -f 1)
+          if [ "$actual_package_sha256" != "$EXPECTED_PACKAGE_SHA256" ]; then
+            echo 'Downloaded package candidate does not match the verified build artifact'
+            exit 1
+          fi
+
+          printf 'Verified package candidate SHA-256: %s\n' "$actual_package_sha256"
+          printf 'PACKAGE_CANDIDATE=%s\n' "${candidates[0]}" >> "$GITHUB_ENV"
+
+      - name: Run isolated packed Cesium consumer mode
+        run: node scripts/pack-smoke-test.mjs "$PACKAGE_CANDIDATE" "${{ matrix.consumer }}"
+
   # Preserve the existing required status-check name from the main ruleset.
   # A failure (or skipped/cancelled gate) must never appear as a green viewer-web check.
   viewer-web:
-    needs: [viewer-fast, viewer-browser, viewer-package]
+    needs: [viewer-fast, viewer-browser, viewer-package, viewer-package-consumer]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
@@ -211,11 +280,12 @@ jobs:
         env:
           FAST_RESULT: ${{ needs.viewer-fast.result }}
           BROWSER_RESULT: ${{ needs.viewer-browser.result }}
-          PACKAGE_RESULT: ${{ needs.viewer-package.result }}
+          PACKAGE_BUILD_RESULT: ${{ needs.viewer-package.result }}
+          PACKAGE_CONSUMER_RESULT: ${{ needs.viewer-package-consumer.result }}
         run: |
-          for result in "$FAST_RESULT" "$BROWSER_RESULT" "$PACKAGE_RESULT"; do
+          for result in "$FAST_RESULT" "$BROWSER_RESULT" "$PACKAGE_BUILD_RESULT" "$PACKAGE_CONSUMER_RESULT"; do
             if [ "$result" != "success" ]; then
-              echo "::error::All viewer gates must succeed (fast=$FAST_RESULT, browser=$BROWSER_RESULT, package=$PACKAGE_RESULT)"
+              echo "::error::All viewer gates must succeed (fast=$FAST_RESULT, browser=$BROWSER_RESULT, package-build=$PACKAGE_BUILD_RESULT, package-consumers=$PACKAGE_CONSUMER_RESULT)"
               exit 1
             fi
           done

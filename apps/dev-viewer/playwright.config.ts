@@ -9,10 +9,16 @@ if (!Number.isSafeInteger(testPort) || testPort < 1 || testPort > 65_535) {
 const testUrl = `http://127.0.0.1:${testPort}`;
 export default defineConfig({
   testDir: './e2e',
+  // Split independent scenarios across isolated CI runners instead of keeping
+  // every test from one large spec file on the same runner.
+  fullyParallel: true,
   // Each scenario streams and renders a large real COPC sample. Running
   // several Chromium/WebGL instances concurrently makes the validation gate
   // contend for CPU and memory and turns deterministic checks into timeouts.
   workers: 1,
+  reporter: process.env.CI
+    ? [['dot'], ['json', { outputFile: 'test-results/results.json' }]]
+    : undefined,
   timeout: 120000,
   expect: {
     timeout: 60000,

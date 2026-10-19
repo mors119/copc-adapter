@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
+import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -12,12 +13,25 @@ const consumerTemplateDirectory = path.resolve(
   repositoryDirectory,
   'tests/environments/cesium-vite',
 );
+const consumerMode = process.argv[3] ?? 'all';
+const consumerModes = new Set(['all', 'root-prod', 'cesium-prod', 'root-dev']);
+if (!consumerModes.has(consumerMode)) {
+  throw new Error(
+    `Unknown packed Cesium consumer mode: ${consumerMode}. Expected one of ${[...consumerModes].join(', ')}`,
+  );
+}
 const packageOutputDirectory = await mkdtemp(
   path.join(os.tmpdir(), 'copc-adapter-pack-'),
 );
 const consumerDirectory = await mkdtemp(
   path.join(os.tmpdir(), 'copc-adapter-packed-consumer-'),
 );
+const validationStartedAt = performance.now();
+
+function logDuration(label, startedAt) {
+  const seconds = ((performance.now() - startedAt) / 1_000).toFixed(1);
+  console.log(`${label}: ${seconds}s`);
+}
 
 function npmCommand() {
   return process.platform === 'win32' ? 'npm.cmd' : 'npm';
@@ -181,6 +195,7 @@ try {
   );
 
   console.log('Installing the generated tarball in a clean external consumer...');
+  const consumerInstallStartedAt = performance.now();
   await run(npmCommand(), ['install', '--no-audit', '--no-fund'], {
     cwd: consumerDirectory,
     stdio: 'inherit',
@@ -190,6 +205,7 @@ try {
     ['install', '--no-save', '--no-audit', '--no-fund', packagePath],
     { cwd: consumerDirectory, stdio: 'inherit' },
   );
+  logDuration('Clean consumer dependency and tarball installation', consumerInstallStartedAt);
 
   const installedPackageDirectory = path.resolve(
     consumerDirectory,
@@ -275,83 +291,108 @@ try {
     throw new Error('Cesium-only consumer unexpectedly installed Three.js');
   }
 
-  console.log('Building the clean root Cesium consumer production bundle...');
-  await run(npmCommand(), ['run', 'build'], {
-    cwd: consumerDirectory,
-    env: { CONSUMER_ENTRY: 'root' },
-    stdio: 'inherit',
-  });
-  const consumerAssetEntries = await readdir(path.resolve(consumerDirectory, 'dist/assets'));
-  if (!consumerAssetEntries.some((entry) => entry.startsWith('copc_adapter_wasm-') && entry.endsWith('.wasm'))) {
-    throw new Error('Consumer production build did not emit the Rust WASM asset');
-  }
-  if (!consumerAssetEntries.some((entry) => entry.startsWith('laz-perf-') && entry.endsWith('.wasm'))) {
-    throw new Error('Consumer production build did not emit the LAZ runtime asset');
-  }
+  let chromiumInstalled = false;
+  const ensureChromium = async () => {
+    if (chromiumInstalled) return;
+    const systemChromium = process.platform === 'darwin'
+      ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+      : undefined;
+    if (!systemChromium || !existsSync(systemChromium)) {
+      const playwrightCommand = path.resolve(
+        consumerDirectory,
+        'node_modules',
+        '.bin',
+        process.platform === 'win32' ? 'playwright.cmd' : 'playwright',
+      );
+      const installArgs = ['install'];
+      if (process.platform === 'linux') installArgs.push('--with-deps');
+      installArgs.push('chromium');
+      await run(playwrightCommand, installArgs, {
+        cwd: consumerDirectory,
+        stdio: 'inherit',
+      });
+    }
+    chromiumInstalled = true;
+  };
 
-  console.log('Serving the production bundle and running Chromium E2E...');
-  const systemChromium = process.platform === 'darwin'
-    ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
-    : undefined;
-  if (!systemChromium || !existsSync(systemChromium)) {
-    const playwrightCommand = path.resolve(
-      consumerDirectory,
-      'node_modules',
-      '.bin',
-      process.platform === 'win32' ? 'playwright.cmd' : 'playwright',
-    );
-    await run(playwrightCommand, ['install', 'chromium'], {
+  if (consumerMode === 'all' || consumerMode === 'root-prod') {
+    const modeStartedAt = performance.now();
+    console.log('Building the clean root Cesium consumer production bundle...');
+    await run(npmCommand(), ['run', 'build'], {
       cwd: consumerDirectory,
+      env: { CONSUMER_ENTRY: 'root' },
       stdio: 'inherit',
     });
-  }
-  await run(npmCommand(), ['run', 'test:e2e'], {
-    cwd: consumerDirectory,
-    env: {
-      CONSUMER_ENTRY: 'root',
-      CONSUMER_MODE: 'production',
-      CONSUMER_PORT: '4174',
-    },
-    stdio: 'inherit',
-  });
+    const consumerAssetEntries = await readdir(path.resolve(consumerDirectory, 'dist/assets'));
+    if (!consumerAssetEntries.some((entry) => entry.startsWith('copc_adapter_wasm-') && entry.endsWith('.wasm'))) {
+      throw new Error('Consumer production build did not emit the Rust WASM asset');
+    }
+    if (!consumerAssetEntries.some((entry) => entry.startsWith('laz-perf-') && entry.endsWith('.wasm'))) {
+      throw new Error('Consumer production build did not emit the LAZ runtime asset');
+    }
 
-  console.log('Building and serving the explicit Cesium consumer entrypoint...');
-  await run(npmCommand(), ['run', 'build'], {
-    cwd: consumerDirectory,
-    env: { CONSUMER_ENTRY: 'cesium' },
-    stdio: 'inherit',
-  });
-  const explicitConsumerAssetEntries = await readdir(
-    path.resolve(consumerDirectory, 'dist/assets'),
-  );
-  if (!explicitConsumerAssetEntries.some((entry) => entry.startsWith('copc_adapter_wasm-') && entry.endsWith('.wasm'))) {
-    throw new Error('Explicit Cesium consumer build did not emit the Rust WASM asset');
+    console.log('Serving the root production bundle and running Chromium E2E...');
+    await ensureChromium();
+    await run(npmCommand(), ['run', 'test:e2e'], {
+      cwd: consumerDirectory,
+      env: {
+        CONSUMER_ENTRY: 'root',
+        CONSUMER_MODE: 'production',
+        CONSUMER_PORT: '4174',
+      },
+      stdio: 'inherit',
+    });
+    logDuration('Packed consumer mode root-prod', modeStartedAt);
   }
-  if (!explicitConsumerAssetEntries.some((entry) => entry.startsWith('laz-perf-') && entry.endsWith('.wasm'))) {
-    throw new Error('Explicit Cesium consumer build did not emit the LAZ runtime asset');
+
+  if (consumerMode === 'all' || consumerMode === 'cesium-prod') {
+    const modeStartedAt = performance.now();
+    console.log('Building the explicit Cesium consumer production bundle...');
+    await run(npmCommand(), ['run', 'build'], {
+      cwd: consumerDirectory,
+      env: { CONSUMER_ENTRY: 'cesium' },
+      stdio: 'inherit',
+    });
+    const explicitConsumerAssetEntries = await readdir(
+      path.resolve(consumerDirectory, 'dist/assets'),
+    );
+    if (!explicitConsumerAssetEntries.some((entry) => entry.startsWith('copc_adapter_wasm-') && entry.endsWith('.wasm'))) {
+      throw new Error('Explicit Cesium consumer build did not emit the Rust WASM asset');
+    }
+    if (!explicitConsumerAssetEntries.some((entry) => entry.startsWith('laz-perf-') && entry.endsWith('.wasm'))) {
+      throw new Error('Explicit Cesium consumer build did not emit the LAZ runtime asset');
+    }
+    await ensureChromium();
+    await run(npmCommand(), ['run', 'test:e2e'], {
+      cwd: consumerDirectory,
+      env: {
+        CONSUMER_ENTRY: 'cesium',
+        CONSUMER_MODE: 'production',
+        CONSUMER_PORT: '4176',
+      },
+      stdio: 'inherit',
+    });
+    logDuration('Packed consumer mode cesium-prod', modeStartedAt);
   }
-  await run(npmCommand(), ['run', 'test:e2e'], {
-    cwd: consumerDirectory,
-    env: {
-      CONSUMER_ENTRY: 'cesium',
-      CONSUMER_MODE: 'production',
-      CONSUMER_PORT: '4176',
-    },
-    stdio: 'inherit',
-  });
 
-  console.log('Serving the development bundle with Vite dependency optimization and running Chromium E2E...');
-  await run(npmCommand(), ['run', 'test:e2e'], {
-    cwd: consumerDirectory,
-    env: {
-      CONSUMER_ENTRY: 'root',
-      CONSUMER_MODE: 'dev',
-      CONSUMER_PORT: '4175',
-    },
-    stdio: 'inherit',
-  });
+  if (consumerMode === 'all' || consumerMode === 'root-dev') {
+    const modeStartedAt = performance.now();
+    console.log('Serving the root development bundle with default Vite dependency optimization and running Chromium E2E...');
+    await ensureChromium();
+    await run(npmCommand(), ['run', 'test:e2e'], {
+      cwd: consumerDirectory,
+      env: {
+        CONSUMER_ENTRY: 'root',
+        CONSUMER_MODE: 'dev',
+        CONSUMER_PORT: '4175',
+      },
+      stdio: 'inherit',
+    });
+    logDuration('Packed consumer mode root-dev', modeStartedAt);
+  }
 
-  console.log(`Packed consumer validation passed: ${path.basename(packagePath)}`);
+  console.log(`Packed consumer validation passed (${consumerMode}): ${path.basename(packagePath)}`);
+  logDuration('Packed consumer validation total', validationStartedAt);
 } finally {
   await rm(packageOutputDirectory, { recursive: true, force: true });
   await rm(consumerDirectory, { recursive: true, force: true });
