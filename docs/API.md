@@ -259,10 +259,12 @@ requests.
 
 Set `motionLookahead: false` to retain the pre-motion refinement ranking while
 moving. At rest, enabled lookahead also returns to the existing Foveated or
-Screen Projection baseline. A layer snapshot exposes the selected motion
-velocities, predicted displacement, candidate weight range, and the count of
-accepted refinements whose winner changed with motion influence under its
-`performance` field.
+Screen Projection baseline. A layer snapshot exposes the sampled movement
+count, selected motion velocities, predicted displacement, candidate weight
+range, and the count of accepted refinements whose winner changed with motion
+influence under its `performance` field. The sampled movement count is
+cumulative until camera history is reset or the source is unloaded; no sample
+history is retained.
 
 ```ts
 const layer = new CopcCesiumLayer({

@@ -75,6 +75,8 @@ export type StreamingPerformanceSnapshot = {
   refinementFocusEnabled?: boolean;
   /** Whether current-view camera motion lookahead was enabled. */
   motionLookaheadEnabled?: boolean;
+  /** Accepted angular movement samples since camera motion history was reset. */
+  motionSampledMovementCount?: number;
   /** Smoothed horizontal camera angular velocity toward screen-right, in degrees/second. */
   motionHorizontalAngularVelocityDegreesPerSecond?: number;
   /** Smoothed vertical camera angular velocity toward screen-up, in degrees/second. */

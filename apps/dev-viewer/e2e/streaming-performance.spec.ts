@@ -35,6 +35,7 @@ type DebugState = {
     deferredNodeCount: number;
     deferredPointCount: number;
     motionLookaheadEnabled: boolean;
+    motionSampledMovementCount: number;
     motionPredictedHorizontalDisplacementDegrees: number;
     motionPredictedVerticalDisplacementDegrees: number;
   };
@@ -250,22 +251,22 @@ test('records the Autzen Far/Near, rotation, and stale-work streaming gate', asy
 
   const beforeRotation = await getState(page);
   const previousRotationDistanceUpdateCount = beforeRotation.viewDistance?.updateCount ?? 0;
-  await page.evaluate(() => {
-    window.__COPC_DEBUG__?.setCameraPitch(-35);
-    window.__COPC_DEBUG__?.setCameraHeading(90);
-  });
+  const previousMotionSampledMovementCount =
+    beforeRotation.performance.motionSampledMovementCount;
+  await page.evaluate(() => window.__COPC_DEBUG__?.setCameraPitch(-35));
+  // Keep the two explicit orientation changes in separate camera samples.
+  // Setting both synchronously can collapse them into one frame on a loaded CI
+  // runner and leave the motion estimator with no measurable time interval.
+  await page.waitForTimeout(25);
+  await page.evaluate(() => window.__COPC_DEBUG__?.setCameraHeading(90));
   if (motionLookaheadEnabled) {
     await expect.poll(async () => {
-      const performance = (await getState(page)).performance;
-      return Math.abs(performance.motionPredictedHorizontalDisplacementDegrees)
-        + Math.abs(performance.motionPredictedVerticalDisplacementDegrees);
-    }, { timeout: 10_000 }).toBeGreaterThan(0);
+      return (await getState(page)).performance.motionSampledMovementCount;
+    }, { timeout: 10_000 }).toBeGreaterThan(previousMotionSampledMovementCount);
   } else {
     await expect.poll(async () => {
-      const performance = (await getState(page)).performance;
-      return Math.abs(performance.motionPredictedHorizontalDisplacementDegrees)
-        + Math.abs(performance.motionPredictedVerticalDisplacementDegrees);
-    }, { timeout: 10_000 }).toBe(0);
+      return (await getState(page)).performance.motionSampledMovementCount;
+    }, { timeout: 10_000 }).toBe(previousMotionSampledMovementCount);
   }
   const rotationMotionSample = await getState(page);
   await waitForViewChange(page, beforeRotation);

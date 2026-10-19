@@ -7,6 +7,7 @@ export const MOTION_LOOKAHEAD_DECAY_MS = 600;
 
 const MIN_SAMPLE_INTERVAL_MS = 4;
 const MAX_SAMPLE_GAP_MS = 2_000;
+const POST_IDLE_SAMPLE_INTERVAL_MS = 1000 / 60;
 const SMOOTHING_TIME_CONSTANT_MS = 55;
 const MIN_ANGULAR_SPEED_RADIANS_PER_SECOND = (0.75 * Math.PI) / 180;
 const MIN_ANGULAR_DISPLACEMENT_RADIANS = (0.05 * Math.PI) / 180;
@@ -119,8 +120,11 @@ function predictionChanged(
  * Estimate short-horizon camera rotation from bounded renderer-neutral snapshots.
  *
  * The estimator stores one basis, one timestamp, two filtered angular speeds,
- * and the latest movement time. Pass an explicit timestamp to `observe()` and
- * `getPrediction()` for deterministic tests or a monotonic clock in production.
+ * a bounded pending angular delta, and the latest movement time. Sub-threshold
+ * deltas accumulate until meaningful, while an idle gap starts a fresh sample
+ * so idle time cannot dilute its velocity. Pass explicit timestamps to
+ * `observe()` and `getPrediction()` for deterministic tests or a monotonic clock
+ * in production.
  */
 export class CameraMotionLookaheadEstimator {
   private readonly enabled: boolean;
@@ -129,6 +133,9 @@ export class CameraMotionLookaheadEstimator {
   private lastMovementTimestamp?: number;
   private horizontalVelocity = 0;
   private verticalVelocity = 0;
+  private pendingHorizontalDelta = 0;
+  private pendingVerticalDelta = 0;
+  private pendingIntervalMilliseconds = 0;
   private lastReportedPrediction: CameraMotionPrediction;
 
   /** Create an estimator with one fixed enable/disable policy. */
@@ -170,6 +177,18 @@ export class CameraMotionLookaheadEstimator {
       return invalid();
     }
 
+    const timeSinceLastMovement = timestampMilliseconds
+      - (this.lastMovementTimestamp ?? this.previousTimestamp);
+    const resumedAfterIdle = timeSinceLastMovement >= MOTION_LOOKAHEAD_DECAY_MS;
+    const hadRecentMovement = this.lastMovementTimestamp !== undefined && !resumedAfterIdle;
+    if (resumedAfterIdle) {
+      // A camera may emit no events while still. Expire directional state on
+      // the first later observation and avoid carrying tiny deltas across rest.
+      this.horizontalVelocity = 0;
+      this.verticalVelocity = 0;
+      this.clearPendingDelta();
+    }
+
     const cosine = clamp(dot(this.previousBasis.direction, basis.direction), -1, 1);
     // Project the old viewing ray onto the current screen axes. The negative
     // sign converts old-ray displacement into the direction the camera moved.
@@ -184,50 +203,72 @@ export class CameraMotionLookaheadEstimator {
     this.previousBasis = basis;
     this.previousTimestamp = timestampMilliseconds;
 
-    // A large gap can mean the camera was stationary and only emitted a new
-    // event when it moved again. Use a bounded interval for the new direction
-    // change instead of discarding that first movement sample or deriving an
-    // arbitrarily small velocity from a long idle period.
     // Keep tiny but positive event intervals. Renderer callbacks can arrive
     // within the same frame (for example, a programmatic pitch followed by a
     // heading change); dropping them can lose the final orientation entirely.
     // A minimum interval bounds apparent velocity, while the angular
     // displacement threshold below still rejects sub-pixel camera jitter.
-    const sampleIntervalMilliseconds = clamp(
-      intervalMilliseconds,
-      MIN_SAMPLE_INTERVAL_MS,
+    // After a quiet period the observation only tells us that the camera moved,
+    // not how long the movement took. Treat it as one representative 60 Hz
+    // camera event instead of spreading the rotation over the idle interval.
+    const sampleIntervalMilliseconds = resumedAfterIdle
+      ? POST_IDLE_SAMPLE_INTERVAL_MS
+      : clamp(intervalMilliseconds, MIN_SAMPLE_INTERVAL_MS, MAX_SAMPLE_GAP_MS);
+    const pendingDirectionDot = this.pendingHorizontalDelta * horizontalDelta
+      + this.pendingVerticalDelta * verticalDelta;
+    if (pendingDirectionDot < 0) {
+      // Drop an unfinished direction as soon as the camera reverses, before
+      // micro-deltas have crossed the accumulation threshold.
+      this.clearPendingDelta();
+    }
+    this.pendingHorizontalDelta += horizontalDelta;
+    this.pendingVerticalDelta += verticalDelta;
+    this.pendingIntervalMilliseconds = Math.min(
+      this.pendingIntervalMilliseconds + sampleIntervalMilliseconds,
       MAX_SAMPLE_GAP_MS,
     );
-    const seconds = sampleIntervalMilliseconds / 1000;
-    const rawHorizontalVelocity = horizontalDelta / seconds;
-    const rawVerticalVelocity = verticalDelta / seconds;
+
+    const angularDisplacement = Math.hypot(
+      this.pendingHorizontalDelta,
+      this.pendingVerticalDelta,
+    );
+    const accumulatedSeconds = this.pendingIntervalMilliseconds / 1000;
+    const rawHorizontalVelocity = this.pendingHorizontalDelta / accumulatedSeconds;
+    const rawVerticalVelocity = this.pendingVerticalDelta / accumulatedSeconds;
     const rawSpeed = Math.hypot(rawHorizontalVelocity, rawVerticalVelocity);
-    const angularDisplacement = Math.hypot(horizontalDelta, verticalDelta);
     let sampledMovement = false;
 
-    if (Number.isFinite(rawSpeed)
-      && angularDisplacement >= MIN_ANGULAR_DISPLACEMENT_RADIANS
-      && rawSpeed >= MIN_ANGULAR_SPEED_RADIANS_PER_SECOND) {
-      const scale = rawSpeed > MAX_ANGULAR_SPEED_RADIANS_PER_SECOND
-        ? MAX_ANGULAR_SPEED_RADIANS_PER_SECOND / rawSpeed
-        : 1;
-      const horizontal = rawHorizontalVelocity * scale;
-      const vertical = rawVerticalVelocity * scale;
-      const previousSpeed = Math.hypot(this.horizontalVelocity, this.verticalVelocity);
-      const reversed = previousSpeed > 0
-        && this.horizontalVelocity * horizontal + this.verticalVelocity * vertical < 0;
-      const alpha = 1 - Math.exp(-sampleIntervalMilliseconds / SMOOTHING_TIME_CONSTANT_MS);
-      if (reversed) {
-        // Drop stale directional momentum immediately; filtering same-direction
-        // samples still smooths ordinary event jitter.
-        this.horizontalVelocity = horizontal;
-        this.verticalVelocity = vertical;
+    if (angularDisplacement >= MIN_ANGULAR_DISPLACEMENT_RADIANS) {
+      if (Number.isFinite(rawSpeed) && rawSpeed >= MIN_ANGULAR_SPEED_RADIANS_PER_SECOND) {
+        const scale = rawSpeed > MAX_ANGULAR_SPEED_RADIANS_PER_SECOND
+          ? MAX_ANGULAR_SPEED_RADIANS_PER_SECOND / rawSpeed
+          : 1;
+        const horizontal = rawHorizontalVelocity * scale;
+        const vertical = rawVerticalVelocity * scale;
+        const previousSpeed = Math.hypot(this.horizontalVelocity, this.verticalVelocity);
+        const reversed = previousSpeed > 0
+          && this.horizontalVelocity * horizontal + this.verticalVelocity * vertical < 0;
+        const alpha = 1 - Math.exp(
+          -this.pendingIntervalMilliseconds / SMOOTHING_TIME_CONSTANT_MS,
+        );
+        if (reversed || !hadRecentMovement) {
+          // Drop stale directional momentum immediately; filtering same-direction
+          // samples still smooths ordinary event jitter. The first movement after
+          // rest starts from its measured velocity rather than a stale EMA value.
+          this.horizontalVelocity = horizontal;
+          this.verticalVelocity = vertical;
+        } else {
+          this.horizontalVelocity += (horizontal - this.horizontalVelocity) * alpha;
+          this.verticalVelocity += (vertical - this.verticalVelocity) * alpha;
+        }
+        this.lastMovementTimestamp = timestampMilliseconds;
+        sampledMovement = true;
+        this.clearPendingDelta();
       } else {
-        this.horizontalVelocity += (horizontal - this.horizontalVelocity) * alpha;
-        this.verticalVelocity += (vertical - this.verticalVelocity) * alpha;
+        // A completed tiny vector below the minimum angular speed is jitter,
+        // rather than motion to accumulate indefinitely.
+        this.clearPendingDelta();
       }
-      this.lastMovementTimestamp = timestampMilliseconds;
-      sampledMovement = true;
     }
 
     const prediction = this.getPrediction(timestampMilliseconds);
@@ -285,7 +326,14 @@ export class CameraMotionLookaheadEstimator {
     this.lastMovementTimestamp = undefined;
     this.horizontalVelocity = 0;
     this.verticalVelocity = 0;
+    this.clearPendingDelta();
     this.lastReportedPrediction = this.zeroPrediction();
+  }
+
+  private clearPendingDelta(): void {
+    this.pendingHorizontalDelta = 0;
+    this.pendingVerticalDelta = 0;
+    this.pendingIntervalMilliseconds = 0;
   }
 
   private zeroPrediction(): CameraMotionPrediction {

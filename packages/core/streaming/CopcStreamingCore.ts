@@ -205,6 +205,7 @@ export type CopcStreamingPerformanceSnapshot = Pick<
   | 'focusWeightMax'
   | 'focusInfluencedRefinementCount'
   | 'motionLookaheadEnabled'
+  | 'motionSampledMovementCount'
   | 'motionHorizontalAngularVelocityDegreesPerSecond'
   | 'motionVerticalAngularVelocityDegreesPerSecond'
   | 'motionHorizonMilliseconds'
@@ -396,6 +397,7 @@ export class CopcStreamingCore {
   private currentView?: StreamingView;
   private readonly adaptiveViewDistancePolicy = new AdaptiveViewDistancePolicy();
   private readonly motionEstimator: CameraMotionLookaheadEstimator;
+  private motionSampledMovementCount = 0;
   private transition = createTransitionState();
   private lifecycle: CopcStreamingLifecycleState = 'idle';
   private lifecycleAbortController?: AbortController;
@@ -561,6 +563,8 @@ export class CopcStreamingCore {
 
   /**
    * Update selection and point streaming for a renderer-neutral view.
+   * Camera motion is sampled from each supplied view, so direct core consumers
+   * do not need a separate observation call for ordinary view updates.
    *
    * `undefined` means the update was superseded by a newer view or lifecycle
    * operation. Current-generation progress is delivered incrementally before
@@ -582,6 +586,10 @@ export class CopcStreamingCore {
     if (!streamingState || this.lifecycle !== 'ready') {
       throw new Error('COPC streaming controller is not loaded');
     }
+    // Adapters may also sample intermediate camera events between streaming
+    // transactions. Sampling here makes the documented direct-core update loop
+    // participate in the same motion model without requiring adapter APIs.
+    this.observeCameraMotion(view);
     const adaptiveView = this.adaptiveViewDistancePolicy.apply(
       view,
       this.getStreamingOptions().maxRenderDistanceMeters,
@@ -734,6 +742,7 @@ export class CopcStreamingCore {
     // the next source a recorder that those stale continuations cannot reach.
     this.performanceRecorder = this.createPerformanceRecorder();
     this.motionEstimator.reset();
+    this.motionSampledMovementCount = 0;
     this.lifecycle = 'idle';
     this.debug('COPC streaming controller unloaded');
   }
@@ -814,14 +823,19 @@ export class CopcStreamingCore {
   /**
    * Observe a renderer-neutral camera snapshot for current-view motion priority.
    *
-   * Adapters call this before equivalent-view early returns so a stationary
-   * camera can complete bounded decay without requiring another view change.
+   * Renderer adapters call this for camera events between streaming updates,
+   * including before equivalent-view early returns. Direct core consumers can
+   * rely on `updateView()` to sample each supplied view.
    */
   observeCameraMotion(
     view: StreamingView,
     timestampMilliseconds = performanceNow(),
   ): CameraMotionObservation {
     const observation = this.motionEstimator.observe(view.viewFrustum, timestampMilliseconds);
+    if (observation.sampledMovement
+      && this.motionSampledMovementCount < Number.MAX_SAFE_INTEGER) {
+      this.motionSampledMovementCount += 1;
+    }
     this.streamingState?.manager.setMotionPrediction(observation.prediction);
     return observation;
   }
@@ -829,6 +843,7 @@ export class CopcStreamingCore {
   /** Clear camera history and remove any motion priority retained by the selector. */
   resetCameraMotion(): void {
     this.motionEstimator.reset();
+    this.motionSampledMovementCount = 0;
     this.streamingState?.manager.setMotionPrediction(
       this.motionEstimator.getPrediction(performanceNow()),
     );
@@ -1040,6 +1055,7 @@ export class CopcStreamingCore {
         ?? DEFAULT_REFINEMENT_ALGORITHM,
       refinementFocusEnabled: this.refinementFocus !== undefined,
       motionLookaheadEnabled: this.getStreamingOptions().motionLookahead !== false,
+      motionSampledMovementCount: this.motionSampledMovementCount,
       ...(snapshot.maxConcurrentNodeLoads === undefined
         ? {}
         : {

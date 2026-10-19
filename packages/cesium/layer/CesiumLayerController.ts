@@ -407,6 +407,9 @@ export class CesiumLayerController {
     this.viewer.camera.moveEnd.addEventListener(this.handleCameraMoveEnd);
     this.viewer.camera.changed?.addEventListener(this.handleCameraChanged);
     this.pointPicker.attach(viewer);
+    // Seed orientation history before the next user movement. Detach clears
+    // camera history, and a first movement event alone cannot estimate a delta.
+    this.observeCurrentCameraMotion();
     if (this.lifecycle !== 'loading') {
       this.lifecycle = this.core.getMetadata() ? 'ready' : 'mounted';
     }
@@ -562,6 +565,11 @@ export class CesiumLayerController {
       const metadata = this.core.getMetadata();
       if (!metadata) {
         throw new Error('COPC layer loaded without metadata');
+      }
+      if (this.viewer) {
+        // Source replacement resets the shared estimator while the layer may
+        // remain attached; establish a fresh baseline before automatic framing.
+        this.observeCurrentCameraMotion();
       }
       this.metadataBoundingSphere = createMetadataBoundingSphere(
         metadata,
@@ -1270,7 +1278,7 @@ export class CesiumLayerController {
   }
 
   private observeCurrentCameraMotion(): ReturnType<CopcStreamingCore['observeCameraMotion']> | undefined {
-    if (!this.viewer || !this.core.getMetadata()) {
+    if (!this.viewer) {
       return undefined;
     }
     const observation = this.core.observeCameraMotion(createCesiumStreamingView(this.viewer));

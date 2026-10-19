@@ -221,6 +221,46 @@ test('motion estimator rejects bad clocks and vectors, clamps speed, reverses pr
   assert.equal(microJitter.sampledMovement, false);
 });
 
+test('motion estimator accumulates smooth sub-threshold frame rotations and drops pending momentum on reversal', () => {
+  const smooth = new CameraMotionLookaheadEstimator();
+  smooth.observe(cameraBasis(), 0);
+  let firstMovement;
+  for (let frame = 1; frame <= 60; frame += 1) {
+    const observation = smooth.observe(
+      cameraBasis(frame / 60),
+      frame * (1000 / 60),
+    );
+    if (observation.sampledMovement && !firstMovement) {
+      firstMovement = observation;
+    }
+  }
+
+  assert.ok(firstMovement, '1 degree/second motion must accumulate over 60 Hz samples');
+  assert.ok(firstMovement.prediction.predictedHorizontalDisplacementDegrees > 0);
+  assert.ok(smooth.getPrediction(1_000).horizontalAngularVelocityDegreesPerSecond > 0.75);
+
+  const reversal = new CameraMotionLookaheadEstimator();
+  reversal.observe(cameraBasis(), 0);
+  reversal.observe(cameraBasis(0.02), 16);
+  reversal.observe(cameraBasis(0.04), 32);
+  reversal.observe(cameraBasis(0.02), 48);
+  reversal.observe(cameraBasis(0), 64);
+  const reversed = reversal.observe(cameraBasis(-0.02), 80);
+  assert.equal(reversed.sampledMovement, true);
+  assert.ok(reversed.prediction.predictedHorizontalDisplacementDegrees < 0);
+});
+
+test('the first small rotation after a long idle uses a representative event interval', () => {
+  const estimator = new CameraMotionLookaheadEstimator();
+  estimator.observe(cameraBasis(), 100);
+
+  const resumed = estimator.observe(cameraBasis(1), 2_100);
+  assert.equal(resumed.sampledMovement, true);
+  assert.ok(resumed.prediction.predictedHorizontalDisplacementDegrees > 0);
+  assert.ok(resumed.prediction.horizontalAngularVelocityDegreesPerSecond > 0.75);
+  assert.ok(resumed.prediction.horizontalAngularVelocityDegreesPerSecond <= 90);
+});
+
 test('motion reversals immediately replace stale direction and disabled mode stays zero', () => {
   const estimator = new CameraMotionLookaheadEstimator();
   estimator.observe(cameraBasis(), 10);

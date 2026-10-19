@@ -86,6 +86,20 @@ function createFakeViewer() {
   };
 }
 
+function setFakeCameraOrientation(viewer, yawDegrees) {
+  const yaw = yawDegrees * Math.PI / 180;
+  viewer.scene.drawingBufferHeight = 900;
+  viewer.camera.frustum = {
+    fovy: Math.PI / 3,
+    aspectRatio: 1,
+    near: 1,
+    far: 6000,
+  };
+  viewer.camera.directionWC = new Cesium.Cartesian3(Math.sin(yaw), 0, Math.cos(yaw));
+  viewer.camera.upWC = new Cesium.Cartesian3(0, 1, 0);
+  viewer.camera.rightWC = new Cesium.Cartesian3(Math.cos(yaw), 0, -Math.sin(yaw));
+}
+
 function getLayerPointCollection(viewer, layerIndex = 0) {
   return viewer.addedCollections[layerIndex].get(0);
 }
@@ -862,6 +876,40 @@ test('Cesium attachment listeners are stable and detach preserves loaded data', 
   assert.equal(secondViewer.destroyed, false);
   layer.destroy();
   assert.equal(secondViewer.destroyed, false);
+});
+
+test('Cesium reattachment seeds motion history before the next camera change', async () => {
+  const source = createBackend();
+  const layer = new CopcCesiumLayer({
+    url: 'memory://motion-reattach.copc.laz',
+    backend: source.backend,
+    decoder: source.decoder,
+  });
+  const viewer = createFakeViewer();
+  const originalWindow = globalThis.window;
+  globalThis.window = { setTimeout, clearTimeout };
+
+  try {
+    setFakeCameraOrientation(viewer, 0);
+    await layer.load();
+    layer.attachTo(viewer);
+    await waitFor(() => layer.getSnapshot().renderedPointCount === 2);
+
+    layer.detachFrom();
+    layer.attachTo(viewer);
+    await waitFor(() => layer.getSnapshot().renderedPointCount === 2);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    setFakeCameraOrientation(viewer, 10);
+    viewer.moveEnd.raise();
+    await waitFor(() =>
+      layer.getSnapshot().performance.motionPredictedHorizontalDisplacementDegrees > 0);
+    assert.ok(layer.getSnapshot().performance.motionHorizontalAngularVelocityDegreesPerSecond > 0);
+    assert.ok(layer.getSnapshot().performance.motionSampledMovementCount > 0);
+  } finally {
+    layer.destroy();
+    globalThis.window = originalWindow;
+  }
 });
 
 test('Cesium layer show state is isolated and survives attachment and reload', async () => {
