@@ -314,7 +314,9 @@ test('collapses the controls and Inspector independently and keeps the canvas fu
   expect(canvasReceivesInput).toBe(true);
   await page.mouse.move(dragX, dragY);
   await page.mouse.click(dragX, dragY);
-  await page.mouse.wheel(0, 120);
+  await page.mouse.down();
+  await page.mouse.move(dragX + 32, dragY + 18, { steps: 3 });
+  await page.mouse.up();
   await expect.poll(async () => page.evaluate(() =>
     window.__COPC_DEBUG__!.getState().cameraMoveEventCount))
     .toBeGreaterThan(cameraBeforeDrag);
