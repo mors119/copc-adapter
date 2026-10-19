@@ -83,7 +83,9 @@ async function moveAndSettle(
   preset: 'overview' | 'far' | 'near',
   before: FunctionalState,
 ): Promise<FunctionalState> {
-  await page.getByTestId(`camera-${preset}`).click();
+  const label = preset[0]!.toUpperCase() + preset.slice(1);
+  await page.getByRole('radiogroup', { name: 'Camera presets' })
+    .getByRole('radio', { name: label }).click();
   await expect.poll(async () => (await getState(page)).cameraMoveEventCount)
     .toBeGreaterThan(before.cameraMoveEventCount);
   await expect.poll(async () => (await getState(page)).streamingUpdateCount)
@@ -130,14 +132,15 @@ test('validates the eight core behaviors in the default Cesium viewer', async ({
   const debugPanel = page.getByRole('complementary', {
     name: 'COPC runtime debug panel',
   });
-  const pointInspector = page.getByRole('complementary', {
+  const pointInspector = page.getByRole('region', {
     name: 'COPC point inspector',
   });
 
   await test.step('1. Load and render the original COPC source', async () => {
     expect(new URL(page.url()).search).toBe(renderer);
     await expect(debugPanel).toBeVisible();
-    await expect(debugPanel.getByRole('region', { name: 'Validation controls' })).toBeVisible();
+    await expect(page.getByRole('radiogroup', { name: 'Camera presets' })).toBeVisible();
+    await expect(page.getByRole('radiogroup', { name: 'Point color mode' })).toBeVisible();
     await expect(pointInspector).toBeVisible();
     await expect.poll(() => getState(page)).toMatchObject({
       viewerReady: true,

@@ -56,7 +56,7 @@ function findPickablePosition(
   let candidate: { x: number; y: number } | undefined;
   const canvasBounds = canvas.getBoundingClientRect();
   const blockingPanels = [...document.querySelectorAll<HTMLElement>(
-    '.dev-control-panel, .dev-stream-hud, .copc-debug-panel, .copc-point-inspector',
+    '#controls-panel, #inspector-panel, .dev-panel-toggle',
   )].map((panel) => panel.getBoundingClientRect());
   root.traverse((object) => {
     if (candidate || !(object instanceof THREE.Points)) return;

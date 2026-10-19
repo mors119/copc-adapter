@@ -23,7 +23,6 @@ import type { CopcThreeLayerSnapshot } from '@frillab/copc-adapter/three';
 import { BatchedGeometryPointRenderer } from '@frillab/copc-adapter/cesium';
 import { createCesiumViewer } from './createViewer';
 import { createCopcDebugPanel } from './debug/CopcDebugPanel';
-import { createCopcPointInspector } from './debug/CopcPointInspector';
 import {
   runSyntheticRendererPerformanceBenchmark,
   type RendererBenchmarkKind,
@@ -34,6 +33,7 @@ import {
   runCpuBatchedPickingStress,
 } from './experimental/cpuBatchedPickingProbe';
 import { createDevThreeViewer, type DevThreeViewer } from './threeViewer';
+import { mountWorkbenchPanels } from './workbenchPanels';
 
 const cesiumRuntimeVersion = (Cesium as typeof Cesium & { VERSION: string }).VERSION;
 
@@ -403,6 +403,17 @@ function installDebugAdapter(
       return researchRenderer?.getRenderedNodeKeys().length ?? -1;
     },
     getPickablePointScreenPosition(): { x: number; y: number } | undefined {
+      const canvasBounds = viewer.scene.canvas.getBoundingClientRect();
+      const blockingBounds = [...document.querySelectorAll<HTMLElement>(
+        '.dev-panel:not([hidden]), .dev-panel-toggle',
+      )].map((element) => element.getBoundingClientRect());
+      const isObscured = (position: { x: number; y: number }): boolean => {
+        const x = canvasBounds.left + position.x;
+        const y = canvasBounds.top + position.y;
+        return blockingBounds.some((bounds) =>
+          x >= bounds.left && x <= bounds.right && y >= bounds.top && y <= bounds.bottom);
+      };
+
       if (researchRenderer) {
         for (const nodeKey of researchRenderer.getRenderedNodeKeys()) {
           const candidate = researchRenderer.probePick(viewer.scene, nodeKey);
@@ -410,7 +421,8 @@ function installDebugAdapter(
             || candidate.screenPosition.x < 380
             || candidate.screenPosition.x > viewer.scene.canvas.clientWidth - 4
             || candidate.screenPosition.y < 4
-            || candidate.screenPosition.y > viewer.scene.canvas.clientHeight - 4) {
+            || candidate.screenPosition.y > viewer.scene.canvas.clientHeight - 4
+            || isObscured(candidate.screenPosition)) {
             continue;
           }
           const position = new Cesium.Cartesian2(
@@ -438,6 +450,7 @@ function installDebugAdapter(
             && position.x <= viewer.scene.canvas.clientWidth - 4
             && position.y >= 4
             && position.y <= viewer.scene.canvas.clientHeight - 4
+            && !isObscured(position)
           ) {
             return { x: position.x, y: position.y };
           }
@@ -721,33 +734,55 @@ async function main(): Promise<void> {
   let lastSnapshot: CopcCesiumLayerSnapshot | CopcThreeLayerSnapshot | undefined;
   let lastError: string | undefined;
   let generation = 0;
-  let updateTimer: number | undefined;
   let disposed = false;
   let syncColorControl: (value: CopcColorMode) => void = () => {};
   const container = getElement<HTMLElement>('#cesium-container');
-  const status = getElement<HTMLElement>('#source-status');
   const loadButton = getElement<HTMLButtonElement>('#load-source');
   const packageVersion = getElement<HTMLElement>('#package-version');
   packageVersion.textContent = `v${__COPC_ADAPTER_VERSION__} · workspace package`;
+  const panelLayout = mountWorkbenchPanels({
+    controls: {
+      panel: getElement<HTMLElement>('#controls-panel'),
+      toggle: getElement<HTMLButtonElement>('#controls-toggle'),
+      label: 'Controls',
+      expandedInitially: true,
+    },
+    inspector: {
+      panel: getElement<HTMLElement>('#inspector-panel'),
+      toggle: getElement<HTMLButtonElement>('#inspector-toggle'),
+      label: 'Inspector',
+      expandedInitially: isDebugPanelEnabled(),
+    },
+  });
+
+  const activeSnapshot = (): CopcCesiumLayerSnapshot | CopcThreeLayerSnapshot => {
+    const snapshot = activeSession?.getSnapshot() ?? lastSnapshot;
+    if (!snapshot) throw new Error('COPC layer has not initialized yet.');
+    return snapshot;
+  };
+  const setStyle = (update: CopcCesiumPointStyleUpdate): void => {
+    if (update.colorMode) settings.colorMode = update.colorMode;
+    syncColorControl(settings.colorMode);
+    if (activeSession?.renderer === 'cesium') activeSession.setStyle(update);
+    else void startSession('Applying point style…');
+  };
+  const debugPanel = createCopcDebugPanel(
+    getElement<HTMLElement>('#inspector-content'),
+    () => ({
+      snapshot: activeSnapshot(),
+      metadata: activeSession?.getMetadata(),
+      hierarchy: activeSession?.getHierarchyDiagnostics(),
+      sourceProbe,
+      activeColorMode: activeSession?.getStyle().colorMode ?? settings.colorMode,
+      selectedPoint: activeSession?.getSelectedPoint(),
+      lastError: lastError ?? activeDebugAdapter?.getLastError(),
+    }),
+  );
+  const status = getElement<HTMLElement>('#source-status');
 
   const updateStatus = (message: string, tone: 'loading' | 'ready' | 'error' | 'inactive'): void => {
     status.textContent = message;
     status.dataset.status = tone;
-    getElement<HTMLElement>('.dev-stream-hud').dataset.status = tone;
-    const state = getElement<HTMLElement>('#stream-state');
-    state.textContent = tone === 'ready' ? 'Ready' : tone === 'error' ? 'Error' : message;
-  };
-
-  const updateHud = (): void => {
-    const snapshot = activeSession?.getSnapshot();
-    if (!snapshot) return;
-    getElement<HTMLElement>('#stream-points').textContent = String(snapshot.renderedPointCount);
-    getElement<HTMLElement>('#stream-nodes').textContent = String(snapshot.renderedNodeKeys.length);
-    getElement<HTMLElement>('#stream-selected').textContent = String(snapshot.selectedNodeKeys.length);
-    const range = sourceProbe?.rangeSupported;
-    getElement<HTMLElement>('#stream-range').textContent = range === true
-      ? 'HTTP Range · supported'
-      : range === false ? 'HTTP Range · unavailable' : 'HTTP Range · checking';
   };
 
   const setActiveError = (error: unknown): void => {
@@ -775,7 +810,7 @@ async function main(): Promise<void> {
       void probeCopcSource(source).then((result) => {
         if (currentGeneration !== generation || disposed) return;
         sourceProbe = result;
-        updateHud();
+        debugPanel.refresh();
       }).catch((error: unknown) => {
         if (currentGeneration === generation) sourceProbe = undefined;
         console.warn('COPC source probe did not complete:', safeErrorMessage(error));
@@ -804,7 +839,7 @@ async function main(): Promise<void> {
         getPickablePointScreenPosition: () => activeSession?.getPickablePointScreenPosition(),
         getConfiguration: () => ({ ...settings }),
       };
-      updateHud();
+      debugPanel.refresh();
       await session.ready;
       if (currentGeneration !== generation || disposed) {
         session.destroy();
@@ -812,7 +847,7 @@ async function main(): Promise<void> {
       }
       lastSnapshot = session.getSnapshot();
       updateStatus(`Ready · ${sourceName}`, 'ready');
-      updateHud();
+      debugPanel.refresh();
       if (settings.renderer === 'cesium') {
         console.log('COPC Metadata:', session.getMetadata());
         console.log('COPC Layer Snapshot:', session.getSnapshot());
@@ -825,41 +860,12 @@ async function main(): Promise<void> {
         activeDebugAdapter?.destroy();
         activeDebugAdapter = undefined;
         setActiveError(error);
+        debugPanel.refresh();
       }
     } finally {
       if (currentGeneration === generation) loadButton.disabled = false;
     }
   }
-
-  const activeSnapshot = (): CopcCesiumLayerSnapshot | CopcThreeLayerSnapshot => {
-    const snapshot = activeSession?.getSnapshot() ?? lastSnapshot;
-    if (!snapshot) throw new Error('COPC layer has not initialized yet.');
-    return snapshot;
-  };
-  const setStyle = (update: CopcCesiumPointStyleUpdate): void => {
-    if (update.colorMode) settings.colorMode = update.colorMode;
-    syncColorControl(settings.colorMode);
-    if (activeSession?.renderer === 'cesium') activeSession.setStyle(update);
-    else void startSession('Applying point style…');
-  };
-
-  // startSession assigns the active session before its first await, so the
-  // diagnostics panel can safely bind to the loading snapshot immediately.
-  void startSession();
-  const debugPanel = isDebugPanelEnabled()
-    ? createCopcDebugPanel(() => ({
-        snapshot: activeSnapshot(),
-        metadata: activeSession?.getMetadata(),
-        hierarchy: activeSession?.getHierarchyDiagnostics(),
-        sourceProbe,
-        activeColorMode: activeSession?.getStyle().colorMode ?? settings.colorMode,
-        lastError: lastError ?? activeDebugAdapter?.getLastError(),
-      }), {
-        setCameraPreset: (preset) => activeSession?.setCameraPreset(preset),
-        setStyle,
-      })
-    : undefined;
-  const pointInspector = createCopcPointInspector(() => activeSession?.getSelectedPoint());
 
   const mountedControls: Array<{ destroy(): void }> = [];
   const rendererControl = mountSegmentedControl(getElement('#renderer-control'), {
@@ -889,7 +895,7 @@ async function main(): Promise<void> {
   });
   mountedControls.push(backendControl);
   const cameraControl = mountSegmentedControl(getElement('#camera-control'), {
-    label: 'Camera view',
+    label: 'Camera presets',
     value: 'overview',
     choices: [
       { value: 'overview', label: 'Overview' },
@@ -1030,21 +1036,18 @@ async function main(): Promise<void> {
     void startSession('Reloading renderer…');
   });
 
-  updateTimer = window.setInterval(() => {
-    if (activeSession) lastSnapshot = activeSession.getSnapshot();
-    updateHud();
-  }, 250);
   window.addEventListener('pagehide', () => {
     disposed = true;
     generation += 1;
-    if (updateTimer !== undefined) window.clearInterval(updateTimer);
-    debugPanel?.destroy();
-    pointInspector.destroy();
+    debugPanel.destroy();
+    panelLayout.destroy();
     mountedControls.forEach((control) => control.destroy());
     activeDebugAdapter?.destroy();
     activeSession?.destroy();
     delete window.__COPC_DEV_VIEWER__;
   }, { once: true });
+
+  void startSession();
 }
 
 main().catch((error) => {

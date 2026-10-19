@@ -1,8 +1,8 @@
 import type {
   CopcCesiumLayerSnapshot,
-  CopcCesiumPointStyleUpdate,
   CopcColorMode,
   CopcMetadata,
+  CopcPointInspection,
 } from '@frillab/copc-adapter';
 import type { CopcThreeLayerSnapshot } from '@frillab/copc-adapter/three';
 import type {
@@ -10,6 +10,7 @@ import type {
   CopcSourceProbeResult,
   ProbeTruth,
 } from '@frillab/copc-adapter';
+import { createCopcPointInspector } from './CopcPointInspector';
 
 export type CopcDebugPanelState = {
   snapshot: CopcCesiumLayerSnapshot | CopcThreeLayerSnapshot;
@@ -17,12 +18,8 @@ export type CopcDebugPanelState = {
   hierarchy?: CopcHierarchyDiagnostics;
   sourceProbe?: CopcSourceProbeResult;
   activeColorMode?: CopcColorMode;
+  selectedPoint?: CopcPointInspection;
   lastError?: string;
-};
-
-export type CopcDebugPanelActions = {
-  setCameraPreset(preset: 'overview' | 'far' | 'near'): void;
-  setStyle(update: CopcCesiumPointStyleUpdate): void;
 };
 
 export type CopcDebugPanelView = {
@@ -377,242 +374,191 @@ export function buildCopcDebugPanelView(
 }
 
 export type CopcDebugPanel = {
+  refresh(): void;
   destroy(): void;
-  hide(): void;
-  show(): void;
 };
 
 export function createCopcDebugPanel(
+  target: HTMLElement,
   getState: () => CopcDebugPanelState,
-  actions: CopcDebugPanelActions,
 ): CopcDebugPanel {
-  const panel = document.createElement('aside');
-  panel.className = 'copc-debug-panel';
-  panel.setAttribute('aria-label', 'COPC runtime debug panel');
-  panel.innerHTML = `
-    <header class="copc-debug-panel__header">
-      <div>
-        <div class="copc-debug-panel__eyebrow">COPC runtime</div>
-        <strong data-field="datasetName"></strong>
-      </div>
-      <button type="button" data-action="hide" title="Hide panel (Shift+D)">Hide</button>
-    </header>
-    <div class="copc-debug-panel__url" data-field="datasetUrl"></div>
-    <div class="copc-debug-panel__status" data-field="status"></div>
-    <section class="copc-debug-panel__validation" aria-label="Validation controls">
-      <h2>Validation controls</h2>
-      <div class="copc-debug-panel__control-group" role="group" aria-label="Camera presets">
-        <button type="button" data-testid="camera-overview" data-camera-preset="overview">Overview</button>
-        <button type="button" data-testid="camera-far" data-camera-preset="far">Far</button>
-        <button type="button" data-testid="camera-near" data-camera-preset="near">Near</button>
-      </div>
-      <div class="copc-debug-panel__control-group" role="group" aria-label="Point color mode">
-        <button type="button" data-testid="style-rgb" data-style-mode="rgb">RGB</button>
-        <button type="button" data-testid="style-elevation" data-style-mode="elevation">Elevation</button>
-        <button type="button" data-testid="style-intensity" data-style-mode="intensity">Intensity</button>
-        <button type="button" data-testid="style-classification" data-style-mode="classification">Classification</button>
-      </div>
-      <div class="copc-debug-panel__active-style"><span>Active color mode</span><strong data-field="activeColorMode"></strong></div>
+  target.innerHTML = `
+    <section class="copc-debug-panel__source-summary" aria-label="Current status and active source">
+      <h3 data-field="datasetName"></h3>
+      <code class="copc-debug-panel__url" data-field="datasetUrl"></code>
+      <p class="dev-status" id="source-status" role="status" aria-live="polite" data-status="loading">Loading configured source…</p>
     </section>
-    <section class="copc-debug-panel__advanced">
-      <button type="button" class="copc-debug-panel__advanced-toggle" data-action="toggle-advanced" aria-expanded="true" aria-controls="copc-advanced-diagnostics">Advanced diagnostics</button>
-      <div id="copc-advanced-diagnostics" class="copc-debug-panel__advanced-content" data-advanced-content>
-    <details open>
-      <summary>Source</summary>
+    <div data-point-inspector></div>
+    <details class="copc-debug-panel__section" open>
+      <summary>Streaming metrics</summary>
+      <dl>
+        <div><dt>Metadata points</dt><dd data-field="pointCount"></dd></div>
+        <div><dt>Selected nodes</dt><dd data-field="selectedNodeCount"></dd></div>
+        <div><dt>Rendered nodes</dt><dd data-field="renderedNodeCount"></dd></div>
+        <div><dt>Rendered points</dt><dd data-field="renderedPointCount"></dd></div>
+        <div><dt>Stream updates</dt><dd data-field="streamingUpdateCount"></dd></div>
+        <div><dt>Configured point budget</dt><dd data-field="configuredPointBudget"></dd></div>
+        <div><dt>Candidate / active points</dt><dd><span data-field="candidateSelectedPointCount"></span> / <span data-field="activeRenderedPointCount"></span></dd></div>
+      </dl>
+      <details>
+        <summary>HTTP Range requests</summary>
+        <dl>
+          <div><dt>Requested / active / completed</dt><dd><span data-field="rangeRequestsRequested"></span> / <span data-field="rangeRequestsActive"></span> / <span data-field="rangeRequestsCompleted"></span></dd></div>
+          <div><dt>Aborted by view changes</dt><dd data-field="rangeRequestsAbortedSuperseded"></dd></div>
+          <div><dt>Aborted by lifecycle</dt><dd data-field="rangeRequestsAbortedLifecycle"></dd></div>
+          <div><dt>Failed</dt><dd data-field="rangeRequestsFailed"></dd></div>
+        </dl>
+      </details>
+      <details>
+        <summary>Priority streaming scheduler</summary>
+        <dl>
+          <div><dt>Load slots</dt><dd data-field="maxConcurrentNodeLoads"></dd></div>
+          <div><dt>Queued / active</dt><dd><span data-field="queuedNodeCount"></span> / <span data-field="activeNodeCount"></span></dd></div>
+          <div><dt>Completed / cancelled</dt><dd><span data-field="completedNodeCount"></span> / <span data-field="cancelledNodeCount"></span></dd></div>
+          <div><dt>Peak active</dt><dd data-field="peakActiveNodeCount"></dd></div>
+          <div><dt>High-priority queued / active</dt><dd data-field="highPriorityQueuedActive"></dd></div>
+          <div><dt>Completed / pending priority</dt><dd data-field="completedPendingSchedulingPriority"></dd></div>
+          <div><dt>First priority start</dt><dd data-field="firstHighPriorityNodeStartLatency"></dd></div>
+          <div><dt>First priority ready</dt><dd data-field="firstHighPriorityNodeReadyLatency"></dd></div>
+        </dl>
+      </details>
+    </details>
+    <details class="copc-debug-panel__section">
+      <summary>Source diagnostics</summary>
       <dl>
         <div><dt>Reachability</dt><dd data-field="sourceReachable"></dd></div>
-        <div><dt>Range</dt><dd data-field="sourceRange"></dd></div>
+        <div><dt>Range support</dt><dd data-field="sourceRange"></dd></div>
         <div><dt>Format</dt><dd data-field="sourceCopc"></dd></div>
         <div><dt>Point format</dt><dd data-field="sourcePointFormat"></dd></div>
         <div><dt>CORS</dt><dd data-field="sourceCors"></dd></div>
       </dl>
+      <p class="copc-debug-panel__source-warning" data-field="sourceWarnings"></p>
     </details>
-    <p class="copc-debug-panel__source-warning" data-field="sourceWarnings"></p>
-    <dl>
-      <div><dt>Points</dt><dd data-field="pointCount"></dd></div>
-      <div><dt>Selected nodes</dt><dd data-field="selectedNodeCount"></dd></div>
-      <div><dt>Rendered nodes</dt><dd data-field="renderedNodeCount"></dd></div>
-      <div><dt>Rendered points</dt><dd data-field="renderedPointCount"></dd></div>
-      <div><dt>Hierarchy requests / cache hits</dt><dd><span data-field="hierarchyRequests"></span> / <span data-field="hierarchyCacheHits"></span></dd></div>
-      <div><dt>Hierarchy pages / entries</dt><dd><span data-field="hierarchyLoadedPages"></span> / <span data-field="hierarchyLoadedEntries"></span></dd></div>
-      <div><dt>Source open / metadata / root / query</dt><dd><span data-field="hierarchySourceDuration"></span> / <span data-field="hierarchyMetadataDuration"></span> / <span data-field="hierarchyRootDuration"></span> / <span data-field="hierarchyQueryDuration"></span></dd></div>
-      <div><dt>View need / active distance / cap</dt><dd data-field="viewDistance"></dd></div>
-      <div><dt>Hierarchy loads active / peak</dt><dd data-field="hierarchyPageConcurrency"></dd></div>
-      <div><dt>Active replacements / coarse retained</dt><dd><span data-field="activeReplacementGroups"></span> / <span data-field="coarseNodesRetained"></span></dd></div>
-      <div><dt>Refinement commits</dt><dd data-field="refinementReplacementCommits"></dd></div>
-      <div><dt>Point budget</dt><dd data-field="configuredPointBudget"></dd></div>
-      <div><dt>Candidate points</dt><dd data-field="candidateSelectedPointCount"></dd></div>
-      <div><dt>Active points</dt><dd data-field="activeRenderedPointCount"></dd></div>
-      <div><dt>Budget utilization</dt><dd data-field="budgetUtilization"></dd></div>
-      <div><dt>Deferred nodes</dt><dd data-field="deferredNodeCount"></dd></div>
-      <div><dt>Deferred points</dt><dd data-field="deferredPointCount"></dd></div>
-      <div><dt>Budget drops</dt><dd data-field="budgetDeferDropCount"></dd></div>
-      <div><dt>Stream updates</dt><dd data-field="streamingUpdateCount"></dd></div>
-      <div><dt>Before culling</dt><dd data-field="candidatesBeforeCulling"></dd></div>
-      <div><dt>Frustum culled</dt><dd data-field="frustumCulledCount"></dd></div>
-      <div><dt>SSE threshold</dt><dd data-field="maxScreenSpaceError"></dd></div>
-      <div><dt>SSE observed</dt><dd data-field="representativeScreenSpaceError"></dd></div>
-      <div><dt>Effective SSE</dt><dd data-field="effectiveScreenSpaceError"></dd></div>
-      <div><dt>Refinement centre weight</dt><dd data-field="refinementCenterWeight"></dd></div>
-      <div><dt>Scheduling centre weight</dt><dd data-field="schedulingCenterWeight"></dd></div>
-      <div><dt>Refinement priority</dt><dd data-field="refinementPriority"></dd></div>
-      <div><dt>Scheduling priority</dt><dd data-field="schedulingPriority"></dd></div>
-      <div><dt>Detail bias</dt><dd data-field="detailBias"></dd></div>
-      <div><dt>Influenced candidates</dt><dd data-field="influenceCandidates"></dd></div>
-      <div><dt>Gaze refinements</dt><dd data-field="gazeInfluencedRefinements"></dd></div>
-      <div><dt>Nodes refined</dt><dd data-field="refinedNodeCount"></dd></div>
-      <div><dt>Nodes kept</dt><dd data-field="keptNodeCount"></dd></div>
-      <div><dt>Frontier nodes</dt><dd data-field="frontierNodeCount"></dd></div>
-      <div><dt>Frontier points</dt><dd data-field="frontierPointCount"></dd></div>
-      <div><dt>Refinements accepted</dt><dd data-field="acceptedRefinementCount"></dd></div>
-      <div><dt>Refinements rejected</dt><dd data-field="refinementRejectedByBudget"></dd></div>
-      <div><dt>Rejected by node budget</dt><dd data-field="refinementRejectedByNodeBudget"></dd></div>
-      <div><dt>Rejected by point budget</dt><dd data-field="refinementRejectedByPointBudget"></dd></div>
-      <div><dt>Hierarchy deferred</dt><dd data-field="refinementDeferredByIncompleteHierarchyCount"></dd></div>
-      <div><dt>Minimum frontier over budget</dt><dd data-field="impossibleMinimumFrontier"></dd></div>
-      <div><dt>Visible levels</dt><dd data-field="visibleLevelRange"></dd></div>
-    </dl>
-    <details>
-      <summary>Priority streaming scheduler</summary>
+    <details class="copc-debug-panel__section">
+      <summary>Hierarchy diagnostics</summary>
       <dl>
-        <div><dt>Load slots</dt><dd data-field="maxConcurrentNodeLoads"></dd></div>
-        <div><dt>Queued / active</dt><dd><span data-field="queuedNodeCount"></span> / <span data-field="activeNodeCount"></span></dd></div>
-        <div><dt>Completed / cancelled</dt><dd><span data-field="completedNodeCount"></span> / <span data-field="cancelledNodeCount"></span></dd></div>
-        <div><dt>Peak active</dt><dd data-field="peakActiveNodeCount"></dd></div>
-        <div><dt>High-priority queued / active</dt><dd data-field="highPriorityQueuedActive"></dd></div>
-        <div><dt>Completed / pending priority</dt><dd data-field="completedPendingSchedulingPriority"></dd></div>
-        <div><dt>First priority start</dt><dd data-field="firstHighPriorityNodeStartLatency"></dd></div>
-        <div><dt>First priority ready</dt><dd data-field="firstHighPriorityNodeReadyLatency"></dd></div>
+        <div><dt>Requests / cache hits</dt><dd><span data-field="hierarchyRequests"></span> / <span data-field="hierarchyCacheHits"></span></dd></div>
+        <div><dt>Loaded pages / entries</dt><dd><span data-field="hierarchyLoadedPages"></span> / <span data-field="hierarchyLoadedEntries"></span></dd></div>
+        <div><dt>Page loads active / peak</dt><dd data-field="hierarchyPageConcurrency"></dd></div>
+        <div><dt>Source open</dt><dd data-field="hierarchySourceDuration"></dd></div>
+        <div><dt>Metadata load</dt><dd data-field="hierarchyMetadataDuration"></dd></div>
+        <div><dt>Root hierarchy load</dt><dd data-field="hierarchyRootDuration"></dd></div>
+        <div><dt>Last query</dt><dd data-field="hierarchyQueryDuration"></dd></div>
+        <div><dt>View need / active distance / cap</dt><dd data-field="viewDistance"></dd></div>
+        <div><dt>Active replacements / coarse retained</dt><dd><span data-field="activeReplacementGroups"></span> / <span data-field="coarseNodesRetained"></span></dd></div>
+        <div><dt>Refinement commits</dt><dd data-field="refinementReplacementCommits"></dd></div>
+        <div><dt>Refined / kept nodes</dt><dd><span data-field="refinedNodeCount"></span> / <span data-field="keptNodeCount"></span></dd></div>
+        <div><dt>Frontier nodes / points</dt><dd><span data-field="frontierNodeCount"></span> / <span data-field="frontierPointCount"></span></dd></div>
+        <div><dt>Accepted refinements</dt><dd data-field="acceptedRefinementCount"></dd></div>
+        <div><dt>Rejected refinements</dt><dd data-field="refinementRejectedByBudget"></dd></div>
+        <div><dt>Rejected by node budget</dt><dd data-field="refinementRejectedByNodeBudget"></dd></div>
+        <div><dt>Rejected by point budget</dt><dd data-field="refinementRejectedByPointBudget"></dd></div>
+        <div><dt>Deferred by incomplete hierarchy</dt><dd data-field="refinementDeferredByIncompleteHierarchyCount"></dd></div>
+        <div><dt>Minimum frontier over budget</dt><dd data-field="impossibleMinimumFrontier"></dd></div>
+        <div><dt>Visible levels</dt><dd data-field="visibleLevelRange"></dd></div>
       </dl>
     </details>
-    <details>
-      <summary>HTTP Range requests</summary>
+    <details class="copc-debug-panel__section">
+      <summary>Cache and Worker diagnostics</summary>
+      <details>
+        <summary>Decoded CPU point cache</summary>
+        <dl>
+          <div><dt>Byte budget</dt><dd data-field="pointCacheBudget"></dd></div>
+          <div><dt>Cached bytes</dt><dd data-field="pointCacheBytes"></dd></div>
+          <div><dt>Cached nodes</dt><dd data-field="cachedNodeCount"></dd></div>
+          <div><dt>Hits / misses</dt><dd><span data-field="cacheHits"></span> / <span data-field="cacheMisses"></span></dd></div>
+          <div><dt>Evictions</dt><dd data-field="cacheEvictionCount"></dd></div>
+          <div><dt>Bytes evicted</dt><dd data-field="cacheBytesEvicted"></dd></div>
+          <div><dt>Largest entry</dt><dd data-field="largestCachedEntryBytes"></dd></div>
+        </dl>
+        <p>Typed-array bytes only; Cesium/WebGL memory is not measured.</p>
+      </details>
+      <details>
+        <summary>Rust decode workers</summary>
+        <dl>
+          <div><dt>Concurrency</dt><dd data-field="workerConcurrency"></dd></div>
+          <div><dt>Queue</dt><dd data-field="workerQueue"></dd></div>
+        </dl>
+      </details>
+    </details>
+    <details class="copc-debug-panel__section">
+      <summary>Performance and benchmark diagnostics</summary>
       <dl>
-        <div><dt>Requested / active / completed</dt><dd><span data-field="rangeRequestsRequested"></span> / <span data-field="rangeRequestsActive"></span> / <span data-field="rangeRequestsCompleted"></span></dd></div>
-        <div><dt>Aborted by view changes</dt><dd data-field="rangeRequestsAbortedSuperseded"></dd></div>
-        <div><dt>Aborted by lifecycle</dt><dd data-field="rangeRequestsAbortedLifecycle"></dd></div>
-        <div><dt>Failed</dt><dd data-field="rangeRequestsFailed"></dd></div>
+        <div><dt>Deferred nodes / points</dt><dd><span data-field="deferredNodeCount"></span> / <span data-field="deferredPointCount"></span></dd></div>
+        <div><dt>Budget utilization</dt><dd data-field="budgetUtilization"></dd></div>
+        <div><dt>Budget drops</dt><dd data-field="budgetDeferDropCount"></dd></div>
+        <div><dt>Candidates before culling</dt><dd data-field="candidatesBeforeCulling"></dd></div>
+        <div><dt>Frustum culled</dt><dd data-field="frustumCulledCount"></dd></div>
+        <div><dt>SSE threshold</dt><dd data-field="maxScreenSpaceError"></dd></div>
+        <div><dt>SSE observed</dt><dd data-field="representativeScreenSpaceError"></dd></div>
+        <div><dt>Effective SSE</dt><dd data-field="effectiveScreenSpaceError"></dd></div>
+        <div><dt>Refinement centre weight</dt><dd data-field="refinementCenterWeight"></dd></div>
+        <div><dt>Scheduling centre weight</dt><dd data-field="schedulingCenterWeight"></dd></div>
+        <div><dt>Refinement priority</dt><dd data-field="refinementPriority"></dd></div>
+        <div><dt>Scheduling priority</dt><dd data-field="schedulingPriority"></dd></div>
+        <div><dt>Detail bias</dt><dd data-field="detailBias"></dd></div>
+        <div><dt>Influenced candidates</dt><dd data-field="influenceCandidates"></dd></div>
+        <div><dt>Gaze refinements</dt><dd data-field="gazeInfluencedRefinements"></dd></div>
       </dl>
     </details>
-    <details>
-      <summary>Decoded CPU point cache</summary>
-      <dl>
-        <div><dt>Byte budget</dt><dd data-field="pointCacheBudget"></dd></div>
-        <div><dt>Cached bytes</dt><dd data-field="pointCacheBytes"></dd></div>
-        <div><dt>Cached nodes</dt><dd data-field="cachedNodeCount"></dd></div>
-        <div><dt>Hits / misses</dt><dd><span data-field="cacheHits"></span> / <span data-field="cacheMisses"></span></dd></div>
-        <div><dt>Evictions</dt><dd data-field="cacheEvictionCount"></dd></div>
-        <div><dt>Bytes evicted</dt><dd data-field="cacheBytesEvicted"></dd></div>
-        <div><dt>Largest entry</dt><dd data-field="largestCachedEntryBytes"></dd></div>
-      </dl>
-      <p>Typed-array bytes only; Cesium/WebGL memory is not measured.</p>
+    <details class="copc-debug-panel__section">
+      <summary>Advanced internal debug information</summary>
+      <details>
+        <summary>Metadata</summary>
+        <div class="copc-debug-panel__detail"><span>Bounds</span><code data-field="bounds"></code></div>
+        <div class="copc-debug-panel__detail"><span>Scale</span><code data-field="scale"></code></div>
+        <div class="copc-debug-panel__detail"><span>Offset</span><code data-field="offset"></code></div>
+        <div class="copc-debug-panel__detail"><span>Camera direction (ECEF)</span><code data-field="cameraDirection"></code></div>
+      </details>
+      <details>
+        <summary>Selected node keys</summary>
+        <code class="copc-debug-panel__nodes" data-field="selectedNodeKeys"></code>
+      </details>
+      <details>
+        <summary>Rendered node keys</summary>
+        <code class="copc-debug-panel__nodes" data-field="renderedNodeKeys"></code>
+      </details>
+      <div class="copc-debug-panel__error" data-field="error" role="alert" hidden></div>
     </details>
-    <details>
-      <summary>Rust decode workers</summary>
-      <dl>
-        <div><dt>Concurrency</dt><dd data-field="workerConcurrency"></dd></div>
-        <div><dt>Queue</dt><dd data-field="workerQueue"></dd></div>
-      </dl>
-    </details>
-    <details open>
-      <summary>Metadata</summary>
-      <div class="copc-debug-panel__detail"><span>Bounds</span><code data-field="bounds"></code></div>
-      <div class="copc-debug-panel__detail"><span>Scale</span><code data-field="scale"></code></div>
-      <div class="copc-debug-panel__detail"><span>Offset</span><code data-field="offset"></code></div>
-      <div class="copc-debug-panel__detail"><span>Camera direction (ECEF)</span><code data-field="cameraDirection"></code></div>
-    </details>
-    <details>
-      <summary>Selected node keys</summary>
-      <code class="copc-debug-panel__nodes" data-field="selectedNodeKeys"></code>
-    </details>
-    <details>
-      <summary>Rendered node keys</summary>
-      <code class="copc-debug-panel__nodes" data-field="renderedNodeKeys"></code>
-    </details>
-    <div class="copc-debug-panel__error" data-field="error" role="alert" hidden></div>
-      </div>
-    </section>
   `;
-  document.body.append(panel);
 
   const fields = new Map<string, HTMLElement>();
-  panel.querySelectorAll<HTMLElement>('[data-field]').forEach((element) => {
+  target.querySelectorAll<HTMLElement>('[data-field]').forEach((element) => {
     fields.set(element.dataset.field ?? '', element);
   });
+  const pointInspector = createCopcPointInspector(
+    target.querySelector<HTMLElement>('[data-point-inspector]')!,
+  );
+  const panel = target.closest<HTMLElement>('.copc-debug-panel');
 
   const update = (): void => {
-    const view = buildCopcDebugPanelView(getState());
+    let state: CopcDebugPanelState;
+    try {
+      state = getState();
+    } catch {
+      return;
+    }
+    const view = buildCopcDebugPanelView(state);
 
     for (const [field, element] of fields) {
       const value = view[field as keyof CopcDebugPanelView];
       element.textContent = typeof value === 'string' ? value : '';
     }
 
-    panel.dataset.status = view.statusTone;
-    panel.querySelectorAll<HTMLButtonElement>('[data-style-mode]').forEach((button) => {
-      button.setAttribute(
-        'aria-pressed',
-        String(button.dataset.styleMode === view.activeColorMode),
-      );
-    });
+    if (panel) panel.dataset.status = view.statusTone;
+    pointInspector.update(state.selectedPoint);
     const errorElement = fields.get('error');
     if (errorElement) {
       errorElement.hidden = !view.error;
     }
   };
-  const hide = (): void => {
-    panel.hidden = true;
-  };
-  const show = (): void => {
-    panel.hidden = false;
-    update();
-  };
-  const handleShortcut = (event: KeyboardEvent): void => {
-    if (event.shiftKey && event.key.toLowerCase() === 'd') {
-      panel.hidden ? show() : hide();
-    }
-  };
-
-  panel.querySelector('[data-action="hide"]')?.addEventListener('click', hide);
-  const advancedToggle = panel.querySelector<HTMLButtonElement>('[data-action="toggle-advanced"]');
-  const advancedContent = panel.querySelector<HTMLElement>('[data-advanced-content]');
-  advancedToggle?.addEventListener('click', () => {
-    const expanded = advancedToggle.getAttribute('aria-expanded') === 'true';
-    advancedToggle.setAttribute('aria-expanded', String(!expanded));
-    if (advancedContent) advancedContent.hidden = expanded;
-  });
-  panel.querySelectorAll<HTMLButtonElement>('[data-camera-preset]').forEach((button) => {
-    button.addEventListener('click', () => {
-      const preset = button.dataset.cameraPreset;
-      if (preset === 'overview' || preset === 'far' || preset === 'near') {
-        actions.setCameraPreset(preset);
-      }
-    });
-  });
-  panel.querySelectorAll<HTMLButtonElement>('[data-style-mode]').forEach((button) => {
-    button.addEventListener('click', () => {
-      const colorMode = button.dataset.styleMode;
-      if (
-        colorMode === 'rgb'
-        || colorMode === 'elevation'
-        || colorMode === 'intensity'
-        || colorMode === 'classification'
-      ) {
-        actions.setStyle({ colorMode });
-      }
-    });
-  });
-  window.addEventListener('keydown', handleShortcut);
-  update();
   const updateTimer = window.setInterval(update, 250);
 
   return {
+    refresh: update,
     destroy(): void {
       window.clearInterval(updateTimer);
-      window.removeEventListener('keydown', handleShortcut);
-      panel.remove();
+      pointInspector.destroy();
     },
-    hide,
-    show,
   };
 }
