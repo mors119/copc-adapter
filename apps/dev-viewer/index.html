@@ -37,7 +37,8 @@
             <label class="ui-field" for="custom-source-url">COPC URL
               <input id="custom-source-url" type="url" placeholder="https://host.example/area.copc.laz" disabled>
             </label>
-            <button class="dev-action" id="load-source" type="button">Probe and load source</button>
+            <button class="dev-action" id="load-source" type="button">Load selected source</button>
+            <p class="dev-help">This loads the selected source with the visible configuration. The current source stays active while the new source is checked and loaded.</p>
             <label class="dev-file" for="local-source-file">Open local COPC file
               <input id="local-source-file" type="file" accept=".copc.laz,.laz,.copc,application/octet-stream">
             </label>
@@ -45,7 +46,10 @@
 
           <details class="dev-control-section" open>
             <summary>Renderer and Backend</summary>
-            <span class="control-label">Renderer</span><div id="renderer-control"></div>
+            <span class="control-label">Rendering engine</span><div id="renderer-control"></div>
+            <div id="cesium-point-renderer-group">
+              <span class="control-label">Cesium point renderer</span><div id="cesium-renderer-control"></div>
+            </div>
             <span class="control-label">Backend</span><div id="backend-control"></div>
           </details>
 
@@ -62,6 +66,9 @@
 
           <details class="dev-control-section" open>
             <summary>Streaming</summary>
+            <span class="control-label">Refinement Algorithm</span><div id="refinement-control"></div>
+            <span class="control-label">HTTP Range Validation</span><div id="range-validation-control"></div>
+            <p class="dev-help">HTTP Range Validation applies only to HTTP/HTTPS sources. Local File sources use Blob reads.</p>
             <div class="control-slider" id="max-nodes-control"></div>
             <div class="control-slider" id="max-points-control"></div>
           </details>
@@ -72,9 +79,13 @@
             <label class="ui-field" for="max-sse">Screen-space error (px)<input id="max-sse" type="number" min="1" max="128" step="0.5"></label>
             <label class="ui-field" for="camera-render-distance">Camera distance (m)<input id="camera-render-distance" type="number" min="1" step="1"></label>
             <label class="ui-field" for="max-render-distance">Max render distance (m)<input id="max-render-distance" type="number" min="1" step="1"></label>
-            <button class="dev-action dev-action--secondary" id="apply-advanced" type="button">Apply advanced settings</button>
-            <button class="dev-action dev-action--secondary" id="reload-renderer" type="button">Reload renderer</button>
           </details>
+          <div class="dev-settings-actions" aria-label="Configuration actions">
+            <p id="configuration-state" role="status">Applied configuration</p>
+            <p id="configuration-error" role="alert" hidden></p>
+            <button class="dev-action" id="apply-settings" type="button" disabled>Apply Settings</button>
+            <button class="dev-action dev-action--secondary" id="reload-current-source" type="button">Reload current source</button>
+          </div>
         </div>
       </aside>
 

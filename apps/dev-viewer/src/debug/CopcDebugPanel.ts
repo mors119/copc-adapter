@@ -3,6 +3,7 @@ import type {
   CopcColorMode,
   CopcMetadata,
   CopcPointInspection,
+  RangeValidationPolicy,
 } from '@frillab/copc-adapter';
 import type { CopcThreeLayerSnapshot } from '@frillab/copc-adapter/three';
 import type {
@@ -18,6 +19,9 @@ export type CopcDebugPanelState = {
   hierarchy?: CopcHierarchyDiagnostics;
   sourceProbe?: CopcSourceProbeResult;
   activeColorMode?: CopcColorMode;
+  configuredRangeValidation: RangeValidationPolicy;
+  sourceProbePolicy?: RangeValidationPolicy;
+  rangeValidationApplicable: boolean;
   selectedPoint?: CopcPointInspection;
   lastError?: string;
 };
@@ -115,6 +119,13 @@ export type CopcDebugPanelView = {
   sourceCors: string;
   sourceWarnings: string;
   error?: string;
+  refinementAlgorithm: string;
+  rangeFetchBytes: string;
+  configuredRangeValidation: string;
+  sourceProbePolicy: string;
+  sourceProbeSource: string;
+  sourceProbeValidationLevel: string;
+  rangeValidationScope: string;
 };
 
 const numberFormatter = new Intl.NumberFormat('en-US');
@@ -189,6 +200,18 @@ export function buildCopcDebugPanelView(
     datasetName: getDatasetName(snapshot.datasetUrl),
     datasetUrl: snapshot.datasetUrl,
     activeColorMode: state.activeColorMode ?? 'fixed',
+    refinementAlgorithm: snapshot.performance?.refinementAlgorithm ?? 'foveated',
+    rangeFetchBytes: formatBytes(snapshot.performance?.rangeFetchBytes ?? 0),
+    configuredRangeValidation: state.configuredRangeValidation,
+    sourceProbePolicy: sourceProbe
+      ? state.sourceProbePolicy ?? '—'
+      : state.rangeValidationApplicable ? '—' : 'not applicable · local File',
+    sourceProbeSource: sourceProbe?.source ?? '—',
+    sourceProbeValidationLevel: sourceProbe?.validationLevel
+      ?? (state.rangeValidationApplicable ? '—' : 'not applicable · local File'),
+    rangeValidationScope: state.rangeValidationApplicable
+      ? 'HTTP/HTTPS source'
+      : 'Not applicable · local File',
     status,
     statusTone,
     pointCount: metadata ? formatNumber(metadata.pointCount) : '—',
@@ -367,7 +390,7 @@ export function buildCopcDebugPanelView(
       ? formatProbeTruth(sourceProbe.corsReadable, 'Browser response readable')
       : '—',
     sourceWarnings: sourceProbe && sourceProbe.warnings.length > 0
-      ? sourceProbe.warnings.join(' ')
+      ? [...new Set(sourceProbe.warnings)].join(' ')
       : '—',
     error: lastError,
   };
@@ -397,6 +420,8 @@ export function createCopcDebugPanel(
         <div><dt>Rendered nodes</dt><dd data-field="renderedNodeCount"></dd></div>
         <div><dt>Rendered points</dt><dd data-field="renderedPointCount"></dd></div>
         <div><dt>Stream updates</dt><dd data-field="streamingUpdateCount"></dd></div>
+        <div><dt>Active refinement algorithm</dt><dd data-field="refinementAlgorithm"></dd></div>
+        <div><dt>Transferred range bytes</dt><dd data-field="rangeFetchBytes"></dd></div>
         <div><dt>Configured point budget</dt><dd data-field="configuredPointBudget"></dd></div>
         <div><dt>Candidate / active points</dt><dd><span data-field="candidateSelectedPointCount"></span> / <span data-field="activeRenderedPointCount"></span></dd></div>
       </dl>
@@ -426,6 +451,11 @@ export function createCopcDebugPanel(
     <details class="copc-debug-panel__section">
       <summary>Source diagnostics</summary>
       <dl>
+        <div><dt>Configured HTTP Range policy</dt><dd data-field="configuredRangeValidation"></dd></div>
+        <div><dt>Policy scope</dt><dd data-field="rangeValidationScope"></dd></div>
+        <div><dt>Probe policy</dt><dd data-field="sourceProbePolicy"></dd></div>
+        <div><dt>Last probe source</dt><dd data-field="sourceProbeSource"></dd></div>
+        <div><dt>Probe validation level</dt><dd data-field="sourceProbeValidationLevel"></dd></div>
         <div><dt>Reachability</dt><dd data-field="sourceReachable"></dd></div>
         <div><dt>Range support</dt><dd data-field="sourceRange"></dd></div>
         <div><dt>Format</dt><dd data-field="sourceCopc"></dd></div>

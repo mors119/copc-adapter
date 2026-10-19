@@ -120,6 +120,7 @@ test('maps layer diagnostics and metadata into browser-visible values', () => {
       source: '/samples/autzen.copc.laz',
       reachable: true,
       rangeSupported: true,
+      validationLevel: 'strict',
       status: 206,
       partialStatus: 206,
       requestedRange: { offset: 0, length: 1024 },
@@ -147,6 +148,9 @@ test('maps layer diagnostics and metadata into browser-visible values', () => {
       loadedEntryCount: 28,
     },
     activeColorMode: 'classification',
+    configuredRangeValidation: 'head-fallback',
+    sourceProbePolicy: 'head-fallback',
+    rangeValidationApplicable: true,
   });
 
   assert.equal(view.datasetName, 'autzen.copc.laz');
@@ -221,6 +225,9 @@ test('maps layer diagnostics and metadata into browser-visible values', () => {
   assert.equal(view.cacheBytesEvicted, '512 B');
   assert.equal(view.largestCachedEntryBytes, '640 B');
   assert.equal(view.sourceReachable, '✓ Reachable');
+  assert.equal(view.configuredRangeValidation, 'head-fallback');
+  assert.equal(view.sourceProbePolicy, 'head-fallback');
+  assert.equal(view.sourceProbeValidationLevel, 'strict');
   assert.equal(view.sourceRange, '✓ HTTP Range / 206');
   assert.equal(view.sourceCopc, '✓ COPC detected');
   assert.equal(view.sourcePointFormat, 'PDRF 7');

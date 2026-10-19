@@ -14,7 +14,10 @@ type DevViewerApi = {
   getPickablePointScreenPosition(): { x: number; y: number } | undefined;
   getConfiguration(): {
     renderer: string;
+    cesiumRenderer: string;
     backend: string;
+    refinementAlgorithm: string;
+    rangeValidation: string;
     colorMode: string;
     pointSize: number;
     maxNodes: number;
@@ -23,6 +26,12 @@ type DevViewerApi = {
     maxScreenSpaceError: number;
     cameraRenderDistance: number;
     maxRenderDistance: number;
+  };
+  getPendingConfiguration(): {
+    renderer: string;
+    refinementAlgorithm: string;
+    rangeValidation: string;
+    pointSize: number;
   };
 };
 
@@ -35,21 +44,58 @@ declare global {
 test('switches renderer and backend, applies controls, and inspects a Three point', async ({ page }) => {
   test.setTimeout(180_000);
   await page.goto('/');
-  const rendererGroup = page.getByRole('radiogroup', { name: 'Renderer' });
+  const rendererGroup = page.getByRole('radiogroup', { name: 'Rendering engine' });
   const backendGroup = page.getByRole('radiogroup', { name: 'Backend' });
   await expect(rendererGroup).toBeVisible();
   await expect(backendGroup).toBeVisible();
   await expect(page.locator('#source-status')).toContainText('Ready');
   await expect(page.getByRole('radiogroup', { name: 'Camera presets' })).toHaveCount(1);
   await expect(page.getByRole('radiogroup', { name: 'Point color mode' })).toHaveCount(1);
+  const refinementGroup = page.getByRole('radiogroup', { name: 'Refinement Algorithm' });
+  const rangeValidationGroup = page.getByRole('radiogroup', { name: 'HTTP Range Validation' });
+  await expect(refinementGroup.getByRole('radio', { name: 'Foveated' }))
+    .toHaveAttribute('aria-checked', 'true');
+  await expect(rangeValidationGroup.getByRole('radio', { name: 'HEAD Fallback' }))
+    .toHaveAttribute('aria-checked', 'true');
+  const cesiumRendererGroup = page.getByRole('radiogroup', { name: 'Cesium point renderer' });
+  await expect(page.locator('#cesium-point-renderer-group')).toBeVisible();
+  await expect(cesiumRendererGroup.getByRole('radio', { name: 'PointPrimitive' }))
+    .toHaveAttribute('aria-checked', 'true');
   await expect(page.locator('.dev-stream-hud')).toHaveCount(0);
+
+  await refinementGroup.getByRole('radio', { name: 'Screen Projection' }).click();
+  await rangeValidationGroup.getByRole('radio', { name: 'Strict' }).click();
+  await cesiumRendererGroup.getByRole('radio', { name: 'Batched Geometry' }).click();
+  await expect.poll(async () => page.evaluate(() =>
+    window.__COPC_DEV_VIEWER__?.getConfiguration().refinementAlgorithm)).toBe('foveated');
+  await page.getByRole('button', { name: 'Apply Settings' }).click();
+  await expect.poll(async () => page.evaluate(() =>
+    window.__COPC_DEV_VIEWER__?.getConfiguration().refinementAlgorithm))
+    .toBe('screen-projection');
+  await expect.poll(async () => page.evaluate(() =>
+    window.__COPC_DEV_VIEWER__?.getConfiguration().rangeValidation)).toBe('strict');
+  await expect.poll(async () => page.evaluate(() =>
+    window.__COPC_DEV_VIEWER__?.getConfiguration().cesiumRenderer)).toBe('batched-geometry');
+  await expect.poll(async () => page.evaluate(() =>
+    window.__COPC_DEV_VIEWER__?.getSnapshot()?.performance.refinementAlgorithm))
+    .toBe('screen-projection');
+  await page.getByText('Source diagnostics', { exact: true }).click();
+  await expect(page.locator('[data-field="configuredRangeValidation"]')).toHaveText('strict');
+  await expect(page.locator('[data-field="sourceProbeValidationLevel"]')).toHaveText('strict');
 
   const threeRenderer = rendererGroup.getByRole('radio', { name: 'Three.js' });
   await threeRenderer.click();
-  await page.keyboard.press('ArrowRight');
-  await expect(rendererGroup.getByRole('radio', { name: 'Cesium' })).toHaveAttribute('aria-checked', 'true');
-  await threeRenderer.click();
-
+  await expect.poll(async () => page.evaluate(() =>
+    window.__COPC_DEV_VIEWER__?.getPendingConfiguration().renderer)).toBe('three');
+  await expect.poll(async () => page.evaluate(() =>
+    window.__COPC_DEV_VIEWER__?.getConfiguration().renderer)).toBe('cesium');
+  await page.getByRole('button', { name: 'Apply Settings' }).click();
+  await expect.poll(async () => page.evaluate(() =>
+    window.__COPC_DEV_VIEWER__?.getConfiguration().renderer)).toBe('three');
+  await rendererGroup.getByRole('radio', { name: 'Cesium' }).click();
+  await page.getByRole('button', { name: 'Apply Settings' }).click();
+  await expect.poll(async () => page.evaluate(() =>
+    window.__COPC_DEV_VIEWER__?.getConfiguration().renderer)).toBe('cesium');
   const diagnostics = page.getByRole('complementary', { name: 'COPC runtime debug panel' });
   await diagnostics.getByText('Advanced internal debug information', { exact: true }).click();
   await diagnostics.getByText('Metadata', { exact: true }).click();
@@ -59,10 +105,15 @@ test('switches renderer and backend, applies controls, and inspects a Three poin
   await pointSize.focus();
   await pointSize.press('ArrowRight');
   await expect.poll(async () => page.evaluate(() =>
+    window.__COPC_DEV_VIEWER__?.getPendingConfiguration().pointSize)).toBe(3.5);
+  await page.getByRole('button', { name: 'Apply Settings' }).click();
+  await expect.poll(async () => page.evaluate(() =>
     window.__COPC_DEV_VIEWER__?.getConfiguration().pointSize)).toBe(3.5);
   await expect(page.locator('#source-status')).toHaveAttribute('data-status', 'ready');
 
   await rendererGroup.getByRole('radio', { name: 'Three.js' }).click();
+  await page.getByRole('button', { name: 'Apply Settings' }).click();
+  await expect(page.locator('#cesium-point-renderer-group')).toBeHidden();
   await expect(page.locator('#cesium-container canvas[aria-label="Interactive Three.js COPC point cloud"]'))
     .toBeVisible();
   await expect.poll(async () => page.evaluate(() =>
@@ -90,16 +141,21 @@ test('switches renderer and backend, applies controls, and inspects a Three poin
 
   await page.getByRole('radiogroup', { name: 'Point color mode' })
     .getByRole('radio', { name: 'Elevation' }).click();
+  await page.getByRole('button', { name: 'Apply Settings' }).click();
   await expect.poll(async () => page.evaluate(() =>
     window.__COPC_DEV_VIEWER__?.getConfiguration().colorMode)).toBe('elevation');
   await expect(page.locator('#source-status')).toContainText('Ready');
 
   await backendGroup.getByRole('radio', { name: 'Rust / WASM' }).click();
+  await page.getByRole('button', { name: 'Apply Settings' }).click();
   await expect.poll(async () => page.evaluate(() =>
     window.__COPC_DEV_VIEWER__?.getSnapshot()?.backend)).toBe('rust');
   await expect(page.locator('#source-status')).toContainText('Ready');
 
   await rendererGroup.getByRole('radio', { name: 'Cesium' }).click();
+  await page.getByRole('button', { name: 'Apply Settings' }).click();
+  await expect.poll(async () => page.evaluate(() =>
+    window.__COPC_DEV_VIEWER__?.getConfiguration().renderer)).toBe('cesium');
   await expect.poll(async () => page.evaluate(() =>
     window.__COPC_DEV_VIEWER__?.getSnapshot()?.lifecycle)).toBe('ready');
   await expect(page.locator('#cesium-container canvas')).toBeVisible();
@@ -178,7 +234,7 @@ test('applies advanced streaming inputs and keeps mobile controls reachable', as
   await advanced.locator('#max-sse').fill('10');
   await advanced.locator('#camera-render-distance').fill('4000');
   await advanced.locator('#max-render-distance').fill('9000');
-  await advanced.getByRole('button', { name: 'Apply advanced settings' }).click();
+  await page.getByRole('button', { name: 'Apply Settings' }).click();
   await expect.poll(async () => page.evaluate(() =>
     window.__COPC_DEV_VIEWER__?.getConfiguration())).toMatchObject({
     maxDepth: 5,
@@ -215,6 +271,20 @@ test('keeps an opened local file distinct from the local Autzen preset', async (
   await expect(source.locator('option:checked')).toHaveText('Local file · opened-by-user.copc.laz');
 
   await source.selectOption('local-autzen');
-  await page.getByRole('button', { name: 'Probe and load source' }).click();
+  await page.getByRole('button', { name: 'Load selected source' }).click();
   await expect.poll(() => autzenFixtureRanges.length, { timeout: 30_000 }).toBeGreaterThan(0);
+});
+
+test('shows actionable errors for unknown URL-driven refinement values', async ({ page }) => {
+  await page.goto('/?debugPanel=0&refinementAlgorithm=not-a-policy');
+  const error = page.locator('#configuration-error');
+  await expect(error).toContainText('Unknown refinement algorithm');
+  await expect(error).toContainText('foveated');
+  await expect(page.locator('#load-source')).toBeDisabled();
+  await expect(page.locator('#apply-settings')).toBeDisabled();
+
+  await page.getByRole('radiogroup', { name: 'Refinement Algorithm' })
+    .getByRole('radio', { name: 'Screen Projection' }).click();
+  await expect(error).toBeHidden();
+  await expect(page.locator('#apply-settings')).toBeEnabled();
 });

@@ -19,6 +19,11 @@ body {
   inset: 0;
 }
 
+.dev-session-mount {
+  position: absolute;
+  inset: 0;
+}
+
 .dev-workbench {
   position: fixed;
   inset: 0;
@@ -181,6 +186,47 @@ body {
   margin: 12px 0 4px;
   color: var(--ui-muted);
   font-size: 11px;
+}
+
+#cesium-point-renderer-group[hidden] {
+  display: none;
+}
+
+.dev-help {
+  margin: 7px 0;
+  color: var(--ui-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.dev-settings-actions {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ui-border);
+}
+
+#configuration-state,
+#configuration-error {
+  margin: 0 0 8px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+#configuration-state[data-dirty='true'] {
+  color: var(--ui-warning);
+}
+
+#configuration-error {
+  color: var(--ui-danger);
+  overflow-wrap: anywhere;
+}
+
+.dev-action:disabled {
+  border-color: var(--ui-border);
+  color: var(--ui-muted);
+  background: #273446;
+  cursor: not-allowed;
+  filter: none;
 }
 
 .dev-panel .ui-segmented {
