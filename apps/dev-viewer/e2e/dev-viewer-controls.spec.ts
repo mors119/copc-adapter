@@ -5,6 +5,16 @@ type DevViewerApi = {
     lifecycle: string;
     renderedPointCount: number;
     backend: string;
+    selectedNodeKeys: string[];
+    renderedNodeKeys: string[];
+    performance: {
+      refinementAlgorithm: string;
+      configuredPointBudget: number;
+      activeRenderedPointCount: number;
+      visibleLevelRange?: { min: number; max: number };
+    };
+    rangeRequests: { active: number };
+    transition?: { activeReplacementGroupCount: number };
   } | undefined;
   getSelectedPoint(): {
     pointIndex: number;
@@ -16,6 +26,7 @@ type DevViewerApi = {
     renderer: string;
     cesiumRenderer: string;
     backend: string;
+    source: string;
     refinementAlgorithm: string;
     rangeValidation: string;
     colorMode: string;
@@ -26,6 +37,7 @@ type DevViewerApi = {
     maxScreenSpaceError: number;
     cameraRenderDistance: number;
     maxRenderDistance: number;
+    cameraPreset: string;
   };
   getPendingConfiguration(): {
     renderer: string;
@@ -38,6 +50,13 @@ type DevViewerApi = {
 declare global {
   interface Window {
     __COPC_DEV_VIEWER__?: DevViewerApi;
+    __COPC_DEBUG__?: {
+      getState(): {
+        cameraMoveEventCount: number;
+        viewDistance?: { effectiveDistanceMeters: number };
+        performance: { activeNodeCount: number };
+      };
+    };
     __devViewerDebugIntervalCount?: () => number;
   }
 }
@@ -198,6 +217,7 @@ test('collapses the controls and Inspector independently and keeps the canvas fu
   });
   await page.setViewportSize({ width: 1024, height: 768 });
   await page.goto('/?debugPanel=0');
+  await expect(page.locator('#source-status')).toContainText('Ready');
 
   const controls = page.locator('#controls-panel');
   const inspector = page.locator('#inspector-panel');
@@ -212,18 +232,92 @@ test('collapses the controls and Inspector independently and keeps the canvas fu
     window.__devViewerDebugIntervalCount?.())).toBe(0);
   await inspectorToggle.click();
   await expect(inspector).toBeVisible();
+  await expect(controls).toBeVisible();
+  await expect(page.locator('#cesium-container canvas').first()).toBeVisible();
   await expect.poll(async () => page.evaluate(() =>
     window.__devViewerDebugIntervalCount?.())).toBe(1);
+  await test.info().attach('workbench-panels-expanded.png', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  });
 
+  const version = page.locator('#package-version');
+  await expect(version).toHaveText(/^v\d+\.\d+\.\d+ · workspace package$/);
+  const versionLayout = await version.evaluate((element) => ({
+    height: element.getBoundingClientRect().height,
+    position: getComputedStyle(element).position,
+    canvasHeight: document.querySelector('#cesium-container')!.getBoundingClientRect().height,
+  }));
+  expect(versionLayout.height).toBeLessThan(16);
+  expect(versionLayout.position).toBe('fixed');
+  expect(versionLayout.canvasHeight).toBe(768);
+
+  await page.locator('#inspector-content').evaluate((content) => {
+    content.querySelectorAll<HTMLDetailsElement>('.copc-debug-panel__section').forEach((section) => {
+      section.open = true;
+    });
+  });
+  const diagnosticsScroll = await page.locator('#inspector-content').evaluate((content) => {
+    const layout = {
+      clientHeight: content.clientHeight,
+      scrollHeight: content.scrollHeight,
+      overflowY: getComputedStyle(content).overflowY,
+    };
+    content.scrollTop = content.scrollHeight;
+    return { ...layout, scrollTop: content.scrollTop };
+  });
+  expect(diagnosticsScroll.overflowY).toBe('auto');
+  expect(diagnosticsScroll.scrollHeight).toBeGreaterThan(diagnosticsScroll.clientHeight);
+  expect(diagnosticsScroll.scrollTop).toBeGreaterThan(0);
+  await page.locator('#inspector-content').evaluate((content) => {
+    content.querySelectorAll<HTMLDetailsElement>('.copc-debug-panel__section').forEach((section) => {
+      section.open = false;
+    });
+    content.scrollTop = 0;
+  });
+
+  await controlsToggle.click();
+  await expect(controls).toBeHidden();
+  await expect(inspector).toBeVisible();
+  await controlsToggle.click();
+  await expect(controls).toBeVisible();
+  await inspectorToggle.click();
+  await expect(inspector).toBeHidden();
+  await expect.poll(async () => page.evaluate(() =>
+    window.__devViewerDebugIntervalCount?.())).toBe(0);
+  await expect(controls).toBeVisible();
+  await inspectorToggle.click();
+  await expect(inspector).toBeVisible();
   await controlsToggle.click();
   await expect(controls).toBeHidden();
   await expect(inspector).toBeVisible();
   await inspectorToggle.click();
   await expect(inspector).toBeHidden();
-  await expect.poll(async () => page.evaluate(() =>
-    window.__devViewerDebugIntervalCount?.())).toBe(0);
   await expect(controlsToggle).toHaveAttribute('aria-expanded', 'false');
   await expect(inspectorToggle).toHaveAttribute('aria-expanded', 'false');
+  await test.info().attach('workbench-panels-collapsed.png', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  });
+
+  await expect.poll(async () => page.evaluate(() =>
+    window.__COPC_DEV_VIEWER__?.getSnapshot()?.lifecycle)).toBe('ready');
+  const cameraBeforeDrag = await page.evaluate(() =>
+    window.__COPC_DEBUG__!.getState().cameraMoveEventCount);
+  const canvasBounds = await page.locator('#cesium-container canvas').first().boundingBox();
+  expect(canvasBounds).not.toBeNull();
+  const dragX = (canvasBounds?.x ?? 0) + (canvasBounds?.width ?? 0) / 2;
+  const dragY = (canvasBounds?.y ?? 0) + (canvasBounds?.height ?? 0) / 2;
+  const canvasReceivesInput = await page.evaluate(({ x, y }) =>
+    document.elementFromPoint(x, y)?.closest('#cesium-container canvas') !== null,
+  { x: dragX, y: dragY });
+  expect(canvasReceivesInput).toBe(true);
+  await page.mouse.move(dragX, dragY);
+  await page.mouse.click(dragX, dragY);
+  await page.mouse.wheel(0, 120);
+  await expect.poll(async () => page.evaluate(() =>
+    window.__COPC_DEBUG__!.getState().cameraMoveEventCount))
+    .toBeGreaterThan(cameraBeforeDrag);
 
   await controlsToggle.focus();
   await controlsToggle.press('Enter');
@@ -238,6 +332,109 @@ test('collapses the controls and Inspector independently and keeps the canvas fu
 
   const canvas = await page.locator('#cesium-container').boundingBox();
   expect(canvas).toMatchObject({ x: 0, y: 0, width: 1024, height: 768 });
+});
+
+test('compares both refinement algorithms at Overview, Far, and Near without changing workbench settings', async ({ page }) => {
+  test.setTimeout(360_000);
+  const pageErrors: Error[] = [];
+  page.on('pageerror', (error) => pageErrors.push(error));
+  await page.goto('/?debugPanel=0');
+  await expect(page.locator('#source-status')).toContainText('Ready');
+
+  const readState = () => page.evaluate(() => ({
+    config: window.__COPC_DEV_VIEWER__!.getConfiguration(),
+    snapshot: window.__COPC_DEV_VIEWER__!.getSnapshot(),
+    cameraDistance: window.__COPC_DEBUG__!.getState().viewDistance?.effectiveDistanceMeters,
+    activeNodeCount: window.__COPC_DEBUG__!.getState().performance.activeNodeCount,
+  }));
+  await expect.poll(async () => (await readState()).snapshot?.lifecycle).toBe('ready');
+  const initial = await readState();
+  expect(initial.config.refinementAlgorithm).toBe('foveated');
+  const invariantSettings = {
+    renderer: initial.config.renderer,
+    cesiumRenderer: initial.config.cesiumRenderer,
+    backend: initial.config.backend,
+    source: initial.config.source,
+    colorMode: initial.config.colorMode,
+    pointSize: initial.config.pointSize,
+    maxNodes: initial.config.maxNodes,
+    maxRenderedPoints: initial.config.maxRenderedPoints,
+    maxScreenSpaceError: initial.config.maxScreenSpaceError,
+    maxRenderDistance: initial.config.maxRenderDistance,
+  };
+  const comparison: Array<Record<string, unknown>> = [];
+  const algorithms = ['foveated', 'screen-projection', 'foveated'] as const;
+  const presets = [
+    { value: 'overview', label: 'Overview' },
+    { value: 'far', label: 'Far' },
+    { value: 'near', label: 'Near' },
+  ] as const;
+
+  for (const algorithm of algorithms) {
+    if ((await readState()).config.refinementAlgorithm !== algorithm) {
+      await page.getByRole('radiogroup', { name: 'Refinement Algorithm' })
+        .getByRole('radio', {
+          name: algorithm === 'foveated' ? 'Foveated' : 'Screen Projection',
+        }).click();
+      const distanceBeforeApply = (await readState()).cameraDistance;
+      await page.getByRole('button', { name: 'Apply Settings' }).click();
+      await expect.poll(async () => (await readState()).config.refinementAlgorithm)
+        .toBe(algorithm);
+      await expect(page.locator('#source-status')).toContainText('Ready');
+      await expect.poll(async () => (await readState()).snapshot?.performance.refinementAlgorithm)
+        .toBe(algorithm);
+      const distanceAfterApply = (await readState()).cameraDistance;
+      if (distanceBeforeApply !== undefined && distanceAfterApply !== undefined) {
+        expect(Math.abs(distanceAfterApply - distanceBeforeApply))
+          .toBeLessThanOrEqual(Math.max(1, distanceBeforeApply * 0.02));
+      }
+      await expect(page.locator('#cesium-container .dev-session-mount')).toHaveCount(1);
+    }
+
+    for (const preset of presets) {
+      const cameraEventsBefore = await page.evaluate(() =>
+        window.__COPC_DEBUG__!.getState().cameraMoveEventCount);
+      await page.getByRole('radiogroup', { name: 'Camera presets' })
+        .getByRole('radio', { name: preset.label }).click();
+      await expect.poll(async () => page.evaluate(() =>
+        window.__COPC_DEBUG__!.getState().cameraMoveEventCount))
+        .toBeGreaterThan(cameraEventsBefore);
+      await expect(page.locator('#apply-settings')).toBeDisabled();
+      await expect.poll(async () => {
+        const current = await readState();
+        return current.snapshot?.transition?.activeReplacementGroupCount === 0
+          && current.activeNodeCount === 0
+          && current.snapshot?.rangeRequests.active === 0;
+      }, { timeout: 60_000 }).toBe(true);
+
+      const current = await readState();
+      const snapshot = current.snapshot!;
+      expect(snapshot.performance.refinementAlgorithm).toBe(algorithm);
+      expect(snapshot.renderedPointCount).toBeGreaterThan(0);
+      expect(snapshot.selectedNodeKeys.length).toBeGreaterThan(0);
+      expect(snapshot.selectedNodeKeys.length).toBeLessThanOrEqual(current.config.maxNodes);
+      expect(snapshot.performance.activeRenderedPointCount)
+        .toBeLessThanOrEqual(snapshot.performance.configuredPointBudget);
+      expect(current.config).toMatchObject({ ...invariantSettings, refinementAlgorithm: algorithm });
+      expect(current.config.source).toMatch(/\/samples\/autzen\.copc\.laz$/);
+      comparison.push({
+        algorithm,
+        cameraPreset: preset.value,
+        selectedNodes: snapshot.selectedNodeKeys.length,
+        renderedNodes: snapshot.renderedNodeKeys.length,
+        renderedPoints: snapshot.renderedPointCount,
+        visibleLevels: snapshot.performance.visibleLevelRange,
+        pointBudget: snapshot.performance.configuredPointBudget,
+        cameraDistanceMeters: current.cameraDistance,
+      });
+    }
+  }
+
+  await test.info().attach('refinement-comparison.json', {
+    body: JSON.stringify(comparison, null, 2),
+    contentType: 'application/json',
+  });
+  expect(pageErrors).toEqual([]);
 });
 
 test('applies advanced streaming inputs and keeps mobile controls reachable', async ({ page }) => {
@@ -297,6 +494,40 @@ test('keeps an opened local file distinct from the local Autzen preset', async (
   await source.selectOption('local-autzen');
   await page.getByRole('button', { name: 'Load selected source' }).click();
   await expect.poll(() => autzenFixtureRanges.length, { timeout: 30_000 }).toBeGreaterThan(0);
+});
+
+test('rejects an unsupported custom URL and keeps the active source loaded', async ({ page }) => {
+  await page.goto('/?debugPanel=0');
+  await expect(page.locator('#source-status')).toContainText('Ready');
+  const previous = await page.evaluate(() =>
+    window.__COPC_DEV_VIEWER__!.getConfiguration());
+
+  await page.locator('#source-selection').selectOption('custom');
+  await page.locator('#custom-source-url').fill('ftp://invalid.example/data.copc.laz');
+  await page.getByRole('button', { name: 'Load selected source' }).click();
+
+  await expect(page.locator('#configuration-error'))
+    .toContainText('Enter a valid HTTP or HTTPS COPC URL');
+  await expect.poll(async () => page.evaluate(() =>
+    window.__COPC_DEV_VIEWER__!.getSnapshot()?.lifecycle)).toBe('ready');
+  await expect(page.locator('#cesium-container .dev-session-mount')).toHaveCount(1);
+  expect(await page.evaluate(() =>
+    window.__COPC_DEV_VIEWER__!.getConfiguration())).toEqual(previous);
+});
+
+test('explicitly reloads the current source without leaving duplicate viewer mounts', async ({ page }) => {
+  await page.goto('/?debugPanel=0');
+  await expect(page.locator('#source-status')).toContainText('Ready');
+  const previous = await page.evaluate(() =>
+    window.__COPC_DEV_VIEWER__!.getConfiguration());
+
+  await page.getByRole('button', { name: 'Reload current source' }).click();
+  await expect(page.locator('#source-status')).toContainText('Ready');
+  await expect.poll(async () => page.evaluate(() =>
+    window.__COPC_DEV_VIEWER__!.getSnapshot()?.lifecycle)).toBe('ready');
+  await expect(page.locator('#cesium-container .dev-session-mount')).toHaveCount(1);
+  expect(await page.evaluate(() =>
+    window.__COPC_DEV_VIEWER__!.getConfiguration())).toEqual(previous);
 });
 
 test('shows actionable errors for unknown URL-driven refinement values', async ({ page }) => {

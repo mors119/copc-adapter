@@ -225,9 +225,17 @@ test('validates the eight core behaviors in the default Cesium viewer', async ({
     const beforeStyles = await getState(page);
     const styleModes = ['rgb', 'elevation', 'intensity', 'classification'] as const;
     for (const mode of styleModes) {
-      const button = page.getByTestId(`style-${mode}`);
-      await button.click();
-      await expect(button).toHaveAttribute('aria-pressed', 'true');
+      const label = mode === 'rgb'
+        ? 'RGB'
+        : mode === 'elevation'
+          ? 'Elevation'
+          : mode === 'intensity'
+            ? 'Intensity'
+            : 'Class';
+      const radio = page.getByRole('radiogroup', { name: 'Point color mode' })
+        .getByRole('radio', { name: label });
+      await radio.click();
+      await expect(radio).toHaveAttribute('aria-checked', 'true');
       await expect.poll(() => page.evaluate(() =>
         window.__COPC_DEBUG__?.getStyle().colorMode)).toBe(mode);
       const state = await getState(page);
