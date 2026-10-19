@@ -44,6 +44,7 @@ export type {
   CopcHierarchyBounds,
   CopcHierarchyQueryBounds,
   CopcHierarchyDiagnostics,
+  CopcHierarchyPageLoadOptions,
   CopcHierarchyQuery,
   CopcProjectBounds,
 } from './core/copc/hierarchy/types';
@@ -218,6 +219,7 @@ export type {
   CopcStreamingControllerOptions,
   CopcStreamingLifecycleState,
   CopcStreamingPerformanceSnapshot,
+  PredictivePrefetchDiagnostics,
   CopcStreamingProgressHandler,
   CopcStreamingSnapshot,
   CopcStreamingTransitionState,

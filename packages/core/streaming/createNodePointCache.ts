@@ -1,7 +1,10 @@
 /** Asynchronous loader for one hierarchy node's decoded point value. */
+export type NodePointLoadPurpose = 'current' | 'prefetch';
+
 export type NodePointLoader<TValue> = (
   nodeKey: string,
   signal: AbortSignal,
+  purpose?: NodePointLoadPurpose,
 ) => Promise<TValue>;
 
 /** CPU-side cache occupancy and access counters; GPU allocations are excluded. */
@@ -22,12 +25,16 @@ export type NodePointCacheDiagnostics = {
   bytesEvicted: number;
   /** Largest resolved entry retained since the cache was created, in bytes. */
   largestCachedEntryBytes: number;
+  /** Resolved prefetched values later reused by the current view. */
+  prefetchUsefulHitCount: number;
+  /** Resolved prefetched values evicted before the current view used them. */
+  prefetchEvictedUnusedCount: number;
 };
 
 /** Read and cancellation operations exposed by one node point cache. */
 export type NodePointCache<TValue> = {
   /** Load a node once, sharing pending work for duplicate reads of its key. */
-  load(nodeKey: string): Promise<TValue>;
+  load(nodeKey: string, purpose?: NodePointLoadPurpose): Promise<TValue>;
   /** Return a resolved value without changing cache recency. */
   get(nodeKey: string): TValue | undefined;
   /** Remove a resolved or pending entry. */
@@ -42,6 +49,11 @@ export type NodePointCache<TValue> = {
   cancelPending(reason?: 'superseded' | 'lifecycle'): void;
   /** Keep in-flight entries that remain selected in the replacement view. */
   cancelPendingExcept(
+    nodeKeys: Iterable<string>,
+    reason?: 'superseded' | 'lifecycle',
+  ): void;
+  /** Abort pending current-view entries outside the next selection, retaining speculative work. */
+  cancelPendingCurrentExcept(
     nodeKeys: Iterable<string>,
     reason?: 'superseded' | 'lifecycle',
   ): void;
@@ -69,6 +81,10 @@ type CacheEntry<TValue> = {
   resolved?: TValue;
   controller: AbortController;
   pending: boolean;
+  purpose: NodePointLoadPurpose;
+  wasPrefetched: boolean;
+  prefetchedValueUsed: boolean;
+  prefetchUsefulHitRecorded: boolean;
 };
 
 function validateMaxEntries(maxEntries: number): void {
@@ -179,6 +195,8 @@ export function createNodePointCache<TValue>(
   let misses = 0;
   let evictionCount = 0;
   let bytesEvicted = 0;
+  let prefetchUsefulHitCount = 0;
+  let prefetchEvictedUnusedCount = 0;
 
   const removeEntry = (
     nodeKey: string,
@@ -195,14 +213,19 @@ export function createNodePointCache<TValue>(
     if (countAsEviction) {
       evictionCount = saturatingAdd(evictionCount, 1);
       bytesEvicted = saturatingAdd(bytesEvicted, entry.bytes);
+      if (entry.wasPrefetched && !entry.prefetchedValueUsed && entry.resolved !== undefined) {
+        prefetchEvictedUnusedCount = saturatingAdd(prefetchEvictedUnusedCount, 1);
+      }
     }
     return true;
   };
 
   const evictIfNeeded = (): void => {
     while (cache.size > options.maxEntries || currentCacheBytes > maxBytes) {
-      const leastRecentlyUsedKey = [...cache.keys()]
-        .find((nodeKey) => !requiredNodeKeys.has(nodeKey));
+      const leastRecentlyUsedKey = [...cache.entries()]
+        .find(([nodeKey, entry]) => !requiredNodeKeys.has(nodeKey)
+          && entry.purpose === 'prefetch')?.[0]
+        ?? [...cache.keys()].find((nodeKey) => !requiredNodeKeys.has(nodeKey));
 
       // All retained entries may be required for the current render. Keep
       // them, including a single entry larger than the configured budget.
@@ -228,57 +251,103 @@ export function createNodePointCache<TValue>(
     }
   };
 
-  return {
-    load(nodeKey: string): Promise<TValue> {
-      const cached = cache.get(nodeKey);
-
-      if (cached) {
-        hits = saturatingAdd(hits, 1);
-        touchEntry(cache, nodeKey, cached);
-        return cached.value;
+  const cancelPendingCurrentExcept = (
+    nodeKeys: Iterable<string>,
+    reason: 'superseded' | 'lifecycle' = 'superseded',
+  ): void => {
+    const retainedNodeKeys = new Set(nodeKeys);
+    for (const [nodeKey, entry] of cache) {
+      if (!entry.pending
+        || entry.purpose !== 'current'
+        || retainedNodeKeys.has(nodeKey)) {
+        continue;
       }
+      removeEntry(nodeKey, false, entry);
+      entry.controller.abort(reason);
+    }
+  };
 
-      misses = saturatingAdd(misses, 1);
-      const entry: CacheEntry<TValue> = {
-        value: Promise.resolve(undefined as TValue),
-        bytes: 0,
-        controller: new AbortController(),
-        pending: true,
-      };
-      const pending = Promise.resolve()
-        .then(() => {
-          if (entry.controller.signal.aborted) {
-            throw new Error('Node point load was cancelled');
-          }
-          return loader(nodeKey, entry.controller.signal);
-        })
-        .then((value) => {
-          entry.pending = false;
-          if (entry.controller.signal.aborted) {
-            throw new Error('Node point load was cancelled');
-          }
-          // A pending request can have been evicted before it resolves. In
-          // that case its result remains usable by the caller but is not
-          // reinserted into the cache or its byte counters.
-          if (cache.get(nodeKey) === entry) {
-            entry.resolved = value;
-            entry.bytes = normalizeByteCount(estimateBytes(value));
-            currentCacheBytes = saturatingAdd(currentCacheBytes, entry.bytes);
-            evictIfNeeded();
-          }
-          return value;
-        })
-        .catch((error: unknown) => {
-          entry.pending = false;
-          removeEntry(nodeKey, false, entry);
-          throw error;
-        });
-      entry.value = pending;
-      cache.set(nodeKey, entry);
-      evictIfNeeded();
+  const load = (
+    nodeKey: string,
+    purpose: NodePointLoadPurpose = 'current',
+  ): Promise<TValue> => {
+    const cached = cache.get(nodeKey);
 
-      return pending;
-    },
+    if (cached) {
+      hits = saturatingAdd(hits, 1);
+      touchEntry(cache, nodeKey, cached);
+      if (purpose === 'current' && cached.wasPrefetched) {
+        cached.prefetchedValueUsed = true;
+        if (!cached.pending && !cached.prefetchUsefulHitRecorded) {
+          cached.prefetchUsefulHitRecorded = true;
+          prefetchUsefulHitCount = saturatingAdd(prefetchUsefulHitCount, 1);
+        }
+        const wasPendingPrefetch = cached.pending && cached.wasPrefetched;
+        cached.purpose = 'current';
+        if (wasPendingPrefetch) {
+          // Current-view correctness cannot depend on speculative success.
+          // If the shared speculative operation fails or is cancelled, retry
+          // it once through the ordinary current-view cache path.
+          return cached.value.catch(() => load(nodeKey, 'current'));
+        }
+      }
+      return cached.value;
+    }
+
+    misses = saturatingAdd(misses, 1);
+    const entry: CacheEntry<TValue> = {
+      value: Promise.resolve(undefined as TValue),
+      bytes: 0,
+      controller: new AbortController(),
+      pending: true,
+      purpose,
+      wasPrefetched: purpose === 'prefetch',
+      prefetchedValueUsed: false,
+      prefetchUsefulHitRecorded: false,
+    };
+    const pending = Promise.resolve()
+      .then(() => {
+        if (entry.controller.signal.aborted) {
+          throw new Error('Node point load was cancelled');
+        }
+        return loader(nodeKey, entry.controller.signal, purpose);
+      })
+      .then((value) => {
+        entry.pending = false;
+        if (entry.controller.signal.aborted) {
+          throw new Error('Node point load was cancelled');
+        }
+        // A pending request can have been evicted before it resolves. In
+        // that case its result remains usable by the caller but is not
+        // reinserted into the cache or its byte counters.
+        if (cache.get(nodeKey) === entry) {
+          entry.resolved = value;
+          entry.bytes = normalizeByteCount(estimateBytes(value));
+          currentCacheBytes = saturatingAdd(currentCacheBytes, entry.bytes);
+          if (entry.wasPrefetched
+            && entry.prefetchedValueUsed
+            && !entry.prefetchUsefulHitRecorded) {
+            entry.prefetchUsefulHitRecorded = true;
+            prefetchUsefulHitCount = saturatingAdd(prefetchUsefulHitCount, 1);
+          }
+          evictIfNeeded();
+        }
+        return value;
+      })
+      .catch((error: unknown) => {
+        entry.pending = false;
+        removeEntry(nodeKey, false, entry);
+        throw error;
+      });
+    entry.value = pending;
+    cache.set(nodeKey, entry);
+    evictIfNeeded();
+
+    return pending;
+  };
+
+  return {
+    load,
     get(nodeKey: string): TValue | undefined {
       return cache.get(nodeKey)?.resolved;
     },
@@ -304,6 +373,9 @@ export function createNodePointCache<TValue>(
     cancelPendingExcept(nodeKeys, reason = 'superseded'): void {
       cancelPendingExcept(nodeKeys, reason);
     },
+    cancelPendingCurrentExcept(nodeKeys, reason = 'superseded'): void {
+      cancelPendingCurrentExcept(nodeKeys, reason);
+    },
     getDiagnostics(): NodePointCacheDiagnostics {
       let largestCachedEntryBytes = 0;
       for (const entry of cache.values()) {
@@ -319,6 +391,8 @@ export function createNodePointCache<TValue>(
         evictionCount,
         bytesEvicted,
         largestCachedEntryBytes,
+        prefetchUsefulHitCount,
+        prefetchEvictedUnusedCount,
       };
     },
     clear(): void {
@@ -330,6 +404,8 @@ export function createNodePointCache<TValue>(
       misses = 0;
       evictionCount = 0;
       bytesEvicted = 0;
+      prefetchUsefulHitCount = 0;
+      prefetchEvictedUnusedCount = 0;
     },
   };
 }

@@ -103,8 +103,11 @@ export class CopcContext implements CopcSource {
     return this.delegate.getRootHierarchyPage();
   }
 
-  loadHierarchyPage(page: CopcHierarchyPage): Promise<CopcHierarchySubtree> {
-    return this.delegate.loadHierarchyPage(page);
+  loadHierarchyPage(
+    page: CopcHierarchyPage,
+    options?: Parameters<CopcSource['loadHierarchyPage']>[1],
+  ): Promise<CopcHierarchySubtree> {
+    return this.delegate.loadHierarchyPage(page, options);
   }
 
   loadPointDataView(

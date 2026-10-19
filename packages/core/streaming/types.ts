@@ -89,6 +89,8 @@ export type StreamingSelectionOptions = {
   refinementAlgorithm?: RefinementAlgorithm;
   /** Bias current visible-node refinement toward recent camera rotation; defaults to `true`. */
   motionLookahead?: boolean;
+  /** Prepare a small bounded set of likely next-view nodes in the shared cache; defaults to `false`. */
+  predictivePrefetch?: boolean;
   /** @deprecated Planned for removal in v0.9, after v0.8; use maxConcurrentNodeLoads. */
   maxPointsPerBatch?: number;
 };

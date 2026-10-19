@@ -43,8 +43,9 @@ import {
   createNodePointCache,
   type NodePointCache,
   type NodePointCacheDiagnostics,
+  type NodePointLoadPurpose,
 } from './createNodePointCache';
-import { DEFAULT_MAX_RENDERED_POINTS } from './NodeSelector';
+import { DEFAULT_MAX_RENDERED_POINTS, NodeSelector } from './NodeSelector';
 import { StreamingManager } from './StreamingManager';
 import {
   AdaptiveViewDistancePolicy,
@@ -66,11 +67,17 @@ import {
   type StreamingPerformanceSnapshot,
 } from './performance';
 import { DEFAULT_MAX_CONCURRENT_NODE_LOADS } from './scheduler';
+import { areStreamingViewsEquivalent } from './areStreamingViewsEquivalent';
 import {
   CameraMotionLookaheadEstimator,
   type CameraMotionLiveDiagnostics,
   type CameraMotionObservation,
+  type CameraMotionPrediction,
 } from './motionLookahead';
+import {
+  createPredictedStreamingView,
+  isOffscreenFromCurrentView,
+} from './predictivePrefetch';
 import {
   RANGE_CANCELLATION_REASON,
   RangeRequestDiagnosticsRecorder,
@@ -275,6 +282,8 @@ export type CopcStreamingSnapshot = {
   rangeRequests: RangeRequestDiagnostics;
   /** Decode-worker queue counters when exposed by the selected backend. */
   worker?: CopcWorkerDiagnostics;
+  /** Bounded speculative preparation counters when enabled. */
+  predictivePrefetch?: PredictivePrefetchDiagnostics;
 };
 
 type StreamingState = {
@@ -301,6 +310,41 @@ const DEFAULT_STREAMING_OPTIONS: StreamingSelectionOptions = {
 };
 const MAX_CACHED_NODES = 48;
 const DEFAULT_POINT_CACHE_BYTES = 256 * 1024 * 1024;
+const MAX_PREFETCH_NODES_PER_UPDATE = 2;
+const MAX_PREFETCH_POINTS_PER_UPDATE = 25_000;
+const MAX_PREFETCH_POINT_RANGE_BYTES_PER_UPDATE = 8 * 1024 * 1024;
+const MAX_PREFETCH_HIERARCHY_PAGES_PER_UPDATE = 1;
+const ESTIMATED_PREPARED_BYTES_PER_POINT = 96;
+
+/** Detached counters for the optional bounded future-view preparation path. */
+export type PredictivePrefetchDiagnostics = {
+  enabled: boolean;
+  generation: number;
+  queuedNodeCount: number;
+  activeNodeCount: number;
+  completedNodeCount: number;
+  failedNodeCount: number;
+  cancelledNodeCount: number;
+  usefulCacheHitCount: number;
+  evictedUnusedNodeCount: number;
+  pointRangeRequestCount: number;
+  pointRangeBytesRequested: number;
+  hierarchyQueryCount: number;
+  hierarchyPageVisitCount: number;
+  hierarchyPageRequestCount: number;
+  hierarchyPageCacheHitCount: number;
+  maxNodesPerUpdate: number;
+  maxPointsPerUpdate: number;
+  maxPointRangeBytesPerUpdate: number;
+  maxHierarchyPagesPerUpdate: number;
+};
+
+type PredictivePrefetchPlan = {
+  generation: number;
+  controller: AbortController;
+  state: StreamingState;
+  queue: string[];
+};
 
 function createTransitionState(): CopcStreamingTransitionState {
   return {
@@ -412,6 +456,19 @@ export class CopcStreamingCore {
   private lifecycle: CopcStreamingLifecycleState = 'idle';
   private lifecycleAbortController?: AbortController;
   private refinementFocus?: RefinementFocus;
+  private predictivePrefetchGeneration = 0;
+  private predictivePrefetchController?: AbortController;
+  private predictivePrefetchQueue: string[] = [];
+  private readonly activePredictivePrefetchTasks = new Set<{ state: StreamingState }>();
+  private predictivePrefetchCompletedNodeCount = 0;
+  private predictivePrefetchFailedNodeCount = 0;
+  private predictivePrefetchCancelledNodeCount = 0;
+  private predictivePrefetchPointRangeRequestCount = 0;
+  private predictivePrefetchPointRangeBytesRequested = 0;
+  private predictivePrefetchHierarchyQueryCount = 0;
+  private predictivePrefetchHierarchyPageVisitCount = 0;
+  private predictivePrefetchHierarchyPageRequestCount = 0;
+  private predictivePrefetchHierarchyPageCacheHitCount = 0;
 
   constructor(options: CopcStreamingControllerOptions) {
     this.heightOffsetMeters = resolveHeightOffsetMeters(options.heightOffsetMeters);
@@ -602,17 +659,27 @@ export class CopcStreamingCore {
     // transactions. Sampling here makes the documented direct-core update loop
     // participate in the same motion model without requiring adapter APIs.
     this.observeCameraMotion(view);
+    const motionPrediction = this.motionEstimator.getPrediction(
+      this.getMotionEstimatorTimestamp(),
+    );
     const adaptiveView = this.adaptiveViewDistancePolicy.apply(
       view,
       this.getStreamingOptions().maxRenderDistanceMeters,
       streamingState.minimumDatasetHeightMeters,
     );
 
+    const equivalentToCurrentView = this.currentView !== undefined
+      && areStreamingViewsEquivalent(this.currentView, adaptiveView);
     const viewGeneration = ++this.viewGeneration;
+    if (!equivalentToCurrentView) {
+      this.supersedePredictivePrefetch();
+    }
     // Invalidate queued point work while the generation's hierarchy query is
     // still in flight. The manager also invalidates at update start, matching
     // the established stale-result semantics.
-    streamingState.manager.invalidate('superseded', adaptiveView);
+    if (!equivalentToCurrentView) {
+      streamingState.manager.invalidate('superseded', adaptiveView);
+    }
     // Start measuring before a view can discover uncached hierarchy pages. The
     // manager is told to continue this recording after the query completes.
     this.performanceRecorder.beginUpdate();
@@ -640,9 +707,19 @@ export class CopcStreamingCore {
     streamingState.nodes = availableNodes;
     streamingState.nodesRef.current = availableNodes;
     streamingState.manager.setHierarchy(availableNodes);
-    streamingState.manager.setMotionPrediction(
-      this.motionEstimator.getPrediction(this.getMotionEstimatorTimestamp()),
-    );
+    streamingState.manager.setMotionPrediction(motionPrediction);
+
+    // Start the capped future-view hierarchy query before current point loads
+    // begin. Its continuation is attached after manager.update() has
+    // synchronously selected and queued current-view work.
+    const predictivePrefetchPlan = this.getStreamingOptions().predictivePrefetch === true
+      ? this.preparePredictivePrefetch(
+        viewGeneration,
+        adaptiveView,
+        streamingState,
+        motionPrediction,
+      )
+      : undefined;
 
     let progressApplied = false;
     const applyProgress = (progress: StreamingProgress): void => {
@@ -653,7 +730,7 @@ export class CopcStreamingCore {
       progressApplied = true;
       this.applyProgress(progress, onProgress, viewGeneration);
     };
-    const update = await streamingState.manager.update(adaptiveView, applyProgress, {
+    const updatePromise = streamingState.manager.update(adaptiveView, applyProgress, {
       performanceAlreadyStarted: true,
       ...(onWorkProgress
         ? {
@@ -665,6 +742,14 @@ export class CopcStreamingCore {
           }
         : {}),
     });
+    if (predictivePrefetchPlan) {
+      void predictivePrefetchPlan
+        .then((plan) => plan ? this.runPredictivePrefetch(plan) : undefined)
+        .catch(() => {
+          // Speculative work is isolated from current-view update results.
+        });
+    }
+    const update = await updatePromise;
     if (!this.isCurrentView(viewGeneration, streamingState)) {
       return undefined;
     }
@@ -737,6 +822,7 @@ export class CopcStreamingCore {
 
     this.loadGeneration += 1;
     this.viewGeneration += 1;
+    this.supersedePredictivePrefetch();
     this.lifecycleAbortController?.abort(RANGE_CANCELLATION_REASON.lifecycle);
     this.lifecycleAbortController = undefined;
     const state = this.streamingState;
@@ -758,6 +844,7 @@ export class CopcStreamingCore {
     this.motionTimestampOffsetMilliseconds = undefined;
     this.motionTimestampAnchorMilliseconds = undefined;
     this.motionTimestampAnchorPerformanceMilliseconds = undefined;
+    this.resetPredictivePrefetchDiagnostics();
     this.lifecycle = 'idle';
     this.debug('COPC streaming controller unloaded');
   }
@@ -797,6 +884,9 @@ export class CopcStreamingCore {
       pointCache: state?.cache.getDiagnostics() ?? this.initialCache.getDiagnostics(),
       rangeRequests: this.rangeRequestDiagnostics.getSnapshot(),
       ...(worker ? { worker } : {}),
+      ...(this.getStreamingOptions().predictivePrefetch === true
+        ? { predictivePrefetch: this.getPredictivePrefetchDiagnostics(state?.cache) }
+        : {}),
     };
   }
 
@@ -863,6 +953,9 @@ export class CopcStreamingCore {
       }
     }
     const observation = this.motionEstimator.observe(view.viewFrustum, estimatorTimestamp);
+    if (observation.sampledMovement) {
+      this.supersedePredictivePrefetch();
+    }
     if (observation.valid) {
       this.motionTimestampAnchorMilliseconds = estimatorTimestamp;
       this.motionTimestampAnchorPerformanceMilliseconds = now;
@@ -899,6 +992,7 @@ export class CopcStreamingCore {
     }
 
     this.viewGeneration += 1;
+    this.supersedePredictivePrefetch();
     const adaptiveView = view
       ? this.adaptiveViewDistancePolicy.preview(
         view,
@@ -922,6 +1016,245 @@ export class CopcStreamingCore {
   getCachedPointBuffer(nodeKey: string): GeographicPointBuffer | undefined {
     const prepared = this.getCachedPreparedPointData(nodeKey);
     return prepared ? preparedPointDataToGeographicBuffer(prepared) : undefined;
+  }
+
+  private async preparePredictivePrefetch(
+    viewGeneration: number,
+    view: StreamingView,
+    state: StreamingState,
+    prediction: CameraMotionPrediction,
+  ): Promise<PredictivePrefetchPlan | undefined> {
+    if (this.predictivePrefetchController && !this.predictivePrefetchController.signal.aborted) {
+      return undefined;
+    }
+    const predictedView = createPredictedStreamingView(view, prediction);
+    if (!predictedView || !this.isCurrentView(viewGeneration, state)) return undefined;
+
+    const controller = new AbortController();
+    this.predictivePrefetchController = controller;
+    const generation = ++this.predictivePrefetchGeneration;
+    this.predictivePrefetchHierarchyQueryCount += 1;
+    let hierarchy;
+    try {
+      hierarchy = await state.hierarchyLoader.query(
+        this.createHierarchyQuery(predictedView),
+        {
+          maxPages: MAX_PREFETCH_HIERARCHY_PAGES_PER_UPDATE,
+          signal: controller.signal,
+          performanceObserver: null,
+          onPageVisited: (cached) => {
+            this.predictivePrefetchHierarchyPageVisitCount += 1;
+            if (cached) {
+              this.predictivePrefetchHierarchyPageCacheHitCount += 1;
+            } else {
+              this.predictivePrefetchHierarchyPageRequestCount += 1;
+            }
+          },
+        },
+      );
+    } catch {
+      if (!controller.signal.aborted
+        && this.isCurrentPrefetch(generation, state, controller)) {
+        this.predictivePrefetchFailedNodeCount += 1;
+      }
+      if (this.predictivePrefetchController === controller) {
+        this.predictivePrefetchController = undefined;
+      }
+      return undefined;
+    }
+    if (!this.isCurrentPrefetch(generation, state, controller)) return undefined;
+
+    const discoveredNodes = buildStreamingHierarchy(
+      state.metadata,
+      hierarchy.nodes,
+      this.heightOffsetMeters,
+    );
+    const availableNodes = new Map(state.nodes);
+    for (const [nodeKey, node] of discoveredNodes) {
+      availableNodes.set(nodeKey, node);
+    }
+    state.nodes = availableNodes;
+    state.nodesRef.current = availableNodes;
+    state.manager.setHierarchy(availableNodes);
+
+    const currentDepth = [...this.selectedNodeKeys]
+      .map((nodeKey) => availableNodes.get(nodeKey)?.node.level ?? -1)
+      .reduce((maximum, level) => Math.max(maximum, level), -1);
+    const maximumPrefetchDepth = Math.min(
+      this.getStreamingOptions().maxDepth,
+      Math.max(1, currentDepth + 1),
+    );
+    const selector = new NodeSelector({
+      ...this.getStreamingOptions(),
+      maxDepth: maximumPrefetchDepth,
+      predictivePrefetch: false,
+    });
+    selector.setRefinementFocus(this.refinementFocus);
+    const candidates = selector.selectVisibleNodes(predictedView, availableNodes, {
+      previousSelectedNodeKeys: new Set(this.selectedNodeKeys),
+      isNodeCached: (nodeKey) => state.cache.has(nodeKey),
+    });
+    const maxDecodedBytes = Math.min(
+      MAX_PREFETCH_POINTS_PER_UPDATE * ESTIMATED_PREPARED_BYTES_PER_POINT,
+      MAX_PREFETCH_POINT_RANGE_BYTES_PER_UPDATE,
+      state.cache.getDiagnostics().cacheByteBudget,
+    );
+    const queue: string[] = [];
+    let queuedPointCount = 0;
+    let queuedRangeBytes = 0;
+    for (const candidate of candidates) {
+      const node = candidate.node;
+      const pointCount = node.pointCount;
+      const pointRangeBytes = node.pointDataLength;
+      const estimatedDecodedBytes = pointCount * ESTIMATED_PREPARED_BYTES_PER_POINT;
+      if (this.selectedNodeKeys.has(node.key)
+        || state.cache.has(node.key)
+        || pointCount <= 0
+        || !Number.isSafeInteger(pointRangeBytes)
+        || pointRangeBytes <= 0
+        || pointRangeBytes > MAX_PREFETCH_POINT_RANGE_BYTES_PER_UPDATE
+        || !isOffscreenFromCurrentView(
+          view.viewFrustum,
+          predictedView.viewFrustum,
+          availableNodes.get(node.key)?.boundingSphere,
+        )
+        || estimatedDecodedBytes > maxDecodedBytes
+        || queuedPointCount + pointCount > MAX_PREFETCH_POINTS_PER_UPDATE
+        || queuedRangeBytes + pointRangeBytes > MAX_PREFETCH_POINT_RANGE_BYTES_PER_UPDATE) {
+        continue;
+      }
+      queue.push(node.key);
+      queuedPointCount += pointCount;
+      queuedRangeBytes += pointRangeBytes;
+      if (queue.length >= MAX_PREFETCH_NODES_PER_UPDATE) break;
+    }
+
+    this.predictivePrefetchQueue = queue;
+    return {
+      generation,
+      controller,
+      state,
+      queue,
+    };
+  }
+
+  private async runPredictivePrefetch(plan: PredictivePrefetchPlan): Promise<void> {
+    const { generation, controller, state, queue } = plan;
+    while (queue.length > 0
+      && this.isCurrentPrefetch(generation, state, controller)) {
+      const currentPrediction = this.motionEstimator.getPrediction(this.getMotionEstimatorTimestamp());
+      if (currentPrediction.activity <= 0) break;
+      const worker = state.context.getWorkerDiagnostics?.();
+      if (worker && (worker.workerCount <= 1 || worker.activeCount >= worker.workerCount - 1)) {
+        break;
+      }
+      if (!state.manager.tryAcquirePrefetchSlot()) break;
+
+      const nodeKey = queue.shift();
+      if (!nodeKey) {
+        state.manager.releasePrefetchSlot();
+        break;
+      }
+      const activeTask = { state };
+      this.activePredictivePrefetchTasks.add(activeTask);
+      try {
+        await state.cache.load(nodeKey, 'prefetch');
+        if (this.isCurrentPrefetch(generation, state, controller)) {
+          this.predictivePrefetchCompletedNodeCount += 1;
+        } else if (this.streamingState === state && this.lifecycle === 'ready') {
+          this.predictivePrefetchCancelledNodeCount += 1;
+        }
+      } catch {
+        if ((controller.signal.aborted
+          || !this.isCurrentPrefetch(generation, state, controller))
+          && this.streamingState === state
+          && this.lifecycle === 'ready') {
+          this.predictivePrefetchCancelledNodeCount += 1;
+        } else if (this.isCurrentPrefetch(generation, state, controller)) {
+          this.predictivePrefetchFailedNodeCount += 1;
+        }
+      } finally {
+        this.activePredictivePrefetchTasks.delete(activeTask);
+        state.manager.releasePrefetchSlot();
+      }
+    }
+    if (this.isCurrentPrefetch(generation, state, controller)
+      && queue.length > 0) {
+      this.predictivePrefetchCancelledNodeCount += queue.length;
+      queue.length = 0;
+    }
+    if (this.predictivePrefetchQueue === queue) {
+      this.predictivePrefetchQueue = [];
+    }
+    if (this.predictivePrefetchController === controller) {
+      this.predictivePrefetchController = undefined;
+    }
+  }
+
+  private isCurrentPrefetch(
+    generation: number,
+    state: StreamingState,
+    controller: AbortController,
+  ): boolean {
+    return !controller.signal.aborted
+      && generation === this.predictivePrefetchGeneration
+      && this.streamingState === state
+      && this.lifecycle === 'ready';
+  }
+
+  private supersedePredictivePrefetch(): void {
+    this.predictivePrefetchGeneration += 1;
+    if (this.predictivePrefetchQueue.length > 0) {
+      this.predictivePrefetchCancelledNodeCount += this.predictivePrefetchQueue.length;
+      this.predictivePrefetchQueue = [];
+    }
+    const controller = this.predictivePrefetchController;
+    this.predictivePrefetchController = undefined;
+    controller?.abort(RANGE_CANCELLATION_REASON.superseded);
+    this.streamingState?.cache.cancelPendingExcept(this.selectedNodeKeys, 'superseded');
+  }
+
+  private getPredictivePrefetchDiagnostics(
+    cache = this.streamingState?.cache ?? this.initialCache,
+  ): PredictivePrefetchDiagnostics {
+    const cacheDiagnostics = cache.getDiagnostics();
+    return {
+      enabled: this.getStreamingOptions().predictivePrefetch === true,
+      generation: this.predictivePrefetchGeneration,
+      queuedNodeCount: this.predictivePrefetchQueue.length,
+      activeNodeCount: [...this.activePredictivePrefetchTasks]
+        .filter((task) => task.state === this.streamingState)
+        .length,
+      completedNodeCount: this.predictivePrefetchCompletedNodeCount,
+      failedNodeCount: this.predictivePrefetchFailedNodeCount,
+      cancelledNodeCount: this.predictivePrefetchCancelledNodeCount,
+      usefulCacheHitCount: cacheDiagnostics.prefetchUsefulHitCount,
+      evictedUnusedNodeCount: cacheDiagnostics.prefetchEvictedUnusedCount,
+      pointRangeRequestCount: this.predictivePrefetchPointRangeRequestCount,
+      pointRangeBytesRequested: this.predictivePrefetchPointRangeBytesRequested,
+      hierarchyQueryCount: this.predictivePrefetchHierarchyQueryCount,
+      hierarchyPageVisitCount: this.predictivePrefetchHierarchyPageVisitCount,
+      hierarchyPageRequestCount: this.predictivePrefetchHierarchyPageRequestCount,
+      hierarchyPageCacheHitCount: this.predictivePrefetchHierarchyPageCacheHitCount,
+      maxNodesPerUpdate: MAX_PREFETCH_NODES_PER_UPDATE,
+      maxPointsPerUpdate: MAX_PREFETCH_POINTS_PER_UPDATE,
+      maxPointRangeBytesPerUpdate: MAX_PREFETCH_POINT_RANGE_BYTES_PER_UPDATE,
+      maxHierarchyPagesPerUpdate: MAX_PREFETCH_HIERARCHY_PAGES_PER_UPDATE,
+    };
+  }
+
+  private resetPredictivePrefetchDiagnostics(): void {
+    this.predictivePrefetchGeneration = 0;
+    this.predictivePrefetchQueue = [];
+    this.predictivePrefetchCompletedNodeCount = 0;
+    this.predictivePrefetchFailedNodeCount = 0;
+    this.predictivePrefetchCancelledNodeCount = 0;
+    this.predictivePrefetchPointRangeRequestCount = 0;
+    this.predictivePrefetchPointRangeBytesRequested = 0;
+    this.predictivePrefetchHierarchyQueryCount = 0;
+    this.predictivePrefetchHierarchyPageVisitCount = 0;
+    this.predictivePrefetchHierarchyPageRequestCount = 0;
+    this.predictivePrefetchHierarchyPageCacheHitCount = 0;
   }
 
   private applyProgress(
@@ -956,13 +1289,14 @@ export class CopcStreamingCore {
     performanceRecorder: StreamingPerformanceRecorder,
   ): NodePointCache<PreparedPointData> {
     return createNodePointCache(
-      (nodeKey, signal) => this.loadRenderableNodePoints(
+      (nodeKey, signal, purpose) => this.loadRenderableNodePoints(
         context,
         metadata,
         nodesRef,
         performanceRecorder,
         nodeKey,
         signal,
+        purpose,
       ),
       {
         maxEntries: MAX_CACHED_NODES,
@@ -978,10 +1312,15 @@ export class CopcStreamingCore {
     performanceRecorder: StreamingPerformanceRecorder,
     nodeKey: string,
     signal: AbortSignal,
+    purpose: NodePointLoadPurpose = 'current',
   ): Promise<PreparedPointData> {
     const streamingNode = nodesRef.current.get(nodeKey);
     if (!streamingNode) {
       throw new Error(`Unknown COPC hierarchy node: ${nodeKey}`);
+    }
+    if (purpose === 'prefetch') {
+      this.predictivePrefetchPointRangeRequestCount += 1;
+      this.predictivePrefetchPointRangeBytesRequested += streamingNode.node.pointDataLength;
     }
 
     const usesRustPointPath = this.options.decoder === undefined
@@ -990,7 +1329,10 @@ export class CopcStreamingCore {
       const prepared = await context.loadPreparedPointData(
         streamingNode.node,
         this.pointFields,
-        { signal },
+        {
+          signal,
+          ...(purpose === 'prefetch' ? { performanceObserver: null } : {}),
+        },
       );
       if (signal.aborted) {
         throw createPointLoadAbortError(signal);
@@ -1008,7 +1350,10 @@ export class CopcStreamingCore {
       streamingNode.node,
       this.options.decoder,
       this.pointFields,
-      { signal },
+      {
+        signal,
+        ...(purpose === 'prefetch' ? { performanceObserver: null } : {}),
+      },
     );
     if (signal.aborted) {
       throw createPointLoadAbortError(signal);
@@ -1020,11 +1365,13 @@ export class CopcStreamingCore {
       this.heightOffsetMeters,
     );
     assertPreparedPointData(transformed);
-    performanceRecorder.recordStage(
-      'crsTransformDurationMs',
-      performanceNow() - transformStartedAt,
-      true,
-    );
+    if (purpose !== 'prefetch') {
+      performanceRecorder.recordStage(
+        'crsTransformDurationMs',
+        performanceNow() - transformStartedAt,
+        true,
+      );
+    }
     return transformed;
   }
 

@@ -19,6 +19,7 @@ import {
 } from './types';
 import { CopcLoadError } from '../errors';
 import { performanceNow } from '../performance';
+import type { CopcPerformanceObserver } from '../performance';
 
 type MutableHierarchyTree = ReturnType<typeof createHierarchyTree>;
 
@@ -38,6 +39,18 @@ type HierarchyLoaderOptions = {
   maxConcurrentPageLoads?: number;
   sourceOpenDurationMs?: number;
   metadataLoadDurationMs?: number;
+};
+
+/** Internal controls for a conservative future-view hierarchy query. */
+export type HierarchyQueryOptions = {
+  /** Maximum relevant child pages visited; omitted for an ordinary current-view query. */
+  maxPages?: number;
+  /** Stops expanding a stale speculative traversal after its active page reads settle. */
+  signal?: AbortSignal;
+  /** Reports relevant page visits and whether the page was already cached. */
+  onPageVisited?: (cached: boolean) => void;
+  /** Override source-side measurements for page reads started by this query. */
+  performanceObserver?: CopcPerformanceObserver | null;
 };
 
 function createPageCacheKey(page: CopcHierarchyPage): string {
@@ -250,18 +263,26 @@ export class HierarchyLoader {
    * requested hierarchy level. Previously loaded pages are returned from the
    * per-loader cache and remain available for later view movement.
    */
-  async query(query: CopcHierarchyQuery): Promise<CopcHierarchyTree> {
+  async query(
+    query: CopcHierarchyQuery,
+    options: HierarchyQueryOptions = {},
+  ): Promise<CopcHierarchyTree> {
     const startedAt = performanceNow();
     const generation = this.cacheGeneration;
     try {
       assertQuery(query);
-      await this.loadPage(this.source.getRootHierarchyPage());
+      if (options.maxPages !== undefined
+        && (!Number.isSafeInteger(options.maxPages) || options.maxPages < 1)) {
+        throw new CopcHierarchyError('Hierarchy query maxPages must be a positive safe integer');
+      }
+      await this.loadPage(this.source.getRootHierarchyPage(), options.performanceObserver);
       this.assertCurrentGeneration(generation);
 
       const pendingPages = [...this.tree.pageMap.values()];
       const considered = new Set<string>();
       let nextPageIndex = 0;
       let inFlightPages = 0;
+      let visitedPageCount = 0;
       let failed = false;
       let failure: unknown;
       const waitingWorkers = new Set<() => void>();
@@ -276,7 +297,7 @@ export class HierarchyLoader {
 
       const worker = async (): Promise<void> => {
         while (true) {
-          if (failed) {
+          if (failed || options.signal?.aborted) {
             return;
           }
           const page = pendingPages[nextPageIndex];
@@ -309,8 +330,21 @@ export class HierarchyLoader {
               continue;
             }
 
-            await this.loadPage(page);
+            if (options.maxPages !== undefined
+              && visitedPageCount >= options.maxPages) {
+              continue;
+            }
+            visitedPageCount += 1;
+            options.onPageVisited?.(this.pageCache.has(cacheKey));
+            if (options.signal?.aborted) {
+              continue;
+            }
+
+            await this.loadPage(page, options.performanceObserver);
             this.assertCurrentGeneration(generation);
+            if (options.signal?.aborted) {
+              continue;
+            }
             for (const discoveredPage of this.tree.pageMap.values()) {
               if (!considered.has(createPageCacheKey(discoveredPage))) {
                 pendingPages.push(discoveredPage);
@@ -328,10 +362,19 @@ export class HierarchyLoader {
         }
       };
 
-      const workerCount = Math.min(this.maxConcurrentPageLoads, Math.max(1, pendingPages.length));
+      const workerCount = Math.min(
+        this.maxConcurrentPageLoads,
+        options.maxPages ?? Number.POSITIVE_INFINITY,
+        Math.max(1, pendingPages.length),
+      );
       await Promise.all(Array.from({ length: workerCount }, () => worker()));
       if (failed) {
         throw failure;
+      }
+      if (options.signal?.aborted) {
+        const error = new Error('Hierarchy query was cancelled', { cause: options.signal.reason });
+        error.name = 'AbortError';
+        throw error;
       }
 
       this.assertCurrentGeneration(generation);
@@ -383,7 +426,10 @@ export class HierarchyLoader {
     this.peakActivePageLoads = this.activePageLoads;
   }
 
-  private async loadPage(page: CopcHierarchyPage): Promise<CopcHierarchySubtree> {
+  private async loadPage(
+    page: CopcHierarchyPage,
+    performanceObserver?: CopcPerformanceObserver | null,
+  ): Promise<CopcHierarchySubtree> {
     assertPageIsValid(page);
     const cacheKey = createPageCacheKey(page);
     const generation = this.cacheGeneration;
@@ -401,7 +447,10 @@ export class HierarchyLoader {
     this.hierarchyBytesFetched += page.pageLength;
     const request = this.withPageLoadSlot(
       generation,
-      () => this.source.loadHierarchyPage(page),
+      () => this.source.loadHierarchyPage(
+        page,
+        performanceObserver === undefined ? undefined : { performanceObserver },
+      ),
     )
       .then((subtree) => {
         if (generation !== this.cacheGeneration) {

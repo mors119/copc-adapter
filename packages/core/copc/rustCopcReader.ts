@@ -15,6 +15,7 @@ import type {
 import type { CopcMetadata, CopcPointBuffer, PreparedPointData } from './types/copc';
 import type { RandomAccessByteSource } from './range/types';
 import type { CopcPointLoadOptions } from './backend/types';
+import type { CopcHierarchyPageLoadOptions } from './hierarchy/types';
 import type { CopcPointFieldSelection } from './points/fieldSelection';
 import type { CopcWorkerDiagnostics } from './backend/types';
 import { performanceNow, type CopcPerformanceObserver } from './performance';
@@ -288,16 +289,23 @@ export class RustCopcReader {
     length: number,
     nodeKey?: string,
     signal?: AbortSignal,
+    performanceObserver?: CopcPerformanceObserver | null,
   ): Promise<Uint8Array> {
     const startedAt = performanceNow();
     const bytes = await this.byteSource.readRange(offset, length, { signal });
-    this.performanceObserver?.({
+    this.resolvePerformanceObserver(performanceObserver)?.({
       stage: 'rangeFetch',
       durationMs: performanceNow() - startedAt,
       nodeKey,
       bytes: bytes.byteLength,
     });
     return bytes;
+  }
+
+  private resolvePerformanceObserver(
+    override?: CopcPerformanceObserver | null,
+  ): CopcPerformanceObserver | undefined {
+    return override === undefined ? this.performanceObserver : override ?? undefined;
   }
 
   /**
@@ -365,14 +373,23 @@ export class RustCopcReader {
   }
 
   /** Fetch and parse one hierarchy page through the supplied random-access source. */
-  async loadHierarchyPage(page: CopcHierarchyPage): Promise<CopcHierarchySubtree> {
+  async loadHierarchyPage(
+    page: CopcHierarchyPage,
+    options: CopcHierarchyPageLoadOptions = {},
+  ): Promise<CopcHierarchySubtree> {
     const pageOffset = requireSafeInteger(page.pageOffset, 'hierarchy page offset');
     const pageLength = requireHierarchyPageLength(page.pageLength, this.maxRangeBytes);
     const end = pageOffset + pageLength;
     if (!Number.isSafeInteger(end)) {
       throw new RustCopcParseError('overflow', 'hierarchy page range exceeds JavaScript-safe integers');
     }
-    const bytes = await this.readRange(pageOffset, pageLength);
+    const bytes = await this.readRange(
+      pageOffset,
+      pageLength,
+      undefined,
+      undefined,
+      options.performanceObserver,
+    );
     return toHierarchySubtree(await parseWithRust(
       bytes,
       (wasm, pointer, length) => wasm.parse_root_hierarchy_with_limit_json(
@@ -405,6 +422,7 @@ export class RustCopcReader {
       node,
       fields,
       options.signal,
+      options.performanceObserver,
     );
     throwIfPointLoadAborted(options.signal);
     if (this.decodeWorkerPool) {
@@ -414,7 +432,7 @@ export class RustCopcReader {
         requestedFields: getRustPointFieldMask(fields),
         chunk: chunkBytes,
       });
-      this.performanceObserver?.({
+      this.resolvePerformanceObserver(options.performanceObserver)?.({
         stage: 'decode',
         durationMs: decoded.decodeDurationMs,
         nodeKey: node.key,
@@ -433,7 +451,7 @@ export class RustCopcReader {
       loadCopcWasm,
       this.maxRangeBytes,
     );
-    this.performanceObserver?.({
+    this.resolvePerformanceObserver(options.performanceObserver)?.({
       stage: 'decode',
       durationMs: decoded.durationMs,
       nodeKey: node.key,
@@ -460,6 +478,7 @@ export class RustCopcReader {
       node,
       fields,
       options.signal,
+      options.performanceObserver,
     );
     throwIfPointLoadAborted(options.signal);
     const request = {
@@ -470,13 +489,13 @@ export class RustCopcReader {
     };
     if (this.decodeWorkerPool) {
       const result = await this.decodeWorkerPool.submitPrepared(request);
-      this.performanceObserver?.({
+      this.resolvePerformanceObserver(options.performanceObserver)?.({
         stage: 'decode',
         durationMs: result.decodeDurationMs,
         nodeKey: node.key,
         blocksMainThread: false,
       });
-      this.performanceObserver?.({
+      this.resolvePerformanceObserver(options.performanceObserver)?.({
         stage: 'pointPreparation',
         durationMs: result.preparationDurationMs,
         nodeKey: node.key,
@@ -495,13 +514,13 @@ export class RustCopcReader {
       );
     }
     const result = (await this.nodePreparer).prepare(chunkBytes, pointCount, fields);
-    this.performanceObserver?.({
+    this.resolvePerformanceObserver(options.performanceObserver)?.({
       stage: 'decode',
       durationMs: result.decodeDurationMs,
       nodeKey: node.key,
       blocksMainThread: true,
     });
-    this.performanceObserver?.({
+    this.resolvePerformanceObserver(options.performanceObserver)?.({
       stage: 'pointPreparation',
       durationMs: result.preparationDurationMs,
       nodeKey: node.key,
@@ -515,6 +534,7 @@ export class RustCopcReader {
     node: CopcHierarchyNode,
     fields: CopcPointFieldSelection,
     signal?: AbortSignal,
+    performanceObserver?: CopcPerformanceObserver | null,
   ): Promise<{ metadataBytes: Uint8Array; chunkBytes: Uint8Array; pointCount: number }> {
     if (!fields.has('position')) {
       throw new RustCopcParseError('invalid-value', 'COPC point selection must include position');
@@ -540,6 +560,7 @@ export class RustCopcReader {
       node.pointDataLength,
       node.key,
       signal,
+      performanceObserver,
     );
     return { metadataBytes, chunkBytes, pointCount };
   }

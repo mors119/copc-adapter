@@ -254,8 +254,8 @@ toward the direction of recent camera rotation. It uses a fixed 200 ms
 prediction horizon, clamps angular speed to 90 degrees/second, and reaches
 exactly zero 600 ms after movement stops. The current frustum, raw screen-space
 error, refinement hysteresis, atomic replacements, and node/point budgets
-remain authoritative. The predicted direction never adds offscreen nodes or
-requests.
+remain authoritative. The predicted direction does not add offscreen nodes or
+requests to the current view.
 
 Set `motionLookahead: false` to retain the pre-motion refinement ranking while
 moving. At rest, enabled lookahead also returns to the existing Foveated or
@@ -275,6 +275,44 @@ const layer = new CopcCesiumLayer({
   },
 });
 ```
+
+### Predictive offscreen prefetch
+
+`streaming.predictivePrefetch` optionally prepares a small number of nodes from
+the fixed-horizon predicted view. It defaults to `false` and requires the
+motion estimator to observe recent camera rotation. The predicted frustum is
+rotated toward that measured direction; stationary cameras do not create new
+speculative work.
+
+Prefetched data stays in the shared decoded point cache and is never selected
+or rendered by prediction alone. It does not consume `maxRenderedPoints`. The
+first implementation limits each prediction to two point nodes, 25,000
+estimated points, 8 MiB of point-chunk ranges, and one relevant hierarchy page.
+It leaves a current-view node-load slot available and does not add Workers. A
+single-worker Rust configuration skips point prefetch so visible decode work
+keeps the only worker slot.
+
+Prefetch failures do not fail a current-view request: current demand retries
+through the ordinary cache loader. Speculative cache entries are the first
+entries evicted under cache pressure. `getSnapshot().predictivePrefetch` reports
+queued, active, completed, failed, and cancelled nodes; point-range bytes
+requested; hierarchy page visits, requests, and cache hits; useful decoded
+cache hits; and unused speculative evictions. The range byte count is the COPC
+point-chunk length requested by the prefetch loader, not a claim of network
+byte savings.
+
+```ts
+const layer = new CopcCesiumLayer({
+  url: '/data/area.copc.laz',
+  streaming: {
+    motionLookahead: true,
+    predictivePrefetch: true,
+  },
+});
+```
+
+This remains opt-in until representative browser runs establish its latency
+and network tradeoffs.
 
 `BatchedGeometryPointRenderer` is an opt-in implementation exported from
 `@frillab/copc-adapter/cesium`. It submits one public Cesium `Geometry(POINTS)`

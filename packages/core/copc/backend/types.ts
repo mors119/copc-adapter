@@ -16,6 +16,11 @@ import type { CopcInputSource } from '../range/types';
 export type CopcPointLoadOptions = {
   /** Cancels only this point-node read; shared hierarchy reads remain reusable. */
   signal?: AbortSignal;
+  /**
+   * Override the source-wide performance observer for this point read.
+   * `null` suppresses reporting for the request; `undefined` uses the source observer.
+   */
+  performanceObserver?: CopcPerformanceObserver | null;
 };
 
 /** Source-level options shared by built-in and custom COPC backends. */

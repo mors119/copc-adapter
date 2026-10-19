@@ -533,6 +533,9 @@ export class ThreeLayerController {
       ...(coreSnapshot.hierarchy ? { hierarchy: coreSnapshot.hierarchy } : {}),
       pointCache: coreSnapshot.pointCache,
       ...(coreSnapshot.worker ? { worker: coreSnapshot.worker } : {}),
+      ...(coreSnapshot.predictivePrefetch
+        ? { predictivePrefetch: coreSnapshot.predictivePrefetch }
+        : {}),
     };
   }
 

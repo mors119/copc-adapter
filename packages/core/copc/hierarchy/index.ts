@@ -11,6 +11,7 @@ export type {
   CopcHierarchyDiagnostics,
   CopcHierarchyNode,
   CopcHierarchyPage,
+  CopcHierarchyPageLoadOptions,
   CopcHierarchyQuery,
   CopcHierarchySource,
   CopcHierarchySubtree,
