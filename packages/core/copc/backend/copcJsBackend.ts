@@ -7,7 +7,10 @@ import { toCopcMetadata } from '../adapters/metadataAdapter';
 import { createCopcGetter, getCopcSourceIdentity, type CopcRangeGetter } from '../getter/createCopcGetter';
 import type { CopcInputSource } from '../range/types';
 import { decodeCopcPointBuffer } from '../../wasm/copcDecoder';
-import type { CopcHierarchySubtree } from '../hierarchy/types';
+import type {
+  CopcHierarchyPageLoadOptions,
+  CopcHierarchySubtree,
+} from '../hierarchy/types';
 import type {
   CopcHierarchyNode,
   CopcHierarchyPage,
@@ -166,6 +169,7 @@ class CopcJsSource implements CopcSource {
     nodeKey?: string,
     nodePointCount?: number,
     signal?: AbortSignal,
+    performanceObserver?: CopcPerformanceObserver | null,
   ): Promise<Uint8Array> {
     const rangeStartedAt = performanceNow();
     const bytes = await this.sourceGetter(begin, end, { signal });
@@ -191,13 +195,19 @@ class CopcJsSource implements CopcSource {
         );
       }
     }
-    this.performanceObserver?.({
+    this.resolvePerformanceObserver(performanceObserver)?.({
       stage: 'rangeFetch',
       durationMs: performanceNow() - rangeStartedAt,
       nodeKey,
       bytes: bytes.byteLength,
     });
     return bytes;
+  }
+
+  private resolvePerformanceObserver(
+    override?: CopcPerformanceObserver | null,
+  ): CopcPerformanceObserver | undefined {
+    return override === undefined ? this.performanceObserver : override ?? undefined;
   }
 
   getMetadata(): CopcMetadata {
@@ -214,9 +224,20 @@ class CopcJsSource implements CopcSource {
 
   async loadHierarchyPage(
     page: CopcHierarchyPage,
+    options: CopcHierarchyPageLoadOptions = {},
   ): Promise<CopcHierarchySubtree> {
     try {
-      const subtree = await Copc.loadHierarchyPage(this.getter, {
+      const getter = options.performanceObserver === undefined
+        ? this.getter
+        : (begin: number, end: number) => this.readRange(
+          begin,
+          end,
+          undefined,
+          undefined,
+          undefined,
+          options.performanceObserver,
+        );
+      const subtree = await Copc.loadHierarchyPage(getter, {
         pageOffset: page.pageOffset,
         pageLength: page.pageLength,
       });
@@ -265,6 +286,7 @@ class CopcJsSource implements CopcSource {
           hierarchyNode.key,
           hierarchyNode.pointCount,
           options.signal,
+          options.performanceObserver,
         );
         pointRangeDurationMs += performanceNow() - rangeStartedAt;
         return bytes;
@@ -289,7 +311,7 @@ class CopcJsSource implements CopcSource {
       // copc.js currently exposes a complete point view. Keep the requested
       // fields enforced at this adapter boundary until a backend can skip LAZ
       // layers during decode.
-      this.performanceObserver?.({
+      this.resolvePerformanceObserver(options.performanceObserver)?.({
         stage: 'decode',
         durationMs: Math.max(0, performanceNow() - startedAt - pointRangeDurationMs),
         nodeKey: hierarchyNode.key,

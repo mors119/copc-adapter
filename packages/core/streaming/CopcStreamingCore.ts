@@ -459,7 +459,7 @@ export class CopcStreamingCore {
   private predictivePrefetchGeneration = 0;
   private predictivePrefetchController?: AbortController;
   private predictivePrefetchQueue: string[] = [];
-  private predictivePrefetchActiveNodeCount = 0;
+  private readonly activePredictivePrefetchTasks = new Set<{ state: StreamingState }>();
   private predictivePrefetchCompletedNodeCount = 0;
   private predictivePrefetchFailedNodeCount = 0;
   private predictivePrefetchCancelledNodeCount = 0;
@@ -1041,6 +1041,7 @@ export class CopcStreamingCore {
         {
           maxPages: MAX_PREFETCH_HIERARCHY_PAGES_PER_UPDATE,
           signal: controller.signal,
+          performanceObserver: null,
           onPageVisited: (cached) => {
             this.predictivePrefetchHierarchyPageVisitCount += 1;
             if (cached) {
@@ -1154,7 +1155,8 @@ export class CopcStreamingCore {
         state.manager.releasePrefetchSlot();
         break;
       }
-      this.predictivePrefetchActiveNodeCount = 1;
+      const activeTask = { state };
+      this.activePredictivePrefetchTasks.add(activeTask);
       try {
         await state.cache.load(nodeKey, 'prefetch');
         if (this.isCurrentPrefetch(generation, state, controller)) {
@@ -1172,7 +1174,7 @@ export class CopcStreamingCore {
           this.predictivePrefetchFailedNodeCount += 1;
         }
       } finally {
-        this.predictivePrefetchActiveNodeCount = 0;
+        this.activePredictivePrefetchTasks.delete(activeTask);
         state.manager.releasePrefetchSlot();
       }
     }
@@ -1220,7 +1222,9 @@ export class CopcStreamingCore {
       enabled: this.getStreamingOptions().predictivePrefetch === true,
       generation: this.predictivePrefetchGeneration,
       queuedNodeCount: this.predictivePrefetchQueue.length,
-      activeNodeCount: this.predictivePrefetchActiveNodeCount,
+      activeNodeCount: [...this.activePredictivePrefetchTasks]
+        .filter((task) => task.state === this.streamingState)
+        .length,
       completedNodeCount: this.predictivePrefetchCompletedNodeCount,
       failedNodeCount: this.predictivePrefetchFailedNodeCount,
       cancelledNodeCount: this.predictivePrefetchCancelledNodeCount,
@@ -1242,7 +1246,6 @@ export class CopcStreamingCore {
   private resetPredictivePrefetchDiagnostics(): void {
     this.predictivePrefetchGeneration = 0;
     this.predictivePrefetchQueue = [];
-    this.predictivePrefetchActiveNodeCount = 0;
     this.predictivePrefetchCompletedNodeCount = 0;
     this.predictivePrefetchFailedNodeCount = 0;
     this.predictivePrefetchCancelledNodeCount = 0;
@@ -1326,7 +1329,10 @@ export class CopcStreamingCore {
       const prepared = await context.loadPreparedPointData(
         streamingNode.node,
         this.pointFields,
-        { signal },
+        {
+          signal,
+          ...(purpose === 'prefetch' ? { performanceObserver: null } : {}),
+        },
       );
       if (signal.aborted) {
         throw createPointLoadAbortError(signal);
@@ -1344,7 +1350,10 @@ export class CopcStreamingCore {
       streamingNode.node,
       this.options.decoder,
       this.pointFields,
-      { signal },
+      {
+        signal,
+        ...(purpose === 'prefetch' ? { performanceObserver: null } : {}),
+      },
     );
     if (signal.aborted) {
       throw createPointLoadAbortError(signal);
@@ -1356,11 +1365,13 @@ export class CopcStreamingCore {
       this.heightOffsetMeters,
     );
     assertPreparedPointData(transformed);
-    performanceRecorder.recordStage(
-      'crsTransformDurationMs',
-      performanceNow() - transformStartedAt,
-      true,
-    );
+    if (purpose !== 'prefetch') {
+      performanceRecorder.recordStage(
+        'crsTransformDurationMs',
+        performanceNow() - transformStartedAt,
+        true,
+      );
+    }
     return transformed;
   }
 

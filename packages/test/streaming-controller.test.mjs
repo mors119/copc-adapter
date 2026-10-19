@@ -306,6 +306,9 @@ test('direct core updateView calls sample camera motion without adapter observat
 
 test('predictive prefetch caches offscreen points without selecting them and reuses them on entry', async () => {
   const nodes = createPrefetchTestHierarchy();
+  const observedPerformanceEvents = [];
+  let performanceObserver;
+  let prefetchLoadCount = 0;
   const metadata = {
     pointCount: nodes.reduce((total, node) => total + node.pointCount, 0),
     bounds: { minX: -0.004, minY: -0.004, minZ: 0, maxX: 0.004, maxY: 0.004, maxZ: 0.008 },
@@ -320,8 +323,29 @@ test('predictive prefetch caches offscreen points without selecting them and reu
           source,
           getMetadata: () => metadata,
           getRootHierarchyPage: () => ({ key: ROOT_KEY, pageOffset: 0, pageLength: 32 }),
-          async loadHierarchyPage() { return { nodes, pages: [] }; },
-          async loadPreparedPointData(node) {
+          setPerformanceObserver(observer) {
+            performanceObserver = observer
+              ? (event) => {
+                observedPerformanceEvents.push(event);
+                observer(event);
+              }
+              : undefined;
+          },
+          async loadHierarchyPage(_page, options) {
+            const observer = options?.performanceObserver === undefined
+              ? performanceObserver
+              : options.performanceObserver;
+            observer?.({ stage: 'rangeFetch', durationMs: 7, bytes: 32 });
+            return { nodes, pages: [] };
+          },
+          async loadPreparedPointData(node, _fields, options = {}) {
+            if (options.performanceObserver === null) prefetchLoadCount += 1;
+            const observer = options.performanceObserver === undefined
+              ? performanceObserver
+              : options.performanceObserver;
+            observer?.({ stage: 'rangeFetch', durationMs: 7, bytes: node.pointDataLength });
+            observer?.({ stage: 'decode', durationMs: 5, nodeKey: node.key });
+            observer?.({ stage: 'pointPreparation', durationMs: 3, nodeKey: node.key });
             const coordinates = new Float64Array([
               metadata.cube.minX + ((node.x + 0.5) * 0.008) / (2 ** node.level),
               metadata.cube.minY + ((node.y + 0.5) * 0.008) / (2 ** node.level),
@@ -360,6 +384,7 @@ test('predictive prefetch caches offscreen points without selecting them and reu
   await new Promise((resolve) => setTimeout(resolve, 50));
   const currentView = createEcefNadirView(5);
   const currentResult = await core.updateView(currentView);
+  const observedEventCountAfterCurrentView = observedPerformanceEvents.length;
   const selectedBeforePrefetch = core.getCurrentSelection();
 
   for (let attempt = 0; attempt < 200; attempt += 1) {
@@ -373,6 +398,8 @@ test('predictive prefetch caches offscreen points without selecting them and reu
     selectedCount: selectedBeforePrefetch.length,
     currentResultCount: currentResult.loadedNodePoints.size,
   }));
+  assert.ok(prefetchLoadCount > 0);
+  assert.equal(observedPerformanceEvents.length, observedEventCountAfterCurrentView);
   assert.equal(prefetchedDiagnostics.activeNodeCount, 0);
   assert.equal(prefetchedDiagnostics.queuedNodeCount, 0);
   assert.ok(prefetchedDiagnostics.pointRangeRequestCount <= prefetchedDiagnostics.completedNodeCount);
@@ -395,6 +422,122 @@ test('predictive prefetch caches offscreen points without selecting them and reu
   assert.ok(core.getPointCacheDiagnostics().prefetchUsefulHitCount > previousUsefulHits);
   assert.ok(core.getSnapshot().performance.activeRenderedPointCount <= 1000);
 
+  core.destroy();
+});
+
+test('predictive prefetch tracks overlapping stale point loads until each settles', async () => {
+  const nodes = createPrefetchTestHierarchy();
+  const metadata = {
+    pointCount: nodes.reduce((total, node) => total + node.pointCount, 0),
+    bounds: { minX: -0.004, minY: -0.004, minZ: 0, maxX: 0.004, maxY: 0.004, maxZ: 0.008 },
+    cube: { minX: -0.004, minY: -0.004, minZ: 0, maxX: 0.004, maxY: 0.004, maxZ: 0.008 },
+    spacing: 1000,
+  };
+  const heldPrefetchLoads = [];
+  const createPrepared = (node) => {
+    const coordinates = new Float64Array([
+      metadata.cube.minX + ((node.x + 0.5) * 0.008) / (2 ** node.level),
+      metadata.cube.minY + ((node.y + 0.5) * 0.008) / (2 ** node.level),
+      metadata.cube.minZ + ((node.z + 0.5) * 0.008) / (2 ** node.level),
+    ]);
+    const worldPoint = geographicToEcef({
+      longitude: coordinates[0],
+      latitude: coordinates[1],
+      height: coordinates[2],
+    });
+    return createPreparedPointData({
+      pointCount: 1,
+      sourceCoordinates: coordinates,
+      geographicCoordinates: new Float64Array(coordinates),
+      worldCoordinates: new Float64Array([worldPoint.x, worldPoint.y, worldPoint.z]),
+    });
+  };
+  const core = new CopcStreamingCore({
+    url: 'memory://predictive-prefetch-overlap.copc.laz',
+    backend: {
+      async open(source) {
+        return {
+          source,
+          getMetadata: () => metadata,
+          getRootHierarchyPage: () => ({ key: ROOT_KEY, pageOffset: 0, pageLength: 32 }),
+          async loadHierarchyPage() { return { nodes, pages: [] }; },
+          loadPreparedPointData(node, _fields, options = {}) {
+            if (options.performanceObserver !== null) return Promise.resolve(createPrepared(node));
+            return new Promise((resolve) => {
+              heldPrefetchLoads.push({ nodeKey: node.key, resolve: () => resolve(createPrepared(node)) });
+            });
+          },
+        };
+      },
+    },
+    maxPointCacheBytes: 2 * 1024 * 1024,
+    streaming: {
+      maxNodes: 64,
+      maxDepth: 2,
+      maxRenderedPoints: 1000,
+      maxConcurrentNodeLoads: 8,
+      maxScreenSpaceError: 1,
+      maxRenderDistanceMeters: 12_000,
+      predictivePrefetch: true,
+    },
+  });
+  const waitFor = async (predicate, label) => {
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      if (predicate()) return;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    assert.fail(`Timed out waiting for ${label}`);
+  };
+
+  await core.load();
+  await core.updateView(createEcefNadirView(0));
+  core.observeCameraMotion(createEcefNadirView(0), 1000);
+  core.observeCameraMotion(createEcefNadirView(5), 1100);
+  const state = core.streamingState;
+  const selectedKeys = new Set(core.getCurrentSelection());
+  const availablePrefetchKeys = nodes.map((node) => node.key).filter((nodeKey) =>
+    !selectedKeys.has(nodeKey) && !core.getCachedPreparedPointData(nodeKey));
+  assert.ok(availablePrefetchKeys.length >= 2);
+
+  const firstController = new AbortController();
+  core.predictivePrefetchGeneration = 1;
+  core.predictivePrefetchController = firstController;
+  void core.runPredictivePrefetch({
+    generation: 1,
+    controller: firstController,
+    state,
+    queue: [availablePrefetchKeys[0]],
+  });
+  await waitFor(() => heldPrefetchLoads.length >= 1, 'the first speculative load');
+
+  core.supersedePredictivePrefetch();
+  const secondController = new AbortController();
+  const secondGeneration = core.predictivePrefetchGeneration;
+  core.predictivePrefetchController = secondController;
+  void core.runPredictivePrefetch({
+    generation: secondGeneration,
+    controller: secondController,
+    state,
+    queue: [availablePrefetchKeys[1]],
+  });
+  await waitFor(() => heldPrefetchLoads.length >= 2, 'the next speculative load');
+  assert.ok(core.getSnapshot().predictivePrefetch.activeNodeCount >= 2);
+
+  heldPrefetchLoads[0].resolve();
+  await waitFor(
+    () => core.getSnapshot().predictivePrefetch.activeNodeCount === 1,
+    'the older cancelled load to settle without clearing the newer active load',
+  );
+
+  let releasedCount = 0;
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    while (releasedCount < heldPrefetchLoads.length) {
+      heldPrefetchLoads[releasedCount++].resolve();
+    }
+    if (core.getSnapshot().predictivePrefetch.activeNodeCount === 0) break;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.equal(core.getSnapshot().predictivePrefetch.activeNodeCount, 0);
   core.destroy();
 });
 

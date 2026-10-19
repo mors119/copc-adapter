@@ -19,6 +19,7 @@ import {
 } from './types';
 import { CopcLoadError } from '../errors';
 import { performanceNow } from '../performance';
+import type { CopcPerformanceObserver } from '../performance';
 
 type MutableHierarchyTree = ReturnType<typeof createHierarchyTree>;
 
@@ -48,6 +49,8 @@ export type HierarchyQueryOptions = {
   signal?: AbortSignal;
   /** Reports relevant page visits and whether the page was already cached. */
   onPageVisited?: (cached: boolean) => void;
+  /** Override source-side measurements for page reads started by this query. */
+  performanceObserver?: CopcPerformanceObserver | null;
 };
 
 function createPageCacheKey(page: CopcHierarchyPage): string {
@@ -272,7 +275,7 @@ export class HierarchyLoader {
         && (!Number.isSafeInteger(options.maxPages) || options.maxPages < 1)) {
         throw new CopcHierarchyError('Hierarchy query maxPages must be a positive safe integer');
       }
-      await this.loadPage(this.source.getRootHierarchyPage());
+      await this.loadPage(this.source.getRootHierarchyPage(), options.performanceObserver);
       this.assertCurrentGeneration(generation);
 
       const pendingPages = [...this.tree.pageMap.values()];
@@ -337,7 +340,7 @@ export class HierarchyLoader {
               continue;
             }
 
-            await this.loadPage(page);
+            await this.loadPage(page, options.performanceObserver);
             this.assertCurrentGeneration(generation);
             if (options.signal?.aborted) {
               continue;
@@ -423,7 +426,10 @@ export class HierarchyLoader {
     this.peakActivePageLoads = this.activePageLoads;
   }
 
-  private async loadPage(page: CopcHierarchyPage): Promise<CopcHierarchySubtree> {
+  private async loadPage(
+    page: CopcHierarchyPage,
+    performanceObserver?: CopcPerformanceObserver | null,
+  ): Promise<CopcHierarchySubtree> {
     assertPageIsValid(page);
     const cacheKey = createPageCacheKey(page);
     const generation = this.cacheGeneration;
@@ -441,7 +447,10 @@ export class HierarchyLoader {
     this.hierarchyBytesFetched += page.pageLength;
     const request = this.withPageLoadSlot(
       generation,
-      () => this.source.loadHierarchyPage(page),
+      () => this.source.loadHierarchyPage(
+        page,
+        performanceObserver === undefined ? undefined : { performanceObserver },
+      ),
     )
       .then((subtree) => {
         if (generation !== this.cacheGeneration) {

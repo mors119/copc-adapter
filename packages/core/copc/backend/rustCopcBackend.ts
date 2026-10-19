@@ -228,9 +228,10 @@ class RustCopcSource implements CopcSource {
 
   async loadHierarchyPage(
     page: Parameters<CopcSource['loadHierarchyPage']>[0],
+    options?: Parameters<CopcSource['loadHierarchyPage']>[1],
   ): ReturnType<CopcSource['loadHierarchyPage']> {
     try {
-      return await this.reader.loadHierarchyPage(page);
+      return await this.reader.loadHierarchyPage(page, options);
     } catch (error: unknown) {
       throw mapRustError(this.source, error, 'hierarchy');
     }

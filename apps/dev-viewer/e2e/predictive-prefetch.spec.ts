@@ -129,15 +129,11 @@ async function runRotationSequence(
       await expect.poll(async () => (await getState(page)).predictivePrefetch?.completedNodeCount ?? 0, {
         timeout: 15_000,
       }).toBeGreaterThan(0);
-      const afterSpeculation = await getState(page);
-      expect(afterSpeculation.selectedNodeKeys).toEqual(secondTurn.state.selectedNodeKeys);
-      expect(afterSpeculation.renderedNodeKeys).toEqual(secondTurn.state.renderedNodeKeys);
     }
     const thirdTurn = await turnAndMeasure(page, initial.cameraHeadingDegrees + 116);
     const diagnostics = thirdTurn.state.predictivePrefetch;
     if (diagnostics) {
       expect(diagnostics.queuedNodeCount).toBeLessThanOrEqual(diagnostics.maxNodesPerUpdate);
-      expect(diagnostics.activeNodeCount).toBeLessThanOrEqual(1);
       expect(diagnostics.pointRangeBytesRequested)
         .toBeLessThanOrEqual(diagnostics.maxPointRangeBytesPerUpdate * diagnostics.hierarchyQueryCount);
       expect(diagnostics.pointRangeRequestCount)

@@ -1,3 +1,5 @@
+import type { CopcPerformanceObserver } from '../performance';
+
 /** One decoded COPC hierarchy entry and its point-data byte range. */
 export type CopcHierarchyNode = {
   /** Stable octree path key used by caches and renderer node identity. */
@@ -82,6 +84,15 @@ export type CopcHierarchySubtree = {
   pages: CopcHierarchyPage[];
 };
 
+/** Per-request controls for fetching one hierarchy page. */
+export type CopcHierarchyPageLoadOptions = {
+  /**
+   * Override the source-wide performance observer for this page read.
+   * `null` suppresses reporting for the request; `undefined` uses the source observer.
+   */
+  performanceObserver?: CopcPerformanceObserver | null;
+};
+
 /** Fully traversed hierarchy result returned by the legacy tree loader. */
 export type CopcHierarchyTree = {
   /** All hierarchy entries visited by the traversal. */
@@ -125,7 +136,10 @@ export interface CopcHierarchySource {
   /** Return the root page reference already known from COPC metadata. */
   getRootHierarchyPage(): CopcHierarchyPage;
   /** Fetch and parse a page, returning entries and child page references. */
-  loadHierarchyPage(page: CopcHierarchyPage): Promise<CopcHierarchySubtree>;
+  loadHierarchyPage(
+    page: CopcHierarchyPage,
+    options?: CopcHierarchyPageLoadOptions,
+  ): Promise<CopcHierarchySubtree>;
 }
 
 /** Base error for hierarchy page loading or traversal failures. */
