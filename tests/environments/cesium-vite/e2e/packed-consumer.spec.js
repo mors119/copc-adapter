@@ -13,6 +13,36 @@ async function completedState(page) {
   return state(page);
 }
 
+async function waitForStableRendering(page) {
+  let previousSignature;
+  let stableSamples = 0;
+  await expect.poll(async () => {
+    const current = await state(page);
+    const idle = current.rangeRequests?.active === 0
+      && current.performance?.activeNodeCount === 0
+      && current.performance?.queuedNodeCount === 0
+      && current.transition?.activeReplacementGroupCount === 0
+      && current.worker?.activeCount === 0
+      && current.worker?.queuedCount === 0;
+    if (!idle) {
+      previousSignature = undefined;
+      stableSamples = 0;
+      return false;
+    }
+
+    const signature = JSON.stringify([
+      current.selectedNodeKeys,
+      current.renderedNodeKeys,
+      current.streamingUpdateCount,
+      current.renderedPointCount,
+    ]);
+    stableSamples = signature === previousSignature ? stableSamples + 1 : 1;
+    previousSignature = signature;
+    return stableSamples >= 3;
+  }, { intervals: [200, 300, 400], timeout: 60_000 })
+    .toBe(true);
+}
+
 async function loadRustPage(page, query = '?backend=rust&mode=rgb') {
   const pageErrors = [];
   const consoleErrors = [];
@@ -160,6 +190,7 @@ test('loads the packed opt-in batched Cesium renderer without changing the defau
   });
   await expect.poll(async () => (await state(page)).renderedPointCount)
     .toBeGreaterThan(0);
+  await waitForStableRendering(page);
   const current = await state(page);
   expect(current.renderedNodeKeys.length).toBeGreaterThan(0);
   expect(

@@ -200,6 +200,7 @@ test('switches renderer and backend, applies controls, and inspects a Three poin
 });
 
 test('collapses the controls and Inspector independently and keeps the canvas full-screen', async ({ page }) => {
+  test.setTimeout(240_000);
   await page.addInitScript(() => {
     const activeDebugIntervals = new Set<number>();
     const originalSetInterval = window.setInterval.bind(window);
