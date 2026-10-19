@@ -398,6 +398,7 @@ export function buildCopcDebugPanelView(
 
 export type CopcDebugPanel = {
   refresh(): void;
+  setPollingEnabled(enabled: boolean): void;
   destroy(): void;
 };
 
@@ -582,12 +583,24 @@ export function createCopcDebugPanel(
       errorElement.hidden = !view.error;
     }
   };
-  const updateTimer = window.setInterval(update, 250);
+  let updateTimer: number | undefined;
+  const setPollingEnabled = (enabled: boolean): void => {
+    if (enabled) {
+      if (updateTimer !== undefined) return;
+      update();
+      updateTimer = window.setInterval(update, 250);
+      return;
+    }
+    if (updateTimer === undefined) return;
+    window.clearInterval(updateTimer);
+    updateTimer = undefined;
+  };
 
   return {
     refresh: update,
+    setPollingEnabled,
     destroy(): void {
-      window.clearInterval(updateTimer);
+      setPollingEnabled(false);
       pointInspector.destroy();
     },
   };

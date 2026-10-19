@@ -38,6 +38,7 @@ type DevViewerApi = {
 declare global {
   interface Window {
     __COPC_DEV_VIEWER__?: DevViewerApi;
+    __devViewerDebugIntervalCount?: () => number;
   }
 }
 
@@ -180,6 +181,21 @@ test('switches renderer and backend, applies controls, and inspects a Three poin
 });
 
 test('collapses the controls and Inspector independently and keeps the canvas full-screen', async ({ page }) => {
+  await page.addInitScript(() => {
+    const activeDebugIntervals = new Set<number>();
+    const originalSetInterval = window.setInterval.bind(window);
+    const originalClearInterval = window.clearInterval.bind(window);
+    window.setInterval = ((handler: TimerHandler, timeout?: number, ...args: any[]) => {
+      const id = originalSetInterval(handler, timeout, ...args);
+      if (timeout === 250) activeDebugIntervals.add(id);
+      return id;
+    }) as typeof window.setInterval;
+    window.clearInterval = ((id?: number) => {
+      if (typeof id === 'number') activeDebugIntervals.delete(id);
+      originalClearInterval(id);
+    }) as typeof window.clearInterval;
+    window.__devViewerDebugIntervalCount = () => activeDebugIntervals.size;
+  });
   await page.setViewportSize({ width: 1024, height: 768 });
   await page.goto('/?debugPanel=0');
 
@@ -192,14 +208,20 @@ test('collapses the controls and Inspector independently and keeps the canvas fu
   await expect(inspector).toBeHidden();
   await expect(inspectorToggle).toHaveAccessibleName('Expand inspector panel');
   await expect(inspectorToggle).toBeVisible();
+  await expect.poll(async () => page.evaluate(() =>
+    window.__devViewerDebugIntervalCount?.())).toBe(0);
   await inspectorToggle.click();
   await expect(inspector).toBeVisible();
+  await expect.poll(async () => page.evaluate(() =>
+    window.__devViewerDebugIntervalCount?.())).toBe(1);
 
   await controlsToggle.click();
   await expect(controls).toBeHidden();
   await expect(inspector).toBeVisible();
   await inspectorToggle.click();
   await expect(inspector).toBeHidden();
+  await expect.poll(async () => page.evaluate(() =>
+    window.__devViewerDebugIntervalCount?.())).toBe(0);
   await expect(controlsToggle).toHaveAttribute('aria-expanded', 'false');
   await expect(inspectorToggle).toHaveAttribute('aria-expanded', 'false');
 
@@ -211,6 +233,8 @@ test('collapses the controls and Inspector independently and keeps the canvas fu
   await inspectorToggle.focus();
   await inspectorToggle.press('Space');
   await expect(inspector).toBeVisible();
+  await expect.poll(async () => page.evaluate(() =>
+    window.__devViewerDebugIntervalCount?.())).toBe(1);
 
   const canvas = await page.locator('#cesium-container').boundingBox();
   expect(canvas).toMatchObject({ x: 0, y: 0, width: 1024, height: 768 });

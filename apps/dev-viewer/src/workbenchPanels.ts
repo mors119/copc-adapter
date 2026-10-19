@@ -3,6 +3,7 @@ export type WorkbenchPanel = {
   readonly toggle: HTMLButtonElement;
   readonly label: string;
   readonly expandedInitially: boolean;
+  readonly onExpandedChange?: (expanded: boolean) => void;
 };
 
 export type WorkbenchPanels = {
@@ -41,8 +42,10 @@ export function mountWorkbenchPanels(options: {
   };
 
   const setExpanded = (name: keyof typeof panels, value: boolean): void => {
+    if (expanded[name] === value) return;
     expanded[name] = value;
     sync(name);
+    panels[name].onExpandedChange?.(value);
   };
   const onControlsClick = (): void => setExpanded('controls', !expanded.controls);
   const onInspectorClick = (): void => setExpanded('inspector', !expanded.inspector);
@@ -57,6 +60,8 @@ export function mountWorkbenchPanels(options: {
   window.addEventListener('keydown', onShortcut);
   sync('controls');
   sync('inspector');
+  options.controls.onExpandedChange?.(expanded.controls);
+  options.inspector.onExpandedChange?.(expanded.inspector);
 
   return {
     setExpanded,

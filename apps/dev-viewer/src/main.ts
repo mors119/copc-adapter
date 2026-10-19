@@ -918,6 +918,8 @@ async function main(): Promise<void> {
   const packageVersion = getElement<HTMLElement>('#package-version');
   const cesiumRendererGroup = getElement<HTMLElement>('#cesium-point-renderer-group');
   packageVersion.textContent = 'v' + __COPC_ADAPTER_VERSION__ + ' · workspace package';
+  let inspectorExpanded = isDebugPanelEnabled();
+  let setInspectorPolling: ((enabled: boolean) => void) | undefined;
 
   const panelLayout = mountWorkbenchPanels({
     controls: {
@@ -930,7 +932,11 @@ async function main(): Promise<void> {
       panel: getElement<HTMLElement>('#inspector-panel'),
       toggle: getElement<HTMLButtonElement>('#inspector-toggle'),
       label: 'Inspector',
-      expandedInitially: isDebugPanelEnabled(),
+      expandedInitially: inspectorExpanded,
+      onExpandedChange(expanded) {
+        inspectorExpanded = expanded;
+        setInspectorPolling?.(expanded);
+      },
     },
   });
 
@@ -1026,6 +1032,8 @@ async function main(): Promise<void> {
         : undefined),
     }),
   );
+  setInspectorPolling = (enabled) => debugPanel.setPollingEnabled(enabled);
+  debugPanel.setPollingEnabled(inspectorExpanded);
   const status = getElement<HTMLElement>('#source-status');
 
   const setActiveError = (error: unknown): void => {
