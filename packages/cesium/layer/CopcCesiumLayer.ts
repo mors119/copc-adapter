@@ -51,6 +51,12 @@ export type CopcStreamingOptions = {
    * `screen-projection` to retain the v0.5 passive gaze scoring.
    */
   refinementAlgorithm?: RefinementAlgorithm;
+  /**
+   * Bias refinement among currently visible nodes toward recent camera
+   * rotation. Defaults to `true`; set `false` to preserve stationary-era
+   * refinement priorities during camera movement as well.
+   */
+  motionLookahead?: boolean;
 };
 
 /** Options for a reusable Cesium layer backed by a URL, Blob/File, or random-access byte source. */

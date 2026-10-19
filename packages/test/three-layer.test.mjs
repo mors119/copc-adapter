@@ -160,6 +160,10 @@ async function createLoadedLayer(renderer) {
   return { layer, source, scene, applicationMesh, camera, attachment };
 }
 
+function delay(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
 test('loads without a scene, attaches one root, and update is a no-op for an unchanged camera', async () => {
   const { layer, source, scene, applicationMesh, attachment } = await createLoadedLayer();
 
@@ -176,6 +180,48 @@ test('loads without a scene, attaches one root, and update is a no-op for an unc
   assert.equal(source.hierarchyRequestCount, 1);
   assert.equal(layer.getSnapshot().streamingUpdateCount, 1);
 
+  layer.destroy();
+});
+
+test('Three performs one final same-view selection after motion decays, then stays idle', async () => {
+  const { layer, source, camera } = await createLoadedLayer();
+  const initialUpdates = layer.getSnapshot().streamingUpdateCount;
+
+  await delay(5);
+  camera.lookAt(100, 0, 0);
+  camera.updateMatrixWorld(true);
+  await layer.update();
+  const movingUpdates = layer.getSnapshot().streamingUpdateCount;
+  assert.equal(movingUpdates, initialUpdates + 1);
+  assert.ok(
+    Math.abs(layer.getSnapshot().performance.motionPredictedHorizontalDisplacementDegrees ?? 0) > 0,
+    JSON.stringify(layer.getSnapshot().performance),
+  );
+
+  await delay(850);
+  const settled = layer.getSnapshot();
+  assert.equal(settled.streamingUpdateCount, movingUpdates + 1);
+  assert.equal(settled.performance.motionPredictedHorizontalDisplacementDegrees, 0);
+  assert.equal(settled.performance.motionPredictedVerticalDisplacementDegrees, 0);
+  assert.equal(source.hierarchyRequestCount, 1);
+
+  await delay(250);
+  assert.equal(layer.getSnapshot().streamingUpdateCount, settled.streamingUpdateCount);
+  layer.destroy();
+});
+
+test('Three detach clears the pending stationary motion update and camera history', async () => {
+  const { layer, camera } = await createLoadedLayer();
+  await delay(5);
+  camera.lookAt(100, 0, 0);
+  camera.updateMatrixWorld(true);
+  await layer.update();
+  const detachedUpdates = layer.getSnapshot().streamingUpdateCount;
+
+  layer.detachFrom();
+  await delay(850);
+  assert.equal(layer.getSnapshot().streamingUpdateCount, detachedUpdates);
+  assert.equal(layer.getSnapshot().attached, false);
   layer.destroy();
 });
 

@@ -4,6 +4,7 @@ import type {
 import type { NodePointCache } from './createNodePointCache';
 import { NodeSelector } from './NodeSelector';
 import type { RefinementFocus } from './refinementStrategies';
+import type { CameraMotionPrediction } from './motionLookahead';
 import type {
   StreamingCameraState,
   StreamingHierarchy,
@@ -193,6 +194,11 @@ export class StreamingManager {
   /** Change focus relevance while retaining this manager's hierarchy and cache. */
   setRefinementFocus(focus: RefinementFocus | undefined): void {
     this.selector.setRefinementFocus(focus);
+  }
+
+  /** Replace the bounded current-view motion input without rebuilding the selector. */
+  setMotionPrediction(prediction: CameraMotionPrediction): void {
+    this.selector.setMotionPrediction(prediction);
   }
 
   /**

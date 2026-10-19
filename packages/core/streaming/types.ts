@@ -87,6 +87,8 @@ export type StreamingSelectionOptions = {
    * `screen-projection` to retain the v0.5 passive gaze scoring.
    */
   refinementAlgorithm?: RefinementAlgorithm;
+  /** Bias current visible-node refinement toward recent camera rotation; defaults to `true`. */
+  motionLookahead?: boolean;
   /** @deprecated Planned for removal in v0.9, after v0.8; use maxConcurrentNodeLoads. */
   maxPointsPerBatch?: number;
 };
@@ -152,6 +154,25 @@ export type StreamingSelectionMetrics = {
   refinementAlgorithm?: RefinementAlgorithm;
   /** Whether a runtime manual focus lens was enabled for this pass. */
   refinementFocusEnabled?: boolean;
+  /** Whether current-view camera motion lookahead was enabled for this pass. */
+  motionLookaheadEnabled?: boolean;
+  /** Smoothed horizontal angular velocity toward screen-right, in degrees/second. */
+  motionHorizontalAngularVelocityDegreesPerSecond?: number;
+  /** Smoothed vertical angular velocity toward screen-up, in degrees/second. */
+  motionVerticalAngularVelocityDegreesPerSecond?: number;
+  /** Fixed camera lookahead horizon, in milliseconds. */
+  motionHorizonMilliseconds?: number;
+  /** Predicted horizontal camera displacement, in degrees. */
+  motionPredictedHorizontalDisplacementDegrees?: number;
+  /** Predicted vertical camera displacement, in degrees. */
+  motionPredictedVerticalDisplacementDegrees?: number;
+  /** Visible candidate nodes receiving nonzero camera-motion relevance. */
+  motionCandidateCount?: number;
+  /** Minimum and maximum camera-motion relevance observed among visible candidates. */
+  motionWeightMin?: number;
+  motionWeightMax?: number;
+  /** Accepted atomic refinements whose decision or budget winner changed with motion relevance. */
+  motionInfluencedRefinementCount?: number;
   /** Nodes considered before frustum and distance culling. */
   candidatesBeforeCulling: number;
   /** Candidates rejected by the camera frustum. */

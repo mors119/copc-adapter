@@ -1,4 +1,5 @@
 import { intersectsViewFrustum } from './view';
+import type { CameraMotionPrediction } from './motionLookahead';
 import type {
   StreamingHierarchyNode,
   StreamingSelectedNode,
@@ -239,6 +240,18 @@ function calculateInfluenceWithoutManualFocus(
   });
 }
 
+function calculateInfluenceWithoutMotion(
+  influence: RefinementInfluence,
+  focus: RefinementFocus | undefined,
+): RefinementInfluence {
+  return calculateRefinementInfluence({
+    rawScreenSpaceError: influence.rawScreenSpaceError,
+    gazeWeight: influence.gazeWeight,
+    manualFocusWeight: influence.manualFocusWeight,
+    ...(focus ? { manualFocusDetailBias: focus.detailBias } : {}),
+  });
+}
+
 type ProjectedNodeCentre = {
   normalizedScreenDistance: number;
   normalizedScreenX: number;
@@ -282,6 +295,63 @@ function projectNodeCentre(
     normalizedScreenY: 0.5 - signedVerticalDisplacement / 2,
     forward,
   };
+}
+
+type MotionLookaheadTarget = {
+  normalizedScreenX: number;
+  normalizedScreenY: number;
+  activity: number;
+};
+
+function createMotionLookaheadTarget(
+  projection: GazeProjection | undefined,
+  prediction: CameraMotionPrediction | undefined,
+): MotionLookaheadTarget | undefined {
+  if (!projection || !prediction || prediction.activity <= 0) {
+    return undefined;
+  }
+
+  const horizontalDisplacement = toRadians(
+    prediction.predictedHorizontalDisplacementDegrees,
+  );
+  const verticalDisplacement = toRadians(
+    prediction.predictedVerticalDisplacementDegrees,
+  );
+  const targetX = 0.5 + Math.tan(horizontalDisplacement)
+    / (2 * projection.horizontalTangent);
+  const targetY = 0.5 - Math.tan(verticalDisplacement)
+    / (2 * projection.verticalTangent);
+  if (!Number.isFinite(targetX) || !Number.isFinite(targetY)) {
+    return undefined;
+  }
+
+  return {
+    normalizedScreenX: targetX,
+    normalizedScreenY: targetY,
+    activity: prediction.activity,
+  };
+}
+
+function calculateMotionLookaheadWeight(
+  projected: ProjectedNodeCentre | undefined,
+  target: MotionLookaheadTarget | undefined,
+): number {
+  if (!projected || !target || projected.forward <= 0) {
+    return 0;
+  }
+
+  // A quadratic smoothstep falloff covers the current viewport while avoiding
+  // a hard left/right or top/bottom boundary. The current frustum has already
+  // decided visibility; this target never admits a node outside that frontier.
+  const deltaX = projected.normalizedScreenX - target.normalizedScreenX;
+  const deltaY = projected.normalizedScreenY - target.normalizedScreenY;
+  const distanceSquared = deltaX * deltaX + deltaY * deltaY;
+  const falloffSquared = 0.75 * 0.75;
+  const normalizedDistance = clamp(distanceSquared / falloffSquared, 0, 1);
+  const falloff = 1 - normalizedDistance * normalizedDistance
+    * (3 - 2 * normalizedDistance);
+  const weight = target.activity * falloff;
+  return Number.isFinite(weight) ? clamp(weight, 0, 1) : 0;
 }
 
 function calculateAngularGapRadians(
@@ -609,6 +679,7 @@ type PrioritisedNode = {
   centerWeight: number;
   schedulingCenterWeight: number;
   focusWeight: number;
+  motionWeight: number;
   refinementPriority: number;
   schedulingPriority: number;
   boundsDistanceMeters: number;
@@ -690,6 +761,8 @@ type RefinementCandidate = PrioritisedNode & {
   replacementPointCost: number;
   focusChangedRefinementDecision: boolean;
   refinementPriorityWithoutManualFocus: number;
+  motionChangedRefinementDecision: boolean;
+  refinementPriorityWithoutMotion: number;
 };
 
 function createSelectionMetrics(
@@ -697,10 +770,21 @@ function createSelectionMetrics(
   maxRenderedPoints: number,
   refinementAlgorithm: StreamingSelectionOptions['refinementAlgorithm'],
   refinementFocusEnabled: boolean,
+  motionPrediction: CameraMotionPrediction,
 ): StreamingSelectionMetrics {
   return {
     refinementAlgorithm: refinementAlgorithm ?? 'foveated',
     refinementFocusEnabled,
+    motionLookaheadEnabled: motionPrediction.enabled,
+    motionHorizontalAngularVelocityDegreesPerSecond:
+      motionPrediction.horizontalAngularVelocityDegreesPerSecond,
+    motionVerticalAngularVelocityDegreesPerSecond:
+      motionPrediction.verticalAngularVelocityDegreesPerSecond,
+    motionHorizonMilliseconds: motionPrediction.horizonMilliseconds,
+    motionPredictedHorizontalDisplacementDegrees:
+      motionPrediction.predictedHorizontalDisplacementDegrees,
+    motionPredictedVerticalDisplacementDegrees:
+      motionPrediction.predictedVerticalDisplacementDegrees,
     candidatesBeforeCulling: 0,
     frustumCulledCount: 0,
     maxScreenSpaceError,
@@ -722,6 +806,9 @@ function createSelectionMetrics(
     minimumFrontierExceedsPointBudget: false,
     candidatesWithNonZeroInfluenceCount: 0,
     focusCandidateCount: 0,
+    motionCandidateCount: 0,
+    motionWeightMax: 0,
+    motionInfluencedRefinementCount: 0,
     focusInfluencedRefinementCount: 0,
     acceptedGazeInfluencedRefinementCount: 0,
     influenceClampCount: 0,
@@ -756,11 +843,21 @@ export class NodeSelector {
   private readonly options: StreamingSelectionOptions;
   private readonly strategy: RefinementRelevanceStrategy;
   private refinementFocus?: RefinementFocus;
+  private motionPrediction?: CameraMotionPrediction;
   private lastSelectionMetrics: StreamingSelectionMetrics = createSelectionMetrics(
     DEFAULT_MAX_SCREEN_SPACE_ERROR,
     DEFAULT_MAX_RENDERED_POINTS,
     'foveated',
     false,
+    {
+      enabled: true,
+      horizontalAngularVelocityDegreesPerSecond: 0,
+      verticalAngularVelocityDegreesPerSecond: 0,
+      horizonMilliseconds: 200,
+      predictedHorizontalDisplacementDegrees: 0,
+      predictedVerticalDisplacementDegrees: 0,
+      activity: 0,
+    },
   );
 
   /**
@@ -800,9 +897,20 @@ export class NodeSelector {
     this.refinementFocus = normalizeRefinementFocus(focus);
   }
 
+  /** Update the current-view motion estimate without rebuilding selector or hierarchy state. */
+  setMotionPrediction(prediction: CameraMotionPrediction): void {
+    this.motionPrediction = {
+      ...prediction,
+      enabled: prediction.enabled && this.options.motionLookahead !== false,
+    };
+  }
+
   /** Return a detached snapshot of the most recent selection counters. */
   getSelectionMetrics(): StreamingSelectionMetrics {
-    return { ...this.lastSelectionMetrics };
+    return {
+      ...this.lastSelectionMetrics,
+      motionWeightMin: this.lastSelectionMetrics.motionWeightMin ?? 0,
+    };
   }
 
   /**
@@ -829,6 +937,15 @@ export class NodeSelector {
       budget,
       this.strategy.algorithm,
       this.refinementFocus !== undefined,
+      this.motionPrediction ?? {
+        enabled: this.options.motionLookahead !== false,
+        horizontalAngularVelocityDegreesPerSecond: 0,
+        verticalAngularVelocityDegreesPerSecond: 0,
+        horizonMilliseconds: 200,
+        predictedHorizontalDisplacementDegrees: 0,
+        predictedVerticalDisplacementDegrees: 0,
+        activity: 0,
+      },
     );
 
     const frontier = new Map<string, StreamingHierarchyNode>();
@@ -839,8 +956,12 @@ export class NodeSelector {
       influence: RefinementInfluence;
       focusWeight: number;
       schedulingWeight: number;
+      motionWeight: number;
     }>();
     const priorityMetricsRecorded = new Set<string>();
+    const motionTarget = this.options.motionLookahead === false
+      ? undefined
+      : createMotionLookaheadTarget(gazeProjection, this.motionPrediction);
 
     const evaluate = (node: StreamingHierarchyNode) => {
       const existing = evaluations.get(node.node.key);
@@ -857,6 +978,7 @@ export class NodeSelector {
           influence: calculateRefinementInfluence({ rawScreenSpaceError: 0 }),
           focusWeight: 0,
           schedulingWeight: 0,
+          motionWeight: 0,
         };
         evaluations.set(node.node.key, result);
         return result;
@@ -869,6 +991,7 @@ export class NodeSelector {
           influence: calculateRefinementInfluence({ rawScreenSpaceError: 0 }),
           focusWeight: 0,
           schedulingWeight: 0,
+          motionWeight: 0,
         };
         evaluations.set(node.node.key, result);
         return result;
@@ -896,10 +1019,17 @@ export class NodeSelector {
         gazeProjection,
         this.refinementFocus,
       );
+      const motionWeight = this.options.motionLookahead === false
+        ? 0
+        : calculateMotionLookaheadWeight(
+          projected,
+          motionTarget,
+        );
       const influence = calculateRefinementInfluence({
         rawScreenSpaceError: screenSpaceErrorPixels,
         gazeWeight: relevance.refinementWeight,
         manualFocusWeight: focusWeight,
+        motionWeight,
         ...(this.refinementFocus
           ? { manualFocusDetailBias: this.refinementFocus.detailBias }
           : {}),
@@ -917,9 +1047,22 @@ export class NodeSelector {
         screenSpaceErrorPixels,
         influence,
         focusWeight,
+        motionWeight,
         schedulingWeight: relevance.schedulingWeight,
       };
       evaluations.set(node.node.key, result);
+      this.lastSelectionMetrics.motionWeightMin = Math.min(
+        this.lastSelectionMetrics.motionWeightMin ?? motionWeight,
+        motionWeight,
+      );
+      this.lastSelectionMetrics.motionWeightMax = Math.max(
+        this.lastSelectionMetrics.motionWeightMax ?? Number.NEGATIVE_INFINITY,
+        motionWeight,
+      );
+      if (motionWeight > 0) {
+        this.lastSelectionMetrics.motionCandidateCount =
+          (this.lastSelectionMetrics.motionCandidateCount ?? 0) + 1;
+      }
       return result;
     };
 
@@ -995,7 +1138,7 @@ export class NodeSelector {
       // A single multiplier keeps the existing 1.5x ceiling and leaves the
       // no-focus legacy score unchanged.
       const schedulingInfluence = clamp(
-        schedulingCenterWeight + evaluation.focusWeight,
+        schedulingCenterWeight + evaluation.focusWeight + evaluation.motionWeight,
         0,
         1,
       );
@@ -1013,6 +1156,7 @@ export class NodeSelector {
         centerWeight: evaluation.influence.gazeWeight,
         schedulingCenterWeight,
         focusWeight: evaluation.focusWeight,
+        motionWeight: evaluation.motionWeight,
         refinementPriority,
         schedulingPriority: Number.isFinite(schedulingProduct)
           ? schedulingProduct
@@ -1144,6 +1288,19 @@ export class NodeSelector {
             influenceWithoutManualFocus.effectiveScreenSpaceError,
             prioritised.wasPreviouslyRefined,
           ) !== decision;
+        const influenceWithoutMotion = calculateInfluenceWithoutMotion(
+          prioritised.influence,
+          this.refinementFocus,
+        );
+        const motionChangedRefinementDecision = prioritised.motionWeight > 0
+          && prioritised.influence.effectiveScreenSpaceError
+            > influenceWithoutMotion.effectiveScreenSpaceError
+          && shouldRefine(
+            parent,
+            this.options,
+            influenceWithoutMotion.effectiveScreenSpaceError,
+            prioritised.wasPreviouslyRefined,
+          ) !== decision;
         const hasPreviousState = prioritised.wasPreviouslySelected
           || prioritised.wasPreviouslyRefined;
         if (decision === 'hold' && hasPreviousState) {
@@ -1204,6 +1361,9 @@ export class NodeSelector {
           focusChangedRefinementDecision,
           refinementPriorityWithoutManualFocus:
             influenceWithoutManualFocus.effectiveScreenSpaceError,
+          motionChangedRefinementDecision,
+          refinementPriorityWithoutMotion:
+            influenceWithoutMotion.effectiveScreenSpaceError,
         });
       };
 
@@ -1275,6 +1435,28 @@ export class NodeSelector {
             return otherFitsBefore && !otherFitsAfter;
           })
           : false;
+        const motionChangedBudgetWinner = fitsBudgets || isBudgetReducingPointStep
+          ? [...pending.values()].some((other) => {
+            const motionOrder = compareRefinementPriority(candidate, other);
+            const noMotionOrder = compareRefinementPriorityByScore(
+              candidate,
+              other,
+              candidate.refinementPriorityWithoutMotion,
+              other.refinementPriorityWithoutMotion,
+            );
+            if (motionOrder >= 0 || noMotionOrder <= 0) {
+              return false;
+            }
+
+            const otherFitsBefore = canApplyWithinBudgets(
+              other,
+              frontier.size,
+              frontierPointCount,
+            );
+            const otherFitsAfter = canApplyWithinBudgets(other, nextNodeCount, nextPointCount);
+            return otherFitsBefore && !otherFitsAfter;
+          })
+          : false;
 
         if (!fitsBudgets && !isBudgetReducingPointStep) {
           if (nextNodeCount > this.options.maxNodes) {
@@ -1309,6 +1491,10 @@ export class NodeSelector {
         if (candidate.focusChangedRefinementDecision || focusChangedBudgetWinner) {
           this.lastSelectionMetrics.focusInfluencedRefinementCount =
             (this.lastSelectionMetrics.focusInfluencedRefinementCount ?? 0) + 1;
+        }
+        if (candidate.motionChangedRefinementDecision || motionChangedBudgetWinner) {
+          this.lastSelectionMetrics.motionInfluencedRefinementCount =
+            (this.lastSelectionMetrics.motionInfluencedRefinementCount ?? 0) + 1;
         }
 
         for (const child of candidate.replacement) {
