@@ -15,8 +15,13 @@ other.
 The Playground is the public demo: it loads the built-in Autzen or Chicago
 dataset, a directly requested custom HTTP(S) URL, or a local file. It supports
 Cesium and Three.js, JavaScript and Rust/WASM backends, common color modes,
-point size, two streaming limits, and point inspection. Detailed worker,
-cache, and benchmark diagnostics remain in the internal Dev Viewer.
+point size, streaming limits, and point inspection. The refinement selector
+uses the public `foveated` default or legacy `screen-projection` strategy. The
+Cesium Focus Lens can boost the center, follow the canvas pointer, or stay
+pinned; movement, radius, and detail bias update the loaded layer without
+reloading its source. Algorithm changes apply through layer recreation. The
+screen-space guide is visual only and does not crop the point cloud. Detailed
+worker, cache, and benchmark diagnostics remain in the internal Dev Viewer.
 
 HTTP sources must allow browser CORS and ranged GET requests. The probe reports
 the validation evidence available to the browser; that response validation

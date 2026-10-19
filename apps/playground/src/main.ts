@@ -2,6 +2,8 @@ import type {
   CopcCesiumLayer,
   CopcPointInspection,
   CopcSourceProbeResult,
+  RefinementAlgorithm,
+  RefinementFocus,
 } from '@frillab/copc-adapter/cesium';
 import {
   formatUiNumber,
@@ -21,6 +23,13 @@ import {
   type PlaygroundSnapshot,
   type PlaygroundSource,
 } from './rendererRuntime';
+import {
+  readPlaygroundRefinementConfig,
+  refinementAlgorithmOptions,
+  writePlaygroundRefinementConfig,
+  type PlaygroundFocusMode,
+  type PlaygroundRefinementConfig,
+} from './refinementConfig';
 import './style.css';
 
 const app = document.querySelector<HTMLDivElement>('#app');
@@ -73,8 +82,9 @@ app.innerHTML = `
           <div class="viewer-title"><span class="eyebrow">VIEWPORT</span><h2 id="viewer-heading">Cesium</h2></div>
           <div class="camera-controls"><span class="control-label">Camera</span><div id="camera-control"></div></div>
         </div>
-        <div class="viewer-frame">
+        <div class="viewer-frame" id="viewer-frame">
           <div id="cesium-container" role="region" aria-label="Interactive Cesium point cloud viewport"></div>
+          <div class="focus-guide" id="focus-guide" hidden><button class="focus-guide-handle" id="focus-guide-handle" type="button" aria-label="Move focus lens"><span aria-hidden="true"></span></button></div>
           <div class="scene-overlay"><span class="scene-coordinate">POINT CLOUD · 3D</span></div>
           <div class="stream-hud" id="stream-hud" aria-live="polite">
             <span class="hud-status"><i class="live-dot muted" id="hud-dot" aria-hidden="true"></i><span id="hud-state">Waiting</span></span>
@@ -105,6 +115,32 @@ app.innerHTML = `
           <div class="slider-control" id="max-points-control"></div>
           <p class="control-hint">Values preview while dragging and apply on release.</p>
         </section>
+        <section class="config-section focus-section" aria-labelledby="focus-heading">
+          <div class="section-heading"><div><span class="eyebrow">REFINE</span><h2 id="focus-heading">Focus Lens</h2></div></div>
+          <label class="ui-field" for="refinement-algorithm">Refinement algorithm
+            <select id="refinement-algorithm"></select>
+          </label>
+          <label class="ui-field" for="focus-mode">Focus mode
+            <select id="focus-mode">
+              <option value="auto-center">Auto center</option>
+              <option value="center-boost">Center boost</option>
+              <option value="follow-pointer">Follow pointer</option>
+              <option value="pinned">Pinned</option>
+            </select>
+          </label>
+          <p class="control-hint">Algorithm changes apply by reloading the layer. Focus changes update the active layer.</p>
+          <label class="focus-checkbox" for="focus-enabled"><input id="focus-enabled" type="checkbox"> Focus enabled</label>
+          <div class="focus-position-controls" id="focus-position-controls">
+            <label for="focus-x">X (0–1) <input id="focus-x" type="number" min="0" max="1" step="0.01" inputmode="decimal"></label>
+            <label for="focus-y">Y (0–1) <input id="focus-y" type="number" min="0" max="1" step="0.01" inputmode="decimal"></label>
+            <button id="focus-reset" type="button">Reset center</button>
+          </div>
+          <div class="slider-control" id="focus-radius-control"></div>
+          <div class="slider-control" id="focus-bias-control"></div>
+          <label class="focus-checkbox" for="focus-show-guide"><input id="focus-show-guide" type="checkbox"> Show guide</label>
+          <p class="control-hint" id="focus-help">Focus prioritizes LoD refinement near this screen-space region; it does not crop the point cloud.</p>
+          <p class="focus-config-warning" id="focus-config-warning" role="status" aria-live="polite" hidden></p>
+        </section>
         <section class="package-card" aria-label="Installed adapter package">
           <span class="package-mark" aria-hidden="true">↗</span>
           <div><strong>Adapter package</strong><span><code>@frillab/copc-adapter</code> v${__ADAPTER_VERSION__}</span><span id="package-source">${__ADAPTER_SOURCE__}</span></div>
@@ -123,6 +159,10 @@ app.innerHTML = `
           <div><dt>Rendered nodes</dt><dd id="diagnostic-nodes">0</dd></div>
           <div><dt>Selected nodes</dt><dd id="diagnostic-selected">0</dd></div>
           <div><dt>Visible LoD</dt><dd id="diagnostic-lod">—</dd></div>
+          <div><dt>Refinement algorithm</dt><dd id="diagnostic-algorithm">Foveated</dd></div>
+          <div><dt>Focus lens</dt><dd id="diagnostic-focus">Inactive</dd></div>
+          <div><dt>Focus candidates</dt><dd id="diagnostic-focus-candidates">0</dd></div>
+          <div><dt>Focus-influenced refinements</dt><dd id="diagnostic-focus-refinements">0</dd></div>
           <div><dt>Validation</dt><dd id="diagnostic-validation">Unknown</dd></div>
         </dl>
         <p class="diagnostic-warning" id="diagnostic-warning" hidden></p>
@@ -160,6 +200,17 @@ const rendererHeading = byId<HTMLHeadingElement>('viewer-heading');
 const rendererBadge = byId<HTMLElement>('renderer-badge');
 const viewerCaption = byId<HTMLElement>('viewer-caption');
 const statusFooter = byId<HTMLElement>('footer-status');
+const viewerFrame = byId<HTMLDivElement>('viewer-frame');
+const focusGuide = byId<HTMLDivElement>('focus-guide');
+const focusGuideHandle = byId<HTMLButtonElement>('focus-guide-handle');
+const algorithmSelect = byId<HTMLSelectElement>('refinement-algorithm');
+const focusModeSelect = byId<HTMLSelectElement>('focus-mode');
+const focusEnabledInput = byId<HTMLInputElement>('focus-enabled');
+const focusShowGuideInput = byId<HTMLInputElement>('focus-show-guide');
+const focusXInput = byId<HTMLInputElement>('focus-x');
+const focusYInput = byId<HTMLInputElement>('focus-y');
+const focusPositionControls = byId<HTMLDivElement>('focus-position-controls');
+const focusConfigWarning = byId<HTMLElement>('focus-config-warning');
 
 let renderer: PlaygroundRenderer = 'cesium';
 let backend: PlaygroundBackend = 'copc-js';
@@ -167,6 +218,22 @@ let colorMode: PlaygroundColorMode = 'elevation';
 let pointSize = 3;
 let maxNodes = 24;
 let maxRenderedPoints = 250_000;
+const parsedRefinementConfig = readPlaygroundRefinementConfig(new URLSearchParams(window.location.search));
+let refinementConfig: PlaygroundRefinementConfig = parsedRefinementConfig.config;
+let followPointerCenter = { ...refinementConfig.center };
+let focusDragPointerId: number | undefined;
+let focusDragOffset = { x: 0, y: 0 };
+let pendingDragCenter: { x: number; y: number } | undefined;
+let dragFocusFrame: number | undefined;
+let dragFocusTimer: number | undefined;
+let lastDragFocusUpdateAt = 0;
+let pointerFocusCanvas: HTMLCanvasElement | undefined;
+let pendingPointerCenter: { x: number; y: number } | undefined;
+let pointerFocusFrame: number | undefined;
+let pointerFocusTimer: number | undefined;
+let lastPointerFocusUpdateAt = 0;
+let lastAppliedFocusCenter: { x: number; y: number } | undefined;
+let focusConfigSyncTimer: number | undefined;
 let sourceGeneration = 0;
 let activeLoadPending = false;
 let activeSource: PlaygroundSource | undefined;
@@ -176,6 +243,20 @@ let activeProbeResult: CopcSourceProbeResult | undefined;
 let cameraInteractionVersion = 0;
 let layerFactory: CesiumLayerFactory | undefined;
 let refreshTimer: number | undefined;
+
+for (const option of refinementAlgorithmOptions) {
+  algorithmSelect.add(new Option(option.label, option.value));
+}
+algorithmSelect.value = refinementConfig.algorithm;
+focusModeSelect.value = refinementConfig.focusMode;
+focusEnabledInput.checked = refinementConfig.focusEnabled;
+focusShowGuideInput.checked = refinementConfig.showGuide;
+focusXInput.value = String(refinementConfig.center.x);
+focusYInput.value = String(refinementConfig.center.y);
+if (parsedRefinementConfig.warning) {
+  focusConfigWarning.textContent = parsedRefinementConfig.warning;
+  focusConfigWarning.hidden = false;
+}
 
 for (const eventName of ['pointerdown', 'wheel', 'keydown', 'touchstart']) {
   viewport.addEventListener(eventName, () => { cameraInteractionVersion += 1; }, { passive: true });
@@ -195,6 +276,12 @@ declare global {
       getCameraView(): PlaygroundTestCameraView;
       getMockLoadCount(): number;
       getPickablePointScreenPosition(): { x: number; y: number } | undefined;
+      getMockLayerCreateCount(): number;
+      getMockRefinementAlgorithm(): RefinementAlgorithm | undefined;
+      getMockFocusUpdateCount(): number;
+      getMockRefinementFocus(): RefinementFocus | undefined;
+      getSnapshot(): PlaygroundSnapshot | undefined;
+      getCameraInputsEnabled(): boolean | undefined;
     };
   }
 }
@@ -203,57 +290,83 @@ if (import.meta.env.DEV) {
   let mockLoadCount = 0;
   let mockDestroyCount = 0;
   let mockZoomCount = 0;
+  let mockLayerCreateCount = 0;
+  let mockRefinementAlgorithm: RefinementAlgorithm | undefined;
+  let mockFocusUpdateCount = 0;
+  let mockRefinementFocus: RefinementFocus | undefined;
   let delayNextMockLoad = false;
   let releaseMockLoad: (() => void) | undefined;
   window.__COPC_PLAYGROUND_TEST__ = {
     useCameraResetLayerMock(): void {
-      layerFactory = (() => ({
-        attachTo(): void {},
-        async load(): Promise<void> {
-          mockLoadCount += 1;
-          await Promise.resolve();
-          activeRuntime?.setCameraState({
-            longitude: -122.2,
-            latitude: 44.1,
-            height: 5000,
-            heading: 20,
-            pitch: -40,
-            roll: 0,
-          });
-          if (delayNextMockLoad) {
-            delayNextMockLoad = false;
-            await new Promise<void>((resolve) => { releaseMockLoad = resolve; });
-          }
-        },
-        destroy(): void { mockDestroyCount += 1; },
-        zoomTo(): Promise<boolean> {
-          mockZoomCount += 1;
-          activeRuntime?.setCameraState({
-            longitude: -12,
-            latitude: 24,
-            height: 19_000_000,
-            heading: 0,
-            pitch: -90,
-            roll: 0,
-          });
-          return Promise.resolve(true);
-        },
-        getSelectedPoint(): undefined { return undefined; },
-        getSnapshot(): ReturnType<CopcCesiumLayer['getSnapshot']> {
-          return {
-            lifecycle: 'ready',
-            renderedPointCount: 0,
-            renderedNodeKeys: [],
-            selectedNodeKeys: [],
-            performance: { visibleLevelRange: undefined },
-          } as unknown as ReturnType<CopcCesiumLayer['getSnapshot']>;
-        },
-        get boundingSphere(): undefined { return undefined; },
-      }) as unknown as ReturnType<CesiumLayerFactory>);
+      layerFactory = (options) => {
+        mockLayerCreateCount += 1;
+        mockRefinementAlgorithm = options.streaming?.refinementAlgorithm;
+        mockRefinementFocus = undefined;
+        return {
+          attachTo(): void {},
+          async load(): Promise<void> {
+            mockLoadCount += 1;
+            await Promise.resolve();
+            activeRuntime?.setCameraState({
+              longitude: -122.2,
+              latitude: 44.1,
+              height: 5000,
+              heading: 20,
+              pitch: -40,
+              roll: 0,
+            });
+            if (delayNextMockLoad) {
+              delayNextMockLoad = false;
+              await new Promise<void>((resolve) => { releaseMockLoad = resolve; });
+            }
+          },
+          destroy(): void { mockDestroyCount += 1; },
+          setRefinementFocus(focus: RefinementFocus | undefined): void {
+            mockFocusUpdateCount += 1;
+            mockRefinementFocus = focus ? {
+              ...focus,
+              center: { ...focus.center },
+            } : undefined;
+          },
+          zoomTo(): Promise<boolean> {
+            mockZoomCount += 1;
+            activeRuntime?.setCameraState({
+              longitude: -12,
+              latitude: 24,
+              height: 19_000_000,
+              heading: 0,
+              pitch: -90,
+              roll: 0,
+            });
+            return Promise.resolve(true);
+          },
+          getSelectedPoint(): undefined { return undefined; },
+          getSnapshot(): ReturnType<CopcCesiumLayer['getSnapshot']> {
+            return {
+              lifecycle: 'ready',
+              renderedPointCount: 0,
+              renderedNodeKeys: [],
+              selectedNodeKeys: [],
+              performance: {
+                visibleLevelRange: undefined,
+                refinementAlgorithm: mockRefinementAlgorithm ?? 'foveated',
+                refinementFocusEnabled: mockRefinementFocus !== undefined,
+                focusCandidateCount: mockRefinementFocus ? 2 : 0,
+                focusInfluencedRefinementCount: mockRefinementFocus ? 1 : 0,
+              },
+            } as unknown as ReturnType<CopcCesiumLayer['getSnapshot']>;
+          },
+          get boundingSphere(): undefined { return undefined; },
+        } as unknown as ReturnType<CesiumLayerFactory>;
+      };
     },
     delayNextLoad(): void { delayNextMockLoad = true; },
     releaseDelayedLoad(): void { releaseMockLoad?.(); releaseMockLoad = undefined; },
     getMockLoadCount: () => mockLoadCount,
+    getMockLayerCreateCount: () => mockLayerCreateCount,
+    getMockRefinementAlgorithm: () => mockRefinementAlgorithm,
+    getMockFocusUpdateCount: () => mockFocusUpdateCount,
+    getMockRefinementFocus: () => mockRefinementFocus,
     getMockDestroyCount: () => mockDestroyCount,
     getMockZoomCount: () => mockZoomCount,
     setCameraView(view): void { activeRuntime?.setCameraState(view); },
@@ -265,6 +378,8 @@ if (import.meta.env.DEV) {
     getPickablePointScreenPosition(): { x: number; y: number } | undefined {
       return activeRuntime?.getPickablePointScreenPosition();
     },
+    getSnapshot(): PlaygroundSnapshot | undefined { return activeRuntime?.getSnapshot(); },
+    getCameraInputsEnabled(): boolean | undefined { return activeRuntime?.getCameraInputsEnabled(); },
   };
 }
 
@@ -379,14 +494,339 @@ const sliders = [
   }),
 ];
 
+const focusRadiusSlider = mountSlider(byId('focus-radius-control'), {
+  id: 'focus-radius',
+  label: 'Radius',
+  min: 1,
+  max: 100,
+  step: 0.01,
+  value: refinementConfig.radius * 100,
+  formatValue: (value) => `${formatUiNumber(value)}% of the shorter viewport side`,
+  onCommit(value) {
+    refinementConfig = { ...refinementConfig, radius: value / 100 };
+    applyFocusSettings();
+  },
+});
+const focusBiasSlider = mountSlider(byId('focus-bias-control'), {
+  id: 'focus-bias',
+  label: 'Detail bias',
+  min: 1,
+  max: 2,
+  step: 0.01,
+  value: refinementConfig.detailBias,
+  formatValue: (value) => `${formatUiNumber(value, 2)}×`,
+  onCommit(value) {
+    refinementConfig = { ...refinementConfig, detailBias: value };
+    applyFocusSettings();
+  },
+});
+sliders.push(focusRadiusSlider, focusBiasSlider);
+
+function effectiveRefinementFocus(
+  center = refinementConfig.focusMode === 'follow-pointer'
+    ? followPointerCenter
+    : refinementConfig.center,
+): RefinementFocus | undefined {
+  if (renderer !== 'cesium' || !refinementConfig.focusEnabled
+    || refinementConfig.focusMode === 'auto-center') return undefined;
+  return {
+    type: 'screen-circle',
+    center: { x: center.x, y: center.y },
+    radius: refinementConfig.radius,
+    detailBias: refinementConfig.detailBias,
+  };
+}
+
+function updateIntegrationExample(): void {
+  const algorithmLine = `streaming: { maxNodes: ${maxNodes}, refinementAlgorithm: '${refinementConfig.algorithm}' },`;
+  const focus = effectiveRefinementFocus(refinementConfig.center);
+  const modeComment = refinementConfig.focusMode === 'follow-pointer'
+    ? '// Playground focus mode: follow-pointer. Update center from this canvas’s normalized pointer coordinates.'
+    : refinementConfig.focusMode === 'pinned'
+      ? '// Playground focus mode: pinned.'
+      : refinementConfig.focusMode === 'center-boost'
+        ? '// Playground focus mode: center-boost.'
+        : '// Playground focus mode: auto-center; no manual focus is active.';
+  const focusLine = focus
+    ? `${modeComment}\nlayer.setRefinementFocus({ type: 'screen-circle', center: { x: ${focus.center.x.toFixed(4)}, y: ${focus.center.y.toFixed(4)} }, radius: ${focus.radius.toFixed(4)}, detailBias: ${focus.detailBias.toFixed(2)} });`
+    : `${modeComment}\n// Focus Lens is disabled in the Playground.`;
+  byId<HTMLElement>('integration-example').textContent = renderer === 'cesium'
+    ? `const layer = new CopcCesiumLayer({ url: copcUrl, backend: '${backend}',\n  ${algorithmLine}\n});\nawait layer.load();\nlayer.attachTo(viewer);\n${focusLine}`
+    : `const layer = new CopcThreeLayer({ url: copcUrl, backend: '${backend}',\n  ${algorithmLine}\n});\nlayer.attachTo({ scene, camera, renderer });\nawait layer.load();\n${modeComment}`;
+}
+
+function updateFocusControls(): void {
+  algorithmSelect.value = refinementConfig.algorithm;
+  focusModeSelect.value = refinementConfig.focusMode;
+  focusEnabledInput.checked = refinementConfig.focusEnabled;
+  focusShowGuideInput.checked = refinementConfig.showGuide;
+  focusEnabledInput.disabled = renderer !== 'cesium' || refinementConfig.focusMode === 'auto-center';
+  focusShowGuideInput.disabled = renderer !== 'cesium';
+  focusModeSelect.disabled = renderer !== 'cesium';
+  focusRadiusSlider.setDisabled(renderer !== 'cesium' || refinementConfig.focusMode === 'auto-center');
+  focusBiasSlider.setDisabled(renderer !== 'cesium' || refinementConfig.focusMode === 'auto-center');
+  focusRadiusSlider.setValue(refinementConfig.radius * 100);
+  focusBiasSlider.setValue(refinementConfig.detailBias);
+
+  const positionEditable = renderer === 'cesium'
+    && refinementConfig.focusMode !== 'auto-center'
+    && refinementConfig.focusMode !== 'follow-pointer';
+  focusPositionControls.hidden = !positionEditable;
+  focusXInput.disabled = !positionEditable;
+  focusYInput.disabled = !positionEditable;
+  focusXInput.value = String(refinementConfig.center.x);
+  focusYInput.value = String(refinementConfig.center.y);
+  byId<HTMLButtonElement>('focus-reset').disabled = !positionEditable;
+
+  const focusAvailable = renderer === 'cesium';
+  byId<HTMLElement>('focus-help').textContent = focusAvailable
+    ? 'Focus prioritizes LoD refinement near this screen-space region; it does not crop the point cloud.'
+    : 'Focus Lens controls require the Cesium renderer. The refinement algorithm applies to both renderers.';
+  focusGuide.hidden = !focusAvailable || !refinementConfig.showGuide
+    || refinementConfig.focusMode === 'auto-center';
+  focusGuide.classList.toggle('is-inactive', !refinementConfig.focusEnabled);
+  focusGuide.classList.toggle('is-pointer-mode', refinementConfig.focusMode === 'follow-pointer');
+  focusGuideHandle.tabIndex = focusGuide.hidden || refinementConfig.focusMode === 'follow-pointer' ? -1 : 0;
+  focusGuideHandle.setAttribute('aria-label', `Move focus lens, X ${refinementConfig.center.x.toFixed(2)}, Y ${refinementConfig.center.y.toFixed(2)}`);
+  updateFocusGuidePosition();
+}
+
+function writeRefinementUrl(): void {
+  const params = writePlaygroundRefinementConfig(
+    new URLSearchParams(window.location.search),
+    refinementConfig,
+  );
+  const query = params.toString();
+  const nextUrl = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`;
+  window.history.replaceState(window.history.state, '', nextUrl);
+  focusConfigWarning.hidden = true;
+}
+
+function applyFocusSettings(syncUrl = true): void {
+  updateFocusControls();
+  activeRuntime?.setRefinementFocus(effectiveRefinementFocus());
+  lastAppliedFocusCenter = effectiveRefinementFocus()?.center;
+  if (syncUrl) writeRefinementUrl();
+  updateIntegrationExample();
+  refreshSnapshot();
+}
+
+function setFocusMode(mode: PlaygroundFocusMode): void {
+  const previousMode = refinementConfig.focusMode;
+  if (previousMode === 'follow-pointer' && mode !== 'follow-pointer' && mode !== 'center-boost') {
+    refinementConfig = { ...refinementConfig, center: { ...followPointerCenter } };
+  }
+  if (mode === 'center-boost') {
+    refinementConfig = { ...refinementConfig, center: { x: 0.5, y: 0.5 } };
+  }
+  refinementConfig = {
+    ...refinementConfig,
+    focusMode: mode,
+    focusEnabled: mode === 'auto-center' ? false : true,
+  };
+  if (mode === 'follow-pointer') followPointerCenter = { ...refinementConfig.center };
+  applyFocusSettings();
+}
+
+function setFocusCenter(center: { x: number; y: number }, syncUrl = true): void {
+  const bounded = {
+    x: Math.min(1, Math.max(0, center.x)),
+    y: Math.min(1, Math.max(0, center.y)),
+  };
+  if (refinementConfig.focusMode === 'center-boost') {
+    refinementConfig = { ...refinementConfig, focusMode: 'pinned' };
+  }
+  refinementConfig = { ...refinementConfig, center: bounded };
+  followPointerCenter = { ...bounded };
+  applyFocusSettings(syncUrl);
+}
+
+function updateFocusGuidePosition(): void {
+  const canvas = activeRuntime?.getFocusCanvas();
+  if (!canvas || focusGuide.hidden) return;
+  const canvasRect = canvas.getBoundingClientRect();
+  const frameRect = viewerFrame.getBoundingClientRect();
+  if (canvasRect.width <= 0 || canvasRect.height <= 0) return;
+  const diameter = refinementConfig.radius * 2 * Math.min(canvasRect.width, canvasRect.height);
+  const center = refinementConfig.focusMode === 'follow-pointer'
+    ? followPointerCenter
+    : refinementConfig.center;
+  focusGuide.style.width = `${diameter}px`;
+  focusGuide.style.height = `${diameter}px`;
+  focusGuide.style.left = `${canvasRect.left - frameRect.left + center.x * canvasRect.width}px`;
+  focusGuide.style.top = `${canvasRect.top - frameRect.top + center.y * canvasRect.height}px`;
+}
+
+function unbindPointerFocus(): void {
+  if (pointerFocusCanvas) pointerFocusCanvas.removeEventListener('pointermove', onFocusCanvasPointerMove);
+  pointerFocusCanvas = undefined;
+  if (pointerFocusFrame !== undefined) cancelAnimationFrame(pointerFocusFrame);
+  if (pointerFocusTimer !== undefined) window.clearTimeout(pointerFocusTimer);
+  pointerFocusFrame = undefined;
+  pointerFocusTimer = undefined;
+  pendingPointerCenter = undefined;
+}
+
+function flushFollowPointerUpdate(): void {
+  pointerFocusFrame = undefined;
+  if (!pendingPointerCenter || renderer !== 'cesium'
+    || refinementConfig.focusMode !== 'follow-pointer' || !refinementConfig.focusEnabled) return;
+  const now = performance.now();
+  const interval = 33;
+  if (now - lastPointerFocusUpdateAt < interval) {
+    pointerFocusTimer = window.setTimeout(() => {
+      pointerFocusTimer = undefined;
+      if (pointerFocusFrame === undefined) pointerFocusFrame = requestAnimationFrame(flushFollowPointerUpdate);
+    }, interval - (now - lastPointerFocusUpdateAt));
+    return;
+  }
+  const center = pendingPointerCenter;
+  pendingPointerCenter = undefined;
+  const previous = lastAppliedFocusCenter;
+  if (previous && Math.abs(center.x - previous.x) < 0.005 && Math.abs(center.y - previous.y) < 0.005) return;
+  followPointerCenter = center;
+  lastPointerFocusUpdateAt = now;
+  applyFocusSettings(false);
+}
+
+function onFocusCanvasPointerMove(event: PointerEvent): void {
+  if (!pointerFocusCanvas || refinementConfig.focusMode !== 'follow-pointer') return;
+  const rect = pointerFocusCanvas.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return;
+  const center = {
+    x: Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width)),
+    y: Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height)),
+  };
+  followPointerCenter = center;
+  updateFocusGuidePosition();
+  if (!refinementConfig.focusEnabled) return;
+  pendingPointerCenter = center;
+  if (pointerFocusFrame === undefined && pointerFocusTimer === undefined) {
+    pointerFocusFrame = requestAnimationFrame(flushFollowPointerUpdate);
+  }
+}
+
+function bindPointerFocus(runtime: PlaygroundRuntime): void {
+  unbindPointerFocus();
+  const canvas = runtime.getFocusCanvas();
+  if (!canvas) return;
+  pointerFocusCanvas = canvas;
+  canvas.addEventListener('pointermove', onFocusCanvasPointerMove, { passive: true });
+}
+
+function finishFocusDrag(): void {
+  if (focusDragPointerId === undefined) return;
+  if (pendingDragCenter) flushDragFocusUpdate(true);
+  focusDragPointerId = undefined;
+  activeRuntime?.setFocusDragging(false);
+  if (dragFocusFrame !== undefined) cancelAnimationFrame(dragFocusFrame);
+  if (dragFocusTimer !== undefined) window.clearTimeout(dragFocusTimer);
+  dragFocusFrame = undefined;
+  dragFocusTimer = undefined;
+  pendingDragCenter = undefined;
+  if (focusConfigSyncTimer !== undefined) window.clearTimeout(focusConfigSyncTimer);
+  focusConfigSyncTimer = undefined;
+  writeRefinementUrl();
+}
+
+function onFocusGuidePointerDown(event: PointerEvent): void {
+  if (focusGuide.hidden || refinementConfig.focusMode === 'follow-pointer' || renderer !== 'cesium') return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (refinementConfig.focusMode === 'center-boost') {
+    refinementConfig = { ...refinementConfig, focusMode: 'pinned' };
+    updateFocusControls();
+  }
+  const canvas = activeRuntime?.getFocusCanvas();
+  if (!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  const center = {
+    x: rect.left + refinementConfig.center.x * rect.width,
+    y: rect.top + refinementConfig.center.y * rect.height,
+  };
+  focusDragOffset = { x: event.clientX - center.x, y: event.clientY - center.y };
+  focusDragPointerId = event.pointerId;
+  focusGuideHandle.setPointerCapture(event.pointerId);
+  activeRuntime?.setFocusDragging(true);
+}
+
+function onFocusGuidePointerMove(event: PointerEvent): void {
+  if (focusDragPointerId !== event.pointerId) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const canvas = activeRuntime?.getFocusCanvas();
+  if (!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return;
+  const center = {
+    x: (event.clientX - focusDragOffset.x - rect.left) / rect.width,
+    y: (event.clientY - focusDragOffset.y - rect.top) / rect.height,
+  };
+  pendingDragCenter = {
+    x: Math.min(1, Math.max(0, center.x)),
+    y: Math.min(1, Math.max(0, center.y)),
+  };
+  if (dragFocusFrame === undefined && dragFocusTimer === undefined) {
+    dragFocusFrame = requestAnimationFrame(() => flushDragFocusUpdate());
+  }
+}
+
+function flushDragFocusUpdate(force = false): void {
+  dragFocusFrame = undefined;
+  if (!pendingDragCenter || focusDragPointerId === undefined) return;
+  const now = performance.now();
+  const interval = 33;
+  if (!force && now - lastDragFocusUpdateAt < interval) {
+    dragFocusTimer = window.setTimeout(() => {
+      dragFocusTimer = undefined;
+      if (dragFocusFrame === undefined) dragFocusFrame = requestAnimationFrame(() => flushDragFocusUpdate());
+    }, interval - (now - lastDragFocusUpdateAt));
+    return;
+  }
+  const center = pendingDragCenter;
+  pendingDragCenter = undefined;
+  const previous = refinementConfig.center;
+  if (!force && Math.abs(center.x - previous.x) < 0.005 && Math.abs(center.y - previous.y) < 0.005) return;
+  lastDragFocusUpdateAt = now;
+  setFocusCenter(center, false);
+  if (focusConfigSyncTimer !== undefined) window.clearTimeout(focusConfigSyncTimer);
+  focusConfigSyncTimer = window.setTimeout(() => {
+    focusConfigSyncTimer = undefined;
+    writeRefinementUrl();
+  }, 300);
+}
+
+function onFocusGuideKeyDown(event: KeyboardEvent): void {
+  const step = event.shiftKey ? 0.05 : 0.01;
+  const center = { ...refinementConfig.center };
+  if (event.key === 'ArrowLeft') center.x -= step;
+  else if (event.key === 'ArrowRight') center.x += step;
+  else if (event.key === 'ArrowUp') center.y -= step;
+  else if (event.key === 'ArrowDown') center.y += step;
+  else if (event.key === 'Home') {
+    center.x = 0.5;
+    center.y = 0.5;
+  } else return;
+  event.preventDefault();
+  setFocusCenter(center);
+}
+
+focusGuideHandle.addEventListener('pointerdown', onFocusGuidePointerDown);
+focusGuideHandle.addEventListener('pointermove', onFocusGuidePointerMove);
+focusGuideHandle.addEventListener('pointerup', finishFocusDrag);
+focusGuideHandle.addEventListener('pointercancel', finishFocusDrag);
+focusGuideHandle.addEventListener('lostpointercapture', finishFocusDrag);
+focusGuideHandle.addEventListener('keydown', onFocusGuideKeyDown);
+const focusResizeObserver = new ResizeObserver(updateFocusGuidePosition);
+focusResizeObserver.observe(viewerFrame);
+
 function syncRendererLabels(): void {
   const label = renderer === 'cesium' ? 'Cesium' : 'Three.js';
   rendererHeading.textContent = label;
   rendererBadge.textContent = label;
   viewport.setAttribute('aria-label', `Interactive ${label} point cloud viewport`);
-  byId<HTMLElement>('integration-example').textContent = renderer === 'cesium'
-    ? `const layer = new CopcCesiumLayer({ url: copcUrl, backend: '${backend}' });\nawait layer.load();\nlayer.attachTo(viewer);`
-    : `const layer = new CopcThreeLayer({ url: copcUrl, backend: '${backend}' });\nlayer.attachTo({ scene, camera, renderer });\nawait layer.load();`;
+  updateIntegrationExample();
+  updateFocusControls();
   if (activeRuntime) viewerCaption.textContent = `${label} renders the selected COPC data in this browser.`;
 }
 syncRendererLabels();
@@ -430,12 +870,72 @@ const updateSnapshot = (snapshot: PlaygroundSnapshot | undefined): void => {
   byId('diagnostic-selected').textContent = formatUiNumber(selected);
   const range = snapshot?.visibleLevelRange;
   byId('diagnostic-lod').textContent = range ? `${range.min}–${range.max}` : '—';
+  const selectedAlgorithm = snapshot?.refinementAlgorithm ?? refinementConfig.algorithm;
+  byId('diagnostic-algorithm').textContent = selectedAlgorithm === 'screen-projection'
+    ? 'Screen projection (legacy)' : 'Foveated';
+  byId('diagnostic-focus').textContent = snapshot?.refinementFocusEnabled ? 'Active' : 'Inactive';
+  byId('diagnostic-focus-candidates').textContent = formatUiNumber(snapshot?.focusCandidateCount ?? 0);
+  byId('diagnostic-focus-refinements').textContent = formatUiNumber(snapshot?.focusInfluencedRefinementCount ?? 0);
 };
 
 const refreshSnapshot = (): void => {
-  if (!activeRuntime) return;
+  if (!activeRuntime) {
+    updateSnapshot(undefined);
+    return;
+  }
   try { updateSnapshot(activeRuntime.getSnapshot()); } catch { updateSnapshot(undefined); }
 };
+
+algorithmSelect.addEventListener('change', () => {
+  const selected = refinementAlgorithmOptions.find((option) => option.value === algorithmSelect.value);
+  if (!selected) return;
+  refinementConfig = { ...refinementConfig, algorithm: selected.value };
+  updateFocusControls();
+  writeRefinementUrl();
+  updateIntegrationExample();
+  refreshSnapshot();
+  reloadActiveSource();
+});
+
+focusModeSelect.addEventListener('change', () => {
+  setFocusMode(focusModeSelect.value as PlaygroundFocusMode);
+});
+focusEnabledInput.addEventListener('change', () => {
+  refinementConfig = { ...refinementConfig, focusEnabled: focusEnabledInput.checked };
+  applyFocusSettings();
+});
+focusShowGuideInput.addEventListener('change', () => {
+  refinementConfig = { ...refinementConfig, showGuide: focusShowGuideInput.checked };
+  updateFocusControls();
+  writeRefinementUrl();
+});
+focusXInput.addEventListener('change', () => {
+  const x = Number(focusXInput.value);
+  if (!Number.isFinite(x) || x < 0 || x > 1) {
+    focusXInput.value = String(refinementConfig.center.x);
+    return;
+  }
+  setFocusCenter({ ...refinementConfig.center, x });
+});
+focusYInput.addEventListener('change', () => {
+  const y = Number(focusYInput.value);
+  if (!Number.isFinite(y) || y < 0 || y > 1) {
+    focusYInput.value = String(refinementConfig.center.y);
+    return;
+  }
+  setFocusCenter({ ...refinementConfig.center, y });
+});
+byId<HTMLButtonElement>('focus-reset').addEventListener('click', () => {
+  if (refinementConfig.focusMode === 'follow-pointer') {
+    refinementConfig = { ...refinementConfig, focusMode: 'pinned' };
+  }
+  refinementConfig = { ...refinementConfig, center: { x: 0.5, y: 0.5 } };
+  followPointerCenter = { x: 0.5, y: 0.5 };
+  applyFocusSettings();
+});
+
+updateFocusControls();
+updateIntegrationExample();
 
 const showProbe = (result: CopcSourceProbeResult): void => {
   updateColorChoices(result.pointFormat);
@@ -459,12 +959,27 @@ const getFilePointFormat = async (file: File): Promise<number | undefined> => {
 };
 
 const destroyRuntime = (): void => {
+  unbindPointerFocus();
+  if (focusDragPointerId !== undefined) {
+    const pointerId = focusDragPointerId;
+    focusDragPointerId = undefined;
+    if (focusGuideHandle.hasPointerCapture(pointerId)) focusGuideHandle.releasePointerCapture(pointerId);
+    activeRuntime?.setFocusDragging(false);
+  }
+  if (dragFocusFrame !== undefined) cancelAnimationFrame(dragFocusFrame);
+  if (dragFocusTimer !== undefined) window.clearTimeout(dragFocusTimer);
+  dragFocusFrame = undefined;
+  dragFocusTimer = undefined;
+  pendingDragCenter = undefined;
+  if (focusConfigSyncTimer !== undefined) window.clearTimeout(focusConfigSyncTimer);
+  focusConfigSyncTimer = undefined;
   if (refreshTimer !== undefined) window.clearInterval(refreshTimer);
   refreshTimer = undefined;
   activeRuntime?.destroy();
   activeRuntime = undefined;
   viewport.replaceChildren();
   updateSnapshot(undefined);
+  updateFocusGuidePosition();
 };
 
 const loadSource = async (
@@ -520,6 +1035,7 @@ const loadSource = async (
       pointSize,
       maxNodes,
       maxRenderedPoints,
+      refinementAlgorithm: refinementConfig.algorithm,
       container: viewport,
       onPointPicked: renderPoint,
       isCurrent: () => generation === sourceGeneration,
@@ -531,6 +1047,11 @@ const loadSource = async (
     if (!createdRuntime) return;
     runtime = createdRuntime;
     activeRuntime = createdRuntime;
+    bindPointerFocus(createdRuntime);
+    const initialFocus = effectiveRefinementFocus();
+    createdRuntime.setRefinementFocus(initialFocus);
+    lastAppliedFocusCenter = initialFocus?.center;
+    updateFocusControls();
     refreshTimer = window.setInterval(refreshSnapshot, 500);
     await createdRuntime.ready;
     if (generation !== sourceGeneration || activeRuntime !== createdRuntime) {
@@ -672,6 +1193,7 @@ const destroyPlayground = (): void => {
   disposed = true;
   ++sourceGeneration;
   destroyRuntime();
+  focusResizeObserver.disconnect();
   for (const slider of sliders) slider.destroy();
   colorControl.destroy();
   rendererControl.destroy();

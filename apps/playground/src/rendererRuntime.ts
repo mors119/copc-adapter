@@ -1,6 +1,12 @@
 import type * as CesiumTypes from 'cesium';
 import type * as ThreeTypes from 'three';
-import type { CopcCesiumLayer, CopcCesiumLayerOptions, CopcPointInspection } from '@frillab/copc-adapter/cesium';
+import type {
+  CopcCesiumLayer,
+  CopcCesiumLayerOptions,
+  CopcPointInspection,
+  RefinementAlgorithm,
+  RefinementFocus,
+} from '@frillab/copc-adapter/cesium';
 import type { CopcThreeLayer } from '@frillab/copc-adapter/three';
 
 export type PlaygroundRenderer = 'cesium' | 'three';
@@ -23,7 +29,14 @@ export type PlaygroundSnapshot = {
   readonly renderedPoints: number;
   readonly renderedNodes: number;
   readonly selectedNodes: number;
+  readonly selectedNodeKeys?: readonly string[];
   readonly visibleLevelRange?: { readonly min: number; readonly max: number };
+  readonly refinementAlgorithm?: RefinementAlgorithm;
+  readonly refinementFocusEnabled?: boolean;
+  readonly focusCandidateCount?: number;
+  readonly focusWeightMin?: number;
+  readonly focusWeightMax?: number;
+  readonly focusInfluencedRefinementCount?: number;
 };
 
 export type PlaygroundRuntime = {
@@ -35,6 +48,10 @@ export type PlaygroundRuntime = {
   getCameraState(): PlaygroundCameraState;
   setCameraState(state: PlaygroundCameraState): void;
   getPickablePointScreenPosition(): { x: number; y: number } | undefined;
+  setRefinementFocus(focus: RefinementFocus | undefined): void;
+  getFocusCanvas(): HTMLCanvasElement | undefined;
+  setFocusDragging(dragging: boolean): void;
+  getCameraInputsEnabled(): boolean | undefined;
   destroy(): void;
 };
 
@@ -47,6 +64,7 @@ export type PlaygroundRuntimeOptions = {
   readonly pointSize: number;
   readonly maxNodes: number;
   readonly maxRenderedPoints: number;
+  readonly refinementAlgorithm: RefinementAlgorithm;
   readonly container: HTMLElement;
   readonly onPointPicked: (point: CopcPointInspection | undefined) => void;
   readonly onError: (message: string) => void;
@@ -56,7 +74,8 @@ export type PlaygroundRuntimeOptions = {
 };
 
 type CesiumLayer = Pick<CopcCesiumLayer,
-  'load' | 'attachTo' | 'destroy' | 'getSnapshot' | 'getSelectedPoint' | 'zoomTo' | 'boundingSphere'>;
+  'load' | 'attachTo' | 'destroy' | 'getSnapshot' | 'getSelectedPoint' | 'zoomTo'
+  | 'boundingSphere' | 'setRefinementFocus'>;
 
 export type CesiumLayerFactory = (options: CopcCesiumLayerOptions) => CesiumLayer;
 
@@ -83,9 +102,16 @@ function snapshotFromCesium(layer: CesiumLayer): PlaygroundSnapshot {
     renderedPoints: snapshot.renderedPointCount,
     renderedNodes: snapshot.renderedNodeKeys.length,
     selectedNodes: snapshot.selectedNodeKeys.length,
+    selectedNodeKeys: snapshot.selectedNodeKeys,
     ...(normalizeLod(snapshot.performance.visibleLevelRange)
       ? { visibleLevelRange: normalizeLod(snapshot.performance.visibleLevelRange)! }
       : {}),
+    refinementAlgorithm: snapshot.performance.refinementAlgorithm,
+    refinementFocusEnabled: snapshot.performance.refinementFocusEnabled,
+    focusCandidateCount: snapshot.performance.focusCandidateCount,
+    focusWeightMin: snapshot.performance.focusWeightMin,
+    focusWeightMax: snapshot.performance.focusWeightMax,
+    focusInfluencedRefinementCount: snapshot.performance.focusInfluencedRefinementCount,
   };
 }
 
@@ -96,9 +122,16 @@ function snapshotFromThree(layer: CopcThreeLayer): PlaygroundSnapshot {
     renderedPoints: snapshot.renderedPointCount,
     renderedNodes: snapshot.renderedNodeKeys.length,
     selectedNodes: snapshot.selectedNodeKeys.length,
+    selectedNodeKeys: snapshot.selectedNodeKeys,
     ...(normalizeLod(snapshot.performance.visibleLevelRange)
       ? { visibleLevelRange: normalizeLod(snapshot.performance.visibleLevelRange)! }
       : {}),
+    refinementAlgorithm: snapshot.performance.refinementAlgorithm,
+    refinementFocusEnabled: snapshot.performance.refinementFocusEnabled,
+    focusCandidateCount: snapshot.performance.focusCandidateCount,
+    focusWeightMin: snapshot.performance.focusWeightMin,
+    focusWeightMax: snapshot.performance.focusWeightMax,
+    focusInfluencedRefinementCount: snapshot.performance.focusInfluencedRefinementCount,
   };
 }
 
@@ -202,12 +235,28 @@ export async function createPlaygroundRuntime(
       colorMode: options.colorMode,
       pointSize: options.pointSize,
       maxRenderedPoints: options.maxRenderedPoints,
-      streaming: { maxNodes: options.maxNodes },
+      streaming: {
+        maxNodes: options.maxNodes,
+        refinementAlgorithm: options.refinementAlgorithm,
+      },
       onPointPicked: options.onPointPicked,
     };
     const layer = layerFactory ? layerFactory(layerOptions) : new adapter.CopcCesiumLayer(layerOptions);
     layer.attachTo(viewer);
     let destroyed = false;
+    let previousCameraInputs: boolean | undefined;
+    const setFocusDragging = (dragging: boolean): void => {
+      const cameraController = viewer.scene.screenSpaceCameraController;
+      if (dragging) {
+        if (previousCameraInputs === undefined) {
+          previousCameraInputs = cameraController.enableInputs;
+          cameraController.enableInputs = false;
+        }
+      } else if (previousCameraInputs !== undefined) {
+        cameraController.enableInputs = previousCameraInputs;
+        previousCameraInputs = undefined;
+      }
+    };
     const ready = layer.load().then(async () => {
       if (!destroyed && (options.canAutoZoom?.() ?? true)) await layer.zoomTo();
     });
@@ -247,9 +296,16 @@ export async function createPlaygroundRuntime(
         },
       }),
       getPickablePointScreenPosition: () => getCesiumPickPosition(Cesium, viewer),
+      setRefinementFocus: (focus) => layer.setRefinementFocus(focus),
+      getFocusCanvas: () => destroyed || viewer.isDestroyed() ? undefined : viewer.scene.canvas,
+      setFocusDragging,
+      getCameraInputsEnabled: () => destroyed || viewer.isDestroyed()
+        ? undefined
+        : viewer.scene.screenSpaceCameraController.enableInputs,
       destroy() {
         if (destroyed) return;
         destroyed = true;
+        setFocusDragging(false);
         layer.destroy();
         if (!viewer.isDestroyed()) viewer.destroy();
       },
@@ -298,7 +354,10 @@ export async function createPlaygroundRuntime(
     colorMode: options.colorMode,
     pointSize: options.pointSize,
     maxRenderedPoints: options.maxRenderedPoints,
-    streaming: { maxNodes: options.maxNodes },
+    streaming: {
+      maxNodes: options.maxNodes,
+      refinementAlgorithm: options.refinementAlgorithm,
+    },
     onPointPicked: options.onPointPicked,
   };
   const layer = new adapter.CopcThreeLayer(layerOptions);
@@ -404,6 +463,10 @@ export async function createPlaygroundRuntime(
       controls.update();
     },
     getPickablePointScreenPosition: () => getThreePickPosition(THREE, layerRoot, camera, renderer),
+    setRefinementFocus(): void {},
+    getFocusCanvas: () => undefined,
+    setFocusDragging(): void {},
+    getCameraInputsEnabled: () => undefined,
     destroy() {
       if (destroyed) return;
       destroyed = true;
