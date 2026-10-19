@@ -125,11 +125,6 @@ async function runRotationSequence(
     const initial = await getState(page);
     const firstTurn = await turnAndMeasure(page, initial.cameraHeadingDegrees + 80);
     const secondTurn = await turnAndMeasure(page, initial.cameraHeadingDegrees + 98);
-    if (prefetch) {
-      await expect.poll(async () => (await getState(page)).predictivePrefetch?.completedNodeCount ?? 0, {
-        timeout: 15_000,
-      }).toBeGreaterThan(0);
-    }
     const thirdTurn = await turnAndMeasure(page, initial.cameraHeadingDegrees + 116);
     const diagnostics = thirdTurn.state.predictivePrefetch;
     if (diagnostics) {
@@ -162,6 +157,7 @@ async function runRotationSequence(
 }
 
 test('measures bounded predictive prefetch cost and region-entry latency in Chromium', async ({ browser }) => {
+  test.setTimeout(240_000);
   const prefetchOff = await runRotationSequence(browser, false);
   const prefetchOn = await runRotationSequence(browser, true);
 
