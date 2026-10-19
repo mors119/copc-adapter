@@ -5,6 +5,13 @@ const SOFI_OBJECT_BYTES = 2_029_696_615;
 const POINT_BUDGET = 250_000;
 const CACHE_BUDGET_BYTES = 256 * 1024 * 1024;
 const SOFI_CENTER = { longitudeDegrees: -118.3377231, latitudeDegrees: 33.9537444 };
+const requestedRefinementAlgorithm = process.env.COPC_REFINEMENT_ALGORITHM;
+if (requestedRefinementAlgorithm !== undefined
+  && requestedRefinementAlgorithm !== 'foveated'
+  && requestedRefinementAlgorithm !== 'screen-projection') {
+  throw new Error('COPC_REFINEMENT_ALGORITHM must be foveated or screen-projection.');
+}
+const refinementAlgorithm = requestedRefinementAlgorithm ?? 'foveated';
 
 type DebugState = {
   layerLoaded: boolean;
@@ -30,12 +37,22 @@ type DebugState = {
   cameraMoveEventCount: number;
   cameraPitchDegrees: number;
   backend: string;
-  performance: Record<string, number> & {
+  performance: Record<string, unknown> & {
     configuredPointBudget: number;
     activeRenderedPointCount: number;
     activeNodeCount: number;
     deferredNodeCount: number;
     deferredPointCount: number;
+    refinementAlgorithm?: string;
+    refinementFocusEnabled?: boolean;
+    focusCandidateCount?: number;
+    focusWeightMax?: number;
+    focusInfluencedRefinementCount?: number;
+    detailBiasMax?: number;
+    motionLookaheadEnabled?: boolean;
+    motionSampledMovementCount?: number;
+    motionWeightMax?: number;
+    motionLive?: { state: string; activity: number };
   };
   pointCache: {
     cacheByteBudget: number;
@@ -205,7 +222,19 @@ function summarize(state: DebugState): Record<string, unknown> {
     renderedPointCount: state.renderedPointCount,
     renderedNodeCount: state.renderedNodeKeys.length,
     selectedNodeCount: state.selectedNodeKeys.length,
+    selectedNodeKeys: state.selectedNodeKeys,
+    renderedNodeKeys: state.renderedNodeKeys,
     streamingUpdateCount: state.streamingUpdateCount,
+    refinementAlgorithm: state.performance.refinementAlgorithm,
+    refinementFocusEnabled: state.performance.refinementFocusEnabled,
+    focusCandidateCount: state.performance.focusCandidateCount,
+    focusWeightMax: state.performance.focusWeightMax,
+    focusInfluencedRefinementCount: state.performance.focusInfluencedRefinementCount,
+    detailBiasMax: state.performance.detailBiasMax,
+    motionLookaheadEnabled: state.performance.motionLookaheadEnabled,
+    motionSampledMovementCount: state.performance.motionSampledMovementCount,
+    motionWeightMax: state.performance.motionWeightMax,
+    motionLive: state.performance.motionLive,
     viewDistance: state.viewDistance,
     performance: {
       updateDurationMs: state.performance.updateDurationMs,
@@ -337,13 +366,16 @@ test('records bounded SoFi multi-GB Cesium browser streaming', async ({ page, br
   const renderer = process.env.COPC_RENDERER_VARIANT === 'public-batched'
     ? '&renderer=public-batched'
     : '';
-  await page.goto(`/?scenario=issue68&backend=rust&debugPanel=false&budget=${POINT_BUDGET}&source=${sourceQuery}${renderer}`);
+  await page.goto(
+    `/?scenario=issue68&backend=rust&debugPanel=false&budget=${POINT_BUDGET}&source=${sourceQuery}&refinementAlgorithm=${refinementAlgorithm}${renderer}`,
+  );
   await expect.poll(async () => {
     const state = await getState(page);
     return state.layerLoaded && state.renderedPointCount > 0;
   }, { timeout: 180_000 }).toBe(true);
   const firstUsefulVisiblePointMs = Date.now() - pageStartedAt;
   const initial = await waitForIdle(page);
+  expect(initial.performance.refinementAlgorithm).toBe(refinementAlgorithm);
   const rendererStageEvidence = [summarizeRendererStages('initial', initial, await sampleFrames(page))];
   console.log(JSON.stringify({
     scenario: 'issue-212-sofi-initial',
@@ -516,6 +548,7 @@ test('records bounded SoFi multi-GB Cesium browser streaming', async ({ page, br
     configuration: {
       backend: 'rust',
       colorMode: 'elevation',
+      refinementAlgorithm,
       maxNodes: 32,
       maxDepth: 6,
       maxScreenSpaceError: 8,
