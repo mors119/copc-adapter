@@ -1,8 +1,8 @@
 use std::io::Cursor;
 
-use laz::LazVlr;
 use laz::las::selective::DecompressionSelection;
 use laz::record::{LayeredPointRecordDecompressor, RecordDecompressor};
+use laz::{LazItemType, LazVlr};
 
 use crate::binary::{read_i32, read_u16, read_u32};
 use crate::error::{CopcError, Result};
@@ -15,6 +15,7 @@ pub const FIELD_RGB: u32 = 1 << 2;
 
 const KNOWN_FIELD_MASK: u32 = FIELD_INTENSITY | FIELD_CLASSIFICATION | FIELD_RGB;
 const MAX_DECODE_POINTS: usize = 5_000_000;
+const MAX_DECODED_NODE_BYTES: usize = MAX_DECODE_POINTS * 38;
 pub const DEFAULT_MAX_NODE_CHUNK_BYTES: usize = 64 * 1024 * 1024;
 
 fn allocate_zeroed<T>(length: usize, what: &str) -> Result<Vec<T>>
@@ -61,7 +62,7 @@ fn parse_laz_vlr(bytes: &[u8], header: &CopcHeader) -> Result<LazVlr> {
         ));
     }
 
-    let expected_record_length = match header.point_data_record_format {
+    let base_record_length = match header.point_data_record_format {
         6 => 30,
         7 => 36,
         8 => 38,
@@ -72,12 +73,12 @@ fn parse_laz_vlr(bytes: &[u8], header: &CopcHeader) -> Result<LazVlr> {
             ));
         }
     };
-    if usize::from(header.point_data_record_length) != expected_record_length {
+    if usize::from(header.point_data_record_length) < base_record_length {
         return Err(CopcError::new(
             "unsupported-point-format",
             format!(
-                "LAS point format {} has {} bytes per record; extra bytes are not supported",
-                header.point_data_record_format, header.point_data_record_length
+                "LAS point format {} requires at least {base_record_length} bytes per record, found {}",
+                header.point_data_record_format, header.point_data_record_length,
             ),
         ));
     }
@@ -109,6 +110,87 @@ fn parse_laz_vlr(bytes: &[u8], header: &CopcHeader) -> Result<LazVlr> {
     })
 }
 
+fn validate_laz_layout(laz_vlr: &LazVlr, header: &CopcHeader) -> Result<()> {
+    let record_length = laz_vlr.items().iter().try_fold(0usize, |length, item| {
+        length
+            .checked_add(usize::from(item.size()))
+            .ok_or_else(|| CopcError::new("overflow", "LAZ record length overflows"))
+    })?;
+    let declared_record_length = usize::from(header.point_data_record_length);
+    if record_length != declared_record_length {
+        return Err(CopcError::new(
+            "invalid-laz-vlr",
+            format!(
+                "LASZIP record length {record_length} does not match LAS record length {declared_record_length}"
+            ),
+        ));
+    }
+
+    let (base_items, base_sizes): (&[LazItemType], &[usize]) = match header.point_data_record_format
+    {
+        6 => (&[LazItemType::Point14], &[30]),
+        7 => (&[LazItemType::Point14, LazItemType::RGB14], &[30, 6]),
+        8 => (&[LazItemType::Point14, LazItemType::RGBNIR14], &[30, 8]),
+        _ => {
+            return Err(CopcError::new(
+                "unsupported-point-format",
+                "LAS point format is outside the initial COPC decoder scope",
+            ));
+        }
+    };
+    let base_record_length = base_sizes.iter().sum::<usize>();
+    let extra_bytes = declared_record_length
+        .checked_sub(base_record_length)
+        .ok_or_else(|| {
+            CopcError::new(
+                "invalid-laz-vlr",
+                "LAS point record is shorter than its format-defined fields",
+            )
+        })?;
+    let expected_item_count = base_items.len() + usize::from(extra_bytes > 0);
+    if laz_vlr.items().len() != expected_item_count {
+        return Err(CopcError::new(
+            "invalid-laz-vlr",
+            "LASZIP item layout does not match the LAS point format",
+        ));
+    }
+    for (item, (expected_type, expected_size)) in laz_vlr
+        .items()
+        .iter()
+        .zip(base_items.iter().zip(base_sizes))
+    {
+        if item.item_type() != *expected_type
+            || usize::from(item.size()) != *expected_size
+            || !matches!(item.version(), 3 | 4)
+        {
+            return Err(CopcError::new(
+                "invalid-laz-vlr",
+                "LASZIP item layout does not match the LAS point format",
+            ));
+        }
+    }
+    if extra_bytes > 0 {
+        let extra_bytes_u16 = u16::try_from(extra_bytes)
+            .map_err(|_| CopcError::new("overflow", "LAS extra-byte length exceeds u16"))?;
+        let item = laz_vlr.items().last().ok_or_else(|| {
+            CopcError::new(
+                "invalid-laz-vlr",
+                "LASZIP extra-byte item is missing from the declared record layout",
+            )
+        })?;
+        if item.item_type() != LazItemType::Byte14(extra_bytes_u16)
+            || usize::from(item.size()) != extra_bytes
+            || !matches!(item.version(), 3 | 4)
+        {
+            return Err(CopcError::new(
+                "invalid-laz-vlr",
+                "LASZIP extra-byte item does not match the LAS point record length",
+            ));
+        }
+    }
+    Ok(())
+}
+
 impl CopcNodeDecoder {
     pub fn from_metadata(metadata: &[u8]) -> Result<Self> {
         Self::from_metadata_with_max_chunk_bytes(metadata, DEFAULT_MAX_NODE_CHUNK_BYTES)
@@ -126,18 +208,7 @@ impl CopcNodeDecoder {
         }
         let header = parse_header(metadata)?;
         let laz_vlr = parse_laz_vlr(metadata, &header)?;
-        let record_length = usize::try_from(laz_vlr.items_size()).map_err(|_| {
-            CopcError::new("overflow", "LAZ record length does not fit in this target")
-        })?;
-        if record_length != usize::from(header.point_data_record_length) {
-            return Err(CopcError::new(
-                "invalid-laz-vlr",
-                format!(
-                    "LASZIP record length {record_length} does not match LAS record length {}",
-                    header.point_data_record_length
-                ),
-            ));
-        }
+        validate_laz_layout(&laz_vlr, &header)?;
 
         Ok(Self {
             header,
@@ -208,6 +279,14 @@ impl CopcNodeDecoder {
         let raw_length = point_count.checked_mul(record_length).ok_or_else(|| {
             CopcError::new("overflow", "decompressed point buffer size overflows")
         })?;
+        if raw_length > MAX_DECODED_NODE_BYTES {
+            return Err(CopcError::new(
+                "unsupported-value",
+                format!(
+                    "decompressed point buffer exceeds the {MAX_DECODED_NODE_BYTES}-byte safety limit"
+                ),
+            ));
+        }
         let has_intensity = requested_fields & FIELD_INTENSITY != 0;
         let has_classification = requested_fields & FIELD_CLASSIFICATION != 0;
         let has_rgb = requested_fields & FIELD_RGB != 0 && header.point_data_record_format >= 7;
@@ -226,6 +305,15 @@ impl CopcNodeDecoder {
         decompressor
             .set_fields_from(laz_vlr.items())
             .map_err(|value| CopcError::new("laz-decode", value.to_string()))?;
+        if decompressor.record_size() != record_length {
+            return Err(CopcError::new(
+                "invalid-laz-vlr",
+                format!(
+                    "LASZIP decoder record length {} does not match LAS record length {record_length}",
+                    decompressor.record_size()
+                ),
+            ));
+        }
         decompressor.set_selection(selection);
 
         let mut raw = Vec::new();
@@ -438,8 +526,19 @@ mod tests {
     }
 
     fn compressed_fixture() -> (Vec<u8>, Vec<u8>) {
+        compressed_fixture_with_extra(7, 0)
+    }
+
+    fn compressed_fixture_with_extra(point_format: u8, extra_bytes: u16) -> (Vec<u8>, Vec<u8>) {
+        let base_record_length = match point_format {
+            6 => 30,
+            7 => 36,
+            8 => 38,
+            _ => unreachable!("test fixture uses a supported point format"),
+        };
+        let record_length = base_record_length + usize::from(extra_bytes);
         let laz_vlr = LazVlrBuilder::default()
-            .with_point_format(7, 0)
+            .with_point_format(point_format, extra_bytes)
             .unwrap()
             .with_variable_chunk_size()
             .build();
@@ -456,8 +555,8 @@ mod tests {
         put_u16(&mut metadata, 94, header_size as u16);
         put_u32(&mut metadata, 96, point_data_offset as u32);
         put_u32(&mut metadata, 100, 3);
-        metadata[104] = 7 | 0x80;
-        put_u16(&mut metadata, 105, 36);
+        metadata[104] = point_format | 0x80;
+        put_u16(&mut metadata, 105, record_length as u16);
         put_u64(&mut metadata, 247, 2);
         put_f64(&mut metadata, 131, 0.01);
         put_f64(&mut metadata, 139, 0.02);
@@ -490,7 +589,7 @@ mod tests {
             &laz_payload,
         );
 
-        let mut raw = vec![0; 72];
+        let mut raw = vec![0; record_length * 2];
         for (index, (x, y, z, intensity, classification, rgb)) in [
             (100, 200, 300, 400, 5, [600, 700, 800]),
             (101, 201, 301, 401, 6, [601, 701, 801]),
@@ -498,15 +597,20 @@ mod tests {
         .into_iter()
         .enumerate()
         {
-            let record = &mut raw[index * 36..(index + 1) * 36];
+            let record = &mut raw[index * record_length..(index + 1) * record_length];
             put_i32(record, 0, x);
             put_i32(record, 4, y);
             put_i32(record, 8, z);
             put_u16(record, 12, intensity);
             record[16] = classification;
-            put_u16(record, 30, rgb[0]);
-            put_u16(record, 32, rgb[1]);
-            put_u16(record, 34, rgb[2]);
+            if point_format >= 7 {
+                put_u16(record, 30, rgb[0]);
+                put_u16(record, 32, rgb[1]);
+                put_u16(record, 34, rgb[2]);
+            }
+            for (extra_index, value) in record[base_record_length..].iter_mut().enumerate() {
+                *value = (index * 17 + extra_index) as u8;
+            }
         }
         let mut compressor = LayeredPointRecordCompressor::new(Vec::new());
         compressor.set_fields_from(laz_vlr.items()).unwrap();
@@ -537,6 +641,66 @@ mod tests {
         assert_eq!(selected.classification.as_deref(), Some(&[5, 6][..]));
         assert!(selected.intensity.is_none());
         assert!(selected.red.is_none());
+    }
+
+    #[test]
+    fn decodes_standard_fields_with_extra_bytes_for_point_formats_6_7_and_8() {
+        for (point_format, expected_rgb) in [(6, false), (7, true), (8, true)] {
+            let (metadata, chunk) = compressed_fixture_with_extra(point_format, 4);
+            let result = decode_copc_node(
+                &metadata,
+                &chunk,
+                2,
+                FIELD_INTENSITY | FIELD_CLASSIFICATION | FIELD_RGB,
+            )
+            .expect("valid extra-byte records should decode");
+
+            assert_eq!(result.coordinates, [11.0, 24.0, 39.0, 11.01, 24.02, 39.03]);
+            assert_eq!(result.intensity.as_deref(), Some(&[400, 401][..]));
+            assert_eq!(result.classification.as_deref(), Some(&[5, 6][..]));
+            assert_eq!(result.red.is_some(), expected_rgb);
+            assert_eq!(result.green.is_some(), expected_rgb);
+            assert_eq!(result.blue.is_some(), expected_rgb);
+            if expected_rgb {
+                assert_eq!(result.red.as_deref(), Some(&[600, 601][..]));
+                assert_eq!(result.green.as_deref(), Some(&[700, 701][..]));
+                assert_eq!(result.blue.as_deref(), Some(&[800, 801][..]));
+            }
+        }
+    }
+
+    #[test]
+    fn validates_extra_byte_record_lengths_and_bounds_decompression() {
+        let (mut metadata, _) = compressed_fixture_with_extra(6, 4);
+        put_u16(&mut metadata, 105, 29);
+        assert_eq!(
+            decode_copc_node(&metadata, &[], 1, 0).unwrap_err().code(),
+            "unsupported-point-format"
+        );
+
+        let (mut metadata, _) = compressed_fixture_with_extra(6, 4);
+        put_u16(&mut metadata, 105, 33);
+        assert_eq!(
+            decode_copc_node(&metadata, &[], 1, 0).unwrap_err().code(),
+            "invalid-laz-vlr"
+        );
+
+        let (mut metadata, _) = compressed_fixture();
+        metadata[104] = 6 | 0x80;
+        assert_eq!(
+            decode_copc_node(&metadata, &[], 1, 0).unwrap_err().code(),
+            "invalid-laz-vlr"
+        );
+
+        let (metadata, _) = compressed_fixture_with_extra(6, u16::MAX - 30);
+        let mut chunk = vec![0; usize::from(u16::MAX) + 4];
+        put_u32(&mut chunk, usize::from(u16::MAX), 5_000_000);
+        assert_eq!(
+            decode_copc_node(&metadata, &chunk, 5_000_000, 0)
+                .unwrap_err()
+                .code(),
+            "unsupported-value"
+        );
     }
 
     #[test]
