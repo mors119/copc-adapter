@@ -56,6 +56,25 @@ function createSnapshot(overrides = {}) {
       keptNodeCount: 3,
       visibleLevelRange: { min: 2, max: 5 },
       cameraDirection: { x: 0, y: 0.5, z: -0.8660254 },
+      motionLookaheadEnabled: true,
+      motionPredictedHorizontalDisplacementDegrees: 1.5,
+      motionPredictedVerticalDisplacementDegrees: 0,
+      motionCandidateCount: 4,
+      motionWeightMin: 0.1,
+      motionWeightMax: 0.8,
+      motionInfluencedRefinementCount: 1,
+      motionLive: {
+        enabled: true,
+        acceptedMovementSampleCount: 4,
+        horizontalAngularVelocityDegreesPerSecond: 12,
+        verticalAngularVelocityDegreesPerSecond: -6,
+        horizonMilliseconds: 200,
+        predictedHorizontalDisplacementDegrees: 2.4,
+        predictedVerticalDisplacementDegrees: -1.2,
+        activity: 0.4,
+        state: 'decaying',
+        millisecondsSinceLastAcceptedMovement: 220,
+      },
     },
     pointCache: {
       cacheByteBudget: 1024,
@@ -169,6 +188,14 @@ test('maps layer diagnostics and metadata into browser-visible values', () => {
   assert.equal(view.scale, '0.010000000, 0.010000000, 0.0010000000');
   assert.equal(view.offset, '100, 200, 300');
   assert.equal(view.selectedNodeCount, '3');
+  assert.equal(view.motionLiveState, 'decaying');
+  assert.equal(view.motionLiveMovementSamples, '4');
+  assert.match(view.motionLivePrediction, /2\.4000000° horizontal/);
+  assert.equal(view.motionSelectionGeneration, '7');
+  assert.equal(view.motionSelectionNodes, '3 selected · 2 rendered');
+  assert.equal(view.motionSelectionCandidates, '4');
+  assert.equal(view.motionSelectionWeights, '0.10000000–0.80000000');
+  assert.match(view.motionSelectionInfluence, /1 accepted refinement influenced/);
   assert.equal(view.selectedNodeKeys, '1-0-0-0, 1-1-0-0, 1-0-1-0');
   assert.equal(view.renderedNodeCount, '2');
   assert.equal(view.renderedNodeKeys, '1-0-0-0, 1-1-0-0');
@@ -262,13 +289,18 @@ test('formats adaptive view-distance diagnostics for browser inspection', () => 
 
 test('shows loading placeholders and gives runtime errors precedence', () => {
   const loading = buildCopcDebugPanelView({
-    snapshot: createSnapshot({ lifecycle: 'loading', selectedNodeKeys: [] }),
+    snapshot: createSnapshot({
+      lifecycle: 'loading',
+      selectedNodeKeys: [],
+      performance: {},
+    }),
   });
 
   assert.equal(loading.status, 'Loading');
   assert.equal(loading.statusTone, 'loading');
   assert.equal(loading.pointCount, '—');
   assert.equal(loading.selectedNodeKeys, '—');
+  assert.equal(loading.motionLiveState, 'disabled');
 
   const failed = buildCopcDebugPanelView({
     snapshot: createSnapshot({ lifecycle: 'loading' }),

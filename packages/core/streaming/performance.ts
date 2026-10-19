@@ -77,19 +77,19 @@ export type StreamingPerformanceSnapshot = {
   motionLookaheadEnabled?: boolean;
   /** Accepted angular movement samples since camera motion history was reset. */
   motionSampledMovementCount?: number;
-  /** Smoothed horizontal camera angular velocity toward screen-right, in degrees/second. */
+  /** Horizontal camera angular velocity used by the most recently recorded selection, in degrees/second. */
   motionHorizontalAngularVelocityDegreesPerSecond?: number;
-  /** Smoothed vertical camera angular velocity toward screen-up, in degrees/second. */
+  /** Vertical camera angular velocity used by the most recently recorded selection, in degrees/second. */
   motionVerticalAngularVelocityDegreesPerSecond?: number;
-  /** Fixed camera lookahead horizon, in milliseconds. */
+  /** Fixed lookahead horizon used by the most recently recorded selection, in milliseconds. */
   motionHorizonMilliseconds?: number;
-  /** Predicted horizontal camera displacement, in degrees. */
+  /** Predicted horizontal displacement used by the most recently recorded selection, in degrees. */
   motionPredictedHorizontalDisplacementDegrees?: number;
-  /** Predicted vertical camera displacement, in degrees. */
+  /** Predicted vertical displacement used by the most recently recorded selection, in degrees. */
   motionPredictedVerticalDisplacementDegrees?: number;
-  /** Visible candidate nodes receiving nonzero motion relevance. */
+  /** Visible candidate nodes receiving nonzero motion relevance in the most recently recorded selection. */
   motionCandidateCount?: number;
-  /** Motion relevance range among visible candidates, in [0, 1]. */
+  /** Motion relevance range among visible candidates in the most recently recorded selection, in [0, 1]. */
   motionWeightMin?: number;
   motionWeightMax?: number;
   /** Accepted refinements whose decision or budget winner changed with motion relevance. */

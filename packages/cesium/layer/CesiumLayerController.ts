@@ -154,7 +154,8 @@ export type CopcLayerSnapshot = {
   /** Built-in backend name or `custom` for a supplied backend. */
   backend: CopcBackendName | 'custom';
   /** Core range-fetch, decode, and point-preparation measurements. */
-  performance: ReturnType<StreamingPerformanceRecorder['getSnapshot']>;
+  performance: ReturnType<StreamingPerformanceRecorder['getSnapshot']>
+    & Pick<CopcStreamingPerformanceSnapshot, 'motionLive'>;
   /** Visible-node replacement diagnostics. */
   transition: CopcLayerTransitionDiagnostics;
   /** Adaptive current-view distance diagnostics, when a view has been evaluated. */
@@ -180,7 +181,8 @@ function combinePerformance(
   corePerformance: CopcStreamingPerformanceSnapshot,
   rendererPerformance: ReturnType<StreamingPerformanceRecorder['getSnapshot']>,
   renderedPointCount: number,
-): ReturnType<StreamingPerformanceRecorder['getSnapshot']> {
+): ReturnType<StreamingPerformanceRecorder['getSnapshot']>
+  & Pick<CopcStreamingPerformanceSnapshot, 'motionLive'> {
   const configuredPointBudget = corePerformance.configuredPointBudget
     || rendererPerformance.configuredPointBudget;
   const activeRenderedPointCount = Math.max(0, renderedPointCount);

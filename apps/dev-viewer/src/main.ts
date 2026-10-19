@@ -106,6 +106,13 @@ type CopcDebugState = {
   streamingUpdateCount: number;
   cameraMoveEventCount: number;
   cameraPitchDegrees: number;
+  cameraHeadingDegrees: number;
+  cameraBasis: {
+    position: { x: number; y: number; z: number };
+    direction: { x: number; y: number; z: number };
+    right: { x: number; y: number; z: number };
+    up: { x: number; y: number; z: number };
+  };
   minRenderedHeight?: number;
   maxRenderedHeight?: number;
   renderedColorCount: number;
@@ -323,6 +330,29 @@ function installDebugAdapter(
         streamingUpdateCount: snapshot.streamingUpdateCount,
         cameraMoveEventCount,
         cameraPitchDegrees: Cesium.Math.toDegrees(viewer.camera.pitch),
+        cameraHeadingDegrees: Cesium.Math.toDegrees(viewer.camera.heading),
+        cameraBasis: {
+          position: {
+            x: viewer.camera.positionWC.x,
+            y: viewer.camera.positionWC.y,
+            z: viewer.camera.positionWC.z,
+          },
+          direction: {
+            x: viewer.camera.directionWC.x,
+            y: viewer.camera.directionWC.y,
+            z: viewer.camera.directionWC.z,
+          },
+          right: {
+            x: viewer.camera.rightWC.x,
+            y: viewer.camera.rightWC.y,
+            z: viewer.camera.rightWC.z,
+          },
+          up: {
+            x: viewer.camera.upWC.x,
+            y: viewer.camera.upWC.y,
+            z: viewer.camera.upWC.z,
+          },
+        },
         ...pointDiagnostics,
         backend: snapshot.backend,
         performance: snapshot.performance,
@@ -536,7 +566,8 @@ function getLayerOptions(
   const scenarioMaxDistance = issue128
     ? Number.isFinite(requestedDistance) && requestedDistance > 0 ? requestedDistance : 100
     : 20_000;
-  const motionLookahead = issueScenario ? params.get('motionLookahead') !== 'false' : undefined;
+  const motionLookahead = config?.motionLookahead
+    ?? (issueScenario ? params.get('motionLookahead') !== 'false' : undefined);
   const requestedRefinementAlgorithm = params.get('refinementAlgorithm');
   const requestedRangeValidation = params.get('rangeValidation');
   const refinementAlgorithm = isRefinementAlgorithm(requestedRefinementAlgorithm)
@@ -720,6 +751,7 @@ function createThreeSession(
       maxScreenSpaceError: config.maxScreenSpaceError,
       maxRenderDistanceMeters: config.maxRenderDistance,
       refinementAlgorithm: config.refinementAlgorithm,
+      motionLookahead: config.motionLookahead,
     },
     onPointPicked: () => undefined,
     onError,
@@ -831,6 +863,7 @@ async function main(): Promise<void> {
       ? initialOptions.backend
       : getSelectedBackend(),
     refinementAlgorithm: initialOptions.streaming?.refinementAlgorithm ?? 'foveated',
+    motionLookahead: initialOptions.streaming?.motionLookahead ?? true,
     rangeValidation: initialOptions.rangeValidation ?? 'head-fallback',
     source: initialSource,
     colorMode: initialOptions.colorMode ?? 'rgb',
@@ -879,6 +912,13 @@ async function main(): Promise<void> {
     streamingUpdateCount: 0,
     cameraMoveEventCount: 0,
     cameraPitchDegrees: 0,
+    cameraHeadingDegrees: 0,
+    cameraBasis: {
+      position: { x: 0, y: 0, z: 0 },
+      direction: { x: 0, y: 0, z: -1 },
+      right: { x: 1, y: 0, z: 0 },
+      up: { x: 0, y: 1, z: 0 },
+    },
     renderedColorCount: 0,
     backend: activeConfig.backend,
     performance: {} as CopcDebugState['performance'],
@@ -1321,6 +1361,10 @@ async function main(): Promise<void> {
     onRefinementAlgorithmSelected(value) {
       resolveStartupIssue('refinementAlgorithm');
       pendingConfig = { ...pendingConfig, refinementAlgorithm: value };
+      updateConfigurationState();
+    },
+    onMotionLookaheadSelected(enabled) {
+      pendingConfig = { ...pendingConfig, motionLookahead: enabled };
       updateConfigurationState();
     },
     onRangeValidationSelected(value) {

@@ -15,6 +15,7 @@ export type DevViewerConfig = {
   cesiumRenderer: CesiumPointRendererVariant;
   backend: CopcBackendName;
   refinementAlgorithm: RefinementAlgorithm;
+  motionLookahead: boolean;
   rangeValidation: RangeValidationPolicy;
   source: string | File;
   colorMode: CopcColorMode;
@@ -58,6 +59,9 @@ export function validateDevViewerConfig(config: DevViewerConfig): string | undef
   if (!isRefinementAlgorithm(config.refinementAlgorithm)) {
     return 'Choose Foveated or Screen Projection as the refinement algorithm.';
   }
+  if (typeof config.motionLookahead !== 'boolean') {
+    return 'Choose whether Motion Lookahead is enabled.';
+  }
   if (!isRangeValidationPolicy(config.rangeValidation)) {
     return 'Choose HEAD Fallback or Strict for HTTP Range validation.';
   }
@@ -98,6 +102,7 @@ export function hasUnappliedSettings(
     || applied.cesiumRenderer !== pending.cesiumRenderer
     || applied.backend !== pending.backend
     || applied.refinementAlgorithm !== pending.refinementAlgorithm
+    || applied.motionLookahead !== pending.motionLookahead
     || applied.rangeValidation !== pending.rangeValidation
     || applied.colorMode !== pending.colorMode
     || applied.pointSize !== pending.pointSize
@@ -120,6 +125,7 @@ export function needsSessionRecreation(
     || applied.renderer !== next.renderer
     || applied.backend !== next.backend
     || applied.refinementAlgorithm !== next.refinementAlgorithm
+    || applied.motionLookahead !== next.motionLookahead
     || applied.pointSize !== next.pointSize
     || applied.maxNodes !== next.maxNodes
     || applied.maxRenderedPoints !== next.maxRenderedPoints

@@ -120,6 +120,19 @@ export type CopcDebugPanelView = {
   sourceWarnings: string;
   error?: string;
   refinementAlgorithm: string;
+  motionLiveEnabled: string;
+  motionLiveState: string;
+  motionLiveMovementSamples: string;
+  motionLiveAngularVelocity: string;
+  motionLivePrediction: string;
+  motionLiveActivity: string;
+  motionLiveAge: string;
+  motionSelectionGeneration: string;
+  motionSelectionNodes: string;
+  motionSelectionPrediction: string;
+  motionSelectionCandidates: string;
+  motionSelectionWeights: string;
+  motionSelectionInfluence: string;
   rangeFetchBytes: string;
   configuredRangeValidation: string;
   sourceProbePolicy: string;
@@ -180,6 +193,17 @@ export function buildCopcDebugPanelView(
   state: CopcDebugPanelState,
 ): CopcDebugPanelView {
   const { snapshot, metadata, hierarchy, sourceProbe, lastError } = state;
+  const liveMotion = snapshot.performance?.motionLive ?? {
+    enabled: snapshot.performance?.motionLookaheadEnabled ?? false,
+    acceptedMovementSampleCount: snapshot.performance?.motionSampledMovementCount ?? 0,
+    horizontalAngularVelocityDegreesPerSecond: 0,
+    verticalAngularVelocityDegreesPerSecond: 0,
+    horizonMilliseconds: snapshot.performance?.motionHorizonMilliseconds ?? 200,
+    predictedHorizontalDisplacementDegrees: 0,
+    predictedVerticalDisplacementDegrees: 0,
+    activity: 0,
+    state: snapshot.performance?.motionLookaheadEnabled ? 'stationary' as const : 'disabled' as const,
+  };
   const rangeRequests = 'rangeRequests' in snapshot ? snapshot.rangeRequests : undefined;
   const status = lastError
     ? 'Error'
@@ -201,6 +225,30 @@ export function buildCopcDebugPanelView(
     datasetUrl: snapshot.datasetUrl,
     activeColorMode: state.activeColorMode ?? 'fixed',
     refinementAlgorithm: snapshot.performance?.refinementAlgorithm ?? 'foveated',
+    motionLiveEnabled: liveMotion.enabled ? 'on' : 'off',
+    motionLiveState: liveMotion.state,
+    motionLiveMovementSamples: formatNumber(
+      liveMotion.acceptedMovementSampleCount,
+    ),
+    motionLiveAngularVelocity: `${formatCoordinate(liveMotion.horizontalAngularVelocityDegreesPerSecond)}°/s horizontal · ${formatCoordinate(liveMotion.verticalAngularVelocityDegreesPerSecond)}°/s vertical`,
+    motionLivePrediction: `${formatCoordinate(liveMotion.predictedHorizontalDisplacementDegrees)}° horizontal · ${formatCoordinate(liveMotion.predictedVerticalDisplacementDegrees)}° vertical (${liveMotion.horizonMilliseconds} ms)`,
+    motionLiveActivity: formatCoordinate(liveMotion.activity),
+    motionLiveAge: liveMotion.millisecondsSinceLastAcceptedMovement === undefined
+      ? 'no accepted movement sample'
+      : `${formatCoordinate(liveMotion.millisecondsSinceLastAcceptedMovement)} ms`,
+    motionSelectionGeneration: formatNumber(snapshot.streamingUpdateCount),
+    motionSelectionNodes: `${formatNumber(snapshot.performance?.selectedNodeCount ?? snapshot.selectedNodeKeys.length)} selected · ${formatNumber(snapshot.renderedNodeKeys.length)} rendered`,
+    motionSelectionPrediction: `${formatCoordinate(snapshot.performance?.motionPredictedHorizontalDisplacementDegrees ?? 0)}° horizontal · ${formatCoordinate(snapshot.performance?.motionPredictedVerticalDisplacementDegrees ?? 0)}° vertical`,
+    motionSelectionCandidates: formatNumber(snapshot.performance?.motionCandidateCount ?? 0),
+    motionSelectionWeights: formatPriorityRange(
+      snapshot.performance?.motionWeightMin,
+      snapshot.performance?.motionWeightMax,
+    ),
+    motionSelectionInfluence: (snapshot.performance?.motionInfluencedRefinementCount ?? 0) > 0
+      ? `${formatNumber(snapshot.performance?.motionInfluencedRefinementCount ?? 0)} accepted refinement${snapshot.performance?.motionInfluencedRefinementCount === 1 ? '' : 's'} influenced`
+      : (snapshot.performance?.motionCandidateCount ?? 0) > 0
+        ? 'weighted candidates; no accepted refinement changed'
+        : 'no motion-weighted candidates',
     rangeFetchBytes: formatBytes(snapshot.performance?.rangeFetchBytes ?? 0),
     configuredRangeValidation: state.configuredRangeValidation,
     sourceProbePolicy: sourceProbe
@@ -447,6 +495,22 @@ export function createCopcDebugPanel(
           <div><dt>First priority start</dt><dd data-field="firstHighPriorityNodeStartLatency"></dd></div>
           <div><dt>First priority ready</dt><dd data-field="firstHighPriorityNodeReadyLatency"></dd></div>
         </dl>
+      </details>
+      <details>
+        <summary>Motion Lookahead</summary>
+        <dl>
+          <div><dt>Live enabled / state</dt><dd><span data-field="motionLiveEnabled"></span> / <span data-field="motionLiveState"></span></dd></div>
+          <div><dt>Accepted movement samples</dt><dd data-field="motionLiveMovementSamples"></dd></div>
+          <div><dt>Live angular velocity</dt><dd data-field="motionLiveAngularVelocity"></dd></div>
+          <div><dt>Live predicted displacement</dt><dd data-field="motionLivePrediction"></dd></div>
+          <div><dt>Live activity / time since movement</dt><dd><span data-field="motionLiveActivity"></span> / <span data-field="motionLiveAge"></span></dd></div>
+          <div><dt>Last selection update</dt><dd data-field="motionSelectionGeneration"></dd></div>
+          <div><dt>Selected / rendered nodes</dt><dd data-field="motionSelectionNodes"></dd></div>
+          <div><dt>Selection prediction</dt><dd data-field="motionSelectionPrediction"></dd></div>
+          <div><dt>Weighted candidates / weight range</dt><dd><span data-field="motionSelectionCandidates"></span> / <span data-field="motionSelectionWeights"></span></dd></div>
+          <div><dt>Refinement influence</dt><dd data-field="motionSelectionInfluence"></dd></div>
+        </dl>
+        <p>Live values update with the inspector. Selection prediction, candidates, weights, selected count, and accepted refinement effects describe the last selection update; rendered count reflects current renderer state.</p>
       </details>
     </details>
     <details class="copc-debug-panel__section">

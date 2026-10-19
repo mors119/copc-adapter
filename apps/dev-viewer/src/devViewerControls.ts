@@ -24,6 +24,7 @@ export type DevViewerControlsOptions = {
   readonly onCameraPresetSelected: (preset: CameraPreset) => number;
   readonly onColorModeSelected: (mode: CopcColorMode) => void;
   readonly onRefinementAlgorithmSelected: (algorithm: RefinementAlgorithm) => void;
+  readonly onMotionLookaheadSelected: (enabled: boolean) => void;
   readonly onRangeValidationSelected: (policy: RangeValidationPolicy) => void;
   readonly onPendingConfigChange: (update: Partial<DevViewerConfig>) => void;
   readonly onCameraDistanceSelected: (distance: number) => void;
@@ -166,6 +167,20 @@ export function mountDevViewerControls(
     },
   );
   mountedControls.push(refinementControl);
+
+  const motionLookaheadControl = mountSegmentedControl<'on' | 'off'>(
+    document.querySelector<HTMLElement>('#motion-lookahead-control')!,
+    {
+      label: 'Motion Lookahead',
+      value: controls.motionLookahead ? 'on' : 'off',
+      choices: [
+        { value: 'on', label: 'On' },
+        { value: 'off', label: 'Off' },
+      ],
+      onChange: (value) => options.onMotionLookaheadSelected(value === 'on'),
+    },
+  );
+  mountedControls.push(motionLookaheadControl);
 
   const rangeValidationControl = mountSegmentedControl<RangeValidationPolicy>(
     document.querySelector<HTMLElement>('#range-validation-control')!,

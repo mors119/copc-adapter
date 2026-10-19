@@ -68,6 +68,7 @@ import {
 import { DEFAULT_MAX_CONCURRENT_NODE_LOADS } from './scheduler';
 import {
   CameraMotionLookaheadEstimator,
+  type CameraMotionLiveDiagnostics,
   type CameraMotionObservation,
 } from './motionLookahead';
 import {
@@ -238,7 +239,13 @@ export type CopcStreamingPerformanceSnapshot = Pick<
   | 'pointPreparationDurationMs'
   | 'crsTransformDurationMs'
   | 'longestMainThreadBlockingSectionMs'
->;
+> & {
+  /** Current decayed estimator state, sampled when `getSnapshot()` is called. */
+  motionLive: CameraMotionLiveDiagnostics & {
+    /** Accepted movement samples since camera-motion history was reset. */
+    acceptedMovementSampleCount: number;
+  };
+};
 
 /** Detached diagnostics for one shared streaming core. */
 export type CopcStreamingSnapshot = {
@@ -398,6 +405,9 @@ export class CopcStreamingCore {
   private readonly adaptiveViewDistancePolicy = new AdaptiveViewDistancePolicy();
   private readonly motionEstimator: CameraMotionLookaheadEstimator;
   private motionSampledMovementCount = 0;
+  private motionTimestampOffsetMilliseconds?: number;
+  private motionTimestampAnchorMilliseconds?: number;
+  private motionTimestampAnchorPerformanceMilliseconds?: number;
   private transition = createTransitionState();
   private lifecycle: CopcStreamingLifecycleState = 'idle';
   private lifecycleAbortController?: AbortController;
@@ -529,7 +539,9 @@ export class CopcStreamingCore {
         context.cancelPendingPointJobs?.bind(context),
       );
       manager.setRefinementFocus(this.refinementFocus);
-      manager.setMotionPrediction(this.motionEstimator.getPrediction(performanceNow()));
+      manager.setMotionPrediction(
+        this.motionEstimator.getPrediction(this.getMotionEstimatorTimestamp()),
+      );
 
       this.streamingState = {
         context,
@@ -629,7 +641,7 @@ export class CopcStreamingCore {
     streamingState.nodesRef.current = availableNodes;
     streamingState.manager.setHierarchy(availableNodes);
     streamingState.manager.setMotionPrediction(
-      this.motionEstimator.getPrediction(performanceNow()),
+      this.motionEstimator.getPrediction(this.getMotionEstimatorTimestamp()),
     );
 
     let progressApplied = false;
@@ -743,6 +755,9 @@ export class CopcStreamingCore {
     this.performanceRecorder = this.createPerformanceRecorder();
     this.motionEstimator.reset();
     this.motionSampledMovementCount = 0;
+    this.motionTimestampOffsetMilliseconds = undefined;
+    this.motionTimestampAnchorMilliseconds = undefined;
+    this.motionTimestampAnchorPerformanceMilliseconds = undefined;
     this.lifecycle = 'idle';
     this.debug('COPC streaming controller unloaded');
   }
@@ -826,12 +841,32 @@ export class CopcStreamingCore {
    * Renderer adapters call this for camera events between streaming updates,
    * including before equivalent-view early returns. Direct core consumers can
    * rely on `updateView()` to sample each supplied view.
+   * Optional explicit timestamps are rebased to the core's monotonic clock.
    */
   observeCameraMotion(
     view: StreamingView,
-    timestampMilliseconds = performanceNow(),
+    timestampMilliseconds?: number,
   ): CameraMotionObservation {
-    const observation = this.motionEstimator.observe(view.viewFrustum, timestampMilliseconds);
+    const now = performanceNow();
+    let estimatorTimestamp = this.getMotionEstimatorTimestamp(now);
+    if (timestampMilliseconds !== undefined) {
+      if (Number.isFinite(timestampMilliseconds) && timestampMilliseconds >= 0) {
+        // Explicit timestamps may use another monotonic origin (for example,
+        // Date.now() or a deterministic test clock). Rebase that clock once
+        // onto performance.now(); the anchor below lets the internal clock
+        // advance from the latest explicit sample before wall time catches up.
+        this.motionTimestampOffsetMilliseconds ??= now - timestampMilliseconds;
+        estimatorTimestamp = timestampMilliseconds + this.motionTimestampOffsetMilliseconds;
+      } else {
+        // Preserve the estimator's invalid-timestamp handling.
+        estimatorTimestamp = timestampMilliseconds;
+      }
+    }
+    const observation = this.motionEstimator.observe(view.viewFrustum, estimatorTimestamp);
+    if (observation.valid) {
+      this.motionTimestampAnchorMilliseconds = estimatorTimestamp;
+      this.motionTimestampAnchorPerformanceMilliseconds = now;
+    }
     if (observation.sampledMovement
       && this.motionSampledMovementCount < Number.MAX_SAFE_INTEGER) {
       this.motionSampledMovementCount += 1;
@@ -844,8 +879,11 @@ export class CopcStreamingCore {
   resetCameraMotion(): void {
     this.motionEstimator.reset();
     this.motionSampledMovementCount = 0;
+    this.motionTimestampOffsetMilliseconds = undefined;
+    this.motionTimestampAnchorMilliseconds = undefined;
+    this.motionTimestampAnchorPerformanceMilliseconds = undefined;
     this.streamingState?.manager.setMotionPrediction(
-      this.motionEstimator.getPrediction(performanceNow()),
+      this.motionEstimator.getPrediction(this.getMotionEstimatorTimestamp()),
     );
   }
 
@@ -1024,6 +1062,15 @@ export class CopcStreamingCore {
     };
   }
 
+  private getMotionEstimatorTimestamp(now = performanceNow()): number {
+    const anchor = this.motionTimestampAnchorMilliseconds;
+    const anchorPerformanceTime = this.motionTimestampAnchorPerformanceMilliseconds;
+    if (anchor === undefined || anchorPerformanceTime === undefined) {
+      return now;
+    }
+    return anchor + Math.max(0, now - anchorPerformanceTime);
+  }
+
   private getPerformanceSnapshot(): CopcStreamingPerformanceSnapshot {
     const snapshot = this.performanceRecorder.getSnapshot();
     return {
@@ -1056,6 +1103,10 @@ export class CopcStreamingCore {
       refinementFocusEnabled: this.refinementFocus !== undefined,
       motionLookaheadEnabled: this.getStreamingOptions().motionLookahead !== false,
       motionSampledMovementCount: this.motionSampledMovementCount,
+      motionLive: {
+        ...this.motionEstimator.getDiagnostics(this.getMotionEstimatorTimestamp()),
+        acceptedMovementSampleCount: this.motionSampledMovementCount,
+      },
       ...(snapshot.maxConcurrentNodeLoads === undefined
         ? {}
         : {

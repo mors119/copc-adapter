@@ -5,6 +5,7 @@ import * as THREE from 'three';
 
 import { createDatasetLocalFrame } from '../core/coordinates/transform/datasetLocalFrame.ts';
 import { createCesiumStreamingView } from '../cesium/view/CesiumViewAdapter.ts';
+import { CopcStreamingCore } from '../core/streaming/CopcStreamingCore.ts';
 import { NodeSelector } from '../core/streaming/NodeSelector.ts';
 import {
   CameraMotionLookaheadEstimator,
@@ -49,6 +50,81 @@ function cameraBasis(yawDegrees = 0, pitchDegrees = 0, rollDegrees = 0) {
     aspectRatio: 1,
     nearMeters: 1,
     farMeters: 100,
+  });
+}
+
+test('core live motion diagnostics honor an explicit observation clock origin', () => {
+  const core = new CopcStreamingCore({ url: 'https://example.test/sample.copc.laz' });
+  const timestampOrigin = 1_700_000_000_000;
+
+  core.observeCameraMotion({ viewFrustum: cameraBasis(0) }, timestampOrigin);
+  const observation = core.observeCameraMotion(
+    { viewFrustum: cameraBasis(2) },
+    timestampOrigin + 16,
+  );
+
+  assert.equal(observation.sampledMovement, true);
+  const liveMotion = core.getSnapshot().performance.motionLive;
+  assert.equal(liveMotion.state, 'active');
+  assert.ok(liveMotion.predictedHorizontalDisplacementDegrees > 0);
+  assert.ok(liveMotion.millisecondsSinceLastAcceptedMovement < 100);
+
+  core.destroy();
+});
+
+function cesiumEcefView(yawDegrees = 0, pitchDegrees = 0, rollDegrees = 0) {
+  const yaw = yawDegrees * Math.PI / 180;
+  const pitch = pitchDegrees * Math.PI / 180;
+  const roll = rollDegrees * Math.PI / 180;
+  const position = Cesium.Cartesian3.fromDegrees(-122.68, 45.52, 2_000);
+  const enu = Cesium.Transforms.eastNorthUpToFixedFrame(position, Cesium.Ellipsoid.WGS84);
+  const east = Cesium.Matrix4.getColumn(enu, 0, new Cesium.Cartesian3());
+  const north = Cesium.Matrix4.getColumn(enu, 1, new Cesium.Cartesian3());
+  const upAxis = Cesium.Matrix4.getColumn(enu, 2, new Cesium.Cartesian3());
+  const fromEnu = (eastValue, northValue, upValue) => new Cesium.Cartesian3(
+    east.x * eastValue + north.x * northValue + upAxis.x * upValue,
+    east.y * eastValue + north.y * northValue + upAxis.y * upValue,
+    east.z * eastValue + north.z * northValue + upAxis.z * upValue,
+  );
+  const direction = fromEnu(
+    Math.sin(yaw) * Math.cos(pitch),
+    Math.cos(yaw) * Math.cos(pitch),
+    Math.sin(pitch),
+  );
+  const unrolledRight = fromEnu(Math.cos(yaw), -Math.sin(yaw), 0);
+  const unrolledUp = fromEnu(
+    -Math.sin(yaw) * Math.sin(pitch),
+    -Math.cos(yaw) * Math.sin(pitch),
+    Math.cos(pitch),
+  );
+  const right = new Cesium.Cartesian3(
+    unrolledRight.x * Math.cos(roll) + unrolledUp.x * Math.sin(roll),
+    unrolledRight.y * Math.cos(roll) + unrolledUp.y * Math.sin(roll),
+    unrolledRight.z * Math.cos(roll) + unrolledUp.z * Math.sin(roll),
+  );
+  const up = new Cesium.Cartesian3(
+    unrolledUp.x * Math.cos(roll) - unrolledRight.x * Math.sin(roll),
+    unrolledUp.y * Math.cos(roll) - unrolledRight.y * Math.sin(roll),
+    unrolledUp.z * Math.cos(roll) - unrolledRight.z * Math.sin(roll),
+  );
+
+  return createCesiumStreamingView({
+    camera: {
+      positionWC: position,
+      directionWC: direction,
+      rightWC: right,
+      upWC: up,
+      frustum: {
+        fovy: Math.PI / 2,
+        aspectRatio: 4 / 3,
+        near: 1,
+        far: 100_000,
+      },
+    },
+    scene: {
+      drawingBufferHeight: 1_000,
+      canvas: { clientHeight: 1_000, height: 1_000 },
+    },
   });
 }
 
@@ -164,10 +240,13 @@ test('motion estimator maps yaw, pitch, roll and circular orientation changes to
   assert.ok(down.observe(cameraBasis(0, -2), 200).prediction.predictedVerticalDisplacementDegrees < 0);
 
   const rolled = new CameraMotionLookaheadEstimator();
-  rolled.observe(cameraBasis(0, 20, 35), 100);
-  const rolledRight = rolled.observe(cameraBasis(2, 20, 35), 200).prediction;
+  const rolledBefore = cameraBasis(0, 20, 35);
+  const rolledAfter = cameraBasis(2, 20, 35);
+  rolled.observe(rolledBefore, 100);
+  const rolledRight = rolled.observe(rolledAfter, 200).prediction;
   assert.ok(rolledRight.predictedHorizontalDisplacementDegrees > 0);
-  assert.ok(Number.isFinite(rolledRight.predictedVerticalDisplacementDegrees));
+  assert.ok(rolledRight.predictedVerticalDisplacementDegrees < 0);
+  assert.ok(rolledBefore.direction.z * rolledAfter.up.z < 0);
 
   const wrapRight = new CameraMotionLookaheadEstimator();
   wrapRight.observe(cameraBasis(359), 100);
@@ -175,6 +254,51 @@ test('motion estimator maps yaw, pitch, roll and circular orientation changes to
   const wrapLeft = new CameraMotionLookaheadEstimator();
   wrapLeft.observe(cameraBasis(1), 100);
   assert.ok(wrapLeft.observe(cameraBasis(359), 200).prediction.predictedHorizontalDisplacementDegrees < 0);
+});
+
+test('Cesium ECEF basis vectors preserve screen-right and screen-up motion signs', () => {
+  for (const { before, after, axis, sign } of [
+    { before: cesiumEcefView(), after: cesiumEcefView(2), axis: 'horizontal', sign: 1 },
+    { before: cesiumEcefView(), after: cesiumEcefView(-2), axis: 'horizontal', sign: -1 },
+    { before: cesiumEcefView(), after: cesiumEcefView(0, 2), axis: 'vertical', sign: 1 },
+    { before: cesiumEcefView(), after: cesiumEcefView(0, -2), axis: 'vertical', sign: -1 },
+    { before: cesiumEcefView(0, 20, 35), after: cesiumEcefView(2, 20, 35), axis: 'horizontal', sign: 1 },
+  ]) {
+    const estimator = new CameraMotionLookaheadEstimator();
+    estimator.observe(before.viewFrustum, 100);
+    const movement = estimator.observe(after.viewFrustum, 200).prediction;
+    const projectedDisplacement = axis === 'horizontal'
+      ? movement.predictedHorizontalDisplacementDegrees
+      : movement.predictedVerticalDisplacementDegrees;
+    assert.equal(Math.sign(projectedDisplacement), sign, JSON.stringify({ axis, movement }));
+  }
+});
+
+test('translation alone is ignored and live diagnostics separate active, decay, and stationary states', () => {
+  const estimator = new CameraMotionLookaheadEstimator();
+  const initial = cameraBasis();
+  const translated = cameraBasis();
+  translated.position.x += 50;
+  estimator.observe(initial, 100);
+  const translation = estimator.observe(translated, 200);
+  assert.equal(translation.sampledMovement, false);
+  assert.equal(translation.prediction.activity, 0);
+
+  const movement = estimator.observe(cameraBasis(4), 300);
+  assert.equal(movement.sampledMovement, true);
+  assert.equal(estimator.getDiagnostics(300).state, 'active');
+  assert.equal(estimator.getDiagnostics(450).state, 'decaying');
+  assert.equal(estimator.getDiagnostics(450).millisecondsSinceLastAcceptedMovement, 150);
+  const settleObservation = estimator.observe(
+    cameraBasis(4),
+    300 + MOTION_LOOKAHEAD_DECAY_MS,
+  );
+  assert.equal(settleObservation.priorityChanged, true);
+  assert.equal(settleObservation.prediction.activity, 0);
+  const stationary = estimator.getDiagnostics(300 + MOTION_LOOKAHEAD_DECAY_MS);
+  assert.equal(stationary.state, 'stationary');
+  assert.equal(stationary.activity, 0);
+  assert.equal(stationary.horizontalAngularVelocityDegreesPerSecond, 0);
 });
 
 test('motion estimator rejects bad clocks and vectors, clamps speed, reverses promptly and decays exactly', () => {

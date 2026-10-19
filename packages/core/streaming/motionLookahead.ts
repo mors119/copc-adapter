@@ -4,6 +4,8 @@ import type { ViewFrustum, ViewVector3 } from './view';
 export const MOTION_LOOKAHEAD_HORIZON_MS = 200;
 /** Motion weight reaches exactly zero this long after the last accepted movement sample. */
 export const MOTION_LOOKAHEAD_DECAY_MS = 600;
+/** A recently accepted sample marks motion as active before the decay phase. */
+const MOTION_LOOKAHEAD_ACTIVE_WINDOW_MS = 100;
 
 const MIN_SAMPLE_INTERVAL_MS = 4;
 const MAX_SAMPLE_GAP_MS = 2_000;
@@ -39,6 +41,14 @@ export type CameraMotionPrediction = {
   predictedVerticalDisplacementDegrees: number;
   /** Bounded motion confidence used to scale node relevance, in [0, 1]. */
   activity: number;
+};
+
+/** Current estimator state for bounded runtime diagnostics. */
+export type CameraMotionLiveDiagnostics = CameraMotionPrediction & {
+  /** Active while samples arrive, decaying during the 600 ms settle window, then stationary. */
+  state: 'disabled' | 'active' | 'decaying' | 'stationary';
+  /** Time since the last accepted movement sample; absent before the first accepted sample. */
+  millisecondsSinceLastAcceptedMovement?: number;
 };
 
 /** Result of accepting or rejecting one camera view observation. */
@@ -316,6 +326,30 @@ export class CameraMotionLookaheadEstimator {
       predictedHorizontalDisplacementDegrees: horizontalDisplacement * (180 / Math.PI),
       predictedVerticalDisplacementDegrees: verticalDisplacement * (180 / Math.PI),
       activity: clamp(speed / ACTIVITY_FULL_SPEED_RADIANS_PER_SECOND, 0, 1),
+    };
+  }
+
+  /** Return the current decayed prediction and bounded activity state. */
+  getDiagnostics(timestampMilliseconds: number): CameraMotionLiveDiagnostics {
+    const prediction = this.getPrediction(timestampMilliseconds);
+    const rawAge = timestampMilliseconds - (this.lastMovementTimestamp ?? timestampMilliseconds);
+    const age = this.lastMovementTimestamp !== undefined
+      && Number.isFinite(rawAge)
+      && rawAge >= 0
+      ? rawAge
+      : undefined;
+    const state = !this.enabled
+      ? 'disabled'
+      : age === undefined || age >= MOTION_LOOKAHEAD_DECAY_MS
+        ? 'stationary'
+        : age <= MOTION_LOOKAHEAD_ACTIVE_WINDOW_MS
+          ? 'active'
+          : 'decaying';
+
+    return {
+      ...prediction,
+      state,
+      ...(age === undefined ? {} : { millisecondsSinceLastAcceptedMovement: age }),
     };
   }
 
