@@ -5,6 +5,7 @@ import * as THREE from 'three';
 
 import { createDatasetLocalFrame } from '../core/coordinates/transform/datasetLocalFrame.ts';
 import { createCesiumStreamingView } from '../cesium/view/CesiumViewAdapter.ts';
+import { CopcStreamingCore } from '../core/streaming/CopcStreamingCore.ts';
 import { NodeSelector } from '../core/streaming/NodeSelector.ts';
 import {
   CameraMotionLookaheadEstimator,
@@ -51,6 +52,25 @@ function cameraBasis(yawDegrees = 0, pitchDegrees = 0, rollDegrees = 0) {
     farMeters: 100,
   });
 }
+
+test('core live motion diagnostics honor an explicit observation clock origin', () => {
+  const core = new CopcStreamingCore({ url: 'https://example.test/sample.copc.laz' });
+  const timestampOrigin = 1_700_000_000_000;
+
+  core.observeCameraMotion({ viewFrustum: cameraBasis(0) }, timestampOrigin);
+  const observation = core.observeCameraMotion(
+    { viewFrustum: cameraBasis(2) },
+    timestampOrigin + 16,
+  );
+
+  assert.equal(observation.sampledMovement, true);
+  const liveMotion = core.getSnapshot().performance.motionLive;
+  assert.equal(liveMotion.state, 'active');
+  assert.ok(liveMotion.predictedHorizontalDisplacementDegrees > 0);
+  assert.ok(liveMotion.millisecondsSinceLastAcceptedMovement < 100);
+
+  core.destroy();
+});
 
 function cesiumEcefView(yawDegrees = 0, pitchDegrees = 0, rollDegrees = 0) {
   const yaw = yawDegrees * Math.PI / 180;
