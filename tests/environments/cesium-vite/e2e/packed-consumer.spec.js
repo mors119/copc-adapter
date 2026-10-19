@@ -18,12 +18,16 @@ async function waitForStableRendering(page) {
   let stableSamples = 0;
   await expect.poll(async () => {
     const current = await state(page);
-    const idle = current.rangeRequests?.active === 0
+    const motionSettled = current.performance.motionPredictedHorizontalDisplacementDegrees === 0
+      && current.performance.motionPredictedVerticalDisplacementDegrees === 0;
+    const workerIdle = !current.worker
+      || (current.worker.activeCount === 0 && current.worker.queuedCount === 0);
+    const idle = motionSettled
+      && current.rangeRequests?.active === 0
       && current.performance?.activeNodeCount === 0
       && current.performance?.queuedNodeCount === 0
       && current.transition?.activeReplacementGroupCount === 0
-      && current.worker?.activeCount === 0
-      && current.worker?.queuedCount === 0;
+      && workerIdle;
     if (!idle) {
       previousSignature = undefined;
       stableSamples = 0;
@@ -41,6 +45,7 @@ async function waitForStableRendering(page) {
     return stableSamples >= 3;
   }, { intervals: [200, 300, 400], timeout: 60_000 })
     .toBe(true);
+  return state(page);
 }
 
 async function loadRustPage(page, query = '?backend=rust&mode=rgb') {

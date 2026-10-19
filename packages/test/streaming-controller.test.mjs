@@ -149,6 +149,20 @@ function createView(overrides = {}) {
   };
 }
 
+function createMotionFrustum(yawDegrees) {
+  const yaw = yawDegrees * Math.PI / 180;
+  return createPerspectiveViewFrustum({
+    position: geographicToEcef({ longitude: 10.005, latitude: 20.005, height: 150 }),
+    direction: { x: Math.sin(yaw), y: 0, z: Math.cos(yaw) },
+    up: { x: 0, y: 1, z: 0 },
+    right: { x: Math.cos(yaw), y: 0, z: -Math.sin(yaw) },
+    verticalFovRadians: Math.PI / 3,
+    aspectRatio: 1,
+    nearMeters: 1,
+    farMeters: 6000,
+  });
+}
+
 function createPointBuffer(height = 150) {
   return {
     pointCount: 1,
@@ -224,6 +238,22 @@ test('a plain project-owned view drives hierarchy query and deterministic select
   assert.equal(prepared.world.coordinateSystem, 'wgs84-ecef-meters');
   assert.deepEqual(prepared.statistics.elevation, { min: 150, max: 150 });
   assert.equal(controller.getPointCacheDiagnostics().cachedNodeCount, 1);
+});
+
+test('direct core updateView calls sample camera motion without adapter observations', async () => {
+  const source = createSourceFactory();
+  const controller = createController(source.backend);
+  await controller.load();
+
+  await controller.updateView(createView({ viewFrustum: createMotionFrustum(0) }));
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  await controller.updateView(createView({ viewFrustum: createMotionFrustum(10) }));
+
+  const { performance } = controller.getSnapshot();
+  assert.ok(performance.motionPredictedHorizontalDisplacementDegrees > 0);
+  assert.ok(performance.motionHorizontalAngularVelocityDegreesPerSecond > 0);
+  assert.equal(performance.motionSampledMovementCount, 1);
+  controller.destroy();
 });
 
 test('the shared core derives its current distance from perspective footprint', async () => {

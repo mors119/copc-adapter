@@ -150,7 +150,8 @@ a separately defined and tested contract.
   `6`), `maxScreenSpaceError` in pixels (default `8`),
   `screenSpaceErrorHysteresis` in pixels, `maxRenderDistanceMeters` (default
   `12000`), `maxRenderedPoints`, and `refinementAlgorithm` (default
-  `'foveated'`; `'screen-projection'` selects the v0.5 passive gaze behavior).
+  `'foveated'`; `'screen-projection'` selects the v0.5 passive gaze behavior),
+  and `motionLookahead` (default `true`).
 - `refineDistanceMultiplier`: accepted for source compatibility but deprecated
   and planned for removal in v0.9, after v0.8; the current selector uses
 screen-space error instead.
@@ -197,6 +198,7 @@ current selection generation and reuses the loaded source, hierarchy, and
 decoded cache. The library does not draw a DOM focus guide. The Three.js layer
 uses the same named strategy option; its layer facade does not yet expose a
 focus setter.
+
 - `backend`: `'copc-js' | 'rust' | CopcBackend`. Default: `'copc-js'`.
   `'rust'` explicitly selects the Rust/WASM backend. Backend failures are not
   silently retried through `copc-js`.
@@ -243,6 +245,36 @@ focus setter.
   `CopcThreeLayer` and `CopcStreamingCore`.
 - `onPointPicked`: called with a selected `CopcPointInspection`, or `undefined`
   when selection is cleared.
+
+### Camera motion lookahead
+
+`streaming.motionLookahead` defaults to `true` for both Cesium and Three.js.
+It gives currently visible refinement candidates a smooth, bounded preference
+toward the direction of recent camera rotation. It uses a fixed 200 ms
+prediction horizon, clamps angular speed to 90 degrees/second, and reaches
+exactly zero 600 ms after movement stops. The current frustum, raw screen-space
+error, refinement hysteresis, atomic replacements, and node/point budgets
+remain authoritative. The predicted direction never adds offscreen nodes or
+requests.
+
+Set `motionLookahead: false` to retain the pre-motion refinement ranking while
+moving. At rest, enabled lookahead also returns to the existing Foveated or
+Screen Projection baseline. A layer snapshot exposes the sampled movement
+count, selected motion velocities, predicted displacement, candidate weight
+range, and the count of accepted refinements whose winner changed with motion
+influence under its `performance` field. The sampled movement count is
+cumulative until camera history is reset or the source is unloaded; no sample
+history is retained.
+
+```ts
+const layer = new CopcCesiumLayer({
+  url: '/data/area.copc.laz',
+  streaming: {
+    refinementAlgorithm: 'foveated',
+    motionLookahead: true,
+  },
+});
+```
 
 `BatchedGeometryPointRenderer` is an opt-in implementation exported from
 `@frillab/copc-adapter/cesium`. It submits one public Cesium `Geometry(POINTS)`

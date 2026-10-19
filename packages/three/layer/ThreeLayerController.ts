@@ -19,6 +19,7 @@ import type {
   StreamingView,
 } from '../../core/streaming/types';
 import { DEFAULT_MAX_RENDERED_POINTS } from '../../core/streaming/NodeSelector';
+import { MOTION_LOOKAHEAD_DECAY_MS } from '../../core/streaming/motionLookahead';
 import type { NodePointCacheDiagnostics } from '../../core/streaming/createNodePointCache';
 import {
   ThreePointRenderer,
@@ -93,8 +94,10 @@ export class ThreeLayerController {
   private streamingGeneration = 0;
   private lastStreamingView?: StreamingView;
   private updatePending = false;
+  private pendingForceSelection = false;
   private updateInFlight = false;
   private updateInFlightPromise?: Promise<void>;
+  private motionDecayTimer?: ReturnType<typeof setTimeout>;
   private activeStreamingUpdate?: ActiveStreamingUpdate;
   private readonly replacementTransitions: ReplacementTransitionManager;
   private rendererPerformance = createRendererPerformanceSnapshot();
@@ -220,6 +223,9 @@ export class ThreeLayerController {
     this.streamingGeneration += 1;
     this.core.invalidateView();
     this.updatePending = false;
+    this.pendingForceSelection = false;
+    this.clearMotionDecayTimer();
+    this.core.resetCameraMotion();
     this.pointRenderer.detachFrom();
     this.replacementTransitions.reset();
     this.pointPicker.clear();
@@ -307,6 +313,10 @@ export class ThreeLayerController {
    * @throws If the layer has been destroyed.
    */
   update(): Promise<void> {
+    return this.updateCurrentView(false);
+  }
+
+  private updateCurrentView(forceSelection: boolean): Promise<void> {
     if (this.lifecycle === 'destroyed') {
       throw new Error('CopcThreeLayer has been destroyed');
     }
@@ -316,27 +326,39 @@ export class ThreeLayerController {
     }
 
     const view = this.createView(attachment);
+    const motion = this.core.observeCameraMotion(view);
+    if (motion.sampledMovement) {
+      this.scheduleMotionDecayUpdate();
+    }
+    const viewEquivalent = this.lastStreamingView !== undefined
+      && areStreamingViewsEquivalent(this.lastStreamingView, view);
+    const shouldForceSelection = forceSelection
+      || (viewEquivalent && motion.priorityChanged);
     if (this.updateInFlight) {
-      if (!this.lastStreamingView || !areStreamingViewsEquivalent(this.lastStreamingView, view)) {
+      if (!viewEquivalent || shouldForceSelection) {
         this.updatePending = true;
-        this.streamingGeneration += 1;
-        // The recorded view belongs to the invalidated generation. Clearing it
-        // prevents a retry from being mistaken for an unchanged view if the
-        // camera returns to that generation before the stale update settles.
-        this.lastStreamingView = undefined;
-        this.core.invalidateView();
-        this.cancelActiveView('camera-change');
-        if (this.isDestroyed()) {
-          return this.updateInFlightPromise ?? Promise.resolve();
+        this.pendingForceSelection ||= shouldForceSelection;
+        if (!viewEquivalent) {
+          this.streamingGeneration += 1;
+          // The recorded view belongs to the invalidated generation. Clearing it
+          // prevents a retry from being mistaken for an unchanged view if the
+          // camera returns to that generation before the stale update settles.
+          this.lastStreamingView = undefined;
+          this.core.invalidateView();
+          this.cancelActiveView('camera-change');
+          if (this.isDestroyed()) {
+            return this.updateInFlightPromise ?? Promise.resolve();
+          }
         }
       }
       return this.updateInFlightPromise ?? Promise.resolve();
     }
-    if (this.lastStreamingView && areStreamingViewsEquivalent(this.lastStreamingView, view)) {
+    if (viewEquivalent && !shouldForceSelection) {
       return Promise.resolve();
     }
 
     this.updatePending = true;
+    this.pendingForceSelection ||= shouldForceSelection;
     const updatePromise = this.runPendingStreamingUpdates();
     this.updateInFlightPromise = updatePromise;
     this.updateInFlight = true;
@@ -374,6 +396,8 @@ export class ThreeLayerController {
     this.loadGeneration += 1;
     this.streamingGeneration += 1;
     this.updatePending = false;
+    this.pendingForceSelection = false;
+    this.clearMotionDecayTimer();
     this.core.unload();
     this.datasetElevationRange = undefined;
     this.pointRenderer.clear();
@@ -409,6 +433,8 @@ export class ThreeLayerController {
     this.cancelActiveView('destroy');
     this.core.destroy();
     this.updatePending = false;
+    this.pendingForceSelection = false;
+    this.clearMotionDecayTimer();
     this.pointRenderer.detachFrom();
     this.replacementTransitions.reset();
     this.pointPicker.clear();
@@ -512,12 +538,14 @@ export class ThreeLayerController {
 
   private async runPendingStreamingUpdates(): Promise<void> {
     while (this.updatePending) {
+      const forceSelection = this.pendingForceSelection;
+      this.pendingForceSelection = false;
       this.updatePending = false;
-      await this.performStreamingUpdate();
+      await this.performStreamingUpdate(forceSelection);
     }
   }
 
-  private async performStreamingUpdate(): Promise<void> {
+  private async performStreamingUpdate(forceSelection = false): Promise<void> {
     const attachment = this.attachment;
     if (!attachment || !this.core.getMetadata() || this.lifecycle === 'destroyed') {
       return;
@@ -525,7 +553,9 @@ export class ThreeLayerController {
 
     const generation = ++this.streamingGeneration;
     const view = this.createView(attachment);
-    if (this.lastStreamingView && areStreamingViewsEquivalent(this.lastStreamingView, view)) {
+    if (!forceSelection
+      && this.lastStreamingView
+      && areStreamingViewsEquivalent(this.lastStreamingView, view)) {
       return;
     }
     const begunView = this.eventLifecycle.beginView();
@@ -626,6 +656,28 @@ export class ThreeLayerController {
         viewGeneration: publicViewGeneration,
         selectedNodeKeys: Object.freeze([...update.selectedNodeKeys]),
       });
+    }
+  }
+
+  private scheduleMotionDecayUpdate(): void {
+    this.clearMotionDecayTimer();
+    this.motionDecayTimer = setTimeout(() => {
+      this.motionDecayTimer = undefined;
+      const attachment = this.attachment;
+      if (!attachment || !this.core.getMetadata() || this.lifecycle === 'destroyed') {
+        return;
+      }
+      const observation = this.core.observeCameraMotion(this.createView(attachment));
+      if (observation.priorityChanged) {
+        void this.updateCurrentView(true);
+      }
+    }, MOTION_LOOKAHEAD_DECAY_MS + 25);
+  }
+
+  private clearMotionDecayTimer(): void {
+    if (this.motionDecayTimer !== undefined) {
+      clearTimeout(this.motionDecayTimer);
+      this.motionDecayTimer = undefined;
     }
   }
 

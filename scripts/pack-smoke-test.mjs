@@ -232,6 +232,14 @@ try {
     path.resolve(installedPackageDirectory, 'dist/cesium.d.ts'),
     'utf8',
   );
+  const cesiumOptionsDeclaration = await readFile(
+    path.resolve(installedPackageDirectory, 'dist/cesium/layer/CopcCesiumLayer.d.ts'),
+    'utf8',
+  );
+  if (!cesiumDeclaration.includes('CopcStreamingOptions')
+    || !cesiumOptionsDeclaration.includes('motionLookahead?: boolean')) {
+    throw new Error('Cesium declarations do not expose streaming.motionLookahead');
+  }
   if (/(?:from|import)\s+['"][^'"]*three/u.test(cesiumDeclaration)) {
     throw new Error('Cesium declarations contain a Three.js module reference');
   }
@@ -242,6 +250,14 @@ try {
     path.resolve(installedPackageDirectory, 'dist/three.d.ts'),
     'utf8',
   );
+  const streamingOptionsDeclaration = await readFile(
+    path.resolve(installedPackageDirectory, 'dist/core/streaming/types.d.ts'),
+    'utf8',
+  );
+  if (!threeDeclaration.includes('StreamingSelectionOptions')
+    || !streamingOptionsDeclaration.includes('motionLookahead?: boolean')) {
+    throw new Error('Three declarations do not expose streaming.motionLookahead');
+  }
   if (/(?:from|import)\s+['"][^'"]*cesium/u.test(threeDeclaration)) {
     throw new Error('Three declarations contain a Cesium module reference');
   }

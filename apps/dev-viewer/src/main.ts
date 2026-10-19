@@ -536,6 +536,7 @@ function getLayerOptions(
   const scenarioMaxDistance = issue128
     ? Number.isFinite(requestedDistance) && requestedDistance > 0 ? requestedDistance : 100
     : 20_000;
+  const motionLookahead = issueScenario ? params.get('motionLookahead') !== 'false' : undefined;
   const requestedRefinementAlgorithm = params.get('refinementAlgorithm');
   const requestedRangeValidation = params.get('rangeValidation');
   const refinementAlgorithm = isRefinementAlgorithm(requestedRefinementAlgorithm)
@@ -567,6 +568,7 @@ function getLayerOptions(
       maxRenderDistanceMeters: config?.maxRenderDistance
         ?? (issueScenario ? scenarioMaxDistance : 12_000),
       refinementAlgorithm: config?.refinementAlgorithm ?? refinementAlgorithm,
+      ...(motionLookahead === undefined ? {} : { motionLookahead }),
     },
   };
 }

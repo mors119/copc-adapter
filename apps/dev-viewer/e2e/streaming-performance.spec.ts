@@ -28,12 +28,16 @@ type DebugState = {
     fallbackCount: number;
   };
   backend: string;
-  performance: Record<string, number> & {
+  performance: Record<string, number | boolean> & {
     configuredPointBudget: number;
     activeRenderedPointCount: number;
     candidateSelectedPointCount: number;
     deferredNodeCount: number;
     deferredPointCount: number;
+    motionLookaheadEnabled: boolean;
+    motionSampledMovementCount: number;
+    motionPredictedHorizontalDisplacementDegrees: number;
+    motionPredictedVerticalDisplacementDegrees: number;
   };
   pointCache: {
     cacheByteBudget: number;
@@ -175,6 +179,7 @@ async function sampleFrames(
 function summarize(state: DebugState): Record<string, unknown> {
   return {
     renderedPointCount: state.renderedPointCount,
+    selectedNodeKeys: state.selectedNodeKeys,
     selectedNodeCount: state.selectedNodeKeys.length,
     streamingUpdateCount: state.streamingUpdateCount,
     viewDistance: state.viewDistance,
@@ -192,6 +197,7 @@ function summarize(state: DebugState): Record<string, unknown> {
 test.describe.configure({ mode: 'serial' });
 
 test('records the Autzen Far/Near, rotation, and stale-work streaming gate', async ({ page }) => {
+  const motionLookaheadEnabled = process.env.COPC_MOTION_LOOKAHEAD !== 'false';
   let delayRangeResponses = false;
   let delayedRangeRequestCount = 0;
   let releaseDelayedRangeResponses: () => void = () => {};
@@ -208,7 +214,10 @@ test('records the Autzen Far/Near, rotation, and stale-work streaming gate', asy
     }
     await route.continue();
   });
-  await loadScenario(page, 'budget=250000');
+  await loadScenario(
+    page,
+    `budget=250000&motionLookahead=${motionLookaheadEnabled ? 'true' : 'false'}`,
+  );
   const transitions: Record<string, unknown>[] = [];
 
   const move = async (label: string, height: number): Promise<DebugState> => {
@@ -242,15 +251,63 @@ test('records the Autzen Far/Near, rotation, and stale-work streaming gate', asy
 
   const beforeRotation = await getState(page);
   const previousRotationDistanceUpdateCount = beforeRotation.viewDistance?.updateCount ?? 0;
-  await page.evaluate(() => {
-    window.__COPC_DEBUG__?.setCameraPitch(-35);
-    window.__COPC_DEBUG__?.setCameraHeading(90);
-  });
+  const previousMotionSampledMovementCount =
+    beforeRotation.performance.motionSampledMovementCount;
+  await page.evaluate(() => window.__COPC_DEBUG__?.setCameraPitch(-35));
+  // Keep the two explicit orientation changes in separate camera samples.
+  // Setting both synchronously can collapse them into one frame on a loaded CI
+  // runner and leave the motion estimator with no measurable time interval.
+  await page.waitForTimeout(25);
+  await page.evaluate(() => window.__COPC_DEBUG__?.setCameraHeading(90));
+  if (motionLookaheadEnabled) {
+    await expect.poll(async () => {
+      return (await getState(page)).performance.motionSampledMovementCount;
+    }, { timeout: 10_000 }).toBeGreaterThan(previousMotionSampledMovementCount);
+  } else {
+    await expect.poll(async () => {
+      return (await getState(page)).performance.motionSampledMovementCount;
+    }, { timeout: 10_000 }).toBe(previousMotionSampledMovementCount);
+  }
+  const rotationMotionSample = await getState(page);
   await waitForViewChange(page, beforeRotation);
   await expect.poll(async () => (await getState(page)).viewDistance?.updateCount ?? 0)
     .toBeGreaterThan(previousRotationDistanceUpdateCount);
+  const rotating = await getState(page);
+  expect(rotating.performance.motionLookaheadEnabled).toBe(motionLookaheadEnabled);
   const rotated = await waitForIdle(page);
-  transitions.push({ label: 'rotate-under-load', state: summarize(rotated), frames: await sampleFrames(page) });
+  await expect.poll(async () => {
+    const performance = (await getState(page)).performance;
+    return performance.motionPredictedHorizontalDisplacementDegrees === 0
+      && performance.motionPredictedVerticalDisplacementDegrees === 0;
+  }, { timeout: 10_000 }).toBe(true);
+  // The one-shot timer can fire before or after the rotation update drains.
+  if (motionLookaheadEnabled) {
+    // Allow its 100 ms coalescing window, then ensure the stationary selection
+    // and any replacement work have finished.
+    await page.waitForTimeout(150);
+    await waitForIdle(page);
+  }
+  const settledMotion = await getState(page);
+  const settledMotionSummary = summarize(settledMotion);
+  await page.waitForTimeout(400);
+  const stableMotion = await getState(page);
+  expect(stableMotion.streamingUpdateCount).toBe(settledMotion.streamingUpdateCount);
+  expect(stableMotion.rangeRequests.requested).toBe(settledMotion.rangeRequests.requested);
+  expect(stableMotion.performance.rangeFetchBytes)
+    .toBe(settledMotion.performance.rangeFetchBytes);
+  expect(stableMotion.worker?.submittedCount).toBe(settledMotion.worker?.submittedCount);
+  expect(stableMotion.worker?.activeCount).toBe(0);
+  expect(stableMotion.worker?.queuedCount).toBe(0);
+  expect(stableMotion.pointCache.misses).toBe(settledMotion.pointCache.misses);
+  transitions.push({
+    label: 'rotate-under-load-and-stationary-decay',
+    state: summarize(rotating),
+    motionSample: summarize(rotationMotionSample),
+    settled: summarize(rotated),
+    settledMotion: settledMotionSummary,
+    stableMotion: summarize(stableMotion),
+    frames: await sampleFrames(page),
+  });
 
   // Delay point ranges after the hierarchy query has started its node loads.
   // This leaves hierarchy page reads reusable while holding a real point read.
@@ -288,6 +345,7 @@ test('records the Autzen Far/Near, rotation, and stale-work streaming gate', asy
     configuration: {
       backend: 'rust',
       colorMode: 'elevation',
+      motionLookahead: motionLookaheadEnabled,
       maxNodes: 32,
       maxDepth: 6,
       maxScreenSpaceError: 8,
@@ -351,7 +409,7 @@ test('records monotonic low/high rendered-point budgets', async ({ browser }) =>
 });
 
 test('records decoded CPU cache pressure separately from rendered workload', async ({ page }) => {
-  await loadScenario(page, 'budget=250000&cacheBytes=1048576');
+  await loadScenario(page, 'budget=250000&cacheBytes=1048576&motionLookahead=false');
   await expect.poll(async () => (await getState(page)).streamingUpdateCount, {
     timeout: 120_000,
   }).toBeGreaterThan(0);
@@ -373,7 +431,11 @@ test('records decoded CPU cache pressure separately from rendered workload', asy
   const state = await waitForIdle(page);
   console.log(JSON.stringify({
     scenario: 'issue-68-cache-pressure',
-    configuration: { maxRenderedPoints: 250_000, maxPointCacheBytes: 1_048_576 },
+    configuration: {
+      maxRenderedPoints: 250_000,
+      maxPointCacheBytes: 1_048_576,
+      motionLookahead: false,
+    },
     state: summarize(state),
   }, null, 2));
 

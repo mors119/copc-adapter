@@ -47,6 +47,7 @@ const layer = new CopcCesiumLayer({
     maxDepth: 6,
     maxScreenSpaceError: 8,
     maxRenderDistanceMeters,
+    motionLookahead: true,
   },
 });
 
