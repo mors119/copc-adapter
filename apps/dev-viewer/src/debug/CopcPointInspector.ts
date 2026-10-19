@@ -20,17 +20,18 @@ function formatRgb(point: CopcPointInspection): string {
     : 'Unavailable';
 }
 
-export type CopcPointInspector = { destroy(): void };
+export type CopcPointInspector = {
+  update(point: CopcPointInspection | undefined): void;
+  destroy(): void;
+};
 
-/** Demo-only compact point inspector; the reusable layer exposes the data API. */
-export function createCopcPointInspector(
-  getPoint: () => CopcPointInspection | undefined,
-): CopcPointInspector {
-  const panel = document.createElement('aside');
+/** Mount a point summary into the Inspector and update it with the shared state snapshot. */
+export function createCopcPointInspector(target: HTMLElement): CopcPointInspector {
+  const panel = document.createElement('section');
   panel.className = 'copc-point-inspector';
   panel.setAttribute('aria-label', 'COPC point inspector');
   panel.innerHTML = `
-    <div class="copc-point-inspector__eyebrow">COPC Point</div>
+    <h3>Selected COPC Point</h3>
     <div class="copc-point-inspector__empty" data-empty>Click a rendered point</div>
     <dl data-details hidden>
       <div><dt>Node</dt><dd data-field="nodeKey"></dd></div>
@@ -45,7 +46,7 @@ export function createCopcPointInspector(
       <div><dt>RGB</dt><dd data-field="rgb"></dd></div>
     </dl>
   `;
-  document.body.append(panel);
+  target.append(panel);
 
   const details = panel.querySelector<HTMLElement>('[data-details]');
   const empty = panel.querySelector<HTMLElement>('[data-empty]');
@@ -54,41 +55,35 @@ export function createCopcPointInspector(
     fields.set(element.dataset.field ?? '', element);
   });
 
-  const update = (): void => {
-    const point = getPoint();
-    if (!point) {
-      if (details) details.hidden = true;
-      if (empty) empty.hidden = false;
-      return;
-    }
-
-    if (details) details.hidden = false;
-    if (empty) empty.hidden = true;
-    const values: Record<string, string> = {
-      nodeKey: point.nodeKey,
-      level: point.level.toString(),
-      pointIndex: point.pointIndex.toString(),
-      longitude: formatNumber(point.longitude),
-      latitude: formatNumber(point.latitude),
-      height: formatOptional(point.height, ' m'),
-      source: formatSource(point),
-      intensity: formatOptional(point.intensity),
-      classification: point.classification === undefined
-        ? 'Unavailable'
-        : `${point.classification}${point.classificationLabel ? ` (${point.classificationLabel})` : ''}`,
-      rgb: formatRgb(point),
-    };
-    for (const [field, element] of fields) {
-      element.textContent = values[field] ?? 'Unavailable';
-    }
-  };
-
-  update();
-  const updateTimer = window.setInterval(update, 100);
-
   return {
+    update(point): void {
+      if (!point) {
+        if (details) details.hidden = true;
+        if (empty) empty.hidden = false;
+        return;
+      }
+
+      if (details) details.hidden = false;
+      if (empty) empty.hidden = true;
+      const values: Record<string, string> = {
+        nodeKey: point.nodeKey,
+        level: point.level.toString(),
+        pointIndex: point.pointIndex.toString(),
+        longitude: formatNumber(point.longitude),
+        latitude: formatNumber(point.latitude),
+        height: formatOptional(point.height, ' m'),
+        source: formatSource(point),
+        intensity: formatOptional(point.intensity),
+        classification: point.classification === undefined
+          ? 'Unavailable'
+          : `${point.classification}${point.classificationLabel ? ` (${point.classificationLabel})` : ''}`,
+        rgb: formatRgb(point),
+      };
+      for (const [field, element] of fields) {
+        element.textContent = values[field] ?? 'Unavailable';
+      }
+    },
     destroy(): void {
-      window.clearInterval(updateTimer);
       panel.remove();
     },
   };

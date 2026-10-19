@@ -1,33 +1,93 @@
 # COPC Adapter Dev Viewer
 
-This Vite application is the development, browser regression, and performance
-harness for `@frillab/copc-adapter`. The app imports the package's public source
-entrypoint and keeps its debug panels and local sample Range middleware out of
-the published package.
+The Dev Viewer is an internal development workbench for visualizing, debugging,
+and regression-testing `@frillab/copc-adapter`. It is separate from the public
+Playground and is not a production consumer interface. It imports the workspace
+package source and keeps development diagnostics and local Range middleware out
+of the published package.
 
-## UI와 검증 범위
+## Workbench
 
-Dev Viewer는 공개 Playground의 디자인 토큰과 조작 방식을 공유하지만,
-내부 검증 기능은 별도로 유지합니다. Cesium/Three.js와 JavaScript/Rust-WASM을
-전환할 수 있고, 로컬 파일·공개 샘플·사용자 URL을 로드합니다. 기본 패널은
-색상 모드, point size, 선택 node/point 한도를 제공하며 Advanced Settings에서
-depth, SSE, 카메라 거리, 최대 렌더 거리를 조절합니다. 우측 Advanced Diagnostics에는
-기존 metadata, hierarchy, scheduler, cache, HTTP Range, worker와 성능 정보가
-남아 있습니다.
+The full-window Cesium or Three.js canvas sits behind two independently
+collapsible panels:
 
-상단 패키지 표시는 Vite가 읽은 workspace 패키지 버전입니다. 이 화면은 로컬
-소스를 직접 alias해 개발하므로 npm Registry에 게시된 버전이라는 뜻은 아닙니다.
-실제 tarball 소비 검증은 기존 packed-consumer 테스트를 사용합니다.
+- **Controls** on the left groups source selection, rendering engine and backend,
+  camera presets, appearance, streaming, and advanced settings.
+- **Inspector** on the right groups current source status, the selected point,
+  streaming metrics, source and hierarchy diagnostics, cache and Worker
+  information, performance data, and advanced internal diagnostics. Detailed
+  metrics use collapsible subsections and scroll within the panel.
 
-From the repository root, install dependencies and prepare the Rust/WASM target:
+Each panel has a keyboard-operable toggle that remains visible while collapsed.
+The panels do not reserve space when closed. At narrow widths they become
+viewport-sized drawers, with the canvas remaining full-window. The compact
+version label reads the workspace adapter package version; it does not indicate
+the version currently published to npm.
+
+## Sources and configuration
+
+Supported sources are the local Autzen fixture, public Autzen and Chicago URLs,
+a custom HTTP/HTTPS URL, and a user-selected COPC File. Remote URLs load directly
+from their host. Local Files use bounded Blob reads, so HTTP Range validation is
+not applicable to them.
+
+Selecting a different source and pressing **Load selected source** probes and
+loads that source with the visible settings. The active source remains available
+while the candidate is checked and loaded. Changes to settings that require a
+new layer are staged until **Apply Settings** is pressed. These include the
+rendering engine, backend, refinement algorithm, HTTP Range policy for remote
+sources, Cesium point-renderer implementation, point size, and constructor-time
+streaming limits. **Reload current source** explicitly rebuilds the current
+source with the applied settings. Camera presets and Cesium color mode apply
+live; camera distance is adjustable under Advanced settings.
+
+Rendering engine and point renderer are separate choices. Cesium supports the
+public PointPrimitive and Batched Geometry implementations; the point-renderer
+choice is hidden when Three.js is active. The JavaScript and Rust/WASM backends
+are available where supported by the selected renderer.
+
+The **Refinement Algorithm** control selects `foveated` or `screen-projection`.
+If omitted, the library default remains `foveated`. The algorithm is applied
+when the layer is rebuilt and is shown in Inspector diagnostics alongside
+selected and rendered nodes, points, and visible LoD levels.
+
+The **HTTP Range Validation** control selects `head-fallback` or `strict` for
+HTTP/HTTPS sources. A readable, valid `Content-Range` is validated strictly under
+either policy. `head-fallback` uses limited compatibility checks only when
+JavaScript cannot read `Content-Range` and a valid HEAD response is available;
+the Inspector reports the actual probe validation level and warnings. HEAD
+metadata is not cryptographic integrity verification. `strict` requires a
+readable matching `Content-Range` and does not fall back to HEAD.
+
+## Development and browser tests
+
+From the repository root:
 
 ```bash
 npm ci
 npm ci --prefix packages
 npm ci --prefix apps/dev-viewer
-rustup target add wasm32-unknown-unknown
+npm run download-samples -- autzen
+npm run dev
 ```
 
-Start the viewer with `npm run dev`, run the unit tests with
-`npm test --prefix apps/dev-viewer`, and run browser tests with
-`npm run test:e2e --prefix apps/dev-viewer`.
+`npm run dev` prepares the Rust/WASM decoder and laz-perf assets before starting
+Vite. Download the local Autzen fixture once with the command above when it is
+not already present. Public remote sources and custom URLs continue to load
+directly from their original hosts.
+
+Useful validation commands are:
+
+```bash
+npm --prefix apps/dev-viewer run typecheck
+npm --prefix apps/dev-viewer run test:unit
+npm --prefix apps/dev-viewer run build:ci
+npm --prefix apps/dev-viewer run test:e2e
+npm --prefix apps/dev-viewer run test:functional
+```
+
+Playwright uses `debugPanel=0` (also `false` or `off`) to start with the Inspector
+collapsed while leaving its toggle available. `renderer=public-batched` remains
+supported for renderer benchmarks. Existing `source`, `backend`, refinement,
+Range-policy, camera, and issue-scenario query parameters remain available for
+browser regression cases.

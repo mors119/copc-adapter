@@ -409,7 +409,7 @@ test('records monotonic low/high rendered-point budgets', async ({ browser }) =>
 });
 
 test('records decoded CPU cache pressure separately from rendered workload', async ({ page }) => {
-  await loadScenario(page, 'budget=250000&cacheBytes=1048576');
+  await loadScenario(page, 'budget=250000&cacheBytes=1048576&motionLookahead=false');
   await expect.poll(async () => (await getState(page)).streamingUpdateCount, {
     timeout: 120_000,
   }).toBeGreaterThan(0);
@@ -431,7 +431,11 @@ test('records decoded CPU cache pressure separately from rendered workload', asy
   const state = await waitForIdle(page);
   console.log(JSON.stringify({
     scenario: 'issue-68-cache-pressure',
-    configuration: { maxRenderedPoints: 250_000, maxPointCacheBytes: 1_048_576 },
+    configuration: {
+      maxRenderedPoints: 250_000,
+      maxPointCacheBytes: 1_048_576,
+      motionLookahead: false,
+    },
     state: summarize(state),
   }, null, 2));
 

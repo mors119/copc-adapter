@@ -22,6 +22,8 @@ export type DevThreeViewerOptions = {
   readonly colorMode: CopcColorMode;
   readonly pointSize: number;
   readonly maxRenderedPoints: number;
+  readonly cameraRenderDistance: number;
+  readonly rangeValidation: CopcThreeLayerOptions['rangeValidation'];
   readonly streaming: NonNullable<CopcThreeLayerOptions['streaming']>;
   readonly onPointPicked: (point: CopcPointInspection | undefined) => void;
   readonly onError: (error: unknown) => void;
@@ -56,7 +58,7 @@ function findPickablePosition(
   let candidate: { x: number; y: number } | undefined;
   const canvasBounds = canvas.getBoundingClientRect();
   const blockingPanels = [...document.querySelectorAll<HTMLElement>(
-    '.dev-control-panel, .dev-stream-hud, .copc-debug-panel, .copc-point-inspector',
+    '#controls-panel, #inspector-panel, .dev-panel-toggle',
   )].map((panel) => panel.getBoundingClientRect());
   root.traverse((object) => {
     if (candidate || !(object instanceof THREE.Points)) return;
@@ -98,7 +100,8 @@ export function createDevThreeViewer(options: DevThreeViewerOptions): DevThreeVi
     250_000,
   );
   camera.up.set(0, 0, 1);
-  const initialDistance = getCameraDistance(options.sourceName);
+  const presetBaseDistance = getCameraDistance(options.sourceName);
+  const initialDistance = options.cameraRenderDistance || presetBaseDistance;
   camera.position.set(0, -initialDistance, initialDistance * 0.38);
   camera.lookAt(0, 0, 0);
   const controls = new OrbitControls(camera, renderer.domElement);
@@ -112,6 +115,7 @@ export function createDevThreeViewer(options: DevThreeViewerOptions): DevThreeVi
     colorMode: options.colorMode,
     pointSize: options.pointSize,
     maxRenderedPoints: options.maxRenderedPoints,
+    rangeValidation: options.rangeValidation,
     streaming: options.streaming,
     debug: true,
     onPointPicked: options.onPointPicked,
@@ -195,7 +199,7 @@ export function createDevThreeViewer(options: DevThreeViewerOptions): DevThreeVi
       onCameraChange();
     },
     setCameraPreset(preset) {
-      const distance = initialDistance * (preset === 'near' ? 0.55 : preset === 'far' ? 2.5 : 1);
+      const distance = presetBaseDistance * (preset === 'near' ? 0.55 : preset === 'far' ? 2.5 : 1);
       camera.position.set(0, -distance, distance * 0.38);
       controls.target.set(0, 0, 0);
       controls.update();

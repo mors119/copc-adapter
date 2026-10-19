@@ -1,0 +1,144 @@
+import type {
+  CopcBackendName,
+  CopcColorMode,
+  RangeValidationPolicy,
+  RefinementAlgorithm,
+} from '@frillab/copc-adapter';
+
+export type RenderingEngine = 'cesium' | 'three';
+export type CesiumPointRendererVariant = 'point-primitive' | 'batched-geometry';
+export type CameraPreset = 'overview' | 'far' | 'near';
+
+/** Complete Dev Viewer configuration, including the source currently in use. */
+export type DevViewerConfig = {
+  renderer: RenderingEngine;
+  cesiumRenderer: CesiumPointRendererVariant;
+  backend: CopcBackendName;
+  refinementAlgorithm: RefinementAlgorithm;
+  rangeValidation: RangeValidationPolicy;
+  source: string | File;
+  colorMode: CopcColorMode;
+  pointSize: number;
+  maxNodes: number;
+  maxRenderedPoints: number;
+  maxDepth: number;
+  maxScreenSpaceError: number;
+  cameraPreset: CameraPreset;
+  cameraRenderDistance: number;
+  maxRenderDistance: number;
+};
+
+export function isRefinementAlgorithm(value: unknown): value is RefinementAlgorithm {
+  return value === 'foveated' || value === 'screen-projection';
+}
+
+export function isRangeValidationPolicy(value: unknown): value is RangeValidationPolicy {
+  return value === 'head-fallback' || value === 'strict';
+}
+
+export function sourceSupportsHttpRange(source: string | File, baseUrl: string): boolean {
+  if (typeof source !== 'string') return false;
+  try {
+    const protocol = new URL(source, baseUrl).protocol;
+    return protocol === 'http:' || protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/** Validate values at URL or DOM boundaries before they reach a layer constructor. */
+export function validateDevViewerConfig(config: DevViewerConfig): string | undefined {
+  if (config.renderer !== 'cesium' && config.renderer !== 'three') {
+    return 'Choose Cesium or Three.js as the rendering engine.';
+  }
+  if (config.cesiumRenderer !== 'point-primitive'
+    && config.cesiumRenderer !== 'batched-geometry') {
+    return 'Choose PointPrimitive or Batched Geometry for the Cesium point renderer.';
+  }
+  if (!isRefinementAlgorithm(config.refinementAlgorithm)) {
+    return 'Choose Foveated or Screen Projection as the refinement algorithm.';
+  }
+  if (!isRangeValidationPolicy(config.rangeValidation)) {
+    return 'Choose HEAD Fallback or Strict for HTTP Range validation.';
+  }
+  if (config.backend !== 'copc-js' && config.backend !== 'rust') {
+    return 'Choose JavaScript or Rust / WASM as the decoding backend.';
+  }
+  if (!Number.isFinite(config.pointSize) || config.pointSize < 1 || config.pointSize > 12) {
+    return 'Point size must be between 1 and 12 pixels.';
+  }
+  if (!Number.isSafeInteger(config.maxNodes) || config.maxNodes < 4 || config.maxNodes > 64) {
+    return 'Max selected nodes must be a whole number from 4 to 64.';
+  }
+  if (!Number.isSafeInteger(config.maxRenderedPoints)
+    || config.maxRenderedPoints < 50_000 || config.maxRenderedPoints > 1_000_000) {
+    return 'Max rendered points must be a whole number from 50,000 to 1,000,000.';
+  }
+  if (!Number.isSafeInteger(config.maxDepth) || config.maxDepth < 1 || config.maxDepth > 24) {
+    return 'Max depth must be a whole number from 1 to 24.';
+  }
+  if (!Number.isFinite(config.maxScreenSpaceError)
+    || config.maxScreenSpaceError < 1 || config.maxScreenSpaceError > 128) {
+    return 'Screen-space error must be between 1 and 128 pixels.';
+  }
+  if (!Number.isFinite(config.cameraRenderDistance) || config.cameraRenderDistance <= 0) {
+    return 'Camera distance must be a positive number of metres.';
+  }
+  if (!Number.isFinite(config.maxRenderDistance) || config.maxRenderDistance <= 0) {
+    return 'Max render distance must be a positive number of metres.';
+  }
+  return undefined;
+}
+
+export function hasUnappliedSettings(
+  applied: DevViewerConfig,
+  pending: DevViewerConfig,
+): boolean {
+  return applied.renderer !== pending.renderer
+    || applied.cesiumRenderer !== pending.cesiumRenderer
+    || applied.backend !== pending.backend
+    || applied.refinementAlgorithm !== pending.refinementAlgorithm
+    || applied.rangeValidation !== pending.rangeValidation
+    || applied.colorMode !== pending.colorMode
+    || applied.pointSize !== pending.pointSize
+    || applied.maxNodes !== pending.maxNodes
+    || applied.maxRenderedPoints !== pending.maxRenderedPoints
+    || applied.maxDepth !== pending.maxDepth
+    || applied.maxScreenSpaceError !== pending.maxScreenSpaceError
+    || applied.cameraPreset !== pending.cameraPreset
+    || applied.cameraRenderDistance !== pending.cameraRenderDistance
+    || applied.maxRenderDistance !== pending.maxRenderDistance;
+}
+
+export function needsSessionRecreation(
+  applied: DevViewerConfig,
+  next: DevViewerConfig,
+  hasActiveSession: boolean,
+  currentSourceUsesHttp: boolean,
+): boolean {
+  return !hasActiveSession
+    || applied.renderer !== next.renderer
+    || applied.backend !== next.backend
+    || applied.refinementAlgorithm !== next.refinementAlgorithm
+    || applied.pointSize !== next.pointSize
+    || applied.maxNodes !== next.maxNodes
+    || applied.maxRenderedPoints !== next.maxRenderedPoints
+    || applied.maxDepth !== next.maxDepth
+    || applied.maxScreenSpaceError !== next.maxScreenSpaceError
+    || applied.maxRenderDistance !== next.maxRenderDistance
+    || (currentSourceUsesHttp && applied.rangeValidation !== next.rangeValidation)
+    || (next.renderer === 'three' && applied.colorMode !== next.colorMode)
+    || (next.renderer === 'cesium'
+      && applied.cesiumRenderer !== next.cesiumRenderer);
+}
+
+/** Return a safe source label for the UI; credentials and URL query values are omitted. */
+export function getSafeSourceLabel(source: string | File, baseUrl: string): string {
+  if (typeof source !== 'string') return source.name || 'Local File';
+  try {
+    const url = new URL(source, baseUrl);
+    return `${url.hostname}${url.pathname}`;
+  } catch {
+    return 'Invalid HTTP URL';
+  }
+}

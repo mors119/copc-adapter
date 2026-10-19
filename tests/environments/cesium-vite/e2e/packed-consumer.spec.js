@@ -13,8 +13,8 @@ async function completedState(page) {
   return state(page);
 }
 
-async function stationaryStreamingState(page) {
-  let previousUpdateCount;
+async function waitForStableRendering(page) {
+  let previousSignature;
   let stableSamples = 0;
   await expect.poll(async () => {
     const current = await state(page);
@@ -22,20 +22,29 @@ async function stationaryStreamingState(page) {
       && current.performance.motionPredictedVerticalDisplacementDegrees === 0;
     const workerIdle = !current.worker
       || (current.worker.activeCount === 0 && current.worker.queuedCount === 0);
-    const streamingIdle = current.rangeRequests.active === 0
-      && current.transition.activeReplacementGroupCount === 0
-      && current.performance.activeNodeCount === 0
+    const idle = motionSettled
+      && current.rangeRequests?.active === 0
+      && current.performance?.activeNodeCount === 0
+      && current.performance?.queuedNodeCount === 0
+      && current.transition?.activeReplacementGroupCount === 0
       && workerIdle;
-    if (motionSettled
-      && streamingIdle
-      && current.streamingUpdateCount === previousUpdateCount) {
-      stableSamples += 1;
-    } else {
+    if (!idle) {
+      previousSignature = undefined;
       stableSamples = 0;
+      return false;
     }
-    previousUpdateCount = current.streamingUpdateCount;
-    return stableSamples;
-  }, { timeout: 60_000 }).toBeGreaterThanOrEqual(3);
+
+    const signature = JSON.stringify([
+      current.selectedNodeKeys,
+      current.renderedNodeKeys,
+      current.streamingUpdateCount,
+      current.renderedPointCount,
+    ]);
+    stableSamples = signature === previousSignature ? stableSamples + 1 : 1;
+    previousSignature = signature;
+    return stableSamples >= 3;
+  }, { intervals: [200, 300, 400], timeout: 60_000 })
+    .toBe(true);
   return state(page);
 }
 
@@ -186,7 +195,7 @@ test('loads the packed opt-in batched Cesium renderer without changing the defau
   });
   await expect.poll(async () => (await state(page)).renderedPointCount)
     .toBeGreaterThan(0);
-  await stationaryStreamingState(page);
+  await waitForStableRendering(page);
   const current = await state(page);
   expect(current.renderedNodeKeys.length).toBeGreaterThan(0);
   expect(

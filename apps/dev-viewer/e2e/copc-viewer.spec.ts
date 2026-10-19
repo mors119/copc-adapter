@@ -132,11 +132,12 @@ test('streams a COPC sample through the opt-in Rust backend in a real Cesium sce
   await expect(debugPanel).toBeVisible();
   await expect(debugPanel.getByText('autzen.copc.laz', { exact: true })).toBeVisible();
   await expect(debugPanel.getByText('10,653,336', { exact: true })).toBeVisible();
-  await expect(debugPanel.getByText('Ready', { exact: true })).toBeVisible();
-  await expect(debugPanel.locator('details').filter({ hasText: 'Metadata' }))
-    .toHaveAttribute('open', '');
+  await expect(page.locator('#source-status')).toContainText('Ready');
+  await debugPanel.getByText('Advanced internal debug information', { exact: true }).click();
+  await debugPanel.getByText('Metadata', { exact: true }).click();
+  await expect(debugPanel.locator('[data-field="bounds"]')).toBeVisible();
 
-  const pointInspector = page.getByRole('complementary', {
+  const pointInspector = page.getByRole('region', {
     name: 'COPC point inspector',
   });
   await expect(pointInspector).toBeVisible();
@@ -197,7 +198,7 @@ test('streams a COPC sample through the opt-in Rust backend in a real Cesium sce
   expect(nearState.lastError).toBeUndefined();
   expect(pageErrors).toEqual([]);
 
-  await debugPanel.getByRole('button', { name: 'Hide' }).click();
+  await page.locator('#inspector-toggle').click();
   await expect(debugPanel).toBeHidden();
   await page.keyboard.press('Shift+D');
   await expect(debugPanel).toBeVisible();
@@ -269,12 +270,15 @@ test('restyles and filters cached points without rereading the source', async ({
     .toMatchObject({ colorMode: 'rgb' });
 });
 
-test('can disable the runtime debug panel with a query parameter', async ({ page }) => {
+test('starts the Inspector collapsed with the debugPanel query parameter', async ({ page }) => {
   await page.goto('/?debugPanel=false');
 
-  await expect(page.getByRole('complementary', {
-    name: 'COPC runtime debug panel',
-  })).toHaveCount(0);
+  const debugPanel = page.getByRole('complementary', { name: 'COPC runtime debug panel' });
+  const inspectorToggle = page.locator('#inspector-toggle');
+  await expect(debugPanel).toBeHidden();
+  await expect(inspectorToggle).toHaveAccessibleName('Expand inspector panel');
+  await inspectorToggle.click();
+  await expect(debugPanel).toBeVisible();
 });
 
 test('keeps the representative Autzen Far to Near refinement progressive', async ({
