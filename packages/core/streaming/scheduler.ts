@@ -49,6 +49,20 @@ export class StreamingWorkConcurrencyLimiter {
     return true;
   }
 
+  /**
+   * Acquire one background slot while leaving one slot available for current-view work.
+   *
+   * @returns `true` when the speculative slot was acquired; otherwise `false`.
+   */
+  tryAcquirePrefetchSlot(): boolean {
+    if (this.maxConcurrentNodeLoads <= 1
+      || this.activeCount >= this.maxConcurrentNodeLoads - 1) {
+      return false;
+    }
+    this.activeCount += 1;
+    return true;
+  }
+
   /** Wait for a slot, returning `false` if the owning work becomes stale first. */
   async acquire(shouldContinue: () => boolean): Promise<boolean> {
     while (this.activeCount >= this.maxConcurrentNodeLoads) {

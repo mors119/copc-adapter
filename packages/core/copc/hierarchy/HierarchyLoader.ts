@@ -40,6 +40,16 @@ type HierarchyLoaderOptions = {
   metadataLoadDurationMs?: number;
 };
 
+/** Internal controls for a conservative future-view hierarchy query. */
+export type HierarchyQueryOptions = {
+  /** Maximum relevant child pages visited; omitted for an ordinary current-view query. */
+  maxPages?: number;
+  /** Stops expanding a stale speculative traversal after its active page reads settle. */
+  signal?: AbortSignal;
+  /** Reports relevant page visits and whether the page was already cached. */
+  onPageVisited?: (cached: boolean) => void;
+};
+
 function createPageCacheKey(page: CopcHierarchyPage): string {
   return `${page.pageOffset}:${page.pageLength}`;
 }
@@ -250,11 +260,18 @@ export class HierarchyLoader {
    * requested hierarchy level. Previously loaded pages are returned from the
    * per-loader cache and remain available for later view movement.
    */
-  async query(query: CopcHierarchyQuery): Promise<CopcHierarchyTree> {
+  async query(
+    query: CopcHierarchyQuery,
+    options: HierarchyQueryOptions = {},
+  ): Promise<CopcHierarchyTree> {
     const startedAt = performanceNow();
     const generation = this.cacheGeneration;
     try {
       assertQuery(query);
+      if (options.maxPages !== undefined
+        && (!Number.isSafeInteger(options.maxPages) || options.maxPages < 1)) {
+        throw new CopcHierarchyError('Hierarchy query maxPages must be a positive safe integer');
+      }
       await this.loadPage(this.source.getRootHierarchyPage());
       this.assertCurrentGeneration(generation);
 
@@ -262,6 +279,7 @@ export class HierarchyLoader {
       const considered = new Set<string>();
       let nextPageIndex = 0;
       let inFlightPages = 0;
+      let visitedPageCount = 0;
       let failed = false;
       let failure: unknown;
       const waitingWorkers = new Set<() => void>();
@@ -276,7 +294,7 @@ export class HierarchyLoader {
 
       const worker = async (): Promise<void> => {
         while (true) {
-          if (failed) {
+          if (failed || options.signal?.aborted) {
             return;
           }
           const page = pendingPages[nextPageIndex];
@@ -309,8 +327,21 @@ export class HierarchyLoader {
               continue;
             }
 
+            if (options.maxPages !== undefined
+              && visitedPageCount >= options.maxPages) {
+              continue;
+            }
+            visitedPageCount += 1;
+            options.onPageVisited?.(this.pageCache.has(cacheKey));
+            if (options.signal?.aborted) {
+              continue;
+            }
+
             await this.loadPage(page);
             this.assertCurrentGeneration(generation);
+            if (options.signal?.aborted) {
+              continue;
+            }
             for (const discoveredPage of this.tree.pageMap.values()) {
               if (!considered.has(createPageCacheKey(discoveredPage))) {
                 pendingPages.push(discoveredPage);
@@ -328,10 +359,19 @@ export class HierarchyLoader {
         }
       };
 
-      const workerCount = Math.min(this.maxConcurrentPageLoads, Math.max(1, pendingPages.length));
+      const workerCount = Math.min(
+        this.maxConcurrentPageLoads,
+        options.maxPages ?? Number.POSITIVE_INFINITY,
+        Math.max(1, pendingPages.length),
+      );
       await Promise.all(Array.from({ length: workerCount }, () => worker()));
       if (failed) {
         throw failure;
+      }
+      if (options.signal?.aborted) {
+        const error = new Error('Hierarchy query was cancelled', { cause: options.signal.reason });
+        error.name = 'AbortError';
+        throw error;
       }
 
       this.assertCurrentGeneration(generation);

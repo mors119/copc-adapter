@@ -44,6 +44,7 @@ import {
 import {
   CopcStreamingCore,
   type CopcStreamingPerformanceSnapshot,
+  type PredictivePrefetchDiagnostics,
   type CopcStreamingProgressHandler,
   type CopcStreamingWorkProgressHandler,
 } from '../../core/streaming/CopcStreamingCore';
@@ -166,6 +167,8 @@ export type CopcLayerSnapshot = {
   rangeRequests: RangeRequestDiagnostics;
   /** Decode worker counters when exposed by the selected backend. */
   worker?: CopcWorkerDiagnostics;
+  /** Bounded speculative preparation counters when enabled. */
+  predictivePrefetch?: PredictivePrefetchDiagnostics;
 };
 
 type ActiveCameraFlight = {
@@ -714,6 +717,9 @@ export class CesiumLayerController {
       pointCache: coreSnapshot.pointCache,
       rangeRequests: coreSnapshot.rangeRequests,
       ...(coreSnapshot.worker ? { worker: coreSnapshot.worker } : {}),
+      ...(coreSnapshot.predictivePrefetch
+        ? { predictivePrefetch: coreSnapshot.predictivePrefetch }
+        : {}),
     };
   }
 

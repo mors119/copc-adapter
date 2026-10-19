@@ -121,6 +121,7 @@ type CopcDebugState = {
   performance: ReturnType<CopcCesiumLayer['getSnapshot']>['performance'];
   pointCache: ReturnType<CopcCesiumLayer['getSnapshot']>['pointCache'];
   rangeRequests: ReturnType<CopcCesiumLayer['getSnapshot']>['rangeRequests'];
+  predictivePrefetch?: ReturnType<CopcCesiumLayer['getSnapshot']>['predictivePrefetch'];
   hierarchy: ReturnType<CopcCesiumLayer['getHierarchyDiagnostics']>;
   worker?: ReturnType<CopcCesiumLayer['getSnapshot']>['worker'];
   longestMainThreadTaskMs: number;
@@ -358,6 +359,7 @@ function installDebugAdapter(
         performance: snapshot.performance,
         pointCache: snapshot.pointCache,
         rangeRequests: snapshot.rangeRequests,
+        predictivePrefetch: snapshot.predictivePrefetch,
         hierarchy: layer.getHierarchyDiagnostics(),
         worker: snapshot.worker,
         longestMainThreadTaskMs,
@@ -568,6 +570,7 @@ function getLayerOptions(
     : 20_000;
   const motionLookahead = config?.motionLookahead
     ?? (issueScenario ? params.get('motionLookahead') !== 'false' : undefined);
+  const predictivePrefetch = issueScenario && params.get('prefetch') === 'true';
   const requestedRefinementAlgorithm = params.get('refinementAlgorithm');
   const requestedRangeValidation = params.get('rangeValidation');
   const refinementAlgorithm = isRefinementAlgorithm(requestedRefinementAlgorithm)
@@ -600,6 +603,7 @@ function getLayerOptions(
         ?? (issueScenario ? scenarioMaxDistance : 12_000),
       refinementAlgorithm: config?.refinementAlgorithm ?? refinementAlgorithm,
       ...(motionLookahead === undefined ? {} : { motionLookahead }),
+      ...(predictivePrefetch ? { predictivePrefetch: true } : {}),
     },
   };
 }

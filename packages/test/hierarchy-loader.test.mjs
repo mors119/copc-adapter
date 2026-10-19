@@ -223,6 +223,38 @@ test('HierarchyLoader follows child hierarchy pages and collects descendant node
   assert.deepEqual(childNode?.children, ['2-0-0-0']);
 });
 
+test('bounded hierarchy queries visit at most the configured relevant child pages', async () => {
+  const { source, calls } = createIncrementalSource();
+  const loader = new HierarchyLoader(source, cubeBounds);
+  await loader.loadRoot();
+  const visited = [];
+  const tree = await loader.query({ bounds: cubeBounds }, {
+    maxPages: 1,
+    onPageVisited: (cached) => visited.push(cached),
+  });
+
+  assert.deepEqual(calls, ['0-0-0-0', '1-0-0-0']);
+  assert.deepEqual(visited, [false]);
+  assert.deepEqual(tree.nodes.map((node) => node.key).sort(), ['0-0-0-0', '1-0-0-0']);
+});
+
+test('aborted bounded hierarchy traversal does not start another speculative page', async () => {
+  const { source, calls } = createIncrementalSource();
+  const loader = new HierarchyLoader(source, cubeBounds);
+  await loader.loadRoot();
+  const controller = new AbortController();
+
+  await assert.rejects(
+    loader.query({ bounds: cubeBounds }, {
+      maxPages: 1,
+      signal: controller.signal,
+      onPageVisited: () => controller.abort('superseded'),
+    }),
+    { name: 'AbortError' },
+  );
+  assert.deepEqual(calls, ['0-0-0-0']);
+});
+
 test('HierarchyLoader does not load the same hierarchy page twice', async () => {
   const { source, calls } = createFakeSource({
     rootPage: {

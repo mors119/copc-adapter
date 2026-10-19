@@ -1131,6 +1131,8 @@ test('CopcCesiumLayer snapshot exposes lifecycle and dataset info', () => {
       evictionCount: 0,
       bytesEvicted: 0,
       largestCachedEntryBytes: 0,
+      prefetchUsefulHitCount: 0,
+      prefetchEvictedUnusedCount: 0,
     },
     rangeRequests: {
       requested: 0,
@@ -1205,6 +1207,8 @@ test('CopcCesiumLayer point-cache diagnostics reset across unload, reload, and d
     evictionCount: 0,
     bytesEvicted: 0,
     largestCachedEntryBytes: 0,
+    prefetchUsefulHitCount: 0,
+    prefetchEvictedUnusedCount: 0,
   });
 
   await layer.reload();

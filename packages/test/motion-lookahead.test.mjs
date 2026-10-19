@@ -13,6 +13,7 @@ import {
   MOTION_LOOKAHEAD_HORIZON_MS,
 } from '../core/streaming/motionLookahead.ts';
 import { createPerspectiveViewFrustum } from '../core/streaming/view.ts';
+import { createPredictedStreamingView } from '../core/streaming/predictivePrefetch.ts';
 import { createThreeStreamingView } from '../three/view/ThreeViewAdapter.ts';
 
 function cameraBasis(yawDegrees = 0, pitchDegrees = 0, rollDegrees = 0) {
@@ -52,6 +53,60 @@ function cameraBasis(yawDegrees = 0, pitchDegrees = 0, rollDegrees = 0) {
     farMeters: 100,
   });
 }
+
+test('future-view prediction follows measured screen-right and screen-up motion', () => {
+  const view = {
+    longitude: 0,
+    latitude: 0,
+    height: 100,
+    viewDistanceMeters: 100,
+    viewFrustum: cameraBasis(),
+  };
+  const prediction = {
+    enabled: true,
+    horizontalAngularVelocityDegreesPerSecond: 25,
+    verticalAngularVelocityDegreesPerSecond: 0,
+    horizonMilliseconds: 200,
+    predictedHorizontalDisplacementDegrees: 5,
+    predictedVerticalDisplacementDegrees: 0,
+    activity: 0.5,
+  };
+  const future = createPredictedStreamingView(view, prediction);
+
+  assert.ok(future);
+  assert.ok(future.viewFrustum.direction.x > view.viewFrustum.direction.x);
+  assert.deepEqual(future.viewFrustum.position, view.viewFrustum.position);
+  assert.equal(future.viewFrustum.verticalFovRadians, view.viewFrustum.verticalFovRadians);
+
+  const verticalFuture = createPredictedStreamingView(view, {
+    ...prediction,
+    predictedHorizontalDisplacementDegrees: 0,
+    predictedVerticalDisplacementDegrees: 5,
+  });
+  assert.ok(verticalFuture.viewFrustum.direction.y > view.viewFrustum.direction.y);
+});
+
+test('stationary or disabled motion does not create a predicted future view', () => {
+  const view = {
+    longitude: 0,
+    latitude: 0,
+    height: 100,
+    viewDistanceMeters: 100,
+    viewFrustum: cameraBasis(),
+  };
+  const prediction = {
+    enabled: true,
+    horizontalAngularVelocityDegreesPerSecond: 0,
+    verticalAngularVelocityDegreesPerSecond: 0,
+    horizonMilliseconds: MOTION_LOOKAHEAD_HORIZON_MS,
+    predictedHorizontalDisplacementDegrees: 0,
+    predictedVerticalDisplacementDegrees: 0,
+    activity: 0,
+  };
+
+  assert.equal(createPredictedStreamingView(view, prediction), undefined);
+  assert.equal(createPredictedStreamingView(view, { ...prediction, enabled: false, activity: 1 }), undefined);
+});
 
 test('core live motion diagnostics honor an explicit observation clock origin', () => {
   const core = new CopcStreamingCore({ url: 'https://example.test/sample.copc.laz' });

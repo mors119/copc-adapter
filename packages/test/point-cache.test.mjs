@@ -164,7 +164,101 @@ test('cache hits reuse the pending or resolved value without another load', asyn
     evictionCount: 0,
     bytesEvicted: 0,
     largestCachedEntryBytes: value.coordinates.byteLength,
+    prefetchUsefulHitCount: 0,
+    prefetchEvictedUnusedCount: 0,
   });
+});
+
+test('prefetched entries are evicted before current-view entries and useful hits are counted', async () => {
+  const values = new Map([
+    ['current', pointBuffer(1)],
+    ['future', pointBuffer(1)],
+    ['next', pointBuffer(1)],
+  ]);
+  const entryBytes = values.get('current').coordinates.byteLength;
+  const cache = createNodePointCache(async (nodeKey) => values.get(nodeKey), {
+    maxEntries: 4,
+    maxBytes: entryBytes * 2,
+  });
+
+  cache.setRequiredNodeKeys(['current']);
+  await cache.load('current');
+  await cache.load('future', 'prefetch');
+  assert.equal((await cache.load('future')).pointCount, 1);
+  await cache.load('next');
+
+  assert.equal(cache.has('current'), true);
+  assert.equal(cache.has('future'), false);
+  assert.equal(cache.has('next'), true);
+  assert.equal(cache.getDiagnostics().prefetchUsefulHitCount, 1);
+  assert.equal(cache.getDiagnostics().prefetchEvictedUnusedCount, 0);
+});
+
+test('unused prefetched values are counted when cache pressure evicts them', async () => {
+  const values = new Map([
+    ['current', pointBuffer(1)],
+    ['future', pointBuffer(1)],
+    ['next', pointBuffer(1)],
+  ]);
+  const entryBytes = values.get('current').coordinates.byteLength;
+  const cache = createNodePointCache(async (nodeKey) => values.get(nodeKey), {
+    maxEntries: 4,
+    maxBytes: entryBytes * 2,
+  });
+
+  cache.setRequiredNodeKeys(['current']);
+  await cache.load('current');
+  await cache.load('future', 'prefetch');
+  await cache.load('next');
+
+  assert.equal(cache.has('current'), true);
+  assert.equal(cache.has('future'), false);
+  assert.equal(cache.getDiagnostics().prefetchEvictedUnusedCount, 1);
+});
+
+test('current-view demand retries when shared speculative loading fails', async () => {
+  let loadCount = 0;
+  let rejectFirst;
+  const value = pointBuffer(2);
+  const cache = createNodePointCache(async (_nodeKey, signal, purpose) => {
+    loadCount += 1;
+    assert.equal(signal.aborted, false);
+    if (purpose === 'prefetch') {
+      return new Promise((_resolve, reject) => { rejectFirst = reject; });
+    }
+    return value;
+  }, { maxEntries: 2 });
+
+  const speculative = cache.load('node', 'prefetch');
+  await Promise.resolve();
+  const current = cache.load('node', 'current');
+  rejectFirst(new Error('speculative request failed'));
+  await assert.rejects(speculative, /speculative request failed/);
+
+  assert.equal(await current, value);
+  assert.equal(loadCount, 2);
+  assert.equal(cache.get('node'), value);
+});
+
+test('current-view demand can reuse an in-flight prefetch and records the useful hit', async () => {
+  let resolvePrefetch;
+  let loadCount = 0;
+  const value = pointBuffer(2);
+  const cache = createNodePointCache(async (_nodeKey, _signal, purpose) => {
+    loadCount += 1;
+    assert.equal(purpose, 'prefetch');
+    return new Promise((resolve) => { resolvePrefetch = resolve; });
+  }, { maxEntries: 2 });
+
+  const speculative = cache.load('node', 'prefetch');
+  await Promise.resolve();
+  const current = cache.load('node', 'current');
+  resolvePrefetch(value);
+
+  assert.equal(await speculative, value);
+  assert.equal(await current, value);
+  assert.equal(loadCount, 1);
+  assert.equal(cache.getDiagnostics().prefetchUsefulHitCount, 1);
 });
 
 test('cancelled cache promises cannot evict or poison a replacement entry', async () => {
@@ -236,6 +330,8 @@ test('tiny budgets and lifecycle clear never produce negative or overflowing cou
     evictionCount: 0,
     bytesEvicted: 0,
     largestCachedEntryBytes: 0,
+    prefetchUsefulHitCount: 0,
+    prefetchEvictedUnusedCount: 0,
   });
 });
 

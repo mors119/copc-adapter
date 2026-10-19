@@ -201,6 +201,16 @@ export class StreamingManager {
     this.selector.setMotionPrediction(prediction);
   }
 
+  /** Acquire a shared node-load slot for one low-priority prefetch operation. */
+  tryAcquirePrefetchSlot(): boolean {
+    return this.workLimiter.tryAcquirePrefetchSlot();
+  }
+
+  /** Release a shared node-load slot acquired for predictive prefetch. */
+  releasePrefetchSlot(): void {
+    this.workLimiter.release();
+  }
+
   /**
    * Select the view frontier, load its prepared points, and emit incremental progress.
    *
@@ -244,7 +254,7 @@ export class StreamingManager {
     const nextSelectedNodeKeys = new Set(
       selectedNodes.map((entry) => entry.node.key),
     );
-    this.cache.cancelPendingExcept(nextSelectedNodeKeys, 'superseded');
+    this.cache.cancelPendingCurrentExcept(nextSelectedNodeKeys, 'superseded');
     const highPriorityNodeKeys = new Set(
       selectedNodes
         .slice(0, Math.max(1, Math.ceil(selectedNodes.length * 0.25)))

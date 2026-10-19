@@ -27,7 +27,10 @@ import {
   MAX_REFINEMENT_FOCUS_DETAIL_BIAS,
 } from '../core/streaming/refinementStrategies.ts';
 import { StreamingManager } from '../core/streaming/StreamingManager.ts';
-import { createStreamingWorkBatches } from '../core/streaming/scheduler.ts';
+import {
+  createStreamingWorkBatches,
+  StreamingWorkConcurrencyLimiter,
+} from '../core/streaming/scheduler.ts';
 
 function createStreamingNode({
   key,
@@ -159,6 +162,20 @@ test('a stricter workload bound never increases synchronous batch workload', () 
     Math.max(...strict.map((batch) => batch.estimatedPointCount))
       <= Math.max(...relaxed.map((batch) => batch.estimatedPointCount)),
   );
+});
+
+test('speculative work reserves a slot for current-view demand and is disabled at concurrency one', () => {
+  const limiter = new StreamingWorkConcurrencyLimiter(2);
+  assert.equal(limiter.tryAcquirePrefetchSlot(), true);
+  assert.equal(limiter.tryAcquire(() => true), true);
+  assert.equal(limiter.tryAcquire(() => true), undefined);
+  limiter.release();
+  limiter.release();
+
+  const singleSlotLimiter = new StreamingWorkConcurrencyLimiter(1);
+  assert.equal(singleSlotLimiter.tryAcquirePrefetchSlot(), false);
+  assert.equal(singleSlotLimiter.tryAcquire(() => true), true);
+  singleSlotLimiter.release();
 });
 
 test('StreamingManager starts selected work in priority order with bounded concurrency', async () => {

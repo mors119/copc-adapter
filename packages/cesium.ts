@@ -218,6 +218,7 @@ export type {
   CopcStreamingControllerOptions,
   CopcStreamingLifecycleState,
   CopcStreamingPerformanceSnapshot,
+  PredictivePrefetchDiagnostics,
   CopcStreamingProgressHandler,
   CopcStreamingSnapshot,
   CopcStreamingTransitionState,

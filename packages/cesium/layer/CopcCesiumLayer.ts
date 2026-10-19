@@ -57,6 +57,8 @@ export type CopcStreamingOptions = {
    * refinement priorities during camera movement as well.
    */
   motionLookahead?: boolean;
+  /** Speculatively prepare a small bounded set of likely next-view nodes; defaults to `false`. */
+  predictivePrefetch?: boolean;
 };
 
 /** Options for a reusable Cesium layer backed by a URL, Blob/File, or random-access byte source. */
