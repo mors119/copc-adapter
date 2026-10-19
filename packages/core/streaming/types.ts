@@ -221,7 +221,9 @@ export type StreamingSelectionMetrics = {
   /** Minimum and maximum manual focus relevance observed. */
   focusWeightMin?: number;
   focusWeightMax?: number;
-  /** Accepted replacements affected by the manual focus lens. */
+  /** Accepted replacements whose threshold decision or budget priority changed
+   * due to manual focus.
+   */
   focusInfluencedRefinementCount?: number;
   /** Accepted refinements whose decision was affected by screen-centre influence. */
   acceptedGazeInfluencedRefinementCount?: number;

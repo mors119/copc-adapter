@@ -1369,6 +1369,31 @@ function createFinalPriorityHierarchy({
   ]);
 }
 
+function createBudgetFocusCompetitionHierarchy() {
+  const createRefinableRoot = (key, x, geometricErrorMeters) => {
+    const root = createFrustumNode(key, {
+      center: { x, y: 0, z: 5 },
+      radiusMeters: 0.01,
+    });
+    root.geometricErrorMeters = geometricErrorMeters;
+    const children = [0, 1].map((index) => {
+      const child = createFrustumNode(`1-${key}-${index}`, {
+        center: { x, y: 0, z: 5 },
+        radiusMeters: 0.01,
+      });
+      child.node.level = 1;
+      return child;
+    });
+    root.children = children.map((child) => child.node.key);
+    root.node.children = root.children;
+    return [root, ...children];
+  };
+
+  const focusNodes = createRefinableRoot('0-a-focus', 1.5, 20);
+  const baselineNodes = createRefinableRoot('0-z-baseline', 2, 22);
+  return new Map([...focusNodes, ...baselineNodes].map((node) => [node.node.key, node]));
+}
+
 function createThresholdHierarchy(desiredSse, camera) {
   const root = createWorkNode('0-threshold-root', 100, 0);
   root.children = ['1-threshold-child'];
@@ -1825,6 +1850,42 @@ test('focus diagnostics exclude refinements that remain selected without focus',
   assert.ok(metrics.focusCandidateCount > 0);
   assert.equal(metrics.acceptedRefinementCount, 1);
   assert.equal(metrics.focusInfluencedRefinementCount, 0);
+});
+
+test('focus diagnostics count a budget winner whose refinement priority changed', () => {
+  const camera = createProjectionCamera({ height: 1000 });
+  const hierarchy = createBudgetFocusCompetitionHierarchy();
+  const options = { maxNodes: 3, maxRenderedPoints: 3 };
+  const withoutFocus = createSelector(options);
+  const withFocus = createSelector(options);
+  withFocus.setRefinementFocus({
+    type: 'screen-circle',
+    center: { x: 0.76, y: 0.5 },
+    radius: 0.01,
+    detailBias: 2,
+  });
+
+  const baselineSelection = withoutFocus.selectVisibleNodes(camera, hierarchy);
+  const focusedSelection = withFocus.selectVisibleNodes(camera, hierarchy);
+  assert.ok(baselineSelection.some((node) => node.node.key === '1-0-z-baseline-0'));
+  assert.ok(baselineSelection.some((node) => node.node.key === '0-a-focus'));
+  assert.ok(focusedSelection.some((node) => node.node.key === '1-0-a-focus-0'));
+  assert.ok(focusedSelection.some((node) => node.node.key === '0-z-baseline'));
+  assert.equal(withoutFocus.getSelectionMetrics().acceptedRefinementCount, 1);
+  assert.equal(withFocus.getSelectionMetrics().acceptedRefinementCount, 1);
+  assert.equal(withFocus.getSelectionMetrics().focusInfluencedRefinementCount, 1);
+
+  const unconstrained = createSelector({ maxNodes: 4, maxRenderedPoints: 4 });
+  unconstrained.setRefinementFocus({
+    type: 'screen-circle',
+    center: { x: 0.76, y: 0.5 },
+    radius: 0.01,
+    detailBias: 2,
+  });
+  const unconstrainedSelection = unconstrained.selectVisibleNodes(camera, hierarchy);
+  assert.ok(unconstrainedSelection.some((node) => node.node.key === '1-0-a-focus-0'));
+  assert.ok(unconstrainedSelection.some((node) => node.node.key === '1-0-z-baseline-0'));
+  assert.equal(unconstrained.getSelectionMetrics().focusInfluencedRefinementCount, 0);
 });
 
 test('sharp scheduling relevance separates broad refinement influence from work order', () => {

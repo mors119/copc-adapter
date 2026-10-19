@@ -622,9 +622,23 @@ function compareRefinementPriority(
   left: PrioritisedNode,
   right: PrioritisedNode,
 ): number {
+  return compareRefinementPriorityByScore(
+    left,
+    right,
+    left.refinementPriority,
+    right.refinementPriority,
+  );
+}
+
+function compareRefinementPriorityByScore(
+  left: PrioritisedNode,
+  right: PrioritisedNode,
+  leftScore: number,
+  rightScore: number,
+): number {
   // Refinement and coverage decisions use only the conservative influence
   // model. Scheduling relevance is deliberately absent from this comparator.
-  return right.refinementPriority - left.refinementPriority
+  return rightScore - leftScore
     || right.screenSpaceErrorPixels - left.screenSpaceErrorPixels
     || right.centerWeight - left.centerWeight
     || left.boundsDistanceMeters - right.boundsDistanceMeters
@@ -675,6 +689,7 @@ type RefinementCandidate = PrioritisedNode & {
   replacement: StreamingHierarchyNode[];
   replacementPointCost: number;
   focusChangedRefinementDecision: boolean;
+  refinementPriorityWithoutManualFocus: number;
 };
 
 function createSelectionMetrics(
@@ -1187,6 +1202,8 @@ export class NodeSelector {
             0,
           ),
           focusChangedRefinementDecision,
+          refinementPriorityWithoutManualFocus:
+            influenceWithoutManualFocus.effectiveScreenSpaceError,
         });
       };
 
@@ -1195,6 +1212,23 @@ export class NodeSelector {
       }
 
       let frontierPointCount = initialPointCount;
+      const canApplyWithinBudgets = (
+        replacementCandidate: RefinementCandidate,
+        nodeCount: number,
+        pointCount: number,
+      ): boolean => {
+        const resultingNodeCount = nodeCount - 1 + replacementCandidate.replacement.length;
+        const resultingPointCount = pointCount
+          - replacementCandidate.pointCost
+          + replacementCandidate.replacementPointCost;
+        return (resultingNodeCount <= this.options.maxNodes
+          && resultingPointCount <= budget)
+          || (nodeCount <= this.options.maxNodes
+            && pointCount > budget
+            && resultingNodeCount <= this.options.maxNodes
+            && resultingPointCount < pointCount);
+      };
+
       while (pending.size > 0) {
         const candidate = [...pending.values()]
           .sort(compareRefinementPriority)[0];
@@ -1218,6 +1252,30 @@ export class NodeSelector {
           && frontierPointCount > budget
           && nextNodeCount <= this.options.maxNodes
           && nextPointCount < frontierPointCount;
+
+        const focusChangedBudgetWinner = fitsBudgets || isBudgetReducingPointStep
+          ? [...pending.values()].some((other) => {
+            const focusOrder = compareRefinementPriority(candidate, other);
+            const noFocusOrder = compareRefinementPriorityByScore(
+              candidate,
+              other,
+              candidate.refinementPriorityWithoutManualFocus,
+              other.refinementPriorityWithoutManualFocus,
+            );
+            if (focusOrder >= 0 || noFocusOrder <= 0) {
+              return false;
+            }
+
+            const otherFitsBefore = canApplyWithinBudgets(
+              other,
+              frontier.size,
+              frontierPointCount,
+            );
+            const otherFitsAfter = canApplyWithinBudgets(other, nextNodeCount, nextPointCount);
+            return otherFitsBefore && !otherFitsAfter;
+          })
+          : false;
+
         if (!fitsBudgets && !isBudgetReducingPointStep) {
           if (nextNodeCount > this.options.maxNodes) {
             this.lastSelectionMetrics.refinementRejectedByNodeBudgetCount =
@@ -1248,7 +1306,7 @@ export class NodeSelector {
           this.lastSelectionMetrics.acceptedGazeInfluencedRefinementCount =
             (this.lastSelectionMetrics.acceptedGazeInfluencedRefinementCount ?? 0) + 1;
         }
-        if (candidate.focusChangedRefinementDecision) {
+        if (candidate.focusChangedRefinementDecision || focusChangedBudgetWinner) {
           this.lastSelectionMetrics.focusInfluencedRefinementCount =
             (this.lastSelectionMetrics.focusInfluencedRefinementCount ?? 0) + 1;
         }
