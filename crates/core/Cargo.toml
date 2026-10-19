@@ -1,6 +1,6 @@
 [package]
 name = "copc-adapter-core"
-version = "0.5.1"
+version = "0.5.2"
 edition = "2024"
 description = "Pure Rust COPC parsing, LAZ decoding, and point preparation core."
 license = "Apache-2.0"
