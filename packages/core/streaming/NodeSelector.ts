@@ -227,6 +227,18 @@ function dot(left: ViewVector3, right: ViewVector3): number {
   return left.x * right.x + left.y * right.y + left.z * right.z;
 }
 
+function calculateInfluenceWithoutManualFocus(
+  influence: RefinementInfluence,
+  focus: RefinementFocus | undefined,
+): RefinementInfluence {
+  return calculateRefinementInfluence({
+    rawScreenSpaceError: influence.rawScreenSpaceError,
+    gazeWeight: influence.gazeWeight,
+    motionWeight: influence.motionWeight,
+    ...(focus ? { manualFocusDetailBias: focus.detailBias } : {}),
+  });
+}
+
 type ProjectedNodeCentre = {
   normalizedScreenDistance: number;
   normalizedScreenX: number;
@@ -328,17 +340,10 @@ function calculateManualFocusWeight(
   if (Number.isFinite(distanceMeters) && distanceMeters <= radiusMeters) {
     return 1;
   }
-  if (!projected || !Number.isFinite(distanceMeters) || distanceMeters <= 0) {
+  if (!Number.isFinite(distanceMeters) || distanceMeters <= 0) {
     return 0;
   }
 
-  const aspect = projection.horizontalTangent / projection.verticalTangent;
-  const scaleX = Math.max(1, aspect);
-  const scaleY = Math.max(1, 1 / aspect);
-  const viewportDistance = Math.hypot(
-    (projected.normalizedScreenX - focus.center.x) * scaleX,
-    (projected.normalizedScreenY - focus.center.y) * scaleY,
-  );
   const angularRadius = Math.asin(clamp(radiusMeters / distanceMeters, 0, 1));
   const centerDirection = {
     x: vector.x / distanceMeters,
@@ -405,6 +410,17 @@ function calculateManualFocusWeight(
     const smoothFalloff = falloff * falloff * (3 - 2 * falloff);
     return clamp(1 - smoothFalloff, 0, 1);
   }
+  if (!projected) {
+    return 0;
+  }
+
+  const aspect = projection.horizontalTangent / projection.verticalTangent;
+  const scaleX = Math.max(1, aspect);
+  const scaleY = Math.max(1, 1 / aspect);
+  const viewportDistance = Math.hypot(
+    (projected.normalizedScreenX - focus.center.x) * scaleX,
+    (projected.normalizedScreenY - focus.center.y) * scaleY,
+  );
   // Perspective projection is gnomonic: a sphere's outer cone edge projects
   // at tan(theta + alpha), not linearly in angle. Subtracting the projected
   // center radius gives a conservative off-axis extent as well.
@@ -658,6 +674,7 @@ function toSelectedNode(candidate: PrioritisedNode): StreamingSelectedNode {
 type RefinementCandidate = PrioritisedNode & {
   replacement: StreamingHierarchyNode[];
   replacementPointCost: number;
+  focusChangedRefinementDecision: boolean;
 };
 
 function createSelectionMetrics(
@@ -1098,6 +1115,20 @@ export class NodeSelector {
           prioritised.influence.effectiveScreenSpaceError,
           prioritised.wasPreviouslyRefined,
         );
+        const influenceWithoutManualFocus = calculateInfluenceWithoutManualFocus(
+          prioritised.influence,
+          this.refinementFocus,
+        );
+        const focusContributesToRefinement = prioritised.focusWeight > 0
+          && prioritised.influence.effectiveScreenSpaceError
+            > influenceWithoutManualFocus.effectiveScreenSpaceError;
+        const focusChangedRefinementDecision = focusContributesToRefinement
+          && shouldRefine(
+            parent,
+            this.options,
+            influenceWithoutManualFocus.effectiveScreenSpaceError,
+            prioritised.wasPreviouslyRefined,
+          ) !== decision;
         const hasPreviousState = prioritised.wasPreviouslySelected
           || prioritised.wasPreviouslyRefined;
         if (decision === 'hold' && hasPreviousState) {
@@ -1155,6 +1186,7 @@ export class NodeSelector {
             (total, child) => total + getNodePointCost(child),
             0,
           ),
+          focusChangedRefinementDecision,
         });
       };
 
@@ -1216,7 +1248,7 @@ export class NodeSelector {
           this.lastSelectionMetrics.acceptedGazeInfluencedRefinementCount =
             (this.lastSelectionMetrics.acceptedGazeInfluencedRefinementCount ?? 0) + 1;
         }
-        if (candidate.focusWeight > 0) {
+        if (candidate.focusChangedRefinementDecision) {
           this.lastSelectionMetrics.focusInfluencedRefinementCount =
             (this.lastSelectionMetrics.focusInfluencedRefinementCount ?? 0) + 1;
         }

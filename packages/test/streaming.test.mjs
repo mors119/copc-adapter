@@ -1658,6 +1658,36 @@ test('horizon-crossing focus overlap preserves the sphere direction', () => {
   assert.equal(focusWeightAt(0.76), 0);
 });
 
+test('focus overlap handles sphere centres behind the projection plane', () => {
+  const camera = createProjectionCamera({ height: 1000 });
+  const centerAngle = 100 * Math.PI / 180;
+  const angularRadius = 74 * Math.PI / 180;
+  const distance = 10;
+  const node = createFrustumNode('0-behind-projection-plane', {
+    center: {
+      x: distance * Math.sin(centerAngle),
+      y: 0,
+      z: distance * Math.cos(centerAngle),
+    },
+    radiusMeters: distance * Math.sin(angularRadius),
+  });
+  const selector = createSelector({ refinementAlgorithm: 'screen-projection' });
+
+  const focusWeightAt = (x) => {
+    selector.setRefinementFocus({
+      type: 'screen-circle',
+      center: { x, y: 0.5 },
+      radius: 0.01,
+      detailBias: 2,
+    });
+    return selector.selectVisibleNodes(camera, new Map([[node.node.key, node]]))[0]?.focusWeight;
+  };
+
+  assert.equal(node.boundingSphere.center.z < 0, true);
+  assert.ok(focusWeightAt(0.95) > 0);
+  assert.equal(focusWeightAt(0.05), 0);
+});
+
 test('focus radius keeps circular meaning across wide and tall viewports', () => {
   const minDimensionDistance = 0.16;
   const weights = [2, 0.5].map((aspectRatio) => {
@@ -1739,6 +1769,62 @@ test('focus detail bias can request below-threshold refinement and clears cleanl
     ['0-threshold-root'],
   );
   assert.equal(selector.getSelectionMetrics().refinementFocusEnabled, false);
+});
+
+test('neutral focus detail bias does not count as focus-influenced refinement', () => {
+  const camera = createProjectionCamera({ height: 1000 });
+  const hierarchy = createThresholdHierarchy(9, camera);
+  hierarchy.get('0-threshold-root').boundingSphere = {
+    coordinateSystem: 'wgs84-ecef-meters',
+    center: { x: 0, y: 0, z: 5 },
+    radiusMeters: 0.1,
+  };
+  const selector = createSelector({
+    refinementAlgorithm: 'screen-projection',
+  });
+  selector.setRefinementFocus({
+    type: 'screen-circle',
+    center: { x: 0.5, y: 0.5 },
+    radius: 0.1,
+    detailBias: 1,
+  });
+
+  assert.deepEqual(
+    selector.selectVisibleNodes(camera, hierarchy).map((node) => node.node.key),
+    ['1-threshold-child'],
+  );
+  const metrics = selector.getSelectionMetrics();
+  assert.ok(metrics.focusCandidateCount > 0);
+  assert.equal(metrics.acceptedRefinementCount, 1);
+  assert.equal(metrics.focusInfluencedRefinementCount, 0);
+});
+
+test('focus diagnostics exclude refinements that remain selected without focus', () => {
+  const camera = createProjectionCamera({ height: 1000 });
+  const hierarchy = createThresholdHierarchy(9, camera);
+  hierarchy.get('0-threshold-root').boundingSphere = {
+    coordinateSystem: 'wgs84-ecef-meters',
+    center: { x: 0, y: 0, z: 5 },
+    radiusMeters: 0.1,
+  };
+  const selector = createSelector({
+    refinementAlgorithm: 'screen-projection',
+  });
+  selector.setRefinementFocus({
+    type: 'screen-circle',
+    center: { x: 0.5, y: 0.5 },
+    radius: 0.1,
+    detailBias: 2,
+  });
+
+  assert.deepEqual(
+    selector.selectVisibleNodes(camera, hierarchy).map((node) => node.node.key),
+    ['1-threshold-child'],
+  );
+  const metrics = selector.getSelectionMetrics();
+  assert.ok(metrics.focusCandidateCount > 0);
+  assert.equal(metrics.acceptedRefinementCount, 1);
+  assert.equal(metrics.focusInfluencedRefinementCount, 0);
 });
 
 test('sharp scheduling relevance separates broad refinement influence from work order', () => {
