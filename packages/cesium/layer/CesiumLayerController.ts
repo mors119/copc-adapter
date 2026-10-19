@@ -56,6 +56,7 @@ import type {
 import { DEFAULT_MAX_RENDERED_POINTS } from '../../core/streaming/NodeSelector';
 import { normalizeRefinementFocus, type RefinementFocus } from '../../core/streaming/refinementStrategies';
 import { StreamingPerformanceRecorder } from '../../core/streaming/performance';
+import { MOTION_LOOKAHEAD_DECAY_MS } from '../../core/streaming/motionLookahead';
 import type { NodePointCacheDiagnostics } from '../../core/streaming/createNodePointCache';
 import type { AdaptiveViewDistanceDiagnostics } from '../../core/streaming/view';
 import type { RangeRequestDiagnostics } from '../../core/copc/range/requestDiagnostics';
@@ -292,10 +293,13 @@ export class CesiumLayerController {
   private viewer?: Cesium.Viewer;
   private showState = true;
   private updateTimer?: number;
+  private motionDecayTimer?: number;
   private scheduledUpdateShouldInvalidate = false;
+  private scheduledUpdateForceSelection = false;
   private updateInFlight = false;
   private updateInFlightPromise?: Promise<void>;
   private updatePending = false;
+  private pendingForceSelection = false;
   private loadGeneration = 0;
   private loadOperationGeneration?: number;
   private loadOperationViewErrorGeneration?: number;
@@ -311,10 +315,12 @@ export class CesiumLayerController {
   private pendingInvalidatedView?: import('../../core/streaming/types').StreamingView;
   private activeStreamingUpdate?: ActiveStreamingUpdate;
   private readonly handleCameraMoveEnd = (): void => {
-    void this.scheduleStreamingUpdate(true);
+    const motion = this.observeCurrentCameraMotion();
+    void this.scheduleStreamingUpdate(true, motion?.priorityChanged ?? false);
   };
   private readonly handleCameraChanged = (): void => {
-    void this.scheduleStreamingUpdate();
+    const motion = this.observeCurrentCameraMotion();
+    void this.scheduleStreamingUpdate(false, motion?.priorityChanged ?? false);
   };
 
   constructor(options: CopcLayerOptions) {
@@ -502,7 +508,10 @@ export class CesiumLayerController {
     this.streamingGeneration += 1;
     this.core.invalidateView();
     this.clearScheduledUpdate();
+    this.clearMotionDecayTimer();
+    this.core.resetCameraMotion();
     this.updatePending = false;
+    this.pendingForceSelection = false;
 
     this.detachViewerResources();
     if (this.lifecycle !== 'loading') {
@@ -521,6 +530,7 @@ export class CesiumLayerController {
     this.replacementTransitions.reset();
     this.pointPicker.clear();
     this.rendererPerformance.reset();
+    this.clearMotionDecayTimer();
     this.lastStreamingView = undefined;
     this.pendingInvalidatedView = undefined;
     this.activeStreamingUpdate = undefined;
@@ -619,7 +629,9 @@ export class CesiumLayerController {
     this.loadGeneration += 1;
     this.streamingGeneration += 1;
     this.clearScheduledUpdate();
+    this.clearMotionDecayTimer();
     this.updatePending = false;
+    this.pendingForceSelection = false;
     this.core.unload();
     this.datasetElevationRange = undefined;
     this.metadataBoundingSphere = undefined;
@@ -657,7 +669,9 @@ export class CesiumLayerController {
     this.cancelActiveView('destroy');
     this.cancelCameraFlight();
     this.clearScheduledUpdate();
+    this.clearMotionDecayTimer();
     this.updatePending = false;
+    this.pendingForceSelection = false;
     this.core.destroy();
     this.detachViewerResources();
     this.metadataBoundingSphere = undefined;
@@ -830,12 +844,16 @@ export class CesiumLayerController {
     return this.pointRenderer.getSelectionBoundingSphere();
   }
 
-  private async updateStreamingView(shouldInvalidateActive = false): Promise<void> {
+  private async updateStreamingView(
+    shouldInvalidateActive = false,
+    forceSelection = false,
+  ): Promise<void> {
     if (this.updateInFlight) {
       // Keep only the latest camera event. A materially changed settled view
       // also invalidates the active adapter generation immediately, so stale
       // progress cannot reach the renderer while the update drains.
       this.updatePending = true;
+      this.pendingForceSelection ||= forceSelection;
       const currentView = this.viewer && this.core.getMetadata()
         ? createCesiumStreamingView(this.viewer)
         : undefined;
@@ -859,6 +877,7 @@ export class CesiumLayerController {
       return;
     }
 
+    this.pendingForceSelection ||= forceSelection;
     this.updateInFlight = true;
     const updatePromise = this.runPendingStreamingUpdates();
     this.updateInFlightPromise = updatePromise;
@@ -875,7 +894,9 @@ export class CesiumLayerController {
   private async runPendingStreamingUpdates(): Promise<void> {
     while (true) {
       try {
-        await this.performStreamingUpdate();
+        const forceSelection = this.pendingForceSelection;
+        this.pendingForceSelection = false;
+        await this.performStreamingUpdate(forceSelection);
       } catch (error: unknown) {
         this.updatePending = false;
         throw error;
@@ -887,7 +908,7 @@ export class CesiumLayerController {
     }
   }
 
-  private async performStreamingUpdate(): Promise<void> {
+  private async performStreamingUpdate(forceSelection = false): Promise<void> {
     const viewer = this.viewer;
     if (!viewer || !this.core.getMetadata() || this.lifecycle === 'destroyed') {
       return;
@@ -895,7 +916,9 @@ export class CesiumLayerController {
 
     const streamingGeneration = ++this.streamingGeneration;
     const view = createCesiumStreamingView(viewer);
-    if (this.lastStreamingView && areStreamingViewsEquivalent(this.lastStreamingView, view)) {
+    if (!forceSelection
+      && this.lastStreamingView
+      && areStreamingViewsEquivalent(this.lastStreamingView, view)) {
       this.pendingInvalidatedView = undefined;
       return;
     }
@@ -1208,22 +1231,31 @@ export class CesiumLayerController {
     this.hasFlownToDataset = true;
   }
 
-  private async scheduleStreamingUpdate(shouldInvalidateActive = false): Promise<void> {
+  private async scheduleStreamingUpdate(
+    shouldInvalidateActive = false,
+    forceSelection = false,
+  ): Promise<void> {
     if (this.updateTimer !== undefined) {
       window.clearTimeout(this.updateTimer);
       this.updateTimer = undefined;
     }
     this.scheduledUpdateShouldInvalidate ||= shouldInvalidateActive;
+    this.scheduledUpdateForceSelection ||= forceSelection;
     this.updateTimer = window.setTimeout(() => {
       this.updateTimer = undefined;
       const shouldInvalidate = this.scheduledUpdateShouldInvalidate;
       this.scheduledUpdateShouldInvalidate = false;
-      this.startStreamingUpdate(shouldInvalidate);
+      const shouldForceSelection = this.scheduledUpdateForceSelection;
+      this.scheduledUpdateForceSelection = false;
+      this.startStreamingUpdate(shouldInvalidate, shouldForceSelection);
     }, 100);
   }
 
-  private startStreamingUpdate(shouldInvalidateActive = false): void {
-    void this.updateStreamingView(shouldInvalidateActive).catch((error: unknown) => {
+  private startStreamingUpdate(
+    shouldInvalidateActive = false,
+    forceSelection = false,
+  ): void {
+    void this.updateStreamingView(shouldInvalidateActive, forceSelection).catch((error: unknown) => {
       this.debug(`COPC streaming update failed: ${error instanceof Error ? error.message : String(error)}`);
     });
   }
@@ -1234,6 +1266,41 @@ export class CesiumLayerController {
       this.updateTimer = undefined;
     }
     this.scheduledUpdateShouldInvalidate = false;
+    this.scheduledUpdateForceSelection = false;
+  }
+
+  private observeCurrentCameraMotion(): ReturnType<CopcStreamingCore['observeCameraMotion']> | undefined {
+    if (!this.viewer || !this.core.getMetadata()) {
+      return undefined;
+    }
+    const observation = this.core.observeCameraMotion(createCesiumStreamingView(this.viewer));
+    if (observation.sampledMovement) {
+      this.scheduleMotionDecayUpdate();
+    }
+    return observation;
+  }
+
+  private scheduleMotionDecayUpdate(): void {
+    this.clearMotionDecayTimer();
+    this.motionDecayTimer = window.setTimeout(() => {
+      this.motionDecayTimer = undefined;
+      if (!this.viewer || !this.core.getMetadata() || this.lifecycle === 'destroyed') {
+        return;
+      }
+      const observation = this.core.observeCameraMotion(
+        createCesiumStreamingView(this.viewer),
+      );
+      if (observation.priorityChanged) {
+        void this.scheduleStreamingUpdate(false, true);
+      }
+    }, MOTION_LOOKAHEAD_DECAY_MS + 25);
+  }
+
+  private clearMotionDecayTimer(): void {
+    if (this.motionDecayTimer !== undefined) {
+      window.clearTimeout(this.motionDecayTimer);
+      this.motionDecayTimer = undefined;
+    }
   }
 
   private areRefinementFociEquivalent(

@@ -57,6 +57,7 @@ data without a separate conversion step.
 - Bounded node/point workload and decoded-point cache
 - Selectable foveated or screen-projection refinement with LoD hysteresis
 - Runtime Cesium screen-circle Focus Lens with bounded refinement pressure
+- Bounded current-view refinement lookahead for recent camera rotation
 - Coverage-safe asynchronous coarse/fine renderer transitions
 - CesiumJS rendering through a caller-owned `Viewer`
 - Three.js rendering through a caller-owned scene and render loop

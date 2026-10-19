@@ -73,6 +73,25 @@ export type StreamingPerformanceSnapshot = {
   refinementAlgorithm?: NonNullable<StreamingSelectionMetrics['refinementAlgorithm']>;
   /** Whether the latest selection used a manual focus lens. */
   refinementFocusEnabled?: boolean;
+  /** Whether current-view camera motion lookahead was enabled. */
+  motionLookaheadEnabled?: boolean;
+  /** Smoothed horizontal camera angular velocity toward screen-right, in degrees/second. */
+  motionHorizontalAngularVelocityDegreesPerSecond?: number;
+  /** Smoothed vertical camera angular velocity toward screen-up, in degrees/second. */
+  motionVerticalAngularVelocityDegreesPerSecond?: number;
+  /** Fixed camera lookahead horizon, in milliseconds. */
+  motionHorizonMilliseconds?: number;
+  /** Predicted horizontal camera displacement, in degrees. */
+  motionPredictedHorizontalDisplacementDegrees?: number;
+  /** Predicted vertical camera displacement, in degrees. */
+  motionPredictedVerticalDisplacementDegrees?: number;
+  /** Visible candidate nodes receiving nonzero motion relevance. */
+  motionCandidateCount?: number;
+  /** Motion relevance range among visible candidates, in [0, 1]. */
+  motionWeightMin?: number;
+  motionWeightMax?: number;
+  /** Accepted refinements whose decision or budget winner changed with motion relevance. */
+  motionInfluencedRefinementCount?: number;
   /** Lowest conservative screen-centre influence weight, in [0, 1]. */
   centerWeightMin?: number;
   /** Highest conservative screen-centre influence weight, in [0, 1]. */
@@ -353,6 +372,21 @@ export class StreamingPerformanceRecorder {
     this.snapshot.minimumFrontierExceedsPointBudget = metrics.minimumFrontierExceedsPointBudget ?? false;
     this.snapshot.refinementAlgorithm = metrics.refinementAlgorithm ?? 'foveated';
     this.snapshot.refinementFocusEnabled = metrics.refinementFocusEnabled ?? false;
+    this.snapshot.motionLookaheadEnabled = metrics.motionLookaheadEnabled ?? false;
+    this.snapshot.motionHorizontalAngularVelocityDegreesPerSecond =
+      metrics.motionHorizontalAngularVelocityDegreesPerSecond ?? 0;
+    this.snapshot.motionVerticalAngularVelocityDegreesPerSecond =
+      metrics.motionVerticalAngularVelocityDegreesPerSecond ?? 0;
+    this.snapshot.motionHorizonMilliseconds = metrics.motionHorizonMilliseconds ?? 0;
+    this.snapshot.motionPredictedHorizontalDisplacementDegrees =
+      metrics.motionPredictedHorizontalDisplacementDegrees ?? 0;
+    this.snapshot.motionPredictedVerticalDisplacementDegrees =
+      metrics.motionPredictedVerticalDisplacementDegrees ?? 0;
+    this.snapshot.motionCandidateCount = metrics.motionCandidateCount ?? 0;
+    this.snapshot.motionWeightMin = metrics.motionWeightMin ?? 0;
+    this.snapshot.motionWeightMax = metrics.motionWeightMax ?? 0;
+    this.snapshot.motionInfluencedRefinementCount =
+      metrics.motionInfluencedRefinementCount ?? 0;
     this.snapshot.centerWeightMin = metrics.centerWeightMin;
     this.snapshot.centerWeightMax = metrics.centerWeightMax;
     this.snapshot.refinementCenterWeightMin = metrics.refinementCenterWeightMin;

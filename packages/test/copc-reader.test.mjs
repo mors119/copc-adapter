@@ -1085,6 +1085,7 @@ test('CopcCesiumLayer snapshot exposes lifecycle and dataset info', () => {
       minimumFrontierExceedsPointBudget: false,
       refinementAlgorithm: 'foveated',
       refinementFocusEnabled: false,
+      motionLookaheadEnabled: true,
       loadedNodeCount: 0,
       loadedPointCount: 0,
       rangeFetchDurationMs: 0,

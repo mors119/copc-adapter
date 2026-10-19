@@ -67,6 +67,10 @@ import {
 } from './performance';
 import { DEFAULT_MAX_CONCURRENT_NODE_LOADS } from './scheduler';
 import {
+  CameraMotionLookaheadEstimator,
+  type CameraMotionObservation,
+} from './motionLookahead';
+import {
   RANGE_CANCELLATION_REASON,
   RangeRequestDiagnosticsRecorder,
 } from '../copc/range/requestDiagnostics';
@@ -200,6 +204,16 @@ export type CopcStreamingPerformanceSnapshot = Pick<
   | 'focusWeightMin'
   | 'focusWeightMax'
   | 'focusInfluencedRefinementCount'
+  | 'motionLookaheadEnabled'
+  | 'motionHorizontalAngularVelocityDegreesPerSecond'
+  | 'motionVerticalAngularVelocityDegreesPerSecond'
+  | 'motionHorizonMilliseconds'
+  | 'motionPredictedHorizontalDisplacementDegrees'
+  | 'motionPredictedVerticalDisplacementDegrees'
+  | 'motionCandidateCount'
+  | 'motionWeightMin'
+  | 'motionWeightMax'
+  | 'motionInfluencedRefinementCount'
   | 'refinementAlgorithm'
   | 'refinementFocusEnabled'
   | 'influenceClampCount'
@@ -275,6 +289,7 @@ const DEFAULT_STREAMING_OPTIONS: StreamingSelectionOptions = {
   maxRenderedPoints: DEFAULT_MAX_RENDERED_POINTS,
   maxConcurrentNodeLoads: DEFAULT_MAX_CONCURRENT_NODE_LOADS,
   refinementAlgorithm: DEFAULT_REFINEMENT_ALGORITHM,
+  motionLookahead: true,
 };
 const MAX_CACHED_NODES = 48;
 const DEFAULT_POINT_CACHE_BYTES = 256 * 1024 * 1024;
@@ -380,6 +395,7 @@ export class CopcStreamingCore {
   private selectedNodeKeys = new Set<string>();
   private currentView?: StreamingView;
   private readonly adaptiveViewDistancePolicy = new AdaptiveViewDistancePolicy();
+  private readonly motionEstimator: CameraMotionLookaheadEstimator;
   private transition = createTransitionState();
   private lifecycle: CopcStreamingLifecycleState = 'idle';
   private lifecycleAbortController?: AbortController;
@@ -398,6 +414,9 @@ export class CopcStreamingCore {
       },
       heightOffsetMeters: this.heightOffsetMeters,
     };
+    this.motionEstimator = new CameraMotionLookaheadEstimator(
+      options.streaming?.motionLookahead !== false,
+    );
     this.pointFields = createCopcPointFieldSelection([
       'position',
       ...(options.pointFields ?? []),
@@ -508,6 +527,7 @@ export class CopcStreamingCore {
         context.cancelPendingPointJobs?.bind(context),
       );
       manager.setRefinementFocus(this.refinementFocus);
+      manager.setMotionPrediction(this.motionEstimator.getPrediction(performanceNow()));
 
       this.streamingState = {
         context,
@@ -600,6 +620,9 @@ export class CopcStreamingCore {
     streamingState.nodes = availableNodes;
     streamingState.nodesRef.current = availableNodes;
     streamingState.manager.setHierarchy(availableNodes);
+    streamingState.manager.setMotionPrediction(
+      this.motionEstimator.getPrediction(performanceNow()),
+    );
 
     let progressApplied = false;
     const applyProgress = (progress: StreamingProgress): void => {
@@ -710,6 +733,7 @@ export class CopcStreamingCore {
     // A pending decode may still complete after the source is destroyed. Give
     // the next source a recorder that those stale continuations cannot reach.
     this.performanceRecorder = this.createPerformanceRecorder();
+    this.motionEstimator.reset();
     this.lifecycle = 'idle';
     this.debug('COPC streaming controller unloaded');
   }
@@ -785,6 +809,29 @@ export class CopcStreamingCore {
   setRefinementFocus(focus: RefinementFocus | undefined): void {
     this.refinementFocus = normalizeRefinementFocus(focus);
     this.streamingState?.manager.setRefinementFocus(this.refinementFocus);
+  }
+
+  /**
+   * Observe a renderer-neutral camera snapshot for current-view motion priority.
+   *
+   * Adapters call this before equivalent-view early returns so a stationary
+   * camera can complete bounded decay without requiring another view change.
+   */
+  observeCameraMotion(
+    view: StreamingView,
+    timestampMilliseconds = performanceNow(),
+  ): CameraMotionObservation {
+    const observation = this.motionEstimator.observe(view.viewFrustum, timestampMilliseconds);
+    this.streamingState?.manager.setMotionPrediction(observation.prediction);
+    return observation;
+  }
+
+  /** Clear camera history and remove any motion priority retained by the selector. */
+  resetCameraMotion(): void {
+    this.motionEstimator.reset();
+    this.streamingState?.manager.setMotionPrediction(
+      this.motionEstimator.getPrediction(performanceNow()),
+    );
   }
 
   /** Return the current hierarchy node for an adapter-side pick or transition. */
@@ -992,6 +1039,7 @@ export class CopcStreamingCore {
       refinementAlgorithm: this.getStreamingOptions().refinementAlgorithm
         ?? DEFAULT_REFINEMENT_ALGORITHM,
       refinementFocusEnabled: this.refinementFocus !== undefined,
+      motionLookaheadEnabled: this.getStreamingOptions().motionLookahead !== false,
       ...(snapshot.maxConcurrentNodeLoads === undefined
         ? {}
         : {
@@ -1078,6 +1126,45 @@ export class CopcStreamingCore {
       ...(snapshot.acceptedGazeInfluencedRefinementCount === undefined
         ? {}
         : { acceptedGazeInfluencedRefinementCount: snapshot.acceptedGazeInfluencedRefinementCount }),
+      ...(snapshot.motionHorizontalAngularVelocityDegreesPerSecond === undefined
+        ? {}
+        : {
+          motionHorizontalAngularVelocityDegreesPerSecond:
+            snapshot.motionHorizontalAngularVelocityDegreesPerSecond,
+        }),
+      ...(snapshot.motionVerticalAngularVelocityDegreesPerSecond === undefined
+        ? {}
+        : {
+          motionVerticalAngularVelocityDegreesPerSecond:
+            snapshot.motionVerticalAngularVelocityDegreesPerSecond,
+        }),
+      ...(snapshot.motionHorizonMilliseconds === undefined
+        ? {}
+        : { motionHorizonMilliseconds: snapshot.motionHorizonMilliseconds }),
+      ...(snapshot.motionPredictedHorizontalDisplacementDegrees === undefined
+        ? {}
+        : {
+          motionPredictedHorizontalDisplacementDegrees:
+            snapshot.motionPredictedHorizontalDisplacementDegrees,
+        }),
+      ...(snapshot.motionPredictedVerticalDisplacementDegrees === undefined
+        ? {}
+        : {
+          motionPredictedVerticalDisplacementDegrees:
+            snapshot.motionPredictedVerticalDisplacementDegrees,
+        }),
+      ...(snapshot.motionCandidateCount === undefined
+        ? {}
+        : { motionCandidateCount: snapshot.motionCandidateCount }),
+      ...(snapshot.motionWeightMin === undefined
+        ? {}
+        : { motionWeightMin: snapshot.motionWeightMin }),
+      ...(snapshot.motionWeightMax === undefined
+        ? {}
+        : { motionWeightMax: snapshot.motionWeightMax }),
+      ...(snapshot.motionInfluencedRefinementCount === undefined
+        ? {}
+        : { motionInfluencedRefinementCount: snapshot.motionInfluencedRefinementCount }),
       ...(snapshot.focusCandidateCount === undefined
         ? {}
         : { focusCandidateCount: snapshot.focusCandidateCount }),

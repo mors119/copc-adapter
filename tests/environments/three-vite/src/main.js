@@ -18,6 +18,7 @@ camera.updateMatrixWorld();
 // adapter contributes only its root group and explicitly driven updates.
 const layer = new CopcThreeLayer({
   url: '/samples/autzen.copc.laz',
+  streaming: { motionLookahead: true },
 });
 layer.attachTo({ scene, camera });
 

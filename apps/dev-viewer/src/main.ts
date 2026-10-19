@@ -499,6 +499,7 @@ function getLayerOptions(
   const scenario = params.get('scenario');
   if (['issue61', 'issue59', 'issue68', 'issue128'].includes(scenario ?? '')) {
     const issue128 = scenario === 'issue128';
+    const motionLookahead = params.get('motionLookahead') !== 'false';
     const requestedDistance = Number(params.get('distance'));
     const maxRenderDistanceMeters = issue128
       && Number.isFinite(requestedDistance)
@@ -519,6 +520,7 @@ function getLayerOptions(
         maxDepth: issue128 ? 4 : 6,
         maxScreenSpaceError: 8,
         maxRenderDistanceMeters,
+        motionLookahead,
       },
     };
   }
