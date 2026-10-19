@@ -912,6 +912,54 @@ test('Cesium reattachment seeds motion history before the next camera change', a
   }
 });
 
+test('Cesium performs one final same-view selection after motion decays, then stays idle', async () => {
+  const source = createBackend();
+  const layer = new CopcCesiumLayer({
+    url: 'memory://motion-decay.copc.laz',
+    backend: source.backend,
+    decoder: source.decoder,
+  });
+  const viewer = createFakeViewer();
+  const originalWindow = globalThis.window;
+  globalThis.window = { setTimeout, clearTimeout };
+
+  try {
+    setFakeCameraOrientation(viewer, 0);
+    await layer.load();
+    layer.attachTo(viewer);
+    await waitFor(() => layer.getSnapshot().renderedPointCount === 2);
+    const initial = layer.getSnapshot();
+    const initialPointRequests = source.pointChunkRequestCount;
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    setFakeCameraOrientation(viewer, 10);
+    viewer.changed.raise();
+    await waitFor(() => layer.getSnapshot().performance.motionLive.state === 'active');
+    await waitFor(() => layer.getSnapshot().streamingUpdateCount > initial.streamingUpdateCount);
+    const moving = layer.getSnapshot();
+    assert.ok(moving.performance.motionLive.activity > 0);
+    assert.ok(moving.performance.motionSampledMovementCount > 0);
+    assert.ok(moving.performance.motionPredictedHorizontalDisplacementDegrees > 0);
+
+    await new Promise((resolve) => setTimeout(resolve, 850));
+    const settled = layer.getSnapshot();
+    assert.equal(settled.streamingUpdateCount, moving.streamingUpdateCount + 1);
+    assert.equal(settled.performance.motionLive.state, 'stationary');
+    assert.equal(settled.performance.motionLive.activity, 0);
+    assert.equal(settled.performance.motionPredictedHorizontalDisplacementDegrees, 0);
+    assert.equal(settled.performance.motionPredictedVerticalDisplacementDegrees, 0);
+    assert.equal(settled.performance.motionWeightMax, 0);
+    assert.equal(source.pointChunkRequestCount, initialPointRequests);
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    assert.equal(layer.getSnapshot().streamingUpdateCount, settled.streamingUpdateCount);
+    assert.equal(source.pointChunkRequestCount, initialPointRequests);
+  } finally {
+    layer.destroy();
+    globalThis.window = originalWindow;
+  }
+});
+
 test('Cesium layer show state is isolated and survives attachment and reload', async () => {
   const firstSource = createBackend();
   const secondSource = createBackend();

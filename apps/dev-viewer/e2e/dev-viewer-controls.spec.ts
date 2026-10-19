@@ -9,6 +9,7 @@ type DevViewerApi = {
     renderedNodeKeys: string[];
     performance: {
       refinementAlgorithm: string;
+      motionLive: { enabled: boolean };
       configuredPointBudget: number;
       activeRenderedPointCount: number;
       visibleLevelRange?: { min: number; max: number };
@@ -28,6 +29,7 @@ type DevViewerApi = {
     backend: string;
     source: string;
     refinementAlgorithm: string;
+    motionLookahead: boolean;
     rangeValidation: string;
     colorMode: string;
     pointSize: number;
@@ -42,6 +44,7 @@ type DevViewerApi = {
   getPendingConfiguration(): {
     renderer: string;
     refinementAlgorithm: string;
+    motionLookahead: boolean;
     rangeValidation: string;
     pointSize: number;
   };
@@ -53,8 +56,17 @@ declare global {
     __COPC_DEBUG__?: {
       getState(): {
         cameraMoveEventCount: number;
+        cameraBasis: {
+          position: { x: number; y: number; z: number };
+          direction: { x: number; y: number; z: number };
+          right: { x: number; y: number; z: number };
+          up: { x: number; y: number; z: number };
+        };
         viewDistance?: { effectiveDistanceMeters: number };
-        performance: { activeNodeCount: number };
+        performance: {
+          activeNodeCount: number;
+          motionLive: { acceptedMovementSampleCount: number };
+        };
       };
     };
     __devViewerDebugIntervalCount?: () => number;
@@ -72,8 +84,11 @@ test('switches renderer and backend, applies controls, and inspects a Three poin
   await expect(page.getByRole('radiogroup', { name: 'Camera presets' })).toHaveCount(1);
   await expect(page.getByRole('radiogroup', { name: 'Point color mode' })).toHaveCount(1);
   const refinementGroup = page.getByRole('radiogroup', { name: 'Refinement Algorithm' });
+  const motionLookaheadGroup = page.getByRole('radiogroup', { name: 'Motion Lookahead' });
   const rangeValidationGroup = page.getByRole('radiogroup', { name: 'HTTP Range Validation' });
   await expect(refinementGroup.getByRole('radio', { name: 'Foveated' }))
+    .toHaveAttribute('aria-checked', 'true');
+  await expect(motionLookaheadGroup.getByRole('radio', { name: 'On' }))
     .toHaveAttribute('aria-checked', 'true');
   await expect(rangeValidationGroup.getByRole('radio', { name: 'HEAD Fallback' }))
     .toHaveAttribute('aria-checked', 'true');
@@ -84,14 +99,32 @@ test('switches renderer and backend, applies controls, and inspects a Three poin
   await expect(page.locator('.dev-stream-hud')).toHaveCount(0);
 
   await refinementGroup.getByRole('radio', { name: 'Screen Projection' }).click();
+  const cameraBasisBeforeApply = await page.evaluate(() =>
+    window.__COPC_DEBUG__!.getState().cameraBasis);
+  await motionLookaheadGroup.getByRole('radio', { name: 'Off' }).click();
   await rangeValidationGroup.getByRole('radio', { name: 'Strict' }).click();
   await cesiumRendererGroup.getByRole('radio', { name: 'Batched Geometry' }).click();
   await expect.poll(async () => page.evaluate(() =>
     window.__COPC_DEV_VIEWER__?.getConfiguration().refinementAlgorithm)).toBe('foveated');
+  await expect.poll(async () => page.evaluate(() =>
+    window.__COPC_DEV_VIEWER__?.getPendingConfiguration().motionLookahead)).toBe(false);
   await page.getByRole('button', { name: 'Apply Settings' }).click();
   await expect.poll(async () => page.evaluate(() =>
     window.__COPC_DEV_VIEWER__?.getConfiguration().refinementAlgorithm))
     .toBe('screen-projection');
+  await expect.poll(async () => page.evaluate(() =>
+    window.__COPC_DEV_VIEWER__?.getConfiguration().motionLookahead)).toBe(false);
+  await expect.poll(async () => page.evaluate(() =>
+    window.__COPC_DEV_VIEWER__?.getSnapshot()?.performance.motionLive.enabled)).toBe(false);
+  await expect.poll(async () => page.evaluate(({ before }) => {
+    const current = window.__COPC_DEBUG__!.getState().cameraBasis;
+    return (['position', 'direction', 'right', 'up'] as const).every((axis) =>
+      Math.hypot(
+        current[axis].x - before[axis].x,
+        current[axis].y - before[axis].y,
+        current[axis].z - before[axis].z,
+      ) < 1e-5);
+  }, { before: cameraBasisBeforeApply })).toBe(true);
   await expect.poll(async () => page.evaluate(() =>
     window.__COPC_DEV_VIEWER__?.getConfiguration().rangeValidation)).toBe('strict');
   await expect.poll(async () => page.evaluate(() =>
@@ -303,8 +336,15 @@ test('collapses the controls and Inspector independently and keeps the canvas fu
 
   await expect.poll(async () => page.evaluate(() =>
     window.__COPC_DEV_VIEWER__?.getSnapshot()?.lifecycle)).toBe('ready');
-  const cameraBeforeDrag = await page.evaluate(() =>
-    window.__COPC_DEBUG__!.getState().cameraMoveEventCount);
+  const beforeDrag = await page.evaluate(() => {
+    const state = window.__COPC_DEBUG__!.getState();
+    return {
+      cameraMoveEventCount: state.cameraMoveEventCount,
+      motionSampleCount: state.performance.motionLive.acceptedMovementSampleCount,
+      direction: state.cameraBasis.direction,
+      position: state.cameraBasis.position,
+    };
+  });
   const canvasBounds = await page.locator('#cesium-container canvas').first().boundingBox();
   expect(canvasBounds).not.toBeNull();
   const dragX = (canvasBounds?.x ?? 0) + (canvasBounds?.width ?? 0) / 2;
@@ -314,13 +354,57 @@ test('collapses the controls and Inspector independently and keeps the canvas fu
   { x: dragX, y: dragY });
   expect(canvasReceivesInput).toBe(true);
   await page.mouse.move(dragX, dragY);
-  await page.mouse.click(dragX, dragY);
-  await page.mouse.down();
-  await page.mouse.move(dragX + 32, dragY + 18, { steps: 3 });
-  await page.mouse.up();
+  await page.mouse.down({ button: 'right' });
+  await page.mouse.move(dragX + 128, dragY + 96, { steps: 8 });
+  await page.mouse.up({ button: 'right' });
   await expect.poll(async () => page.evaluate(() =>
     window.__COPC_DEBUG__!.getState().cameraMoveEventCount))
-    .toBeGreaterThan(cameraBeforeDrag);
+    .toBeGreaterThan(beforeDrag.cameraMoveEventCount);
+  const afterDrag = await page.evaluate(() => window.__COPC_DEBUG__!.getState());
+  const dragDirectionDot = Math.max(-1, Math.min(1,
+    beforeDrag.direction.x * afterDrag.cameraBasis.direction.x
+      + beforeDrag.direction.y * afterDrag.cameraBasis.direction.y
+      + beforeDrag.direction.z * afterDrag.cameraBasis.direction.z));
+  const dragOrientationDeltaDegrees = Math.acos(dragDirectionDot) * 180 / Math.PI;
+  const dragTranslationMeters = Math.hypot(
+    beforeDrag.position.x - afterDrag.cameraBasis.position.x,
+    beforeDrag.position.y - afterDrag.cameraBasis.position.y,
+    beforeDrag.position.z - afterDrag.cameraBasis.position.z,
+  );
+  expect(dragTranslationMeters).toBeGreaterThan(1);
+  if (dragOrientationDeltaDegrees >= 0.05) {
+    expect(afterDrag.performance.motionLive.acceptedMovementSampleCount)
+      .toBeGreaterThan(beforeDrag.motionSampleCount);
+  } else {
+    expect(afterDrag.performance.motionLive.acceptedMovementSampleCount)
+      .toBe(beforeDrag.motionSampleCount);
+  }
+
+  await expect.poll(async () => (await page.evaluate(() =>
+    window.__COPC_DEBUG__!.getState())).performance.motionLive.state, {
+    timeout: 5_000,
+  }).toBe('stationary');
+  const beforeWheel = await page.evaluate(() => window.__COPC_DEBUG__!.getState());
+  await page.mouse.move(dragX, dragY);
+  await page.mouse.wheel(0, 120);
+  await expect.poll(async () => page.evaluate(({ previousPosition }) => {
+    const current = window.__COPC_DEBUG__!.getState().cameraBasis.position;
+    return Math.hypot(
+      current.x - previousPosition.x,
+      current.y - previousPosition.y,
+      current.z - previousPosition.z,
+    );
+  }, { previousPosition: beforeWheel.cameraBasis.position })).toBeGreaterThan(1);
+  const afterWheel = await page.evaluate(() => window.__COPC_DEBUG__!.getState());
+  const directionDot = Math.max(-1, Math.min(1,
+    beforeWheel.cameraBasis.direction.x * afterWheel.cameraBasis.direction.x
+      + beforeWheel.cameraBasis.direction.y * afterWheel.cameraBasis.direction.y
+      + beforeWheel.cameraBasis.direction.z * afterWheel.cameraBasis.direction.z));
+  const orientationDeltaDegrees = Math.acos(directionDot) * 180 / Math.PI;
+  if (orientationDeltaDegrees < 0.05) {
+    expect(afterWheel.performance.motionLive.acceptedMovementSampleCount)
+      .toBe(beforeWheel.performance.motionLive.acceptedMovementSampleCount);
+  }
 
   await controlsToggle.focus();
   await controlsToggle.press('Enter');

@@ -17,6 +17,7 @@ function createConfig(overrides = {}) {
     cesiumRenderer: 'point-primitive',
     backend: 'copc-js',
     refinementAlgorithm: 'foveated',
+    motionLookahead: true,
     rangeValidation: 'head-fallback',
     source: 'https://example.test/autzen.copc.laz?token=secret',
     colorMode: 'rgb',
@@ -52,6 +53,13 @@ test('marks constructor-time settings pending and keeps Cesium color updates liv
   assert.equal(needsSessionRecreation(
     applied,
     createConfig({ refinementAlgorithm: 'screen-projection' }),
+    true,
+    true,
+  ), true);
+  assert.equal(hasUnappliedSettings(applied, createConfig({ motionLookahead: false })), true);
+  assert.equal(needsSessionRecreation(
+    applied,
+    createConfig({ motionLookahead: false }),
     true,
     true,
   ), true);

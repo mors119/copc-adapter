@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 
+type Vector3 = { x: number; y: number; z: number };
+
 type DebugState = {
   layerLoaded: boolean;
   renderedPointCount: number;
@@ -13,6 +15,14 @@ type DebugState = {
     coarseNodesRetainedForCoverageCount: number;
   };
   streamingUpdateCount: number;
+  cameraBasis: {
+    position: Vector3;
+    direction: Vector3;
+    right: Vector3;
+    up: Vector3;
+  };
+  cameraHeadingDegrees: number;
+  cameraPitchDegrees: number;
   viewDistance?: {
     visibleFootprintMeters?: number;
     targetDistanceMeters: number;
@@ -28,7 +38,7 @@ type DebugState = {
     fallbackCount: number;
   };
   backend: string;
-  performance: Record<string, number | boolean> & {
+  performance: Record<string, unknown> & {
     configuredPointBudget: number;
     activeRenderedPointCount: number;
     candidateSelectedPointCount: number;
@@ -38,6 +48,20 @@ type DebugState = {
     motionSampledMovementCount: number;
     motionPredictedHorizontalDisplacementDegrees: number;
     motionPredictedVerticalDisplacementDegrees: number;
+    motionCandidateCount: number;
+    motionWeightMax: number;
+    motionInfluencedRefinementCount: number;
+    motionLive: {
+      enabled: boolean;
+      acceptedMovementSampleCount: number;
+      horizontalAngularVelocityDegreesPerSecond: number;
+      verticalAngularVelocityDegreesPerSecond: number;
+      predictedHorizontalDisplacementDegrees: number;
+      predictedVerticalDisplacementDegrees: number;
+      activity: number;
+      millisecondsSinceLastAcceptedMovement?: number;
+      state: 'disabled' | 'active' | 'decaying' | 'stationary';
+    };
   };
   pointCache: {
     cacheByteBudget: number;
@@ -78,6 +102,38 @@ type DebugAdapter = {
   setCameraPitch(pitchDegrees: number): void;
   setCameraHeading(headingDegrees: number): void;
 };
+
+function dot(left: Vector3, right: Vector3): number {
+  return left.x * right.x + left.y * right.y + left.z * right.z;
+}
+
+function expectedScreenMovement(
+  before: DebugState['cameraBasis'],
+  after: DebugState['cameraBasis'],
+): { horizontalDegrees: number; verticalDegrees: number } {
+  const cosine = Math.max(-1, Math.min(1, dot(before.direction, after.direction)));
+  return {
+    horizontalDegrees: Math.atan2(-dot(before.direction, after.right), cosine) * 180 / Math.PI,
+    verticalDegrees: Math.atan2(-dot(before.direction, after.up), cosine) * 180 / Math.PI,
+  };
+}
+
+function assertMotionFollowsViewingDirection(
+  before: DebugState,
+  after: DebugState,
+): void {
+  const expected = expectedScreenMovement(before.cameraBasis, after.cameraBasis);
+  const motion = after.performance.motionLive;
+  expect(motion.activity).toBeGreaterThan(0);
+  if (Math.abs(expected.horizontalDegrees) >= 0.05) {
+    expect(Math.sign(motion.predictedHorizontalDisplacementDegrees))
+      .toBe(Math.sign(expected.horizontalDegrees));
+  }
+  if (Math.abs(expected.verticalDegrees) >= 0.05) {
+    expect(Math.sign(motion.predictedVerticalDisplacementDegrees))
+      .toBe(Math.sign(expected.verticalDegrees));
+  }
+}
 
 declare global {
   interface Window {
@@ -253,41 +309,77 @@ test('records the Autzen Far/Near, rotation, and stale-work streaming gate', asy
   const previousRotationDistanceUpdateCount = beforeRotation.viewDistance?.updateCount ?? 0;
   const previousMotionSampledMovementCount =
     beforeRotation.performance.motionSampledMovementCount;
-  await page.evaluate(() => window.__COPC_DEBUG__?.setCameraPitch(-35));
-  // Keep the two explicit orientation changes in separate camera samples.
-  // Setting both synchronously can collapse them into one frame on a loaded CI
-  // runner and leave the motion estimator with no measurable time interval.
-  await page.waitForTimeout(25);
-  await page.evaluate(() => window.__COPC_DEBUG__?.setCameraHeading(90));
+  const beforePitch = await getState(page);
+  const nextPitch = Math.abs(beforePitch.cameraPitchDegrees + 35) < 1 ? -45 : -35;
+  let rotationMotionSample: DebugState;
   if (motionLookaheadEnabled) {
-    await expect.poll(async () => {
-      return (await getState(page)).performance.motionSampledMovementCount;
-    }, { timeout: 10_000 }).toBeGreaterThan(previousMotionSampledMovementCount);
+    const afterPitch = await page.evaluate((pitch) => {
+      const debug = window.__COPC_DEBUG__;
+      debug?.setCameraPitch(pitch);
+      return debug?.getState();
+    }, nextPitch);
+    expect(afterPitch).toBeDefined();
+    expect(afterPitch!.performance.motionSampledMovementCount)
+      .toBeGreaterThan(previousMotionSampledMovementCount);
+    assertMotionFollowsViewingDirection(beforePitch, afterPitch!);
+
+    await page.waitForTimeout(25);
+    const beforeHeading = await getState(page);
+    const nextHeading = Math.abs(beforeHeading.cameraHeadingDegrees - 90) < 1 ? 110 : 90;
+    const headingMovementCount = beforeHeading.performance.motionSampledMovementCount;
+    const afterHeading = await page.evaluate((heading) => {
+      const debug = window.__COPC_DEBUG__;
+      debug?.setCameraHeading(heading);
+      return debug?.getState();
+    }, nextHeading);
+    expect(afterHeading).toBeDefined();
+    expect(afterHeading!.performance.motionSampledMovementCount)
+      .toBeGreaterThan(headingMovementCount);
+    assertMotionFollowsViewingDirection(beforeHeading, afterHeading!);
+    rotationMotionSample = afterHeading!;
   } else {
+    await page.evaluate((pitch) => window.__COPC_DEBUG__?.setCameraPitch(pitch), nextPitch);
     await expect.poll(async () => {
       return (await getState(page)).performance.motionSampledMovementCount;
     }, { timeout: 10_000 }).toBe(previousMotionSampledMovementCount);
+    rotationMotionSample = await getState(page);
   }
-  const rotationMotionSample = await getState(page);
   await waitForViewChange(page, beforeRotation);
   await expect.poll(async () => (await getState(page)).viewDistance?.updateCount ?? 0)
     .toBeGreaterThan(previousRotationDistanceUpdateCount);
   const rotating = await getState(page);
   expect(rotating.performance.motionLookaheadEnabled).toBe(motionLookaheadEnabled);
+  const selectionUsedMotionPrediction = Math.abs(
+    rotating.performance.motionPredictedHorizontalDisplacementDegrees,
+  ) > 0 || Math.abs(rotating.performance.motionPredictedVerticalDisplacementDegrees) > 0;
+  if (motionLookaheadEnabled && selectionUsedMotionPrediction
+    && rotating.performance.motionCandidateCount > 0) {
+    expect(rotating.performance.motionWeightMax).toBeGreaterThan(0);
+  }
+  const rotatingSelectionCount = rotating.streamingUpdateCount;
+  const rotatingSelectionUsedMotion = motionLookaheadEnabled && selectionUsedMotionPrediction;
   const rotated = await waitForIdle(page);
-  await expect.poll(async () => {
-    const performance = (await getState(page)).performance;
-    return performance.motionPredictedHorizontalDisplacementDegrees === 0
-      && performance.motionPredictedVerticalDisplacementDegrees === 0;
-  }, { timeout: 10_000 }).toBe(true);
-  // The one-shot timer can fire before or after the rotation update drains.
   if (motionLookaheadEnabled) {
-    // Allow its 100 ms coalescing window, then ensure the stationary selection
-    // and any replacement work have finished.
-    await page.waitForTimeout(150);
+    await expect.poll(async () => (await getState(page)).performance.motionLive.state, {
+      timeout: 10_000,
+    }).toBe('stationary');
+    if (rotatingSelectionUsedMotion) {
+      await expect.poll(async () => {
+        const state = await getState(page);
+        return state.streamingUpdateCount > rotatingSelectionCount
+          && state.performance.motionPredictedHorizontalDisplacementDegrees === 0
+          && state.performance.motionPredictedVerticalDisplacementDegrees === 0
+          && state.performance.motionWeightMax === 0;
+      }, { timeout: 10_000 }).toBe(true);
+    }
     await waitForIdle(page);
   }
   const settledMotion = await getState(page);
+  if (motionLookaheadEnabled) {
+    expect(settledMotion.performance.motionPredictedHorizontalDisplacementDegrees).toBe(0);
+    expect(settledMotion.performance.motionPredictedVerticalDisplacementDegrees).toBe(0);
+    expect(settledMotion.performance.motionWeightMax).toBe(0);
+  }
   const settledMotionSummary = summarize(settledMotion);
   await page.waitForTimeout(400);
   const stableMotion = await getState(page);

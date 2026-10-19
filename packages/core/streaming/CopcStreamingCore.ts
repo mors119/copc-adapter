@@ -68,6 +68,7 @@ import {
 import { DEFAULT_MAX_CONCURRENT_NODE_LOADS } from './scheduler';
 import {
   CameraMotionLookaheadEstimator,
+  type CameraMotionLiveDiagnostics,
   type CameraMotionObservation,
 } from './motionLookahead';
 import {
@@ -238,7 +239,13 @@ export type CopcStreamingPerformanceSnapshot = Pick<
   | 'pointPreparationDurationMs'
   | 'crsTransformDurationMs'
   | 'longestMainThreadBlockingSectionMs'
->;
+> & {
+  /** Current decayed estimator state, sampled when `getSnapshot()` is called. */
+  motionLive: CameraMotionLiveDiagnostics & {
+    /** Accepted movement samples since camera-motion history was reset. */
+    acceptedMovementSampleCount: number;
+  };
+};
 
 /** Detached diagnostics for one shared streaming core. */
 export type CopcStreamingSnapshot = {
@@ -1056,6 +1063,10 @@ export class CopcStreamingCore {
       refinementFocusEnabled: this.refinementFocus !== undefined,
       motionLookaheadEnabled: this.getStreamingOptions().motionLookahead !== false,
       motionSampledMovementCount: this.motionSampledMovementCount,
+      motionLive: {
+        ...this.motionEstimator.getDiagnostics(performanceNow()),
+        acceptedMovementSampleCount: this.motionSampledMovementCount,
+      },
       ...(snapshot.maxConcurrentNodeLoads === undefined
         ? {}
         : {
