@@ -330,17 +330,22 @@ test('responsive layout keeps the viewport visible and supports disclosures', as
   await page.goto('./');
   let layout = await page.evaluate(() => ({
     viewportWidth: document.querySelector('#cesium-container')?.getBoundingClientRect().width ?? 0,
+    viewportBottom: document.querySelector('.viewer-frame')?.getBoundingClientRect().bottom ?? 0,
     documentWidth: document.documentElement.scrollWidth,
     windowWidth: window.innerWidth,
+    windowHeight: window.innerHeight,
   }));
   expect(layout.viewportWidth).toBeGreaterThan(300);
+  expect(layout.viewportBottom).toBeLessThanOrEqual(layout.windowHeight);
   expect(layout.documentWidth).toBeLessThanOrEqual(layout.windowWidth);
 
   await page.setViewportSize({ width: 390, height: 844 });
   layout = await page.evaluate(() => ({
     viewportWidth: document.querySelector('#cesium-container')?.getBoundingClientRect().width ?? 0,
+    viewportBottom: document.querySelector('.viewer-frame')?.getBoundingClientRect().bottom ?? 0,
     documentWidth: document.documentElement.scrollWidth,
     windowWidth: window.innerWidth,
+    windowHeight: window.innerHeight,
   }));
   expect(layout.viewportWidth).toBeGreaterThan(300);
   expect(layout.documentWidth).toBeLessThanOrEqual(layout.windowWidth);
@@ -377,11 +382,107 @@ for (const renderer of ['Cesium', 'Three.js'] as const) {
     await expect.poll(pickPosition, { timeout: 30_000 }).toBeTruthy();
     const point = await pickPosition();
     if (!point) throw new Error('No pickable streamed point was found in the viewport.');
-    const box = await page.locator('#cesium-container').boundingBox();
-    if (!box) throw new Error('The point cloud viewport has no visible bounds.');
-    await page.mouse.click(box.x + point.x, box.y + point.y);
+    const canvasBox = await page.locator('#cesium-container canvas').boundingBox();
+    if (!canvasBox) throw new Error('The renderer canvas has no visible bounds.');
+    await page.mouse.click(canvasBox.x + point.x, canvasBox.y + point.y);
     await expect(page.locator('#point-attributes')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('#point-attributes')).toContainText('Height');
+
+    if (renderer === 'Cesium') {
+      const obliqueCamera = await page.evaluate(() => {
+        const hooks = (window as Window & {
+          __COPC_PLAYGROUND_TEST__?: PlaygroundFocusTestHooks;
+        }).__COPC_PLAYGROUND_TEST__;
+        if (!hooks) throw new Error('Playground test hooks are unavailable');
+        return { ...hooks.getCameraView(), pitch: -45 };
+      });
+      await page.evaluate((camera) => {
+        (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundFocusTestHooks })
+          .__COPC_PLAYGROUND_TEST__?.setCameraView(camera);
+      }, obliqueCamera);
+
+      await page.locator('#focus-mode').selectOption('center-boost');
+      await page.locator('#focus-radius').evaluate((element: HTMLInputElement) => {
+        element.value = '15';
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+        element.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      await page.locator('#focus-bias').evaluate((element: HTMLInputElement) => {
+        element.value = '2';
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+        element.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      await expect.poll(() => page.evaluate(() =>
+        (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundFocusTestHooks })
+          .__COPC_PLAYGROUND_TEST__?.getSnapshot()?.refinementFocusEnabled)).toBe(true);
+      await expect(page.locator('#diagnostic-algorithm')).toHaveText('Foveated');
+
+      const checkGuideMapping = async (): Promise<void> => {
+        await expect.poll(() => page.evaluate(() => {
+          const canvas = document.querySelector<HTMLCanvasElement>('#cesium-container canvas');
+          const guide = document.querySelector<HTMLElement>('#focus-guide');
+          if (!canvas || !guide) throw new Error('The Cesium canvas or focus guide is missing.');
+          const canvasRect = canvas.getBoundingClientRect();
+          const guideRect = guide.getBoundingClientRect();
+          return guideRect.width - 0.3 * Math.min(canvasRect.width, canvasRect.height);
+        })).toBeCloseTo(0, 0);
+        const centers = await page.evaluate(() => {
+          const canvas = document.querySelector<HTMLCanvasElement>('#cesium-container canvas')!;
+          const guide = document.querySelector<HTMLElement>('#focus-guide')!;
+          const canvasRect = canvas.getBoundingClientRect();
+          const guideRect = guide.getBoundingClientRect();
+          return {
+            x: (guideRect.left + guideRect.width / 2) - (canvasRect.left + canvasRect.width / 2),
+            y: (guideRect.top + guideRect.height / 2) - (canvasRect.top + canvasRect.height / 2),
+          };
+        });
+        expect(centers.x).toBeCloseTo(0, 0);
+        expect(centers.y).toBeCloseTo(0, 0);
+      };
+      await checkGuideMapping();
+      await page.setViewportSize({ width: 390, height: 844 });
+      await checkGuideMapping();
+
+      const centerSelection = await page.evaluate(() =>
+        (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundFocusTestHooks })
+          .__COPC_PLAYGROUND_TEST__?.getSnapshot());
+      const cameraBeforeMovement = await page.evaluate(() =>
+        (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundFocusTestHooks })
+          .__COPC_PLAYGROUND_TEST__?.getCameraView());
+      await page.locator('#focus-mode').selectOption('pinned');
+      await page.locator('#focus-x').fill('0.76');
+      await page.locator('#focus-x').dispatchEvent('change');
+      await page.locator('#focus-y').fill('0.38');
+      await page.locator('#focus-y').dispatchEvent('change');
+      await expect.poll(() => page.evaluate(() => {
+        const snapshot = (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundFocusTestHooks })
+          .__COPC_PLAYGROUND_TEST__?.getSnapshot();
+        return JSON.stringify({
+          candidates: snapshot?.focusCandidateCount,
+          weightMin: snapshot?.focusWeightMin,
+          weightMax: snapshot?.focusWeightMax,
+          influenced: snapshot?.focusInfluencedRefinementCount,
+        });
+      })).not.toBe(JSON.stringify({
+        candidates: centerSelection?.focusCandidateCount,
+        weightMin: centerSelection?.focusWeightMin,
+        weightMax: centerSelection?.focusWeightMax,
+        influenced: centerSelection?.focusInfluencedRefinementCount,
+      }));
+
+      const cameraAfterMovement = await page.evaluate(() =>
+        (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundFocusTestHooks })
+          .__COPC_PLAYGROUND_TEST__?.getCameraView());
+      expect(cameraAfterMovement?.longitude).toBeCloseTo(cameraBeforeMovement?.longitude ?? 0, 5);
+      expect(cameraAfterMovement?.latitude).toBeCloseTo(cameraBeforeMovement?.latitude ?? 0, 5);
+      expect(cameraAfterMovement?.height).toBeCloseTo(cameraBeforeMovement?.height ?? 0, 1);
+      expect(cameraAfterMovement?.pitch).toBeCloseTo(-45, 2);
+
+      await page.locator('#focus-mode').selectOption('auto-center');
+      await expect.poll(() => page.evaluate(() =>
+        (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundFocusTestHooks })
+          .__COPC_PLAYGROUND_TEST__?.getSnapshot()?.refinementFocusEnabled)).toBe(false);
+    }
   });
 }
 
@@ -402,4 +503,18 @@ type PlaygroundCameraView = {
   heading: number;
   pitch: number;
   roll: number;
+};
+
+type PlaygroundFocusTestHooks = {
+  getCameraView(): PlaygroundCameraView;
+  setCameraView(view: PlaygroundCameraView): void;
+  getSnapshot(): {
+    refinementAlgorithm?: string;
+    refinementFocusEnabled?: boolean;
+    focusCandidateCount?: number;
+    focusWeightMin?: number;
+    focusWeightMax?: number;
+    focusInfluencedRefinementCount?: number;
+    selectedNodeKeys?: readonly string[];
+  } | undefined;
 };

@@ -6,6 +6,15 @@ the JavaScript and Rust/WASM backends, point styling, basic streaming limits,
 and point inspection. Internal diagnostics, benchmark controls, fixtures, and
 test harnesses remain in `apps/dev-viewer`.
 
+Refinement can use the public `foveated` strategy (the default) or the legacy
+`screen-projection` strategy. In Cesium, Focus Lens modes can prioritize the
+center, follow the pointer, or keep a pinned screen-space circle. Lens movement,
+radius, and detail-bias changes update the active layer; changing algorithms
+reapplies the layer because the strategy is a constructor option. The guide is
+visual only, and focus prioritizes detail without clipping the point cloud.
+Algorithm and focus settings are stored in the URL and reflected in the public
+API example.
+
 HTTP sources are requested directly by the browser. A source must provide
 browser-readable CORS and HTTP Range responses. The Playground does not rewrite
 URLs through a proxy. The source probe reports what the browser could validate;
