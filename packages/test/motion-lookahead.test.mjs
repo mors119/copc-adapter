@@ -212,7 +212,13 @@ test('motion estimator rejects bad clocks and vectors, clamps speed, reverses pr
   const first = estimator.observe(cameraBasis(), 5_000);
   assert.equal(first.valid, true);
   const tinyInterval = estimator.observe(cameraBasis(1), 5_002);
-  assert.equal(tinyInterval.valid, false);
+  assert.equal(tinyInterval.valid, true);
+  assert.equal(tinyInterval.sampledMovement, true);
+  assert.ok(tinyInterval.prediction.horizontalAngularVelocityDegreesPerSecond <= 90);
+  assert.ok(tinyInterval.prediction.predictedHorizontalDisplacementDegrees > 0);
+  const microJitter = estimator.observe(cameraBasis(1.01), 5_003);
+  assert.equal(microJitter.valid, true);
+  assert.equal(microJitter.sampledMovement, false);
 });
 
 test('motion reversals immediately replace stale direction and disabled mode stays zero', () => {

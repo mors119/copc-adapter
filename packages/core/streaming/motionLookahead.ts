@@ -9,6 +9,7 @@ const MIN_SAMPLE_INTERVAL_MS = 4;
 const MAX_SAMPLE_GAP_MS = 2_000;
 const SMOOTHING_TIME_CONSTANT_MS = 55;
 const MIN_ANGULAR_SPEED_RADIANS_PER_SECOND = (0.75 * Math.PI) / 180;
+const MIN_ANGULAR_DISPLACEMENT_RADIANS = (0.05 * Math.PI) / 180;
 const MAX_ANGULAR_SPEED_RADIANS_PER_SECOND = (90 * Math.PI) / 180;
 const ACTIVITY_FULL_SPEED_RADIANS_PER_SECOND = (30 * Math.PI) / 180;
 const MAX_PREDICTED_COMPONENT_RADIANS = (18 * Math.PI) / 180;
@@ -168,9 +169,6 @@ export class CameraMotionLookaheadEstimator {
     if (!Number.isFinite(intervalMilliseconds) || intervalMilliseconds <= 0) {
       return invalid();
     }
-    if (intervalMilliseconds < MIN_SAMPLE_INTERVAL_MS) {
-      return invalid();
-    }
 
     const cosine = clamp(dot(this.previousBasis.direction, basis.direction), -1, 1);
     // Project the old viewing ray onto the current screen axes. The negative
@@ -190,14 +188,25 @@ export class CameraMotionLookaheadEstimator {
     // event when it moved again. Use a bounded interval for the new direction
     // change instead of discarding that first movement sample or deriving an
     // arbitrarily small velocity from a long idle period.
-    const sampleIntervalMilliseconds = Math.min(intervalMilliseconds, MAX_SAMPLE_GAP_MS);
+    // Keep tiny but positive event intervals. Renderer callbacks can arrive
+    // within the same frame (for example, a programmatic pitch followed by a
+    // heading change); dropping them can lose the final orientation entirely.
+    // A minimum interval bounds apparent velocity, while the angular
+    // displacement threshold below still rejects sub-pixel camera jitter.
+    const sampleIntervalMilliseconds = clamp(
+      intervalMilliseconds,
+      MIN_SAMPLE_INTERVAL_MS,
+      MAX_SAMPLE_GAP_MS,
+    );
     const seconds = sampleIntervalMilliseconds / 1000;
     const rawHorizontalVelocity = horizontalDelta / seconds;
     const rawVerticalVelocity = verticalDelta / seconds;
     const rawSpeed = Math.hypot(rawHorizontalVelocity, rawVerticalVelocity);
+    const angularDisplacement = Math.hypot(horizontalDelta, verticalDelta);
     let sampledMovement = false;
 
     if (Number.isFinite(rawSpeed)
+      && angularDisplacement >= MIN_ANGULAR_DISPLACEMENT_RADIANS
       && rawSpeed >= MIN_ANGULAR_SPEED_RADIANS_PER_SECOND) {
       const scale = rawSpeed > MAX_ANGULAR_SPEED_RADIANS_PER_SECOND
         ? MAX_ANGULAR_SPEED_RADIANS_PER_SECOND / rawSpeed
