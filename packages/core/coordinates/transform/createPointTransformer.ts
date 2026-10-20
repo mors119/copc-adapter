@@ -18,6 +18,7 @@ import {
   extractVerticalUnitScale,
 } from "../crs/parseCopcWkt";
 import { resolveHeightOffsetMeters } from "./heightOffset";
+import type { GtxGeoidGrid } from "./verticalGrid";
 
 function hasGeographicBounds(metadata: CopcMetadata): boolean {
   const { minX, minY, maxX, maxY } = metadata.bounds;
@@ -39,8 +40,10 @@ function hasGeographicBounds(metadata: CopcMetadata): boolean {
 export function createPointTransformer(
   metadata: CopcMetadata,
   heightOffsetMeters = 0,
+  verticalGrid?: GtxGeoidGrid,
 ): (point: CopcPoint) => GeographicPoint {
   const heightOffset = resolveHeightOffsetMeters(heightOffsetMeters);
+  verticalGrid?.assertCompatibleSourceWkt(metadata.wkt);
   if (!metadata.wkt) {
     if (hasGeographicBounds(metadata)) {
       return (point: CopcPoint): GeographicPoint => ({
@@ -62,12 +65,20 @@ export function createPointTransformer(
   return (point: CopcPoint): GeographicPoint => {
     const [longitude, latitude] = projection.forward([point.x, point.y]);
     const convertedHeight = point.z * verticalUnitScale;
+    const verticalHeight = verticalGrid
+      ? verticalGrid.transformHeight(
+          convertedHeight,
+          longitude,
+          latitude,
+          "orthometric-to-ellipsoidal",
+        )
+      : convertedHeight;
 
     return {
       longitude,
       latitude,
       height:
-        heightOffset === 0 ? convertedHeight : convertedHeight + heightOffset,
+        heightOffset === 0 ? verticalHeight : verticalHeight + heightOffset,
     };
   };
 }
@@ -81,8 +92,10 @@ export function createPointTransformer(
 export function createProjectPointTransformer(
   metadata: CopcMetadata,
   heightOffsetMeters = 0,
+  verticalGrid?: GtxGeoidGrid,
 ): (point: GeographicPoint) => CopcPoint {
   const heightOffset = resolveHeightOffsetMeters(heightOffsetMeters);
+  verticalGrid?.assertCompatibleSourceWkt(metadata.wkt);
   if (!metadata.wkt) {
     if (hasGeographicBounds(metadata)) {
       return (point: GeographicPoint): CopcPoint => ({
@@ -103,11 +116,20 @@ export function createProjectPointTransformer(
 
   return (point: GeographicPoint): CopcPoint => {
     const [x, y] = projection.inverse([point.longitude, point.latitude]);
+    const offsetRemovedHeight = point.height - heightOffset;
+    const sourceVerticalHeight = verticalGrid
+      ? verticalGrid.transformHeight(
+          offsetRemovedHeight,
+          point.longitude,
+          point.latitude,
+          "ellipsoidal-to-orthometric",
+        )
+      : offsetRemovedHeight;
 
     return {
       x,
       y,
-      z: (point.height - heightOffset) / verticalUnitScale,
+      z: sourceVerticalHeight / verticalUnitScale,
     };
   };
 }
@@ -125,12 +147,14 @@ export function transformPointBuffer(
   metadata: CopcMetadata,
   points: CopcPointBuffer,
   heightOffsetMeters = 0,
+  verticalGrid?: GtxGeoidGrid,
 ): GeographicPointBuffer {
   return preparedPointDataToGeographicBuffer(
     transformPointBufferToPreparedPointData(
       metadata,
       points,
       heightOffsetMeters,
+      verticalGrid,
     ),
   );
 }
@@ -145,11 +169,13 @@ export function transformPointBufferToPointData(
   metadata: CopcMetadata,
   points: CopcPointBuffer,
   heightOffsetMeters = 0,
+  verticalGrid?: GtxGeoidGrid,
 ): PreparedPointData {
   return transformPointBufferToPreparedPointData(
     metadata,
     points,
     heightOffsetMeters,
+    verticalGrid,
   );
 }
 
@@ -164,8 +190,13 @@ export function transformPointBufferToPreparedPointData(
   metadata: CopcMetadata,
   points: CopcPointBuffer,
   heightOffsetMeters = 0,
+  verticalGrid?: GtxGeoidGrid,
 ): PreparedPointData {
-  const transformPoint = createPointTransformer(metadata, heightOffsetMeters);
+  const transformPoint = createPointTransformer(
+    metadata,
+    heightOffsetMeters,
+    verticalGrid,
+  );
   const sourceCoordinates = points.coordinates.slice();
   const geographicCoordinates = new Float64Array(points.coordinates.length);
   const worldCoordinates = new Float64Array(points.coordinates.length);
@@ -232,6 +263,43 @@ export function applyPreparedPointHeightOffset(
     worldCoordinates[offset + 2] = world.z;
   }
 
+  return createPreparedPointData({
+    pointCount: prepared.pointCount,
+    sourceCoordinates: prepared.source.coordinates,
+    geographicCoordinates,
+    worldCoordinates,
+    attributes: prepared.attributes,
+  });
+}
+
+/**
+ * Apply a vertical grid once to shared prepared data, including Rust/WASM
+ * output. The source buffer remains untouched and ECEF is rebuilt from the
+ * corrected geographic heights.
+ */
+export function applyPreparedPointVerticalGrid(
+  prepared: PreparedPointData,
+  verticalGrid: GtxGeoidGrid,
+): PreparedPointData {
+  assertPreparedPointData(prepared);
+  const geographicCoordinates = prepared.geographic.coordinates.slice();
+  const worldCoordinates = new Float64Array(prepared.pointCount * 3);
+  for (let index = 0; index < prepared.pointCount; index += 1) {
+    const offset = index * 3;
+    const longitude = geographicCoordinates[offset];
+    const latitude = geographicCoordinates[offset + 1];
+    const height = verticalGrid.transformHeight(
+      geographicCoordinates[offset + 2],
+      longitude,
+      latitude,
+      "orthometric-to-ellipsoidal",
+    );
+    geographicCoordinates[offset + 2] = height;
+    const world = geographicToEcef({ longitude, latitude, height });
+    worldCoordinates[offset] = world.x;
+    worldCoordinates[offset + 1] = world.y;
+    worldCoordinates[offset + 2] = world.z;
+  }
   return createPreparedPointData({
     pointCount: prepared.pointCount,
     sourceCoordinates: prepared.source.coordinates,

@@ -38,6 +38,7 @@ import type {
   CopcMetadata,
   PreparedPointData,
 } from "../../core/copc/types/copc";
+import type { GtxGeoidGrid } from "../../core/coordinates/transform/verticalGrid";
 import { extractHorizontalUnitScale } from "../../core/coordinates/crs/parseCopcWkt";
 import { createPointTransformer } from "../../core/coordinates/transform/createPointTransformer";
 import {
@@ -95,6 +96,8 @@ export type CopcLayerOptions = {
   colorMode?: CopcColorMode;
   /** Manual additive correction in metres applied to ellipsoidal point height. Defaults to 0. */
   heightOffsetMeters?: number;
+  /** Explicit user-loaded GTX grid; absent means no vertical datum conversion. */
+  verticalTransform?: GtxGeoidGrid;
   debug?: boolean;
   maxRenderedPoints?: number;
   streaming?: Partial<StreamingSelectionOptions>;
@@ -384,6 +387,7 @@ export class CesiumLayerController {
       url: options.url,
       backend: options.backend,
       heightOffsetMeters: options.heightOffsetMeters,
+      verticalTransform: options.verticalTransform,
       decoder: options.decoder,
       debug: options.debug,
       maxRenderedPoints: options.maxRenderedPoints,
@@ -628,10 +632,12 @@ export class CesiumLayerController {
       this.metadataBoundingSphere = createMetadataBoundingSphere(
         metadata,
         this.options.heightOffsetMeters,
+        this.options.verticalTransform,
       );
       this.datasetElevationRange = getDatasetElevationRange(
         metadata,
         this.options.heightOffsetMeters,
+        this.options.verticalTransform,
       );
       this.firstVisibleLoadGeneration = undefined;
       this.metadataReady.raiseEvent(
@@ -1267,6 +1273,7 @@ export class CesiumLayerController {
             metadata,
             hierarchyNode.node.level,
             hierarchyNode.center,
+            this.options.verticalTransform,
           )
         : undefined;
     if (pointSpacingMeters === undefined) pointSizeMode = "fixed";
@@ -1359,6 +1366,7 @@ export class CesiumLayerController {
     const transformPoint = createPointTransformer(
       metadata,
       this.options.heightOffsetMeters,
+      this.options.verticalTransform,
     );
     const center = transformPoint({
       x: (metadata.cube.minX + metadata.cube.maxX) / 2,

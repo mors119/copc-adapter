@@ -55,6 +55,18 @@ export { RustCopcParseError, RustCopcReader } from "./core/copc/rustCopcReader";
 export { CopcWasmError } from "./core/wasm/copcWasm";
 export { RustCrsTransformer } from "./core/coordinates/transform/rustCrsTransformer";
 export type { RustPreparedCoordinateBuffer } from "./core/coordinates/transform/rustCrsTransformer";
+export {
+  GtxGeoidGrid,
+  VerticalTransformError,
+  loadGtxGeoidGrid,
+} from "./core/coordinates/transform/verticalGrid";
+export type {
+  GtxGeoidGridOptions,
+  VerticalGridBytes,
+  VerticalGridValueUnit,
+  VerticalHeightDirection,
+  VerticalTransformErrorCode,
+} from "./core/coordinates/transform/verticalGrid";
 export type {
   RustCopcHeader,
   RustCopcParseErrorCode,

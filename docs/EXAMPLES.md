@@ -52,6 +52,16 @@ LAS classification을 categorical palette로 보려면 `classification`을 사�
 필요한 source attribute가 없는 경우 기존 cyan으로 fallback한다. Intensity
 범위는 각 streaming node의 loaded point buffer에서 계산한다.
 
+## User-Supplied Vertical Grid (CesiumJS)
+
+The API guide has a complete offline `File` example for loading a documented
+GTX grid, verifying its SHA-256, and enabling it through
+`CopcCesiumLayerOptions.verticalTransform`. Supply only a grid whose source
+vertical CRS, WGS 84 horizontal frame, `h - H` sign, units, NoData value,
+coverage, and usage terms are documented. No EGM2008 or KNGeoid24 model is
+bundled or automatically selected. See [Explicit vertical CRS grid
+conversion](API.md#explicit-vertical-crs-grid-conversion).
+
 ## Build Note
 
 The dev viewer prepares the `copc-adapter-wasm` asset before running. Package

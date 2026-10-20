@@ -1,5 +1,6 @@
 import type { CopcMetadata } from "../../copc/types/copc";
 import { createPointTransformer } from "./createPointTransformer";
+import type { GtxGeoidGrid } from "./verticalGrid";
 import { geographicToEcef } from "./worldCoordinates";
 import type {
   CoordinateDirection,
@@ -98,11 +99,13 @@ function getDatasetSourceOrigin(metadata: CopcMetadata): {
 export function createDatasetLocalFrame(
   metadata: CopcMetadata,
   heightOffsetMeters = 0,
+  verticalGrid?: GtxGeoidGrid,
 ): DatasetLocalFrame {
   const sourceOrigin = getDatasetSourceOrigin(metadata);
   const geographicOrigin = createPointTransformer(
     metadata,
     heightOffsetMeters,
+    verticalGrid,
   )(sourceOrigin);
   const origin = geographicToEcef(geographicOrigin);
   const longitude = (geographicOrigin.longitude * Math.PI) / 180;

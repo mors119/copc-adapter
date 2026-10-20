@@ -22,12 +22,15 @@ import {
   type CopcPointFieldSelection,
 } from "../copc/points/fieldSelection";
 import {
+  applyPreparedPointVerticalGrid,
   applyPreparedPointHeightOffset,
   createPointTransformer,
   createProjectPointTransformer,
   transformPointBufferToPreparedPointData,
 } from "../coordinates/transform/createPointTransformer";
 import { resolveHeightOffsetMeters } from "../coordinates/transform/heightOffset";
+import { GtxGeoidGrid } from "../coordinates/transform/verticalGrid";
+import { extractVerticalUnitScale } from "../coordinates/crs/parseCopcWkt";
 import type {
   CopcMetadata,
   GeographicPointBuffer,
@@ -122,6 +125,8 @@ export type CopcStreamingControllerOptions = {
   backend?: CopcBackendSelection;
   /** Manual additive correction in metres applied to ellipsoidal point height. Defaults to 0. */
   heightOffsetMeters?: number;
+  /** Explicit, caller-supplied GTX transform. Omitted means no vertical datum conversion. */
+  verticalTransform?: GtxGeoidGrid;
   /** Decoder used when the source does not expose direct point buffers. */
   decoder?: CopcPointDecoder;
   /** Fields requested from each backend point chunk. Defaults to position only. */
@@ -380,8 +385,13 @@ function toProjectBounds(
   metadata: CopcMetadata,
   geographicBounds: CopcHierarchyBounds,
   heightOffsetMeters: number,
+  verticalGrid?: GtxGeoidGrid,
 ): CopcProjectBounds {
-  const toProject = createProjectPointTransformer(metadata, heightOffsetMeters);
+  const toProject = createProjectPointTransformer(
+    metadata,
+    heightOffsetMeters,
+    verticalGrid,
+  );
   const corners = [
     [geographicBounds.minX, geographicBounds.minY, geographicBounds.minZ],
     [geographicBounds.minX, geographicBounds.minY, geographicBounds.maxZ],
@@ -395,7 +405,7 @@ function toProjectBounds(
     toProject({ longitude, latitude, height }),
   );
 
-  return corners.reduce<CopcProjectBounds>(
+  const transformed = corners.reduce<CopcProjectBounds>(
     (bounds, point) => ({
       coordinateSystem: "copc-source",
       minX: Math.min(bounds.minX, point.x),
@@ -415,13 +425,39 @@ function toProjectBounds(
       maxZ: Number.NEGATIVE_INFINITY,
     },
   );
+  if (!verticalGrid) return transformed;
+  const verticalUnitScale = metadata.wkt
+    ? extractVerticalUnitScale(metadata.wkt)
+    : 1;
+  const conservativeMinimum =
+    (geographicBounds.minZ - heightOffsetMeters - verticalGrid.maximumUndulationMeters) /
+    verticalUnitScale;
+  const conservativeMaximum =
+    (geographicBounds.maxZ - heightOffsetMeters - verticalGrid.minimumUndulationMeters) /
+    verticalUnitScale;
+  return {
+    ...transformed,
+    minZ: Math.min(transformed.minZ, conservativeMinimum),
+    maxZ: Math.max(transformed.maxZ, conservativeMaximum),
+  };
 }
 
 function getMinimumDatasetHeightMeters(
   metadata: CopcMetadata,
   heightOffsetMeters: number,
+  verticalGrid?: GtxGeoidGrid,
 ): number | undefined {
   try {
+    if (verticalGrid) {
+      const verticalUnitScale = metadata.wkt
+        ? extractVerticalUnitScale(metadata.wkt)
+        : 1;
+      const minimum =
+        metadata.bounds.minZ * verticalUnitScale +
+        verticalGrid.minimumUndulationMeters +
+        heightOffsetMeters;
+      return Number.isFinite(minimum) ? minimum : undefined;
+    }
     const transformPoint = createPointTransformer(metadata, heightOffsetMeters);
     const minimum = transformPoint({
       x: metadata.bounds.minX,
@@ -444,6 +480,7 @@ function getMinimumDatasetHeightMeters(
 export class CopcStreamingCore {
   private readonly options: CopcStreamingControllerOptions;
   private readonly heightOffsetMeters: number;
+  private readonly verticalGrid?: GtxGeoidGrid;
   private performanceRecorder: StreamingPerformanceRecorder;
   private readonly rangeRequestDiagnostics =
     new RangeRequestDiagnosticsRecorder();
@@ -486,6 +523,15 @@ export class CopcStreamingCore {
     this.heightOffsetMeters = resolveHeightOffsetMeters(
       options.heightOffsetMeters,
     );
+    if (
+      options.verticalTransform !== undefined &&
+      !(options.verticalTransform instanceof GtxGeoidGrid)
+    ) {
+      throw new TypeError(
+        "verticalTransform must be a grid returned by loadGtxGeoidGrid()",
+      );
+    }
+    this.verticalGrid = options.verticalTransform;
     const refinementAlgorithm = resolveRefinementAlgorithm(
       options.streaming?.refinementAlgorithm,
     );
@@ -573,6 +619,7 @@ export class CopcStreamingCore {
         context.destroy?.();
         return;
       }
+      this.verticalGrid?.assertCompatibleSourceWkt(metadata.wkt);
 
       const hierarchyLoader = new HierarchyLoader(context, metadata.cube, {
         sourceOpenDurationMs,
@@ -597,6 +644,7 @@ export class CopcStreamingCore {
         metadata,
         rootHierarchy.nodes,
         this.heightOffsetMeters,
+        this.verticalGrid,
       );
       const nodesRef = { current: nodes };
       const cache = this.createCache(
@@ -629,6 +677,7 @@ export class CopcStreamingCore {
         minimumDatasetHeightMeters: getMinimumDatasetHeightMeters(
           metadata,
           this.heightOffsetMeters,
+          this.verticalGrid,
         ),
         hierarchyLoader,
         nodes,
@@ -727,6 +776,7 @@ export class CopcStreamingCore {
       streamingState.metadata,
       hierarchy.nodes,
       this.heightOffsetMeters,
+      this.verticalGrid,
     );
     streamingState.nodes = availableNodes;
     streamingState.nodesRef.current = availableNodes;
@@ -838,6 +888,7 @@ export class CopcStreamingCore {
         metadata,
         viewBounds.bounds,
         this.heightOffsetMeters,
+        this.verticalGrid,
       ),
       maxLevel: streamingOptions.maxDepth,
     };
@@ -1120,6 +1171,7 @@ export class CopcStreamingCore {
       state.metadata,
       hierarchy.nodes,
       this.heightOffsetMeters,
+      this.verticalGrid,
     );
     const availableNodes = new Map(state.nodes);
     for (const [nodeKey, node] of discoveredNodes) {
@@ -1427,10 +1479,13 @@ export class CopcStreamingCore {
       }
       assertPreparedPointData(prepared);
       const alreadyAppliedOffset = context.preparedHeightOffsetMeters ?? 0;
-      return applyPreparedPointHeightOffset(
+      const offsetPrepared = applyPreparedPointHeightOffset(
         prepared,
         this.heightOffsetMeters - alreadyAppliedOffset,
       );
+      return this.verticalGrid
+        ? applyPreparedPointVerticalGrid(offsetPrepared, this.verticalGrid)
+        : offsetPrepared;
     }
 
     const points = await loadCopcPointBuffer(
@@ -1451,6 +1506,7 @@ export class CopcStreamingCore {
       metadata,
       points,
       this.heightOffsetMeters,
+      this.verticalGrid,
     );
     assertPreparedPointData(transformed);
     if (purpose !== "prefetch") {

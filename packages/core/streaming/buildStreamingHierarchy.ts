@@ -5,6 +5,8 @@ import type {
 } from "../copc/types/copc";
 import { extractHorizontalUnitScale } from "../coordinates/crs/parseCopcWkt";
 import { createPointTransformer } from "../coordinates/transform/createPointTransformer";
+import type { GtxGeoidGrid } from "../coordinates/transform/verticalGrid";
+import { extractVerticalUnitScale } from "../coordinates/crs/parseCopcWkt";
 import type { BoundingBox, StreamingHierarchy } from "./types";
 import { createBoundingSphereFromGeographicBounds } from "./view";
 
@@ -85,6 +87,9 @@ function toGeographicBounds(
     z: number;
   }) => GeographicPoint,
   bounds: CopcSourceBounds,
+  metadata: CopcMetadata,
+  heightOffsetMeters: number,
+  verticalGrid?: GtxGeoidGrid,
 ): BoundingBox {
   const corners = [
     transformPoint({ x: bounds.minX, y: bounds.minY, z: bounds.minZ }),
@@ -97,7 +102,7 @@ function toGeographicBounds(
     transformPoint({ x: bounds.maxX, y: bounds.maxY, z: bounds.maxZ }),
   ];
 
-  return corners.reduce<BoundingBox>(
+  const transformed = corners.reduce<BoundingBox>(
     (accumulator, corner) => ({
       coordinateSystem: "wgs84-geographic",
       minX: Math.min(accumulator.minX, corner.longitude),
@@ -117,6 +122,24 @@ function toGeographicBounds(
       maxZ: Number.NEGATIVE_INFINITY,
     },
   );
+  if (!verticalGrid) return transformed;
+
+  // A geoid is spatially varying. Expanding by the grid-wide extrema keeps
+  // hierarchy bounds conservative even when a node spans unsampled grid cells.
+  const verticalUnitScale = metadata.wkt
+    ? extractVerticalUnitScale(metadata.wkt)
+    : 1;
+  const sourceMinHeight = bounds.minZ * verticalUnitScale;
+  const sourceMaxHeight = bounds.maxZ * verticalUnitScale;
+  const conservativeMinimum =
+    sourceMinHeight + verticalGrid.minimumUndulationMeters + heightOffsetMeters;
+  const conservativeMaximum =
+    sourceMaxHeight + verticalGrid.maximumUndulationMeters + heightOffsetMeters;
+  return {
+    ...transformed,
+    minZ: Math.min(transformed.minZ, conservativeMinimum),
+    maxZ: Math.max(transformed.maxZ, conservativeMaximum),
+  };
 }
 
 /**
@@ -136,8 +159,13 @@ export function buildStreamingHierarchy(
   metadata: CopcMetadata,
   nodes: CopcHierarchyNode[],
   heightOffsetMeters = 0,
+  verticalGrid?: GtxGeoidGrid,
 ): StreamingHierarchy {
-  const transformPoint = createPointTransformer(metadata, heightOffsetMeters);
+  const transformPoint = createPointTransformer(
+    metadata,
+    heightOffsetMeters,
+    verticalGrid,
+  );
   const nodeMap = new Map(nodes.map((node) => [node.key, node]));
   const streamingNodes: StreamingHierarchy = new Map();
   const horizontalUnitScale = getHorizontalUnitScale(metadata);
@@ -150,6 +178,9 @@ export function buildStreamingHierarchy(
     const bounds = toGeographicBounds(
       transformPoint,
       getNodeBounds(metadata, node),
+      metadata,
+      heightOffsetMeters,
+      verticalGrid,
     );
     const geographicCenter = transformPoint(center);
 

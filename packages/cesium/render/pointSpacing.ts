@@ -4,6 +4,7 @@ import {
   createProjectPointTransformer,
 } from "../../core/coordinates/transform/createPointTransformer";
 import { geographicToEcef } from "../../core/coordinates/transform/worldCoordinates";
+import type { GtxGeoidGrid } from "../../core/coordinates/transform/verticalGrid";
 
 /**
  * Derive one hierarchy node's approximate point spacing in metres.
@@ -25,6 +26,7 @@ export function deriveNodePointSpacingMeters(
   metadata: CopcMetadata,
   level: number,
   center: GeographicPoint,
+  verticalGrid?: GtxGeoidGrid,
 ): number | undefined {
   if (
     !Number.isFinite(metadata.spacing) ||
@@ -43,8 +45,12 @@ export function deriveNodePointSpacingMeters(
   }
 
   try {
-    const sourceCenter = createProjectPointTransformer(metadata)(center);
-    const toGeographic = createPointTransformer(metadata);
+    const sourceCenter = createProjectPointTransformer(
+      metadata,
+      0,
+      verticalGrid,
+    )(center);
+    const toGeographic = createPointTransformer(metadata, 0, verticalGrid);
     const origin = geographicToEcef(toGeographic(sourceCenter));
     const east = geographicToEcef(
       toGeographic({

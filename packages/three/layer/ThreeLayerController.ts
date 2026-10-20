@@ -134,6 +134,7 @@ export class ThreeLayerController {
       url: options.url,
       backend: options.backend,
       heightOffsetMeters: options.heightOffsetMeters,
+      verticalTransform: options.verticalTransform,
       decoder: options.decoder,
       debug: options.debug,
       maxRenderedPoints: options.maxRenderedPoints,
@@ -297,10 +298,12 @@ export class ThreeLayerController {
       this.localFrame = createDatasetLocalFrame(
         metadata,
         this.options.heightOffsetMeters,
+        this.options.verticalTransform,
       );
       this.datasetElevationRange = getDatasetElevationRange(
         metadata,
         this.options.heightOffsetMeters,
+        this.options.verticalTransform,
       );
       this.applyLocalFrame();
       this.lifecycle = "ready";

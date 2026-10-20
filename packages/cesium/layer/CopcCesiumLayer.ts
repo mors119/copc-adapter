@@ -18,6 +18,7 @@ import type { CopcCesiumPointSizeMode } from "../render/CopcPointRenderer";
 import type { CopcPointInspection } from "../../core/copc/points/pointInspection";
 import type { RangeValidationPolicy } from "../../core/copc/range/types";
 import type { CopcInputSource } from "../../core/copc/range/types";
+import type { GtxGeoidGrid } from "../../core/coordinates/transform/verticalGrid";
 import type { NodePointCacheDiagnostics } from "../../core/streaming/createNodePointCache";
 import type {
   RefinementAlgorithm,
@@ -87,6 +88,8 @@ export type CopcCesiumLayerOptions = {
   colorMode?: CopcColorMode;
   /** Manual additive correction in metres applied to ellipsoidal point height. Defaults to 0. */
   heightOffsetMeters?: number;
+  /** Explicit user-loaded GTX grid. Omitted keeps the existing no-conversion behavior. */
+  verticalTransform?: GtxGeoidGrid;
   /** Emits COPC layer lifecycle messages through console.debug. */
   debug?: boolean;
   /** Maximum estimated points in the active current-view workload; defaults to 250,000. */

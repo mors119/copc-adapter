@@ -1,6 +1,7 @@
 import * as Cesium from "cesium";
 import type { CopcMetadata } from "../../core/copc/types/copc";
 import { createPointTransformer } from "../../core/coordinates/transform/createPointTransformer";
+import type { GtxGeoidGrid } from "../../core/coordinates/transform/verticalGrid";
 import {
   extractHorizontalCrsWkt,
   extractHorizontalUnitScale,
@@ -28,6 +29,7 @@ const BOUNDARY_PADDING_METERS = 0.05;
 export function createMetadataBoundingSphere(
   metadata: CopcMetadata,
   heightOffsetMeters = 0,
+  verticalGrid?: GtxGeoidGrid,
 ): Cesium.BoundingSphere | undefined {
   try {
     const { minX, minY, minZ, maxX, maxY, maxZ } = metadata.bounds;
@@ -44,7 +46,11 @@ export function createMetadataBoundingSphere(
       return undefined;
     }
 
-    const transformPoint = createPointTransformer(metadata, heightOffsetMeters);
+    const transformPoint = createPointTransformer(
+      metadata,
+      heightOffsetMeters,
+      verticalGrid,
+    );
     const horizontalWkt = metadata.wkt
       ? extractHorizontalCrsWkt(metadata.wkt)
       : undefined;
@@ -228,6 +234,10 @@ export function createMetadataBoundingSphere(
     const padding =
       Math.SQRT2 * maximumHorizontalSampleStep +
       4 * maximumCellResidual +
+      (verticalGrid
+        ? verticalGrid.maximumUndulationMeters -
+          verticalGrid.minimumUndulationMeters
+        : 0) +
       BOUNDARY_PADDING_METERS;
     if (
       ![

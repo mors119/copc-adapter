@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 
 import { CopcStreamingController } from "../../../core/streaming/CopcStreamingController.ts";
 import { CopcStreamingCore } from "../../../core/streaming/CopcStreamingCore.ts";
@@ -9,11 +10,12 @@ import {
 } from "../../../core/streaming/view.ts";
 import { createPreparedPointData } from "../../../core/point/preparedPoint.ts";
 import { createPredictedStreamingView } from "../../../core/streaming/predictivePrefetch.ts";
+import { loadGtxGeoidGrid } from "../../../core/coordinates/transform/verticalGrid.ts";
 
 const ROOT_KEY = "0-0-0-0";
 const CHILD_KEY = "1-0-0-0";
 
-function createMetadata() {
+function createMetadata(wkt) {
   return {
     pointCount: 2,
     bounds: {
@@ -33,6 +35,7 @@ function createMetadata() {
       maxZ: 200,
     },
     spacing: 10,
+    ...(wkt ? { wkt } : {}),
   };
 }
 
@@ -55,6 +58,7 @@ function createSourceFactory({
   onOpen,
   onPerformanceObserver,
   onPreparedPointLoad,
+  metadata = createMetadata(),
   paged = false,
   prepared = false,
   preparedHeightOffsetMeters,
@@ -81,7 +85,7 @@ function createSourceFactory({
           ...(preparedHeightOffsetMeters === undefined
             ? {}
             : { preparedHeightOffsetMeters }),
-          getMetadata: createMetadata,
+          getMetadata: () => metadata,
           getRootHierarchyPage() {
             return { key: ROOT_KEY, pageOffset: 0, pageLength: 10 };
           },
@@ -235,6 +239,36 @@ function createPointBuffer(height = 150) {
   };
 }
 
+async function createSyntheticVerticalGrid() {
+  const rows = 3;
+  const columns = 3;
+  const bytes = new ArrayBuffer(40 + rows * columns * 4);
+  const view = new DataView(bytes);
+  view.setFloat64(0, 19, false);
+  view.setFloat64(8, 9, false);
+  view.setFloat64(16, 1, false);
+  view.setFloat64(24, 1, false);
+  view.setInt32(32, rows, false);
+  view.setInt32(36, columns, false);
+  Array.from({ length: rows * columns }, () => 25).forEach((value, index) =>
+    view.setFloat32(40 + index * 4, value, false),
+  );
+  const sha256 = createHash("sha256")
+    .update(new Uint8Array(bytes))
+    .digest("hex");
+  return loadGtxGeoidGrid(bytes, {
+    gridId: "streaming-synthetic-grid",
+    sourceVerticalCrs: "Local orthometric height",
+    targetVerticalCrs: "EPSG:4979",
+    horizontalCrs: "EPSG:4326",
+    referenceEllipsoid: "WGS84",
+    sha256,
+    valueUnit: "metre",
+    valueConvention: "ellipsoidal-minus-orthometric",
+    noDataValue: null,
+  });
+}
+
 function createController(backend, options = {}) {
   return new CopcStreamingController({
     url: "memory://deterministic.copc.laz",
@@ -278,6 +312,65 @@ test("renderer-neutral core loads metadata and hierarchy without Cesium", async 
 
   controller.destroy();
   assert.equal(source.destroyCount, 1);
+});
+
+test("shared streaming core applies a grid once after prepared Rust-style output and across reload", async () => {
+  const wkt =
+    'COMPD_CS["WGS 84 + Local orthometric height",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],VERT_CS["Local orthometric height",VERT_DATUM["Local vertical datum",2005],UNIT["metre",1],AXIS["Gravity-related height",UP]]]';
+  const metadata = createMetadata(wkt);
+  const source = createSourceFactory({
+    metadata,
+    prepared: true,
+    preparedHeightOffsetMeters: 5,
+    onPreparedPointLoad: () => {
+      const geographic = new Float64Array([10.005, 20.005, 155]);
+      const world = geographicToEcef({
+        longitude: geographic[0],
+        latitude: geographic[1],
+        height: geographic[2],
+      });
+      return createPreparedPointData({
+        pointCount: 1,
+        sourceCoordinates: new Float64Array([10.005, 20.005, 150]),
+        geographicCoordinates: geographic,
+        worldCoordinates: new Float64Array([world.x, world.y, world.z]),
+      });
+    },
+  });
+  const grid = await createSyntheticVerticalGrid();
+  const core = new CopcStreamingCore({
+    url: "memory://geoid.copc.laz",
+    backend: source.backend,
+    heightOffsetMeters: 5,
+    verticalTransform: grid,
+    streaming: {
+      maxNodes: 8,
+      maxDepth: 0,
+      maxRenderDistanceMeters: 12000,
+      maxScreenSpaceError: 8,
+      maxPointsPerBatch: 1,
+    },
+  });
+
+  await core.load();
+  await core.updateView(createView());
+  let prepared = core.getCachedPreparedPointData(ROOT_KEY);
+  assert.deepEqual([...prepared.source.coordinates], [10.005, 20.005, 150]);
+  assert.equal(prepared.geographic.coordinates[2], 180);
+  const expectedWorld = geographicToEcef({
+    longitude: 10.005,
+    latitude: 20.005,
+    height: 180,
+  });
+  assert.deepEqual([...prepared.world.coordinates], [expectedWorld.x, expectedWorld.y, expectedWorld.z]);
+
+  core.unload();
+  await core.load();
+  await core.updateView(createView());
+  prepared = core.getCachedPreparedPointData(ROOT_KEY);
+  assert.equal(prepared.geographic.coordinates[2], 180);
+  assert.deepEqual([...prepared.source.coordinates], [10.005, 20.005, 150]);
+  core.destroy();
 });
 
 test("a plain project-owned view drives hierarchy query and deterministic selection", async () => {

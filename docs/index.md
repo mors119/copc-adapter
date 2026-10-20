@@ -30,6 +30,7 @@ The detailed English technical documents remain the canonical low-level referenc
 
 - [Public API](/API)
 - [Issue #239 layer API semantics](/proposals/issue-239-layer-api)
+- [Issue #244 vertical CRS and geoid-grid decision](/proposals/issue-244-vertical-crs-geoid-grid)
 - [Architecture](/ARCHITECTURE)
 - [Conformance](/CONFORMANCE)
 - [Examples](/EXAMPLES)

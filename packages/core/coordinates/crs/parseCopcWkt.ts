@@ -145,3 +145,137 @@ export function extractVerticalUnitScale(wkt: string): number {
 
   return Number(match[1]);
 }
+
+export type VerticalCrsIdentity = {
+  /** WKT name assigned to the vertical coordinate reference system. */
+  name: string;
+  /** Last authority identifier attached to the vertical CRS, when present. */
+  authority?: string;
+  code?: string;
+  /** Whether this vertical CRS definition carries dynamic-frame metadata. */
+  dynamic: boolean;
+};
+
+function findWktSection(wkt: string, keyword: string): string | undefined {
+  const normalized = keyword.toUpperCase();
+  let inString = false;
+  let start = -1;
+  for (let index = 0; index <= wkt.length - keyword.length; index += 1) {
+    const character = wkt[index];
+    if (character === '"') {
+      if (inString && wkt[index + 1] === '"') {
+        index += 1;
+        continue;
+      }
+      inString = !inString;
+      continue;
+    }
+    if (inString || wkt.slice(index, index + keyword.length).toUpperCase() !== normalized) {
+      continue;
+    }
+    start = index;
+    break;
+  }
+  if (start < 0) return undefined;
+
+  let depth = 0;
+  inString = false;
+  for (let index = start; index < wkt.length; index += 1) {
+    const character = wkt[index];
+    if (character === '"') {
+      if (inString && wkt[index + 1] === '"') {
+        index += 1;
+        continue;
+      }
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (character === "[") depth += 1;
+    else if (character === "]") {
+      depth -= 1;
+      if (depth === 0) return wkt.slice(start, index + 1);
+    }
+  }
+  throw new Error(`Failed to parse ${keyword.slice(0, -1)} from WKT`);
+}
+
+/**
+ * Read the vertical CRS identity without guessing from horizontal CRS or
+ * country. This supports WKT1 `VERT_CS` and WKT2 `VERTCRS` sections.
+ */
+export function getVerticalCrsIdentity(
+  wkt: string,
+): VerticalCrsIdentity | undefined {
+  const section = findWktSection(wkt, "VERT_CS[") ?? findWktSection(wkt, "VERTCRS[");
+  if (!section) return undefined;
+  const nameMatch = section.match(/^\s*(?:VERT_CS|VERTCRS)\s*\[\s*"((?:""|[^"])*)"/i);
+  if (!nameMatch) {
+    throw new Error("Vertical CRS WKT does not begin with a quoted name");
+  }
+  const identifiers = [
+    ...section.matchAll(/(?:AUTHORITY|ID)\s*\[\s*"([^"]+)"\s*,\s*(?:"([^"]+)"|(\d+))/gi),
+  ];
+  const identifier = identifiers.at(-1);
+  return {
+    name: nameMatch[1].replaceAll('""', '"'),
+    ...(identifier
+      ? {
+          authority: identifier[1],
+          code: identifier[2] ?? identifier[3],
+        }
+      : {}),
+    dynamic: /(?:^|,)\s*DYNAMIC\s*\[|FRAMEEPOCH\s*\[/i.test(section),
+  };
+}
+
+/**
+ * Return the explicitly declared WKT1 vertical unit scale in metres.
+ *
+ * The legacy `extractVerticalUnitScale` keeps its metre fallback for existing
+ * rendering behavior. A requested datum conversion must use this strict
+ * helper instead so an absent or malformed unit is never assumed to be metres.
+ */
+export function extractExplicitVerticalUnitScale(wkt: string): number | undefined {
+  const section = findWktSection(wkt, "VERT_CS[");
+  if (!section) return undefined;
+
+  let inString = false;
+  let depth = 0;
+  for (let index = 0; index < section.length; index += 1) {
+    if (
+      !inString &&
+      depth === 1 &&
+      section.slice(index).toUpperCase().startsWith("UNIT[")
+    ) {
+      const unit = findWktSection(section.slice(index), "UNIT[");
+      const match = unit?.match(
+        /^UNIT\[\s*"[^"]+"\s*,\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)\s*\]/i,
+      );
+      if (!match) throw new Error("COPC vertical WKT has an invalid unit");
+      const scale = Number(match[1]);
+      if (!Number.isFinite(scale) || scale <= 0) {
+        throw new Error("COPC vertical WKT unit scale must be finite and positive");
+      }
+      return scale;
+    }
+
+    const character = section[index];
+    if (character === '"') {
+      if (inString && section[index + 1] === '"') {
+        index += 1;
+        continue;
+      }
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (character === "[") {
+      depth += 1;
+    } else if (character === "]") {
+      depth -= 1;
+    }
+  }
+
+  return undefined;
+}
