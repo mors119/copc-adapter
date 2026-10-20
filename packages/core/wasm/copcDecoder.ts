@@ -3,11 +3,14 @@ import type {
   CopcPointAttributes,
   CopcPointBuffer,
   CopcPointView,
-} from '../copc/types/copc';
-import type { CopcPointDecoder } from '../copc/points/types';
-import type { CopcPointComponent } from '../copc/points/fieldSelection';
-import { loadCopcWasm } from './copcWasm';
-import { requireRustWasmPointer, RustCopcParseError } from '../copc/rustCopcErrors';
+} from "../copc/types/copc";
+import type { CopcPointDecoder } from "../copc/points/types";
+import type { CopcPointComponent } from "../copc/points/fieldSelection";
+import { loadCopcWasm } from "./copcWasm";
+import {
+  requireRustWasmPointer,
+  RustCopcParseError,
+} from "../copc/rustCopcErrors";
 
 function readDimensionValues(
   view: CopcPointView,
@@ -25,7 +28,7 @@ function readDimensionValues(
 
 function readOptionalUint16Dimension(
   view: CopcPointView,
-  field: 'intensity' | 'rgb',
+  field: "intensity" | "rgb",
   component: CopcPointComponent,
 ): Uint16Array | undefined {
   if (!view.availableFields.has(field)) {
@@ -44,7 +47,7 @@ function readOptionalUint16Dimension(
 
 function readOptionalUint8Dimension(
   view: CopcPointView,
-  field: 'classification',
+  field: "classification",
   component: CopcPointComponent,
 ): Uint8Array | undefined {
   if (!view.availableFields.has(field)) {
@@ -83,13 +86,13 @@ function readExtraDimensions(
 
   const extraDimensions: Record<string, CopcExtraDimensionValues> = {};
   for (const [name, reader] of view.extraDimensions) {
-    if (reader.valueType === 'uint64') {
+    if (reader.valueType === "uint64") {
       const values = new BigUint64Array(view.pointCount);
       for (let index = 0; index < view.pointCount; index += 1) {
         values[index] = reader.read(index) as bigint;
       }
       setDimensionValue(extraDimensions, name, values);
-    } else if (reader.valueType === 'int64') {
+    } else if (reader.valueType === "int64") {
       const values = new BigInt64Array(view.pointCount);
       for (let index = 0; index < view.pointCount; index += 1) {
         values[index] = reader.read(index) as bigint;
@@ -107,14 +110,20 @@ function readExtraDimensions(
   return extraDimensions;
 }
 
-function readPointAttributes(view: CopcPointView): CopcPointAttributes | undefined {
+function readPointAttributes(
+  view: CopcPointView,
+): CopcPointAttributes | undefined {
   const extraDimensions = readExtraDimensions(view);
   const attributes: CopcPointAttributes = {
-    intensity: readOptionalUint16Dimension(view, 'intensity', 'intensity'),
-    classification: readOptionalUint8Dimension(view, 'classification', 'classification'),
-    red: readOptionalUint16Dimension(view, 'rgb', 'red'),
-    green: readOptionalUint16Dimension(view, 'rgb', 'green'),
-    blue: readOptionalUint16Dimension(view, 'rgb', 'blue'),
+    intensity: readOptionalUint16Dimension(view, "intensity", "intensity"),
+    classification: readOptionalUint8Dimension(
+      view,
+      "classification",
+      "classification",
+    ),
+    red: readOptionalUint16Dimension(view, "rgb", "red"),
+    green: readOptionalUint16Dimension(view, "rgb", "green"),
+    blue: readOptionalUint16Dimension(view, "rgb", "blue"),
     ...(extraDimensions ? { extraDimensions } : {}),
   };
 
@@ -126,18 +135,27 @@ function readPointAttributes(view: CopcPointView): CopcPointAttributes | undefin
 export async function decodeCopcPointBuffer(
   view: CopcPointView,
 ): Promise<CopcPointBuffer> {
-  if (!view.availableFields.has('position')) {
-    throw new Error('COPC point view does not contain the requested position field');
+  if (!view.availableFields.has("position")) {
+    throw new Error(
+      "COPC point view does not contain the requested position field",
+    );
   }
 
   const wasm = await loadCopcWasm();
-  const xValues = readDimensionValues(view, 'x');
-  const yValues = readDimensionValues(view, 'y');
-  const zValues = readDimensionValues(view, 'z');
+  const xValues = readDimensionValues(view, "x");
+  const yValues = readDimensionValues(view, "y");
+  const zValues = readDimensionValues(view, "z");
   const attributes = readPointAttributes(view);
   const count = view.pointCount;
-  if (!Number.isSafeInteger(count) || count < 0 || count > Number.MAX_SAFE_INTEGER / 3) {
-    throw new RustCopcParseError('overflow', 'interleaved output length exceeds safe integer range');
+  if (
+    !Number.isSafeInteger(count) ||
+    count < 0 ||
+    count > Number.MAX_SAFE_INTEGER / 3
+  ) {
+    throw new RustCopcParseError(
+      "overflow",
+      "interleaved output length exceeds safe integer range",
+    );
   }
   const outputLength = count * 3;
 
@@ -147,13 +165,25 @@ export async function decodeCopcPointBuffer(
   let outputPointer = 0;
 
   try {
-    xPointer = requireRustWasmPointer(wasm.alloc_f64(count), count, 'X coordinates');
-    yPointer = requireRustWasmPointer(wasm.alloc_f64(count), count, 'Y coordinates');
-    zPointer = requireRustWasmPointer(wasm.alloc_f64(count), count, 'Z coordinates');
+    xPointer = requireRustWasmPointer(
+      wasm.alloc_f64(count),
+      count,
+      "X coordinates",
+    );
+    yPointer = requireRustWasmPointer(
+      wasm.alloc_f64(count),
+      count,
+      "Y coordinates",
+    );
+    zPointer = requireRustWasmPointer(
+      wasm.alloc_f64(count),
+      count,
+      "Z coordinates",
+    );
     outputPointer = requireRustWasmPointer(
       wasm.alloc_f64(outputLength),
       outputLength,
-      'interleaved coordinates',
+      "interleaved coordinates",
     );
     const memory = wasm.memory.buffer;
 
@@ -170,16 +200,18 @@ export async function decodeCopcPointBuffer(
     );
 
     if (writtenLength !== outputLength) {
-      throw new Error('COPC WASM decoder returned an unexpected output length');
+      throw new Error("COPC WASM decoder returned an unexpected output length");
     }
 
     const coordinates = new Float64Array(outputLength);
-    coordinates.set(new Float64Array(wasm.memory.buffer, outputPointer, outputLength));
+    coordinates.set(
+      new Float64Array(wasm.memory.buffer, outputPointer, outputLength),
+    );
 
     return {
       pointCount: count,
       coordinates,
-      coordinateSystem: 'copc-source',
+      coordinateSystem: "copc-source",
       attributes,
     };
   } finally {

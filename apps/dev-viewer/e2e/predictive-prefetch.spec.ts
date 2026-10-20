@@ -1,5 +1,5 @@
-import { expect, test } from '@playwright/test';
-import { getCompletedStreamingState } from './streaming-state';
+import { expect, test } from "@playwright/test";
+import { getCompletedStreamingState } from "./streaming-state";
 
 type PrefetchState = {
   cameraHeadingDegrees: number;
@@ -23,7 +23,11 @@ type PrefetchState = {
       millisecondsSinceLastAcceptedMovement?: number;
     };
   };
-  pointCache: { hits: number; currentCacheBytes: number; prefetchUsefulHitCount: number };
+  pointCache: {
+    hits: number;
+    currentCacheBytes: number;
+    prefetchUsefulHitCount: number;
+  };
   predictivePrefetch?: {
     enabled: boolean;
     queuedNodeCount: number;
@@ -65,15 +69,18 @@ declare global {
   }
 }
 
-async function getState(page: import('@playwright/test').Page): Promise<PrefetchState> {
+async function getState(
+  page: import("@playwright/test").Page,
+): Promise<PrefetchState> {
   return page.evaluate(() => {
-    if (!window.__COPC_DEBUG__) throw new Error('COPC debug adapter is unavailable');
+    if (!window.__COPC_DEBUG__)
+      throw new Error("COPC debug adapter is unavailable");
     return window.__COPC_DEBUG__.getState();
   });
 }
 
 async function turnAndMeasure(
-  page: import('@playwright/test').Page,
+  page: import("@playwright/test").Page,
   headingDegrees: number,
 ): Promise<{ latencyMs: number; state: PrefetchState }> {
   const before = await getState(page);
@@ -81,62 +88,100 @@ async function turnAndMeasure(
   await page.evaluate(() => window.__COPC_DEBUG__?.setCameraPitch(-35));
   await page.waitForTimeout(50);
   const startingHeading = before.cameraHeadingDegrees;
-  const immediate = await page.evaluate(async ({ start, target }) => {
-    for (let step = 1; step <= 8; step += 1) {
-      const heading = start + ((target - start) * step) / 8;
-      window.__COPC_DEBUG__?.setCameraHeading(heading);
-      await new Promise((resolve) => window.setTimeout(resolve, 25));
-    }
-    return window.__COPC_DEBUG__?.getState();
-  }, { start: startingHeading, target: headingDegrees });
-  if (!immediate) throw new Error('COPC debug adapter is unavailable');
-  await expect.poll(async () => (await getState(page)).streamingUpdateCount)
+  const immediate = await page.evaluate(
+    async ({ start, target }) => {
+      for (let step = 1; step <= 8; step += 1) {
+        const heading = start + ((target - start) * step) / 8;
+        window.__COPC_DEBUG__?.setCameraHeading(heading);
+        await new Promise((resolve) => window.setTimeout(resolve, 25));
+      }
+      return window.__COPC_DEBUG__?.getState();
+    },
+    { start: startingHeading, target: headingDegrees },
+  );
+  if (!immediate) throw new Error("COPC debug adapter is unavailable");
+  await expect
+    .poll(async () => (await getState(page)).streamingUpdateCount)
     .toBeGreaterThan(before.streamingUpdateCount);
   await getCompletedStreamingState(() => getState(page));
-  await expect.poll(async () => {
-    const state = await getState(page);
-    return state.transition.activeReplacementGroupCount === 0
-      && state.selectedNodeKeys.every((key) => state.renderedNodeKeys.includes(key));
-  }, { timeout: 30_000 }).toBe(true);
+  await expect
+    .poll(
+      async () => {
+        const state = await getState(page);
+        return (
+          state.transition.activeReplacementGroupCount === 0 &&
+          state.selectedNodeKeys.every((key) =>
+            state.renderedNodeKeys.includes(key),
+          )
+        );
+      },
+      { timeout: 30_000 },
+    )
+    .toBe(true);
   return { latencyMs: Date.now() - startedAt, state: await getState(page) };
 }
 
 async function runRotationSequence(
-  browser: import('@playwright/test').Browser,
+  browser: import("@playwright/test").Browser,
   prefetch: boolean,
 ): Promise<Record<string, unknown>> {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+  const page = await browser.newPage({
+    viewport: { width: 1280, height: 720 },
+  });
   try {
-    const feature = prefetch ? '&prefetch=true' : '';
-    await page.goto(`/?scenario=issue128&distance=12000&backend=rust&debugPanel=false${feature}`);
-    await expect.poll(() => getState(page)).toMatchObject({
-      predictivePrefetch: prefetch ? { enabled: true } : undefined,
-    });
-    await expect.poll(async () => (await getState(page)).renderedNodeKeys.length)
+    const feature = prefetch ? "&prefetch=true" : "";
+    await page.goto(
+      `/?scenario=issue128&distance=12000&backend=rust&debugPanel=false${feature}`,
+    );
+    await expect
+      .poll(() => getState(page))
+      .toMatchObject({
+        predictivePrefetch: prefetch ? { enabled: true } : undefined,
+      });
+    await expect
+      .poll(async () => (await getState(page)).renderedNodeKeys.length)
       .toBeGreaterThan(0);
     await getCompletedStreamingState(() => getState(page));
 
     const overview = await getState(page);
     await page.evaluate(() => window.__COPC_DEBUG__?.setCameraHeight(300));
-    await expect.poll(async () => (await getState(page)).streamingUpdateCount)
+    await expect
+      .poll(async () => (await getState(page)).streamingUpdateCount)
       .toBeGreaterThan(overview.streamingUpdateCount);
     await getCompletedStreamingState(() => getState(page));
 
     const initial = await getState(page);
-    const firstTurn = await turnAndMeasure(page, initial.cameraHeadingDegrees + 80);
-    const secondTurn = await turnAndMeasure(page, initial.cameraHeadingDegrees + 98);
-    const thirdTurn = await turnAndMeasure(page, initial.cameraHeadingDegrees + 116);
+    const firstTurn = await turnAndMeasure(
+      page,
+      initial.cameraHeadingDegrees + 80,
+    );
+    const secondTurn = await turnAndMeasure(
+      page,
+      initial.cameraHeadingDegrees + 98,
+    );
+    const thirdTurn = await turnAndMeasure(
+      page,
+      initial.cameraHeadingDegrees + 116,
+    );
     const diagnostics = thirdTurn.state.predictivePrefetch;
     if (diagnostics) {
-      expect(diagnostics.queuedNodeCount).toBeLessThanOrEqual(diagnostics.maxNodesPerUpdate);
-      expect(diagnostics.pointRangeBytesRequested)
-        .toBeLessThanOrEqual(diagnostics.maxPointRangeBytesPerUpdate * diagnostics.hierarchyQueryCount);
-      expect(diagnostics.pointRangeRequestCount)
-        .toBeLessThanOrEqual(diagnostics.maxNodesPerUpdate * diagnostics.hierarchyQueryCount);
-      expect(diagnostics.completedNodeCount)
-        .toBeLessThanOrEqual(diagnostics.maxNodesPerUpdate * diagnostics.hierarchyQueryCount);
-      expect(diagnostics.hierarchyPageVisitCount)
-        .toBeLessThanOrEqual(diagnostics.hierarchyQueryCount * diagnostics.maxHierarchyPagesPerUpdate);
+      expect(diagnostics.queuedNodeCount).toBeLessThanOrEqual(
+        diagnostics.maxNodesPerUpdate,
+      );
+      expect(diagnostics.pointRangeBytesRequested).toBeLessThanOrEqual(
+        diagnostics.maxPointRangeBytesPerUpdate *
+          diagnostics.hierarchyQueryCount,
+      );
+      expect(diagnostics.pointRangeRequestCount).toBeLessThanOrEqual(
+        diagnostics.maxNodesPerUpdate * diagnostics.hierarchyQueryCount,
+      );
+      expect(diagnostics.completedNodeCount).toBeLessThanOrEqual(
+        diagnostics.maxNodesPerUpdate * diagnostics.hierarchyQueryCount,
+      );
+      expect(diagnostics.hierarchyPageVisitCount).toBeLessThanOrEqual(
+        diagnostics.hierarchyQueryCount *
+          diagnostics.maxHierarchyPagesPerUpdate,
+      );
     }
 
     return {
@@ -147,7 +192,8 @@ async function runRotationSequence(
       currentViewRangeBytes: thirdTurn.state.performance.rangeFetchBytes,
       cacheHits: thirdTurn.state.pointCache.hits,
       cacheBytes: thirdTurn.state.pointCache.currentCacheBytes,
-      usefulPrefetchCacheHits: thirdTurn.state.pointCache.prefetchUsefulHitCount,
+      usefulPrefetchCacheHits:
+        thirdTurn.state.pointCache.prefetchUsefulHitCount,
       predictivePrefetch: diagnostics,
       worker: secondTurn.state.worker,
     };
@@ -156,25 +202,34 @@ async function runRotationSequence(
   }
 }
 
-test('measures bounded predictive prefetch cost and region-entry latency in Chromium', async ({ browser }) => {
+test("measures bounded predictive prefetch cost and region-entry latency in Chromium", async ({
+  browser,
+}) => {
   test.setTimeout(240_000);
   const prefetchOff = await runRotationSequence(browser, false);
   const prefetchOn = await runRotationSequence(browser, true);
 
-  console.log(JSON.stringify({
-    validation: 'controlled Cesium heading turns against the local Autzen COPC sample',
-    environment: await browser.newPage().then(async (page) => {
-      const environment = await page.evaluate(() => ({
-        userAgent: navigator.userAgent,
-        platform: navigator.platform,
-        devicePixelRatio: window.devicePixelRatio,
-        viewport: `${window.innerWidth}x${window.innerHeight}`,
-        hardwareConcurrency: navigator.hardwareConcurrency,
-      }));
-      await page.close();
-      return environment;
-    }),
-    prefetchOff,
-    prefetchOn,
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        validation:
+          "controlled Cesium heading turns against the local Autzen COPC sample",
+        environment: await browser.newPage().then(async (page) => {
+          const environment = await page.evaluate(() => ({
+            userAgent: navigator.userAgent,
+            platform: navigator.platform,
+            devicePixelRatio: window.devicePixelRatio,
+            viewport: `${window.innerWidth}x${window.innerHeight}`,
+            hardwareConcurrency: navigator.hardwareConcurrency,
+          }));
+          await page.close();
+          return environment;
+        }),
+        prefetchOff,
+        prefetchOn,
+      },
+      null,
+      2,
+    ),
+  );
 });

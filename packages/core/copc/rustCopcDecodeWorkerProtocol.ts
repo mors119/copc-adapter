@@ -6,7 +6,7 @@
  */
 export type RustCopcDecodeWorkerInit = {
   /** Initialization message discriminator. */
-  type: 'init';
+  type: "init";
   /** Serialized COPC metadata transferred to the worker. */
   metadata: ArrayBuffer;
   /** Package-owned Rust/WASM module bytes transferred to the worker. */
@@ -25,7 +25,7 @@ export type RustCopcDecodeWorkerInit = {
  */
 export type RustCopcDecodeWorkerJob = {
   /** Select source-space decode or fused decode/CRS/ECEF preparation. */
-  type: 'decode' | 'prepare';
+  type: "decode" | "prepare";
   /** Request identifier used to match the response to its pending promise. */
   id: number;
   /** Stable COPC hierarchy key for diagnostics and result matching. */
@@ -52,13 +52,13 @@ export type RustCopcDecodeWorkerRequest =
  */
 export type RustCopcDecodeWorkerResult = {
   /** Successful-result discriminator. */
-  type: 'result';
+  type: "result";
   /** Identifier copied from the submitted job. */
   id: number;
   /** Hierarchy key copied from the submitted job. */
   nodeKey: string;
   /** Operation that produced this result, when supplied by the worker path. */
-  operation?: 'decode' | 'prepare';
+  operation?: "decode" | "prepare";
   /** Number of points represented by the returned buffers. */
   pointCount: number;
   /** Total worker-side processing duration in milliseconds. */
@@ -68,11 +68,11 @@ export type RustCopcDecodeWorkerResult = {
   /** CRS/ECEF and shared point preparation duration in milliseconds. */
   preparationDurationMs?: number;
   /** Coordinate space in the primary `coordinates` buffer. */
-  coordinateSystem: 'copc-source' | 'wgs84-geographic';
+  coordinateSystem: "copc-source" | "wgs84-geographic";
   /** Coordinate space for `sourceCoordinates`, when prepared. */
-  sourceCoordinateSystem?: 'copc-source';
+  sourceCoordinateSystem?: "copc-source";
   /** Coordinate space for `worldCoordinates`, when prepared. */
-  worldCoordinateSystem?: 'wgs84-ecef-meters';
+  worldCoordinateSystem?: "wgs84-ecef-meters";
   /** Transferred typed coordinate storage; never a WASM memory view. */
   coordinates: ArrayBuffer;
   /** Interleaved COPC source XYZ values in source CRS units. */
@@ -115,7 +115,7 @@ export type RustCopcDecodeWorkerResult = {
 /** Structured worker failure, optionally associated with one submitted job. */
 export type RustCopcDecodeWorkerErrorMessage = {
   /** Error-result discriminator. */
-  type: 'error';
+  type: "error";
   /** Request identifier when the worker had accepted a job. */
   id?: number;
   /** Hierarchy key when the worker had accepted a node job. */
@@ -126,6 +126,6 @@ export type RustCopcDecodeWorkerErrorMessage = {
 
 /** Worker initialization acknowledgement, successful result, or structured failure. */
 export type RustCopcDecodeWorkerResponse =
-  | { type: 'ready' }
+  | { type: "ready" }
   | RustCopcDecodeWorkerResult
   | RustCopcDecodeWorkerErrorMessage;

@@ -1,34 +1,40 @@
-import * as Cesium from 'cesium';
+import * as Cesium from "cesium";
 import {
   CesiumLayerController,
   type CopcLayerSnapshot,
-} from './CesiumLayerController';
-import type { CopcMetadata } from '../../core/copc/types/copc';
-import type { CopcCesiumEvent } from './cesiumLayerEvents';
-import type { CopcLayerErrorEvent, CopcViewCancellationReason } from '../../core/events/layerEventLifecycle';
-import type { CopcColorMode } from '../../core/copc/points/fieldSelection';
-import type { CopcBackendSelection } from '../../core/copc/backend/selection';
-import type { CopcPointDecoder } from '../../core/copc/points/types';
-import type { CopcHierarchyDiagnostics } from '../../core/copc/hierarchy/types';
-import type { CesiumPointRenderer } from '../render/CopcPointRenderer';
-import type { CopcCesiumPointSizeMode } from '../render/CopcPointRenderer';
-import type { CopcPointInspection } from '../../core/copc/points/pointInspection';
-import type { RangeValidationPolicy } from '../../core/copc/range/types';
-import type { CopcInputSource } from '../../core/copc/range/types';
-import type { NodePointCacheDiagnostics } from '../../core/streaming/createNodePointCache';
-import type { RefinementAlgorithm, RefinementFocus } from '../../core/streaming/refinementStrategies';
+} from "./CesiumLayerController";
+import type { CopcMetadata } from "../../core/copc/types/copc";
+import type { CopcCesiumEvent } from "./cesiumLayerEvents";
+import type {
+  CopcLayerErrorEvent,
+  CopcViewCancellationReason,
+} from "../../core/events/layerEventLifecycle";
+import type { CopcColorMode } from "../../core/copc/points/fieldSelection";
+import type { CopcBackendSelection } from "../../core/copc/backend/selection";
+import type { CopcPointDecoder } from "../../core/copc/points/types";
+import type { CopcHierarchyDiagnostics } from "../../core/copc/hierarchy/types";
+import type { CesiumPointRenderer } from "../render/CopcPointRenderer";
+import type { CopcCesiumPointSizeMode } from "../render/CopcPointRenderer";
+import type { CopcPointInspection } from "../../core/copc/points/pointInspection";
+import type { RangeValidationPolicy } from "../../core/copc/range/types";
+import type { CopcInputSource } from "../../core/copc/range/types";
+import type { NodePointCacheDiagnostics } from "../../core/streaming/createNodePointCache";
+import type {
+  RefinementAlgorithm,
+  RefinementFocus,
+} from "../../core/streaming/refinementStrategies";
 import type {
   CopcCesiumPointStyle,
   CopcCesiumPointStyleUpdate,
-} from '../style/CesiumPointStyle';
+} from "../style/CesiumPointStyle";
 
 export type {
   CopcCesiumPointStyle,
   CopcCesiumPointStyleUpdate,
   CopcClassificationFilter,
-} from '../style/CesiumPointStyle';
+} from "../style/CesiumPointStyle";
 
-export type { CopcColorMode } from '../../core/copc/points/fieldSelection';
+export type { CopcColorMode } from "../../core/copc/points/fieldSelection";
 
 /** Selection and workload limits applied while choosing nodes for each view. */
 export type CopcStreamingOptions = {

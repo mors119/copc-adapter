@@ -1,41 +1,41 @@
-import * as Cesium from 'cesium';
+import * as Cesium from "cesium";
 import type {
   GeographicPointBuffer,
   PreparedPointData,
-} from '../../core/copc/types/copc';
-import type { CopcPointPickId } from '../../core/copc/points/pointInspection';
-import { performanceNow } from '../../core/copc/performance';
+} from "../../core/copc/types/copc";
+import type { CopcPointPickId } from "../../core/copc/points/pointInspection";
+import { performanceNow } from "../../core/copc/performance";
 import type {
   CopcPointRenderer,
   CopcPointRendererOptions as NeutralCopcPointRendererOptions,
-} from '../../core/streaming/renderer';
-import { renderCopcPoints } from './renderPoints';
-import { getPointColor } from '../style/pointStyle';
-import { resolveCopcPointStyleOptions } from '../../core/point/style/pointStyle';
+} from "../../core/streaming/renderer";
+import { renderCopcPoints } from "./renderPoints";
+import { getPointColor } from "../style/pointStyle";
+import { resolveCopcPointStyleOptions } from "../../core/point/style/pointStyle";
 
 /** Cesium renderer preparation stage reported with a duration in milliseconds. */
 export type CopcCesiumPointRendererPerformanceStage =
   /** Convert WGS84 geographic values to Cesium cartographic/cartesian coordinates. */
-  | 'geographicToCartesian'
+  | "geographicToCartesian"
   /** Convert shared ECEF buffers to Cesium Cartesian values. */
-  | 'worldToCartesian'
+  | "worldToCartesian"
   /** Resolve normalized per-point colors. */
-  | 'pointStylePreparation'
+  | "pointStylePreparation"
   /** Create the Cesium point primitive collection for a node. */
-  | 'pointCollectionCreation'
+  | "pointCollectionCreation"
   /** Add point primitives to the collection. */
-  | 'pointAdd'
+  | "pointAdd"
   /** Total node renderer preparation. */
-  | 'rendererPreparation'
+  | "rendererPreparation"
   /** Remove and release one node's primitives. */
-  | 'nodeRemoval';
+  | "nodeRemoval";
 
 /** How the Cesium renderer chooses a point's screen-space diameter. */
 export type CopcCesiumPointSizeMode =
   /** Use the configured fixed CSS-pixel diameter. */
-  | 'fixed'
+  | "fixed"
   /** Project node spacing through the current camera, then clamp to configured CSS-pixel bounds. */
-  | 'attenuated';
+  | "attenuated";
 
 /** Cesium-specific point styling and performance callback options. */
 export type CopcCesiumPointRendererOptions = NeutralCopcPointRendererOptions & {
@@ -56,13 +56,14 @@ export type CopcCesiumPointRendererOptions = NeutralCopcPointRendererOptions & {
 };
 
 /** @deprecated Planned for removal in v0.9, after v0.8; use `CopcCesiumPointRendererPerformanceStage`. */
-export type CopcPointRendererPerformanceStage = CopcCesiumPointRendererPerformanceStage;
+export type CopcPointRendererPerformanceStage =
+  CopcCesiumPointRendererPerformanceStage;
 
 type CesiumPointData = GeographicPointBuffer | PreparedPointData;
 
 /** @deprecated Planned for removal in v0.9, after v0.8; use `CopcCesiumPointRendererOptions`. */
-export type { CopcPointRendererOptions } from '../../core/streaming/renderer';
-export type { CopcPointRenderer } from '../../core/streaming/renderer';
+export type { CopcPointRendererOptions } from "../../core/streaming/renderer";
+export type { CopcPointRenderer } from "../../core/streaming/renderer";
 
 /** Cesium-only part of the renderer boundary. */
 export interface CesiumPointRenderer extends CopcPointRenderer {
@@ -104,7 +105,10 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
   private viewer?: Cesium.Viewer;
   private primitiveCollection?: Cesium.PrimitiveCollection;
   private showState = true;
-  private readonly pointCollections = new Map<string, Cesium.PointPrimitiveCollection>();
+  private readonly pointCollections = new Map<
+    string,
+    Cesium.PointPrimitiveCollection
+  >();
   private readonly visiblePointCounts = new Map<string, number>();
 
   /** Attach a new primitive collection to a Viewer owned by the application. */
@@ -145,7 +149,9 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
     options: CopcCesiumPointRendererOptions,
   ): void {
     if (!this.viewer || !this.primitiveCollection) {
-      throw new Error('PointPrimitiveRenderer is not attached to a Cesium viewer');
+      throw new Error(
+        "PointPrimitiveRenderer is not attached to a Cesium viewer",
+      );
     }
 
     if (this.pointCollections.has(nodeKey)) {
@@ -174,7 +180,7 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
     this.visiblePointCounts.set(nodeKey, visiblePointCount);
     this.rememberPerformanceObserver(nodeKey, options.onPerformance);
     options.onPerformance?.(
-      'rendererPreparation',
+      "rendererPreparation",
       performanceNow() - startedAt,
       points.pointCount,
     );
@@ -215,7 +221,7 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
     }
     this.visiblePointCounts.set(nodeKey, visiblePointCount);
     options.onPerformance?.(
-      'pointStylePreparation',
+      "pointStylePreparation",
       performanceNow() - startedAt,
       points.pointCount,
     );
@@ -239,7 +245,7 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
     // The compatibility path has no per-call observer, so this metric is
     // emitted through the optional node callback stored for the collection.
     const observer = this.nodePerformanceObservers.get(nodeKey);
-    observer?.('nodeRemoval', performanceNow() - startedAt, pointCount);
+    observer?.("nodeRemoval", performanceNow() - startedAt, pointCount);
     this.nodePerformanceObservers.delete(nodeKey);
   }
 
@@ -288,30 +294,34 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
       return undefined;
     }
 
-    const positions = [...this.pointCollections.values()].flatMap((collection) => {
-      const values: Cesium.Cartesian3[] = [];
-      for (let index = 0; index < collection.length; index += 1) {
-        const primitive = collection.get(index);
-        if (primitive.show) {
-          values.push(primitive.position);
+    const positions = [...this.pointCollections.values()].flatMap(
+      (collection) => {
+        const values: Cesium.Cartesian3[] = [];
+        for (let index = 0; index < collection.length; index += 1) {
+          const primitive = collection.get(index);
+          if (primitive.show) {
+            values.push(primitive.position);
+          }
         }
-      }
-      return values;
-    });
+        return values;
+      },
+    );
 
-    return positions.length > 0 ? Cesium.BoundingSphere.fromPoints(positions) : undefined;
+    return positions.length > 0
+      ? Cesium.BoundingSphere.fromPoints(positions)
+      : undefined;
   }
 
   private readonly nodePerformanceObservers = new Map<
     string,
-    NonNullable<CopcCesiumPointRendererOptions['onPerformance']>
+    NonNullable<CopcCesiumPointRendererOptions["onPerformance"]>
   >();
 
   // Keep observer registration beside the node lifecycle without making the
   // renderer API expose collection objects or Cesium implementation details.
   private rememberPerformanceObserver(
     nodeKey: string,
-    observer: CopcCesiumPointRendererOptions['onPerformance'],
+    observer: CopcCesiumPointRendererOptions["onPerformance"],
   ): void {
     if (observer) {
       this.nodePerformanceObservers.set(nodeKey, observer);

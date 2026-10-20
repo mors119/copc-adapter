@@ -1,11 +1,11 @@
-import * as THREE from 'three';
+import * as THREE from "three";
 import {
   CopcThreeLayer,
   RustCrsTransformer,
-} from '@frillab/copc-adapter/three';
+} from "@frillab/copc-adapter/three";
 
-if (typeof RustCrsTransformer !== 'function') {
-  throw new Error('Packed Three consumer cannot import RustCrsTransformer');
+if (typeof RustCrsTransformer !== "function") {
+  throw new Error("Packed Three consumer cannot import RustCrsTransformer");
 }
 
 const scene = new THREE.Scene();
@@ -17,7 +17,7 @@ camera.updateMatrixWorld();
 // A normal Three app owns the scene, camera, renderer, and render loop. The
 // adapter contributes only its root group and explicitly driven updates.
 const layer = new CopcThreeLayer({
-  url: '/samples/autzen.copc.laz',
+  url: "/samples/autzen.copc.laz",
   streaming: { motionLookahead: true },
 });
 layer.attachTo({ scene, camera });

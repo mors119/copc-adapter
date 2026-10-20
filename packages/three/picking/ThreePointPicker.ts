@@ -1,13 +1,13 @@
-import * as THREE from 'three';
+import * as THREE from "three";
 import type {
   CopcPointInspection,
   CopcPointPickId,
-} from '../../core/copc/points/pointInspection';
-import { isCopcPointPickId } from '../../core/copc/points/pointInspection';
+} from "../../core/copc/points/pointInspection";
+import { isCopcPointPickId } from "../../core/copc/points/pointInspection";
 import type {
   CopcThreeLayerPickOptions,
   CopcThreeLayerPickPosition,
-} from '../layer/types';
+} from "../layer/types";
 
 type ThreePointPickerOptions = {
   getRoot: () => THREE.Group;
@@ -19,9 +19,11 @@ type ThreePointPickerOptions = {
 };
 
 function isPickOptions(value: unknown): value is CopcThreeLayerPickOptions {
-  return value !== null
-    && typeof value === 'object'
-    && ('raycaster' in value || 'threshold' in value);
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    ("raycaster" in value || "threshold" in value)
+  );
 }
 
 function isFinitePositive(value: number): boolean {
@@ -51,7 +53,10 @@ export class ThreePointPicker {
   /** Return the selected point while its node and decoded buffer remain live. */
   getSelectedPoint(): CopcPointInspection | undefined {
     const pickId = this.selectedPointPickId;
-    if (!pickId || this.selectedPointLoadGeneration !== this.options.getLoadGeneration()) {
+    if (
+      !pickId ||
+      this.selectedPointLoadGeneration !== this.options.getLoadGeneration()
+    ) {
       if (pickId) {
         this.clear();
       }
@@ -78,33 +83,44 @@ export class ThreePointPicker {
       return undefined;
     }
 
-    const options = isPickOptions(raycasterOrOptions) ? raycasterOrOptions : undefined;
-    const raycaster = options?.raycaster
-      ?? (raycasterOrOptions && !isPickOptions(raycasterOrOptions)
+    const options = isPickOptions(raycasterOrOptions)
+      ? raycasterOrOptions
+      : undefined;
+    const raycaster =
+      options?.raycaster ??
+      (raycasterOrOptions && !isPickOptions(raycasterOrOptions)
         ? raycasterOrOptions
         : new THREE.Raycaster());
-    const threshold = options?.threshold
-      ?? this.options.pickingThreshold
-      ?? 1;
+    const threshold = options?.threshold ?? this.options.pickingThreshold ?? 1;
     if (!isFinitePositive(threshold)) {
-      throw new Error('CopcThreeLayer pick threshold must be a positive finite number');
+      throw new Error(
+        "CopcThreeLayer pick threshold must be a positive finite number",
+      );
     }
 
     raycaster.params.Points.threshold = threshold;
     raycaster.setFromCamera(new THREE.Vector2(position.x, position.y), camera);
-    const intersections = raycaster.intersectObject(this.options.getRoot(), true);
+    const intersections = raycaster.intersectObject(
+      this.options.getRoot(),
+      true,
+    );
     for (const intersection of intersections) {
       const pointObject = this.getOwnedPointObject(intersection.object);
       const pointIndex = intersection.index;
-      if (!pointObject || pointIndex === undefined
-        || !Number.isSafeInteger(pointIndex) || pointIndex < 0) {
+      if (
+        !pointObject ||
+        pointIndex === undefined ||
+        !Number.isSafeInteger(pointIndex) ||
+        pointIndex < 0
+      ) {
         continue;
       }
 
       const pointIdFactory = pointObject.userData.copcPointId;
-      const pickId = typeof pointIdFactory === 'function'
-        ? pointIdFactory(pointIndex)
-        : undefined;
+      const pickId =
+        typeof pointIdFactory === "function"
+          ? pointIdFactory(pointIndex)
+          : undefined;
       if (!this.isOwnedPickId(pickId)) {
         continue;
       }
@@ -154,7 +170,9 @@ export class ThreePointPicker {
     return isCopcPointPickId(value) && value.ownerId === this.ownerId;
   }
 
-  private getOwnedPointObject(object: THREE.Object3D): THREE.Object3D | undefined {
+  private getOwnedPointObject(
+    object: THREE.Object3D,
+  ): THREE.Object3D | undefined {
     const root = this.options.getRoot();
     let candidate: THREE.Object3D | null = object;
     while (candidate && candidate.parent && candidate.parent !== root) {
@@ -164,7 +182,7 @@ export class ThreePointPicker {
       return undefined;
     }
     const nodeKey = candidate.userData.copcNodeKey;
-    return typeof nodeKey === 'string' && this.options.hasNode(nodeKey)
+    return typeof nodeKey === "string" && this.options.hasNode(nodeKey)
       ? candidate
       : undefined;
   }

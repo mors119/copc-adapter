@@ -1,8 +1,5 @@
-import type { Hierarchy } from 'copc';
-import type {
-  CopcHierarchyNode,
-  CopcHierarchyPage,
-} from '../hierarchy/types';
+import type { Hierarchy } from "copc";
+import type { CopcHierarchyNode, CopcHierarchyPage } from "../hierarchy/types";
 
 function parseHierarchyKey(keyText: string): {
   level: number;
@@ -10,7 +7,7 @@ function parseHierarchyKey(keyText: string): {
   y: number;
   z: number;
 } {
-  const parts = keyText.split('-').map(Number);
+  const parts = keyText.split("-").map(Number);
 
   if (parts.length !== 4 || parts.some((value) => Number.isNaN(value))) {
     throw new Error(`Invalid COPC hierarchy key: ${keyText}`);

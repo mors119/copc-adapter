@@ -1,19 +1,19 @@
-import type { CopcMetadata } from '../copc/types/copc';
+import type { CopcMetadata } from "../copc/types/copc";
 
 /** Why the current view's asynchronous streaming work was invalidated. */
 export type CopcViewCancellationReason =
   /** A newer camera state replaced the active view. */
-  | 'camera-change'
+  | "camera-change"
   /** A runtime focus-lens change replaced the active selection. */
-  | 'focus-change'
+  | "focus-change"
   /** The layer was detached from its viewer or scene. */
-  | 'detach'
+  | "detach"
   /** Loaded data was released. */
-  | 'unload'
+  | "unload"
   /** The configured source is being loaded again. */
-  | 'reload'
+  | "reload"
   /** The layer and its owned resources were permanently released. */
-  | 'destroy';
+  | "destroy";
 
 /** Identifier and cause for one cancelled public view generation. */
 export type CopcActiveViewCancellation = {
@@ -32,7 +32,7 @@ export class CopcLayerEventLifecycle {
     viewGeneration: number;
     superseded?: CopcActiveViewCancellation;
   } {
-    const superseded = this.cancelView('camera-change');
+    const superseded = this.cancelView("camera-change");
     const viewGeneration = ++this.nextViewGeneration;
     this.activeViewGeneration = viewGeneration;
     return {
@@ -41,7 +41,9 @@ export class CopcLayerEventLifecycle {
     };
   }
 
-  cancelView(reason: CopcViewCancellationReason): CopcActiveViewCancellation | undefined {
+  cancelView(
+    reason: CopcViewCancellationReason,
+  ): CopcActiveViewCancellation | undefined {
     const viewGeneration = this.activeViewGeneration;
     if (viewGeneration === undefined) {
       return undefined;
@@ -78,7 +80,7 @@ export type CopcLayerErrorEvent = {
   /** Error snapshot; may be a non-Error value thrown by a dependency. */
   error: unknown;
   /** Whether the failure occurred while loading the source or updating a view. */
-  phase: 'load' | 'view';
+  phase: "load" | "view";
   /** Load attempt, when the failure belongs to a load operation. */
   loadGeneration?: number;
   /** View generation, when the failure belongs to a streaming update. */
@@ -92,7 +94,9 @@ export function snapshotCopcMetadata(metadata: CopcMetadata): CopcMetadata {
     bounds: Object.freeze({ ...metadata.bounds }),
     cube: Object.freeze({ ...metadata.cube }),
     ...(metadata.scale ? { scale: Object.freeze({ ...metadata.scale }) } : {}),
-    ...(metadata.offset ? { offset: Object.freeze({ ...metadata.offset }) } : {}),
+    ...(metadata.offset
+      ? { offset: Object.freeze({ ...metadata.offset }) }
+      : {}),
   });
 }
 
@@ -102,13 +106,13 @@ export function snapshotCopcError(error: unknown): unknown {
     return error;
   }
   const descriptors = Object.getOwnPropertyDescriptors(error);
-  if (typeof DOMException !== 'undefined' && error instanceof DOMException) {
+  if (typeof DOMException !== "undefined" && error instanceof DOMException) {
     const snapshot = new DOMException(error.message, error.name);
     for (const [key, descriptor] of Object.entries(descriptors)) {
-      if (key === 'stack' || key === 'name' || key === 'message') {
+      if (key === "stack" || key === "name" || key === "message") {
         continue;
       }
-      if (key === 'cause' && 'value' in descriptor) {
+      if (key === "cause" && "value" in descriptor) {
         descriptor.value = snapshotCopcError(descriptor.value);
       }
       Object.defineProperty(snapshot, key, descriptor);
@@ -116,7 +120,7 @@ export function snapshotCopcError(error: unknown): unknown {
     return Object.freeze(snapshot);
   }
   const cause = descriptors.cause;
-  if (cause && 'value' in cause) {
+  if (cause && "value" in cause) {
     cause.value = snapshotCopcError(cause.value);
   }
   const snapshot = Object.create(Object.getPrototypeOf(error)) as Error;
@@ -126,7 +130,7 @@ export function snapshotCopcError(error: unknown): unknown {
 
 export function reportListenerError(error: unknown): void {
   try {
-    console.error('COPC layer event listener failed', error);
+    console.error("COPC layer event listener failed", error);
   } catch {
     // A replaced console.error must not interrupt streaming lifecycle work.
   }

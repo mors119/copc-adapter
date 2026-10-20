@@ -20,15 +20,18 @@ export function createCoalescedUpdate(
     }
 
     running = true;
-    void Promise.resolve().then(update).catch((error: unknown) => {
-      if (!destroyed) onError(error);
-    }).finally(() => {
-      running = false;
-      if (pending && !destroyed) {
-        pending = false;
-        run();
-      }
-    });
+    void Promise.resolve()
+      .then(update)
+      .catch((error: unknown) => {
+        if (!destroyed) onError(error);
+      })
+      .finally(() => {
+        running = false;
+        if (pending && !destroyed) {
+          pending = false;
+          run();
+        }
+      });
   };
 
   return {

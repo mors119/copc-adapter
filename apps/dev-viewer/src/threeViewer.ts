@@ -1,13 +1,13 @@
-import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import {
   CopcThreeLayer,
   type CopcPointInspection,
   type CopcThreeLayerOptions,
   type CopcThreeLayerSnapshot,
-} from '@frillab/copc-adapter/three';
-import type { CopcBackendName, CopcColorMode } from '@frillab/copc-adapter';
-import { createCoalescedUpdate } from './coalescedUpdate';
+} from "@frillab/copc-adapter/three";
+import type { CopcBackendName, CopcColorMode } from "@frillab/copc-adapter";
+import { createCoalescedUpdate } from "./coalescedUpdate";
 
 export type DevThreeCameraState = {
   readonly position: readonly [number, number, number];
@@ -23,8 +23,8 @@ export type DevThreeViewerOptions = {
   readonly pointSize: number;
   readonly maxRenderedPoints: number;
   readonly cameraRenderDistance: number;
-  readonly rangeValidation: CopcThreeLayerOptions['rangeValidation'];
-  readonly streaming: NonNullable<CopcThreeLayerOptions['streaming']>;
+  readonly rangeValidation: CopcThreeLayerOptions["rangeValidation"];
+  readonly streaming: NonNullable<CopcThreeLayerOptions["streaming"]>;
   readonly onPointPicked: (point: CopcPointInspection | undefined) => void;
   readonly onError: (error: unknown) => void;
 };
@@ -32,13 +32,15 @@ export type DevThreeViewerOptions = {
 export type DevThreeViewer = {
   readonly ready: Promise<void>;
   getSnapshot(): CopcThreeLayerSnapshot;
-  getMetadata(): ReturnType<CopcThreeLayer['getMetadata']>;
-  getHierarchyDiagnostics(): ReturnType<CopcThreeLayer['getHierarchyDiagnostics']>;
+  getMetadata(): ReturnType<CopcThreeLayer["getMetadata"]>;
+  getHierarchyDiagnostics(): ReturnType<
+    CopcThreeLayer["getHierarchyDiagnostics"]
+  >;
   getSelectedPoint(): CopcPointInspection | undefined;
   getCameraState(): DevThreeCameraState;
   setCameraState(state: DevThreeCameraState): void;
   setCameraDistance(distance: number): void;
-  setCameraPreset(preset: 'overview' | 'far' | 'near'): void;
+  setCameraPreset(preset: "overview" | "far" | "near"): void;
   getPickablePointScreenPosition(): { x: number; y: number } | undefined;
   destroy(): void;
 };
@@ -54,28 +56,48 @@ function findPickablePosition(
   camera: THREE.PerspectiveCamera,
   canvas: HTMLCanvasElement,
 ): { x: number; y: number } | undefined {
-  if (!root || canvas.clientWidth <= 0 || canvas.clientHeight <= 0) return undefined;
+  if (!root || canvas.clientWidth <= 0 || canvas.clientHeight <= 0)
+    return undefined;
   let candidate: { x: number; y: number } | undefined;
   const canvasBounds = canvas.getBoundingClientRect();
-  const blockingPanels = [...document.querySelectorAll<HTMLElement>(
-    '#controls-panel, #inspector-panel, .dev-panel-toggle',
-  )].map((panel) => panel.getBoundingClientRect());
+  const blockingPanels = [
+    ...document.querySelectorAll<HTMLElement>(
+      "#controls-panel, #inspector-panel, .dev-panel-toggle",
+    ),
+  ].map((panel) => panel.getBoundingClientRect());
   root.traverse((object) => {
     if (candidate || !(object instanceof THREE.Points)) return;
-    const attribute = object.geometry.getAttribute('position');
+    const attribute = object.geometry.getAttribute("position");
     if (!attribute || attribute.count === 0) return;
     object.updateMatrixWorld(true);
     const point = new THREE.Vector3();
     const stride = Math.max(1, Math.floor(attribute.count / 256));
     for (let index = 0; index < attribute.count; index += stride) {
-      point.fromBufferAttribute(attribute, index).applyMatrix4(object.matrixWorld).project(camera);
-      if (point.z < -1 || point.z > 1 || Math.abs(point.x) > 0.97 || Math.abs(point.y) > 0.97) continue;
-      const x = (point.x + 1) * canvas.clientWidth / 2;
-      const y = (1 - point.y) * canvas.clientHeight / 2;
+      point
+        .fromBufferAttribute(attribute, index)
+        .applyMatrix4(object.matrixWorld)
+        .project(camera);
+      if (
+        point.z < -1 ||
+        point.z > 1 ||
+        Math.abs(point.x) > 0.97 ||
+        Math.abs(point.y) > 0.97
+      )
+        continue;
+      const x = ((point.x + 1) * canvas.clientWidth) / 2;
+      const y = ((1 - point.y) * canvas.clientHeight) / 2;
       const screenX = canvasBounds.left + x;
       const screenY = canvasBounds.top + y;
-      if (blockingPanels.some((bounds) => screenX >= bounds.left && screenX <= bounds.right
-        && screenY >= bounds.top && screenY <= bounds.bottom)) continue;
+      if (
+        blockingPanels.some(
+          (bounds) =>
+            screenX >= bounds.left &&
+            screenX <= bounds.right &&
+            screenY >= bounds.top &&
+            screenY <= bounds.bottom,
+        )
+      )
+        continue;
       candidate = { x, y };
       break;
     }
@@ -83,19 +105,28 @@ function findPickablePosition(
   return candidate;
 }
 
-export function createDevThreeViewer(options: DevThreeViewerOptions): DevThreeViewer {
+export function createDevThreeViewer(
+  options: DevThreeViewerOptions,
+): DevThreeViewer {
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color('#08111d');
+  scene.background = new THREE.Color("#08111d");
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-  renderer.setSize(options.container.clientWidth, options.container.clientHeight);
-  renderer.domElement.setAttribute('role', 'img');
-  renderer.domElement.setAttribute('aria-label', 'Interactive Three.js COPC point cloud');
+  renderer.setSize(
+    options.container.clientWidth,
+    options.container.clientHeight,
+  );
+  renderer.domElement.setAttribute("role", "img");
+  renderer.domElement.setAttribute(
+    "aria-label",
+    "Interactive Three.js COPC point cloud",
+  );
   options.container.replaceChildren(renderer.domElement);
 
   const camera = new THREE.PerspectiveCamera(
     45,
-    Math.max(1, options.container.clientWidth) / Math.max(1, options.container.clientHeight),
+    Math.max(1, options.container.clientWidth) /
+      Math.max(1, options.container.clientHeight),
     0.1,
     250_000,
   );
@@ -120,7 +151,7 @@ export function createDevThreeViewer(options: DevThreeViewerOptions): DevThreeVi
     debug: true,
     onPointPicked: options.onPointPicked,
   });
-  layer.addEventListener('error', (event) => options.onError(event.error));
+  layer.addEventListener("error", (event) => options.onError(event.error));
   const childrenBeforeAttach = new Set(scene.children);
   layer.attachTo({ scene, camera, renderer });
   const root = scene.children.find((child) => !childrenBeforeAttach.has(child));
@@ -128,12 +159,15 @@ export function createDevThreeViewer(options: DevThreeViewerOptions): DevThreeVi
   let destroyed = false;
   let animationFrame = 0;
   let updateTimer: number | undefined;
-  const updateLayerView = createCoalescedUpdate(() => layer.update(), options.onError);
+  const updateLayerView = createCoalescedUpdate(
+    () => layer.update(),
+    options.onError,
+  );
   const onCameraChange = (): void => {
     if (updateTimer !== undefined) window.clearTimeout(updateTimer);
     updateTimer = window.setTimeout(updateLayerView.request, 90);
   };
-  controls.addEventListener('change', onCameraChange);
+  controls.addEventListener("change", onCameraChange);
 
   const draw = (): void => {
     if (destroyed) return;
@@ -160,7 +194,13 @@ export function createDevThreeViewer(options: DevThreeViewerOptions): DevThreeVi
     pointerStart = { x: event.clientX, y: event.clientY };
   };
   const onPointerUp = (event: PointerEvent): void => {
-    if (!pointerStart || Math.hypot(event.clientX - pointerStart.x, event.clientY - pointerStart.y) > 5) {
+    if (
+      !pointerStart ||
+      Math.hypot(
+        event.clientX - pointerStart.x,
+        event.clientY - pointerStart.y,
+      ) > 5
+    ) {
       pointerStart = undefined;
       return;
     }
@@ -172,8 +212,8 @@ export function createDevThreeViewer(options: DevThreeViewerOptions): DevThreeVi
       y: -(((event.clientY - bounds.top) / bounds.height) * 2 - 1),
     });
   };
-  renderer.domElement.addEventListener('pointerdown', onPointerDown);
-  renderer.domElement.addEventListener('pointerup', onPointerUp);
+  renderer.domElement.addEventListener("pointerdown", onPointerDown);
+  renderer.domElement.addEventListener("pointerup", onPointerUp);
 
   const ready = layer.load().then(() => layer.update());
   return {
@@ -183,8 +223,16 @@ export function createDevThreeViewer(options: DevThreeViewerOptions): DevThreeVi
     getHierarchyDiagnostics: () => layer.getHierarchyDiagnostics(),
     getSelectedPoint: () => layer.getSelectedPoint(),
     getCameraState: () => ({
-      position: [camera.position.x, camera.position.y, camera.position.z] as const,
-      target: [controls.target.x, controls.target.y, controls.target.z] as const,
+      position: [
+        camera.position.x,
+        camera.position.y,
+        camera.position.z,
+      ] as const,
+      target: [
+        controls.target.x,
+        controls.target.y,
+        controls.target.z,
+      ] as const,
     }),
     setCameraState(state) {
       camera.position.set(...state.position);
@@ -194,18 +242,26 @@ export function createDevThreeViewer(options: DevThreeViewerOptions): DevThreeVi
       onCameraChange();
     },
     setCameraDistance(distance) {
-      const direction = camera.position.clone().sub(controls.target).normalize();
-      camera.position.copy(controls.target).addScaledVector(direction, distance);
+      const direction = camera.position
+        .clone()
+        .sub(controls.target)
+        .normalize();
+      camera.position
+        .copy(controls.target)
+        .addScaledVector(direction, distance);
       onCameraChange();
     },
     setCameraPreset(preset) {
-      const distance = presetBaseDistance * (preset === 'near' ? 0.55 : preset === 'far' ? 2.5 : 1);
+      const distance =
+        presetBaseDistance *
+        (preset === "near" ? 0.55 : preset === "far" ? 2.5 : 1);
       camera.position.set(0, -distance, distance * 0.38);
       controls.target.set(0, 0, 0);
       controls.update();
       onCameraChange();
     },
-    getPickablePointScreenPosition: () => findPickablePosition(root, camera, renderer.domElement),
+    getPickablePointScreenPosition: () =>
+      findPickablePosition(root, camera, renderer.domElement),
     destroy() {
       if (destroyed) return;
       destroyed = true;
@@ -213,10 +269,10 @@ export function createDevThreeViewer(options: DevThreeViewerOptions): DevThreeVi
       if (updateTimer !== undefined) window.clearTimeout(updateTimer);
       updateLayerView.destroy();
       resizeObserver.disconnect();
-      controls.removeEventListener('change', onCameraChange);
+      controls.removeEventListener("change", onCameraChange);
       controls.dispose();
-      renderer.domElement.removeEventListener('pointerdown', onPointerDown);
-      renderer.domElement.removeEventListener('pointerup', onPointerUp);
+      renderer.domElement.removeEventListener("pointerdown", onPointerDown);
+      renderer.domElement.removeEventListener("pointerup", onPointerUp);
       layer.destroy();
       renderer.dispose();
       renderer.domElement.remove();

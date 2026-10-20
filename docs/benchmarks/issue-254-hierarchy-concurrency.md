@@ -128,7 +128,7 @@ serialization only. Progressive coarse-first rendering remains deferred.
 The benchmark test can be rerun with:
 
 ```bash
-node --import tsx --test --test-reporter=spec test/hierarchy-loader.test.mjs
+node --import tsx --test --test-reporter=spec test/core/copc/hierarchy/loader.test.mjs
 ```
 
 The SoFi and Autzen browser runs use the commands in

@@ -1,25 +1,28 @@
-import './style.css';
-import 'cesium/Build/Cesium/Widgets/widgets.css';
-import * as Cesium from 'cesium';
+import "./style.css";
+import "cesium/Build/Cesium/Widgets/widgets.css";
+import * as Cesium from "cesium";
 import {
   CopcCesiumLayer,
   BatchedGeometryPointRenderer,
   CopcJsBackend,
   RustCopcBackend,
   RustCrsTransformer,
-} from '@packed-adapter';
+} from "@packed-adapter";
 
-const datasetUrl = '/samples/autzen.copc.laz';
+const datasetUrl = "/samples/autzen.copc.laz";
 const params = new URLSearchParams(window.location.search);
-const backend = params.get('backend') === 'copc-js' ? 'copc-js' : 'rust';
-const colorMode = params.get('mode') ?? 'rgb';
-const pointSizeMode = params.get('pointSizeMode') === 'attenuated' ? 'attenuated' : 'fixed';
-const maxRenderDistanceMeters = Number(params.get('maxRenderDistanceMeters')) || 20_000;
-const renderer = params.get('renderer') === 'batched'
-  ? new BatchedGeometryPointRenderer()
-  : undefined;
+const backend = params.get("backend") === "copc-js" ? "copc-js" : "rust";
+const colorMode = params.get("mode") ?? "rgb";
+const pointSizeMode =
+  params.get("pointSizeMode") === "attenuated" ? "attenuated" : "fixed";
+const maxRenderDistanceMeters =
+  Number(params.get("maxRenderDistanceMeters")) || 20_000;
+const renderer =
+  params.get("renderer") === "batched"
+    ? new BatchedGeometryPointRenderer()
+    : undefined;
 
-const viewer = new Cesium.Viewer('cesium-container', {
+const viewer = new Cesium.Viewer("cesium-container", {
   animation: false,
   baseLayer: false,
   baseLayerPicker: false,
@@ -85,30 +88,38 @@ viewer.scene.postRender.addEventListener(() => {
   });
   if (cesiumFrameSamples.length > 2000) cesiumFrameSamples.shift();
 });
-window.addEventListener('wheel', () => {
-  lastWheelInputAt = performance.now();
-  wheelInputSamples.push({
-    at: lastWheelInputAt,
-    worker: layer.getSnapshot().worker,
-  });
-}, { capture: true });
-if (typeof PerformanceObserver !== 'undefined') {
+window.addEventListener(
+  "wheel",
+  () => {
+    lastWheelInputAt = performance.now();
+    wheelInputSamples.push({
+      at: lastWheelInputAt,
+      worker: layer.getSnapshot().worker,
+    });
+  },
+  { capture: true },
+);
+if (typeof PerformanceObserver !== "undefined") {
   try {
     const observer = new PerformanceObserver((list) => {
       for (const entry of list.getEntries()) {
         const sample = { at: entry.startTime, durationMs: entry.duration };
         mainThreadTasks.push(sample);
-        longestMainThreadTaskMs = Math.max(longestMainThreadTaskMs, entry.duration);
+        longestMainThreadTaskMs = Math.max(
+          longestMainThreadTaskMs,
+          entry.duration,
+        );
       }
     });
-    observer.observe({ type: 'longtask', buffered: true });
+    observer.observe({ type: "longtask", buffered: true });
   } catch {
     // The Long Task API is optional in browser and test environments.
   }
 }
 
 function reportError(error) {
-  lastError = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+  lastError =
+    error instanceof Error ? `${error.name}: ${error.message}` : String(error);
   lastErrorStack = error instanceof Error ? error.stack : undefined;
   console.error(lastError, error);
 }
@@ -131,10 +142,16 @@ function renderedDiagnostics() {
   const colors = new Set();
   let firstPosition;
 
-  for (const collection of getPointPrimitiveCollections(viewer.scene.primitives)) {
+  for (const collection of getPointPrimitiveCollections(
+    viewer.scene.primitives,
+  )) {
     renderedPointCount += collection.length;
     const stride = Math.max(1, Math.floor(collection.length / 256));
-    for (let pointIndex = 0; pointIndex < collection.length; pointIndex += stride) {
+    for (
+      let pointIndex = 0;
+      pointIndex < collection.length;
+      pointIndex += stride
+    ) {
       const point = collection.get(pointIndex);
       const cartographic = Cesium.Cartographic.fromCartesian(point.position);
       firstPosition ??= {
@@ -144,18 +161,24 @@ function renderedDiagnostics() {
       };
       minRenderedHeight = Math.min(minRenderedHeight, cartographic.height);
       maxRenderedHeight = Math.max(maxRenderedHeight, cartographic.height);
-      colors.add([
-        point.color.red.toFixed(3),
-        point.color.green.toFixed(3),
-        point.color.blue.toFixed(3),
-      ].join(','));
+      colors.add(
+        [
+          point.color.red.toFixed(3),
+          point.color.green.toFixed(3),
+          point.color.blue.toFixed(3),
+        ].join(","),
+      );
     }
   }
 
   return {
     renderedPointCount,
-    minRenderedHeight: Number.isFinite(minRenderedHeight) ? minRenderedHeight : undefined,
-    maxRenderedHeight: Number.isFinite(maxRenderedHeight) ? maxRenderedHeight : undefined,
+    minRenderedHeight: Number.isFinite(minRenderedHeight)
+      ? minRenderedHeight
+      : undefined,
+    maxRenderedHeight: Number.isFinite(maxRenderedHeight)
+      ? maxRenderedHeight
+      : undefined,
     renderedColorCount: colors.size,
     firstPosition,
   };
@@ -165,7 +188,9 @@ function getState() {
   const snapshot = layer.getSnapshot();
   const metadata = layer.getMetadata();
   const diagnostics = renderedDiagnostics();
-  const cameraPosition = Cesium.Cartographic.fromCartesian(viewer.camera.positionWC);
+  const cameraPosition = Cesium.Cartographic.fromCartesian(
+    viewer.camera.positionWC,
+  );
   const datasetCenter = layer.boundingSphere
     ? Cesium.Cartographic.fromCartesian(layer.boundingSphere.center)
     : undefined;
@@ -189,10 +214,12 @@ function getState() {
       latitude: Cesium.Math.toDegrees(cameraPosition.latitude),
       height: cameraPosition.height,
     },
-    datasetCenter: datasetCenter ? {
-      longitude: Cesium.Math.toDegrees(datasetCenter.longitude),
-      latitude: Cesium.Math.toDegrees(datasetCenter.latitude),
-    } : undefined,
+    datasetCenter: datasetCenter
+      ? {
+          longitude: Cesium.Math.toDegrees(datasetCenter.longitude),
+          latitude: Cesium.Math.toDegrees(datasetCenter.latitude),
+        }
+      : undefined,
     cameraOrientation: {
       heading: Cesium.Math.toDegrees(viewer.camera.heading),
       pitch: Cesium.Math.toDegrees(viewer.camera.pitch),
@@ -212,27 +239,45 @@ function getState() {
 
 function getResponsivenessDiagnostics() {
   const startedAt = responsivenessCaptureStartedAt;
-  const cameraSamples = cameraChangeSamples.filter((sample) => sample.at >= startedAt);
-  const wheelSamples = wheelInputSamples.filter((sample) => sample.at >= startedAt);
+  const cameraSamples = cameraChangeSamples.filter(
+    (sample) => sample.at >= startedAt,
+  );
+  const wheelSamples = wheelInputSamples.filter(
+    (sample) => sample.at >= startedAt,
+  );
   const frameSamples = cesiumFrameSamples
     .filter((sample) => sample.at >= startedAt)
     .map((sample) => sample.durationMs)
     .sort((left, right) => left - right);
-  const taskSamples = mainThreadTasks.filter((sample) => sample.at >= startedAt);
-  const percentile = (fraction) => frameSamples.length === 0
-    ? undefined
-    : frameSamples[Math.min(frameSamples.length - 1, Math.floor(frameSamples.length * fraction))];
+  const taskSamples = mainThreadTasks.filter(
+    (sample) => sample.at >= startedAt,
+  );
+  const percentile = (fraction) =>
+    frameSamples.length === 0
+      ? undefined
+      : frameSamples[
+          Math.min(
+            frameSamples.length - 1,
+            Math.floor(frameSamples.length * fraction),
+          )
+        ];
   const worker = layer.getSnapshot().worker;
   return {
     elapsedMs: startedAt > 0 ? performance.now() - startedAt : 0,
     worker,
-    workerCameraChangeCount: cameraSamples.filter((sample) => sample.worker?.activeCount > 0).length,
-    workerWheelInputCount: wheelSamples.filter((sample) => sample.worker?.activeCount > 0).length,
-    workerWheelCameraChangeCount: cameraSamples.filter((sample) =>
-      sample.worker?.activeCount > 0
-      && sample.lastWheelInputAt !== undefined
-      && sample.lastWheelInputAt >= startedAt
-      && sample.at - sample.lastWheelInputAt < 200).length,
+    workerCameraChangeCount: cameraSamples.filter(
+      (sample) => sample.worker?.activeCount > 0,
+    ).length,
+    workerWheelInputCount: wheelSamples.filter(
+      (sample) => sample.worker?.activeCount > 0,
+    ).length,
+    workerWheelCameraChangeCount: cameraSamples.filter(
+      (sample) =>
+        sample.worker?.activeCount > 0 &&
+        sample.lastWheelInputAt !== undefined &&
+        sample.lastWheelInputAt >= startedAt &&
+        sample.at - sample.lastWheelInputAt < 200,
+    ).length,
     cameraChangeCount: cameraSamples.length,
     wheelInputCount: wheelSamples.length,
     frameDurationMs: {
@@ -252,18 +297,39 @@ function getResponsivenessDiagnostics() {
 async function probeRustAttributes() {
   const source = await new RustCopcBackend().open(datasetUrl);
   try {
-    const rootPage = await source.loadHierarchyPage(source.getRootHierarchyPage());
-    const rootNode = rootPage.nodes.find((node) => node.key === '0-0-0-0') ?? rootPage.nodes[0];
+    const rootPage = await source.loadHierarchyPage(
+      source.getRootHierarchyPage(),
+    );
+    const rootNode =
+      rootPage.nodes.find((node) => node.key === "0-0-0-0") ??
+      rootPage.nodes[0];
     const view = await source.loadPointDataView(
       rootNode,
-      new Set(['position', 'intensity', 'classification', 'rgb']),
+      new Set(["position", "intensity", "classification", "rgb"]),
     );
     const sample = {};
-    for (const component of ['x', 'y', 'z', 'intensity', 'classification', 'red', 'green', 'blue']) {
-      if (component === 'x' || component === 'y' || component === 'z'
-        || view.availableFields.has(component === 'intensity'
-          ? 'intensity'
-          : component === 'classification' ? 'classification' : 'rgb')) {
+    for (const component of [
+      "x",
+      "y",
+      "z",
+      "intensity",
+      "classification",
+      "red",
+      "green",
+      "blue",
+    ]) {
+      if (
+        component === "x" ||
+        component === "y" ||
+        component === "z" ||
+        view.availableFields.has(
+          component === "intensity"
+            ? "intensity"
+            : component === "classification"
+              ? "classification"
+              : "rgb",
+        )
+      ) {
         sample[component] = view.getter(component)(0);
       }
     }
@@ -290,26 +356,35 @@ window.__PACKED_CONSUMER__ = {
       urlSource.loadHierarchyPage(urlSource.getRootHierarchyPage()),
       fileSource.loadHierarchyPage(fileSource.getRootHierarchyPage()),
     ]);
-    const compact = (page) => page.nodes
-      .map(({ key, pointCount, pointDataOffset, pointDataLength }) => ({
-        key, pointCount, pointDataOffset, pointDataLength,
-      }))
-      .sort((left, right) => left.key.localeCompare(right.key));
+    const compact = (page) =>
+      page.nodes
+        .map(({ key, pointCount, pointDataOffset, pointDataLength }) => ({
+          key,
+          pointCount,
+          pointDataOffset,
+          pointDataLength,
+        }))
+        .sort((left, right) => left.key.localeCompare(right.key));
     const urlNodes = compact(urlPage);
     const fileNodes = compact(filePage);
     const sampleNode = urlPage.nodes
       .filter((node) => node.pointCount > 0 && node.pointCount <= 20_000)
       .sort((left, right) => left.pointCount - right.pointCount)[0];
-    if (!sampleNode) throw new Error('No bounded COPC node was available for source parity');
+    if (!sampleNode)
+      throw new Error("No bounded COPC node was available for source parity");
     const fileNode = filePage.nodes.find((node) => node.key === sampleNode.key);
     const [urlPoints, filePoints] = await Promise.all([
-      urlSource.loadPointDataView(sampleNode, new Set(['position'])),
-      fileSource.loadPointDataView(fileNode, new Set(['position'])),
+      urlSource.loadPointDataView(sampleNode, new Set(["position"])),
+      fileSource.loadPointDataView(fileNode, new Set(["position"])),
     ]);
-    const sample = Array.from({ length: Math.min(8, sampleNode.pointCount) }, (_, index) =>
-      ['x', 'y', 'z'].map((component) => [
-        urlPoints.getter(component)(index), filePoints.getter(component)(index),
-      ]));
+    const sample = Array.from(
+      { length: Math.min(8, sampleNode.pointCount) },
+      (_, index) =>
+        ["x", "y", "z"].map((component) => [
+          urlPoints.getter(component)(index),
+          filePoints.getter(component)(index),
+        ]),
+    );
     return {
       urlPointCount: urlMetadata.pointCount,
       filePointCount: fileMetadata.pointCount,
@@ -320,8 +395,9 @@ window.__PACKED_CONSUMER__ = {
       sample,
     };
   },
-  rustCrsTransformerExportAvailable: typeof RustCrsTransformer === 'function',
-  batchedRendererExportAvailable: typeof BatchedGeometryPointRenderer === 'function',
+  rustCrsTransformerExportAvailable: typeof RustCrsTransformer === "function",
+  batchedRendererExportAvailable:
+    typeof BatchedGeometryPointRenderer === "function",
   getLastErrorStack: () => lastErrorStack,
   getState,
   getPointSizeDiagnostics() {
@@ -335,37 +411,48 @@ window.__PACKED_CONSUMER__ = {
       generation: node.generation,
       geometrySpacingAttribute: node.primitive.geometryInstances.geometry
         .attributes.a_spacingMeters?.values
-        ? Array.from(node.primitive.geometryInstances.geometry.attributes.a_spacingMeters.values)
+        ? Array.from(
+            node.primitive.geometryInstances.geometry.attributes.a_spacingMeters
+              .values,
+          )
         : [],
       vertexShaderSource: node.primitive.appearance.vertexShaderSource,
     }));
   },
-    getBatchedPointPickTarget() {
-      if (!renderer) return undefined;
-      for (const nodeKey of renderer.getRenderedNodeKeys()) {
-        const probe = renderer.probePick(viewer.scene, nodeKey);
-        if (probe.picked && probe.screenPosition && probe.targetSourcePointIndex !== undefined) {
-          // Browser mouse input is delivered at CSS-pixel coordinates. Probe
-          // and resolve against the same integer coordinate that the E2E
-          // click will use, rather than the projected point's fractional
-          // coordinate, which can land in an adjacent pick pixel.
-          const position = new Cesium.Cartesian2(
-            Math.round(probe.screenPosition.x),
-            Math.round(probe.screenPosition.y),
-          );
-          const pickedObject = viewer.scene.pick(position, 1, 1);
-          const identity = renderer.resolvePointPick(viewer.scene, position, pickedObject);
-          if (!identity || identity.nodeKey !== nodeKey) continue;
-          return {
-            nodeKey,
-            pointIndex: identity.pointIndex,
-            screenPosition: { x: position.x, y: position.y },
-            worldPosition: probe.worldPosition,
-          };
-        }
+  getBatchedPointPickTarget() {
+    if (!renderer) return undefined;
+    for (const nodeKey of renderer.getRenderedNodeKeys()) {
+      const probe = renderer.probePick(viewer.scene, nodeKey);
+      if (
+        probe.picked &&
+        probe.screenPosition &&
+        probe.targetSourcePointIndex !== undefined
+      ) {
+        // Browser mouse input is delivered at CSS-pixel coordinates. Probe
+        // and resolve against the same integer coordinate that the E2E
+        // click will use, rather than the projected point's fractional
+        // coordinate, which can land in an adjacent pick pixel.
+        const position = new Cesium.Cartesian2(
+          Math.round(probe.screenPosition.x),
+          Math.round(probe.screenPosition.y),
+        );
+        const pickedObject = viewer.scene.pick(position, 1, 1);
+        const identity = renderer.resolvePointPick(
+          viewer.scene,
+          position,
+          pickedObject,
+        );
+        if (!identity || identity.nodeKey !== nodeKey) continue;
+        return {
+          nodeKey,
+          pointIndex: identity.pointIndex,
+          screenPosition: { x: position.x, y: position.y },
+          worldPosition: probe.worldPosition,
+        };
       }
-      return undefined;
-    },
+    }
+    return undefined;
+  },
   beginResponsivenessCapture() {
     responsivenessCaptureStartedAt = performance.now();
   },
@@ -374,7 +461,11 @@ window.__PACKED_CONSUMER__ = {
   setCameraHeight(height) {
     const current = Cesium.Cartographic.fromCartesian(viewer.camera.positionWC);
     viewer.camera.setView({
-      destination: Cesium.Cartesian3.fromRadians(current.longitude, current.latitude, height),
+      destination: Cesium.Cartesian3.fromRadians(
+        current.longitude,
+        current.latitude,
+        height,
+      ),
     });
     viewer.camera.moveEnd.raiseEvent();
   },
@@ -401,9 +492,15 @@ window.__PACKED_CONSUMER__ = {
   },
 };
 
-window.addEventListener('error', (event) => reportError(event.error ?? event.message));
-window.addEventListener('unhandledrejection', (event) => reportError(event.reason));
-viewer.scene.renderError.addEventListener((_scene, error) => reportError(error));
+window.addEventListener("error", (event) =>
+  reportError(event.error ?? event.message),
+);
+window.addEventListener("unhandledrejection", (event) =>
+  reportError(event.reason),
+);
+viewer.scene.renderError.addEventListener((_scene, error) =>
+  reportError(error),
+);
 
 try {
   await layer.load();

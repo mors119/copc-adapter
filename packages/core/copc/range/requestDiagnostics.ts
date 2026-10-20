@@ -1,27 +1,27 @@
-import type { RangeReadOptions, RandomAccessByteSource } from './types';
+import type { RangeReadOptions, RandomAccessByteSource } from "./types";
 
 /** Stable abort reasons used to distinguish view changes from source teardown. */
 export const RANGE_CANCELLATION_REASON = {
-  superseded: 'superseded',
-  lifecycle: 'lifecycle',
+  superseded: "superseded",
+  lifecycle: "lifecycle",
 } as const;
 
 /** Cancellation category recorded for an in-flight range read. */
 export type RangeCancellationReason =
-  typeof RANGE_CANCELLATION_REASON[keyof typeof RANGE_CANCELLATION_REASON];
+  (typeof RANGE_CANCELLATION_REASON)[keyof typeof RANGE_CANCELLATION_REASON];
 
 /** One request lifecycle event accepted by the diagnostics recorder. */
 export type RangeRequestOutcome =
   /** A range read started and incremented the active count. */
-  | 'requested'
+  | "requested"
   /** A range read returned its requested bytes. */
-  | 'completed'
+  | "completed"
   /** A range read failed for a reason other than cancellation. */
-  | 'failed'
+  | "failed"
   /** A range read was cancelled because a newer view no longer needed it. */
-  | 'abortedSuperseded'
+  | "abortedSuperseded"
   /** A range read was cancelled because its owning source lifecycle ended. */
-  | 'abortedLifecycle';
+  | "abortedLifecycle";
 
 /** Aggregate range lifecycle counts; byte totals are recorded separately. */
 export type RangeRequestDiagnostics = {
@@ -46,15 +46,19 @@ function increment(current: number): number {
 }
 
 function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError'
-    || typeof DOMException !== 'undefined'
-      && error instanceof DOMException
-      && error.name === 'AbortError';
+  return (
+    (error instanceof Error && error.name === "AbortError") ||
+    (typeof DOMException !== "undefined" &&
+      error instanceof DOMException &&
+      error.name === "AbortError")
+  );
 }
 
 function abortError(signal: AbortSignal): Error {
-  const error = new Error('Range request was cancelled', { cause: signal.reason });
-  error.name = 'AbortError';
+  const error = new Error("Range request was cancelled", {
+    cause: signal.reason,
+  });
+  error.name = "AbortError";
   return error;
 }
 
@@ -63,7 +67,9 @@ function linkSignals(signals: readonly (AbortSignal | undefined)[]): {
   dispose(): void;
 } {
   const controller = new AbortController();
-  const activeSignals = signals.filter((signal): signal is AbortSignal => signal !== undefined);
+  const activeSignals = signals.filter(
+    (signal): signal is AbortSignal => signal !== undefined,
+  );
   const listeners: Array<{ signal: AbortSignal; listener: () => void }> = [];
 
   for (const signal of activeSignals) {
@@ -73,7 +79,7 @@ function linkSignals(signals: readonly (AbortSignal | undefined)[]): {
     }
 
     const listener = (): void => controller.abort(signal.reason);
-    signal.addEventListener('abort', listener, { once: true });
+    signal.addEventListener("abort", listener, { once: true });
     listeners.push({ signal, listener });
   }
 
@@ -81,7 +87,7 @@ function linkSignals(signals: readonly (AbortSignal | undefined)[]): {
     signal: controller.signal,
     dispose(): void {
       for (const { signal, listener } of listeners) {
-        signal.removeEventListener('abort', listener);
+        signal.removeEventListener("abort", listener);
       }
     },
   };
@@ -99,7 +105,7 @@ export class RangeRequestDiagnosticsRecorder {
   };
 
   record(outcome: RangeRequestOutcome): void {
-    if (outcome === 'requested') {
+    if (outcome === "requested") {
       this.diagnostics.requested = increment(this.diagnostics.requested);
       this.diagnostics.active = increment(this.diagnostics.active);
       return;
@@ -145,7 +151,7 @@ export class ProjectOwnedByteSource implements RandomAccessByteSource {
     options: RangeReadOptions = {},
   ): Promise<Uint8Array> {
     const linked = linkSignals([this.lifecycleSignal, options.signal]);
-    this.diagnostics.record('requested');
+    this.diagnostics.record("requested");
     try {
       if (linked.signal.aborted) {
         throw abortError(linked.signal);
@@ -156,16 +162,18 @@ export class ProjectOwnedByteSource implements RandomAccessByteSource {
       if (linked.signal.aborted) {
         throw abortError(linked.signal);
       }
-      this.diagnostics.record('completed');
+      this.diagnostics.record("completed");
       return bytes;
     } catch (error: unknown) {
       if (linked.signal.aborted || isAbortError(error)) {
         const reason = linked.signal.reason;
-        this.diagnostics.record(reason === RANGE_CANCELLATION_REASON.lifecycle
-          ? 'abortedLifecycle'
-          : 'abortedSuperseded');
+        this.diagnostics.record(
+          reason === RANGE_CANCELLATION_REASON.lifecycle
+            ? "abortedLifecycle"
+            : "abortedSuperseded",
+        );
       } else {
-        this.diagnostics.record('failed');
+        this.diagnostics.record("failed");
       }
       throw error;
     } finally {
@@ -175,11 +183,14 @@ export class ProjectOwnedByteSource implements RandomAccessByteSource {
 
   /** Read ranges concurrently and preserve the input order in the returned array. */
   readRanges(
-    ranges: Parameters<RandomAccessByteSource['readRanges']>[0],
+    ranges: Parameters<RandomAccessByteSource["readRanges"]>[0],
     options: RangeReadOptions = {},
   ): Promise<Uint8Array[]> {
-    return Promise.all(ranges.map(({ offset, length }) =>
-      this.readRange(offset, length, options)));
+    return Promise.all(
+      ranges.map(({ offset, length }) =>
+        this.readRange(offset, length, options),
+      ),
+    );
   }
 
   /** Return the delegate's known size without starting a range read. */

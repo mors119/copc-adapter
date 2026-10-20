@@ -1,15 +1,15 @@
-import fs from 'node:fs';
-import path from 'node:path';
+import fs from "node:fs";
+import path from "node:path";
 
-import { downloadDataset } from './lib/downloader.js';
-import type { DatasetRegistry } from './lib/dataset.js';
-import { error, info, warning } from './lib/logger.js';
+import { downloadDataset } from "./lib/downloader.js";
+import type { DatasetRegistry } from "./lib/dataset.js";
+import { error, info, warning } from "./lib/logger.js";
 
-const registryPath = path.resolve('samples', 'datasets.json');
-const outputDir = path.resolve('samples', 'local');
+const registryPath = path.resolve("samples", "datasets.json");
+const outputDir = path.resolve("samples", "local");
 
 const registry = JSON.parse(
-  fs.readFileSync(registryPath, 'utf8'),
+  fs.readFileSync(registryPath, "utf8"),
 ) as DatasetRegistry;
 
 async function main() {
@@ -25,12 +25,12 @@ async function main() {
   );
 
   if (unknownIds.length > 0) {
-    error(`Unknown dataset id(s): ${unknownIds.join(', ')}`);
+    error(`Unknown dataset id(s): ${unknownIds.join(", ")}`);
     process.exit(1);
   }
 
   if (selectedDatasets.length === 0) {
-    warning('No datasets selected.');
+    warning("No datasets selected.");
     process.exit(0);
   }
 
@@ -39,7 +39,7 @@ async function main() {
   info(
     `Selected dataset(s): ${selectedDatasets
       .map((dataset) => dataset.id)
-      .join(', ')}`,
+      .join(", ")}`,
   );
 
   for (const dataset of selectedDatasets) {

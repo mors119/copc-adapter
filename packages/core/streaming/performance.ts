@@ -1,10 +1,10 @@
-import { performanceNow } from '../copc/performance';
+import { performanceNow } from "../copc/performance";
 import type {
   StreamingLevelRange,
   StreamingSelectionMetrics,
   StreamingSchedulingDiagnostics,
   ViewVector3,
-} from './types';
+} from "./types";
 
 /**
  * Measurements for the most recent streaming view update.
@@ -70,7 +70,9 @@ export type StreamingPerformanceSnapshot = {
   /** Whether the minimum coverage frontier exceeds the point budget. */
   minimumFrontierExceedsPointBudget: boolean;
   /** Active refinement algorithm used by the latest selection. */
-  refinementAlgorithm?: NonNullable<StreamingSelectionMetrics['refinementAlgorithm']>;
+  refinementAlgorithm?: NonNullable<
+    StreamingSelectionMetrics["refinementAlgorithm"]
+  >;
   /** Whether the latest selection used a manual focus lens. */
   refinementFocusEnabled?: boolean;
   /** Whether current-view camera motion lookahead was enabled. */
@@ -233,7 +235,7 @@ function emptySnapshot(): StreamingPerformanceSnapshot {
     refinementDeferredByIncompleteHierarchyCount: 0,
     minimumFrontierExceedsNodeBudget: false,
     minimumFrontierExceedsPointBudget: false,
-    refinementAlgorithm: 'foveated',
+    refinementAlgorithm: "foveated",
     refinementFocusEnabled: false,
     loadedNodeCount: 0,
     loadedPointCount: 0,
@@ -287,17 +289,24 @@ export class StreamingPerformanceRecorder {
     this.snapshot.maxConcurrentNodeLoads = diagnostics.maxConcurrentNodeLoads;
     this.snapshot.queuedNodeCount = diagnostics.queuedNodeCount;
     this.snapshot.activeNodeCount = diagnostics.activeNodeCount;
-    this.snapshot.queuedHighPriorityNodeCount = diagnostics.queuedHighPriorityNodeCount;
-    this.snapshot.activeHighPriorityNodeCount = diagnostics.activeHighPriorityNodeCount;
+    this.snapshot.queuedHighPriorityNodeCount =
+      diagnostics.queuedHighPriorityNodeCount;
+    this.snapshot.activeHighPriorityNodeCount =
+      diagnostics.activeHighPriorityNodeCount;
     this.snapshot.completedNodeCount = diagnostics.completedNodeCount;
     this.currentSchedulerCancelledNodeCount = diagnostics.cancelledNodeCount;
-    this.snapshot.cancelledNodeCount = this.schedulingCancellationCount
-      + this.currentSchedulerCancelledNodeCount;
+    this.snapshot.cancelledNodeCount =
+      this.schedulingCancellationCount +
+      this.currentSchedulerCancelledNodeCount;
     this.snapshot.peakActiveNodeCount = diagnostics.peakActiveNodeCount;
-    this.snapshot.completedSchedulingPriorityMin = diagnostics.completedSchedulingPriorityMin;
-    this.snapshot.completedSchedulingPriorityMax = diagnostics.completedSchedulingPriorityMax;
-    this.snapshot.pendingSchedulingPriorityMin = diagnostics.pendingSchedulingPriorityMin;
-    this.snapshot.pendingSchedulingPriorityMax = diagnostics.pendingSchedulingPriorityMax;
+    this.snapshot.completedSchedulingPriorityMin =
+      diagnostics.completedSchedulingPriorityMin;
+    this.snapshot.completedSchedulingPriorityMax =
+      diagnostics.completedSchedulingPriorityMax;
+    this.snapshot.pendingSchedulingPriorityMin =
+      diagnostics.pendingSchedulingPriorityMin;
+    this.snapshot.pendingSchedulingPriorityMax =
+      diagnostics.pendingSchedulingPriorityMax;
   }
 
   /** Preserve cancellations reported by a superseded scheduler. */
@@ -307,8 +316,9 @@ export class StreamingPerformanceRecorder {
     }
 
     this.schedulingCancellationCount += Math.floor(count);
-    this.snapshot.cancelledNodeCount = this.schedulingCancellationCount
-      + this.currentSchedulerCancelledNodeCount;
+    this.snapshot.cancelledNodeCount =
+      this.schedulingCancellationCount +
+      this.currentSchedulerCancelledNodeCount;
   }
 
   recordFirstHighPriorityNodeReady(): void {
@@ -346,40 +356,54 @@ export class StreamingPerformanceRecorder {
     this.snapshot.estimatedSelectedPointCount = estimatedSelectedPointCount;
     this.snapshot.configuredPointBudget = metrics.maxRenderedPoints;
     this.configuredPointBudget = metrics.maxRenderedPoints;
-    this.snapshot.candidateSelectedPointCount = metrics.candidateSelectedPointCount;
+    this.snapshot.candidateSelectedPointCount =
+      metrics.candidateSelectedPointCount;
     this.snapshot.activeRenderedPointCount = metrics.budgetedPointCount;
     this.snapshot.deferredNodeCount = metrics.deferredNodeCount;
     this.snapshot.deferredPointCount = metrics.deferredPointCount;
     this.snapshot.budgetDeferDropCount = metrics.budgetDeferDropCount;
-    this.snapshot.budgetUtilizationPercent = metrics.maxRenderedPoints > 0
-      ? (metrics.budgetedPointCount / metrics.maxRenderedPoints) * 100
-      : 0;
+    this.snapshot.budgetUtilizationPercent =
+      metrics.maxRenderedPoints > 0
+        ? (metrics.budgetedPointCount / metrics.maxRenderedPoints) * 100
+        : 0;
     this.snapshot.nodeSelectionMs = durationMs;
     this.snapshot.candidatesBeforeCulling = metrics.candidatesBeforeCulling;
     this.snapshot.frustumCulledCount = metrics.frustumCulledCount;
     this.snapshot.maxScreenSpaceError = metrics.maxScreenSpaceError;
     this.snapshot.screenSpaceErrorMin = metrics.screenSpaceErrorMin;
     this.snapshot.screenSpaceErrorMax = metrics.screenSpaceErrorMax;
-    this.snapshot.effectiveScreenSpaceErrorMin = metrics.effectiveScreenSpaceErrorMin;
-    this.snapshot.effectiveScreenSpaceErrorMax = metrics.effectiveScreenSpaceErrorMax;
+    this.snapshot.effectiveScreenSpaceErrorMin =
+      metrics.effectiveScreenSpaceErrorMin;
+    this.snapshot.effectiveScreenSpaceErrorMax =
+      metrics.effectiveScreenSpaceErrorMax;
     this.snapshot.refinedNodeCount = metrics.refinedNodeCount;
     this.snapshot.keptNodeCount = metrics.keptNodeCount;
     this.snapshot.frontierNodeCount = metrics.frontierNodeCount ?? 0;
     this.snapshot.frontierPointCount = metrics.frontierPointCount ?? 0;
-    this.snapshot.acceptedRefinementCount = metrics.acceptedRefinementCount ?? 0;
-    this.snapshot.refinementRejectedByNodeBudgetCount = metrics.refinementRejectedByNodeBudgetCount ?? 0;
-    this.snapshot.refinementRejectedByPointBudgetCount = metrics.refinementRejectedByPointBudgetCount ?? 0;
-    this.snapshot.refinementDeferredByIncompleteHierarchyCount = metrics.refinementDeferredByIncompleteHierarchyCount ?? 0;
-    this.snapshot.minimumFrontierExceedsNodeBudget = metrics.minimumFrontierExceedsNodeBudget ?? false;
-    this.snapshot.minimumFrontierExceedsPointBudget = metrics.minimumFrontierExceedsPointBudget ?? false;
-    this.snapshot.refinementAlgorithm = metrics.refinementAlgorithm ?? 'foveated';
-    this.snapshot.refinementFocusEnabled = metrics.refinementFocusEnabled ?? false;
-    this.snapshot.motionLookaheadEnabled = metrics.motionLookaheadEnabled ?? false;
+    this.snapshot.acceptedRefinementCount =
+      metrics.acceptedRefinementCount ?? 0;
+    this.snapshot.refinementRejectedByNodeBudgetCount =
+      metrics.refinementRejectedByNodeBudgetCount ?? 0;
+    this.snapshot.refinementRejectedByPointBudgetCount =
+      metrics.refinementRejectedByPointBudgetCount ?? 0;
+    this.snapshot.refinementDeferredByIncompleteHierarchyCount =
+      metrics.refinementDeferredByIncompleteHierarchyCount ?? 0;
+    this.snapshot.minimumFrontierExceedsNodeBudget =
+      metrics.minimumFrontierExceedsNodeBudget ?? false;
+    this.snapshot.minimumFrontierExceedsPointBudget =
+      metrics.minimumFrontierExceedsPointBudget ?? false;
+    this.snapshot.refinementAlgorithm =
+      metrics.refinementAlgorithm ?? "foveated";
+    this.snapshot.refinementFocusEnabled =
+      metrics.refinementFocusEnabled ?? false;
+    this.snapshot.motionLookaheadEnabled =
+      metrics.motionLookaheadEnabled ?? false;
     this.snapshot.motionHorizontalAngularVelocityDegreesPerSecond =
       metrics.motionHorizontalAngularVelocityDegreesPerSecond ?? 0;
     this.snapshot.motionVerticalAngularVelocityDegreesPerSecond =
       metrics.motionVerticalAngularVelocityDegreesPerSecond ?? 0;
-    this.snapshot.motionHorizonMilliseconds = metrics.motionHorizonMilliseconds ?? 0;
+    this.snapshot.motionHorizonMilliseconds =
+      metrics.motionHorizonMilliseconds ?? 0;
     this.snapshot.motionPredictedHorizontalDisplacementDegrees =
       metrics.motionPredictedHorizontalDisplacementDegrees ?? 0;
     this.snapshot.motionPredictedVerticalDisplacementDegrees =
@@ -407,13 +431,16 @@ export class StreamingPerformanceRecorder {
     this.snapshot.focusInfluencedRefinementCount =
       metrics.focusInfluencedRefinementCount ?? 0;
     this.snapshot.influenceClampCount = metrics.influenceClampCount ?? 0;
-    this.snapshot.acceptedRefinementPriorityMin = metrics.acceptedRefinementPriorityMin;
-    this.snapshot.acceptedRefinementPriorityMax = metrics.acceptedRefinementPriorityMax;
+    this.snapshot.acceptedRefinementPriorityMin =
+      metrics.acceptedRefinementPriorityMin;
+    this.snapshot.acceptedRefinementPriorityMax =
+      metrics.acceptedRefinementPriorityMax;
     this.snapshot.refinementPriorityMin = metrics.refinementPriorityMin;
     this.snapshot.refinementPriorityMax = metrics.refinementPriorityMax;
     this.snapshot.schedulingPriorityMin = metrics.schedulingPriorityMin;
     this.snapshot.schedulingPriorityMax = metrics.schedulingPriorityMax;
-    this.snapshot.candidatesWithCenterBoostCount = metrics.candidatesWithCenterBoostCount ?? 0;
+    this.snapshot.candidatesWithCenterBoostCount =
+      metrics.candidatesWithCenterBoostCount ?? 0;
     this.snapshot.hysteresisHoldCount = metrics.hysteresisHoldCount ?? 0;
     this.snapshot.refineDecisionCount = metrics.refineDecisionCount ?? 0;
     this.snapshot.collapseDecisionCount = metrics.collapseDecisionCount ?? 0;
@@ -432,9 +459,12 @@ export class StreamingPerformanceRecorder {
 
   setActiveRenderedPointCount(pointCount: number): void {
     this.snapshot.activeRenderedPointCount = Math.max(0, pointCount);
-    this.snapshot.budgetUtilizationPercent = this.snapshot.configuredPointBudget > 0
-      ? (this.snapshot.activeRenderedPointCount / this.snapshot.configuredPointBudget) * 100
-      : 0;
+    this.snapshot.budgetUtilizationPercent =
+      this.snapshot.configuredPointBudget > 0
+        ? (this.snapshot.activeRenderedPointCount /
+            this.snapshot.configuredPointBudget) *
+          100
+        : 0;
   }
 
   recordBudgetDrop(nodeCount = 1, pointCount = 0): void {
@@ -446,24 +476,28 @@ export class StreamingPerformanceRecorder {
   recordStage(
     stage: keyof Pick<
       StreamingPerformanceSnapshot,
-      | 'rangeFetchDurationMs'
-      | 'decodeDurationMs'
-      | 'pointPreparationDurationMs'
-      | 'crsTransformDurationMs'
-      | 'geographicToCartesianDurationMs'
-      | 'worldToCartesianDurationMs'
-      | 'pointStylePreparationDurationMs'
-      | 'pointCollectionCreationDurationMs'
-      | 'pointAddDurationMs'
-      | 'rendererPreparationDurationMs'
-      | 'nodeRemovalDurationMs'
+      | "rangeFetchDurationMs"
+      | "decodeDurationMs"
+      | "pointPreparationDurationMs"
+      | "crsTransformDurationMs"
+      | "geographicToCartesianDurationMs"
+      | "worldToCartesianDurationMs"
+      | "pointStylePreparationDurationMs"
+      | "pointCollectionCreationDurationMs"
+      | "pointAddDurationMs"
+      | "rendererPreparationDurationMs"
+      | "nodeRemovalDurationMs"
     >,
     durationMs: number,
     blocksMainThread = false,
     bytes = 0,
   ): void {
     this.snapshot[stage] += durationMs;
-    if (stage === 'rangeFetchDurationMs' && Number.isFinite(bytes) && bytes > 0) {
+    if (
+      stage === "rangeFetchDurationMs" &&
+      Number.isFinite(bytes) &&
+      bytes > 0
+    ) {
       this.snapshot.rangeFetchBytes += Math.floor(bytes);
     }
     if (blocksMainThread) {

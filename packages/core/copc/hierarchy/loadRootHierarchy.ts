@@ -1,10 +1,10 @@
 import {
   resolveCopcContext,
   type CopcContextInput,
-} from '../context/createCopcContext';
-import { HierarchyLoader } from './HierarchyLoader';
-import type { CopcHierarchyNode } from '../types/copc';
-import { CopcHierarchyLoadError, CopcLoadError } from '../errors';
+} from "../context/createCopcContext";
+import { HierarchyLoader } from "./HierarchyLoader";
+import type { CopcHierarchyNode } from "../types/copc";
+import { CopcHierarchyLoadError, CopcLoadError } from "../errors";
 
 /**
  * Load and decode hierarchy pages across the full COPC cube from an existing
@@ -25,7 +25,10 @@ export async function loadRootHierarchy(
 
     return hierarchy.nodes;
   } catch (error: unknown) {
-    if (error instanceof CopcHierarchyLoadError || error instanceof CopcLoadError) {
+    if (
+      error instanceof CopcHierarchyLoadError ||
+      error instanceof CopcLoadError
+    ) {
       throw error;
     }
 

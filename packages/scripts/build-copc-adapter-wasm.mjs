@@ -1,21 +1,36 @@
-import { mkdir, copyFile, readFile, rm, writeFile } from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { spawn } from 'node:child_process';
+import { mkdir, copyFile, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { spawn } from "node:child_process";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
-const appDirectory = path.resolve(scriptDirectory, '..');
-const workspaceDirectory = path.resolve(appDirectory, '..');
+const appDirectory = path.resolve(scriptDirectory, "..");
+const workspaceDirectory = path.resolve(appDirectory, "..");
 const wasmOutputPath = path.resolve(
   workspaceDirectory,
-  'target/wasm32-unknown-unknown/release/copc_adapter_wasm.wasm',
+  "target/wasm32-unknown-unknown/release/copc_adapter_wasm.wasm",
 );
-const publicWasmDirectory = path.resolve(workspaceDirectory, 'apps/dev-viewer/public/wasm');
-const publicWasmPath = path.resolve(publicWasmDirectory, 'copc_adapter_wasm.wasm');
-const libraryWasmPath = path.resolve(appDirectory, 'core/wasm/copc_adapter_wasm.wasm');
-const legacyPublicWasmPath = path.resolve(publicWasmDirectory, 'copc_wasm.wasm');
-const legacyLibraryWasmPath = path.resolve(appDirectory, 'core/wasm/copc_wasm.wasm');
+const publicWasmDirectory = path.resolve(
+  workspaceDirectory,
+  "apps/dev-viewer/public/wasm",
+);
+const publicWasmPath = path.resolve(
+  publicWasmDirectory,
+  "copc_adapter_wasm.wasm",
+);
+const libraryWasmPath = path.resolve(
+  appDirectory,
+  "core/wasm/copc_adapter_wasm.wasm",
+);
+const legacyPublicWasmPath = path.resolve(
+  publicWasmDirectory,
+  "copc_wasm.wasm",
+);
+const legacyLibraryWasmPath = path.resolve(
+  appDirectory,
+  "core/wasm/copc_wasm.wasm",
+);
 
 function runCargoBuild() {
   return new Promise((resolve, reject) => {
@@ -23,18 +38,27 @@ function runCargoBuild() {
     const rustFlags = [
       process.env.RUSTFLAGS,
       `--remap-path-prefix=${homeDirectory}=.`,
-    ].filter(Boolean).join(' ');
+    ]
+      .filter(Boolean)
+      .join(" ");
     const child = spawn(
-      'cargo',
-      ['build', '-p', 'copc-adapter-wasm', '--target', 'wasm32-unknown-unknown', '--release'],
+      "cargo",
+      [
+        "build",
+        "-p",
+        "copc-adapter-wasm",
+        "--target",
+        "wasm32-unknown-unknown",
+        "--release",
+      ],
       {
         cwd: workspaceDirectory,
         env: { ...process.env, RUSTFLAGS: rustFlags },
-        stdio: 'inherit',
+        stdio: "inherit",
       },
     );
 
-    child.on('exit', (code) => {
+    child.on("exit", (code) => {
       if (code === 0) {
         resolve();
         return;
@@ -42,7 +66,7 @@ function runCargoBuild() {
 
       reject(new Error(`cargo build failed with exit code ${code}`));
     });
-    child.on('error', reject);
+    child.on("error", reject);
   });
 }
 
@@ -59,17 +83,22 @@ function readUnsignedLeb128(bytes, start) {
     }
     shift += 7;
     if (shift > 35) {
-      throw new Error('Invalid WebAssembly unsigned LEB128 value');
+      throw new Error("Invalid WebAssembly unsigned LEB128 value");
     }
   }
-  throw new Error('Truncated WebAssembly unsigned LEB128 value');
+  throw new Error("Truncated WebAssembly unsigned LEB128 value");
 }
 
 /** Remove compiler-only function/source names from the shipped WASM asset. */
 function stripWasmNameSection(bytes) {
-  if (bytes.length < 8 || bytes[0] !== 0x00 || bytes[1] !== 0x61 ||
-      bytes[2] !== 0x73 || bytes[3] !== 0x6d) {
-    throw new Error('Invalid WebAssembly module');
+  if (
+    bytes.length < 8 ||
+    bytes[0] !== 0x00 ||
+    bytes[1] !== 0x61 ||
+    bytes[2] !== 0x73 ||
+    bytes[3] !== 0x6d
+  ) {
+    throw new Error("Invalid WebAssembly module");
   }
 
   const sections = [bytes.subarray(0, 8)];
@@ -82,15 +111,17 @@ function stripWasmNameSection(bytes) {
     offset = payload.offset;
     const sectionEnd = offset + payload.value;
     if (sectionEnd > bytes.length) {
-      throw new Error('Truncated WebAssembly section');
+      throw new Error("Truncated WebAssembly section");
     }
 
     let isNameSection = false;
     if (sectionId === 0) {
       const nameLength = readUnsignedLeb128(bytes, offset);
       const nameEnd = nameLength.offset + nameLength.value;
-      isNameSection = nameEnd <= sectionEnd &&
-        new TextDecoder().decode(bytes.subarray(nameLength.offset, nameEnd)) === 'name';
+      isNameSection =
+        nameEnd <= sectionEnd &&
+        new TextDecoder().decode(bytes.subarray(nameLength.offset, nameEnd)) ===
+          "name";
     }
     if (!isNameSection) {
       sections.push(bytes.subarray(sectionStart, sectionEnd));

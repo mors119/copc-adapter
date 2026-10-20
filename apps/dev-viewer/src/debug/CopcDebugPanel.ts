@@ -4,14 +4,14 @@ import type {
   CopcMetadata,
   CopcPointInspection,
   RangeValidationPolicy,
-} from '@frillab/copc-adapter';
-import type { CopcThreeLayerSnapshot } from '@frillab/copc-adapter/three';
+} from "@frillab/copc-adapter";
+import type { CopcThreeLayerSnapshot } from "@frillab/copc-adapter/three";
 import type {
   CopcHierarchyDiagnostics,
   CopcSourceProbeResult,
   ProbeTruth,
-} from '@frillab/copc-adapter';
-import { createCopcPointInspector } from './CopcPointInspector';
+} from "@frillab/copc-adapter";
+import { createCopcPointInspector } from "./CopcPointInspector";
 
 export type CopcDebugPanelState = {
   snapshot: CopcCesiumLayerSnapshot | CopcThreeLayerSnapshot;
@@ -31,7 +31,7 @@ export type CopcDebugPanelView = {
   datasetUrl: string;
   activeColorMode: string;
   status: string;
-  statusTone: 'loading' | 'ready' | 'error' | 'inactive';
+  statusTone: "loading" | "ready" | "error" | "inactive";
   pointCount: string;
   bounds: string;
   scale: string;
@@ -141,7 +141,7 @@ export type CopcDebugPanelView = {
   rangeValidationScope: string;
 };
 
-const numberFormatter = new Intl.NumberFormat('en-US');
+const numberFormatter = new Intl.NumberFormat("en-US");
 
 function formatNumber(value: number): string {
   return numberFormatter.format(value);
@@ -158,25 +158,25 @@ function formatCoordinate(value: number): string {
 function formatPriorityRange(min?: number, max?: number): string {
   return min !== undefined && max !== undefined
     ? `${formatCoordinate(min)}–${formatCoordinate(max)}`
-    : '—';
+    : "—";
 }
 
 function formatVector(vector?: { x: number; y: number; z: number }): string {
   if (!vector) {
-    return '—';
+    return "—";
   }
 
-  return [vector.x, vector.y, vector.z].map(formatCoordinate).join(', ');
+  return [vector.x, vector.y, vector.z].map(formatCoordinate).join(", ");
 }
 
 function formatProbeTruth(value: ProbeTruth, label: string): string {
-  const mark = value === true ? '✓' : value === false ? '✕' : '?';
+  const mark = value === true ? "✓" : value === false ? "✕" : "?";
   return `${mark} ${label}`;
 }
 
 function getDatasetName(datasetUrl: string): string {
   const withoutQuery = datasetUrl.split(/[?#]/, 1)[0];
-  const encodedName = withoutQuery.split('/').filter(Boolean).at(-1);
+  const encodedName = withoutQuery.split("/").filter(Boolean).at(-1);
 
   if (!encodedName) {
     return datasetUrl;
@@ -195,37 +195,43 @@ export function buildCopcDebugPanelView(
   const { snapshot, metadata, hierarchy, sourceProbe, lastError } = state;
   const liveMotion = snapshot.performance?.motionLive ?? {
     enabled: snapshot.performance?.motionLookaheadEnabled ?? false,
-    acceptedMovementSampleCount: snapshot.performance?.motionSampledMovementCount ?? 0,
+    acceptedMovementSampleCount:
+      snapshot.performance?.motionSampledMovementCount ?? 0,
     horizontalAngularVelocityDegreesPerSecond: 0,
     verticalAngularVelocityDegreesPerSecond: 0,
     horizonMilliseconds: snapshot.performance?.motionHorizonMilliseconds ?? 200,
     predictedHorizontalDisplacementDegrees: 0,
     predictedVerticalDisplacementDegrees: 0,
     activity: 0,
-    state: snapshot.performance?.motionLookaheadEnabled ? 'stationary' as const : 'disabled' as const,
+    state: snapshot.performance?.motionLookaheadEnabled
+      ? ("stationary" as const)
+      : ("disabled" as const),
   };
-  const rangeRequests = 'rangeRequests' in snapshot ? snapshot.rangeRequests : undefined;
+  const rangeRequests =
+    "rangeRequests" in snapshot ? snapshot.rangeRequests : undefined;
   const status = lastError
-    ? 'Error'
-    : snapshot.lifecycle === 'ready'
-      ? 'Ready'
-      : snapshot.lifecycle === 'loading'
-        ? 'Loading'
-        : snapshot.lifecycle.charAt(0).toUpperCase() + snapshot.lifecycle.slice(1);
+    ? "Error"
+    : snapshot.lifecycle === "ready"
+      ? "Ready"
+      : snapshot.lifecycle === "loading"
+        ? "Loading"
+        : snapshot.lifecycle.charAt(0).toUpperCase() +
+          snapshot.lifecycle.slice(1);
   const statusTone = lastError
-    ? 'error'
-    : snapshot.lifecycle === 'ready'
-      ? 'ready'
-      : snapshot.lifecycle === 'loading'
-        ? 'loading'
-        : 'inactive';
+    ? "error"
+    : snapshot.lifecycle === "ready"
+      ? "ready"
+      : snapshot.lifecycle === "loading"
+        ? "loading"
+        : "inactive";
 
   return {
     datasetName: getDatasetName(snapshot.datasetUrl),
     datasetUrl: snapshot.datasetUrl,
-    activeColorMode: state.activeColorMode ?? 'fixed',
-    refinementAlgorithm: snapshot.performance?.refinementAlgorithm ?? 'foveated',
-    motionLiveEnabled: liveMotion.enabled ? 'on' : 'off',
+    activeColorMode: state.activeColorMode ?? "fixed",
+    refinementAlgorithm:
+      snapshot.performance?.refinementAlgorithm ?? "foveated",
+    motionLiveEnabled: liveMotion.enabled ? "on" : "off",
     motionLiveState: liveMotion.state,
     motionLiveMovementSamples: formatNumber(
       liveMotion.acceptedMovementSampleCount,
@@ -233,36 +239,43 @@ export function buildCopcDebugPanelView(
     motionLiveAngularVelocity: `${formatCoordinate(liveMotion.horizontalAngularVelocityDegreesPerSecond)}°/s horizontal · ${formatCoordinate(liveMotion.verticalAngularVelocityDegreesPerSecond)}°/s vertical`,
     motionLivePrediction: `${formatCoordinate(liveMotion.predictedHorizontalDisplacementDegrees)}° horizontal · ${formatCoordinate(liveMotion.predictedVerticalDisplacementDegrees)}° vertical (${liveMotion.horizonMilliseconds} ms)`,
     motionLiveActivity: formatCoordinate(liveMotion.activity),
-    motionLiveAge: liveMotion.millisecondsSinceLastAcceptedMovement === undefined
-      ? 'no accepted movement sample'
-      : `${formatCoordinate(liveMotion.millisecondsSinceLastAcceptedMovement)} ms`,
+    motionLiveAge:
+      liveMotion.millisecondsSinceLastAcceptedMovement === undefined
+        ? "no accepted movement sample"
+        : `${formatCoordinate(liveMotion.millisecondsSinceLastAcceptedMovement)} ms`,
     motionSelectionGeneration: formatNumber(snapshot.streamingUpdateCount),
     motionSelectionNodes: `${formatNumber(snapshot.performance?.selectedNodeCount ?? snapshot.selectedNodeKeys.length)} selected · ${formatNumber(snapshot.renderedNodeKeys.length)} rendered`,
     motionSelectionPrediction: `${formatCoordinate(snapshot.performance?.motionPredictedHorizontalDisplacementDegrees ?? 0)}° horizontal · ${formatCoordinate(snapshot.performance?.motionPredictedVerticalDisplacementDegrees ?? 0)}° vertical`,
-    motionSelectionCandidates: formatNumber(snapshot.performance?.motionCandidateCount ?? 0),
+    motionSelectionCandidates: formatNumber(
+      snapshot.performance?.motionCandidateCount ?? 0,
+    ),
     motionSelectionWeights: formatPriorityRange(
       snapshot.performance?.motionWeightMin,
       snapshot.performance?.motionWeightMax,
     ),
-    motionSelectionInfluence: (snapshot.performance?.motionInfluencedRefinementCount ?? 0) > 0
-      ? `${formatNumber(snapshot.performance?.motionInfluencedRefinementCount ?? 0)} accepted refinement${snapshot.performance?.motionInfluencedRefinementCount === 1 ? '' : 's'} influenced`
-      : (snapshot.performance?.motionCandidateCount ?? 0) > 0
-        ? 'weighted candidates; no accepted refinement changed'
-        : 'no motion-weighted candidates',
+    motionSelectionInfluence:
+      (snapshot.performance?.motionInfluencedRefinementCount ?? 0) > 0
+        ? `${formatNumber(snapshot.performance?.motionInfluencedRefinementCount ?? 0)} accepted refinement${snapshot.performance?.motionInfluencedRefinementCount === 1 ? "" : "s"} influenced`
+        : (snapshot.performance?.motionCandidateCount ?? 0) > 0
+          ? "weighted candidates; no accepted refinement changed"
+          : "no motion-weighted candidates",
     rangeFetchBytes: formatBytes(snapshot.performance?.rangeFetchBytes ?? 0),
     configuredRangeValidation: state.configuredRangeValidation,
     sourceProbePolicy: sourceProbe
-      ? state.sourceProbePolicy ?? '—'
-      : state.rangeValidationApplicable ? '—' : 'not applicable · local File',
-    sourceProbeSource: sourceProbe?.source ?? '—',
-    sourceProbeValidationLevel: sourceProbe?.validationLevel
-      ?? (state.rangeValidationApplicable ? '—' : 'not applicable · local File'),
+      ? (state.sourceProbePolicy ?? "—")
+      : state.rangeValidationApplicable
+        ? "—"
+        : "not applicable · local File",
+    sourceProbeSource: sourceProbe?.source ?? "—",
+    sourceProbeValidationLevel:
+      sourceProbe?.validationLevel ??
+      (state.rangeValidationApplicable ? "—" : "not applicable · local File"),
     rangeValidationScope: state.rangeValidationApplicable
-      ? 'HTTP/HTTPS source'
-      : 'Not applicable · local File',
+      ? "HTTP/HTTPS source"
+      : "Not applicable · local File",
     status,
     statusTone,
-    pointCount: metadata ? formatNumber(metadata.pointCount) : '—',
+    pointCount: metadata ? formatNumber(metadata.pointCount) : "—",
     bounds: metadata
       ? [
           metadata.bounds.minX,
@@ -271,18 +284,22 @@ export function buildCopcDebugPanelView(
           metadata.bounds.maxX,
           metadata.bounds.maxY,
           metadata.bounds.maxZ,
-        ].map(formatCoordinate).join(', ')
-      : '—',
+        ]
+          .map(formatCoordinate)
+          .join(", ")
+      : "—",
     scale: formatVector(metadata?.scale),
     offset: formatVector(metadata?.offset),
     selectedNodeCount: formatNumber(snapshot.selectedNodeKeys.length),
-    selectedNodeKeys: snapshot.selectedNodeKeys.length > 0
-      ? snapshot.selectedNodeKeys.join(', ')
-      : '—',
+    selectedNodeKeys:
+      snapshot.selectedNodeKeys.length > 0
+        ? snapshot.selectedNodeKeys.join(", ")
+        : "—",
     renderedNodeCount: formatNumber(snapshot.renderedNodeKeys.length),
-    renderedNodeKeys: snapshot.renderedNodeKeys.length > 0
-      ? snapshot.renderedNodeKeys.join(', ')
-      : '—',
+    renderedNodeKeys:
+      snapshot.renderedNodeKeys.length > 0
+        ? snapshot.renderedNodeKeys.join(", ")
+        : "—",
     renderedPointCount: formatNumber(snapshot.renderedPointCount),
     hierarchyRequests: formatNumber(hierarchy?.pageRequests ?? 0),
     hierarchyCacheHits: formatNumber(hierarchy?.pageCacheHits ?? 0),
@@ -294,39 +311,80 @@ export function buildCopcDebugPanelView(
     hierarchyRootDuration: `${formatCoordinate(hierarchy?.rootHierarchyLoadDurationMs ?? 0)} ms`,
     hierarchyQueryDuration: `${formatCoordinate(hierarchy?.lastQueryDurationMs ?? 0)} ms`,
     viewDistance: snapshot.viewDistance
-      ? `${snapshot.viewDistance.visibleFootprintMeters === undefined
-        ? 'fallback'
-        : `${formatCoordinate(snapshot.viewDistance.visibleFootprintMeters)} m`} / ${formatCoordinate(snapshot.viewDistance.effectiveDistanceMeters)} m / ${formatCoordinate(snapshot.viewDistance.maxRenderDistanceMeters)} m cap · ${snapshot.viewDistance.transition}${snapshot.viewDistance.clampedToMaxRenderDistance ? ' · capped' : ''} · overscan ${formatCoordinate(snapshot.viewDistance.overscanFactor)}× · expand ${formatNumber(snapshot.viewDistance.expansionCount)} / shrink ${formatNumber(snapshot.viewDistance.shrinkCount)} / hold ${formatNumber(snapshot.viewDistance.hysteresisHoldCount)} / fallback ${formatNumber(snapshot.viewDistance.fallbackCount)}`
-      : '—',
-    activeReplacementGroups: formatNumber(snapshot.transition?.activeReplacementGroupCount ?? 0),
-    coarseNodesRetained: formatNumber(snapshot.transition?.coarseNodesRetainedForCoverageCount ?? 0),
-    refinementReplacementCommits: formatNumber(snapshot.transition?.refinementReplacementCommitCount ?? 0),
-    configuredPointBudget: formatNumber(snapshot.performance?.configuredPointBudget ?? 0),
-    candidateSelectedPointCount: formatNumber(snapshot.performance?.candidateSelectedPointCount ?? 0),
-    activeRenderedPointCount: formatNumber(snapshot.performance?.activeRenderedPointCount ?? snapshot.renderedPointCount),
-    deferredNodeCount: formatNumber(snapshot.performance?.deferredNodeCount ?? 0),
-    deferredPointCount: formatNumber(snapshot.performance?.deferredPointCount ?? 0),
+      ? `${
+          snapshot.viewDistance.visibleFootprintMeters === undefined
+            ? "fallback"
+            : `${formatCoordinate(snapshot.viewDistance.visibleFootprintMeters)} m`
+        } / ${formatCoordinate(snapshot.viewDistance.effectiveDistanceMeters)} m / ${formatCoordinate(snapshot.viewDistance.maxRenderDistanceMeters)} m cap · ${snapshot.viewDistance.transition}${snapshot.viewDistance.clampedToMaxRenderDistance ? " · capped" : ""} · overscan ${formatCoordinate(snapshot.viewDistance.overscanFactor)}× · expand ${formatNumber(snapshot.viewDistance.expansionCount)} / shrink ${formatNumber(snapshot.viewDistance.shrinkCount)} / hold ${formatNumber(snapshot.viewDistance.hysteresisHoldCount)} / fallback ${formatNumber(snapshot.viewDistance.fallbackCount)}`
+      : "—",
+    activeReplacementGroups: formatNumber(
+      snapshot.transition?.activeReplacementGroupCount ?? 0,
+    ),
+    coarseNodesRetained: formatNumber(
+      snapshot.transition?.coarseNodesRetainedForCoverageCount ?? 0,
+    ),
+    refinementReplacementCommits: formatNumber(
+      snapshot.transition?.refinementReplacementCommitCount ?? 0,
+    ),
+    configuredPointBudget: formatNumber(
+      snapshot.performance?.configuredPointBudget ?? 0,
+    ),
+    candidateSelectedPointCount: formatNumber(
+      snapshot.performance?.candidateSelectedPointCount ?? 0,
+    ),
+    activeRenderedPointCount: formatNumber(
+      snapshot.performance?.activeRenderedPointCount ??
+        snapshot.renderedPointCount,
+    ),
+    deferredNodeCount: formatNumber(
+      snapshot.performance?.deferredNodeCount ?? 0,
+    ),
+    deferredPointCount: formatNumber(
+      snapshot.performance?.deferredPointCount ?? 0,
+    ),
     budgetUtilization: `${formatCoordinate(snapshot.performance?.budgetUtilizationPercent ?? 0)}%`,
-    budgetDeferDropCount: formatNumber(snapshot.performance?.budgetDeferDropCount ?? 0),
-    maxConcurrentNodeLoads: formatNumber(snapshot.performance?.maxConcurrentNodeLoads ?? 0),
+    budgetDeferDropCount: formatNumber(
+      snapshot.performance?.budgetDeferDropCount ?? 0,
+    ),
+    maxConcurrentNodeLoads: formatNumber(
+      snapshot.performance?.maxConcurrentNodeLoads ?? 0,
+    ),
     queuedNodeCount: formatNumber(snapshot.performance?.queuedNodeCount ?? 0),
     activeNodeCount: formatNumber(snapshot.performance?.activeNodeCount ?? 0),
-    completedNodeCount: formatNumber(snapshot.performance?.completedNodeCount ?? 0),
-    cancelledNodeCount: formatNumber(snapshot.performance?.cancelledNodeCount ?? 0),
-    rangeRequestsRequested: rangeRequests ? formatNumber(rangeRequests.requested) : '—',
-    rangeRequestsActive: rangeRequests ? formatNumber(rangeRequests.active) : '—',
-    rangeRequestsCompleted: rangeRequests ? formatNumber(rangeRequests.completed) : '—',
-    rangeRequestsFailed: rangeRequests ? formatNumber(rangeRequests.failed) : '—',
-    rangeRequestsAbortedSuperseded: rangeRequests ? formatNumber(rangeRequests.abortedSuperseded) : '—',
-    rangeRequestsAbortedLifecycle: rangeRequests ? formatNumber(rangeRequests.abortedLifecycle) : '—',
-    peakActiveNodeCount: formatNumber(snapshot.performance?.peakActiveNodeCount ?? 0),
+    completedNodeCount: formatNumber(
+      snapshot.performance?.completedNodeCount ?? 0,
+    ),
+    cancelledNodeCount: formatNumber(
+      snapshot.performance?.cancelledNodeCount ?? 0,
+    ),
+    rangeRequestsRequested: rangeRequests
+      ? formatNumber(rangeRequests.requested)
+      : "—",
+    rangeRequestsActive: rangeRequests
+      ? formatNumber(rangeRequests.active)
+      : "—",
+    rangeRequestsCompleted: rangeRequests
+      ? formatNumber(rangeRequests.completed)
+      : "—",
+    rangeRequestsFailed: rangeRequests
+      ? formatNumber(rangeRequests.failed)
+      : "—",
+    rangeRequestsAbortedSuperseded: rangeRequests
+      ? formatNumber(rangeRequests.abortedSuperseded)
+      : "—",
+    rangeRequestsAbortedLifecycle: rangeRequests
+      ? formatNumber(rangeRequests.abortedLifecycle)
+      : "—",
+    peakActiveNodeCount: formatNumber(
+      snapshot.performance?.peakActiveNodeCount ?? 0,
+    ),
     firstHighPriorityNodeReadyLatency:
       snapshot.performance?.firstHighPriorityNodeReadyLatencyMs === undefined
-        ? '—'
+        ? "—"
         : `${formatCoordinate(snapshot.performance.firstHighPriorityNodeReadyLatencyMs)} ms`,
     firstHighPriorityNodeStartLatency:
       snapshot.performance?.firstHighPriorityNodeStartLatencyMs === undefined
-        ? '—'
+        ? "—"
         : `${formatCoordinate(snapshot.performance.firstHighPriorityNodeStartLatencyMs)} ms`,
     highPriorityQueuedActive: `${formatNumber(snapshot.performance?.queuedHighPriorityNodeCount ?? 0)} / ${formatNumber(snapshot.performance?.activeHighPriorityNodeCount ?? 0)}`,
     completedPendingSchedulingPriority: `${formatPriorityRange(
@@ -337,44 +395,48 @@ export function buildCopcDebugPanelView(
       snapshot.performance?.pendingSchedulingPriorityMax,
     )}`,
     streamingUpdateCount: formatNumber(snapshot.streamingUpdateCount),
-    candidatesBeforeCulling: formatNumber(snapshot.performance?.candidatesBeforeCulling ?? 0),
-    frustumCulledCount: formatNumber(snapshot.performance?.frustumCulledCount ?? 0),
+    candidatesBeforeCulling: formatNumber(
+      snapshot.performance?.candidatesBeforeCulling ?? 0,
+    ),
+    frustumCulledCount: formatNumber(
+      snapshot.performance?.frustumCulledCount ?? 0,
+    ),
     maxScreenSpaceError: `${formatCoordinate(snapshot.performance?.maxScreenSpaceError ?? 0)} px`,
     representativeScreenSpaceError:
-      snapshot.performance?.screenSpaceErrorMin !== undefined
-      && snapshot.performance?.screenSpaceErrorMax !== undefined
+      snapshot.performance?.screenSpaceErrorMin !== undefined &&
+      snapshot.performance?.screenSpaceErrorMax !== undefined
         ? `${formatCoordinate(snapshot.performance.screenSpaceErrorMin)}–${formatCoordinate(snapshot.performance.screenSpaceErrorMax)} px`
-        : '—',
+        : "—",
     effectiveScreenSpaceError:
-      snapshot.performance?.effectiveScreenSpaceErrorMin !== undefined
-      && snapshot.performance?.effectiveScreenSpaceErrorMax !== undefined
+      snapshot.performance?.effectiveScreenSpaceErrorMin !== undefined &&
+      snapshot.performance?.effectiveScreenSpaceErrorMax !== undefined
         ? `${formatCoordinate(snapshot.performance.effectiveScreenSpaceErrorMin)}–${formatCoordinate(snapshot.performance.effectiveScreenSpaceErrorMax)} px`
-        : '—',
+        : "—",
     refinementCenterWeight:
-      snapshot.performance?.refinementCenterWeightMin !== undefined
-      && snapshot.performance?.refinementCenterWeightMax !== undefined
+      snapshot.performance?.refinementCenterWeightMin !== undefined &&
+      snapshot.performance?.refinementCenterWeightMax !== undefined
         ? `${formatCoordinate(snapshot.performance.refinementCenterWeightMin)}–${formatCoordinate(snapshot.performance.refinementCenterWeightMax)}`
-        : '—',
+        : "—",
     schedulingCenterWeight:
-      snapshot.performance?.schedulingCenterWeightMin !== undefined
-      && snapshot.performance?.schedulingCenterWeightMax !== undefined
+      snapshot.performance?.schedulingCenterWeightMin !== undefined &&
+      snapshot.performance?.schedulingCenterWeightMax !== undefined
         ? `${formatCoordinate(snapshot.performance.schedulingCenterWeightMin)}–${formatCoordinate(snapshot.performance.schedulingCenterWeightMax)}`
-        : '—',
+        : "—",
     refinementPriority:
-      snapshot.performance?.refinementPriorityMin !== undefined
-      && snapshot.performance?.refinementPriorityMax !== undefined
+      snapshot.performance?.refinementPriorityMin !== undefined &&
+      snapshot.performance?.refinementPriorityMax !== undefined
         ? `${formatCoordinate(snapshot.performance.refinementPriorityMin)}–${formatCoordinate(snapshot.performance.refinementPriorityMax)}`
-        : '—',
+        : "—",
     schedulingPriority:
-      snapshot.performance?.schedulingPriorityMin !== undefined
-      && snapshot.performance?.schedulingPriorityMax !== undefined
+      snapshot.performance?.schedulingPriorityMin !== undefined &&
+      snapshot.performance?.schedulingPriorityMax !== undefined
         ? `${formatCoordinate(snapshot.performance.schedulingPriorityMin)}–${formatCoordinate(snapshot.performance.schedulingPriorityMax)}`
-        : '—',
+        : "—",
     detailBias:
-      snapshot.performance?.detailBiasMin !== undefined
-      && snapshot.performance?.detailBiasMax !== undefined
+      snapshot.performance?.detailBiasMin !== undefined &&
+      snapshot.performance?.detailBiasMax !== undefined
         ? `${formatCoordinate(snapshot.performance.detailBiasMin)}–${formatCoordinate(snapshot.performance.detailBiasMax)}×`
-        : '—',
+        : "—",
     influenceCandidates: formatNumber(
       snapshot.performance?.candidatesWithNonZeroInfluenceCount ?? 0,
     ),
@@ -383,12 +445,18 @@ export function buildCopcDebugPanelView(
     ),
     refinedNodeCount: formatNumber(snapshot.performance?.refinedNodeCount ?? 0),
     keptNodeCount: formatNumber(snapshot.performance?.keptNodeCount ?? 0),
-    frontierNodeCount: formatNumber(snapshot.performance?.frontierNodeCount ?? 0),
-    frontierPointCount: formatNumber(snapshot.performance?.frontierPointCount ?? 0),
-    acceptedRefinementCount: formatNumber(snapshot.performance?.acceptedRefinementCount ?? 0),
+    frontierNodeCount: formatNumber(
+      snapshot.performance?.frontierNodeCount ?? 0,
+    ),
+    frontierPointCount: formatNumber(
+      snapshot.performance?.frontierPointCount ?? 0,
+    ),
+    acceptedRefinementCount: formatNumber(
+      snapshot.performance?.acceptedRefinementCount ?? 0,
+    ),
     refinementRejectedByBudget: formatNumber(
-      (snapshot.performance?.refinementRejectedByNodeBudgetCount ?? 0)
-      + (snapshot.performance?.refinementRejectedByPointBudgetCount ?? 0),
+      (snapshot.performance?.refinementRejectedByNodeBudgetCount ?? 0) +
+        (snapshot.performance?.refinementRejectedByPointBudgetCount ?? 0),
     ),
     refinementRejectedByNodeBudget: formatNumber(
       snapshot.performance?.refinementRejectedByNodeBudgetCount ?? 0,
@@ -400,13 +468,13 @@ export function buildCopcDebugPanelView(
       snapshot.performance?.refinementDeferredByIncompleteHierarchyCount ?? 0,
     ),
     impossibleMinimumFrontier:
-      snapshot.performance?.minimumFrontierExceedsNodeBudget
-      || snapshot.performance?.minimumFrontierExceedsPointBudget
-        ? 'yes'
-        : 'no',
+      snapshot.performance?.minimumFrontierExceedsNodeBudget ||
+      snapshot.performance?.minimumFrontierExceedsPointBudget
+        ? "yes"
+        : "no",
     visibleLevelRange: snapshot.performance?.visibleLevelRange
       ? `${snapshot.performance.visibleLevelRange.min}–${snapshot.performance.visibleLevelRange.max}`
-      : '—',
+      : "—",
     cameraDirection: formatVector(snapshot.performance?.cameraDirection),
     pointCacheBudget: formatBytes(snapshot.pointCache?.cacheByteBudget ?? 0),
     pointCacheBytes: formatBytes(snapshot.pointCache?.currentCacheBytes ?? 0),
@@ -415,31 +483,35 @@ export function buildCopcDebugPanelView(
     cacheMisses: formatNumber(snapshot.pointCache?.misses ?? 0),
     cacheEvictionCount: formatNumber(snapshot.pointCache?.evictionCount ?? 0),
     cacheBytesEvicted: formatBytes(snapshot.pointCache?.bytesEvicted ?? 0),
-    largestCachedEntryBytes: formatBytes(snapshot.pointCache?.largestCachedEntryBytes ?? 0),
+    largestCachedEntryBytes: formatBytes(
+      snapshot.pointCache?.largestCachedEntryBytes ?? 0,
+    ),
     workerConcurrency: snapshot.worker
       ? `${formatNumber(snapshot.worker.activeCount)} / ${formatNumber(snapshot.worker.workerCount)} active`
-      : '—',
+      : "—",
     workerQueue: snapshot.worker
       ? `${formatNumber(snapshot.worker.queuedCount)} queued (peak ${formatNumber(snapshot.worker.peakQueuedCount)})`
-      : '—',
+      : "—",
     sourceReachable: sourceProbe
-      ? formatProbeTruth(sourceProbe.reachable, 'Reachable')
-      : '—',
+      ? formatProbeTruth(sourceProbe.reachable, "Reachable")
+      : "—",
     sourceRange: sourceProbe
-      ? formatProbeTruth(sourceProbe.rangeSupported, 'HTTP Range / 206')
-      : '—',
+      ? formatProbeTruth(sourceProbe.rangeSupported, "HTTP Range / 206")
+      : "—",
     sourceCopc: sourceProbe
-      ? formatProbeTruth(sourceProbe.copcDetected, 'COPC detected')
-      : '—',
-    sourcePointFormat: sourceProbe?.pointFormat === undefined
-      ? '—'
-      : `PDRF ${sourceProbe.pointFormat}`,
+      ? formatProbeTruth(sourceProbe.copcDetected, "COPC detected")
+      : "—",
+    sourcePointFormat:
+      sourceProbe?.pointFormat === undefined
+        ? "—"
+        : `PDRF ${sourceProbe.pointFormat}`,
     sourceCors: sourceProbe
-      ? formatProbeTruth(sourceProbe.corsReadable, 'Browser response readable')
-      : '—',
-    sourceWarnings: sourceProbe && sourceProbe.warnings.length > 0
-      ? [...new Set(sourceProbe.warnings)].join(' ')
-      : '—',
+      ? formatProbeTruth(sourceProbe.corsReadable, "Browser response readable")
+      : "—",
+    sourceWarnings:
+      sourceProbe && sourceProbe.warnings.length > 0
+        ? [...new Set(sourceProbe.warnings)].join(" ")
+        : "—",
     error: lastError,
   };
 }
@@ -618,13 +690,13 @@ export function createCopcDebugPanel(
   `;
 
   const fields = new Map<string, HTMLElement>();
-  target.querySelectorAll<HTMLElement>('[data-field]').forEach((element) => {
-    fields.set(element.dataset.field ?? '', element);
+  target.querySelectorAll<HTMLElement>("[data-field]").forEach((element) => {
+    fields.set(element.dataset.field ?? "", element);
   });
   const pointInspector = createCopcPointInspector(
-    target.querySelector<HTMLElement>('[data-point-inspector]')!,
+    target.querySelector<HTMLElement>("[data-point-inspector]")!,
   );
-  const panel = target.closest<HTMLElement>('.copc-debug-panel');
+  const panel = target.closest<HTMLElement>(".copc-debug-panel");
 
   const update = (): void => {
     let state: CopcDebugPanelState;
@@ -637,12 +709,12 @@ export function createCopcDebugPanel(
 
     for (const [field, element] of fields) {
       const value = view[field as keyof CopcDebugPanelView];
-      element.textContent = typeof value === 'string' ? value : '';
+      element.textContent = typeof value === "string" ? value : "";
     }
 
     if (panel) panel.dataset.status = view.statusTone;
     pointInspector.update(state.selectedPoint);
-    const errorElement = fields.get('error');
+    const errorElement = fields.get("error");
     if (errorElement) {
       errorElement.hidden = !view.error;
     }

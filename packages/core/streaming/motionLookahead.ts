@@ -1,4 +1,4 @@
-import type { ViewFrustum, ViewVector3 } from './view';
+import type { ViewFrustum, ViewVector3 } from "./view";
 
 /** Fixed camera-orientation prediction horizon used by refinement, in milliseconds. */
 export const MOTION_LOOKAHEAD_HORIZON_MS = 200;
@@ -46,7 +46,7 @@ export type CameraMotionPrediction = {
 /** Current estimator state for bounded runtime diagnostics. */
 export type CameraMotionLiveDiagnostics = CameraMotionPrediction & {
   /** Active while samples arrive, decaying during the 600 ms settle window, then stationary. */
-  state: 'disabled' | 'active' | 'decaying' | 'stationary';
+  state: "disabled" | "active" | "decaying" | "stationary";
   /** Time since the last accepted movement sample; absent before the first accepted sample. */
   millisecondsSinceLastAcceptedMovement?: number;
 };
@@ -67,11 +67,15 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
-function isFiniteVector(vector: ViewVector3 | undefined): vector is ViewVector3 {
-  return vector !== undefined
-    && Number.isFinite(vector.x)
-    && Number.isFinite(vector.y)
-    && Number.isFinite(vector.z);
+function isFiniteVector(
+  vector: ViewVector3 | undefined,
+): vector is ViewVector3 {
+  return (
+    vector !== undefined &&
+    Number.isFinite(vector.x) &&
+    Number.isFinite(vector.y) &&
+    Number.isFinite(vector.z)
+  );
 }
 
 function dot(left: ViewVector3, right: ViewVector3): number {
@@ -86,22 +90,30 @@ function normalize(vector: ViewVector3): ViewVector3 | undefined {
   return { x: vector.x / length, y: vector.y / length, z: vector.z / length };
 }
 
-function normalizeBasis(frustum: ViewFrustum | undefined): CameraBasis | undefined {
-  if (!frustum
-    || !isFiniteVector(frustum.position)
-    || !isFiniteVector(frustum.direction)
-    || !isFiniteVector(frustum.right)
-    || !isFiniteVector(frustum.up)) {
+function normalizeBasis(
+  frustum: ViewFrustum | undefined,
+): CameraBasis | undefined {
+  if (
+    !frustum ||
+    !isFiniteVector(frustum.position) ||
+    !isFiniteVector(frustum.direction) ||
+    !isFiniteVector(frustum.right) ||
+    !isFiniteVector(frustum.up)
+  ) {
     return undefined;
   }
 
   const direction = normalize(frustum.direction);
   const right = normalize(frustum.right);
   const up = normalize(frustum.up);
-  if (!direction || !right || !up
-    || Math.abs(dot(direction, right)) > 0.1
-    || Math.abs(dot(direction, up)) > 0.1
-    || Math.abs(dot(right, up)) > 0.1) {
+  if (
+    !direction ||
+    !right ||
+    !up ||
+    Math.abs(dot(direction, right)) > 0.1 ||
+    Math.abs(dot(direction, up)) > 0.1 ||
+    Math.abs(dot(right, up)) > 0.1
+  ) {
     return undefined;
   }
 
@@ -117,13 +129,17 @@ function predictionChanged(
   previous: CameraMotionPrediction,
   next: CameraMotionPrediction,
 ): boolean {
-  const horizontalDelta = next.predictedHorizontalDisplacementDegrees
-    - previous.predictedHorizontalDisplacementDegrees;
-  const verticalDelta = next.predictedVerticalDisplacementDegrees
-    - previous.predictedVerticalDisplacementDegrees;
-  return Math.hypot(horizontalDelta, verticalDelta)
-      >= MEANINGFUL_DISPLACEMENT_CHANGE_RADIANS * (180 / Math.PI)
-    || (previous.activity > 0 && next.activity === 0);
+  const horizontalDelta =
+    next.predictedHorizontalDisplacementDegrees -
+    previous.predictedHorizontalDisplacementDegrees;
+  const verticalDelta =
+    next.predictedVerticalDisplacementDegrees -
+    previous.predictedVerticalDisplacementDegrees;
+  return (
+    Math.hypot(horizontalDelta, verticalDelta) >=
+      MEANINGFUL_DISPLACEMENT_CHANGE_RADIANS * (180 / Math.PI) ||
+    (previous.activity > 0 && next.activity === 0)
+  );
 }
 
 /**
@@ -165,7 +181,11 @@ export class CameraMotionLookaheadEstimator {
       priorityChanged: false,
       prediction: this.getPrediction(timestampMilliseconds),
     });
-    if (!this.enabled || !Number.isFinite(timestampMilliseconds) || timestampMilliseconds < 0) {
+    if (
+      !this.enabled ||
+      !Number.isFinite(timestampMilliseconds) ||
+      timestampMilliseconds < 0
+    ) {
       return invalid();
     }
 
@@ -179,7 +199,12 @@ export class CameraMotionLookaheadEstimator {
       this.previousTimestamp = timestampMilliseconds;
       const prediction = this.getPrediction(timestampMilliseconds);
       this.lastReportedPrediction = prediction;
-      return { valid: true, sampledMovement: false, priorityChanged: false, prediction };
+      return {
+        valid: true,
+        sampledMovement: false,
+        priorityChanged: false,
+        prediction,
+      };
     }
 
     const intervalMilliseconds = timestampMilliseconds - this.previousTimestamp;
@@ -187,10 +212,12 @@ export class CameraMotionLookaheadEstimator {
       return invalid();
     }
 
-    const timeSinceLastMovement = timestampMilliseconds
-      - (this.lastMovementTimestamp ?? this.previousTimestamp);
+    const timeSinceLastMovement =
+      timestampMilliseconds -
+      (this.lastMovementTimestamp ?? this.previousTimestamp);
     const resumedAfterIdle = timeSinceLastMovement >= MOTION_LOOKAHEAD_DECAY_MS;
-    const hadRecentMovement = this.lastMovementTimestamp !== undefined && !resumedAfterIdle;
+    const hadRecentMovement =
+      this.lastMovementTimestamp !== undefined && !resumedAfterIdle;
     if (resumedAfterIdle) {
       // A camera may emit no events while still. Expire directional state on
       // the first later observation and avoid carrying tiny deltas across rest.
@@ -199,7 +226,11 @@ export class CameraMotionLookaheadEstimator {
       this.clearPendingDelta();
     }
 
-    const cosine = clamp(dot(this.previousBasis.direction, basis.direction), -1, 1);
+    const cosine = clamp(
+      dot(this.previousBasis.direction, basis.direction),
+      -1,
+      1,
+    );
     // Project the old viewing ray onto the current screen axes. The negative
     // sign converts old-ray displacement into the direction the camera moved.
     const horizontalDelta = Math.atan2(
@@ -224,8 +255,9 @@ export class CameraMotionLookaheadEstimator {
     const sampleIntervalMilliseconds = resumedAfterIdle
       ? POST_IDLE_SAMPLE_INTERVAL_MS
       : clamp(intervalMilliseconds, MIN_SAMPLE_INTERVAL_MS, MAX_SAMPLE_GAP_MS);
-    const pendingDirectionDot = this.pendingHorizontalDelta * horizontalDelta
-      + this.pendingVerticalDelta * verticalDelta;
+    const pendingDirectionDot =
+      this.pendingHorizontalDelta * horizontalDelta +
+      this.pendingVerticalDelta * verticalDelta;
     if (pendingDirectionDot < 0) {
       // Drop an unfinished direction as soon as the camera reverses, before
       // micro-deltas have crossed the accumulation threshold.
@@ -243,24 +275,37 @@ export class CameraMotionLookaheadEstimator {
       this.pendingVerticalDelta,
     );
     const accumulatedSeconds = this.pendingIntervalMilliseconds / 1000;
-    const rawHorizontalVelocity = this.pendingHorizontalDelta / accumulatedSeconds;
+    const rawHorizontalVelocity =
+      this.pendingHorizontalDelta / accumulatedSeconds;
     const rawVerticalVelocity = this.pendingVerticalDelta / accumulatedSeconds;
     const rawSpeed = Math.hypot(rawHorizontalVelocity, rawVerticalVelocity);
     let sampledMovement = false;
 
     if (angularDisplacement >= MIN_ANGULAR_DISPLACEMENT_RADIANS) {
-      if (Number.isFinite(rawSpeed) && rawSpeed >= MIN_ANGULAR_SPEED_RADIANS_PER_SECOND) {
-        const scale = rawSpeed > MAX_ANGULAR_SPEED_RADIANS_PER_SECOND
-          ? MAX_ANGULAR_SPEED_RADIANS_PER_SECOND / rawSpeed
-          : 1;
+      if (
+        Number.isFinite(rawSpeed) &&
+        rawSpeed >= MIN_ANGULAR_SPEED_RADIANS_PER_SECOND
+      ) {
+        const scale =
+          rawSpeed > MAX_ANGULAR_SPEED_RADIANS_PER_SECOND
+            ? MAX_ANGULAR_SPEED_RADIANS_PER_SECOND / rawSpeed
+            : 1;
         const horizontal = rawHorizontalVelocity * scale;
         const vertical = rawVerticalVelocity * scale;
-        const previousSpeed = Math.hypot(this.horizontalVelocity, this.verticalVelocity);
-        const reversed = previousSpeed > 0
-          && this.horizontalVelocity * horizontal + this.verticalVelocity * vertical < 0;
-        const alpha = 1 - Math.exp(
-          -this.pendingIntervalMilliseconds / SMOOTHING_TIME_CONSTANT_MS,
+        const previousSpeed = Math.hypot(
+          this.horizontalVelocity,
+          this.verticalVelocity,
         );
+        const reversed =
+          previousSpeed > 0 &&
+          this.horizontalVelocity * horizontal +
+            this.verticalVelocity * vertical <
+            0;
+        const alpha =
+          1 -
+          Math.exp(
+            -this.pendingIntervalMilliseconds / SMOOTHING_TIME_CONSTANT_MS,
+          );
         if (reversed || !hadRecentMovement) {
           // Drop stale directional momentum immediately; filtering same-direction
           // samples still smooths ordinary event jitter. The first movement after
@@ -268,7 +313,8 @@ export class CameraMotionLookaheadEstimator {
           this.horizontalVelocity = horizontal;
           this.verticalVelocity = vertical;
         } else {
-          this.horizontalVelocity += (horizontal - this.horizontalVelocity) * alpha;
+          this.horizontalVelocity +=
+            (horizontal - this.horizontalVelocity) * alpha;
           this.verticalVelocity += (vertical - this.verticalVelocity) * alpha;
         }
         this.lastMovementTimestamp = timestampMilliseconds;
@@ -282,23 +328,32 @@ export class CameraMotionLookaheadEstimator {
     }
 
     const prediction = this.getPrediction(timestampMilliseconds);
-    const priorityChanged = predictionChanged(this.lastReportedPrediction, prediction);
+    const priorityChanged = predictionChanged(
+      this.lastReportedPrediction,
+      prediction,
+    );
     this.lastReportedPrediction = prediction;
     return { valid: true, sampledMovement, priorityChanged, prediction };
   }
 
   /** Return the exponentially decayed prediction without changing sample history. */
   getPrediction(timestampMilliseconds: number): CameraMotionPrediction {
-    if (!this.enabled
-      || !Number.isFinite(timestampMilliseconds)
-      || timestampMilliseconds < 0
-      || this.lastMovementTimestamp === undefined) {
+    if (
+      !this.enabled ||
+      !Number.isFinite(timestampMilliseconds) ||
+      timestampMilliseconds < 0 ||
+      this.lastMovementTimestamp === undefined
+    ) {
       return this.zeroPrediction();
     }
 
-    const elapsedMilliseconds = timestampMilliseconds - this.lastMovementTimestamp;
-    if (!Number.isFinite(elapsedMilliseconds) || elapsedMilliseconds < 0
-      || elapsedMilliseconds >= MOTION_LOOKAHEAD_DECAY_MS) {
+    const elapsedMilliseconds =
+      timestampMilliseconds - this.lastMovementTimestamp;
+    if (
+      !Number.isFinite(elapsedMilliseconds) ||
+      elapsedMilliseconds < 0 ||
+      elapsedMilliseconds >= MOTION_LOOKAHEAD_DECAY_MS
+    ) {
       return this.zeroPrediction();
     }
 
@@ -320,11 +375,15 @@ export class CameraMotionLookaheadEstimator {
 
     return {
       enabled: true,
-      horizontalAngularVelocityDegreesPerSecond: horizontalVelocity * (180 / Math.PI),
-      verticalAngularVelocityDegreesPerSecond: verticalVelocity * (180 / Math.PI),
+      horizontalAngularVelocityDegreesPerSecond:
+        horizontalVelocity * (180 / Math.PI),
+      verticalAngularVelocityDegreesPerSecond:
+        verticalVelocity * (180 / Math.PI),
       horizonMilliseconds: MOTION_LOOKAHEAD_HORIZON_MS,
-      predictedHorizontalDisplacementDegrees: horizontalDisplacement * (180 / Math.PI),
-      predictedVerticalDisplacementDegrees: verticalDisplacement * (180 / Math.PI),
+      predictedHorizontalDisplacementDegrees:
+        horizontalDisplacement * (180 / Math.PI),
+      predictedVerticalDisplacementDegrees:
+        verticalDisplacement * (180 / Math.PI),
       activity: clamp(speed / ACTIVITY_FULL_SPEED_RADIANS_PER_SECOND, 0, 1),
     };
   }
@@ -332,24 +391,29 @@ export class CameraMotionLookaheadEstimator {
   /** Return the current decayed prediction and bounded activity state. */
   getDiagnostics(timestampMilliseconds: number): CameraMotionLiveDiagnostics {
     const prediction = this.getPrediction(timestampMilliseconds);
-    const rawAge = timestampMilliseconds - (this.lastMovementTimestamp ?? timestampMilliseconds);
-    const age = this.lastMovementTimestamp !== undefined
-      && Number.isFinite(rawAge)
-      && rawAge >= 0
-      ? rawAge
-      : undefined;
+    const rawAge =
+      timestampMilliseconds -
+      (this.lastMovementTimestamp ?? timestampMilliseconds);
+    const age =
+      this.lastMovementTimestamp !== undefined &&
+      Number.isFinite(rawAge) &&
+      rawAge >= 0
+        ? rawAge
+        : undefined;
     const state = !this.enabled
-      ? 'disabled'
+      ? "disabled"
       : age === undefined || age >= MOTION_LOOKAHEAD_DECAY_MS
-        ? 'stationary'
+        ? "stationary"
         : age <= MOTION_LOOKAHEAD_ACTIVE_WINDOW_MS
-          ? 'active'
-          : 'decaying';
+          ? "active"
+          : "decaying";
 
     return {
       ...prediction,
       state,
-      ...(age === undefined ? {} : { millisecondsSinceLastAcceptedMovement: age }),
+      ...(age === undefined
+        ? {}
+        : { millisecondsSinceLastAcceptedMovement: age }),
     };
   }
 

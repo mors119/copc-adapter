@@ -1,18 +1,21 @@
-import * as Cesium from 'cesium';
-import type { CopcMetadata, CopcPointBuffer } from '../../../packages/core/copc/types/copc';
-import { performanceNow } from '../../../packages/core/copc/performance';
-import { transformPointBufferToPreparedPointData } from '../../../packages/core/coordinates/transform/createPointTransformer';
+import * as Cesium from "cesium";
+import type {
+  CopcMetadata,
+  CopcPointBuffer,
+} from "../../../packages/core/copc/types/copc";
+import { performanceNow } from "../../../packages/core/copc/performance";
+import { transformPointBufferToPreparedPointData } from "../../../packages/core/coordinates/transform/createPointTransformer";
 import {
   PointPrimitiveRenderer,
   type CesiumPointRenderer,
   type CopcCesiumPointRendererOptions,
   type CopcPointRendererPerformanceStage,
-} from '../../../packages/cesium/render/CopcPointRenderer';
-import { BatchedGeometryPointRenderer } from '@frillab/copc-adapter/cesium';
+} from "../../../packages/cesium/render/CopcPointRenderer";
+import { BatchedGeometryPointRenderer } from "@frillab/copc-adapter/cesium";
 
-export type RendererBenchmarkKind = 'point-primitive' | 'batched-geometry';
+export type RendererBenchmarkKind = "point-primitive" | "batched-geometry";
 
-type BenchmarkStage = CopcPointRendererPerformanceStage | 'nodeReplacement';
+type BenchmarkStage = CopcPointRendererPerformanceStage | "nodeReplacement";
 
 export type BenchmarkRange = {
   minMs: number;
@@ -40,7 +43,7 @@ export type RendererPerformanceBenchmarkOptions = {
   pointCounts?: readonly number[];
   repetitions?: number;
   warmups?: number;
-  colorMode?: CopcCesiumPointRendererOptions['colorMode'];
+  colorMode?: CopcCesiumPointRendererOptions["colorMode"];
   renderer?: RendererBenchmarkKind;
 };
 
@@ -68,7 +71,9 @@ const SYNTHETIC_METADATA: CopcMetadata = {
 const DEFAULT_POINT_COUNTS = [1_000, 10_000, 50_000, 100_000];
 
 /** Deterministic projected coordinates and all supported style attributes. */
-export function createDeterministicPointBuffer(pointCount: number): CopcPointBuffer {
+export function createDeterministicPointBuffer(
+  pointCount: number,
+): CopcPointBuffer {
   const coordinates = new Float64Array(pointCount * 3);
   const intensity = new Uint16Array(pointCount);
   const classification = new Uint8Array(pointCount);
@@ -134,13 +139,14 @@ function recordStage(
 }
 
 function rendererOptions(
-  colorMode: CopcCesiumPointRendererOptions['colorMode'],
+  colorMode: CopcCesiumPointRendererOptions["colorMode"],
   values: Partial<Record<BenchmarkStage, number[]>>,
 ): CopcCesiumPointRendererOptions {
   return {
     pointSize: 2,
     colorMode,
-    onPerformance: (stage, durationMs) => recordStage(values, stage, durationMs),
+    onPerformance: (stage, durationMs) =>
+      recordStage(values, stage, durationMs),
   };
 }
 
@@ -156,8 +162,8 @@ export function runSyntheticRendererPerformanceBenchmark(
   const repetitions = Math.max(1, Math.floor(options.repetitions ?? 7));
   const warmups = Math.max(0, Math.floor(options.warmups ?? 2));
   const pointCounts = options.pointCounts ?? DEFAULT_POINT_COUNTS;
-  const colorMode = options.colorMode ?? 'rgb';
-  const rendererKind = options.renderer ?? 'point-primitive';
+  const colorMode = options.colorMode ?? "rgb";
+  const rendererKind = options.renderer ?? "point-primitive";
   const rows: RendererPerformanceBenchmarkRow[] = [];
 
   for (const pointCount of pointCounts) {
@@ -166,18 +172,26 @@ export function runSyntheticRendererPerformanceBenchmark(
     const styleUpdateValues: number[] = [];
     const stages: Partial<Record<BenchmarkStage, number[]>> = {};
 
-    for (let repetition = 0; repetition < warmups + repetitions; repetition += 1) {
+    for (
+      let repetition = 0;
+      repetition < warmups + repetitions;
+      repetition += 1
+    ) {
       const crsStartedAt = performanceNow();
-      const preparedPoints = transformPointBufferToPreparedPointData(SYNTHETIC_METADATA, points);
+      const preparedPoints = transformPointBufferToPreparedPointData(
+        SYNTHETIC_METADATA,
+        points,
+      );
       const crsDuration = performanceNow() - crsStartedAt;
       const firstStages: Partial<Record<BenchmarkStage, number[]>> = {};
-      const renderer: CesiumPointRenderer = rendererKind === 'batched-geometry'
-        ? new BatchedGeometryPointRenderer()
-        : new PointPrimitiveRenderer();
+      const renderer: CesiumPointRenderer =
+        rendererKind === "batched-geometry"
+          ? new BatchedGeometryPointRenderer()
+          : new PointPrimitiveRenderer();
       renderer.attachTo(viewer);
 
       renderer.addOrUpdateNode(
-        'synthetic-node',
+        "synthetic-node",
         preparedPoints,
         rendererOptions(colorMode, firstStages),
       );
@@ -185,7 +199,7 @@ export function runSyntheticRendererPerformanceBenchmark(
       const replacementStartedAt = performanceNow();
       const replacementStages: Partial<Record<BenchmarkStage, number[]>> = {};
       renderer.addOrUpdateNode(
-        'synthetic-node',
+        "synthetic-node",
         preparedPoints,
         rendererOptions(colorMode, replacementStages),
       );
@@ -193,13 +207,13 @@ export function runSyntheticRendererPerformanceBenchmark(
 
       const styleUpdateStartedAt = performanceNow();
       renderer.updateNodeStyle?.(
-        'synthetic-node',
+        "synthetic-node",
         preparedPoints,
-        rendererOptions(colorMode === 'fixed' ? 'rgb' : 'fixed', {}),
+        rendererOptions(colorMode === "fixed" ? "rgb" : "fixed", {}),
       );
       const styleUpdateDuration = performanceNow() - styleUpdateStartedAt;
 
-      renderer.removeNode('synthetic-node');
+      renderer.removeNode("synthetic-node");
       renderer.destroy();
 
       if (repetition < warmups) {
@@ -214,10 +228,10 @@ export function runSyntheticRendererPerformanceBenchmark(
           recordStage(stages, stage as BenchmarkStage, duration);
         }
       }
-      recordStage(stages, 'nodeReplacement', replacementDuration);
+      recordStage(stages, "nodeReplacement", replacementDuration);
       const removalDuration = replacementStages.nodeRemoval?.[0];
       if (removalDuration !== undefined) {
-        recordStage(stages, 'nodeRemoval', removalDuration);
+        recordStage(stages, "nodeRemoval", removalDuration);
       }
     }
 
@@ -227,15 +241,15 @@ export function runSyntheticRendererPerformanceBenchmark(
       renderer: rendererKind,
       pointCount,
       crsTransform: summarize(crsValues),
-      geographicToCartesian: range('geographicToCartesian'),
-      worldToCartesian: range('worldToCartesian'),
-      pointStylePreparation: range('pointStylePreparation'),
-      pointCollectionCreation: range('pointCollectionCreation'),
-      pointAdd: range('pointAdd'),
-      rendererPreparation: range('rendererPreparation'),
-      nodeReplacement: range('nodeReplacement'),
+      geographicToCartesian: range("geographicToCartesian"),
+      worldToCartesian: range("worldToCartesian"),
+      pointStylePreparation: range("pointStylePreparation"),
+      pointCollectionCreation: range("pointCollectionCreation"),
+      pointAdd: range("pointAdd"),
+      rendererPreparation: range("rendererPreparation"),
+      nodeReplacement: range("nodeReplacement"),
       styleUpdate: summarize(styleUpdateValues),
-      nodeRemoval: range('nodeRemoval'),
+      nodeRemoval: range("nodeRemoval"),
     });
   }
 

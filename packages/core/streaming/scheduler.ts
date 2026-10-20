@@ -1,7 +1,7 @@
 import type {
   StreamingHierarchyNode,
   StreamingSchedulingDiagnostics,
-} from './types';
+} from "./types";
 
 /** Default maximum of four concurrent node load operations per manager. */
 export const DEFAULT_MAX_CONCURRENT_NODE_LOADS = 4;
@@ -55,8 +55,10 @@ export class StreamingWorkConcurrencyLimiter {
    * @returns `true` when the speculative slot was acquired; otherwise `false`.
    */
   tryAcquirePrefetchSlot(): boolean {
-    if (this.maxConcurrentNodeLoads <= 1
-      || this.activeCount >= this.maxConcurrentNodeLoads - 1) {
+    if (
+      this.maxConcurrentNodeLoads <= 1 ||
+      this.activeCount >= this.maxConcurrentNodeLoads - 1
+    ) {
       return false;
     }
     this.activeCount += 1;
@@ -105,7 +107,9 @@ export class StreamingWorkConcurrencyLimiter {
   }
 }
 
-export type StreamingWorkBatch<TNode extends StreamingHierarchyNode = StreamingHierarchyNode> = {
+export type StreamingWorkBatch<
+  TNode extends StreamingHierarchyNode = StreamingHierarchyNode,
+> = {
   /** Nodes kept together in their original priority order. */
   nodes: TNode[];
   /** Sum of non-negative declared point counts for this batch. */
@@ -119,21 +123,30 @@ export type StreamingWorkBatch<TNode extends StreamingHierarchyNode = StreamingH
  * @param maxPointsPerBatch Approximate point ceiling; invalid or non-positive values disable batching.
  * @returns Ordered batches whose estimated point counts stay within the ceiling where possible.
  */
-export function createStreamingWorkBatches<TNode extends StreamingHierarchyNode>(
+export function createStreamingWorkBatches<
+  TNode extends StreamingHierarchyNode,
+>(
   nodes: readonly TNode[],
   maxPointsPerBatch: number,
 ): StreamingWorkBatch<TNode>[] {
-  const boundedPointLimit = Number.isFinite(maxPointsPerBatch) && maxPointsPerBatch > 0
-    ? maxPointsPerBatch
-    : Number.POSITIVE_INFINITY;
+  const boundedPointLimit =
+    Number.isFinite(maxPointsPerBatch) && maxPointsPerBatch > 0
+      ? maxPointsPerBatch
+      : Number.POSITIVE_INFINITY;
   const batches: StreamingWorkBatch<TNode>[] = [];
   let currentNodes: TNode[] = [];
   let currentPointCount = 0;
 
   for (const node of nodes) {
     const pointCount = Math.max(0, node.node.pointCount);
-    if (currentNodes.length > 0 && currentPointCount + pointCount > boundedPointLimit) {
-      batches.push({ nodes: currentNodes, estimatedPointCount: currentPointCount });
+    if (
+      currentNodes.length > 0 &&
+      currentPointCount + pointCount > boundedPointLimit
+    ) {
+      batches.push({
+        nodes: currentNodes,
+        estimatedPointCount: currentPointCount,
+      });
       currentNodes = [];
       currentPointCount = 0;
     }
@@ -143,7 +156,10 @@ export function createStreamingWorkBatches<TNode extends StreamingHierarchyNode>
   }
 
   if (currentNodes.length > 0) {
-    batches.push({ nodes: currentNodes, estimatedPointCount: currentPointCount });
+    batches.push({
+      nodes: currentNodes,
+      estimatedPointCount: currentPointCount,
+    });
   }
 
   return batches;
@@ -175,13 +191,15 @@ export type StreamingWorkSchedulerOptions<TNode, TResult> = {
   onDiagnostics?: (diagnostics: StreamingWorkSchedulerDiagnostics) => void;
 };
 
-type SettledWork<TResult> = {
-  ok: true;
-  result: TResult;
-} | {
-  ok: false;
-  error: unknown;
-};
+type SettledWork<TResult> =
+  | {
+      ok: true;
+      result: TResult;
+    }
+  | {
+      ok: false;
+      error: unknown;
+    };
 
 type ActiveWork<TNode, TResult> = {
   node: TNode;
@@ -191,7 +209,7 @@ type ActiveWork<TNode, TResult> = {
 function validateConcurrency(maxConcurrentNodeLoads: number): number {
   if (!Number.isInteger(maxConcurrentNodeLoads) || maxConcurrentNodeLoads < 1) {
     throw new RangeError(
-      'Streaming maxConcurrentNodeLoads must be a positive integer',
+      "Streaming maxConcurrentNodeLoads must be a positive integer",
     );
   }
 
@@ -216,7 +234,9 @@ export async function runBoundedPriorityWork<TNode, TResult>(
   nodes: readonly TNode[],
   options: StreamingWorkSchedulerOptions<TNode, TResult>,
 ): Promise<StreamingWorkSchedulerDiagnostics> {
-  const maxConcurrentNodeLoads = validateConcurrency(options.maxConcurrentNodeLoads);
+  const maxConcurrentNodeLoads = validateConcurrency(
+    options.maxConcurrentNodeLoads,
+  );
   const pending = [...nodes];
   const active = new Set<ActiveWork<TNode, TResult>>();
   let completedNodeCount = 0;
@@ -227,10 +247,14 @@ export async function runBoundedPriorityWork<TNode, TResult>(
 
   const getPriority = (node: TNode): number | undefined => {
     const priority = options.getPriority?.(node);
-    return priority !== undefined && Number.isFinite(priority) ? priority : undefined;
+    return priority !== undefined && Number.isFinite(priority)
+      ? priority
+      : undefined;
   };
 
-  const getPriorityRange = (nodes: Iterable<TNode>): {
+  const getPriorityRange = (
+    nodes: Iterable<TNode>,
+  ): {
     min?: number;
     max?: number;
   } => {
@@ -256,9 +280,9 @@ export async function runBoundedPriorityWork<TNode, TResult>(
       queuedHighPriorityNodeCount: pending.filter(
         (node) => options.isHighPriority?.(node) === true,
       ).length,
-      activeHighPriorityNodeCount: [...active]
-        .filter((work) => options.isHighPriority?.(work.node) === true)
-        .length,
+      activeHighPriorityNodeCount: [...active].filter(
+        (work) => options.isHighPriority?.(work.node) === true,
+      ).length,
       completedNodeCount,
       cancelledNodeCount,
       peakActiveNodeCount,
@@ -286,7 +310,9 @@ export async function runBoundedPriorityWork<TNode, TResult>(
     try {
       return Promise.resolve(options.load(node))
         .then((result): SettledWork<TResult> => ({ ok: true, result }))
-        .catch((error: unknown): SettledWork<TResult> => ({ ok: false, error }));
+        .catch(
+          (error: unknown): SettledWork<TResult> => ({ ok: false, error }),
+        );
     } catch (error: unknown) {
       return Promise.resolve({ ok: false, error });
     }
@@ -355,7 +381,8 @@ export async function runBoundedPriorityWork<TNode, TResult>(
       let hasSharedSlot = true;
       if (options.workLimiter !== undefined) {
         const immediateSlot = options.workLimiter.tryAcquire(isCurrent);
-        hasSharedSlot = immediateSlot ?? await options.workLimiter.acquire(isCurrent);
+        hasSharedSlot =
+          immediateSlot ?? (await options.workLimiter.acquire(isCurrent));
       }
       if (!hasSharedSlot) {
         return cancelRemaining();
@@ -376,9 +403,10 @@ export async function runBoundedPriorityWork<TNode, TResult>(
 
       const work: ActiveWork<TNode, TResult> = {
         node,
-        promise: options.workLimiter === undefined
-          ? startWork(node)
-          : startWork(node).finally(() => options.workLimiter?.release()),
+        promise:
+          options.workLimiter === undefined
+            ? startWork(node)
+            : startWork(node).finally(() => options.workLimiter?.release()),
       };
       active.add(work);
       peakActiveNodeCount = Math.max(peakActiveNodeCount, active.size);
@@ -428,7 +456,10 @@ export async function runBoundedPriorityWork<TNode, TResult>(
     if (!settledWork.settled.ok) {
       throw settledWork.settled.error;
     }
-    await options.onComplete?.(settledWork.work.node, settledWork.settled.result);
+    await options.onComplete?.(
+      settledWork.work.node,
+      settledWork.settled.result,
+    );
     await yieldToBrowser();
   }
 
@@ -438,7 +469,7 @@ export async function runBoundedPriorityWork<TNode, TResult>(
 
 /** Yield one event-loop turn so browser rendering can respond between completions. */
 export function yieldToBrowser(): Promise<void> {
-  if (typeof window === 'undefined') {
+  if (typeof window === "undefined") {
     return Promise.resolve();
   }
 

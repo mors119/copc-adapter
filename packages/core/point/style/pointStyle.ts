@@ -1,11 +1,11 @@
-import type { CopcColorMode } from '../../copc/points/fieldSelection';
+import type { CopcColorMode } from "../../copc/points/fieldSelection";
 import type {
   CopcMetadata,
   CopcPointAttributes,
   GeographicPointBuffer,
-} from '../../copc/types/copc';
-import { extractVerticalUnitScale } from '../../coordinates/crs/parseCopcWkt';
-import { resolveHeightOffsetMeters } from '../../coordinates/transform/heightOffset';
+} from "../../copc/types/copc";
+import { extractVerticalUnitScale } from "../../coordinates/crs/parseCopcWkt";
+import { resolveHeightOffsetMeters } from "../../coordinates/transform/heightOffset";
 
 /** Inclusive numeric range used to normalize a point attribute for display. */
 export type CopcValueRange = {
@@ -139,10 +139,10 @@ export function normalizeElevation(
   range: CopcElevationRange,
 ): number {
   if (
-    !Number.isFinite(height)
-    || !Number.isFinite(range.min)
-    || !Number.isFinite(range.max)
-    || range.max <= range.min
+    !Number.isFinite(height) ||
+    !Number.isFinite(range.min) ||
+    !Number.isFinite(range.max) ||
+    range.max <= range.min
   ) {
     return 0.5;
   }
@@ -200,7 +200,11 @@ export function getPointBufferIntensityRange(
   let min = Number.POSITIVE_INFINITY;
   let max = Number.NEGATIVE_INFINITY;
 
-  for (let index = 0; index < Math.min(points.pointCount, values.length); index += 1) {
+  for (
+    let index = 0;
+    index < Math.min(points.pointCount, values.length);
+    index += 1
+  ) {
     const value = values[index];
 
     if (Number.isFinite(value)) {
@@ -228,7 +232,12 @@ export function getPointBufferRgbMax(
     return undefined;
   }
 
-  const length = Math.min(points.pointCount, red.length, green.length, blue.length);
+  const length = Math.min(
+    points.pointCount,
+    red.length,
+    green.length,
+    blue.length,
+  );
   let max = 0;
 
   for (let index = 0; index < length; index += 1) {
@@ -277,10 +286,10 @@ function getRgbColor(
   const blue = attributes?.blue?.[pointIndex];
 
   if (
-    red === undefined
-    || green === undefined
-    || blue === undefined
-    || rgbMax === undefined
+    red === undefined ||
+    green === undefined ||
+    blue === undefined ||
+    rgbMax === undefined
   ) {
     return undefined;
   }
@@ -323,7 +332,9 @@ function getClassificationColor(
     return undefined;
   }
 
-  return cloneColor(CLASSIFICATION_COLORS[classification] ?? UNKNOWN_CLASSIFICATION_COLOR);
+  return cloneColor(
+    CLASSIFICATION_COLORS[classification] ?? UNKNOWN_CLASSIFICATION_COLOR,
+  );
 }
 
 function interpolateColor(
@@ -332,10 +343,10 @@ function interpolateColor(
   amount: number,
 ): CopcNormalizedColor {
   return {
-    red: lower.red + ((upper.red - lower.red) * amount),
-    green: lower.green + ((upper.green - lower.green) * amount),
-    blue: lower.blue + ((upper.blue - lower.blue) * amount),
-    alpha: lower.alpha + ((upper.alpha - lower.alpha) * amount),
+    red: lower.red + (upper.red - lower.red) * amount,
+    green: lower.green + (upper.green - lower.green) * amount,
+    blue: lower.blue + (upper.blue - lower.blue) * amount,
+    alpha: lower.alpha + (upper.alpha - lower.alpha) * amount,
   };
 }
 
@@ -349,23 +360,29 @@ export function getCopcPointColor(
   attributes?: CopcPointAttributes,
   pointIndex = 0,
 ): CopcNormalizedColor {
-  if (options.colorMode === 'fixed') {
+  if (options.colorMode === "fixed") {
     return cloneColor(FIXED_POINT_COLOR);
   }
 
-  if (options.colorMode === 'rgb') {
-    return getRgbColor(attributes, pointIndex, options.rgbMax)
-      ?? cloneColor(FIXED_POINT_COLOR);
+  if (options.colorMode === "rgb") {
+    return (
+      getRgbColor(attributes, pointIndex, options.rgbMax) ??
+      cloneColor(FIXED_POINT_COLOR)
+    );
   }
 
-  if (options.colorMode === 'intensity') {
-    return getIntensityColor(attributes, pointIndex, options.intensityRange)
-      ?? cloneColor(FIXED_POINT_COLOR);
+  if (options.colorMode === "intensity") {
+    return (
+      getIntensityColor(attributes, pointIndex, options.intensityRange) ??
+      cloneColor(FIXED_POINT_COLOR)
+    );
   }
 
-  if (options.colorMode === 'classification') {
-    return getClassificationColor(attributes, pointIndex)
-      ?? cloneColor(FIXED_POINT_COLOR);
+  if (options.colorMode === "classification") {
+    return (
+      getClassificationColor(attributes, pointIndex) ??
+      cloneColor(FIXED_POINT_COLOR)
+    );
   }
 
   const normalized = normalizeElevation(height, options.elevationRange);
@@ -387,10 +404,15 @@ export function resolveCopcPointStyleOptions(
   state?: CopcPointStyleState,
 ): CopcPointStyleOptions {
   return {
-    colorMode: options.colorMode ?? 'fixed',
-    elevationRange: options.elevationRange ?? getPointBufferElevationRange(points),
-    intensityRange: options.intensityRange ?? getPointBufferIntensityRange(points),
-    rgbMax: options.rgbMax ?? state?.getRgbMax(points) ?? getPointBufferRgbMax(points),
+    colorMode: options.colorMode ?? "fixed",
+    elevationRange:
+      options.elevationRange ?? getPointBufferElevationRange(points),
+    intensityRange:
+      options.intensityRange ?? getPointBufferIntensityRange(points),
+    rgbMax:
+      options.rgbMax ??
+      state?.getRgbMax(points) ??
+      getPointBufferRgbMax(points),
   };
 }
 
@@ -415,9 +437,15 @@ export function prepareCopcPointColorBuffer(
     );
     const offset = index * 3;
 
-    colors[offset] = Number.isFinite(color.red) ? color.red : FIXED_POINT_COLOR.red;
-    colors[offset + 1] = Number.isFinite(color.green) ? color.green : FIXED_POINT_COLOR.green;
-    colors[offset + 2] = Number.isFinite(color.blue) ? color.blue : FIXED_POINT_COLOR.blue;
+    colors[offset] = Number.isFinite(color.red)
+      ? color.red
+      : FIXED_POINT_COLOR.red;
+    colors[offset + 1] = Number.isFinite(color.green)
+      ? color.green
+      : FIXED_POINT_COLOR.green;
+    colors[offset + 2] = Number.isFinite(color.blue)
+      ? color.blue
+      : FIXED_POINT_COLOR.blue;
   }
 
   return colors;

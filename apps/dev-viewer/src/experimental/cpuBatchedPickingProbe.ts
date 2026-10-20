@@ -1,9 +1,10 @@
-import * as Cesium from 'cesium';
-import { BatchedGeometryPointRenderer } from '../../../../packages/cesium/render/BatchedGeometryPointRenderer';
-import { PointPrimitiveRenderer } from '../../../../packages/cesium/render/CopcPointRenderer';
-import { packRelativeEcef } from '../../../../packages/cesium/render/relativeEcef';
+import * as Cesium from "cesium";
+import { BatchedGeometryPointRenderer } from "../../../../packages/cesium/render/BatchedGeometryPointRenderer";
+import { PointPrimitiveRenderer } from "../../../../packages/cesium/render/CopcPointRenderer";
+import { packRelativeEcef } from "../../../../packages/cesium/render/relativeEcef";
 
-const cesiumRuntimeVersion = (Cesium as typeof Cesium & { VERSION: string }).VERSION;
+const cesiumRuntimeVersion = (Cesium as typeof Cesium & { VERSION: string })
+  .VERSION;
 
 type ResearchRenderer = BatchedGeometryPointRenderer;
 
@@ -11,7 +12,7 @@ type PreparedSyntheticPoints = {
   pointCount: number;
   coordinates: Float64Array;
   worldCoordinates: Float64Array;
-  worldCoordinateSystem: 'wgs84-ecef-meters';
+  worldCoordinateSystem: "wgs84-ecef-meters";
 };
 
 type SyntheticPickOptions = {
@@ -20,7 +21,9 @@ type SyntheticPickOptions = {
   pointFilter?: (index: number) => boolean;
 };
 
-function createPreparedPoints(positions: readonly Cesium.Cartesian3[]): PreparedSyntheticPoints {
+function createPreparedPoints(
+  positions: readonly Cesium.Cartesian3[],
+): PreparedSyntheticPoints {
   const coordinates = new Float64Array(positions.length * 3);
   const worldCoordinates = new Float64Array(positions.length * 3);
   for (let index = 0; index < positions.length; index += 1) {
@@ -37,11 +40,14 @@ function createPreparedPoints(positions: readonly Cesium.Cartesian3[]): Prepared
     pointCount: positions.length,
     coordinates,
     worldCoordinates,
-    worldCoordinateSystem: 'wgs84-ecef-meters',
+    worldCoordinateSystem: "wgs84-ecef-meters",
   };
 }
 
-function positionAlongRay(ray: Cesium.Ray, distance: number): Cesium.Cartesian3 {
+function positionAlongRay(
+  ray: Cesium.Ray,
+  distance: number,
+): Cesium.Cartesian3 {
   return Cesium.Ray.getPoint(ray, distance, new Cesium.Cartesian3());
 }
 
@@ -53,9 +59,15 @@ function addSyntheticNode(
 ): void {
   renderer.addOrUpdateNode(nodeKey, points, {
     pointSize: options.pointSize,
-    colorMode: 'fixed',
-    ...(options.pointFilter === undefined ? {} : { pointFilter: options.pointFilter }),
-    pointId: (pointIndex) => ({ nodeKey, pointIndex, ownerId: options.ownerId }),
+    colorMode: "fixed",
+    ...(options.pointFilter === undefined
+      ? {}
+      : { pointFilter: options.pointFilter }),
+    pointId: (pointIndex) => ({
+      nodeKey,
+      pointIndex,
+      ownerId: options.ownerId,
+    }),
   });
 }
 
@@ -84,7 +96,9 @@ export async function runCpuBatchedPickingProbe(
   );
   const ray = viewer.camera.getPickRay(center);
   if (!ray) {
-    throw new Error('Could not create a Cesium pick ray for the CPU picking probe');
+    throw new Error(
+      "Could not create a Cesium pick ray for the CPU picking probe",
+    );
   }
 
   const layerA = new BatchedGeometryPointRenderer();
@@ -92,9 +106,9 @@ export async function runCpuBatchedPickingProbe(
   const edgeRenderer = new BatchedGeometryPointRenderer();
   const depthTieRenderer = new BatchedGeometryPointRenderer();
   const stagingPrecisionRenderer = new BatchedGeometryPointRenderer();
-  const ownerA = 'cpu-pick-layer-a';
-  const ownerB = 'cpu-pick-layer-b';
-  const sharedKey = 'cpu-pick-shared';
+  const ownerA = "cpu-pick-layer-a";
+  const ownerB = "cpu-pick-layer-b";
+  const sharedKey = "cpu-pick-shared";
   const farther = positionAlongRay(ray, 100);
   const nearer = positionAlongRay(ray, 75);
   const hiddenLayerPoint = positionAlongRay(ray, 125);
@@ -110,14 +124,24 @@ export async function runCpuBatchedPickingProbe(
       ownerId: ownerA,
       pointSize: 8,
     });
-    addSyntheticNode(layerA, 'cpu-pick-far-node', createPreparedPoints([hiddenLayerPoint]), {
-      ownerId: ownerA,
-      pointSize: 8,
-    });
+    addSyntheticNode(
+      layerA,
+      "cpu-pick-far-node",
+      createPreparedPoints([hiddenLayerPoint]),
+      {
+        ownerId: ownerA,
+        pointSize: 8,
+      },
+    );
     await renderNextFrame(scene);
 
     const nodeLevelPick = scene.pick(center, 3, 3);
-    const normalHit = layerA.resolveCpuPointPick(scene, center, nodeLevelPick, 1.5);
+    const normalHit = layerA.resolveCpuPointPick(
+      scene,
+      center,
+      nodeLevelPick,
+      1.5,
+    );
     // Establish a public Cesium per-point-picking oracle for the overlapping
     // synthetic pair. This is only two PointPrimitives and is never in the
     // production or benchmark rendering path.
@@ -137,9 +161,11 @@ export async function runCpuBatchedPickingProbe(
     });
     layerA.setShow(false);
     await renderNextFrame(scene);
-    const oraclePicked = scene.pick(center, 3, 3) as {
-      id?: { nodeKey?: unknown; pointIndex?: unknown };
-    } | undefined;
+    const oraclePicked = scene.pick(center, 3, 3) as
+      | {
+          id?: { nodeKey?: unknown; pointIndex?: unknown };
+        }
+      | undefined;
     const oraclePointIndex = oraclePicked?.id?.pointIndex;
     pointOracle.show = false;
     layerA.setShow(true);
@@ -163,13 +189,20 @@ export async function runCpuBatchedPickingProbe(
     // identity different from Cesium's rasterized winner.
     layerA.setShow(false);
     depthTieRenderer.attachTo(viewer);
-    const depthTieNodeKey = 'cpu-pick-depth-quantization-tie';
-    addSyntheticNode(depthTieRenderer, depthTieNodeKey, createPreparedPoints([
-      positionAlongRay(ray, 75.00001),
-      positionAlongRay(ray, 75),
-    ]), { ownerId: ownerA, pointSize: 8 });
+    const depthTieNodeKey = "cpu-pick-depth-quantization-tie";
+    addSyntheticNode(
+      depthTieRenderer,
+      depthTieNodeKey,
+      createPreparedPoints([
+        positionAlongRay(ray, 75.00001),
+        positionAlongRay(ray, 75),
+      ]),
+      { ownerId: ownerA, pointSize: 8 },
+    );
     await renderNextFrame(scene);
-    const depthTieNodePick = scene.pick(center, 1, 1) as { id?: unknown } | undefined;
+    const depthTieNodePick = scene.pick(center, 1, 1) as
+      | { id?: unknown }
+      | undefined;
     const depthTieResolution = depthTieRenderer.resolveCpuPointPick(
       scene,
       center,
@@ -179,8 +212,9 @@ export async function runCpuBatchedPickingProbe(
     const depthQuantizationProbe = {
       cesiumVersion: cesiumRuntimeVersion,
       logarithmicDepthBuffer: scene.logarithmicDepthBuffer,
-      centerPickHitNode: (depthTieNodePick?.id as { nodeKey?: unknown } | undefined)?.nodeKey
-        === depthTieNodeKey,
+      centerPickHitNode:
+        (depthTieNodePick?.id as { nodeKey?: unknown } | undefined)?.nodeKey ===
+        depthTieNodeKey,
       pointSeparationMeters: 0.00001,
       resolution: {
         picked: depthTieResolution.picked,
@@ -203,11 +237,13 @@ export async function runCpuBatchedPickingProbe(
       viewer.camera.right.y ** 2 + viewer.camera.up.y ** 2,
       viewer.camera.right.z ** 2 + viewer.camera.up.z ** 2,
     ];
-    const shiftedAxis = screenAxisWeights.indexOf(Math.max(...screenAxisWeights));
+    const shiftedAxis = screenAxisWeights.indexOf(
+      Math.max(...screenAxisWeights),
+    );
     const distantCoordinates = [nearer.x, nearer.y, nearer.z];
     distantCoordinates[shiftedAxis] += 33_554_434;
     const distantPoint = new Cesium.Cartesian3(...distantCoordinates);
-    const stagingNodeKey = 'cpu-pick-original-ecef-footprint';
+    const stagingNodeKey = "cpu-pick-original-ecef-footprint";
     const stagingPoints = createPreparedPoints([nearer, distantPoint]);
     const staged = packRelativeEcef(stagingPoints.worldCoordinates);
     addSyntheticNode(stagingPrecisionRenderer, stagingNodeKey, stagingPoints, {
@@ -220,12 +256,21 @@ export async function runCpuBatchedPickingProbe(
       staged.origin[1] + staged.positions[1],
       staged.origin[2] + staged.positions[2],
     );
-    const sourceScreen = Cesium.SceneTransforms.worldToWindowCoordinates(scene, nearer);
-    const stagedScreen = Cesium.SceneTransforms.worldToWindowCoordinates(scene, stagedPoint);
-    const stagingPixelError = sourceScreen && stagedScreen
-      ? Cesium.Cartesian2.distance(sourceScreen, stagedScreen)
-      : undefined;
-    const stagingPick = scene.pick(center, 1, 1) as { id?: unknown } | undefined;
+    const sourceScreen = Cesium.SceneTransforms.worldToWindowCoordinates(
+      scene,
+      nearer,
+    );
+    const stagedScreen = Cesium.SceneTransforms.worldToWindowCoordinates(
+      scene,
+      stagedPoint,
+    );
+    const stagingPixelError =
+      sourceScreen && stagedScreen
+        ? Cesium.Cartesian2.distance(sourceScreen, stagedScreen)
+        : undefined;
+    const stagingPick = scene.pick(center, 1, 1) as
+      | { id?: unknown }
+      | undefined;
     const stagingResolution = stagingPrecisionRenderer.resolveCpuPointPick(
       scene,
       center,
@@ -234,8 +279,9 @@ export async function runCpuBatchedPickingProbe(
     );
     const stagingPrecisionProbe = {
       cesiumVersion: cesiumRuntimeVersion,
-      centerPickHitNode: (stagingPick?.id as { nodeKey?: unknown } | undefined)?.nodeKey
-        === stagingNodeKey,
+      centerPickHitNode:
+        (stagingPick?.id as { nodeKey?: unknown } | undefined)?.nodeKey ===
+        stagingNodeKey,
       stagingPositionErrorMeters: staged.maxAbsoluteError,
       projectedStagingErrorPx: stagingPixelError,
       resolution: {
@@ -249,12 +295,15 @@ export async function runCpuBatchedPickingProbe(
     await renderNextFrame(scene);
 
     const toleranceCases = [
-      { offsetPx: 0, label: 'center' },
-      { offsetPx: 0.5, label: 'inside-point-footprint' },
-      { offsetPx: 3.5, label: 'near-edge-point-footprint' },
-      { offsetPx: 6, label: 'outside-point-footprint' },
+      { offsetPx: 0, label: "center" },
+      { offsetPx: 0.5, label: "inside-point-footprint" },
+      { offsetPx: 3.5, label: "near-edge-point-footprint" },
+      { offsetPx: 6, label: "outside-point-footprint" },
     ].map(({ offsetPx, label }) => {
-      const probePosition = new Cesium.Cartesian2(center.x + offsetPx, center.y);
+      const probePosition = new Cesium.Cartesian2(
+        center.x + offsetPx,
+        center.y,
+      );
       return {
         label,
         offsetPx,
@@ -267,29 +316,42 @@ export async function runCpuBatchedPickingProbe(
     // The production batched picker explicitly requests one pixel instead.
     layerA.setShow(false);
     edgeRenderer.attachTo(viewer);
-    const edgeNodeKey = 'cpu-pick-default-window-edge';
-    addSyntheticNode(edgeRenderer, edgeNodeKey, createPreparedPoints([nearer]), {
-      ownerId: ownerA,
-      pointSize: 2,
-    });
+    const edgeNodeKey = "cpu-pick-default-window-edge";
+    addSyntheticNode(
+      edgeRenderer,
+      edgeNodeKey,
+      createPreparedPoints([nearer]),
+      {
+        ownerId: ownerA,
+        pointSize: 2,
+      },
+    );
     await renderNextFrame(scene);
     const edgePosition = new Cesium.Cartesian2(center.x + 1.25, center.y);
-    const defaultWindowPick = scene.pick(edgePosition) as { id?: unknown } | undefined;
+    const defaultWindowPick = scene.pick(edgePosition) as
+      | { id?: unknown }
+      | undefined;
     const defaultWindowResolved = edgeRenderer.resolvePointPick(
       scene,
       edgePosition,
       defaultWindowPick,
     );
-    const batchedSinglePixelPick = scene.pick(center, 1, 1) as { id?: unknown } | undefined;
+    const batchedSinglePixelPick = scene.pick(center, 1, 1) as
+      | { id?: unknown }
+      | undefined;
     const singlePixelResolved = edgeRenderer.resolvePointPick(
       scene,
       center,
       batchedSinglePixelPick,
     );
     const defaultPickWindowEdge = {
-      defaultWindowPickedNode: (defaultWindowPick?.id as { nodeKey?: unknown } | undefined)?.nodeKey === edgeNodeKey,
+      defaultWindowPickedNode:
+        (defaultWindowPick?.id as { nodeKey?: unknown } | undefined)
+          ?.nodeKey === edgeNodeKey,
       defaultWindowResolvedPointIndex: defaultWindowResolved?.pointIndex,
-      batchedSinglePixelPickedNode: (batchedSinglePixelPick?.id as { nodeKey?: unknown } | undefined)?.nodeKey === edgeNodeKey,
+      batchedSinglePixelPickedNode:
+        (batchedSinglePixelPick?.id as { nodeKey?: unknown } | undefined)
+          ?.nodeKey === edgeNodeKey,
       batchedSinglePixelResolvedNodeKey: singlePixelResolved?.nodeKey,
       batchedSinglePixelResolvedPointIndex: singlePixelResolved?.pointIndex,
     };
@@ -299,9 +361,13 @@ export async function runCpuBatchedPickingProbe(
 
     layerA.updateNodeStyle(sharedKey, sharedPoints, {
       pointSize: 8,
-      colorMode: 'fixed',
+      colorMode: "fixed",
       pointFilter: (pointIndex) => pointIndex !== 1,
-      pointId: (pointIndex) => ({ nodeKey: sharedKey, pointIndex, ownerId: ownerA }),
+      pointId: (pointIndex) => ({
+        nodeKey: sharedKey,
+        pointIndex,
+        ownerId: ownerA,
+      }),
     });
     await renderNextFrame(scene);
     const filteredHit = layerA.probeCpuPointPick(scene, center, 1.5);
@@ -338,7 +404,10 @@ export async function runCpuBatchedPickingProbe(
       scenePickBoxPx: 3,
       normalHit,
       publicPointPickOracle: {
-        nodeKey: typeof oraclePicked?.id?.nodeKey === 'string' ? oraclePicked.id.nodeKey : undefined,
+        nodeKey:
+          typeof oraclePicked?.id?.nodeKey === "string"
+            ? oraclePicked.id.nodeKey
+            : undefined,
         pointIndex: oraclePointIndex,
         matchesCpuIdentity: oraclePointIndex === normalHit.pointIndex,
       },
@@ -359,7 +428,7 @@ export async function runCpuBatchedPickingProbe(
         hit: multiLayerHit,
         rejectedByOtherLayer: wrongLayerHit,
         hitOwnedByLayerB: multiLayerHit.ownerId === ownerB,
-        otherLayerDidNotResolve: wrongLayerHit.reason === 'not-research-node',
+        otherLayerDidNotResolve: wrongLayerHit.reason === "not-research-node",
       },
       afterLayerRemoval,
       afterNodeRemoval,
@@ -397,7 +466,10 @@ export async function runCpuBatchedPickingStress(
     scene.canvas.clientHeight / 2,
   );
   const ray = viewer.camera.getPickRay(center);
-  if (!ray) throw new Error('Could not create a Cesium pick ray for the picking stress test');
+  if (!ray)
+    throw new Error(
+      "Could not create a Cesium pick ray for the picking stress test",
+    );
 
   const target = positionAlongRay(ray, 75);
   const cartographic = Cesium.Cartographic.fromCartesian(target);
@@ -416,16 +488,19 @@ export async function runCpuBatchedPickingStress(
     pointCount,
     coordinates,
     worldCoordinates,
-    worldCoordinateSystem: 'wgs84-ecef-meters',
+    worldCoordinateSystem: "wgs84-ecef-meters",
   };
   const stressRenderer = new BatchedGeometryPointRenderer();
-  const ownerId = 'cpu-pick-full-budget';
-  const nodeKey = 'cpu-pick-full-budget-node';
+  const ownerId = "cpu-pick-full-budget";
+  const nodeKey = "cpu-pick-full-budget-node";
   primaryRenderer.setShow(false);
 
   try {
     stressRenderer.attachTo(viewer);
-    addSyntheticNode(stressRenderer, nodeKey, points, { ownerId, pointSize: 8 });
+    addSyntheticNode(stressRenderer, nodeKey, points, {
+      ownerId,
+      pointSize: 8,
+    });
     await renderNextFrame(scene);
 
     // Discard the shader compilation and initial framebuffer setup sample.
@@ -444,7 +519,9 @@ export async function runCpuBatchedPickingStress(
       const sample = stressRenderer.probeCpuPointPick(scene, center);
       samples.push({
         picked: sample.picked,
-        ...(sample.pointIndex === undefined ? {} : { pointIndex: sample.pointIndex }),
+        ...(sample.pointIndex === undefined
+          ? {}
+          : { pointIndex: sample.pointIndex }),
         candidateCount: sample.candidateCount,
         scannedPointCount: sample.scannedPointCount,
         scenePickDurationMs: sample.scenePickDurationMs,
@@ -466,34 +543,50 @@ export async function runCpuBatchedPickingStress(
       const oraclePreparationStartedAt = performance.now();
       oracleRenderer.addOrUpdateNode(nodeKey, points, {
         pointSize: 8,
-        colorMode: 'fixed',
+        colorMode: "fixed",
         pointId: (pointIndex) => ({ nodeKey, pointIndex, ownerId }),
       });
-      oraclePreparationDurationMs = performance.now() - oraclePreparationStartedAt;
+      oraclePreparationDurationMs =
+        performance.now() - oraclePreparationStartedAt;
       stressRenderer.setShow(false);
       await renderNextFrame(scene);
       for (let index = 0; index < repetitions; index += 1) {
         const pickStartedAt = performance.now();
-        const picked = scene.pick(center) as { id?: { nodeKey?: unknown; pointIndex?: unknown } } | undefined;
+        const picked = scene.pick(center) as
+          | { id?: { nodeKey?: unknown; pointIndex?: unknown } }
+          | undefined;
         oraclePickDurations.push(performance.now() - pickStartedAt);
-        if (typeof picked?.id?.nodeKey === 'string') {
-          oraclePick = { nodeKey: picked.id.nodeKey, pointIndex: picked.id.pointIndex };
+        if (typeof picked?.id?.nodeKey === "string") {
+          oraclePick = {
+            nodeKey: picked.id.nodeKey,
+            pointIndex: picked.id.pointIndex,
+          };
         }
       }
     } finally {
       oracleRenderer.destroy();
     }
 
-    const sorted = (selector: (sample: (typeof samples)[number]) => number): number[] =>
-      samples.map(selector).sort((left, right) => left - right);
+    const sorted = (
+      selector: (sample: (typeof samples)[number]) => number,
+    ): number[] => samples.map(selector).sort((left, right) => left - right);
     const percentile = (values: number[], fraction: number): number =>
-      values[Math.min(values.length - 1, Math.ceil(values.length * fraction) - 1)] ?? 0;
+      values[
+        Math.min(values.length - 1, Math.ceil(values.length * fraction) - 1)
+      ] ?? 0;
     const cpuMs = sorted((sample) => sample.cpuResolveDurationMs);
     const totalMs = sorted((sample) => sample.totalDurationMs);
     const scenePickMs = sorted((sample) => sample.scenePickDurationMs);
-    const oracleSorted = [...oraclePickDurations].sort((left, right) => left - right);
-    const cpuIndices = [...new Set(samples.flatMap((sample) =>
-      sample.pointIndex === undefined ? [] : [sample.pointIndex]))];
+    const oracleSorted = [...oraclePickDurations].sort(
+      (left, right) => left - right,
+    );
+    const cpuIndices = [
+      ...new Set(
+        samples.flatMap((sample) =>
+          sample.pointIndex === undefined ? [] : [sample.pointIndex],
+        ),
+      ),
+    ];
     return {
       cesiumVersion: cesiumRuntimeVersion,
       devicePixelRatio: window.devicePixelRatio,
@@ -512,8 +605,8 @@ export async function runCpuBatchedPickingStress(
         reason: samples[0]?.reason,
       },
       sameDepthPointPrimitiveOracle: oraclePick,
-      sameDepthOracleMatchesCpu: cpuIndices.length === 1
-        && cpuIndices[0] === oraclePick?.pointIndex,
+      sameDepthOracleMatchesCpu:
+        cpuIndices.length === 1 && cpuIndices[0] === oraclePick?.pointIndex,
       latencyMs: {
         scenePickP50: percentile(scenePickMs, 0.5),
         scenePickP95: percentile(scenePickMs, 0.95),
@@ -529,14 +622,22 @@ export async function runCpuBatchedPickingStress(
         pointPrimitiveScenePickP99: percentile(oracleSorted, 0.99),
       },
       pointPrimitivePreparationDurationMs: oraclePreparationDurationMs,
-      worstCaseCandidateCount: Math.max(...samples.map((sample) => sample.candidateCount)),
+      worstCaseCandidateCount: Math.max(
+        ...samples.map((sample) => sample.candidateCount),
+      ),
       scannedPointCount: samples[0]?.scannedPointCount ?? 0,
-      sourceTypedArrayBytes: coordinates.byteLength + worldCoordinates.byteLength,
-      rendererTypedArrayPayloadBytes: pointCount * (3 * Float32Array.BYTES_PER_ELEMENT
-        + 3 * Float32Array.BYTES_PER_ELEMENT + Float32Array.BYTES_PER_ELEMENT * 2),
-      temporaryResolverTypedArrayBytes: 6 * 9 * Float64Array.BYTES_PER_ELEMENT
-        + 9 * Int32Array.BYTES_PER_ELEMENT + 9 * Uint8Array.BYTES_PER_ELEMENT,
-      note: 'Typed-array payload sizes are calculated from the buffers. JavaScript object overhead and GPU allocation are not measured.',
+      sourceTypedArrayBytes:
+        coordinates.byteLength + worldCoordinates.byteLength,
+      rendererTypedArrayPayloadBytes:
+        pointCount *
+        (3 * Float32Array.BYTES_PER_ELEMENT +
+          3 * Float32Array.BYTES_PER_ELEMENT +
+          Float32Array.BYTES_PER_ELEMENT * 2),
+      temporaryResolverTypedArrayBytes:
+        6 * 9 * Float64Array.BYTES_PER_ELEMENT +
+        9 * Int32Array.BYTES_PER_ELEMENT +
+        9 * Uint8Array.BYTES_PER_ELEMENT,
+      note: "Typed-array payload sizes are calculated from the buffers. JavaScript object overhead and GPU allocation are not measured.",
     };
   } finally {
     stressRenderer.destroy();

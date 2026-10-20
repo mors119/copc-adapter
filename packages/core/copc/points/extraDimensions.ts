@@ -1,7 +1,7 @@
-import type { CopcExtraDimensionReader } from '../types/copc';
+import type { CopcExtraDimensionReader } from "../types/copc";
 
 /** Names of extra schema dimensions to read per point, or `'*'` for every non-standard one. */
-export type CopcExtraDimensionSelection = readonly string[] | '*';
+export type CopcExtraDimensionSelection = readonly string[] | "*";
 
 /** The point-view surface needed to read extra dimensions. */
 export type ExtraDimensionSourceView = {
@@ -24,29 +24,29 @@ export type ExtraDimensionRawPoints = {
 
 /** Dimensions defined by the LAS point data record formats rather than by extra bytes. */
 const STANDARD_DIMENSIONS: ReadonlySet<string> = new Set([
-  'X',
-  'Y',
-  'Z',
-  'Intensity',
-  'ReturnNumber',
-  'NumberOfReturns',
-  'ScanDirectionFlag',
-  'EdgeOfFlightLine',
-  'Classification',
-  'Synthetic',
-  'KeyPoint',
-  'Withheld',
-  'Overlap',
-  'ScanAngle',
-  'ScanAngleRank',
-  'UserData',
-  'PointSourceId',
-  'GpsTime',
-  'Red',
-  'Green',
-  'Blue',
-  'Infrared',
-  'ScannerChannel',
+  "X",
+  "Y",
+  "Z",
+  "Intensity",
+  "ReturnNumber",
+  "NumberOfReturns",
+  "ScanDirectionFlag",
+  "EdgeOfFlightLine",
+  "Classification",
+  "Synthetic",
+  "KeyPoint",
+  "Withheld",
+  "Overlap",
+  "ScanAngle",
+  "ScanAngleRank",
+  "UserData",
+  "PointSourceId",
+  "GpsTime",
+  "Red",
+  "Green",
+  "Blue",
+  "Infrared",
+  "ScannerChannel",
 ]);
 
 /** Point record sizes excluding extra bytes, by LAS point data record format. */
@@ -65,9 +65,10 @@ function resolveRequestedNames(
   selection: CopcExtraDimensionSelection,
 ): string[] {
   const available = Object.keys(view.dimensions);
-  const names = selection === '*'
-    ? available.filter((name) => !STANDARD_DIMENSIONS.has(name))
-    : selection.filter((name) => available.includes(name));
+  const names =
+    selection === "*"
+      ? available.filter((name) => !STANDARD_DIMENSIONS.has(name))
+      : selection.filter((name) => available.includes(name));
 
   return [...new Set(names)];
 }
@@ -89,18 +90,23 @@ function createExactInt64Reader(
   let fieldOffset = base;
   for (const extra of raw.extraBytes) {
     if (extra.name === name) {
-      const isInteger = extra.type === 'signed' || extra.type === 'unsigned';
-      const isUnscaled = (extra.scale === undefined || extra.scale === 1)
-        && (extra.offset === undefined || extra.offset === 0);
+      const isInteger = extra.type === "signed" || extra.type === "unsigned";
+      const isUnscaled =
+        (extra.scale === undefined || extra.scale === 1) &&
+        (extra.offset === undefined || extra.offset === 0);
       if (extra.length !== 8 || !isInteger || !isUnscaled) {
         return undefined;
       }
 
       const recordLength = raw.header.pointDataRecordLength;
-      const view = new DataView(raw.data.buffer, raw.data.byteOffset, raw.data.byteLength);
-      const unsigned = extra.type === 'unsigned';
+      const view = new DataView(
+        raw.data.buffer,
+        raw.data.byteOffset,
+        raw.data.byteLength,
+      );
+      const unsigned = extra.type === "unsigned";
       return {
-        valueType: unsigned ? 'uint64' : 'int64',
+        valueType: unsigned ? "uint64" : "int64",
         read: (index) => {
           const position = index * recordLength + fieldOffset;
           return unsigned
@@ -131,7 +137,7 @@ export function createExtraDimensionReaders(
     }
 
     const getter = view.getter(name);
-    readers.set(name, { valueType: 'float64', read: (index) => getter(index) });
+    readers.set(name, { valueType: "float64", read: (index) => getter(index) });
   }
 
   return readers;

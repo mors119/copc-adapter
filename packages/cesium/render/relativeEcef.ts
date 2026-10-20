@@ -21,14 +21,23 @@ export type RelativeEcefCoordinates = {
  */
 export function packRelativeEcef(world: Float64Array): RelativeEcefCoordinates {
   if (world.length === 0 || world.length % 3 !== 0) {
-    throw new Error('ECEF coordinates must contain one or more XYZ triples');
+    throw new Error("ECEF coordinates must contain one or more XYZ triples");
   }
-  const minimum = [Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY];
-  const maximum = [Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY];
+  const minimum = [
+    Number.POSITIVE_INFINITY,
+    Number.POSITIVE_INFINITY,
+    Number.POSITIVE_INFINITY,
+  ];
+  const maximum = [
+    Number.NEGATIVE_INFINITY,
+    Number.NEGATIVE_INFINITY,
+    Number.NEGATIVE_INFINITY,
+  ];
   for (let index = 0; index < world.length; index += 3) {
     for (let axis = 0; axis < 3; axis += 1) {
       const value = world[index + axis];
-      if (!Number.isFinite(value)) throw new Error('ECEF coordinates must be finite');
+      if (!Number.isFinite(value))
+        throw new Error("ECEF coordinates must be finite");
       minimum[axis] = Math.min(minimum[axis], value);
       maximum[axis] = Math.max(maximum[axis], value);
     }
@@ -53,5 +62,10 @@ export function packRelativeEcef(world: Float64Array): RelativeEcefCoordinates {
     }
     radiusSquared = Math.max(radiusSquared, distanceSquared);
   }
-  return { origin, positions, radius: Math.sqrt(radiusSquared), maxAbsoluteError };
+  return {
+    origin,
+    positions,
+    radius: Math.sqrt(radiusSquared),
+    maxAbsoluteError,
+  };
 }

@@ -1,9 +1,9 @@
-import * as THREE from 'three';
-import { ThreePointRenderer } from '../three/render/ThreePointRenderer.ts';
+import * as THREE from "three";
+import { ThreePointRenderer } from "../three/render/ThreePointRenderer.ts";
 
 const pointCount = Number(process.argv[2] ?? 100_000);
 const origin = {
-  coordinateSystem: 'wgs84-ecef-meters',
+  coordinateSystem: "wgs84-ecef-meters",
   x: 4_510_000,
   y: -1_250_000,
   z: 4_200_000,
@@ -24,9 +24,9 @@ function createPoints() {
   return {
     pointCount,
     coordinates,
-    coordinateSystem: 'wgs84-geographic',
+    coordinateSystem: "wgs84-geographic",
     worldCoordinates,
-    worldCoordinateSystem: 'wgs84-ecef-meters',
+    worldCoordinateSystem: "wgs84-ecef-meters",
   };
 }
 
@@ -47,15 +47,15 @@ const samples = { add: [], update: [], remove: [] };
 
 for (let repetition = 0; repetition < 9; repetition += 1) {
   const addStartedAt = performance.now();
-  renderer.addOrUpdateNode('benchmark-node', points, { pointSize: 2 });
+  renderer.addOrUpdateNode("benchmark-node", points, { pointSize: 2 });
   const addDuration = performance.now() - addStartedAt;
 
   const updateStartedAt = performance.now();
-  renderer.addOrUpdateNode('benchmark-node', points, { pointSize: 2 });
+  renderer.addOrUpdateNode("benchmark-node", points, { pointSize: 2 });
   const updateDuration = performance.now() - updateStartedAt;
 
   const removeStartedAt = performance.now();
-  renderer.removeNode('benchmark-node');
+  renderer.removeNode("benchmark-node");
   const removeDuration = performance.now() - removeStartedAt;
 
   if (repetition >= 2) {
@@ -66,19 +66,26 @@ for (let repetition = 0; repetition < 9; repetition += 1) {
 }
 
 renderer.destroy();
-console.log(JSON.stringify({
-  environment: {
-    node: process.version,
-    platform: process.platform,
-    arch: process.arch,
-    timing: 'performance.now(); warmup=2, samples=7; CPU scene-object preparation only',
-  },
-  pointCount,
-  localPositionAttribute: 'Float32Array',
-  sizeAttenuation: false,
-  stages: {
-    add: summarize(samples.add),
-    update: summarize(samples.update),
-    remove: summarize(samples.remove),
-  },
-}, null, 2));
+console.log(
+  JSON.stringify(
+    {
+      environment: {
+        node: process.version,
+        platform: process.platform,
+        arch: process.arch,
+        timing:
+          "performance.now(); warmup=2, samples=7; CPU scene-object preparation only",
+      },
+      pointCount,
+      localPositionAttribute: "Float32Array",
+      sizeAttenuation: false,
+      stages: {
+        add: summarize(samples.add),
+        update: summarize(samples.update),
+        remove: summarize(samples.remove),
+      },
+    },
+    null,
+    2,
+  ),
+);

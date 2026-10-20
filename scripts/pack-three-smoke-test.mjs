@@ -1,26 +1,26 @@
-import { cp, mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
-import { spawn } from 'node:child_process';
-import os from 'node:os';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { cp, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { spawn } from "node:child_process";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
-const repositoryDirectory = path.resolve(scriptDirectory, '..');
-const packageDirectory = path.resolve(repositoryDirectory, 'packages');
+const repositoryDirectory = path.resolve(scriptDirectory, "..");
+const packageDirectory = path.resolve(repositoryDirectory, "packages");
 const consumerTemplateDirectory = path.resolve(
   repositoryDirectory,
-  'tests/environments/three-vite',
+  "tests/environments/three-vite",
 );
 const packageOutputDirectory = await mkdtemp(
-  path.join(os.tmpdir(), 'copc-adapter-three-pack-'),
+  path.join(os.tmpdir(), "copc-adapter-three-pack-"),
 );
 const consumerDirectory = await mkdtemp(
-  path.join(os.tmpdir(), 'copc-adapter-three-consumer-'),
+  path.join(os.tmpdir(), "copc-adapter-three-consumer-"),
 );
 
 function npmCommand() {
-  return process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  return process.platform === "win32" ? "npm.cmd" : "npm";
 }
 
 function run(command, args, options = {}) {
@@ -28,19 +28,19 @@ function run(command, args, options = {}) {
     const child = spawn(command, args, {
       ...options,
       env: { ...process.env, ...options.env },
-      stdio: options.stdio ?? ['ignore', 'pipe', 'pipe'],
+      stdio: options.stdio ?? ["ignore", "pipe", "pipe"],
     });
-    let stdout = '';
-    let stderr = '';
+    let stdout = "";
+    let stderr = "";
 
-    child.stdout?.on('data', (chunk) => {
+    child.stdout?.on("data", (chunk) => {
       stdout += chunk;
     });
-    child.stderr?.on('data', (chunk) => {
+    child.stderr?.on("data", (chunk) => {
       stderr += chunk;
     });
-    child.once('error', reject);
-    child.once('exit', (code, signal) => {
+    child.once("error", reject);
+    child.once("exit", (code, signal) => {
       if (code === 0) {
         resolve({ stdout, stderr });
         return;
@@ -48,7 +48,7 @@ function run(command, args, options = {}) {
 
       reject(
         new Error(
-          `${command} ${args.join(' ')} failed (${signal ?? `exit ${code}`})\n${stderr}`,
+          `${command} ${args.join(" ")} failed (${signal ?? `exit ${code}`})\n${stderr}`,
         ),
       );
     });
@@ -67,7 +67,7 @@ async function listFiles(directory) {
   for (const entry of entries) {
     const entryPath = path.resolve(directory, entry.name);
     if (entry.isDirectory()) {
-      files.push(...await listFiles(entryPath));
+      files.push(...(await listFiles(entryPath)));
     } else {
       files.push(entryPath);
     }
@@ -80,24 +80,33 @@ try {
   if (process.argv[2]) {
     packagePath = path.resolve(process.argv[2]);
     if (!existsSync(packagePath)) {
-      throw new Error(`Supplied adapter tarball does not exist: ${packagePath}`);
+      throw new Error(
+        `Supplied adapter tarball does not exist: ${packagePath}`,
+      );
     }
-    console.log(`Using supplied adapter tarball: ${path.basename(packagePath)}`);
+    console.log(
+      `Using supplied adapter tarball: ${path.basename(packagePath)}`,
+    );
   } else {
-    console.log('Building the library package with the Three entrypoint...');
-    await run(npmCommand(), ['run', 'build:library'], {
+    console.log("Building the library package with the Three entrypoint...");
+    await run(npmCommand(), ["run", "build:library"], {
       cwd: packageDirectory,
-      stdio: 'inherit',
+      stdio: "inherit",
     });
 
-    console.log('Packing the Three-enabled library artifact...');
+    console.log("Packing the Three-enabled library artifact...");
     await run(
       npmCommand(),
-      ['pack', '--ignore-scripts', '--pack-destination', packageOutputDirectory],
+      [
+        "pack",
+        "--ignore-scripts",
+        "--pack-destination",
+        packageOutputDirectory,
+      ],
       { cwd: packageDirectory },
     );
-    const packedFilenames = (await readdir(packageOutputDirectory)).filter((entry) =>
-      entry.endsWith('.tgz'),
+    const packedFilenames = (await readdir(packageOutputDirectory)).filter(
+      (entry) => entry.endsWith(".tgz"),
     );
     if (packedFilenames.length !== 1) {
       throw new Error(
@@ -107,91 +116,117 @@ try {
     packagePath = path.resolve(packageOutputDirectory, packedFilenames[0]);
   }
 
-  const tarResult = await run('tar', ['-tzf', packagePath]);
-  const entries = new Set(tarResult.stdout.trim().split('\n').filter(Boolean));
+  const tarResult = await run("tar", ["-tzf", packagePath]);
+  const entries = new Set(tarResult.stdout.trim().split("\n").filter(Boolean));
   for (const requiredEntry of [
-    'package/package.json',
-    'package/dist/index.js',
-    'package/dist/index.d.ts',
-    'package/dist/cesium.js',
-    'package/dist/cesium.d.ts',
-    'package/dist/three.js',
-    'package/dist/three.d.ts',
-    'package/dist/copc_adapter_wasm.wasm',
-    'package/dist/laz-perf.wasm',
-    'package/dist/copcAdapterWasmAsset.js',
-    'package/dist/lazPerfAsset.js',
-    'package/dist/rustCopcWorkerFactory.js',
+    "package/package.json",
+    "package/dist/index.js",
+    "package/dist/index.d.ts",
+    "package/dist/cesium.js",
+    "package/dist/cesium.d.ts",
+    "package/dist/three.js",
+    "package/dist/three.d.ts",
+    "package/dist/copc_adapter_wasm.wasm",
+    "package/dist/laz-perf.wasm",
+    "package/dist/copcAdapterWasmAsset.js",
+    "package/dist/lazPerfAsset.js",
+    "package/dist/rustCopcWorkerFactory.js",
   ]) {
     assertIncluded(entries, requiredEntry);
   }
-  if ([...entries].some((entry) => entry.startsWith('package/dist/assets/'))) {
-    throw new Error('Packed adapter contains an external Rust decode worker chunk');
+  if ([...entries].some((entry) => entry.startsWith("package/dist/assets/"))) {
+    throw new Error(
+      "Packed adapter contains an external Rust decode worker chunk",
+    );
   }
   if ([...entries].some((entry) => /\.copc\.laz$/iu.test(entry))) {
-    throw new Error('Packed adapter contains a COPC sample dataset');
+    throw new Error("Packed adapter contains a COPC sample dataset");
   }
 
   await cp(consumerTemplateDirectory, consumerDirectory, { recursive: true });
-  console.log('Installing the packed artifact in a clean Three.js consumer...');
-  await run(npmCommand(), ['install', '--no-audit', '--no-fund'], {
+  console.log("Installing the packed artifact in a clean Three.js consumer...");
+  await run(npmCommand(), ["install", "--no-audit", "--no-fund"], {
     cwd: consumerDirectory,
-    stdio: 'inherit',
+    stdio: "inherit",
   });
   await run(
     npmCommand(),
-    ['install', '--no-save', '--no-audit', '--no-fund', packagePath],
-    { cwd: consumerDirectory, stdio: 'inherit' },
+    ["install", "--no-save", "--no-audit", "--no-fund", packagePath],
+    { cwd: consumerDirectory, stdio: "inherit" },
   );
 
   const installedPackageDirectory = path.resolve(
     consumerDirectory,
-    'node_modules/@frillab/copc-adapter',
+    "node_modules/@frillab/copc-adapter",
   );
   const installedPackage = JSON.parse(
-    await readFile(path.resolve(installedPackageDirectory, 'package.json'), 'utf8'),
+    await readFile(
+      path.resolve(installedPackageDirectory, "package.json"),
+      "utf8",
+    ),
   );
-  if (!installedPackage.exports?.['.']) {
-    throw new Error('Clean consumer package is missing the root export');
+  if (!installedPackage.exports?.["."]) {
+    throw new Error("Clean consumer package is missing the root export");
   }
-  if (!installedPackage.exports?.['./cesium']) {
-    throw new Error('Clean consumer package is missing the ./cesium export');
+  if (!installedPackage.exports?.["./cesium"]) {
+    throw new Error("Clean consumer package is missing the ./cesium export");
   }
-  if (!installedPackage.exports?.['./three']) {
-    throw new Error('Clean consumer package is missing the ./three export');
+  if (!installedPackage.exports?.["./three"]) {
+    throw new Error("Clean consumer package is missing the ./three export");
   }
   if (!installedPackage.peerDependenciesMeta?.cesium?.optional) {
-    throw new Error('Cesium peer must be optional for the subpath package boundary');
+    throw new Error(
+      "Cesium peer must be optional for the subpath package boundary",
+    );
   }
   if (!installedPackage.peerDependenciesMeta?.three?.optional) {
-    throw new Error('Three.js peer must be optional at the combined package boundary');
+    throw new Error(
+      "Three.js peer must be optional at the combined package boundary",
+    );
   }
-  if (existsSync(path.resolve(consumerDirectory, 'node_modules/cesium'))) {
-    throw new Error('Three-only consumer unexpectedly installed Cesium');
+  if (existsSync(path.resolve(consumerDirectory, "node_modules/cesium"))) {
+    throw new Error("Three-only consumer unexpectedly installed Cesium");
   }
 
-  console.log('Building the clean Three.js/Vite consumer...');
-  await run(npmCommand(), ['run', 'build'], {
+  console.log("Building the clean Three.js/Vite consumer...");
+  await run(npmCommand(), ["run", "build"], {
     cwd: consumerDirectory,
-    stdio: 'inherit',
+    stdio: "inherit",
   });
-  const consumerAssetEntries = await readdir(path.resolve(consumerDirectory, 'dist/assets'));
-  if (!consumerAssetEntries.some((entry) => entry.startsWith('copc_adapter_wasm-') && entry.endsWith('.wasm'))) {
-    throw new Error('Three consumer production build did not emit the Rust WASM asset');
+  const consumerAssetEntries = await readdir(
+    path.resolve(consumerDirectory, "dist/assets"),
+  );
+  if (
+    !consumerAssetEntries.some(
+      (entry) =>
+        entry.startsWith("copc_adapter_wasm-") && entry.endsWith(".wasm"),
+    )
+  ) {
+    throw new Error(
+      "Three consumer production build did not emit the Rust WASM asset",
+    );
   }
-  if (!consumerAssetEntries.some((entry) => entry.startsWith('laz-perf-') && entry.endsWith('.wasm'))) {
-    throw new Error('Three consumer production build did not emit the LAZ runtime asset');
+  if (
+    !consumerAssetEntries.some(
+      (entry) => entry.startsWith("laz-perf-") && entry.endsWith(".wasm"),
+    )
+  ) {
+    throw new Error(
+      "Three consumer production build did not emit the LAZ runtime asset",
+    );
   }
 
   const consumerJavaScript = await Promise.all(
-    (await listFiles(path.resolve(consumerDirectory, 'dist')))
-      .filter((file) => file.endsWith('.js'))
-      .map((file) => readFile(file, 'utf8')),
+    (await listFiles(path.resolve(consumerDirectory, "dist")))
+      .filter((file) => file.endsWith(".js"))
+      .map((file) => readFile(file, "utf8")),
   );
   if (consumerJavaScript.some((source) => /cesium/iu.test(source))) {
-    throw new Error('Three consumer bundle contains a Cesium module reference');
+    throw new Error("Three consumer bundle contains a Cesium module reference");
   }
-  console.log(`Packed Three consumer validation passed: ${path.basename(packagePath)}`);
+  console.log(
+    `Packed Three consumer validation passed: ${path.basename(packagePath)}`,
+  );
 } finally {
   await rm(packageOutputDirectory, { recursive: true, force: true });
   await rm(consumerDirectory, { recursive: true, force: true });

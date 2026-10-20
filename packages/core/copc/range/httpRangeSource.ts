@@ -8,8 +8,8 @@ import {
   type RandomAccessByteSource,
   resolveMaxRangeBytes,
   validateByteRange,
-} from './types';
-import { validateContentRange } from './contentRange';
+} from "./types";
+import { validateContentRange } from "./contentRange";
 
 /** Fetch, validation, and resource limits for {@link HttpRangeByteSource}. */
 export type HttpRangeByteSourceOptions = {
@@ -74,8 +74,10 @@ function rangeDetails(source: string, range: ByteRange, status?: number) {
 }
 
 function isAbortError(error: unknown): boolean {
-  return error instanceof DOMException && error.name === 'AbortError'
-    || error instanceof Error && error.name === 'AbortError';
+  return (
+    (error instanceof DOMException && error.name === "AbortError") ||
+    (error instanceof Error && error.name === "AbortError")
+  );
 }
 
 /** HTTP implementation of the project-owned random-access byte source. */
@@ -103,7 +105,7 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
     this.source = source;
     this.fetchImpl = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.headers = new Headers(options.headers);
-    this.rangeValidation = options.rangeValidation ?? 'head-fallback';
+    this.rangeValidation = options.rangeValidation ?? "head-fallback";
     this.maxRangeBytes = resolveMaxRangeBytes(source, options.maxRangeBytes);
     this.maxConcurrentRangeRequests = resolveMaxConcurrentRangeRequests(
       source,
@@ -113,7 +115,7 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
     if (options.size !== undefined) {
       if (!Number.isSafeInteger(options.size) || options.size < 0) {
         throw new RangeSourceError(
-          'invalid-range',
+          "invalid-range",
           `Invalid source size: ${options.size}`,
           { source },
         );
@@ -138,7 +140,7 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
 
     if (this.knownSize !== undefined && end >= this.knownSize) {
       throw new RangeSourceError(
-        'out-of-bounds',
+        "out-of-bounds",
         `Requested bytes=${offset}-${end} exceed source size ${this.knownSize}`,
         rangeDetails(this.source, range),
       );
@@ -159,7 +161,9 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
 
       if (options.signal) {
         pending.abortListener = () => this.cancelPendingRead(pending);
-        options.signal.addEventListener('abort', pending.abortListener, { once: true });
+        options.signal.addEventListener("abort", pending.abortListener, {
+          once: true,
+        });
         if (options.signal.aborted) {
           this.cancelPendingRead(pending);
           return;
@@ -177,11 +181,13 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
     options: RangeReadOptions = {},
   ): Promise<Uint8Array[]> {
     const validatedRanges = ranges.map(({ offset, length }) =>
-      this.validateReadRange(offset, length));
+      this.validateReadRange(offset, length),
+    );
 
     return Promise.all(
       validatedRanges.map(({ offset, length }) =>
-        this.readRange(offset, length, options)),
+        this.readRange(offset, length, options),
+      ),
     );
   }
 
@@ -189,7 +195,7 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
     const range = validateByteRange(this.source, offset, length);
     if (range.length > this.maxRangeBytes) {
       throw new RangeSourceError(
-        'range-too-large',
+        "range-too-large",
         `Requested range length ${range.length} exceeds the ${this.maxRangeBytes}-byte HTTP read limit`,
         rangeDetails(this.source, range),
       );
@@ -225,8 +231,8 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
 
   private startPendingRangeGroups(): void {
     while (
-      this.activeRangeFetches < this.maxConcurrentRangeRequests
-      && this.pendingRangeGroups.length > 0
+      this.activeRangeFetches < this.maxConcurrentRangeRequests &&
+      this.pendingRangeGroups.length > 0
     ) {
       const group = this.pendingRangeGroups.shift();
       if (!group || group.members.every((member) => member.settled)) continue;
@@ -239,18 +245,22 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
             if (member.settled) continue;
             const start = member.range.offset - group.range.offset;
             const end = start + member.range.length;
-            const result = group.members.length === 1
-              && start === 0
-              && end === bytes.byteLength
-              ? bytes
-              : bytes.slice(start, end);
+            const result =
+              group.members.length === 1 &&
+              start === 0 &&
+              end === bytes.byteLength
+                ? bytes
+                : bytes.slice(start, end);
             this.resolvePendingRead(member, result);
           }
         })
         .catch((error: unknown) => {
           for (const member of group.members) {
             if (member.settled) continue;
-            this.rejectPendingRead(member, this.errorForRange(error, member.range));
+            this.rejectPendingRead(
+              member,
+              this.errorForRange(error, member.range),
+            );
           }
         })
         .finally(() => {
@@ -262,7 +272,10 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
 
   private cancelPendingRead(read: PendingRangeRead): void {
     if (read.settled) return;
-    this.rejectPendingRead(read, this.abortedError(read.range, read.signal?.reason));
+    this.rejectPendingRead(
+      read,
+      this.abortedError(read.range, read.signal?.reason),
+    );
 
     const group = read.group;
     if (group && group.members.every((member) => member.settled)) {
@@ -281,7 +294,10 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
     read.resolve(bytes);
   }
 
-  private rejectPendingRead(read: PendingRangeRead, error: RangeSourceError): void {
+  private rejectPendingRead(
+    read: PendingRangeRead,
+    error: RangeSourceError,
+  ): void {
     if (read.settled) return;
     read.settled = true;
     this.disposePendingRead(read);
@@ -290,7 +306,7 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
 
   private disposePendingRead(read: PendingRangeRead): void {
     if (read.abortListener && read.signal) {
-      read.signal.removeEventListener('abort', read.abortListener);
+      read.signal.removeEventListener("abort", read.abortListener);
       read.abortListener = undefined;
     }
   }
@@ -298,7 +314,7 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
   private abortedError(range: ByteRange, cause: unknown): RangeSourceError {
     const end = range.offset + range.length - 1;
     return new RangeSourceError(
-      'aborted',
+      "aborted",
       `Range request aborted for bytes=${range.offset}-${end}`,
       rangeDetails(this.source, range),
       { cause },
@@ -316,7 +332,7 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
     }
 
     return new RangeSourceError(
-      'network',
+      "network",
       error instanceof Error ? error.message : String(error),
       rangeDetails(this.source, range),
       { cause: error },
@@ -328,10 +344,14 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
     this.knownSize = size;
   }
 
-  private assertSizeMatches(size: number, range: ByteRange, status?: number): void {
+  private assertSizeMatches(
+    size: number,
+    range: ByteRange,
+    status?: number,
+  ): void {
     if (this.knownSize !== undefined && this.knownSize !== size) {
       throw new RangeSourceError(
-        'source-size-changed',
+        "source-size-changed",
         `The source size changed from ${this.knownSize} to ${size}; reload the source from a stable URL`,
         rangeDetails(this.source, range, status),
       );
@@ -343,48 +363,55 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
     range: ByteRange,
     status?: number,
   ): void {
-    const contentEncoding = headers.get('Content-Encoding')?.trim().toLowerCase();
-    if (contentEncoding && contentEncoding !== 'identity') {
+    const contentEncoding = headers
+      .get("Content-Encoding")
+      ?.trim()
+      .toLowerCase();
+    if (contentEncoding && contentEncoding !== "identity") {
       throw new RangeSourceError(
-        'representation',
+        "representation",
         `The source uses Content-Encoding: ${contentEncoding}; byte ranges require an identity representation`,
         rangeDetails(this.source, range, status),
       );
     }
 
-    const etag = headers.get('ETag') || undefined;
-    const lastModified = headers.get('Last-Modified') || undefined;
+    const etag = headers.get("ETag") || undefined;
+    const lastModified = headers.get("Last-Modified") || undefined;
     if (this.knownETag && etag && this.knownETag !== etag) {
       throw new RangeSourceError(
-        'source-changed',
-        'The source ETag changed between range requests; reload the source from a stable URL',
+        "source-changed",
+        "The source ETag changed between range requests; reload the source from a stable URL",
         rangeDetails(this.source, range, status),
       );
     }
-    if (this.knownLastModified && lastModified && this.knownLastModified !== lastModified) {
+    if (
+      this.knownLastModified &&
+      lastModified &&
+      this.knownLastModified !== lastModified
+    ) {
       throw new RangeSourceError(
-        'source-changed',
-        'The source Last-Modified value changed between range requests; reload the source from a stable URL',
+        "source-changed",
+        "The source Last-Modified value changed between range requests; reload the source from a stable URL",
         rangeDetails(this.source, range, status),
       );
     }
   }
 
   private rememberRepresentation(headers: Headers): void {
-    this.knownETag ??= headers.get('ETag') || undefined;
-    this.knownLastModified ??= headers.get('Last-Modified') || undefined;
+    this.knownETag ??= headers.get("ETag") || undefined;
+    this.knownLastModified ??= headers.get("Last-Modified") || undefined;
   }
 
   private warnHeadFallback(): void {
     if (this.warnedHeadFallback) return;
     this.warnedHeadFallback = true;
     console.warn(
-      '[COPC] Using HEAD-based Range compatibility validation.\n\n'
-      + 'Content-Range is not readable by JavaScript.\n'
-      + 'Exact response length is verified, but byte-offset\n'
-      + 'correctness cannot be fully established.\n\n'
-      + 'For strict validation, expose Content-Range through CORS\n'
-      + "and set rangeValidation: 'strict'.",
+      "[COPC] Using HEAD-based Range compatibility validation.\n\n" +
+        "Content-Range is not readable by JavaScript.\n" +
+        "Exact response length is verified, but byte-offset\n" +
+        "correctness cannot be fully established.\n\n" +
+        "For strict validation, expose Content-Range through CORS\n" +
+        "and set rangeValidation: 'strict'.",
     );
   }
 
@@ -424,12 +451,12 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
     }
 
     return new Promise<HeadMetadata>((resolve, reject) => {
-      const waiter = Symbol('head-metadata-waiter');
+      const waiter = Symbol("head-metadata-waiter");
       request.waiters.add(waiter);
       let settled = false;
 
       const cleanup = (): void => {
-        signal.removeEventListener('abort', onAbort);
+        signal.removeEventListener("abort", onAbort);
         request.waiters.delete(waiter);
       };
       const onAbort = (): void => {
@@ -440,7 +467,7 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
         if (request.waiters.size === 0) request.controller.abort(signal.reason);
       };
 
-      signal.addEventListener('abort', onAbort, { once: true });
+      signal.addEventListener("abort", onAbort, { once: true });
       if (signal.aborted) {
         onAbort();
         return;
@@ -472,7 +499,7 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
     const end = range.offset + range.length - 1;
     if (end >= size) {
       throw new RangeSourceError(
-        'out-of-bounds',
+        "out-of-bounds",
         `Requested bytes=${range.offset}-${end} exceed the HEAD-reported source size ${size}`,
         rangeDetails(this.source, range, 200),
       );
@@ -484,12 +511,12 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
     range: ByteRange,
   ): Promise<HeadMetadata> {
     const requestHeaders = new Headers(this.headers);
-    requestHeaders.delete('Range');
+    requestHeaders.delete("Range");
 
     let response: Response;
     try {
       response = await this.fetchImpl(this.source, {
-        method: 'HEAD',
+        method: "HEAD",
         headers: requestHeaders,
         signal,
       });
@@ -498,8 +525,8 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
         throw this.abortedError(range, error);
       }
       throw new RangeSourceError(
-        'head-metadata',
-        'HEAD metadata request failed; allow the method through CORS and return a readable Content-Length',
+        "head-metadata",
+        "HEAD metadata request failed; allow the method through CORS and return a readable Content-Length",
         rangeDetails(this.source, range),
         { cause: error },
       );
@@ -508,21 +535,22 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
     if (!response.ok) {
       await cancelResponseBody(response);
       throw new RangeSourceError(
-        'head-metadata',
+        "head-metadata",
         `HEAD metadata request returned HTTP ${response.status}; the compatibility path requires a successful HEAD response`,
         rangeDetails(this.source, range, response.status),
       );
     }
 
-    const rawLength = response.headers.get('Content-Length');
-    const size = rawLength && /^\d+$/.test(rawLength.trim())
-      ? Number(rawLength)
-      : Number.NaN;
+    const rawLength = response.headers.get("Content-Length");
+    const size =
+      rawLength && /^\d+$/.test(rawLength.trim())
+        ? Number(rawLength)
+        : Number.NaN;
     if (!Number.isSafeInteger(size) || size <= 0) {
       await cancelResponseBody(response);
       throw new RangeSourceError(
-        'head-metadata',
-        'HEAD must return a positive, safe-integer Content-Length; check HEAD support and source metadata',
+        "head-metadata",
+        "HEAD must return a positive, safe-integer Content-Length; check HEAD support and source metadata",
         rangeDetails(this.source, range, response.status),
       );
     }
@@ -532,9 +560,11 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
     await cancelResponseBody(response);
     return {
       size,
-      ...(response.headers.get('ETag') ? { etag: response.headers.get('ETag')! } : {}),
-      ...(response.headers.get('Last-Modified')
-        ? { lastModified: response.headers.get('Last-Modified')! }
+      ...(response.headers.get("ETag")
+        ? { etag: response.headers.get("ETag")! }
+        : {}),
+      ...(response.headers.get("Last-Modified")
+        ? { lastModified: response.headers.get("Last-Modified")! }
         : {}),
     };
   }
@@ -555,15 +585,18 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
       throw this.abortedError(range, signal.reason);
     }
 
-    const rawLength = response.headers.get('Content-Length');
+    const rawLength = response.headers.get("Content-Length");
     if (rawLength !== null) {
       const declaredLength = /^\d+$/.test(rawLength.trim())
         ? Number(rawLength)
         : Number.NaN;
-      if (!Number.isSafeInteger(declaredLength) || declaredLength !== range.length) {
+      if (
+        !Number.isSafeInteger(declaredLength) ||
+        declaredLength !== range.length
+      ) {
         await cancelResponseBody(response);
         throw new RangeSourceError(
-          'body-length',
+          "body-length",
           `Range response declared Content-Length ${rawLength}; expected ${range.length}`,
           rangeDetails(this.source, range, response.status),
         );
@@ -576,7 +609,7 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
     } catch (error: unknown) {
       await cancelResponseBody(response);
       throw new RangeSourceError(
-        'range-too-large',
+        "range-too-large",
         `Could not allocate the bounded ${range.length}-byte range buffer`,
         rangeDetails(this.source, range, response.status),
         { cause: error },
@@ -585,7 +618,7 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
 
     if (!response.body) {
       throw new RangeSourceError(
-        'body-length',
+        "body-length",
         `Range response body was unavailable; expected ${range.length} bytes`,
         rangeDetails(this.source, range, response.status),
       );
@@ -597,8 +630,8 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
     } catch (error: unknown) {
       await cancelResponseBody(response);
       throw new RangeSourceError(
-        'network',
-        'Range response body could not be opened for reading',
+        "network",
+        "Range response body could not be opened for reading",
         rangeDetails(this.source, range, response.status),
         { cause: error },
       );
@@ -607,7 +640,7 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
     const cancelOnAbort = (): void => {
       void reader.cancel(signal.reason).catch(() => undefined);
     };
-    signal.addEventListener('abort', cancelOnAbort, { once: true });
+    signal.addEventListener("abort", cancelOnAbort, { once: true });
     if (signal.aborted) cancelOnAbort();
     try {
       while (true) {
@@ -618,7 +651,7 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
         if (next.done) {
           if (received !== range.length) {
             throw new RangeSourceError(
-              'body-length',
+              "body-length",
               `Range response returned ${received} bytes; expected ${range.length}`,
               rangeDetails(this.source, range, response.status),
             );
@@ -629,7 +662,7 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
         const remaining = range.length - received;
         if (next.value.byteLength > remaining) {
           throw new RangeSourceError(
-            'body-length',
+            "body-length",
             `Range response exceeded the ${range.length}-byte received-body limit`,
             rangeDetails(this.source, range, response.status),
           );
@@ -642,28 +675,31 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
       if (error instanceof RangeSourceError) throw error;
       if (signal.aborted || isAbortError(error)) {
         throw new RangeSourceError(
-          'aborted',
+          "aborted",
           `Range response body aborted for bytes=${range.offset}-${range.offset + range.length - 1}`,
           rangeDetails(this.source, range, response.status),
           { cause: error },
         );
       }
       throw new RangeSourceError(
-        'network',
+        "network",
         `Failed to read the range response for bytes=${range.offset}-${range.offset + range.length - 1}`,
         rangeDetails(this.source, range, response.status),
         { cause: error },
       );
     } finally {
-      signal.removeEventListener('abort', cancelOnAbort);
+      signal.removeEventListener("abort", cancelOnAbort);
       reader.releaseLock();
     }
   }
 
-  private async fetchRange(range: ByteRange, signal: AbortSignal): Promise<Uint8Array> {
+  private async fetchRange(
+    range: ByteRange,
+    signal: AbortSignal,
+  ): Promise<Uint8Array> {
     const end = range.offset + range.length - 1;
     const requestHeaders = new Headers(this.headers);
-    requestHeaders.set('Range', `bytes=${range.offset}-${end}`);
+    requestHeaders.set("Range", `bytes=${range.offset}-${end}`);
 
     let response: Response;
     try {
@@ -674,7 +710,7 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
     } catch (error: unknown) {
       if (signal.aborted || isAbortError(error)) {
         throw new RangeSourceError(
-          'aborted',
+          "aborted",
           `Range request aborted for bytes=${range.offset}-${end}`,
           rangeDetails(this.source, range),
           { cause: error },
@@ -682,7 +718,7 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
       }
 
       throw new RangeSourceError(
-        'network',
+        "network",
         `Range request failed for bytes=${range.offset}-${end}`,
         rangeDetails(this.source, range),
         { cause: error },
@@ -697,8 +733,8 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
     if (response.status === 200) {
       await cancelResponseBody(response);
       throw new RangeSourceError(
-        'whole-file-response',
-        'The server ignored the Range request and returned the whole resource (200); full-resource fallback is disabled',
+        "whole-file-response",
+        "The server ignored the Range request and returned the whole resource (200); full-resource fallback is disabled",
         rangeDetails(this.source, range, response.status),
       );
     }
@@ -706,14 +742,14 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
     if (response.status !== 206) {
       await cancelResponseBody(response);
       throw new RangeSourceError(
-        'http-status',
+        "http-status",
         `Range request failed with HTTP ${response.status}`,
         rangeDetails(this.source, range, response.status),
       );
     }
 
     try {
-      const rawContentRange = response.headers.get('Content-Range');
+      const rawContentRange = response.headers.get("Content-Range");
       let responseSize: number | undefined;
       let usedHeadFallback = false;
       if (rawContentRange !== null) {
@@ -727,7 +763,7 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
           responseSize = contentRange.total;
           this.assertSizeMatches(responseSize, range, response.status);
         }
-      } else if (this.rangeValidation === 'head-fallback') {
+      } else if (this.rangeValidation === "head-fallback") {
         const metadata = await this.getHeadMetadata(range, signal);
         this.rememberSize(metadata.size, range, response.status);
         this.checkHeadRange(metadata.size, range);
@@ -760,8 +796,11 @@ function coalescePendingReads(
   reads: PendingRangeRead[],
   maximumMergedBytes: number,
 ): PlannedRangeGroup[] {
-  const ordered = [...reads].sort((left, right) =>
-    left.range.offset - right.range.offset || left.range.length - right.range.length);
+  const ordered = [...reads].sort(
+    (left, right) =>
+      left.range.offset - right.range.offset ||
+      left.range.length - right.range.length,
+  );
   const groups: PlannedRangeGroup[] = [];
 
   for (const read of ordered) {
@@ -777,9 +816,11 @@ function coalescePendingReads(
     const gap = Math.max(0, read.range.offset - groupEnd - 1);
     const mergedLength = Math.max(groupEnd, readEnd) - groupOffset + 1;
 
-    if (gap <= MAX_COALESCED_RANGE_GAP_BYTES
-      && Number.isSafeInteger(mergedLength)
-      && mergedLength <= maximumMergedBytes) {
+    if (
+      gap <= MAX_COALESCED_RANGE_GAP_BYTES &&
+      Number.isSafeInteger(mergedLength) &&
+      mergedLength <= maximumMergedBytes
+    ) {
       group.members.push(read);
       group.range = { offset: groupOffset, length: mergedLength };
     } else {

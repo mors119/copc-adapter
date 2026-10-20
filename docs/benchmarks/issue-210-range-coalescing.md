@@ -64,4 +64,4 @@ the requested node ranges and the actual HTTP `206` responses.
 - The server response is validated against the merged byte interval before
   slices are returned.
 
-Unit coverage is in `packages/test/range-source.test.mjs`.
+Unit coverage is in `packages/test/core/copc/range/source.test.mjs`.

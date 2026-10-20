@@ -1,4 +1,4 @@
-import { MAX_REFINEMENT_FOCUS_DETAIL_BIAS } from './refinementStrategies';
+import { MAX_REFINEMENT_FOCUS_DETAIL_BIAS } from "./refinementStrategies";
 
 /**
  * The maximum amount of refinement pressure that passive gaze (and future
@@ -35,7 +35,10 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
-function boundedWeight(value: number | undefined): { value: number; wasClamped: boolean } {
+function boundedWeight(value: number | undefined): {
+  value: number;
+  wasClamped: boolean;
+} {
   if (value === undefined) {
     return { value: 0, wasClamped: false };
   }
@@ -70,23 +73,25 @@ export function calculateRefinementInfluence(
     1,
   );
   const manualFocusBias = input.manualFocusDetailBias;
-  const hasManualFocusBias = manualFocusBias !== undefined && Number.isFinite(manualFocusBias);
-  const focusBiasWasClamped = manualFocusBias !== undefined
-    && (!Number.isFinite(manualFocusBias)
-      || manualFocusBias < 1
-      || manualFocusBias > MAX_REFINEMENT_FOCUS_DETAIL_BIAS);
+  const hasManualFocusBias =
+    manualFocusBias !== undefined && Number.isFinite(manualFocusBias);
+  const focusBiasWasClamped =
+    manualFocusBias !== undefined &&
+    (!Number.isFinite(manualFocusBias) ||
+      manualFocusBias < 1 ||
+      manualFocusBias > MAX_REFINEMENT_FOCUS_DETAIL_BIAS);
   const boundedManualFocusBias = hasManualFocusBias
     ? clamp(manualFocusBias, 1, MAX_REFINEMENT_FOCUS_DETAIL_BIAS)
     : DEFAULT_MAX_REFINEMENT_DETAIL_BIAS;
   const detailBias = hasManualFocusBias
     ? clamp(
-      1
-        + gaze.value * (DEFAULT_MAX_REFINEMENT_DETAIL_BIAS - 1)
-        + manualFocus.value * (boundedManualFocusBias - 1)
-        + motion.value * (DEFAULT_MAX_REFINEMENT_DETAIL_BIAS - 1),
-      1,
-      Math.max(DEFAULT_MAX_REFINEMENT_DETAIL_BIAS, boundedManualFocusBias),
-    )
+        1 +
+          gaze.value * (DEFAULT_MAX_REFINEMENT_DETAIL_BIAS - 1) +
+          manualFocus.value * (boundedManualFocusBias - 1) +
+          motion.value * (DEFAULT_MAX_REFINEMENT_DETAIL_BIAS - 1),
+        1,
+        Math.max(DEFAULT_MAX_REFINEMENT_DETAIL_BIAS, boundedManualFocusBias),
+      )
     : 1 + combinedWeight * (DEFAULT_MAX_REFINEMENT_DETAIL_BIAS - 1);
   const multipliedScreenSpaceError = rawScreenSpaceError * detailBias;
   const effectiveScreenSpaceError = Number.isFinite(multipliedScreenSpaceError)
@@ -101,12 +106,13 @@ export function calculateRefinementInfluence(
     detailBias,
     rawScreenSpaceError,
     effectiveScreenSpaceError,
-    wasClamped: rawWasClamped
-      || gaze.wasClamped
-      || manualFocus.wasClamped
-      || focusBiasWasClamped
-      || motion.wasClamped
-      || !Number.isFinite(multipliedScreenSpaceError)
-      || combinedWeight < gaze.value + manualFocus.value + motion.value,
+    wasClamped:
+      rawWasClamped ||
+      gaze.wasClamped ||
+      manualFocus.wasClamped ||
+      focusBiasWasClamped ||
+      motion.wasClamped ||
+      !Number.isFinite(multipliedScreenSpaceError) ||
+      combinedWeight < gaze.value + manualFocus.value + motion.value,
   };
 }

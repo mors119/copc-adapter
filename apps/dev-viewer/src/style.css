@@ -1,4 +1,4 @@
-@import '../../shared/ui.css';
+@import "../../shared/ui.css";
 
 html,
 body,
@@ -135,7 +135,12 @@ body {
   max-width: min(190px, calc(100vw - 120px));
   overflow: hidden;
   color: var(--ui-muted);
-  font: 10px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font:
+    10px/1.2 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace;
   text-overflow: ellipsis;
   white-space: nowrap;
   pointer-events: none;
@@ -168,12 +173,12 @@ body {
 .copc-debug-panel details > summary::after {
   flex: 0 0 auto;
   color: var(--ui-muted);
-  content: '⌄';
+  content: "⌄";
 }
 
 .dev-control-section:not([open]) > summary::after,
 .copc-debug-panel details:not([open]) > summary::after {
-  content: '›';
+  content: "›";
 }
 
 .dev-panel .ui-field {
@@ -212,7 +217,7 @@ body {
   line-height: 1.4;
 }
 
-#configuration-state[data-dirty='true'] {
+#configuration-state[data-dirty="true"] {
   color: var(--ui-warning);
 }
 
@@ -247,7 +252,7 @@ body {
   font-size: 11px;
 }
 
-.control-slider .ui-slider input[type='range'] {
+.control-slider .ui-slider input[type="range"] {
   min-height: 30px;
 }
 
@@ -298,15 +303,15 @@ body {
   overflow-wrap: anywhere;
 }
 
-.dev-status[data-status='ready'] {
+.dev-status[data-status="ready"] {
   color: var(--ui-success);
 }
 
-.dev-status[data-status='loading'] {
+.dev-status[data-status="loading"] {
   color: var(--ui-warning);
 }
 
-.dev-status[data-status='error'] {
+.dev-status[data-status="error"] {
   color: var(--ui-danger);
 }
 
@@ -335,7 +340,12 @@ body {
 .copc-debug-panel__url {
   display: block;
   color: var(--ui-muted);
-  font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font:
+    11px/1.45 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace;
   overflow-wrap: anywhere;
 }
 
@@ -448,7 +458,12 @@ body {
 
 .copc-debug-panel code {
   color: #e4eaf1;
-  font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font:
+    11px/1.45 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace;
   overflow-wrap: anywhere;
   text-transform: none;
 }
@@ -470,7 +485,7 @@ body {
   overflow-wrap: anywhere;
 }
 
-.copc-debug-panel[data-status='error'] .copc-debug-panel__source-summary {
+.copc-debug-panel[data-status="error"] .copc-debug-panel__source-summary {
   border-bottom-color: rgb(255 133 133 / 45%);
 }
 

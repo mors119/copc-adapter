@@ -1,4 +1,4 @@
-import createLazPerfModule from 'laz-perf/lib/web/laz-perf.js';
+import createLazPerfModule from "laz-perf/lib/web/laz-perf.js";
 
 type LazPerfModule = Awaited<ReturnType<typeof createLazPerfModule>>;
 
@@ -6,7 +6,7 @@ let lazPerfWasmUrlPromise: Promise<URL> | undefined;
 
 async function getLazPerfWasmUrl(): Promise<URL> {
   if (!lazPerfWasmUrlPromise) {
-    lazPerfWasmUrlPromise = import('./laz-perf.wasm?url&no-inline').then(
+    lazPerfWasmUrlPromise = import("./laz-perf.wasm?url&no-inline").then(
       ({ default: assetUrl }) => new URL(assetUrl, import.meta.url),
     );
   }
@@ -23,12 +23,10 @@ async function createLazPerf(
     throw new Error(`Failed to fetch LAZ decoder WASM: ${response.status}`);
   }
 
-  return createLazPerfModule(
-    {
-      ...(options as object | undefined),
-      wasmBinary: await response.arrayBuffer(),
-    } as Parameters<typeof createLazPerfModule>[0],
-  );
+  return createLazPerfModule({
+    ...(options as object | undefined),
+    wasmBinary: await response.arrayBuffer(),
+  } as Parameters<typeof createLazPerfModule>[0]);
 }
 
 // copc is published as CommonJS and reads these named exports from its

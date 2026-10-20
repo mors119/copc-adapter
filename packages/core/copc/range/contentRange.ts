@@ -1,4 +1,4 @@
-import { RangeSourceError, type ByteRange } from './types';
+import { RangeSourceError, type ByteRange } from "./types";
 
 /** Numeric byte interval and optional total resource size parsed from a header. */
 export type ParsedContentRange = {
@@ -27,7 +27,7 @@ export function parseContentRangeHeader(
   if (!value) {
     return {
       ok: false,
-      message: 'A 206 response must include a Content-Range header',
+      message: "A 206 response must include a Content-Range header",
     };
   }
 
@@ -41,14 +41,14 @@ export function parseContentRangeHeader(
 
   const start = Number(match[1]);
   const end = Number(match[2]);
-  const total = match[3] === '*' ? undefined : Number(match[3]);
+  const total = match[3] === "*" ? undefined : Number(match[3]);
   const length = end - start + 1;
   if (
-    !Number.isSafeInteger(start)
-    || !Number.isSafeInteger(end)
-    || !Number.isSafeInteger(length)
-    || end < start
-    || (total !== undefined && (!Number.isSafeInteger(total) || total <= end))
+    !Number.isSafeInteger(start) ||
+    !Number.isSafeInteger(end) ||
+    !Number.isSafeInteger(length) ||
+    end < start ||
+    (total !== undefined && (!Number.isSafeInteger(total) || total <= end))
   ) {
     return {
       ok: false,
@@ -73,19 +73,20 @@ export function validateContentRange(
 ): ParsedContentRange {
   const parsed = parseContentRangeHeader(value);
   if (!parsed.ok) {
-    throw new RangeSourceError(
-      'content-range',
-      parsed.message,
-      { source, offset: range.offset, length: range.length, status },
-    );
+    throw new RangeSourceError("content-range", parsed.message, {
+      source,
+      offset: range.offset,
+      length: range.length,
+      status,
+    });
   }
 
   const expectedEnd = range.offset + range.length - 1;
-  const matchesRequest = parsed.value.start === range.offset
-    && parsed.value.end === expectedEnd;
+  const matchesRequest =
+    parsed.value.start === range.offset && parsed.value.end === expectedEnd;
   if (!matchesRequest) {
     throw new RangeSourceError(
-      'content-range',
+      "content-range",
       `Content-Range does not match bytes=${range.offset}-${expectedEnd}: ${value}`,
       { source, offset: range.offset, length: range.length, status },
     );

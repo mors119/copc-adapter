@@ -1,29 +1,28 @@
-import { defineConfig } from 'vitepress';
+import { defineConfig } from "vitepress";
 
 export default defineConfig({
-  title: 'COPC Adapter',
+  title: "COPC Adapter",
 
-  description:
-    'Stream and visualize COPC point clouds directly in CesiumJS.',
+  description: "Stream and visualize COPC point clouds directly in CesiumJS.",
 
-  base: '/copc-adapter/',
+  base: "/copc-adapter/",
   cleanUrls: true,
   lastUpdated: true,
 
   locales: {
     root: {
-      label: 'English',
-      lang: 'en',
-      title: 'COPC Adapter',
-      description: 'Direct COPC streaming for CesiumJS',
+      label: "English",
+      lang: "en",
+      title: "COPC Adapter",
+      description: "Direct COPC streaming for CesiumJS",
     },
 
     ko: {
-      label: '한국어',
-      lang: 'ko-KR',
-      title: 'COPC Adapter',
+      label: "한국어",
+      lang: "ko-KR",
+      title: "COPC Adapter",
       description:
-        'COPC 데이터를 별도 타일 변환 없이 CesiumJS에서 직접 스트리밍합니다.',
+        "COPC 데이터를 별도 타일 변환 없이 CesiumJS에서 직접 스트리밍합니다.",
     },
   },
 
@@ -33,102 +32,102 @@ export default defineConfig({
     i18nRouting: false,
 
     search: {
-      provider: 'local',
+      provider: "local",
     },
 
     socialLinks: [
       {
-        icon: 'github',
-        link: 'https://github.com/mors119/copc-adapter',
+        icon: "github",
+        link: "https://github.com/mors119/copc-adapter",
       },
     ],
 
     locales: {
       root: {
         nav: [
-          { text: 'API', link: '/API' },
-          { text: 'Architecture', link: '/ARCHITECTURE' },
-          { text: 'Validation', link: '/CONFORMANCE' },
-          { text: 'Source hosting', link: '/source-hosting' },
+          { text: "API", link: "/API" },
+          { text: "Architecture", link: "/ARCHITECTURE" },
+          { text: "Validation", link: "/CONFORMANCE" },
+          { text: "Source hosting", link: "/source-hosting" },
         ],
 
         sidebar: [
           {
-            text: 'Documentation',
+            text: "Documentation",
             items: [
-              { text: 'Public API', link: '/API' },
-              { text: 'Architecture', link: '/ARCHITECTURE' },
-              { text: 'Examples', link: '/EXAMPLES' },
-              { text: 'Conformance', link: '/CONFORMANCE' },
-              { text: 'Source hosting', link: '/source-hosting' },
-              { text: 'Roadmap', link: '/ROADMAP' },
+              { text: "Public API", link: "/API" },
+              { text: "Architecture", link: "/ARCHITECTURE" },
+              { text: "Examples", link: "/EXAMPLES" },
+              { text: "Conformance", link: "/CONFORMANCE" },
+              { text: "Source hosting", link: "/source-hosting" },
+              { text: "Roadmap", link: "/ROADMAP" },
             ],
           },
         ],
 
         editLink: {
           pattern:
-            'https://github.com/mors119/copc-adapter/edit/main/docs/:path',
-          text: 'Edit this page on GitHub',
+            "https://github.com/mors119/copc-adapter/edit/main/docs/:path",
+          text: "Edit this page on GitHub",
         },
       },
 
       ko: {
         nav: [
-          { text: '시작하기', link: '/ko/getting-started' },
-          { text: '사용 가이드', link: '/ko/streaming' },
-          { text: '배포 가이드', link: '/ko/source-requirements' },
-          { text: '검증 결과', link: '/ko/validation' },
+          { text: "시작하기", link: "/ko/getting-started" },
+          { text: "사용 가이드", link: "/ko/streaming" },
+          { text: "배포 가이드", link: "/ko/source-requirements" },
+          { text: "검증 결과", link: "/ko/validation" },
         ],
 
         sidebar: [
           {
-            text: '시작하기',
+            text: "시작하기",
             items: [
-              { text: 'COPC Adapter', link: '/ko/' },
-              { text: '빠른 시작', link: '/ko/getting-started' },
+              { text: "COPC Adapter", link: "/ko/" },
+              { text: "빠른 시작", link: "/ko/getting-started" },
             ],
           },
           {
-            text: '핵심 개념',
+            text: "핵심 개념",
             items: [
               {
-                text: '스트리밍과 LoD',
-                link: '/ko/streaming',
+                text: "스트리밍과 LoD",
+                link: "/ko/streaming",
               },
               {
-                text: 'HTTP Range / CORS',
-                link: '/ko/source-requirements',
-              },
-            ],
-          },
-          {
-            text: '사용법',
-            items: [
-              {
-                text: '색상 표현과 점 선택',
-                link: '/ko/styling-and-picking',
-              },
-              {
-                text: 'API 빠른 참조',
-                link: '/ko/api',
+                text: "HTTP Range / CORS",
+                link: "/ko/source-requirements",
               },
             ],
           },
           {
-            text: '프로젝트 이해하기',
+            text: "사용법",
             items: [
               {
-                text: '아키텍처와 코드 위치',
-                link: '/ko/architecture',
+                text: "색상 표현과 점 선택",
+                link: "/ko/styling-and-picking",
               },
               {
-                text: '검증 결과',
-                link: '/ko/validation',
+                text: "API 빠른 참조",
+                link: "/ko/api",
+              },
+            ],
+          },
+          {
+            text: "프로젝트 이해하기",
+            items: [
+              {
+                text: "아키텍처와 코드 위치",
+                link: "/ko/architecture",
               },
               {
-                text: '문서 수정 방법',
-                link: '/ko/editing-docs',
+                text: "검증 결과",
+                link: "/ko/validation",
+              },
+              {
+                text: "문서 수정 방법",
+                link: "/ko/editing-docs",
               },
             ],
           },
@@ -136,27 +135,27 @@ export default defineConfig({
 
         editLink: {
           pattern:
-            'https://github.com/mors119/copc-adapter/edit/main/docs/:path',
-          text: 'GitHub에서 이 페이지 수정',
+            "https://github.com/mors119/copc-adapter/edit/main/docs/:path",
+          text: "GitHub에서 이 페이지 수정",
         },
 
         outline: {
-          label: '이 페이지에서',
+          label: "이 페이지에서",
         },
 
         docFooter: {
-          prev: '이전 페이지',
-          next: '다음 페이지',
+          prev: "이전 페이지",
+          next: "다음 페이지",
         },
 
         lastUpdated: {
-          text: '마지막 수정',
+          text: "마지막 수정",
         },
 
-        returnToTopLabel: '맨 위로',
-        sidebarMenuLabel: '메뉴',
-        darkModeSwitchLabel: '테마',
-        langMenuLabel: '언어 변경',
+        returnToTopLabel: "맨 위로",
+        sidebarMenuLabel: "메뉴",
+        darkModeSwitchLabel: "테마",
+        langMenuLabel: "언어 변경",
       },
     },
   },

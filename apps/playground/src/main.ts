@@ -4,13 +4,13 @@ import type {
   CopcSourceProbeResult,
   RefinementAlgorithm,
   RefinementFocus,
-} from '@frillab/copc-adapter/cesium';
+} from "@frillab/copc-adapter/cesium";
 import {
   formatUiNumber,
   mountSegmentedControl,
   mountSlider,
   type UiSegmentOption,
-} from '../../shared/ui-controls';
+} from "../../shared/ui-controls";
 import {
   createPlaygroundRuntime,
   type CesiumLayerFactory,
@@ -22,18 +22,18 @@ import {
   type PlaygroundRuntime,
   type PlaygroundSnapshot,
   type PlaygroundSource,
-} from './rendererRuntime';
+} from "./rendererRuntime";
 import {
   readPlaygroundRefinementConfig,
   refinementAlgorithmOptions,
   writePlaygroundRefinementConfig,
   type PlaygroundFocusMode,
   type PlaygroundRefinementConfig,
-} from './refinementConfig';
-import './style.css';
+} from "./refinementConfig";
+import "./style.css";
 
-const app = document.querySelector<HTMLDivElement>('#app');
-if (!app) throw new Error('The Playground application root is missing.');
+const app = document.querySelector<HTMLDivElement>("#app");
+if (!app) throw new Error("The Playground application root is missing.");
 
 app.innerHTML = `
   <div class="playground-shell">
@@ -189,37 +189,40 @@ const byId = <T extends HTMLElement>(id: string): T => {
   return element as T;
 };
 
-const viewport = byId<HTMLDivElement>('cesium-container');
-const sourceStatus = byId<HTMLElement>('source-status');
-const sourceProbe = byId<HTMLElement>('source-probe');
-const remoteSelect = byId<HTMLSelectElement>('remote-source');
-const customUrlInput = byId<HTMLInputElement>('custom-url');
-const remoteLoadButton = byId<HTMLButtonElement>('load-remote');
-const fileInput = byId<HTMLInputElement>('copc-file');
-const rendererHeading = byId<HTMLHeadingElement>('viewer-heading');
-const rendererBadge = byId<HTMLElement>('renderer-badge');
-const viewerCaption = byId<HTMLElement>('viewer-caption');
-const statusFooter = byId<HTMLElement>('footer-status');
-const viewerFrame = byId<HTMLDivElement>('viewer-frame');
-const focusGuide = byId<HTMLDivElement>('focus-guide');
-const focusGuideHandle = byId<HTMLButtonElement>('focus-guide-handle');
-const algorithmSelect = byId<HTMLSelectElement>('refinement-algorithm');
-const focusModeSelect = byId<HTMLSelectElement>('focus-mode');
-const focusEnabledInput = byId<HTMLInputElement>('focus-enabled');
-const focusShowGuideInput = byId<HTMLInputElement>('focus-show-guide');
-const focusXInput = byId<HTMLInputElement>('focus-x');
-const focusYInput = byId<HTMLInputElement>('focus-y');
-const focusPositionControls = byId<HTMLDivElement>('focus-position-controls');
-const focusConfigWarning = byId<HTMLElement>('focus-config-warning');
+const viewport = byId<HTMLDivElement>("cesium-container");
+const sourceStatus = byId<HTMLElement>("source-status");
+const sourceProbe = byId<HTMLElement>("source-probe");
+const remoteSelect = byId<HTMLSelectElement>("remote-source");
+const customUrlInput = byId<HTMLInputElement>("custom-url");
+const remoteLoadButton = byId<HTMLButtonElement>("load-remote");
+const fileInput = byId<HTMLInputElement>("copc-file");
+const rendererHeading = byId<HTMLHeadingElement>("viewer-heading");
+const rendererBadge = byId<HTMLElement>("renderer-badge");
+const viewerCaption = byId<HTMLElement>("viewer-caption");
+const statusFooter = byId<HTMLElement>("footer-status");
+const viewerFrame = byId<HTMLDivElement>("viewer-frame");
+const focusGuide = byId<HTMLDivElement>("focus-guide");
+const focusGuideHandle = byId<HTMLButtonElement>("focus-guide-handle");
+const algorithmSelect = byId<HTMLSelectElement>("refinement-algorithm");
+const focusModeSelect = byId<HTMLSelectElement>("focus-mode");
+const focusEnabledInput = byId<HTMLInputElement>("focus-enabled");
+const focusShowGuideInput = byId<HTMLInputElement>("focus-show-guide");
+const focusXInput = byId<HTMLInputElement>("focus-x");
+const focusYInput = byId<HTMLInputElement>("focus-y");
+const focusPositionControls = byId<HTMLDivElement>("focus-position-controls");
+const focusConfigWarning = byId<HTMLElement>("focus-config-warning");
 
-let renderer: PlaygroundRenderer = 'cesium';
-let backend: PlaygroundBackend = 'copc-js';
-let colorMode: PlaygroundColorMode = 'elevation';
+let renderer: PlaygroundRenderer = "cesium";
+let backend: PlaygroundBackend = "copc-js";
+let colorMode: PlaygroundColorMode = "elevation";
 let pointSize = 3;
 let maxNodes = 24;
 let maxRenderedPoints = 250_000;
-const parsedRefinementConfig = readPlaygroundRefinementConfig(new URLSearchParams(window.location.search));
-let refinementConfig: PlaygroundRefinementConfig = parsedRefinementConfig.config;
+const parsedRefinementConfig = readPlaygroundRefinementConfig(
+  new URLSearchParams(window.location.search),
+);
+let refinementConfig: PlaygroundRefinementConfig =
+  parsedRefinementConfig.config;
 let followPointerCenter = { ...refinementConfig.center };
 let focusDragPointerId: number | undefined;
 let focusDragOffset = { x: 0, y: 0 };
@@ -237,7 +240,7 @@ let focusConfigSyncTimer: number | undefined;
 let sourceGeneration = 0;
 let activeLoadPending = false;
 let activeSource: PlaygroundSource | undefined;
-let activeSourceName = '';
+let activeSourceName = "";
 let activeRuntime: PlaygroundRuntime | undefined;
 let activeProbeResult: CopcSourceProbeResult | undefined;
 let cameraInteractionVersion = 0;
@@ -258,8 +261,14 @@ if (parsedRefinementConfig.warning) {
   focusConfigWarning.hidden = false;
 }
 
-for (const eventName of ['pointerdown', 'wheel', 'keydown', 'touchstart']) {
-  viewport.addEventListener(eventName, () => { cameraInteractionVersion += 1; }, { passive: true });
+for (const eventName of ["pointerdown", "wheel", "keydown", "touchstart"]) {
+  viewport.addEventListener(
+    eventName,
+    () => {
+      cameraInteractionVersion += 1;
+    },
+    { passive: true },
+  );
 }
 
 type PlaygroundTestCameraView = PlaygroundCameraState;
@@ -317,16 +326,22 @@ if (import.meta.env.DEV) {
             });
             if (delayNextMockLoad) {
               delayNextMockLoad = false;
-              await new Promise<void>((resolve) => { releaseMockLoad = resolve; });
+              await new Promise<void>((resolve) => {
+                releaseMockLoad = resolve;
+              });
             }
           },
-          destroy(): void { mockDestroyCount += 1; },
+          destroy(): void {
+            mockDestroyCount += 1;
+          },
           setRefinementFocus(focus: RefinementFocus | undefined): void {
             mockFocusUpdateCount += 1;
-            mockRefinementFocus = focus ? {
-              ...focus,
-              center: { ...focus.center },
-            } : undefined;
+            mockRefinementFocus = focus
+              ? {
+                  ...focus,
+                  center: { ...focus.center },
+                }
+              : undefined;
           },
           zoomTo(): Promise<boolean> {
             mockZoomCount += 1;
@@ -340,28 +355,37 @@ if (import.meta.env.DEV) {
             });
             return Promise.resolve(true);
           },
-          getSelectedPoint(): undefined { return undefined; },
-          getSnapshot(): ReturnType<CopcCesiumLayer['getSnapshot']> {
+          getSelectedPoint(): undefined {
+            return undefined;
+          },
+          getSnapshot(): ReturnType<CopcCesiumLayer["getSnapshot"]> {
             return {
-              lifecycle: 'ready',
+              lifecycle: "ready",
               renderedPointCount: 0,
               renderedNodeKeys: [],
               selectedNodeKeys: [],
               performance: {
                 visibleLevelRange: undefined,
-                refinementAlgorithm: mockRefinementAlgorithm ?? 'foveated',
+                refinementAlgorithm: mockRefinementAlgorithm ?? "foveated",
                 refinementFocusEnabled: mockRefinementFocus !== undefined,
                 focusCandidateCount: mockRefinementFocus ? 2 : 0,
                 focusInfluencedRefinementCount: mockRefinementFocus ? 1 : 0,
               },
-            } as unknown as ReturnType<CopcCesiumLayer['getSnapshot']>;
+            } as unknown as ReturnType<CopcCesiumLayer["getSnapshot"]>;
           },
-          get boundingSphere(): undefined { return undefined; },
+          get boundingSphere(): undefined {
+            return undefined;
+          },
         } as unknown as ReturnType<CesiumLayerFactory>;
       };
     },
-    delayNextLoad(): void { delayNextMockLoad = true; },
-    releaseDelayedLoad(): void { releaseMockLoad?.(); releaseMockLoad = undefined; },
+    delayNextLoad(): void {
+      delayNextMockLoad = true;
+    },
+    releaseDelayedLoad(): void {
+      releaseMockLoad?.();
+      releaseMockLoad = undefined;
+    },
     getMockLoadCount: () => mockLoadCount,
     getMockLayerCreateCount: () => mockLayerCreateCount,
     getMockRefinementAlgorithm: () => mockRefinementAlgorithm,
@@ -369,17 +393,30 @@ if (import.meta.env.DEV) {
     getMockRefinementFocus: () => mockRefinementFocus,
     getMockDestroyCount: () => mockDestroyCount,
     getMockZoomCount: () => mockZoomCount,
-    setCameraView(view): void { activeRuntime?.setCameraState(view); },
+    setCameraView(view): void {
+      activeRuntime?.setCameraState(view);
+    },
     getCameraView(): PlaygroundTestCameraView {
-      return activeRuntime?.getCameraState() ?? {
-        longitude: 0, latitude: 0, height: 0, heading: 0, pitch: 0, roll: 0,
-      };
+      return (
+        activeRuntime?.getCameraState() ?? {
+          longitude: 0,
+          latitude: 0,
+          height: 0,
+          heading: 0,
+          pitch: 0,
+          roll: 0,
+        }
+      );
     },
     getPickablePointScreenPosition(): { x: number; y: number } | undefined {
       return activeRuntime?.getPickablePointScreenPosition();
     },
-    getSnapshot(): PlaygroundSnapshot | undefined { return activeRuntime?.getSnapshot(); },
-    getCameraInputsEnabled(): boolean | undefined { return activeRuntime?.getCameraInputsEnabled(); },
+    getSnapshot(): PlaygroundSnapshot | undefined {
+      return activeRuntime?.getSnapshot();
+    },
+    getCameraInputsEnabled(): boolean | undefined {
+      return activeRuntime?.getCameraInputsEnabled();
+    },
   };
 }
 
@@ -390,126 +427,189 @@ const safeErrorText = (error: unknown): string => {
       const url = new URL(value);
       return `${url.origin}${url.pathname}`;
     } catch {
-      return 'remote source';
+      return "remote source";
     }
   });
   return message;
 };
 
-const setStatus = (text: string, state: 'unknown' | 'loading' | 'ready' | 'error'): void => {
+const setStatus = (
+  text: string,
+  state: "unknown" | "loading" | "ready" | "error",
+): void => {
   sourceStatus.textContent = text;
   sourceStatus.dataset.status = state;
-  byId('diagnostic-status').textContent = state === 'ready'
-    ? 'Ready'
-    : state === 'loading' ? 'Loading' : state === 'error' ? 'Error' : 'Waiting';
-  byId('diagnostic-summary').textContent = text;
-  statusFooter.textContent = `${state === 'ready' ? 'Ready' : state === 'loading' ? 'Loading' : state === 'error' ? 'Error' : 'Ready'} · ${text}`;
-  byId('hud-state').textContent = state === 'ready' ? 'Streaming' : state === 'loading' ? 'Loading' : state === 'error' ? 'Error' : 'Waiting';
-  byId('hud-dot').classList.toggle('muted', state !== 'ready');
+  byId("diagnostic-status").textContent =
+    state === "ready"
+      ? "Ready"
+      : state === "loading"
+        ? "Loading"
+        : state === "error"
+          ? "Error"
+          : "Waiting";
+  byId("diagnostic-summary").textContent = text;
+  statusFooter.textContent = `${state === "ready" ? "Ready" : state === "loading" ? "Loading" : state === "error" ? "Error" : "Ready"} · ${text}`;
+  byId("hud-state").textContent =
+    state === "ready"
+      ? "Streaming"
+      : state === "loading"
+        ? "Loading"
+        : state === "error"
+          ? "Error"
+          : "Waiting";
+  byId("hud-dot").classList.toggle("muted", state !== "ready");
 };
 
 const knownRgbFormats = new Set([2, 3, 5, 7, 8, 10]);
-const colorControl = mountSegmentedControl<PlaygroundColorMode>(byId('color-mode'), {
-  label: 'Color mode',
-  value: colorMode,
-  className: 'color-segments',
-  choices: [],
-  onChange: (value) => {
-    colorMode = value;
-    byId('point-empty').textContent = 'Click a point in the viewport to inspect its available attributes.';
-    reloadActiveSource();
+const colorControl = mountSegmentedControl<PlaygroundColorMode>(
+  byId("color-mode"),
+  {
+    label: "Color mode",
+    value: colorMode,
+    className: "color-segments",
+    choices: [],
+    onChange: (value) => {
+      colorMode = value;
+      byId("point-empty").textContent =
+        "Click a point in the viewport to inspect its available attributes.";
+      reloadActiveSource();
+    },
   },
-});
+);
 
 const updateColorChoices = (pointFormat?: number): void => {
-  const rgbSupported = pointFormat !== undefined && knownRgbFormats.has(pointFormat & 0x3f);
+  const rgbSupported =
+    pointFormat !== undefined && knownRgbFormats.has(pointFormat & 0x3f);
   const choices: readonly UiSegmentOption<PlaygroundColorMode>[] = [
-    { value: 'elevation', label: 'Elevation' },
-    { value: 'intensity', label: 'Intensity' },
-    { value: 'classification', label: 'Classification' },
-    { value: 'rgb', label: 'RGB', disabled: !rgbSupported, title: rgbSupported ? undefined : 'This dataset format does not advertise RGB channels.' },
+    { value: "elevation", label: "Elevation" },
+    { value: "intensity", label: "Intensity" },
+    { value: "classification", label: "Classification" },
+    {
+      value: "rgb",
+      label: "RGB",
+      disabled: !rgbSupported,
+      title: rgbSupported
+        ? undefined
+        : "This dataset format does not advertise RGB channels.",
+    },
   ];
   colorControl.setOptions(choices);
-  if (colorMode === 'rgb' && !rgbSupported) {
-    colorMode = 'elevation';
+  if (colorMode === "rgb" && !rgbSupported) {
+    colorMode = "elevation";
     colorControl.setValue(colorMode);
   }
 };
 updateColorChoices();
 
-const rendererControl = mountSegmentedControl<PlaygroundRenderer>(byId('renderer-control'), {
-  label: 'Renderer',
-  value: renderer,
-  choices: [
-    { value: 'cesium', label: 'Cesium' },
-    { value: 'three', label: 'Three.js' },
-  ],
-  onChange: (value) => {
-    renderer = value;
-    syncRendererLabels();
-    reloadActiveSource();
+const rendererControl = mountSegmentedControl<PlaygroundRenderer>(
+  byId("renderer-control"),
+  {
+    label: "Renderer",
+    value: renderer,
+    choices: [
+      { value: "cesium", label: "Cesium" },
+      { value: "three", label: "Three.js" },
+    ],
+    onChange: (value) => {
+      renderer = value;
+      syncRendererLabels();
+      reloadActiveSource();
+    },
   },
-});
+);
 
-const backendControl = mountSegmentedControl<PlaygroundBackend>(byId('backend-control'), {
-  label: 'COPC backend',
-  value: backend,
-  choices: [
-    { value: 'copc-js', label: 'JavaScript' },
-    { value: 'rust', label: 'Rust / WASM' },
-  ],
-  onChange: (value) => {
-    backend = value;
-    syncRendererLabels();
-    reloadActiveSource();
+const backendControl = mountSegmentedControl<PlaygroundBackend>(
+  byId("backend-control"),
+  {
+    label: "COPC backend",
+    value: backend,
+    choices: [
+      { value: "copc-js", label: "JavaScript" },
+      { value: "rust", label: "Rust / WASM" },
+    ],
+    onChange: (value) => {
+      backend = value;
+      syncRendererLabels();
+      reloadActiveSource();
+    },
   },
-});
+);
 
-const cameraControl = mountSegmentedControl<PlaygroundCameraView>(byId('camera-control'), {
-  label: 'Camera view',
-  value: 'overview',
-  choices: [
-    { value: 'overview', label: 'Overview' },
-    { value: 'near', label: 'Near' },
-    { value: 'far', label: 'Far' },
-  ],
-  onChange: (value) => { void activeRuntime?.setCameraView(value); },
-});
+const cameraControl = mountSegmentedControl<PlaygroundCameraView>(
+  byId("camera-control"),
+  {
+    label: "Camera view",
+    value: "overview",
+    choices: [
+      { value: "overview", label: "Overview" },
+      { value: "near", label: "Near" },
+      { value: "far", label: "Far" },
+    ],
+    onChange: (value) => {
+      void activeRuntime?.setCameraView(value);
+    },
+  },
+);
 
 const sliders = [
-  mountSlider(byId('point-size-control'), {
-    id: 'point-size', label: 'Point size', min: 1, max: 10, step: 1, value: pointSize,
+  mountSlider(byId("point-size-control"), {
+    id: "point-size",
+    label: "Point size",
+    min: 1,
+    max: 10,
+    step: 1,
+    value: pointSize,
     formatValue: (value) => `${formatUiNumber(value)} px`,
-    onCommit(value) { pointSize = value; reloadActiveSource(); },
+    onCommit(value) {
+      pointSize = value;
+      reloadActiveSource();
+    },
   }),
-  mountSlider(byId('max-nodes-control'), {
-    id: 'max-nodes', label: 'Max selected nodes', min: 1, max: 48, step: 1, value: maxNodes,
+  mountSlider(byId("max-nodes-control"), {
+    id: "max-nodes",
+    label: "Max selected nodes",
+    min: 1,
+    max: 48,
+    step: 1,
+    value: maxNodes,
     formatValue: formatUiNumber,
-    onCommit(value) { maxNodes = value; reloadActiveSource(); },
+    onCommit(value) {
+      maxNodes = value;
+      reloadActiveSource();
+    },
   }),
-  mountSlider(byId('max-points-control'), {
-    id: 'max-points', label: 'Max rendered points', min: 50_000, max: 1_000_000, step: 50_000, value: maxRenderedPoints,
+  mountSlider(byId("max-points-control"), {
+    id: "max-points",
+    label: "Max rendered points",
+    min: 50_000,
+    max: 1_000_000,
+    step: 50_000,
+    value: maxRenderedPoints,
     formatValue: (value) => formatUiNumber(value),
-    onCommit(value) { maxRenderedPoints = value; reloadActiveSource(); },
+    onCommit(value) {
+      maxRenderedPoints = value;
+      reloadActiveSource();
+    },
   }),
 ];
 
-const focusRadiusSlider = mountSlider(byId('focus-radius-control'), {
-  id: 'focus-radius',
-  label: 'Radius',
+const focusRadiusSlider = mountSlider(byId("focus-radius-control"), {
+  id: "focus-radius",
+  label: "Radius",
   min: 1,
   max: 100,
   step: 0.01,
   value: refinementConfig.radius * 100,
-  formatValue: (value) => `${formatUiNumber(value)}% of the shorter viewport side`,
+  formatValue: (value) =>
+    `${formatUiNumber(value)}% of the shorter viewport side`,
   onCommit(value) {
     refinementConfig = { ...refinementConfig, radius: value / 100 };
     applyFocusSettings();
   },
 });
-const focusBiasSlider = mountSlider(byId('focus-bias-control'), {
-  id: 'focus-bias',
-  label: 'Detail bias',
+const focusBiasSlider = mountSlider(byId("focus-bias-control"), {
+  id: "focus-bias",
+  label: "Detail bias",
   min: 1,
   max: 2,
   step: 0.01,
@@ -523,14 +623,18 @@ const focusBiasSlider = mountSlider(byId('focus-bias-control'), {
 sliders.push(focusRadiusSlider, focusBiasSlider);
 
 function effectiveRefinementFocus(
-  center = refinementConfig.focusMode === 'follow-pointer'
+  center = refinementConfig.focusMode === "follow-pointer"
     ? followPointerCenter
     : refinementConfig.center,
 ): RefinementFocus | undefined {
-  if (renderer !== 'cesium' || !refinementConfig.focusEnabled
-    || refinementConfig.focusMode === 'auto-center') return undefined;
+  if (
+    renderer !== "cesium" ||
+    !refinementConfig.focusEnabled ||
+    refinementConfig.focusMode === "auto-center"
+  )
+    return undefined;
   return {
-    type: 'screen-circle',
+    type: "screen-circle",
     center: { x: center.x, y: center.y },
     radius: refinementConfig.radius,
     detailBias: refinementConfig.detailBias,
@@ -540,19 +644,21 @@ function effectiveRefinementFocus(
 function updateIntegrationExample(): void {
   const algorithmLine = `streaming: { maxNodes: ${maxNodes}, refinementAlgorithm: '${refinementConfig.algorithm}' },`;
   const focus = effectiveRefinementFocus(refinementConfig.center);
-  const modeComment = refinementConfig.focusMode === 'follow-pointer'
-    ? '// Playground focus mode: follow-pointer. Update center from this canvas’s normalized pointer coordinates.'
-    : refinementConfig.focusMode === 'pinned'
-      ? '// Playground focus mode: pinned.'
-      : refinementConfig.focusMode === 'center-boost'
-        ? '// Playground focus mode: center-boost.'
-        : '// Playground focus mode: auto-center; no manual focus is active.';
+  const modeComment =
+    refinementConfig.focusMode === "follow-pointer"
+      ? "// Playground focus mode: follow-pointer. Update center from this canvas’s normalized pointer coordinates."
+      : refinementConfig.focusMode === "pinned"
+        ? "// Playground focus mode: pinned."
+        : refinementConfig.focusMode === "center-boost"
+          ? "// Playground focus mode: center-boost."
+          : "// Playground focus mode: auto-center; no manual focus is active.";
   const focusLine = focus
     ? `${modeComment}\nlayer.setRefinementFocus({ type: 'screen-circle', center: { x: ${focus.center.x.toFixed(4)}, y: ${focus.center.y.toFixed(4)} }, radius: ${focus.radius.toFixed(4)}, detailBias: ${focus.detailBias.toFixed(2)} });`
     : `${modeComment}\n// Focus Lens is disabled in the Playground.`;
-  byId<HTMLElement>('integration-example').textContent = renderer === 'cesium'
-    ? `const layer = new CopcCesiumLayer({ url: copcUrl, backend: '${backend}',\n  ${algorithmLine}\n});\nawait layer.load();\nlayer.attachTo(viewer);\n${focusLine}`
-    : `const layer = new CopcThreeLayer({ url: copcUrl, backend: '${backend}',\n  ${algorithmLine}\n});\nlayer.attachTo({ scene, camera, renderer });\nawait layer.load();\n${modeComment}`;
+  byId<HTMLElement>("integration-example").textContent =
+    renderer === "cesium"
+      ? `const layer = new CopcCesiumLayer({ url: copcUrl, backend: '${backend}',\n  ${algorithmLine}\n});\nawait layer.load();\nlayer.attachTo(viewer);\n${focusLine}`
+      : `const layer = new CopcThreeLayer({ url: copcUrl, backend: '${backend}',\n  ${algorithmLine}\n});\nlayer.attachTo({ scene, camera, renderer });\nawait layer.load();\n${modeComment}`;
 }
 
 function updateFocusControls(): void {
@@ -560,34 +666,51 @@ function updateFocusControls(): void {
   focusModeSelect.value = refinementConfig.focusMode;
   focusEnabledInput.checked = refinementConfig.focusEnabled;
   focusShowGuideInput.checked = refinementConfig.showGuide;
-  focusEnabledInput.disabled = renderer !== 'cesium' || refinementConfig.focusMode === 'auto-center';
-  focusShowGuideInput.disabled = renderer !== 'cesium';
-  focusModeSelect.disabled = renderer !== 'cesium';
-  focusRadiusSlider.setDisabled(renderer !== 'cesium' || refinementConfig.focusMode === 'auto-center');
-  focusBiasSlider.setDisabled(renderer !== 'cesium' || refinementConfig.focusMode === 'auto-center');
+  focusEnabledInput.disabled =
+    renderer !== "cesium" || refinementConfig.focusMode === "auto-center";
+  focusShowGuideInput.disabled = renderer !== "cesium";
+  focusModeSelect.disabled = renderer !== "cesium";
+  focusRadiusSlider.setDisabled(
+    renderer !== "cesium" || refinementConfig.focusMode === "auto-center",
+  );
+  focusBiasSlider.setDisabled(
+    renderer !== "cesium" || refinementConfig.focusMode === "auto-center",
+  );
   focusRadiusSlider.setValue(refinementConfig.radius * 100);
   focusBiasSlider.setValue(refinementConfig.detailBias);
 
-  const positionEditable = renderer === 'cesium'
-    && refinementConfig.focusMode !== 'auto-center'
-    && refinementConfig.focusMode !== 'follow-pointer';
+  const positionEditable =
+    renderer === "cesium" &&
+    refinementConfig.focusMode !== "auto-center" &&
+    refinementConfig.focusMode !== "follow-pointer";
   focusPositionControls.hidden = !positionEditable;
   focusXInput.disabled = !positionEditable;
   focusYInput.disabled = !positionEditable;
   focusXInput.value = String(refinementConfig.center.x);
   focusYInput.value = String(refinementConfig.center.y);
-  byId<HTMLButtonElement>('focus-reset').disabled = !positionEditable;
+  byId<HTMLButtonElement>("focus-reset").disabled = !positionEditable;
 
-  const focusAvailable = renderer === 'cesium';
-  byId<HTMLElement>('focus-help').textContent = focusAvailable
-    ? 'Focus prioritizes LoD refinement near this screen-space region; it does not crop the point cloud.'
-    : 'Focus Lens controls require the Cesium renderer. The refinement algorithm applies to both renderers.';
-  focusGuide.hidden = !focusAvailable || !refinementConfig.showGuide
-    || refinementConfig.focusMode === 'auto-center';
-  focusGuide.classList.toggle('is-inactive', !refinementConfig.focusEnabled);
-  focusGuide.classList.toggle('is-pointer-mode', refinementConfig.focusMode === 'follow-pointer');
-  focusGuideHandle.tabIndex = focusGuide.hidden || refinementConfig.focusMode === 'follow-pointer' ? -1 : 0;
-  focusGuideHandle.setAttribute('aria-label', `Move focus lens, X ${refinementConfig.center.x.toFixed(2)}, Y ${refinementConfig.center.y.toFixed(2)}`);
+  const focusAvailable = renderer === "cesium";
+  byId<HTMLElement>("focus-help").textContent = focusAvailable
+    ? "Focus prioritizes LoD refinement near this screen-space region; it does not crop the point cloud."
+    : "Focus Lens controls require the Cesium renderer. The refinement algorithm applies to both renderers.";
+  focusGuide.hidden =
+    !focusAvailable ||
+    !refinementConfig.showGuide ||
+    refinementConfig.focusMode === "auto-center";
+  focusGuide.classList.toggle("is-inactive", !refinementConfig.focusEnabled);
+  focusGuide.classList.toggle(
+    "is-pointer-mode",
+    refinementConfig.focusMode === "follow-pointer",
+  );
+  focusGuideHandle.tabIndex =
+    focusGuide.hidden || refinementConfig.focusMode === "follow-pointer"
+      ? -1
+      : 0;
+  focusGuideHandle.setAttribute(
+    "aria-label",
+    `Move focus lens, X ${refinementConfig.center.x.toFixed(2)}, Y ${refinementConfig.center.y.toFixed(2)}`,
+  );
   updateFocusGuidePosition();
 }
 
@@ -597,8 +720,8 @@ function writeRefinementUrl(): void {
     refinementConfig,
   );
   const query = params.toString();
-  const nextUrl = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`;
-  window.history.replaceState(window.history.state, '', nextUrl);
+  const nextUrl = `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`;
+  window.history.replaceState(window.history.state, "", nextUrl);
   focusConfigWarning.hidden = true;
 }
 
@@ -613,28 +736,39 @@ function applyFocusSettings(syncUrl = true): void {
 
 function setFocusMode(mode: PlaygroundFocusMode): void {
   const previousMode = refinementConfig.focusMode;
-  if (previousMode === 'follow-pointer' && mode !== 'follow-pointer' && mode !== 'center-boost') {
-    refinementConfig = { ...refinementConfig, center: { ...followPointerCenter } };
+  if (
+    previousMode === "follow-pointer" &&
+    mode !== "follow-pointer" &&
+    mode !== "center-boost"
+  ) {
+    refinementConfig = {
+      ...refinementConfig,
+      center: { ...followPointerCenter },
+    };
   }
-  if (mode === 'center-boost') {
+  if (mode === "center-boost") {
     refinementConfig = { ...refinementConfig, center: { x: 0.5, y: 0.5 } };
   }
   refinementConfig = {
     ...refinementConfig,
     focusMode: mode,
-    focusEnabled: mode === 'auto-center' ? false : true,
+    focusEnabled: mode === "auto-center" ? false : true,
   };
-  if (mode === 'follow-pointer') followPointerCenter = { ...refinementConfig.center };
+  if (mode === "follow-pointer")
+    followPointerCenter = { ...refinementConfig.center };
   applyFocusSettings();
 }
 
-function setFocusCenter(center: { x: number; y: number }, syncUrl = true): void {
+function setFocusCenter(
+  center: { x: number; y: number },
+  syncUrl = true,
+): void {
   const bounded = {
     x: Math.min(1, Math.max(0, center.x)),
     y: Math.min(1, Math.max(0, center.y)),
   };
-  if (refinementConfig.focusMode === 'center-boost') {
-    refinementConfig = { ...refinementConfig, focusMode: 'pinned' };
+  if (refinementConfig.focusMode === "center-boost") {
+    refinementConfig = { ...refinementConfig, focusMode: "pinned" };
   }
   refinementConfig = { ...refinementConfig, center: bounded };
   followPointerCenter = { ...bounded };
@@ -647,10 +781,12 @@ function updateFocusGuidePosition(): void {
   const canvasRect = canvas.getBoundingClientRect();
   const frameRect = viewerFrame.getBoundingClientRect();
   if (canvasRect.width <= 0 || canvasRect.height <= 0) return;
-  const diameter = refinementConfig.radius * 2 * Math.min(canvasRect.width, canvasRect.height);
-  const center = refinementConfig.focusMode === 'follow-pointer'
-    ? followPointerCenter
-    : refinementConfig.center;
+  const diameter =
+    refinementConfig.radius * 2 * Math.min(canvasRect.width, canvasRect.height);
+  const center =
+    refinementConfig.focusMode === "follow-pointer"
+      ? followPointerCenter
+      : refinementConfig.center;
   focusGuide.style.width = `${diameter}px`;
   focusGuide.style.height = `${diameter}px`;
   focusGuide.style.left = `${canvasRect.left - frameRect.left + center.x * canvasRect.width}px`;
@@ -658,7 +794,11 @@ function updateFocusGuidePosition(): void {
 }
 
 function unbindPointerFocus(): void {
-  if (pointerFocusCanvas) pointerFocusCanvas.removeEventListener('pointermove', onFocusCanvasPointerMove);
+  if (pointerFocusCanvas)
+    pointerFocusCanvas.removeEventListener(
+      "pointermove",
+      onFocusCanvasPointerMove,
+    );
   pointerFocusCanvas = undefined;
   if (pointerFocusFrame !== undefined) cancelAnimationFrame(pointerFocusFrame);
   if (pointerFocusTimer !== undefined) window.clearTimeout(pointerFocusTimer);
@@ -669,28 +809,43 @@ function unbindPointerFocus(): void {
 
 function flushFollowPointerUpdate(): void {
   pointerFocusFrame = undefined;
-  if (!pendingPointerCenter || renderer !== 'cesium'
-    || refinementConfig.focusMode !== 'follow-pointer' || !refinementConfig.focusEnabled) return;
+  if (
+    !pendingPointerCenter ||
+    renderer !== "cesium" ||
+    refinementConfig.focusMode !== "follow-pointer" ||
+    !refinementConfig.focusEnabled
+  )
+    return;
   const now = performance.now();
   const interval = 33;
   if (now - lastPointerFocusUpdateAt < interval) {
-    pointerFocusTimer = window.setTimeout(() => {
-      pointerFocusTimer = undefined;
-      if (pointerFocusFrame === undefined) pointerFocusFrame = requestAnimationFrame(flushFollowPointerUpdate);
-    }, interval - (now - lastPointerFocusUpdateAt));
+    pointerFocusTimer = window.setTimeout(
+      () => {
+        pointerFocusTimer = undefined;
+        if (pointerFocusFrame === undefined)
+          pointerFocusFrame = requestAnimationFrame(flushFollowPointerUpdate);
+      },
+      interval - (now - lastPointerFocusUpdateAt),
+    );
     return;
   }
   const center = pendingPointerCenter;
   pendingPointerCenter = undefined;
   const previous = lastAppliedFocusCenter;
-  if (previous && Math.abs(center.x - previous.x) < 0.005 && Math.abs(center.y - previous.y) < 0.005) return;
+  if (
+    previous &&
+    Math.abs(center.x - previous.x) < 0.005 &&
+    Math.abs(center.y - previous.y) < 0.005
+  )
+    return;
   followPointerCenter = center;
   lastPointerFocusUpdateAt = now;
   applyFocusSettings(false);
 }
 
 function onFocusCanvasPointerMove(event: PointerEvent): void {
-  if (!pointerFocusCanvas || refinementConfig.focusMode !== 'follow-pointer') return;
+  if (!pointerFocusCanvas || refinementConfig.focusMode !== "follow-pointer")
+    return;
   const rect = pointerFocusCanvas.getBoundingClientRect();
   if (rect.width <= 0 || rect.height <= 0) return;
   const center = {
@@ -711,7 +866,9 @@ function bindPointerFocus(runtime: PlaygroundRuntime): void {
   const canvas = runtime.getFocusCanvas();
   if (!canvas) return;
   pointerFocusCanvas = canvas;
-  canvas.addEventListener('pointermove', onFocusCanvasPointerMove, { passive: true });
+  canvas.addEventListener("pointermove", onFocusCanvasPointerMove, {
+    passive: true,
+  });
 }
 
 function finishFocusDrag(): void {
@@ -724,17 +881,23 @@ function finishFocusDrag(): void {
   dragFocusFrame = undefined;
   dragFocusTimer = undefined;
   pendingDragCenter = undefined;
-  if (focusConfigSyncTimer !== undefined) window.clearTimeout(focusConfigSyncTimer);
+  if (focusConfigSyncTimer !== undefined)
+    window.clearTimeout(focusConfigSyncTimer);
   focusConfigSyncTimer = undefined;
   writeRefinementUrl();
 }
 
 function onFocusGuidePointerDown(event: PointerEvent): void {
-  if (focusGuide.hidden || refinementConfig.focusMode === 'follow-pointer' || renderer !== 'cesium') return;
+  if (
+    focusGuide.hidden ||
+    refinementConfig.focusMode === "follow-pointer" ||
+    renderer !== "cesium"
+  )
+    return;
   event.preventDefault();
   event.stopPropagation();
-  if (refinementConfig.focusMode === 'center-boost') {
-    refinementConfig = { ...refinementConfig, focusMode: 'pinned' };
+  if (refinementConfig.focusMode === "center-boost") {
+    refinementConfig = { ...refinementConfig, focusMode: "pinned" };
     updateFocusControls();
   }
   const canvas = activeRuntime?.getFocusCanvas();
@@ -744,7 +907,10 @@ function onFocusGuidePointerDown(event: PointerEvent): void {
     x: rect.left + refinementConfig.center.x * rect.width,
     y: rect.top + refinementConfig.center.y * rect.height,
   };
-  focusDragOffset = { x: event.clientX - center.x, y: event.clientY - center.y };
+  focusDragOffset = {
+    x: event.clientX - center.x,
+    y: event.clientY - center.y,
+  };
   focusDragPointerId = event.pointerId;
   focusGuideHandle.setPointerCapture(event.pointerId);
   activeRuntime?.setFocusDragging(true);
@@ -777,19 +943,29 @@ function flushDragFocusUpdate(force = false): void {
   const now = performance.now();
   const interval = 33;
   if (!force && now - lastDragFocusUpdateAt < interval) {
-    dragFocusTimer = window.setTimeout(() => {
-      dragFocusTimer = undefined;
-      if (dragFocusFrame === undefined) dragFocusFrame = requestAnimationFrame(() => flushDragFocusUpdate());
-    }, interval - (now - lastDragFocusUpdateAt));
+    dragFocusTimer = window.setTimeout(
+      () => {
+        dragFocusTimer = undefined;
+        if (dragFocusFrame === undefined)
+          dragFocusFrame = requestAnimationFrame(() => flushDragFocusUpdate());
+      },
+      interval - (now - lastDragFocusUpdateAt),
+    );
     return;
   }
   const center = pendingDragCenter;
   pendingDragCenter = undefined;
   const previous = refinementConfig.center;
-  if (!force && Math.abs(center.x - previous.x) < 0.005 && Math.abs(center.y - previous.y) < 0.005) return;
+  if (
+    !force &&
+    Math.abs(center.x - previous.x) < 0.005 &&
+    Math.abs(center.y - previous.y) < 0.005
+  )
+    return;
   lastDragFocusUpdateAt = now;
   setFocusCenter(center, false);
-  if (focusConfigSyncTimer !== undefined) window.clearTimeout(focusConfigSyncTimer);
+  if (focusConfigSyncTimer !== undefined)
+    window.clearTimeout(focusConfigSyncTimer);
   focusConfigSyncTimer = window.setTimeout(() => {
     focusConfigSyncTimer = undefined;
     writeRefinementUrl();
@@ -799,11 +975,11 @@ function flushDragFocusUpdate(force = false): void {
 function onFocusGuideKeyDown(event: KeyboardEvent): void {
   const step = event.shiftKey ? 0.05 : 0.01;
   const center = { ...refinementConfig.center };
-  if (event.key === 'ArrowLeft') center.x -= step;
-  else if (event.key === 'ArrowRight') center.x += step;
-  else if (event.key === 'ArrowUp') center.y -= step;
-  else if (event.key === 'ArrowDown') center.y += step;
-  else if (event.key === 'Home') {
+  if (event.key === "ArrowLeft") center.x -= step;
+  else if (event.key === "ArrowRight") center.x += step;
+  else if (event.key === "ArrowUp") center.y -= step;
+  else if (event.key === "ArrowDown") center.y += step;
+  else if (event.key === "Home") {
     center.x = 0.5;
     center.y = 0.5;
   } else return;
@@ -811,29 +987,33 @@ function onFocusGuideKeyDown(event: KeyboardEvent): void {
   setFocusCenter(center);
 }
 
-focusGuideHandle.addEventListener('pointerdown', onFocusGuidePointerDown);
-focusGuideHandle.addEventListener('pointermove', onFocusGuidePointerMove);
-focusGuideHandle.addEventListener('pointerup', finishFocusDrag);
-focusGuideHandle.addEventListener('pointercancel', finishFocusDrag);
-focusGuideHandle.addEventListener('lostpointercapture', finishFocusDrag);
-focusGuideHandle.addEventListener('keydown', onFocusGuideKeyDown);
+focusGuideHandle.addEventListener("pointerdown", onFocusGuidePointerDown);
+focusGuideHandle.addEventListener("pointermove", onFocusGuidePointerMove);
+focusGuideHandle.addEventListener("pointerup", finishFocusDrag);
+focusGuideHandle.addEventListener("pointercancel", finishFocusDrag);
+focusGuideHandle.addEventListener("lostpointercapture", finishFocusDrag);
+focusGuideHandle.addEventListener("keydown", onFocusGuideKeyDown);
 const focusResizeObserver = new ResizeObserver(updateFocusGuidePosition);
 focusResizeObserver.observe(viewerFrame);
 
 function syncRendererLabels(): void {
-  const label = renderer === 'cesium' ? 'Cesium' : 'Three.js';
+  const label = renderer === "cesium" ? "Cesium" : "Three.js";
   rendererHeading.textContent = label;
   rendererBadge.textContent = label;
-  viewport.setAttribute('aria-label', `Interactive ${label} point cloud viewport`);
+  viewport.setAttribute(
+    "aria-label",
+    `Interactive ${label} point cloud viewport`,
+  );
   updateIntegrationExample();
   updateFocusControls();
-  if (activeRuntime) viewerCaption.textContent = `${label} renders the selected COPC data in this browser.`;
+  if (activeRuntime)
+    viewerCaption.textContent = `${label} renders the selected COPC data in this browser.`;
 }
 syncRendererLabels();
 
 const renderPoint = (point: CopcPointInspection | undefined): void => {
-  const empty = byId<HTMLElement>('point-empty');
-  const attributes = byId<HTMLDListElement>('point-attributes');
+  const empty = byId<HTMLElement>("point-empty");
+  const attributes = byId<HTMLDListElement>("point-attributes");
   if (!point) {
     empty.hidden = false;
     attributes.hidden = true;
@@ -841,20 +1021,31 @@ const renderPoint = (point: CopcPointInspection | undefined): void => {
     return;
   }
   const rows: Array<[string, string]> = [
-    ['Longitude', `${point.longitude.toFixed(7)}°`],
-    ['Latitude', `${point.latitude.toFixed(7)}°`],
-    ['Height', `${formatUiNumber(point.height, 3)} m`],
+    ["Longitude", `${point.longitude.toFixed(7)}°`],
+    ["Latitude", `${point.latitude.toFixed(7)}°`],
+    ["Height", `${formatUiNumber(point.height, 3)} m`],
   ];
-  if (point.classification !== undefined) rows.push(['Classification', point.classificationLabel ?? String(point.classification)]);
-  if (point.intensity !== undefined) rows.push(['Intensity', formatUiNumber(point.intensity)]);
-  if (point.rgb !== undefined) rows.push(['RGB', `(${point.rgb.red}, ${point.rgb.green}, ${point.rgb.blue})`]);
-  attributes.replaceChildren(...rows.flatMap(([label, value]) => {
-    const term = document.createElement('dt');
-    term.textContent = label;
-    const description = document.createElement('dd');
-    description.textContent = value;
-    return [term, description];
-  }));
+  if (point.classification !== undefined)
+    rows.push([
+      "Classification",
+      point.classificationLabel ?? String(point.classification),
+    ]);
+  if (point.intensity !== undefined)
+    rows.push(["Intensity", formatUiNumber(point.intensity)]);
+  if (point.rgb !== undefined)
+    rows.push([
+      "RGB",
+      `(${point.rgb.red}, ${point.rgb.green}, ${point.rgb.blue})`,
+    ]);
+  attributes.replaceChildren(
+    ...rows.flatMap(([label, value]) => {
+      const term = document.createElement("dt");
+      term.textContent = label;
+      const description = document.createElement("dd");
+      description.textContent = value;
+      return [term, description];
+    }),
+  );
   empty.hidden = true;
   attributes.hidden = false;
 };
@@ -863,19 +1054,30 @@ const updateSnapshot = (snapshot: PlaygroundSnapshot | undefined): void => {
   const points = snapshot?.renderedPoints ?? 0;
   const nodes = snapshot?.renderedNodes ?? 0;
   const selected = snapshot?.selectedNodes ?? 0;
-  byId('hud-points').textContent = formatUiNumber(points);
-  byId('hud-nodes').textContent = formatUiNumber(nodes);
-  byId('diagnostic-points').textContent = formatUiNumber(points);
-  byId('diagnostic-nodes').textContent = formatUiNumber(nodes);
-  byId('diagnostic-selected').textContent = formatUiNumber(selected);
+  byId("hud-points").textContent = formatUiNumber(points);
+  byId("hud-nodes").textContent = formatUiNumber(nodes);
+  byId("diagnostic-points").textContent = formatUiNumber(points);
+  byId("diagnostic-nodes").textContent = formatUiNumber(nodes);
+  byId("diagnostic-selected").textContent = formatUiNumber(selected);
   const range = snapshot?.visibleLevelRange;
-  byId('diagnostic-lod').textContent = range ? `${range.min}–${range.max}` : '—';
-  const selectedAlgorithm = snapshot?.refinementAlgorithm ?? refinementConfig.algorithm;
-  byId('diagnostic-algorithm').textContent = selectedAlgorithm === 'screen-projection'
-    ? 'Screen projection (legacy)' : 'Foveated';
-  byId('diagnostic-focus').textContent = snapshot?.refinementFocusEnabled ? 'Active' : 'Inactive';
-  byId('diagnostic-focus-candidates').textContent = formatUiNumber(snapshot?.focusCandidateCount ?? 0);
-  byId('diagnostic-focus-refinements').textContent = formatUiNumber(snapshot?.focusInfluencedRefinementCount ?? 0);
+  byId("diagnostic-lod").textContent = range
+    ? `${range.min}–${range.max}`
+    : "—";
+  const selectedAlgorithm =
+    snapshot?.refinementAlgorithm ?? refinementConfig.algorithm;
+  byId("diagnostic-algorithm").textContent =
+    selectedAlgorithm === "screen-projection"
+      ? "Screen projection (legacy)"
+      : "Foveated";
+  byId("diagnostic-focus").textContent = snapshot?.refinementFocusEnabled
+    ? "Active"
+    : "Inactive";
+  byId("diagnostic-focus-candidates").textContent = formatUiNumber(
+    snapshot?.focusCandidateCount ?? 0,
+  );
+  byId("diagnostic-focus-refinements").textContent = formatUiNumber(
+    snapshot?.focusInfluencedRefinementCount ?? 0,
+  );
 };
 
 const refreshSnapshot = (): void => {
@@ -883,11 +1085,17 @@ const refreshSnapshot = (): void => {
     updateSnapshot(undefined);
     return;
   }
-  try { updateSnapshot(activeRuntime.getSnapshot()); } catch { updateSnapshot(undefined); }
+  try {
+    updateSnapshot(activeRuntime.getSnapshot());
+  } catch {
+    updateSnapshot(undefined);
+  }
 };
 
-algorithmSelect.addEventListener('change', () => {
-  const selected = refinementAlgorithmOptions.find((option) => option.value === algorithmSelect.value);
+algorithmSelect.addEventListener("change", () => {
+  const selected = refinementAlgorithmOptions.find(
+    (option) => option.value === algorithmSelect.value,
+  );
   if (!selected) return;
   refinementConfig = { ...refinementConfig, algorithm: selected.value };
   updateFocusControls();
@@ -897,19 +1105,25 @@ algorithmSelect.addEventListener('change', () => {
   reloadActiveSource();
 });
 
-focusModeSelect.addEventListener('change', () => {
+focusModeSelect.addEventListener("change", () => {
   setFocusMode(focusModeSelect.value as PlaygroundFocusMode);
 });
-focusEnabledInput.addEventListener('change', () => {
-  refinementConfig = { ...refinementConfig, focusEnabled: focusEnabledInput.checked };
+focusEnabledInput.addEventListener("change", () => {
+  refinementConfig = {
+    ...refinementConfig,
+    focusEnabled: focusEnabledInput.checked,
+  };
   applyFocusSettings();
 });
-focusShowGuideInput.addEventListener('change', () => {
-  refinementConfig = { ...refinementConfig, showGuide: focusShowGuideInput.checked };
+focusShowGuideInput.addEventListener("change", () => {
+  refinementConfig = {
+    ...refinementConfig,
+    showGuide: focusShowGuideInput.checked,
+  };
   updateFocusControls();
   writeRefinementUrl();
 });
-focusXInput.addEventListener('change', () => {
+focusXInput.addEventListener("change", () => {
   const x = Number(focusXInput.value);
   if (!Number.isFinite(x) || x < 0 || x > 1) {
     focusXInput.value = String(refinementConfig.center.x);
@@ -917,7 +1131,7 @@ focusXInput.addEventListener('change', () => {
   }
   setFocusCenter({ ...refinementConfig.center, x });
 });
-focusYInput.addEventListener('change', () => {
+focusYInput.addEventListener("change", () => {
   const y = Number(focusYInput.value);
   if (!Number.isFinite(y) || y < 0 || y > 1) {
     focusYInput.value = String(refinementConfig.center.y);
@@ -925,9 +1139,9 @@ focusYInput.addEventListener('change', () => {
   }
   setFocusCenter({ ...refinementConfig.center, y });
 });
-byId<HTMLButtonElement>('focus-reset').addEventListener('click', () => {
-  if (refinementConfig.focusMode === 'follow-pointer') {
-    refinementConfig = { ...refinementConfig, focusMode: 'pinned' };
+byId<HTMLButtonElement>("focus-reset").addEventListener("click", () => {
+  if (refinementConfig.focusMode === "follow-pointer") {
+    refinementConfig = { ...refinementConfig, focusMode: "pinned" };
   }
   refinementConfig = { ...refinementConfig, center: { x: 0.5, y: 0.5 } };
   followPointerCenter = { x: 0.5, y: 0.5 };
@@ -939,17 +1153,31 @@ updateIntegrationExample();
 
 const showProbe = (result: CopcSourceProbeResult): void => {
   updateColorChoices(result.pointFormat);
-  byId('diagnostic-range').textContent = result.rangeSupported === true ? 'Supported' : result.rangeSupported === false ? 'Unavailable' : 'Unknown';
-  byId('diagnostic-copc').textContent = result.copcDetected === true ? 'Detected' : result.copcDetected === false ? 'Not detected' : 'Not confirmed';
-  byId('diagnostic-validation').textContent = result.validationLevel === 'strict'
-    ? 'Strict response validation'
-    : result.validationLevel === 'compatibility-limited' ? 'Compatibility-limited' : result.validationLevel;
-  const warning = byId<HTMLElement>('diagnostic-warning');
-  warning.textContent = result.warnings.join(' ');
+  byId("diagnostic-range").textContent =
+    result.rangeSupported === true
+      ? "Supported"
+      : result.rangeSupported === false
+        ? "Unavailable"
+        : "Unknown";
+  byId("diagnostic-copc").textContent =
+    result.copcDetected === true
+      ? "Detected"
+      : result.copcDetected === false
+        ? "Not detected"
+        : "Not confirmed";
+  byId("diagnostic-validation").textContent =
+    result.validationLevel === "strict"
+      ? "Strict response validation"
+      : result.validationLevel === "compatibility-limited"
+        ? "Compatibility-limited"
+        : result.validationLevel;
+  const warning = byId<HTMLElement>("diagnostic-warning");
+  warning.textContent = result.warnings.join(" ");
   warning.hidden = result.warnings.length === 0;
-  sourceProbe.textContent = result.warnings.length > 0
-    ? `${result.corsReadable === true ? 'CORS readable' : 'CORS unavailable'} · ${result.rangeSupported === true ? 'HTTP Range supported' : 'HTTP Range unavailable'}. ${result.warnings.join(' ')}`
-    : `CORS readable · HTTP Range supported · COPC ${result.copcDetected === true ? 'detected' : 'not confirmed'}`;
+  sourceProbe.textContent =
+    result.warnings.length > 0
+      ? `${result.corsReadable === true ? "CORS readable" : "CORS unavailable"} · ${result.rangeSupported === true ? "HTTP Range supported" : "HTTP Range unavailable"}. ${result.warnings.join(" ")}`
+      : `CORS readable · HTTP Range supported · COPC ${result.copcDetected === true ? "detected" : "not confirmed"}`;
 };
 
 const getFilePointFormat = async (file: File): Promise<number | undefined> => {
@@ -963,7 +1191,8 @@ const destroyRuntime = (): void => {
   if (focusDragPointerId !== undefined) {
     const pointerId = focusDragPointerId;
     focusDragPointerId = undefined;
-    if (focusGuideHandle.hasPointerCapture(pointerId)) focusGuideHandle.releasePointerCapture(pointerId);
+    if (focusGuideHandle.hasPointerCapture(pointerId))
+      focusGuideHandle.releasePointerCapture(pointerId);
     activeRuntime?.setFocusDragging(false);
   }
   if (dragFocusFrame !== undefined) cancelAnimationFrame(dragFocusFrame);
@@ -971,7 +1200,8 @@ const destroyRuntime = (): void => {
   dragFocusFrame = undefined;
   dragFocusTimer = undefined;
   pendingDragCenter = undefined;
-  if (focusConfigSyncTimer !== undefined) window.clearTimeout(focusConfigSyncTimer);
+  if (focusConfigSyncTimer !== undefined)
+    window.clearTimeout(focusConfigSyncTimer);
   focusConfigSyncTimer = undefined;
   if (refreshTimer !== undefined) window.clearInterval(refreshTimer);
   refreshTimer = undefined;
@@ -994,8 +1224,10 @@ const loadSource = async (
   const generation = options.generation ?? ++sourceGeneration;
   if (generation !== sourceGeneration) return;
   const priorRuntime = activeRuntime;
-  const priorCamera = options.preserveCamera && priorRuntime?.renderer === renderer
-    ? priorRuntime.getCameraState() : undefined;
+  const priorCamera =
+    options.preserveCamera && priorRuntime?.renderer === renderer
+      ? priorRuntime.getCameraState()
+      : undefined;
   const capturedInteractionVersion = cameraInteractionVersion;
   activeSource = source;
   activeSourceName = sourceName;
@@ -1005,20 +1237,33 @@ const loadSource = async (
   destroyRuntime();
   renderPoint(undefined);
   activeLoadPending = true;
-  setStatus(`Loading ${sourceName}…`, 'loading');
+  setStatus(`Loading ${sourceName}…`, "loading");
   if (probeResult) {
-    byId('diagnostic-range').textContent = probeResult.rangeSupported === true
-      ? 'Supported' : probeResult.rangeSupported === false ? 'Unavailable' : 'Unknown';
-    byId('diagnostic-copc').textContent = probeResult.copcDetected === true
-      ? 'Detected' : probeResult.copcDetected === false ? 'Not detected' : 'Not confirmed';
-    byId('diagnostic-validation').textContent = probeResult.validationLevel === 'strict'
-      ? 'Strict response validation'
-      : probeResult.validationLevel === 'compatibility-limited' ? 'Compatibility-limited' : probeResult.validationLevel;
+    byId("diagnostic-range").textContent =
+      probeResult.rangeSupported === true
+        ? "Supported"
+        : probeResult.rangeSupported === false
+          ? "Unavailable"
+          : "Unknown";
+    byId("diagnostic-copc").textContent =
+      probeResult.copcDetected === true
+        ? "Detected"
+        : probeResult.copcDetected === false
+          ? "Not detected"
+          : "Not confirmed";
+    byId("diagnostic-validation").textContent =
+      probeResult.validationLevel === "strict"
+        ? "Strict response validation"
+        : probeResult.validationLevel === "compatibility-limited"
+          ? "Compatibility-limited"
+          : probeResult.validationLevel;
   } else {
-    byId('diagnostic-range').textContent = typeof source === 'string'
-      ? 'Checking' : 'Not applicable (local file)';
-    byId('diagnostic-copc').textContent = typeof source === 'string' ? 'Checking' : 'Checked while loading';
-    byId('diagnostic-validation').textContent = typeof source === 'string' ? 'Checking' : 'Local byte source';
+    byId("diagnostic-range").textContent =
+      typeof source === "string" ? "Checking" : "Not applicable (local file)";
+    byId("diagnostic-copc").textContent =
+      typeof source === "string" ? "Checking" : "Checked while loading";
+    byId("diagnostic-validation").textContent =
+      typeof source === "string" ? "Checking" : "Local byte source";
   }
   let runtime: PlaygroundRuntime | undefined;
   try {
@@ -1026,24 +1271,29 @@ const loadSource = async (
       updateColorChoices(await getFilePointFormat(source));
     }
     if (generation !== sourceGeneration) return;
-    const createdRuntime = await createPlaygroundRuntime({
-      renderer,
-      backend,
-      source,
-      sourceName,
-      colorMode,
-      pointSize,
-      maxNodes,
-      maxRenderedPoints,
-      refinementAlgorithm: refinementConfig.algorithm,
-      container: viewport,
-      onPointPicked: renderPoint,
-      isCurrent: () => generation === sourceGeneration,
-      canAutoZoom: () => capturedInteractionVersion === cameraInteractionVersion,
-      onError: (message) => {
-        if (runtime && activeRuntime === runtime) setStatus(safeErrorText(message), 'error');
+    const createdRuntime = await createPlaygroundRuntime(
+      {
+        renderer,
+        backend,
+        source,
+        sourceName,
+        colorMode,
+        pointSize,
+        maxNodes,
+        maxRenderedPoints,
+        refinementAlgorithm: refinementConfig.algorithm,
+        container: viewport,
+        onPointPicked: renderPoint,
+        isCurrent: () => generation === sourceGeneration,
+        canAutoZoom: () =>
+          capturedInteractionVersion === cameraInteractionVersion,
+        onError: (message) => {
+          if (runtime && activeRuntime === runtime)
+            setStatus(safeErrorText(message), "error");
+        },
       },
-    }, layerFactory);
+      layerFactory,
+    );
     if (!createdRuntime) return;
     runtime = createdRuntime;
     activeRuntime = createdRuntime;
@@ -1059,17 +1309,23 @@ const loadSource = async (
         destroyRuntime();
         activeLoadPending = false;
         if (sourceStatus.textContent === `Loading ${sourceName}…`) {
-          setStatus('Source selection changed. Choose a source and load it.', 'unknown');
+          setStatus(
+            "Source selection changed. Choose a source and load it.",
+            "unknown",
+          );
         }
       }
       return;
     }
     activeLoadPending = false;
-    if (priorCamera && capturedInteractionVersion === cameraInteractionVersion) {
+    if (
+      priorCamera &&
+      capturedInteractionVersion === cameraInteractionVersion
+    ) {
       createdRuntime.setCameraState(priorCamera);
     }
-    setStatus(`Loaded ${sourceName}`, 'ready');
-    viewerCaption.textContent = `${renderer === 'cesium' ? 'Cesium' : 'Three.js'} streams visible COPC nodes as the camera moves.`;
+    setStatus(`Loaded ${sourceName}`, "ready");
+    viewerCaption.textContent = `${renderer === "cesium" ? "Cesium" : "Three.js"} streams visible COPC nodes as the camera moves.`;
     refreshSnapshot();
   } catch (error) {
     if (generation !== sourceGeneration) {
@@ -1077,15 +1333,18 @@ const loadSource = async (
         destroyRuntime();
         activeLoadPending = false;
         if (sourceStatus.textContent === `Loading ${sourceName}…`) {
-          setStatus('Source selection changed. Choose a source and load it.', 'unknown');
+          setStatus(
+            "Source selection changed. Choose a source and load it.",
+            "unknown",
+          );
         }
       }
       return;
     }
     activeLoadPending = false;
     destroyRuntime();
-    setStatus(safeErrorText(error), 'error');
-    byId('hud-state').textContent = 'Error';
+    setStatus(safeErrorText(error), "error");
+    byId("hud-state").textContent = "Error";
   }
 };
 
@@ -1101,75 +1360,94 @@ const invalidateSourceRequest = (): number => {
   if (activeLoadPending) {
     if (activeRuntime) destroyRuntime();
     activeLoadPending = false;
-    if (sourceStatus.textContent.startsWith('Loading ')) {
-      setStatus('Source selection changed. Choose a source and load it.', 'unknown');
+    if (sourceStatus.textContent.startsWith("Loading ")) {
+      setStatus(
+        "Source selection changed. Choose a source and load it.",
+        "unknown",
+      );
     }
   }
   remoteLoadButton.disabled = false;
-  remoteLoadButton.textContent = remoteSelect.value === 'custom' ? 'Probe and load URL' : 'Probe and load source';
-  if (probeWasPending) sourceProbe.textContent = 'Source selection changed. Run the probe again to load it.';
+  remoteLoadButton.textContent =
+    remoteSelect.value === "custom"
+      ? "Probe and load URL"
+      : "Probe and load source";
+  if (probeWasPending)
+    sourceProbe.textContent =
+      "Source selection changed. Run the probe again to load it.";
   return generation;
 };
 
-remoteSelect.addEventListener('change', () => {
+remoteSelect.addEventListener("change", () => {
   invalidateSourceRequest();
-  customUrlInput.disabled = remoteSelect.value !== 'custom';
+  customUrlInput.disabled = remoteSelect.value !== "custom";
 });
 customUrlInput.disabled = true;
-customUrlInput.addEventListener('input', () => {
-  if (remoteSelect.value === 'custom') invalidateSourceRequest();
+customUrlInput.addEventListener("input", () => {
+  if (remoteSelect.value === "custom") invalidateSourceRequest();
 });
 
-fileInput.addEventListener('change', async () => {
+fileInput.addEventListener("change", async () => {
   const file = fileInput.files?.[0];
   if (!file) return;
-  fileInput.value = '';
-  sourceProbe.textContent = 'Local files are read directly by the browser; HTTP CORS and Range checks do not apply.';
+  fileInput.value = "";
+  sourceProbe.textContent =
+    "Local files are read directly by the browser; HTTP CORS and Range checks do not apply.";
   const generation = invalidateSourceRequest();
   await loadSource(file, file.name, { generation });
 });
 
-remoteLoadButton.addEventListener('click', async () => {
+remoteLoadButton.addEventListener("click", async () => {
   const generation = invalidateSourceRequest();
   let sourceUrl: string;
   let sourceName: string;
-  if (remoteSelect.value === 'custom') {
+  if (remoteSelect.value === "custom") {
     try {
       const parsed = new URL(customUrlInput.value.trim());
-      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') throw new Error();
+      if (parsed.protocol !== "https:" && parsed.protocol !== "http:")
+        throw new Error();
       sourceUrl = parsed.href;
-      sourceName = 'Custom URL';
+      sourceName = "Custom URL";
     } catch {
-      sourceProbe.textContent = 'Enter a valid absolute HTTP or HTTPS URL.';
+      sourceProbe.textContent = "Enter a valid absolute HTTP or HTTPS URL.";
       return;
     }
-  } else if (remoteSelect.value === 'chicago') {
-    sourceUrl = 'https://data.pointcloud.org/chicago-downtown/chicago-downtown.copc.laz';
-    sourceName = 'Chicago Downtown';
+  } else if (remoteSelect.value === "chicago") {
+    sourceUrl =
+      "https://data.pointcloud.org/chicago-downtown/chicago-downtown.copc.laz";
+    sourceName = "Chicago Downtown";
   } else {
-    sourceUrl = 'https://data.pointcloud.org/autzen/autzen-classified.copc.laz';
-    sourceName = 'Autzen Stadium';
+    sourceUrl = "https://data.pointcloud.org/autzen/autzen-classified.copc.laz";
+    sourceName = "Autzen Stadium";
   }
 
   remoteLoadButton.disabled = true;
-  remoteLoadButton.textContent = 'Checking source…';
-  sourceProbe.textContent = 'Checking browser access, HTTP Range, and COPC metadata…';
-  byId('diagnostic-range').textContent = 'Checking';
-  byId('diagnostic-copc').textContent = 'Checking';
-  byId('diagnostic-validation').textContent = 'Checking';
+  remoteLoadButton.textContent = "Checking source…";
+  sourceProbe.textContent =
+    "Checking browser access, HTTP Range, and COPC metadata…";
+  byId("diagnostic-range").textContent = "Checking";
+  byId("diagnostic-copc").textContent = "Checking";
+  byId("diagnostic-validation").textContent = "Checking";
   try {
-    const { probeCopcSource } = await import('@frillab/copc-adapter/cesium');
+    const { probeCopcSource } = await import("@frillab/copc-adapter/cesium");
     const probe = await probeCopcSource(sourceUrl);
     if (generation !== sourceGeneration) return;
     showProbe(probe);
     if (probe.corsReadable !== true || probe.rangeSupported !== true) {
       sourceProbe.textContent = `${sourceProbe.textContent} Check that the host permits browser CORS and HTTP Range.`;
-      setStatus('Source cannot be loaded with browser CORS and HTTP Range.', 'error');
+      setStatus(
+        "Source cannot be loaded with browser CORS and HTTP Range.",
+        "error",
+      );
       return;
     }
     if (probe.copcDetected === false) {
-      sourceProbe.textContent = 'The response is readable but does not contain COPC metadata.';
-      setStatus('The selected source does not contain readable COPC metadata.', 'error');
+      sourceProbe.textContent =
+        "The response is readable but does not contain COPC metadata.";
+      setStatus(
+        "The selected source does not contain readable COPC metadata.",
+        "error",
+      );
       return;
     }
     await loadSource(sourceUrl, sourceName, { generation, probeResult: probe });
@@ -1177,12 +1455,15 @@ remoteLoadButton.addEventListener('click', async () => {
     if (generation === sourceGeneration) {
       const message = safeErrorText(error);
       sourceProbe.textContent = message;
-      setStatus(message, 'error');
+      setStatus(message, "error");
     }
   } finally {
     if (generation === sourceGeneration) {
       remoteLoadButton.disabled = false;
-      remoteLoadButton.textContent = remoteSelect.value === 'custom' ? 'Probe and load URL' : 'Probe and load source';
+      remoteLoadButton.textContent =
+        remoteSelect.value === "custom"
+          ? "Probe and load URL"
+          : "Probe and load source";
     }
   }
 });
@@ -1200,4 +1481,4 @@ const destroyPlayground = (): void => {
   backendControl.destroy();
   cameraControl.destroy();
 };
-window.addEventListener('pagehide', destroyPlayground, { once: true });
+window.addEventListener("pagehide", destroyPlayground, { once: true });

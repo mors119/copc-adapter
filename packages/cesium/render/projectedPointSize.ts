@@ -47,17 +47,25 @@ export function computeProjectedPointSizeCssPixels(
     minPointSize,
     maxPointSize,
   } = input;
-  if (!Number.isFinite(spacingMeters) || spacingMeters <= 0
-    || !Number.isFinite(projectionYScale) || projectionYScale <= 0
-    || !Number.isFinite(viewportHeightCssPixels) || viewportHeightCssPixels <= 0
-    || !Number.isFinite(minPointSize) || minPointSize <= 0
-    || !Number.isFinite(maxPointSize) || maxPointSize < minPointSize
-    || maxPointSize > MAX_ATTENUATED_POINT_SIZE_CSS_PIXELS
-    || (perspective && (!Number.isFinite(viewDepthMeters) || viewDepthMeters <= 0))) {
+  if (
+    !Number.isFinite(spacingMeters) ||
+    spacingMeters <= 0 ||
+    !Number.isFinite(projectionYScale) ||
+    projectionYScale <= 0 ||
+    !Number.isFinite(viewportHeightCssPixels) ||
+    viewportHeightCssPixels <= 0 ||
+    !Number.isFinite(minPointSize) ||
+    minPointSize <= 0 ||
+    !Number.isFinite(maxPointSize) ||
+    maxPointSize < minPointSize ||
+    maxPointSize > MAX_ATTENUATED_POINT_SIZE_CSS_PIXELS ||
+    (perspective && (!Number.isFinite(viewDepthMeters) || viewDepthMeters <= 0))
+  ) {
     return undefined;
   }
 
-  let projectedSize = spacingMeters * projectionYScale * viewportHeightCssPixels * 0.5;
+  let projectedSize =
+    spacingMeters * projectionYScale * viewportHeightCssPixels * 0.5;
   if (perspective) projectedSize /= viewDepthMeters;
   if (!Number.isFinite(projectedSize)) return undefined;
   return Math.min(maxPointSize, Math.max(minPointSize, projectedSize));

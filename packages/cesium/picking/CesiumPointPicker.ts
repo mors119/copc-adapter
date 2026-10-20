@@ -1,9 +1,9 @@
-import * as Cesium from 'cesium';
+import * as Cesium from "cesium";
 import type {
   CopcPointInspection,
   CopcPointPickId,
-} from '../../core/copc/points/pointInspection';
-import { isCopcPointPickId } from '../../core/copc/points/pointInspection';
+} from "../../core/copc/points/pointInspection";
+import { isCopcPointPickId } from "../../core/copc/points/pointInspection";
 
 type CesiumPointPickerOptions = {
   inspectPoint: (pickId: CopcPointPickId) => CopcPointInspection | undefined;
@@ -100,9 +100,11 @@ export class CesiumPointPicker {
     // coordinate. Batched point refinement needs a deterministic pixel to
     // preserve the exact source identity, so use a 1x1 pick for that optional
     // capability. Keep the compatibility renderer's historical default.
-    const picked = (this.options.resolveBatchedPoint
-      ? viewer.scene.pick(position, 1, 1)
-      : viewer.scene.pick(position)) as { id?: unknown } | undefined;
+    const picked = (
+      this.options.resolveBatchedPoint
+        ? viewer.scene.pick(position, 1, 1)
+        : viewer.scene.pick(position)
+    ) as { id?: unknown } | undefined;
     if (!picked) {
       this.clear();
       return;
@@ -117,7 +119,11 @@ export class CesiumPointPicker {
       }
       pickId = picked.id;
     } else {
-      pickId = this.options.resolveBatchedPoint?.(viewer.scene, position, picked);
+      pickId = this.options.resolveBatchedPoint?.(
+        viewer.scene,
+        position,
+        picked,
+      );
       if (!isCopcPointPickId(pickId) || pickId.ownerId !== this.ownerId) {
         this.clear();
         return;

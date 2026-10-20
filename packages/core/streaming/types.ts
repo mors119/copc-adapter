@@ -3,25 +3,25 @@ import type {
   GeographicCamera,
   GeographicPoint,
   PreparedPointData,
-} from '../copc/types/copc';
+} from "../copc/types/copc";
 import type {
   AdaptiveViewDistanceDiagnostics,
   BoundingSphere,
   ViewFrustum,
-} from './view';
-import type { RefinementAlgorithm } from './refinementStrategies';
+} from "./view";
+import type { RefinementAlgorithm } from "./refinementStrategies";
 
 export type {
   BoundingSphere,
   BoundingSphereInput,
   ViewFrustum,
   ViewVector3,
-} from './view';
+} from "./view";
 
 /** Geographic node bounds used by view selection and hierarchy queries. */
 export type BoundingBox = {
   /** Node bounds are geographic longitude/latitude/height, not local XYZ. */
-  coordinateSystem: 'wgs84-geographic';
+  coordinateSystem: "wgs84-geographic";
   /** Minimum longitude in degrees. */
   minX: number;
   /** Minimum latitude in degrees. */
@@ -316,11 +316,11 @@ export type StreamingHierarchy = Map<string, StreamingHierarchyNode>;
 /** Reason a visible node set is being replaced. */
 export type StreamingReplacementKind =
   /** Replace coarse coverage with a finer child frontier. */
-  | 'refinement'
+  | "refinement"
   /** Replace fine coverage with a coarser parent frontier. */
-  | 'collapse'
+  | "collapse"
   /** Replace nodes because the selected view or target frontier changed. */
-  | 'retarget';
+  | "retarget";
 
 /**
  * A logical visible-coverage transition. The old nodes remain valid coverage

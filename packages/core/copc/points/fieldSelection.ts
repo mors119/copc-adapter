@@ -7,13 +7,13 @@
  */
 export type CopcPointField =
   /** Required source XYZ coordinates. */
-  | 'position'
+  | "position"
   /** LAS intensity attribute. */
-  | 'intensity'
+  | "intensity"
   /** LAS classification attribute. */
-  | 'classification'
+  | "classification"
   /** All three RGB color channels. */
-  | 'rgb';
+  | "rgb";
 
 /** Immutable-by-contract set of source point fields requested from a backend. */
 export type CopcPointFieldSelection = ReadonlySet<CopcPointField>;
@@ -21,35 +21,35 @@ export type CopcPointFieldSelection = ReadonlySet<CopcPointField>;
 /** Individual point components exposed by backend-neutral point views. */
 export type CopcPointComponent =
   /** Source-coordinate axes. */
-  | 'x'
-  | 'y'
-  | 'z'
+  | "x"
+  | "y"
+  | "z"
   /** LAS intensity and classification components. */
-  | 'intensity'
-  | 'classification'
+  | "intensity"
+  | "classification"
   /** Individual RGB channels. */
-  | 'red'
-  | 'green'
-  | 'blue';
+  | "red"
+  | "green"
+  | "blue";
 
 /** Color mapping names supported by Cesium, Three.js, and shared style helpers. */
 export type CopcColorMode =
   /** Use the adapter's fixed fallback color; no source color field is needed. */
-  | 'fixed'
+  | "fixed"
   /** Color by WGS84 ellipsoidal height in metres. */
-  | 'elevation'
+  | "elevation"
   /** Use source RGB values when present. */
-  | 'rgb'
+  | "rgb"
   /** Color by LAS intensity. */
-  | 'intensity'
+  | "intensity"
   /** Color by LAS classification code. */
-  | 'classification';
+  | "classification";
 
 const ALL_POINT_FIELDS: CopcPointField[] = [
-  'position',
-  'intensity',
-  'classification',
-  'rgb',
+  "position",
+  "intensity",
+  "classification",
+  "rgb",
 ];
 
 /** Create a detached field selection, suitable for passing across a backend boundary. */
@@ -69,14 +69,14 @@ export function getCopcPointFieldSelection(
   colorMode: CopcColorMode,
 ): CopcPointFieldSelection {
   switch (colorMode) {
-    case 'rgb':
-      return createCopcPointFieldSelection(['position', 'rgb']);
-    case 'intensity':
-      return createCopcPointFieldSelection(['position', 'intensity']);
-    case 'classification':
-      return createCopcPointFieldSelection(['position', 'classification']);
-    case 'fixed':
-    case 'elevation':
-      return createCopcPointFieldSelection(['position']);
+    case "rgb":
+      return createCopcPointFieldSelection(["position", "rgb"]);
+    case "intensity":
+      return createCopcPointFieldSelection(["position", "intensity"]);
+    case "classification":
+      return createCopcPointFieldSelection(["position", "classification"]);
+    case "fixed":
+    case "elevation":
+      return createCopcPointFieldSelection(["position"]);
   }
 }

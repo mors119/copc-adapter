@@ -1,20 +1,23 @@
-import * as Cesium from 'cesium';
-import type { GeographicPoint, GeographicPointBuffer } from '../../core/copc/types/copc';
-import type { CopcElevationRange } from '../../core/point/style/pointStyle';
+import * as Cesium from "cesium";
+import type {
+  GeographicPoint,
+  GeographicPointBuffer,
+} from "../../core/copc/types/copc";
+import type { CopcElevationRange } from "../../core/point/style/pointStyle";
 import {
   getPointColor,
   type CopcColorMode,
   type CopcPointStyleOptions,
-} from '../style/pointStyle';
-import { resolveCopcPointStyleOptions } from '../../core/point/style/pointStyle';
-import { performanceNow } from '../../core/copc/performance';
+} from "../style/pointStyle";
+import { resolveCopcPointStyleOptions } from "../../core/point/style/pointStyle";
+import { performanceNow } from "../../core/copc/performance";
 
 export {
   getPointBufferElevationRange,
   getPointBufferIntensityRange,
   getPointBufferRgbMax,
-} from '../../core/point/style/pointStyle';
-export type { CopcElevationRange } from '../../core/point/style/pointStyle';
+} from "../../core/point/style/pointStyle";
+export type { CopcElevationRange } from "../../core/point/style/pointStyle";
 
 /** Configuration for converting a prepared point buffer into Cesium primitives. */
 export type CopcPointRenderOptions = {
@@ -32,11 +35,12 @@ export type CopcPointRenderOptions = {
   pointFilter?: (pointIndex: number) => boolean;
   /** Receives elapsed CPU time for each completed preparation/rendering stage. */
   onPerformance?: (
-    stage: 'geographicToCartesian'
-      | 'worldToCartesian'
-      | 'pointStylePreparation'
-      | 'pointCollectionCreation'
-      | 'pointAdd',
+    stage:
+      | "geographicToCartesian"
+      | "worldToCartesian"
+      | "pointStylePreparation"
+      | "pointCollectionCreation"
+      | "pointAdd",
     durationMs: number,
   ) => void;
 };
@@ -50,7 +54,9 @@ export type CopcPointRenderOptions = {
  * @param points Geographic positions to convert.
  * @returns One Cesium ECEF Cartesian position per input point.
  */
-export function toCartesian3Array(points: GeographicPoint[]): Cesium.Cartesian3[] {
+export function toCartesian3Array(
+  points: GeographicPoint[],
+): Cesium.Cartesian3[] {
   return points.map((point) =>
     Cesium.Cartesian3.fromDegrees(
       point.longitude,
@@ -106,13 +112,15 @@ export function toCartesian3ArrayFromWorldBuffer(
 ): Cesium.Cartesian3[] {
   const worldCoordinates = points.worldCoordinates;
   if (!worldCoordinates) {
-    throw new Error('Prepared point data is missing world coordinates');
+    throw new Error("Prepared point data is missing world coordinates");
   }
-  if (points.worldCoordinateSystem !== 'wgs84-ecef-meters') {
-    throw new Error('Prepared world coordinates must use wgs84-ecef-meters');
+  if (points.worldCoordinateSystem !== "wgs84-ecef-meters") {
+    throw new Error("Prepared world coordinates must use wgs84-ecef-meters");
   }
   if (worldCoordinates.length !== points.pointCount * 3) {
-    throw new Error('Prepared world coordinates must contain three values per point');
+    throw new Error(
+      "Prepared world coordinates must contain three values per point",
+    );
   }
 
   const positions: Cesium.Cartesian3[] = [];
@@ -122,7 +130,7 @@ export function toCartesian3ArrayFromWorldBuffer(
     const y = worldCoordinates[offset + 1];
     const z = worldCoordinates[offset + 2];
     if (![x, y, z].every(Number.isFinite)) {
-      throw new Error('Prepared world coordinates must be finite');
+      throw new Error("Prepared world coordinates must be finite");
     }
     positions.push(new Cesium.Cartesian3(x, y, z));
   }
@@ -154,11 +162,16 @@ export function renderCopcPoints(
   const collection = new Cesium.PointPrimitiveCollection();
   try {
     primitiveCollection.add(collection);
-    options.onPerformance?.('pointCollectionCreation', performanceNow() - collectionStartedAt);
+    options.onPerformance?.(
+      "pointCollectionCreation",
+      performanceNow() - collectionStartedAt,
+    );
     const positionsStartedAt = performanceNow();
     const positions = toCartesian3ArrayFromBuffer(points);
     options.onPerformance?.(
-      points.worldCoordinates === undefined ? 'geographicToCartesian' : 'worldToCartesian',
+      points.worldCoordinates === undefined
+        ? "geographicToCartesian"
+        : "worldToCartesian",
       performanceNow() - positionsStartedAt,
     );
     const styleOptions: CopcPointStyleOptions = resolveCopcPointStyleOptions(
@@ -171,13 +184,18 @@ export function renderCopcPoints(
     );
 
     const styleStartedAt = performanceNow();
-    const colors = positions.map((_, index) => getPointColor(
-      points.coordinates[index * 3 + 2],
-      styleOptions,
-      points.attributes,
-      index,
-    ));
-    options.onPerformance?.('pointStylePreparation', performanceNow() - styleStartedAt);
+    const colors = positions.map((_, index) =>
+      getPointColor(
+        points.coordinates[index * 3 + 2],
+        styleOptions,
+        points.attributes,
+        index,
+      ),
+    );
+    options.onPerformance?.(
+      "pointStylePreparation",
+      performanceNow() - styleStartedAt,
+    );
     const addStartedAt = performanceNow();
     for (let index = 0; index < positions.length; index += 1) {
       collection.add({
@@ -188,7 +206,7 @@ export function renderCopcPoints(
         show: options.pointFilter?.(index) ?? true,
       });
     }
-    options.onPerformance?.('pointAdd', performanceNow() - addStartedAt);
+    options.onPerformance?.("pointAdd", performanceNow() - addStartedAt);
 
     return collection;
   } catch (error: unknown) {

@@ -20,8 +20,5 @@
       "@frillab/copc-adapter/three": ["../../packages/three.ts"]
     }
   },
-  "include": [
-    "src",
-    "../../packages/core/types/**/*.d.ts"
-  ]
+  "include": ["src", "../../packages/core/types/**/*.d.ts"]
 }

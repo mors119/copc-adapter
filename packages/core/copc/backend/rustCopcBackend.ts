@@ -1,43 +1,41 @@
-import { CopcBackendError } from '../errors';
-import { RustCopcParseError, RustCopcReader } from '../rustCopcReader';
-import { CopcWasmError } from '../../wasm/copcWasm';
-import { HttpRangeByteSource } from '../range/httpRangeSource';
+import { CopcBackendError } from "../errors";
+import { RustCopcParseError, RustCopcReader } from "../rustCopcReader";
+import { CopcWasmError } from "../../wasm/copcWasm";
+import { HttpRangeByteSource } from "../range/httpRangeSource";
 import {
   ProjectOwnedByteSource,
   RangeRequestDiagnosticsRecorder,
-} from '../range/requestDiagnostics';
-import {
-  RangeSourceError,
-  type RandomAccessByteSource,
-} from '../range/types';
+} from "../range/requestDiagnostics";
+import { RangeSourceError, type RandomAccessByteSource } from "../range/types";
 import type {
   CopcHierarchyNode,
   CopcPointBuffer,
   CopcPointView,
   PreparedPointData,
-} from '../types/copc';
+} from "../types/copc";
 import type {
   CopcPointComponent,
   CopcPointField,
   CopcPointFieldSelection,
-} from '../points/fieldSelection';
+} from "../points/fieldSelection";
 import type {
   CopcBackend,
   CopcBackendOpenOptions,
   CopcPointLoadOptions,
   CopcSource,
   CopcWorkerDiagnostics,
-} from './types';
-import type { CopcPerformanceObserver } from '../performance';
-import { RustCopcWorkerError } from '../rustCopcDecodeWorkerPool';
-import { BlobByteSource } from '../range/blobByteSource';
-import { getCopcSourceIdentity, isBlobSource } from '../getter/createCopcGetter';
-import type { CopcInputSource } from '../range/types';
+} from "./types";
+import type { CopcPerformanceObserver } from "../performance";
+import { RustCopcWorkerError } from "../rustCopcDecodeWorkerPool";
+import { BlobByteSource } from "../range/blobByteSource";
+import {
+  getCopcSourceIdentity,
+  isBlobSource,
+} from "../getter/createCopcGetter";
+import type { CopcInputSource } from "../range/types";
 
 /** Factory for a random-access source, including host-owned file bridges. */
-export type RustByteSourceFactory = (
-  source: string,
-) => RandomAccessByteSource;
+export type RustByteSourceFactory = (source: string) => RandomAccessByteSource;
 
 /** Configuration for the Rust/WASM COPC backend. */
 export type RustCopcBackendOptions = {
@@ -47,19 +45,21 @@ export type RustCopcBackendOptions = {
 
 function fieldAvailable(
   buffer: CopcPointBuffer,
-  field: 'intensity' | 'classification' | 'rgb',
+  field: "intensity" | "classification" | "rgb",
 ): boolean {
-  if (field === 'intensity') {
+  if (field === "intensity") {
     return buffer.attributes?.intensity !== undefined;
   }
 
-  if (field === 'classification') {
+  if (field === "classification") {
     return buffer.attributes?.classification !== undefined;
   }
 
-  return buffer.attributes?.red !== undefined
-    && buffer.attributes.green !== undefined
-    && buffer.attributes.blue !== undefined;
+  return (
+    buffer.attributes?.red !== undefined &&
+    buffer.attributes.green !== undefined &&
+    buffer.attributes.blue !== undefined
+  );
 }
 
 function unavailable(component: string): never {
@@ -71,10 +71,10 @@ function toCopcPointView(
   requestedFields: CopcPointFieldSelection,
 ): CopcPointView {
   const availableFields = new Set<CopcPointField>();
-  if (requestedFields.has('position')) {
-    availableFields.add('position');
+  if (requestedFields.has("position")) {
+    availableFields.add("position");
   }
-  for (const field of ['intensity', 'classification', 'rgb'] as const) {
+  for (const field of ["intensity", "classification", "rgb"] as const) {
     if (requestedFields.has(field) && fieldAvailable(buffer, field)) {
       availableFields.add(field);
     }
@@ -84,24 +84,28 @@ function toCopcPointView(
     x: (index) => buffer.coordinates[index * 3],
     y: (index) => buffer.coordinates[index * 3 + 1],
     z: (index) => buffer.coordinates[index * 3 + 2],
-    intensity: (index) => buffer.attributes?.intensity?.[index] ?? unavailable('intensity'),
-    classification: (index) => buffer.attributes?.classification?.[index] ?? unavailable('classification'),
-    red: (index) => buffer.attributes?.red?.[index] ?? unavailable('red'),
-    green: (index) => buffer.attributes?.green?.[index] ?? unavailable('green'),
-    blue: (index) => buffer.attributes?.blue?.[index] ?? unavailable('blue'),
+    intensity: (index) =>
+      buffer.attributes?.intensity?.[index] ?? unavailable("intensity"),
+    classification: (index) =>
+      buffer.attributes?.classification?.[index] ??
+      unavailable("classification"),
+    red: (index) => buffer.attributes?.red?.[index] ?? unavailable("red"),
+    green: (index) => buffer.attributes?.green?.[index] ?? unavailable("green"),
+    blue: (index) => buffer.attributes?.blue?.[index] ?? unavailable("blue"),
   };
 
   return {
     pointCount: buffer.pointCount,
     availableFields,
     getter(component: CopcPointComponent): (index: number) => number {
-      const field: CopcPointField = component === 'x' || component === 'y' || component === 'z'
-        ? 'position'
-        : component === 'intensity'
-          ? 'intensity'
-          : component === 'classification'
-            ? 'classification'
-            : 'rgb';
+      const field: CopcPointField =
+        component === "x" || component === "y" || component === "z"
+          ? "position"
+          : component === "intensity"
+            ? "intensity"
+            : component === "classification"
+              ? "classification"
+              : "rgb";
 
       if (!availableFields.has(field)) {
         throw new Error(`COPC point component is unavailable: ${component}`);
@@ -114,40 +118,43 @@ function toCopcPointView(
 
 function rustErrorCategory(
   error: RustCopcParseError,
-  operation: 'open' | 'hierarchy' | 'point',
+  operation: "open" | "hierarchy" | "point",
 ): {
-  stage: 'metadata' | 'hierarchy' | 'decode';
-  code: 'header-parse' | 'hierarchy' | 'laz-decode' | 'unsupported' | 'unknown';
+  stage: "metadata" | "hierarchy" | "decode";
+  code: "header-parse" | "hierarchy" | "laz-decode" | "unsupported" | "unknown";
 } {
-  if (error.code === 'unsupported-point-format' || error.code === 'unsupported-value') {
+  if (
+    error.code === "unsupported-point-format" ||
+    error.code === "unsupported-value"
+  ) {
     return {
-      stage: operation === 'point' ? 'decode' : 'metadata',
-      code: 'unsupported',
+      stage: operation === "point" ? "decode" : "metadata",
+      code: "unsupported",
     };
   }
 
-  if (operation === 'point' && error.code === 'invalid-value') {
-    return { stage: 'decode', code: 'unsupported' };
+  if (operation === "point" && error.code === "invalid-value") {
+    return { stage: "decode", code: "unsupported" };
   }
 
-  if (operation === 'point') {
+  if (operation === "point") {
     return {
-      stage: 'decode',
-      code: 'laz-decode',
+      stage: "decode",
+      code: "laz-decode",
     };
   }
 
-  if (operation === 'hierarchy') {
-    return { stage: 'hierarchy', code: 'hierarchy' };
+  if (operation === "hierarchy") {
+    return { stage: "hierarchy", code: "hierarchy" };
   }
 
-  return { stage: 'metadata', code: 'header-parse' };
+  return { stage: "metadata", code: "header-parse" };
 }
 
 function mapRustError(
   source: string,
   error: unknown,
-  operation: 'open' | 'hierarchy' | 'point',
+  operation: "open" | "hierarchy" | "point",
   nodeKey?: string,
 ): CopcBackendError {
   if (error instanceof CopcBackendError) {
@@ -155,25 +162,33 @@ function mapRustError(
   }
 
   if (error instanceof RangeSourceError) {
-    const pointChunk = operation === 'point';
+    const pointChunk = operation === "point";
     return new CopcBackendError(
       source,
-      pointChunk ? 'point-data' : operation === 'hierarchy' ? 'hierarchy' : 'source',
-      pointChunk ? 'point-chunk' : operation === 'hierarchy' ? 'hierarchy' : 'source-range',
+      pointChunk
+        ? "point-data"
+        : operation === "hierarchy"
+          ? "hierarchy"
+          : "source",
+      pointChunk
+        ? "point-chunk"
+        : operation === "hierarchy"
+          ? "hierarchy"
+          : "source-range",
       error.message,
       { cause: error, nodeKey },
     );
   }
 
   if (error instanceof CopcWasmError) {
-    return new CopcBackendError(source, 'wasm', 'wasm', error.message, {
+    return new CopcBackendError(source, "wasm", "wasm", error.message, {
       cause: error,
       nodeKey,
     });
   }
 
   if (error instanceof RustCopcWorkerError) {
-    return new CopcBackendError(source, 'decode', 'worker', error.message, {
+    return new CopcBackendError(source, "decode", "worker", error.message, {
       cause: error,
       nodeKey: error.nodeKey ?? nodeKey,
     });
@@ -181,16 +196,26 @@ function mapRustError(
 
   if (error instanceof RustCopcParseError) {
     const category = rustErrorCategory(error, operation);
-    return new CopcBackendError(source, category.stage, category.code, error.message, {
-      cause: error,
-      nodeKey,
-    });
+    return new CopcBackendError(
+      source,
+      category.stage,
+      category.code,
+      error.message,
+      {
+        cause: error,
+        nodeKey,
+      },
+    );
   }
 
   return new CopcBackendError(
     source,
-    operation === 'point' ? 'decode' : operation === 'hierarchy' ? 'hierarchy' : 'source',
-    operation === 'point' ? 'wasm' : 'unknown',
+    operation === "point"
+      ? "decode"
+      : operation === "hierarchy"
+        ? "hierarchy"
+        : "source",
+    operation === "point" ? "wasm" : "unknown",
     error instanceof Error ? error.message : String(error),
     { cause: error, nodeKey },
   );
@@ -201,39 +226,36 @@ class RustCopcSource implements CopcSource {
   readonly preparedHeightOffsetMeters: number;
   private readonly reader: RustCopcReader;
 
-  constructor(
-    source: string,
-    reader: RustCopcReader,
-  ) {
+  constructor(source: string, reader: RustCopcReader) {
     this.source = source;
     this.reader = reader;
     this.preparedHeightOffsetMeters = reader.heightOffsetMeters;
   }
 
-  getMetadata(): ReturnType<CopcSource['getMetadata']> {
+  getMetadata(): ReturnType<CopcSource["getMetadata"]> {
     try {
       return this.reader.getMetadata();
     } catch (error: unknown) {
-      throw mapRustError(this.source, error, 'open');
+      throw mapRustError(this.source, error, "open");
     }
   }
 
-  getRootHierarchyPage(): ReturnType<CopcSource['getRootHierarchyPage']> {
+  getRootHierarchyPage(): ReturnType<CopcSource["getRootHierarchyPage"]> {
     try {
       return this.reader.getRootHierarchyPage();
     } catch (error: unknown) {
-      throw mapRustError(this.source, error, 'open');
+      throw mapRustError(this.source, error, "open");
     }
   }
 
   async loadHierarchyPage(
-    page: Parameters<CopcSource['loadHierarchyPage']>[0],
-    options?: Parameters<CopcSource['loadHierarchyPage']>[1],
-  ): ReturnType<CopcSource['loadHierarchyPage']> {
+    page: Parameters<CopcSource["loadHierarchyPage"]>[0],
+    options?: Parameters<CopcSource["loadHierarchyPage"]>[1],
+  ): ReturnType<CopcSource["loadHierarchyPage"]> {
     try {
       return await this.reader.loadHierarchyPage(page, options);
     } catch (error: unknown) {
-      throw mapRustError(this.source, error, 'hierarchy');
+      throw mapRustError(this.source, error, "hierarchy");
     }
   }
 
@@ -245,7 +267,7 @@ class RustCopcSource implements CopcSource {
     try {
       return await this.reader.loadPointDataBuffer(node, fields, options);
     } catch (error: unknown) {
-      throw mapRustError(this.source, error, 'point', node.key);
+      throw mapRustError(this.source, error, "point", node.key);
     }
   }
 
@@ -257,7 +279,7 @@ class RustCopcSource implements CopcSource {
     try {
       return await this.reader.loadPreparedPointData(node, fields, options);
     } catch (error: unknown) {
-      throw mapRustError(this.source, error, 'point', node.key);
+      throw mapRustError(this.source, error, "point", node.key);
     }
   }
 
@@ -266,7 +288,10 @@ class RustCopcSource implements CopcSource {
     fields: CopcPointFieldSelection,
     options: CopcPointLoadOptions = {},
   ): Promise<CopcPointView> {
-    return toCopcPointView(await this.loadPointDataBuffer(node, fields, options), fields);
+    return toCopcPointView(
+      await this.loadPointDataBuffer(node, fields, options),
+      fields,
+    );
   }
 
   setPerformanceObserver(observer: CopcPerformanceObserver | undefined): void {
@@ -304,12 +329,12 @@ export class RustCopcBackend implements CopcBackend {
       const identity = getCopcSourceIdentity(source);
       byteSource = this.createByteSource
         ? this.createByteSource(identity)
-        : typeof source === 'string'
+        : typeof source === "string"
           ? new HttpRangeByteSource(source, {
-            rangeValidation: options.rangeValidation,
-            maxRangeBytes: options.maxRangeBytes,
-            maxConcurrentRangeRequests: options.maxConcurrentRangeRequests,
-          })
+              rangeValidation: options.rangeValidation,
+              maxRangeBytes: options.maxRangeBytes,
+              maxConcurrentRangeRequests: options.maxConcurrentRangeRequests,
+            })
           : isBlobSource(source)
             ? new BlobByteSource(source, identity, {
                 maxRangeBytes: options.maxRangeBytes,
@@ -317,21 +342,25 @@ export class RustCopcBackend implements CopcBackend {
               })
             : source;
     } catch (error: unknown) {
-      throw mapRustError(getCopcSourceIdentity(source), error, 'open');
+      throw mapRustError(getCopcSourceIdentity(source), error, "open");
     }
 
     try {
       const ownedByteSource = new ProjectOwnedByteSource(
         byteSource,
         options.signal,
-        options.rangeRequestDiagnostics ?? new RangeRequestDiagnosticsRecorder(),
+        options.rangeRequestDiagnostics ??
+          new RangeRequestDiagnosticsRecorder(),
       );
-      return new RustCopcSource(getCopcSourceIdentity(source), await RustCopcReader.open(ownedByteSource, {
-        maxRangeBytes: options.maxRangeBytes,
-        heightOffsetMeters: options.heightOffsetMeters,
-      }));
+      return new RustCopcSource(
+        getCopcSourceIdentity(source),
+        await RustCopcReader.open(ownedByteSource, {
+          maxRangeBytes: options.maxRangeBytes,
+          heightOffsetMeters: options.heightOffsetMeters,
+        }),
+      );
     } catch (error: unknown) {
-      throw mapRustError(getCopcSourceIdentity(source), error, 'open');
+      throw mapRustError(getCopcSourceIdentity(source), error, "open");
     }
   }
 }

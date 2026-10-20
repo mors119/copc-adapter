@@ -6,7 +6,7 @@ import {
   resolveMaxConcurrentRangeRequests,
   resolveMaxRangeBytes,
   validateByteRange,
-} from './types';
+} from "./types";
 
 /** Resource limits applied to Blob/File range reads. */
 export type BlobByteSourceOptions = {
@@ -36,16 +36,29 @@ export class BlobByteSource implements RandomAccessByteSource {
   private readonly pendingReads: PendingBlobRead[] = [];
   private activeReads = 0;
 
-  constructor(blob: Blob, identity?: string, options: BlobByteSourceOptions = {}) {
-    if (!blob || typeof blob.slice !== 'function'
-      || !Number.isSafeInteger(blob.size) || blob.size < 0) {
-      throw new TypeError('BlobByteSource requires a valid Blob or File');
+  constructor(
+    blob: Blob,
+    identity?: string,
+    options: BlobByteSourceOptions = {},
+  ) {
+    if (
+      !blob ||
+      typeof blob.slice !== "function" ||
+      !Number.isSafeInteger(blob.size) ||
+      blob.size < 0
+    ) {
+      throw new TypeError("BlobByteSource requires a valid Blob or File");
     }
-    this.source = identity ?? (typeof File !== 'undefined' && blob instanceof File && blob.name
-      ? `file://${encodeURIComponent(blob.name)}`
-      : 'blob://local-copc');
+    this.source =
+      identity ??
+      (typeof File !== "undefined" && blob instanceof File && blob.name
+        ? `file://${encodeURIComponent(blob.name)}`
+        : "blob://local-copc");
     this.blob = blob;
-    this.maxRangeBytes = resolveMaxRangeBytes(this.source, options.maxRangeBytes);
+    this.maxRangeBytes = resolveMaxRangeBytes(
+      this.source,
+      options.maxRangeBytes,
+    );
     this.maxConcurrentRangeRequests = resolveMaxConcurrentRangeRequests(
       this.source,
       options.maxConcurrentRangeRequests,
@@ -56,7 +69,11 @@ export class BlobByteSource implements RandomAccessByteSource {
     return this.blob.size;
   }
 
-  async readRange(offset: number, length: number, options: RangeReadOptions = {}): Promise<Uint8Array> {
+  async readRange(
+    offset: number,
+    length: number,
+    options: RangeReadOptions = {},
+  ): Promise<Uint8Array> {
     this.validateRange(offset, length);
     if (options.signal?.aborted) {
       return Promise.reject(this.abortedError(offset, length));
@@ -81,42 +98,58 @@ export class BlobByteSource implements RandomAccessByteSource {
           reject(this.abortedError(offset, length));
           this.drainPendingReads();
         };
-        signal.addEventListener('abort', pending.abortListener, { once: true });
+        signal.addEventListener("abort", pending.abortListener, { once: true });
       }
       this.pendingReads.push(pending);
       this.drainPendingReads();
     });
   }
 
-  async readRanges(ranges: readonly ByteRange[], options: RangeReadOptions = {}): Promise<Uint8Array[]> {
+  async readRanges(
+    ranges: readonly ByteRange[],
+    options: RangeReadOptions = {},
+  ): Promise<Uint8Array[]> {
     // Validate the entire batch before queueing any work so an invalid member
     // cannot cause avoidable reads to start.
     for (const { offset, length } of ranges) this.validateRange(offset, length);
     if (ranges.length > 0 && options.signal?.aborted) {
       throw this.abortedError(ranges[0]?.offset ?? 0, ranges[0]?.length ?? 0);
     }
-    return Promise.all(ranges.map(({ offset, length }) => this.readRange(offset, length, options)));
+    return Promise.all(
+      ranges.map(({ offset, length }) =>
+        this.readRange(offset, length, options),
+      ),
+    );
   }
 
   private validateRange(offset: number, length: number): void {
     validateByteRange(this.source, offset, length);
     if (length > this.maxRangeBytes) {
       throw new RangeSourceError(
-        'range-too-large',
+        "range-too-large",
         `Requested range length ${length} exceeds the ${this.maxRangeBytes}-byte Blob read limit`,
         { source: this.source, offset, length },
       );
     }
     const end = offset + length;
     if (end > this.blob.size) {
-      throw new RangeSourceError('out-of-bounds', `Requested bytes=${offset}-${end - 1} exceed source size ${this.blob.size}`, {
-        source: this.source, offset, length,
-      });
+      throw new RangeSourceError(
+        "out-of-bounds",
+        `Requested bytes=${offset}-${end - 1} exceed source size ${this.blob.size}`,
+        {
+          source: this.source,
+          offset,
+          length,
+        },
+      );
     }
   }
 
   private drainPendingReads(): void {
-    while (this.activeReads < this.maxConcurrentRangeRequests && this.pendingReads.length > 0) {
+    while (
+      this.activeReads < this.maxConcurrentRangeRequests &&
+      this.pendingReads.length > 0
+    ) {
       const pending = this.pendingReads.shift();
       if (!pending || pending.settled) continue;
       if (pending.options.signal?.aborted) {
@@ -137,18 +170,21 @@ export class BlobByteSource implements RandomAccessByteSource {
 
   private async performRead(pending: PendingBlobRead): Promise<void> {
     try {
-      const bytes = await this.blob.slice(
-        pending.offset,
-        pending.offset + pending.length,
-      ).arrayBuffer();
+      const bytes = await this.blob
+        .slice(pending.offset, pending.offset + pending.length)
+        .arrayBuffer();
       if (pending.options.signal?.aborted) {
         throw this.abortedError(pending.offset, pending.length);
       }
       if (bytes.byteLength !== pending.length) {
         throw new RangeSourceError(
-          'source-size-changed',
+          "source-size-changed",
           `Blob range returned ${bytes.byteLength} bytes; expected ${pending.length}`,
-          { source: this.source, offset: pending.offset, length: pending.length },
+          {
+            source: this.source,
+            offset: pending.offset,
+            length: pending.length,
+          },
         );
       }
       pending.settled = true;
@@ -160,8 +196,10 @@ export class BlobByteSource implements RandomAccessByteSource {
   }
 
   private abortedError(offset: number, length: number): RangeSourceError {
-    return new RangeSourceError('aborted', 'Blob range read was aborted', {
-      source: this.source, offset, length,
+    return new RangeSourceError("aborted", "Blob range read was aborted", {
+      source: this.source,
+      offset,
+      length,
     });
   }
 
@@ -173,7 +211,7 @@ export class BlobByteSource implements RandomAccessByteSource {
 
   private removeAbortListener(pending: PendingBlobRead): void {
     if (!pending.abortListener) return;
-    pending.options.signal?.removeEventListener('abort', pending.abortListener);
+    pending.options.signal?.removeEventListener("abort", pending.abortListener);
     pending.abortListener = undefined;
   }
 }

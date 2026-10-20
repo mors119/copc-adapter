@@ -1,13 +1,13 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
+import test from "node:test";
+import assert from "node:assert/strict";
 
-import { buildCopcDebugPanelView } from '../src/debug/CopcDebugPanel.ts';
+import { buildCopcDebugPanelView } from "../src/debug/CopcDebugPanel.ts";
 
 function createSnapshot(overrides = {}) {
   return {
-    lifecycle: 'ready',
-    renderedNodeKeys: ['1-0-0-0', '1-1-0-0'],
-    selectedNodeKeys: ['1-0-0-0', '1-1-0-0', '1-0-1-0'],
+    lifecycle: "ready",
+    renderedNodeKeys: ["1-0-0-0", "1-1-0-0"],
+    selectedNodeKeys: ["1-0-0-0", "1-1-0-0", "1-0-1-0"],
     renderedPointCount: 2345,
     streamingUpdateCount: 7,
     transition: {
@@ -72,7 +72,7 @@ function createSnapshot(overrides = {}) {
         predictedHorizontalDisplacementDegrees: 2.4,
         predictedVerticalDisplacementDegrees: -1.2,
         activity: 0.4,
-        state: 'decaying',
+        state: "decaying",
         millisecondsSinceLastAcceptedMovement: 220,
       },
     },
@@ -105,13 +105,13 @@ function createSnapshot(overrides = {}) {
       cancelledCount: 4,
       failedCount: 0,
     },
-    datasetUrl: '/samples/autzen.copc.laz?cache=1',
+    datasetUrl: "/samples/autzen.copc.laz?cache=1",
     attached: true,
     ...overrides,
   };
 }
 
-test('maps layer diagnostics and metadata into browser-visible values', () => {
+test("maps layer diagnostics and metadata into browser-visible values", () => {
   const view = buildCopcDebugPanelView({
     snapshot: createSnapshot(),
     metadata: {
@@ -136,16 +136,16 @@ test('maps layer diagnostics and metadata into browser-visible values', () => {
       },
     },
     sourceProbe: {
-      source: '/samples/autzen.copc.laz',
+      source: "/samples/autzen.copc.laz",
       reachable: true,
       rangeSupported: true,
-      validationLevel: 'strict',
+      validationLevel: "strict",
       status: 206,
       partialStatus: 206,
       requestedRange: { offset: 0, length: 1024 },
       returnedRange: { offset: 0, length: 1024 },
       contentLength: 1024,
-      contentRange: 'bytes 0-1023/1000000',
+      contentRange: "bytes 0-1023/1000000",
       corsReadable: true,
       copcDetected: true,
       pointFormat: 7,
@@ -166,103 +166,106 @@ test('maps layer diagnostics and metadata into browser-visible values', () => {
       lastQueryDurationMs: 275,
       loadedEntryCount: 28,
     },
-    activeColorMode: 'classification',
-    configuredRangeValidation: 'head-fallback',
-    sourceProbePolicy: 'head-fallback',
+    activeColorMode: "classification",
+    configuredRangeValidation: "head-fallback",
+    sourceProbePolicy: "head-fallback",
     rangeValidationApplicable: true,
   });
 
-  assert.equal(view.datasetName, 'autzen.copc.laz');
-  assert.equal(view.workerConcurrency, '2 / 4 active');
-  assert.equal(view.workerQueue, '3 queued (peak 5)');
-  assert.equal(view.rangeRequestsRequested, '12');
-  assert.equal(view.rangeRequestsActive, '0');
-  assert.equal(view.rangeRequestsCompleted, '8');
-  assert.equal(view.rangeRequestsFailed, '1');
-  assert.equal(view.rangeRequestsAbortedSuperseded, '2');
-  assert.equal(view.rangeRequestsAbortedLifecycle, '1');
-  assert.equal(view.status, 'Ready');
-  assert.equal(view.statusTone, 'ready');
-  assert.equal(view.pointCount, '10,653,336');
-  assert.equal(view.bounds, '1, 2, 3, 4, 5, 6');
-  assert.equal(view.scale, '0.010000000, 0.010000000, 0.0010000000');
-  assert.equal(view.offset, '100, 200, 300');
-  assert.equal(view.selectedNodeCount, '3');
-  assert.equal(view.motionLiveState, 'decaying');
-  assert.equal(view.motionLiveMovementSamples, '4');
+  assert.equal(view.datasetName, "autzen.copc.laz");
+  assert.equal(view.workerConcurrency, "2 / 4 active");
+  assert.equal(view.workerQueue, "3 queued (peak 5)");
+  assert.equal(view.rangeRequestsRequested, "12");
+  assert.equal(view.rangeRequestsActive, "0");
+  assert.equal(view.rangeRequestsCompleted, "8");
+  assert.equal(view.rangeRequestsFailed, "1");
+  assert.equal(view.rangeRequestsAbortedSuperseded, "2");
+  assert.equal(view.rangeRequestsAbortedLifecycle, "1");
+  assert.equal(view.status, "Ready");
+  assert.equal(view.statusTone, "ready");
+  assert.equal(view.pointCount, "10,653,336");
+  assert.equal(view.bounds, "1, 2, 3, 4, 5, 6");
+  assert.equal(view.scale, "0.010000000, 0.010000000, 0.0010000000");
+  assert.equal(view.offset, "100, 200, 300");
+  assert.equal(view.selectedNodeCount, "3");
+  assert.equal(view.motionLiveState, "decaying");
+  assert.equal(view.motionLiveMovementSamples, "4");
   assert.match(view.motionLivePrediction, /2\.4000000° horizontal/);
-  assert.equal(view.motionSelectionGeneration, '7');
-  assert.equal(view.motionSelectionNodes, '3 selected · 2 rendered');
-  assert.equal(view.motionSelectionCandidates, '4');
-  assert.equal(view.motionSelectionWeights, '0.10000000–0.80000000');
-  assert.match(view.motionSelectionInfluence, /1 accepted refinement influenced/);
-  assert.equal(view.selectedNodeKeys, '1-0-0-0, 1-1-0-0, 1-0-1-0');
-  assert.equal(view.renderedNodeCount, '2');
-  assert.equal(view.renderedNodeKeys, '1-0-0-0, 1-1-0-0');
-  assert.equal(view.renderedPointCount, '2,345');
-  assert.equal(view.activeColorMode, 'classification');
-  assert.equal(view.hierarchyRequests, '9');
-  assert.equal(view.hierarchyCacheHits, '4');
-  assert.equal(view.hierarchyLoadedPages, '3');
-  assert.equal(view.hierarchyLoadedEntries, '28');
-  assert.equal(view.hierarchyPageConcurrency, '0 active / 3 peak');
-  assert.equal(view.hierarchySourceDuration, '11 ms');
-  assert.equal(view.hierarchyMetadataDuration, '12 ms');
-  assert.equal(view.hierarchyRootDuration, '15 ms');
-  assert.equal(view.hierarchyQueryDuration, '275 ms');
-  assert.equal(view.activeReplacementGroups, '1');
-  assert.equal(view.coarseNodesRetained, '3');
-  assert.equal(view.refinementReplacementCommits, '5');
-  assert.equal(view.configuredPointBudget, '250,000');
-  assert.equal(view.candidateSelectedPointCount, '3,456');
-  assert.equal(view.activeRenderedPointCount, '2,345');
-  assert.equal(view.deferredNodeCount, '2');
-  assert.equal(view.deferredPointCount, '1,111');
-  assert.equal(view.budgetUtilization, '0.93800000%');
-  assert.equal(view.budgetDeferDropCount, '2');
-  assert.equal(view.streamingUpdateCount, '7');
-  assert.equal(view.candidatesBeforeCulling, '12');
-  assert.equal(view.frustumCulledCount, '5');
-  assert.equal(view.maxScreenSpaceError, '8 px');
-  assert.equal(view.representativeScreenSpaceError, '2.5000000–18.750000 px');
-  assert.equal(view.effectiveScreenSpaceError, '3–22.500000 px');
-  assert.equal(view.refinementCenterWeight, '0.20000000–1');
-  assert.equal(view.schedulingCenterWeight, '0.10000000–1');
-  assert.equal(view.refinementPriority, '3–22.500000');
-  assert.equal(view.schedulingPriority, '3.2000000–28');
-  assert.equal(view.highPriorityQueuedActive, '2 / 1');
-  assert.equal(view.firstHighPriorityNodeStartLatency, '4.5000000 ms');
-  assert.equal(view.firstHighPriorityNodeReadyLatency, '12.250000 ms');
-  assert.equal(view.completedPendingSchedulingPriority, '3.2000000–28 / 5–15');
-  assert.equal(view.detailBias, '1–1.2500000×');
-  assert.equal(view.influenceCandidates, '2');
-  assert.equal(view.gazeInfluencedRefinements, '1');
-  assert.equal(view.refinementRejectedByNodeBudget, '3');
-  assert.equal(view.refinementRejectedByPointBudget, '4');
-  assert.equal(view.refinedNodeCount, '4');
-  assert.equal(view.keptNodeCount, '3');
-  assert.equal(view.visibleLevelRange, '2–5');
-  assert.equal(view.cameraDirection, '0, 0.50000000, -0.86602540');
-  assert.equal(view.pointCacheBudget, '1,024 B');
-  assert.equal(view.pointCacheBytes, '768 B');
-  assert.equal(view.cachedNodeCount, '2');
-  assert.equal(view.cacheHits, '4');
-  assert.equal(view.cacheMisses, '3');
-  assert.equal(view.cacheEvictionCount, '1');
-  assert.equal(view.cacheBytesEvicted, '512 B');
-  assert.equal(view.largestCachedEntryBytes, '640 B');
-  assert.equal(view.sourceReachable, '✓ Reachable');
-  assert.equal(view.configuredRangeValidation, 'head-fallback');
-  assert.equal(view.sourceProbePolicy, 'head-fallback');
-  assert.equal(view.sourceProbeValidationLevel, 'strict');
-  assert.equal(view.sourceRange, '✓ HTTP Range / 206');
-  assert.equal(view.sourceCopc, '✓ COPC detected');
-  assert.equal(view.sourcePointFormat, 'PDRF 7');
-  assert.equal(view.sourceCors, '✓ Browser response readable');
-  assert.equal(view.sourceWarnings, '—');
+  assert.equal(view.motionSelectionGeneration, "7");
+  assert.equal(view.motionSelectionNodes, "3 selected · 2 rendered");
+  assert.equal(view.motionSelectionCandidates, "4");
+  assert.equal(view.motionSelectionWeights, "0.10000000–0.80000000");
+  assert.match(
+    view.motionSelectionInfluence,
+    /1 accepted refinement influenced/,
+  );
+  assert.equal(view.selectedNodeKeys, "1-0-0-0, 1-1-0-0, 1-0-1-0");
+  assert.equal(view.renderedNodeCount, "2");
+  assert.equal(view.renderedNodeKeys, "1-0-0-0, 1-1-0-0");
+  assert.equal(view.renderedPointCount, "2,345");
+  assert.equal(view.activeColorMode, "classification");
+  assert.equal(view.hierarchyRequests, "9");
+  assert.equal(view.hierarchyCacheHits, "4");
+  assert.equal(view.hierarchyLoadedPages, "3");
+  assert.equal(view.hierarchyLoadedEntries, "28");
+  assert.equal(view.hierarchyPageConcurrency, "0 active / 3 peak");
+  assert.equal(view.hierarchySourceDuration, "11 ms");
+  assert.equal(view.hierarchyMetadataDuration, "12 ms");
+  assert.equal(view.hierarchyRootDuration, "15 ms");
+  assert.equal(view.hierarchyQueryDuration, "275 ms");
+  assert.equal(view.activeReplacementGroups, "1");
+  assert.equal(view.coarseNodesRetained, "3");
+  assert.equal(view.refinementReplacementCommits, "5");
+  assert.equal(view.configuredPointBudget, "250,000");
+  assert.equal(view.candidateSelectedPointCount, "3,456");
+  assert.equal(view.activeRenderedPointCount, "2,345");
+  assert.equal(view.deferredNodeCount, "2");
+  assert.equal(view.deferredPointCount, "1,111");
+  assert.equal(view.budgetUtilization, "0.93800000%");
+  assert.equal(view.budgetDeferDropCount, "2");
+  assert.equal(view.streamingUpdateCount, "7");
+  assert.equal(view.candidatesBeforeCulling, "12");
+  assert.equal(view.frustumCulledCount, "5");
+  assert.equal(view.maxScreenSpaceError, "8 px");
+  assert.equal(view.representativeScreenSpaceError, "2.5000000–18.750000 px");
+  assert.equal(view.effectiveScreenSpaceError, "3–22.500000 px");
+  assert.equal(view.refinementCenterWeight, "0.20000000–1");
+  assert.equal(view.schedulingCenterWeight, "0.10000000–1");
+  assert.equal(view.refinementPriority, "3–22.500000");
+  assert.equal(view.schedulingPriority, "3.2000000–28");
+  assert.equal(view.highPriorityQueuedActive, "2 / 1");
+  assert.equal(view.firstHighPriorityNodeStartLatency, "4.5000000 ms");
+  assert.equal(view.firstHighPriorityNodeReadyLatency, "12.250000 ms");
+  assert.equal(view.completedPendingSchedulingPriority, "3.2000000–28 / 5–15");
+  assert.equal(view.detailBias, "1–1.2500000×");
+  assert.equal(view.influenceCandidates, "2");
+  assert.equal(view.gazeInfluencedRefinements, "1");
+  assert.equal(view.refinementRejectedByNodeBudget, "3");
+  assert.equal(view.refinementRejectedByPointBudget, "4");
+  assert.equal(view.refinedNodeCount, "4");
+  assert.equal(view.keptNodeCount, "3");
+  assert.equal(view.visibleLevelRange, "2–5");
+  assert.equal(view.cameraDirection, "0, 0.50000000, -0.86602540");
+  assert.equal(view.pointCacheBudget, "1,024 B");
+  assert.equal(view.pointCacheBytes, "768 B");
+  assert.equal(view.cachedNodeCount, "2");
+  assert.equal(view.cacheHits, "4");
+  assert.equal(view.cacheMisses, "3");
+  assert.equal(view.cacheEvictionCount, "1");
+  assert.equal(view.cacheBytesEvicted, "512 B");
+  assert.equal(view.largestCachedEntryBytes, "640 B");
+  assert.equal(view.sourceReachable, "✓ Reachable");
+  assert.equal(view.configuredRangeValidation, "head-fallback");
+  assert.equal(view.sourceProbePolicy, "head-fallback");
+  assert.equal(view.sourceProbeValidationLevel, "strict");
+  assert.equal(view.sourceRange, "✓ HTTP Range / 206");
+  assert.equal(view.sourceCopc, "✓ COPC detected");
+  assert.equal(view.sourcePointFormat, "PDRF 7");
+  assert.equal(view.sourceCors, "✓ Browser response readable");
+  assert.equal(view.sourceWarnings, "—");
 });
 
-test('formats adaptive view-distance diagnostics for browser inspection', () => {
+test("formats adaptive view-distance diagnostics for browser inspection", () => {
   const view = buildCopcDebugPanelView({
     snapshot: createSnapshot({
       viewDistance: {
@@ -272,7 +275,7 @@ test('formats adaptive view-distance diagnostics for browser inspection', () => 
         maxRenderDistanceMeters: 12_000,
         overscanFactor: 1.5,
         clampedToMaxRenderDistance: false,
-        transition: 'initialized',
+        transition: "initialized",
         expansionCount: 0,
         shrinkCount: 0,
         hysteresisHoldCount: 0,
@@ -283,41 +286,41 @@ test('formats adaptive view-distance diagnostics for browser inspection', () => 
 
   assert.equal(
     view.viewDistance,
-    '125 m / 187.50000 m / 12000 m cap · initialized · overscan 1.5000000× · expand 0 / shrink 0 / hold 0 / fallback 0',
+    "125 m / 187.50000 m / 12000 m cap · initialized · overscan 1.5000000× · expand 0 / shrink 0 / hold 0 / fallback 0",
   );
 });
 
-test('shows loading placeholders and gives runtime errors precedence', () => {
+test("shows loading placeholders and gives runtime errors precedence", () => {
   const loading = buildCopcDebugPanelView({
     snapshot: createSnapshot({
-      lifecycle: 'loading',
+      lifecycle: "loading",
       selectedNodeKeys: [],
       performance: {},
     }),
   });
 
-  assert.equal(loading.status, 'Loading');
-  assert.equal(loading.statusTone, 'loading');
-  assert.equal(loading.pointCount, '—');
-  assert.equal(loading.selectedNodeKeys, '—');
-  assert.equal(loading.motionLiveState, 'disabled');
+  assert.equal(loading.status, "Loading");
+  assert.equal(loading.statusTone, "loading");
+  assert.equal(loading.pointCount, "—");
+  assert.equal(loading.selectedNodeKeys, "—");
+  assert.equal(loading.motionLiveState, "disabled");
 
   const failed = buildCopcDebugPanelView({
-    snapshot: createSnapshot({ lifecycle: 'loading' }),
-    lastError: 'Range request failed',
+    snapshot: createSnapshot({ lifecycle: "loading" }),
+    lastError: "Range request failed",
   });
 
-  assert.equal(failed.status, 'Error');
-  assert.equal(failed.statusTone, 'error');
-  assert.equal(failed.error, 'Range request failed');
+  assert.equal(failed.status, "Error");
+  assert.equal(failed.statusTone, "error");
+  assert.equal(failed.error, "Range request failed");
 });
 
-test('keeps completed scheduling priority visible after the pending queue drains', () => {
+test("keeps completed scheduling priority visible after the pending queue drains", () => {
   const snapshot = createSnapshot();
   snapshot.performance.pendingSchedulingPriorityMin = undefined;
   snapshot.performance.pendingSchedulingPriorityMax = undefined;
 
   const view = buildCopcDebugPanelView({ snapshot });
 
-  assert.equal(view.completedPendingSchedulingPriority, '3.2000000–28 / —');
+  assert.equal(view.completedPendingSchedulingPriority, "3.2000000–28 / —");
 });

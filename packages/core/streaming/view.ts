@@ -1,12 +1,12 @@
 import {
   ecefToGeographic,
   geographicToEcef,
-} from '../coordinates/transform/worldCoordinates';
+} from "../coordinates/transform/worldCoordinates";
 
 export {
   ecefToGeographic,
   geographicToEcef,
-} from '../coordinates/transform/worldCoordinates';
+} from "../coordinates/transform/worldCoordinates";
 
 /** A small, serializable vector used at the renderer/streaming boundary. */
 export type ViewVector3 = {
@@ -21,7 +21,7 @@ export type ViewVector3 = {
 /** Sphere used for conservative renderer-neutral frustum tests. */
 export type BoundingSphere = {
   /** Bounding sphere coordinates are WGS84 ECEF metres, never renderer-local. */
-  coordinateSystem: 'wgs84-ecef-meters';
+  coordinateSystem: "wgs84-ecef-meters";
   /** Sphere center in WGS84 ECEF metres. */
   center: ViewVector3;
   /** Radius in metres. */
@@ -34,7 +34,7 @@ export type BoundingSphere = {
  */
 export type BoundingSphereInput =
   | BoundingSphere
-  | Omit<BoundingSphere, 'coordinateSystem'>;
+  | Omit<BoundingSphere, "coordinateSystem">;
 
 /** One inward-facing half-space plane in a WGS84 ECEF frustum. */
 export type FrustumPlane = {
@@ -53,7 +53,7 @@ export type FrustumPlane = {
  */
 export type ViewFrustum = {
   /** All camera-space vectors and plane equations use WGS84 ECEF metres. */
-  coordinateSystem: 'wgs84-ecef-meters';
+  coordinateSystem: "wgs84-ecef-meters";
   /** Camera position in ECEF metres. */
   position: ViewVector3;
   /** Unit direction from the camera into the view. */
@@ -138,9 +138,9 @@ export type StreamingViewBounds = {
   /** WGS84 geographic query bounds. */
   bounds: GeographicViewBounds;
   /** Query envelope source: valid perspective frustum or camera-centred fallback. */
-  mode:
-    /** Derived from the perspective frustum. */ 'frustum'
-    | /** Derived from camera position and a capped radius. */ 'camera-fallback';
+  mode: /** Derived from the perspective frustum. */
+    | "frustum"
+    | /** Derived from camera position and a capped radius. */ "camera-fallback";
   /** Effective query far distance after view and configured limits, in metres. */
   effectiveFarMeters: number;
 };
@@ -148,15 +148,15 @@ export type StreamingViewBounds = {
 /** State transition reported by the adaptive current-view distance policy. */
 export type AdaptiveViewDistanceTransition =
   /** First usable estimate established the initial distance. */
-  | 'initialized'
+  | "initialized"
   /** The required visible footprint expanded the active distance. */
-  | 'expanded'
+  | "expanded"
   /** The required visible footprint shrank below the hysteresis threshold. */
-  | 'shrunk'
+  | "shrunk"
   /** Hysteresis retained the existing distance. */
-  | 'held'
+  | "held"
   /** A fallback distance was used because no usable footprint was available. */
-  | 'fallback';
+  | "fallback";
 
 /** Aggregate view-distance diagnostics attached to the current streaming view. */
 export type AdaptiveViewDistanceDiagnostics = {
@@ -204,7 +204,10 @@ const ADAPTIVE_VIEW_RAY_EPSILON = 1e-8;
 function samplePerspectiveRayDirections(frustum: ViewFrustum): ViewVector3[] {
   const verticalTangent = Math.tan(frustum.verticalFovRadians / 2);
   const horizontalTangent = verticalTangent * frustum.aspectRatio;
-  if (!Number.isFinite(verticalTangent) || !Number.isFinite(horizontalTangent)) {
+  if (
+    !Number.isFinite(verticalTangent) ||
+    !Number.isFinite(horizontalTangent)
+  ) {
     return [];
   }
   const direction = normalize(frustum.direction);
@@ -217,13 +220,14 @@ function samplePerspectiveRayDirections(frustum: ViewFrustum): ViewVector3[] {
   // the estimate to a particular renderer's frustum implementation.
   for (const horizontal of [-1, 0, 1]) {
     for (const vertical of [-1, 0, 1]) {
-      directions.push(normalize(add(
-        add(
-          direction,
-          multiply(right, horizontal * horizontalTangent),
+      directions.push(
+        normalize(
+          add(
+            add(direction, multiply(right, horizontal * horizontalTangent)),
+            multiply(up, vertical * verticalTangent),
+          ),
         ),
-        multiply(up, vertical * verticalTangent),
-      )));
+      );
     }
   }
   return directions;
@@ -240,8 +244,11 @@ export function estimateVisibleFootprintDistanceMeters(
   maxRenderDistanceMeters: number,
   minimumDatasetHeightMeters?: number,
 ): number | undefined {
-  return estimateVisibleFootprint(view, maxRenderDistanceMeters, minimumDatasetHeightMeters)
-    ?.distanceMeters;
+  return estimateVisibleFootprint(
+    view,
+    maxRenderDistanceMeters,
+    minimumDatasetHeightMeters,
+  )?.distanceMeters;
 }
 
 type VisibleFootprintEstimate = {
@@ -255,12 +262,14 @@ function estimateVisibleFootprint(
   minimumDatasetHeightMeters?: number,
 ): VisibleFootprintEstimate | undefined {
   const frustum = view.viewFrustum;
-  if (!isUsablePerspectiveFrustum(frustum)
-    || !Number.isFinite(maxRenderDistanceMeters)
-    || maxRenderDistanceMeters <= 0
-    || !Number.isFinite(view.longitude)
-    || !Number.isFinite(view.latitude)
-    || !Number.isFinite(view.height)) {
+  if (
+    !isUsablePerspectiveFrustum(frustum) ||
+    !Number.isFinite(maxRenderDistanceMeters) ||
+    maxRenderDistanceMeters <= 0 ||
+    !Number.isFinite(view.longitude) ||
+    !Number.isFinite(view.latitude) ||
+    !Number.isFinite(view.height)
+  ) {
     return undefined;
   }
 
@@ -289,9 +298,10 @@ function estimateVisibleFootprint(
   };
   const verticalTangent = Math.tan(frustum.verticalFovRadians / 2);
   const horizontalTangent = verticalTangent * frustum.aspectRatio;
-  const horizonReach = dot(direction, localUp)
-    + Math.abs(dot(right, localUp)) * horizontalTangent
-    + Math.abs(dot(up, localUp)) * verticalTangent;
+  const horizonReach =
+    dot(direction, localUp) +
+    Math.abs(dot(right, localUp)) * horizontalTangent +
+    Math.abs(dot(up, localUp)) * verticalTangent;
   if (!Number.isFinite(horizonReach)) {
     return undefined;
   }
@@ -306,7 +316,7 @@ function estimateVisibleFootprint(
   }
 
   const datasetMinimumHeight = Number.isFinite(minimumDatasetHeightMeters)
-    ? minimumDatasetHeightMeters as number
+    ? (minimumDatasetHeightMeters as number)
     : 0;
   const groundPlaneHeight = Math.min(
     -ADAPTIVE_GROUND_CLEARANCE_METERS,
@@ -323,7 +333,10 @@ function estimateVisibleFootprint(
   let farthestGroundDistance = 0;
   for (const direction of directions) {
     const downwardRate = -dot(direction, localUp);
-    if (!Number.isFinite(downwardRate) || downwardRate <= ADAPTIVE_VIEW_RAY_EPSILON) {
+    if (
+      !Number.isFinite(downwardRate) ||
+      downwardRate <= ADAPTIVE_VIEW_RAY_EPSILON
+    ) {
       continue;
     }
 
@@ -333,7 +346,11 @@ function estimateVisibleFootprint(
     }
     farthestGroundDistance = Math.max(
       farthestGroundDistance,
-      Math.min(intersectionDistance, frustum.farMeters, maxRenderDistanceMeters),
+      Math.min(
+        intersectionDistance,
+        frustum.farMeters,
+        maxRenderDistanceMeters,
+      ),
     );
   }
 
@@ -374,7 +391,12 @@ export class AdaptiveViewDistancePolicy {
   ): AdaptiveViewDistanceInput & {
     viewDistanceDiagnostics: AdaptiveViewDistanceDiagnostics;
   } {
-    return this.resolve(view, maxRenderDistanceMeters, minimumDatasetHeightMeters, true);
+    return this.resolve(
+      view,
+      maxRenderDistanceMeters,
+      minimumDatasetHeightMeters,
+      true,
+    );
   }
 
   /**
@@ -392,7 +414,12 @@ export class AdaptiveViewDistancePolicy {
   ): AdaptiveViewDistanceInput & {
     viewDistanceDiagnostics: AdaptiveViewDistanceDiagnostics;
   } {
-    return this.resolve(view, maxRenderDistanceMeters, minimumDatasetHeightMeters, false);
+    return this.resolve(
+      view,
+      maxRenderDistanceMeters,
+      minimumDatasetHeightMeters,
+      false,
+    );
   }
 
   private resolve(
@@ -412,19 +439,21 @@ export class AdaptiveViewDistancePolicy {
       minimumDatasetHeightMeters,
     );
     const footprint = footprintEstimate?.distanceMeters;
-    const usedFallback = footprintEstimate?.usedFallback ?? footprint === undefined;
+    const usedFallback =
+      footprintEstimate?.usedFallback ?? footprint === undefined;
     const hasFrustum = view.viewFrustum !== undefined;
     const fallbackDistance = hasFrustum
       ? safeMaximum
       : Number.isFinite(view.viewDistanceMeters)
         ? Math.max(view.viewDistanceMeters, 0)
         : safeMaximum;
-    const unclampedTarget = footprint === undefined
-      ? fallbackDistance
-      : Math.max(
-        ADAPTIVE_VIEW_MIN_DISTANCE_METERS,
-        footprint * ADAPTIVE_VIEW_OVERSCAN_FACTOR,
-      );
+    const unclampedTarget =
+      footprint === undefined
+        ? fallbackDistance
+        : Math.max(
+            ADAPTIVE_VIEW_MIN_DISTANCE_METERS,
+            footprint * ADAPTIVE_VIEW_OVERSCAN_FACTOR,
+          );
     const targetDistanceMeters = Math.min(
       unclampedTarget,
       safeMaximum,
@@ -441,18 +470,24 @@ export class AdaptiveViewDistancePolicy {
     let hysteresisHoldCount = this.hysteresisHoldCount;
     let fallbackCount = this.fallbackCount;
     if (usedFallback) {
-      transition = 'fallback';
+      transition = "fallback";
       if (commit) fallbackCount += 1;
     } else if (this.currentDistanceMeters === undefined) {
-      transition = 'initialized';
-    } else if (targetDistanceMeters > this.currentDistanceMeters * ADAPTIVE_VIEW_EXPANSION_RATIO) {
-      transition = 'expanded';
+      transition = "initialized";
+    } else if (
+      targetDistanceMeters >
+      this.currentDistanceMeters * ADAPTIVE_VIEW_EXPANSION_RATIO
+    ) {
+      transition = "expanded";
       if (commit) expansionCount += 1;
-    } else if (targetDistanceMeters < this.currentDistanceMeters * ADAPTIVE_VIEW_SHRINK_RATIO) {
-      transition = 'shrunk';
+    } else if (
+      targetDistanceMeters <
+      this.currentDistanceMeters * ADAPTIVE_VIEW_SHRINK_RATIO
+    ) {
+      transition = "shrunk";
       if (commit) shrinkCount += 1;
     } else {
-      transition = 'held';
+      transition = "held";
       if (commit) hysteresisHoldCount += 1;
       effectiveDistanceMeters = this.currentDistanceMeters;
     }
@@ -466,8 +501,8 @@ export class AdaptiveViewDistancePolicy {
       this.hysteresisHoldCount = hysteresisHoldCount;
       this.fallbackCount = fallbackCount;
     }
-    const clampedToMaxRenderDistance = unclampedTarget > safeMaximum
-      || (footprint === undefined && hasFrustum);
+    const clampedToMaxRenderDistance =
+      unclampedTarget > safeMaximum || (footprint === undefined && hasFrustum);
     return {
       ...view,
       viewDistanceMeters: effectiveDistanceMeters,
@@ -512,7 +547,7 @@ function length(vector: ViewVector3): number {
 function normalize(vector: ViewVector3): ViewVector3 {
   const magnitude = length(vector);
   if (!Number.isFinite(magnitude) || magnitude === 0) {
-    throw new Error('View vector must have a finite, non-zero length');
+    throw new Error("View vector must have a finite, non-zero length");
   }
 
   return {
@@ -549,9 +584,10 @@ function validateInput(input: PerspectiveViewInput): void {
     !Number.isFinite(input.farMeters) ||
     input.farMeters <= input.nearMeters ||
     (input.viewportHeightPixels !== undefined &&
-      (!Number.isFinite(input.viewportHeightPixels) || input.viewportHeightPixels <= 0))
+      (!Number.isFinite(input.viewportHeightPixels) ||
+        input.viewportHeightPixels <= 0))
   ) {
-    throw new Error('Invalid perspective view parameters');
+    throw new Error("Invalid perspective view parameters");
   }
 }
 
@@ -576,17 +612,31 @@ export function createPerspectiveViewFrustum(
   const farPoint = add(input.position, multiply(direction, input.farMeters));
 
   return {
-    coordinateSystem: 'wgs84-ecef-meters',
+    coordinateSystem: "wgs84-ecef-meters",
     position: { ...input.position },
     direction,
     up,
     right,
     planes: [
       // left, right, bottom, top, near, far; interior is n dot p + d >= 0.
-      plane(normalize(add(right, multiply(direction, horizontalTangent))), input.position),
-      plane(normalize(add(multiply(right, -1), multiply(direction, horizontalTangent))), input.position),
-      plane(normalize(add(up, multiply(direction, verticalTangent))), input.position),
-      plane(normalize(add(multiply(up, -1), multiply(direction, verticalTangent))), input.position),
+      plane(
+        normalize(add(right, multiply(direction, horizontalTangent))),
+        input.position,
+      ),
+      plane(
+        normalize(
+          add(multiply(right, -1), multiply(direction, horizontalTangent)),
+        ),
+        input.position,
+      ),
+      plane(
+        normalize(add(up, multiply(direction, verticalTangent))),
+        input.position,
+      ),
+      plane(
+        normalize(add(multiply(up, -1), multiply(direction, verticalTangent))),
+        input.position,
+      ),
       plane(direction, nearPoint),
       plane(multiply(direction, -1), farPoint),
     ],
@@ -606,8 +656,8 @@ export function intersectsViewFrustum(
   // Accept unlabeled legacy test/custom objects, but never compare spheres
   // explicitly labeled in a different coordinate space.
   if (
-    'coordinateSystem' in sphere
-    && sphere.coordinateSystem !== frustum.coordinateSystem
+    "coordinateSystem" in sphere &&
+    sphere.coordinateSystem !== frustum.coordinateSystem
   ) {
     return false;
   }
@@ -615,16 +665,22 @@ export function intersectsViewFrustum(
   // The tolerance intentionally biases toward retaining edge-touching nodes.
   const edgeTolerance = Math.max(1, sphere.radiusMeters * 1e-6);
 
-  return frustum.planes.every((currentPlane) =>
-    dot(currentPlane.normal, sphere.center) + currentPlane.distance
-      >= -sphere.radiusMeters - edgeTolerance);
+  return frustum.planes.every(
+    (currentPlane) =>
+      dot(currentPlane.normal, sphere.center) + currentPlane.distance >=
+      -sphere.radiusMeters - edgeTolerance,
+  );
 }
 
-function isFiniteVector(vector: ViewVector3 | undefined): vector is ViewVector3 {
-  return vector !== undefined
-    && Number.isFinite(vector.x)
-    && Number.isFinite(vector.y)
-    && Number.isFinite(vector.z);
+function isFiniteVector(
+  vector: ViewVector3 | undefined,
+): vector is ViewVector3 {
+  return (
+    vector !== undefined &&
+    Number.isFinite(vector.x) &&
+    Number.isFinite(vector.y) &&
+    Number.isFinite(vector.z)
+  );
 }
 
 function addBoundsPoint(
@@ -650,33 +706,44 @@ function createEmptyGeographicBounds(): GeographicViewBounds {
   };
 }
 
-function isUsablePerspectiveFrustum(frustum: ViewFrustum | undefined): frustum is ViewFrustum {
-  return frustum?.coordinateSystem === 'wgs84-ecef-meters'
-    && isFiniteVector(frustum.position)
-    && isFiniteVector(frustum.direction)
-    && isFiniteVector(frustum.up)
-    && isFiniteVector(frustum.right)
-    && Number.isFinite(frustum.verticalFovRadians)
-    && frustum.verticalFovRadians > 0
-    && frustum.verticalFovRadians < Math.PI
-    && Number.isFinite(frustum.aspectRatio)
-    && frustum.aspectRatio > 0
-    && Number.isFinite(frustum.nearMeters)
-    && frustum.nearMeters >= 0
-    && Number.isFinite(frustum.farMeters)
-    && frustum.farMeters > frustum.nearMeters;
+function isUsablePerspectiveFrustum(
+  frustum: ViewFrustum | undefined,
+): frustum is ViewFrustum {
+  return (
+    frustum?.coordinateSystem === "wgs84-ecef-meters" &&
+    isFiniteVector(frustum.position) &&
+    isFiniteVector(frustum.direction) &&
+    isFiniteVector(frustum.up) &&
+    isFiniteVector(frustum.right) &&
+    Number.isFinite(frustum.verticalFovRadians) &&
+    frustum.verticalFovRadians > 0 &&
+    frustum.verticalFovRadians < Math.PI &&
+    Number.isFinite(frustum.aspectRatio) &&
+    frustum.aspectRatio > 0 &&
+    Number.isFinite(frustum.nearMeters) &&
+    frustum.nearMeters >= 0 &&
+    Number.isFinite(frustum.farMeters) &&
+    frustum.farMeters > frustum.nearMeters
+  );
 }
 
 function createCameraFallbackBounds(
   input: StreamingViewBoundsInput,
   radiusMeters: number,
 ): GeographicViewBounds {
-  const longitude = Number.isFinite(input.camera.longitude) ? input.camera.longitude : 0;
-  const latitude = Number.isFinite(input.camera.latitude) ? input.camera.latitude : 0;
+  const longitude = Number.isFinite(input.camera.longitude)
+    ? input.camera.longitude
+    : 0;
+  const latitude = Number.isFinite(input.camera.latitude)
+    ? input.camera.latitude
+    : 0;
   const height = Number.isFinite(input.camera.height) ? input.camera.height : 0;
-  const safeRadius = Number.isFinite(radiusMeters) ? Math.max(radiusMeters, 0) : 0;
+  const safeRadius = Number.isFinite(radiusMeters)
+    ? Math.max(radiusMeters, 0)
+    : 0;
   const latitudeRadius = safeRadius / 111_320;
-  const longitudeRadius = safeRadius /
+  const longitudeRadius =
+    safeRadius /
     (111_320 * Math.max(Math.cos((latitude * Math.PI) / 180), 0.1));
 
   return {
@@ -701,7 +768,9 @@ export function createStreamingViewBounds(
   input: StreamingViewBoundsInput,
 ): StreamingViewBounds {
   const fallbackDistance = Math.min(
-    Number.isFinite(input.viewDistanceMeters) ? Math.max(input.viewDistanceMeters, 0) : 0,
+    Number.isFinite(input.viewDistanceMeters)
+      ? Math.max(input.viewDistanceMeters, 0)
+      : 0,
     Number.isFinite(input.maxRenderDistanceMeters)
       ? Math.max(input.maxRenderDistanceMeters, 0)
       : 0,
@@ -710,7 +779,7 @@ export function createStreamingViewBounds(
   if (!isUsablePerspectiveFrustum(input.viewFrustum)) {
     return {
       bounds: createCameraFallbackBounds(input, fallbackDistance),
-      mode: 'camera-fallback',
+      mode: "camera-fallback",
       effectiveFarMeters: fallbackDistance,
     };
   }
@@ -795,7 +864,7 @@ export function createStreamingViewBounds(
 
   return {
     bounds,
-    mode: 'frustum',
+    mode: "frustum",
     effectiveFarMeters: far,
   };
 }
@@ -838,7 +907,7 @@ export function createBoundingSphereFromGeographicBounds(
   }
 
   return {
-    coordinateSystem: 'wgs84-ecef-meters',
+    coordinateSystem: "wgs84-ecef-meters",
     center: sphereCenter,
     // Keep a small numerical cushion for transformed/projected boxes and
     // camera planes that meet exactly at a frustum edge.

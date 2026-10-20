@@ -1,50 +1,51 @@
-import type * as THREE from 'three';
-import { getCopcPointFieldSelection } from '../../core/copc/points/fieldSelection';
-import { inspectCopcPoint, type CopcPointInspection } from '../../core/copc/points/pointInspection';
+import type * as THREE from "three";
+import { getCopcPointFieldSelection } from "../../core/copc/points/fieldSelection";
+import {
+  inspectCopcPoint,
+  type CopcPointInspection,
+} from "../../core/copc/points/pointInspection";
 import type {
   CopcMetadata,
   PreparedPointData,
-} from '../../core/copc/types/copc';
-import { createDatasetLocalFrame } from '../../core/coordinates/transform/datasetLocalFrame';
-import type { DatasetLocalFrame } from '../../core/coordinates/types';
+} from "../../core/copc/types/copc";
+import { createDatasetLocalFrame } from "../../core/coordinates/transform/datasetLocalFrame";
+import type { DatasetLocalFrame } from "../../core/coordinates/types";
 import {
   CopcStreamingCore,
   type CopcStreamingProgressHandler,
   type CopcStreamingWorkProgressHandler,
-} from '../../core/streaming/CopcStreamingCore';
-import { areStreamingViewsEquivalent } from '../../core/streaming/areStreamingViewsEquivalent';
-import { ReplacementTransitionManager } from '../../core/streaming/ReplacementTransitionManager';
+} from "../../core/streaming/CopcStreamingCore";
+import { areStreamingViewsEquivalent } from "../../core/streaming/areStreamingViewsEquivalent";
+import { ReplacementTransitionManager } from "../../core/streaming/ReplacementTransitionManager";
 import type {
   StreamingProgress,
   StreamingView,
-} from '../../core/streaming/types';
-import { DEFAULT_MAX_RENDERED_POINTS } from '../../core/streaming/NodeSelector';
-import { MOTION_LOOKAHEAD_DECAY_MS } from '../../core/streaming/motionLookahead';
-import type { NodePointCacheDiagnostics } from '../../core/streaming/createNodePointCache';
+} from "../../core/streaming/types";
+import { DEFAULT_MAX_RENDERED_POINTS } from "../../core/streaming/NodeSelector";
+import { MOTION_LOOKAHEAD_DECAY_MS } from "../../core/streaming/motionLookahead";
+import type { NodePointCacheDiagnostics } from "../../core/streaming/createNodePointCache";
 import {
   ThreePointRenderer,
   type ThreePointRendererOptions,
   type ThreePointRendererPerformanceStage,
-} from '../render/ThreePointRenderer';
-import {
-  createThreeStreamingView,
-} from '../view/ThreeViewAdapter';
+} from "../render/ThreePointRenderer";
+import { createThreeStreamingView } from "../view/ThreeViewAdapter";
 import {
   createCopcPointStyleState,
   getDatasetElevationRange,
-} from '../../core/point/style/pointStyle';
-import { ThreePointPicker } from '../picking/ThreePointPicker';
+} from "../../core/point/style/pointStyle";
+import { ThreePointPicker } from "../picking/ThreePointPicker";
 import {
   CopcThreeLayerEventDispatcher,
   type CopcThreeLayerEventMap,
   type CopcThreeLayerEventType,
-} from '../events/CopcThreeLayerEvents';
+} from "../events/CopcThreeLayerEvents";
 import {
   CopcLayerEventLifecycle,
   type CopcViewCancellationReason,
   snapshotCopcError,
   snapshotCopcMetadata,
-} from '../../core/events/layerEventLifecycle';
+} from "../../core/events/layerEventLifecycle";
 import type {
   CopcThreeLayerAttachment,
   CopcThreeLayerLifecycleState,
@@ -54,8 +55,8 @@ import type {
   CopcThreeLayerSnapshot,
   CopcThreePointRenderer,
   CopcThreeRendererPerformanceSnapshot,
-} from './types';
-import { getCopcSourceIdentity } from '../../core/copc/getter/createCopcGetter';
+} from "./types";
+import { getCopcSourceIdentity } from "../../core/copc/getter/createCopcGetter";
 
 type ActiveStreamingUpdate = {
   progressApplied: boolean;
@@ -87,7 +88,7 @@ export class ThreeLayerController {
   private datasetElevationRange?: { min: number; max: number };
   private attachment?: CopcThreeLayerAttachment;
   private localFrame?: DatasetLocalFrame;
-  private lifecycle: CopcThreeLayerLifecycleState = 'idle';
+  private lifecycle: CopcThreeLayerLifecycleState = "idle";
   private loadGeneration = 0;
   private loadOperationGeneration?: number;
   private firstVisibleLoadGeneration?: number;
@@ -109,13 +110,21 @@ export class ThreeLayerController {
    * @throws If the URL is empty or `pickingThreshold` is not positive and finite.
    */
   constructor(options: CopcThreeLayerOptions, eventTarget: object) {
-    if (!options || options.url === undefined || options.url === null
-      || (typeof options.url === 'string' && options.url.length === 0)) {
-      throw new Error('CopcThreeLayer requires a COPC source');
+    if (
+      !options ||
+      options.url === undefined ||
+      options.url === null ||
+      (typeof options.url === "string" && options.url.length === 0)
+    ) {
+      throw new Error("CopcThreeLayer requires a COPC source");
     }
-    if (options.pickingThreshold !== undefined
-      && !isFinitePositive(options.pickingThreshold)) {
-      throw new Error('CopcThreeLayer pickingThreshold must be a positive finite number');
+    if (
+      options.pickingThreshold !== undefined &&
+      !isFinitePositive(options.pickingThreshold)
+    ) {
+      throw new Error(
+        "CopcThreeLayer pickingThreshold must be a positive finite number",
+      );
     }
 
     this.options = options;
@@ -132,7 +141,7 @@ export class ThreeLayerController {
       rangeValidation: options.rangeValidation,
       maxRangeBytes: options.maxRangeBytes,
       maxConcurrentRangeRequests: options.maxConcurrentRangeRequests,
-      pointFields: getCopcPointFieldSelection(options.colorMode ?? 'fixed'),
+      pointFields: getCopcPointFieldSelection(options.colorMode ?? "fixed"),
       streaming: options.streaming,
     });
     this.pointPicker = new ThreePointPicker({
@@ -141,7 +150,12 @@ export class ThreeLayerController {
         const node = this.core.getHierarchyNode(pickId.nodeKey);
         const points = this.core.getCachedPointBuffer(pickId.nodeKey);
         return node && points
-          ? inspectCopcPoint(pickId, node.node, points, this.core.getSnapshot().backend)
+          ? inspectCopcPoint(
+              pickId,
+              node.node,
+              points,
+              this.core.getSnapshot().backend,
+            )
           : undefined;
       },
       hasNode: (nodeKey) => this.pointRenderer.hasNode(nodeKey),
@@ -184,13 +198,20 @@ export class ThreeLayerController {
    */
   attachTo(attachment: CopcThreeLayerAttachment): void {
     if (this.isDestroyed()) {
-      throw new Error('CopcThreeLayer has been destroyed');
+      throw new Error("CopcThreeLayer has been destroyed");
     }
-    if (!attachment || !attachment.scene || typeof attachment.scene.add !== 'function') {
-      throw new Error('CopcThreeLayer requires a Three.js scene');
+    if (
+      !attachment ||
+      !attachment.scene ||
+      typeof attachment.scene.add !== "function"
+    ) {
+      throw new Error("CopcThreeLayer requires a Three.js scene");
     }
-    if (!attachment.camera || typeof attachment.camera.getWorldPosition !== 'function') {
-      throw new Error('CopcThreeLayer requires a Three.js camera');
+    if (
+      !attachment.camera ||
+      typeof attachment.camera.getWorldPosition !== "function"
+    ) {
+      throw new Error("CopcThreeLayer requires a Three.js camera");
     }
     if (this.attachment === attachment) {
       return;
@@ -199,14 +220,14 @@ export class ThreeLayerController {
       this.detachFrom();
     }
     if (this.isDestroyed()) {
-      throw new Error('CopcThreeLayer has been destroyed');
+      throw new Error("CopcThreeLayer has been destroyed");
     }
 
     this.attachment = attachment;
     this.pointRenderer.attachTo(attachment.scene);
     this.applyLocalFrame();
-    if (this.lifecycle !== 'loading') {
-      this.lifecycle = this.core.getMetadata() ? 'ready' : 'mounted';
+    if (this.lifecycle !== "loading") {
+      this.lifecycle = this.core.getMetadata() ? "ready" : "mounted";
     }
   }
 
@@ -216,7 +237,7 @@ export class ThreeLayerController {
       return;
     }
 
-    this.cancelActiveView('detach');
+    this.cancelActiveView("detach");
     if (this.isDestroyed()) {
       return;
     }
@@ -233,8 +254,8 @@ export class ThreeLayerController {
     this.activeStreamingUpdate = undefined;
     this.attachment = undefined;
     this.resetRendererPerformance();
-    if (this.lifecycle !== 'loading') {
-      this.lifecycle = this.core.getMetadata() ? 'ready' : 'idle';
+    if (this.lifecycle !== "loading") {
+      this.lifecycle = this.core.getMetadata() ? "ready" : "idle";
     }
   }
 
@@ -248,17 +269,19 @@ export class ThreeLayerController {
    * @throws If the layer is destroyed, already loading/loaded, or source initialization fails.
    */
   async load(): Promise<void> {
-    if (this.lifecycle === 'destroyed') {
-      throw new Error('CopcThreeLayer has been destroyed');
+    if (this.lifecycle === "destroyed") {
+      throw new Error("CopcThreeLayer has been destroyed");
     }
     if (this.core.getMetadata()) {
-      throw new Error('COPC layer is already loaded; call reload() to load it again');
+      throw new Error(
+        "COPC layer is already loaded; call reload() to load it again",
+      );
     }
-    if (this.lifecycle === 'loading') {
-      throw new Error('COPC layer is already loading');
+    if (this.lifecycle === "loading") {
+      throw new Error("COPC layer is already loading");
     }
 
-    this.lifecycle = 'loading';
+    this.lifecycle = "loading";
     const loadGeneration = ++this.loadGeneration;
     this.loadOperationGeneration = loadGeneration;
     try {
@@ -269,31 +292,34 @@ export class ThreeLayerController {
 
       const metadata = this.core.getMetadata();
       if (!metadata) {
-        throw new Error('COPC layer loaded without metadata');
+        throw new Error("COPC layer loaded without metadata");
       }
-      this.localFrame = createDatasetLocalFrame(metadata, this.options.heightOffsetMeters);
+      this.localFrame = createDatasetLocalFrame(
+        metadata,
+        this.options.heightOffsetMeters,
+      );
       this.datasetElevationRange = getDatasetElevationRange(
         metadata,
         this.options.heightOffsetMeters,
       );
       this.applyLocalFrame();
-      this.lifecycle = 'ready';
-      this.debug('COPC metadata and hierarchy loaded');
+      this.lifecycle = "ready";
+      this.debug("COPC metadata and hierarchy loaded");
       this.firstVisibleLoadGeneration = undefined;
       this.eventDispatcher.dispatchEvent({
-        type: 'metadataready',
+        type: "metadataready",
         metadata: snapshotCopcMetadata(metadata),
         loadGeneration,
       });
     } catch (error: unknown) {
       if (loadGeneration === this.loadGeneration) {
         this.eventDispatcher.dispatchEvent({
-          type: 'error',
+          type: "error",
           error: snapshotCopcError(error),
-          phase: 'load',
+          phase: "load",
           loadGeneration,
         });
-        this.unloadInternal('unload');
+        this.unloadInternal("unload");
       }
       throw error;
     } finally {
@@ -317,11 +343,15 @@ export class ThreeLayerController {
   }
 
   private updateCurrentView(forceSelection: boolean): Promise<void> {
-    if (this.lifecycle === 'destroyed') {
-      throw new Error('CopcThreeLayer has been destroyed');
+    if (this.lifecycle === "destroyed") {
+      throw new Error("CopcThreeLayer has been destroyed");
     }
     const attachment = this.attachment;
-    if (!attachment || !this.core.getMetadata() || this.lifecycle === 'loading') {
+    if (
+      !attachment ||
+      !this.core.getMetadata() ||
+      this.lifecycle === "loading"
+    ) {
       return Promise.resolve();
     }
 
@@ -330,10 +360,11 @@ export class ThreeLayerController {
     if (motion.sampledMovement) {
       this.scheduleMotionDecayUpdate();
     }
-    const viewEquivalent = this.lastStreamingView !== undefined
-      && areStreamingViewsEquivalent(this.lastStreamingView, view);
-    const shouldForceSelection = forceSelection
-      || (viewEquivalent && motion.priorityChanged);
+    const viewEquivalent =
+      this.lastStreamingView !== undefined &&
+      areStreamingViewsEquivalent(this.lastStreamingView, view);
+    const shouldForceSelection =
+      forceSelection || (viewEquivalent && motion.priorityChanged);
     if (this.updateInFlight) {
       if (!viewEquivalent || shouldForceSelection) {
         this.updatePending = true;
@@ -345,7 +376,7 @@ export class ThreeLayerController {
           // camera returns to that generation before the stale update settles.
           this.lastStreamingView = undefined;
           this.core.invalidateView();
-          this.cancelActiveView('camera-change');
+          this.cancelActiveView("camera-change");
           if (this.isDestroyed()) {
             return this.updateInFlightPromise ?? Promise.resolve();
           }
@@ -362,17 +393,20 @@ export class ThreeLayerController {
     const updatePromise = this.runPendingStreamingUpdates();
     this.updateInFlightPromise = updatePromise;
     this.updateInFlight = true;
-    void updatePromise.then(() => {
-      if (this.updateInFlightPromise === updatePromise) {
-        this.updateInFlightPromise = undefined;
-        this.updateInFlight = false;
-      }
-    }, () => {
-      if (this.updateInFlightPromise === updatePromise) {
-        this.updateInFlightPromise = undefined;
-        this.updateInFlight = false;
-      }
-    });
+    void updatePromise.then(
+      () => {
+        if (this.updateInFlightPromise === updatePromise) {
+          this.updateInFlightPromise = undefined;
+          this.updateInFlight = false;
+        }
+      },
+      () => {
+        if (this.updateInFlightPromise === updatePromise) {
+          this.updateInFlightPromise = undefined;
+          this.updateInFlight = false;
+        }
+      },
+    );
     return updatePromise;
   }
 
@@ -382,11 +416,11 @@ export class ThreeLayerController {
       return;
     }
 
-    this.unloadInternal('unload');
+    this.unloadInternal("unload");
   }
 
   private unloadInternal(reason: CopcViewCancellationReason): void {
-    if (this.lifecycle === 'destroyed') {
+    if (this.lifecycle === "destroyed") {
       return;
     }
     this.cancelActiveView(reason);
@@ -408,29 +442,29 @@ export class ThreeLayerController {
     this.activeStreamingUpdate = undefined;
     this.localFrame = undefined;
     this.resetRendererPerformance();
-    this.lifecycle = this.attachment ? 'mounted' : 'idle';
-    this.debug('COPC layer unloaded');
+    this.lifecycle = this.attachment ? "mounted" : "idle";
+    this.debug("COPC layer unloaded");
   }
 
   /** Unload the current source and load the configured COPC resource again. */
   async reload(): Promise<void> {
-    if (this.lifecycle === 'destroyed') {
-      throw new Error('CopcThreeLayer has been destroyed');
+    if (this.lifecycle === "destroyed") {
+      throw new Error("CopcThreeLayer has been destroyed");
     }
-    this.unloadInternal('reload');
+    this.unloadInternal("reload");
     await this.load();
   }
 
   /** Permanently release layer-owned resources without disposing caller-owned scene, camera, or renderer. */
   destroy(): void {
-    if (this.lifecycle === 'destroyed') {
+    if (this.lifecycle === "destroyed") {
       return;
     }
 
-    this.lifecycle = 'destroyed';
+    this.lifecycle = "destroyed";
     this.loadGeneration += 1;
     this.streamingGeneration += 1;
-    this.cancelActiveView('destroy');
+    this.cancelActiveView("destroy");
     this.core.destroy();
     this.updatePending = false;
     this.pendingForceSelection = false;
@@ -510,7 +544,11 @@ export class ThreeLayerController {
       this.pointPicker.clear();
       return undefined;
     }
-    return this.pointPicker.pick(position, attachment.camera, raycasterOrOptions);
+    return this.pointPicker.pick(
+      position,
+      attachment.camera,
+      raycasterOrOptions,
+    );
   }
 
   /** Return a fresh diagnostics snapshot; the returned arrays/objects are not live views. */
@@ -524,12 +562,15 @@ export class ThreeLayerController {
       selectedNodeKeys: coreSnapshot.selectedNodeKeys,
       renderedNodeKeys: this.getRenderedNodeKeys(),
       renderedPointCount: this.getRenderedPointCount(),
-      streamingUpdateCount: coreSnapshot.streamingUpdateCount
-        + (this.activeStreamingUpdate?.progressApplied ? 1 : 0),
+      streamingUpdateCount:
+        coreSnapshot.streamingUpdateCount +
+        (this.activeStreamingUpdate?.progressApplied ? 1 : 0),
       performance: coreSnapshot.performance,
       renderer: { ...this.rendererPerformance },
       transition: this.replacementTransitions.getDiagnostics(),
-      ...(coreSnapshot.viewDistance ? { viewDistance: coreSnapshot.viewDistance } : {}),
+      ...(coreSnapshot.viewDistance
+        ? { viewDistance: coreSnapshot.viewDistance }
+        : {}),
       ...(coreSnapshot.hierarchy ? { hierarchy: coreSnapshot.hierarchy } : {}),
       pointCache: coreSnapshot.pointCache,
       ...(coreSnapshot.worker ? { worker: coreSnapshot.worker } : {}),
@@ -550,27 +591,35 @@ export class ThreeLayerController {
 
   private async performStreamingUpdate(forceSelection = false): Promise<void> {
     const attachment = this.attachment;
-    if (!attachment || !this.core.getMetadata() || this.lifecycle === 'destroyed') {
+    if (
+      !attachment ||
+      !this.core.getMetadata() ||
+      this.lifecycle === "destroyed"
+    ) {
       return;
     }
 
     const generation = ++this.streamingGeneration;
     const view = this.createView(attachment);
-    if (!forceSelection
-      && this.lastStreamingView
-      && areStreamingViewsEquivalent(this.lastStreamingView, view)) {
+    if (
+      !forceSelection &&
+      this.lastStreamingView &&
+      areStreamingViewsEquivalent(this.lastStreamingView, view)
+    ) {
       return;
     }
     const begunView = this.eventLifecycle.beginView();
     if (begunView.superseded) {
       this.eventDispatcher.dispatchEvent({
-        type: 'viewcancelled',
+        type: "viewcancelled",
         ...begunView.superseded,
       });
     }
     const publicViewGeneration = begunView.viewGeneration;
-    if (this.isDestroyed()
-      || !this.eventLifecycle.isActiveView(publicViewGeneration)) {
+    if (
+      this.isDestroyed() ||
+      !this.eventLifecycle.isActiveView(publicViewGeneration)
+    ) {
       return;
     }
     this.lastStreamingView = view;
@@ -582,8 +631,10 @@ export class ThreeLayerController {
     let lastQueuedNodeCount: number | undefined;
     let lastActiveNodeCount: number | undefined;
     const onProgress: CopcStreamingProgressHandler = (progress) => {
-      if (!this.isCurrentStreamingGeneration(generation, attachment)
-        || !this.eventLifecycle.isActiveView(publicViewGeneration)) {
+      if (
+        !this.isCurrentStreamingGeneration(generation, attachment) ||
+        !this.eventLifecycle.isActiveView(publicViewGeneration)
+      ) {
         return;
       }
       progressApplied = true;
@@ -593,18 +644,20 @@ export class ThreeLayerController {
       this.applyStreamingProgress(progress, generation, publicViewGeneration);
     };
     const onWorkProgress: CopcStreamingWorkProgressHandler | undefined =
-      this.eventDispatcher.hasEventListener('progress')
+      this.eventDispatcher.hasEventListener("progress")
         ? (progress) => {
-            if (!this.isCurrentStreamingGeneration(generation, attachment)
-              || !this.eventLifecycle.isActiveView(publicViewGeneration)
-              || (progress.queuedNodeCount === lastQueuedNodeCount
-                && progress.activeNodeCount === lastActiveNodeCount)) {
+            if (
+              !this.isCurrentStreamingGeneration(generation, attachment) ||
+              !this.eventLifecycle.isActiveView(publicViewGeneration) ||
+              (progress.queuedNodeCount === lastQueuedNodeCount &&
+                progress.activeNodeCount === lastActiveNodeCount)
+            ) {
               return;
             }
             lastQueuedNodeCount = progress.queuedNodeCount;
             lastActiveNodeCount = progress.activeNodeCount;
             this.eventDispatcher.dispatchEvent({
-              type: 'progress',
+              type: "progress",
               queuedNodeCount: progress.queuedNodeCount,
               activeNodeCount: progress.activeNodeCount,
               viewGeneration: publicViewGeneration,
@@ -612,7 +665,7 @@ export class ThreeLayerController {
           }
         : undefined;
 
-    let update: Awaited<ReturnType<CopcStreamingCore['updateView']>>;
+    let update: Awaited<ReturnType<CopcStreamingCore["updateView"]>>;
     try {
       update = await this.core.updateView(view, onProgress, onWorkProgress);
     } catch (error: unknown) {
@@ -621,9 +674,9 @@ export class ThreeLayerController {
       }
       if (this.eventLifecycle.failView(publicViewGeneration)) {
         this.eventDispatcher.dispatchEvent({
-          type: 'error',
+          type: "error",
           error: snapshotCopcError(error),
-          phase: 'view',
+          phase: "view",
           viewGeneration: publicViewGeneration,
         });
       }
@@ -637,25 +690,31 @@ export class ThreeLayerController {
     }
     if (!this.isCurrentStreamingGeneration(generation, attachment) || !update) {
       if (this.eventLifecycle.isActiveView(publicViewGeneration)) {
-        this.cancelActiveView('camera-change');
+        this.cancelActiveView("camera-change");
       }
       return;
     }
     if (!progressApplied) {
-      this.applyStreamingProgress({
-        ...update,
-        completedBatchPointCount: update.loadedNodePoints.size,
-      }, generation, publicViewGeneration);
+      this.applyStreamingProgress(
+        {
+          ...update,
+          completedBatchPointCount: update.loadedNodePoints.size,
+        },
+        generation,
+        publicViewGeneration,
+      );
     }
-    if (this.eventLifecycle.isActiveView(publicViewGeneration)
-      && this.replacementTransitions.isViewRendererCommitted(
+    if (
+      this.eventLifecycle.isActiveView(publicViewGeneration) &&
+      this.replacementTransitions.isViewRendererCommitted(
         update.selectedNodeKeys,
         update.loadedNodePoints,
         publicViewGeneration,
-      )
-      && this.eventLifecycle.settleView(publicViewGeneration)) {
+      ) &&
+      this.eventLifecycle.settleView(publicViewGeneration)
+    ) {
       this.eventDispatcher.dispatchEvent({
-        type: 'viewsettled',
+        type: "viewsettled",
         viewGeneration: publicViewGeneration,
         selectedNodeKeys: Object.freeze([...update.selectedNodeKeys]),
       });
@@ -667,10 +726,16 @@ export class ThreeLayerController {
     this.motionDecayTimer = setTimeout(() => {
       this.motionDecayTimer = undefined;
       const attachment = this.attachment;
-      if (!attachment || !this.core.getMetadata() || this.lifecycle === 'destroyed') {
+      if (
+        !attachment ||
+        !this.core.getMetadata() ||
+        this.lifecycle === "destroyed"
+      ) {
         return;
       }
-      const observation = this.core.observeCameraMotion(this.createView(attachment));
+      const observation = this.core.observeCameraMotion(
+        this.createView(attachment),
+      );
       if (observation.priorityChanged) {
         void this.updateCurrentView(true);
       }
@@ -702,20 +767,29 @@ export class ThreeLayerController {
       }
     }
     for (const [nodeKey, points] of progress.loadedNodePoints) {
-      if (!progress.selectedNodeKeys.includes(nodeKey) || this.pointRenderer.hasNode(nodeKey)) {
+      if (
+        !progress.selectedNodeKeys.includes(nodeKey) ||
+        this.pointRenderer.hasNode(nodeKey)
+      ) {
         continue;
       }
-      if (this.replacementTransitions.getProjectedPointCount(nodeKey, points.pointCount)
-        > this.getMaxRenderedPoints()) {
+      if (
+        this.replacementTransitions.getProjectedPointCount(
+          nodeKey,
+          points.pointCount,
+        ) > this.getMaxRenderedPoints()
+      ) {
         continue;
       }
       this.addRenderedNode(nodeKey, points);
-      if (points.pointCount > 0
-        && this.pointRenderer.hasNode(nodeKey)
-        && this.firstVisibleLoadGeneration !== this.loadGeneration) {
+      if (
+        points.pointCount > 0 &&
+        this.pointRenderer.hasNode(nodeKey) &&
+        this.firstVisibleLoadGeneration !== this.loadGeneration
+      ) {
         this.firstVisibleLoadGeneration = this.loadGeneration;
         this.eventDispatcher.dispatchEvent({
-          type: 'firstvisible',
+          type: "firstvisible",
           loadGeneration: this.loadGeneration,
           viewGeneration,
         });
@@ -732,7 +806,7 @@ export class ThreeLayerController {
   private addRenderedNode(nodeKey: string, points: PreparedPointData): void {
     this.pointRenderer.addOrUpdateNode(nodeKey, points, {
       pointSize: this.options.pointSize ?? 3,
-      colorMode: this.options.colorMode ?? 'fixed',
+      colorMode: this.options.colorMode ?? "fixed",
       elevationRange: this.datasetElevationRange,
       rgbMax: this.pointStyleState.getRgbMax(points),
       pointId: (pointIndex) => ({
@@ -740,8 +814,12 @@ export class ThreeLayerController {
         pointIndex,
         ownerId: this.pointPicker.ownerId,
       }),
-      onPerformance: (stage: ThreePointRendererPerformanceStage, durationMs: number) => {
-        const metric = `${stage}DurationMs` as keyof CopcThreeRendererPerformanceSnapshot;
+      onPerformance: (
+        stage: ThreePointRendererPerformanceStage,
+        durationMs: number,
+      ) => {
+        const metric =
+          `${stage}DurationMs` as keyof CopcThreeRendererPerformanceSnapshot;
         if (metric in this.rendererPerformance) {
           this.rendererPerformance[metric] += durationMs;
         }
@@ -753,14 +831,14 @@ export class ThreeLayerController {
     const cancelled = this.eventLifecycle.cancelView(reason);
     if (cancelled) {
       this.eventDispatcher.dispatchEvent({
-        type: 'viewcancelled',
+        type: "viewcancelled",
         ...cancelled,
       });
     }
   }
 
   private isDestroyed(): boolean {
-    return this.lifecycle === 'destroyed';
+    return this.lifecycle === "destroyed";
   }
 
   private removeRenderedNode(nodeKey: string): void {
@@ -770,7 +848,7 @@ export class ThreeLayerController {
 
   private createView(attachment: CopcThreeLayerAttachment): StreamingView {
     if (!this.localFrame) {
-      throw new Error('CopcThreeLayer has no dataset-local frame');
+      throw new Error("CopcThreeLayer has no dataset-local frame");
     }
     return createThreeStreamingView({
       camera: attachment.camera,
@@ -792,8 +870,12 @@ export class ThreeLayerController {
   }
 
   private getMaxRenderedPoints(): number {
-    const value = this.options.maxRenderedPoints ?? this.options.streaming?.maxRenderedPoints;
-    return value !== undefined && isFinitePositive(value) ? value : DEFAULT_MAX_RENDERED_POINTS;
+    const value =
+      this.options.maxRenderedPoints ??
+      this.options.streaming?.maxRenderedPoints;
+    return value !== undefined && isFinitePositive(value)
+      ? value
+      : DEFAULT_MAX_RENDERED_POINTS;
   }
 
   private resetRendererPerformance(): void {
@@ -804,9 +886,11 @@ export class ThreeLayerController {
     generation: number,
     attachment: CopcThreeLayerAttachment,
   ): boolean {
-    return generation === this.streamingGeneration
-      && this.attachment === attachment
-      && this.lifecycle !== 'destroyed';
+    return (
+      generation === this.streamingGeneration &&
+      this.attachment === attachment &&
+      this.lifecycle !== "destroyed"
+    );
   }
 
   private debug(message: string): void {

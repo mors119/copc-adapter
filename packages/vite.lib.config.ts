@@ -1,13 +1,13 @@
-import { defineConfig } from 'vite';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { defineConfig } from "vite";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const appDirectory = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   // Keep asset URLs relative to the package entry when it is imported by a
   // separate Vite application.
-  base: './',
+  base: "./",
   // The application public directory may contain a downloaded sample. It is
   // never part of the reusable library package.
   publicDir: false,
@@ -17,15 +17,15 @@ export default defineConfig({
     assetsInlineLimit: 0,
     lib: {
       entry: {
-        index: 'index.ts',
-        cesium: 'cesium.ts',
-        three: 'three.ts',
+        index: "index.ts",
+        cesium: "cesium.ts",
+        three: "three.ts",
       },
-      formats: ['es'],
+      formats: ["es"],
       fileName: (_format, entryName) => `${entryName}.js`,
     },
     rollupOptions: {
-      external: ['cesium', 'three'],
+      external: ["cesium", "three"],
     },
   },
   resolve: {
@@ -35,7 +35,7 @@ export default defineConfig({
       // consumer does not need to copy laz-perf.wasm into its web root.
       {
         find: /^laz-perf$/,
-        replacement: path.resolve(appDirectory, 'core/wasm/lazPerf.ts'),
+        replacement: path.resolve(appDirectory, "core/wasm/lazPerf.ts"),
       },
     ],
   },

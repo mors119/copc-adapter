@@ -1,19 +1,23 @@
-import { defineConfig } from '@playwright/test';
+import { defineConfig } from "@playwright/test";
 
 const port = Number(process.env.PLAYGROUND_TEST_PORT ?? 5180);
 const baseURL = `http://127.0.0.1:${port}/copc-adapter/playground/`;
 
 export default defineConfig({
-  testDir: './e2e',
+  testDir: "./e2e",
   workers: 1,
   timeout: 30_000,
   expect: { timeout: 5_000 },
   use: {
     baseURL,
-    browserName: 'chromium',
+    browserName: "chromium",
     headless: true,
     launchOptions: {
-      args: ['--enable-webgl', '--ignore-gpu-blocklist', '--use-gl=swiftshader'],
+      args: [
+        "--enable-webgl",
+        "--ignore-gpu-blocklist",
+        "--use-gl=swiftshader",
+      ],
     },
   },
   webServer: {

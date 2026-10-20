@@ -1,29 +1,29 @@
 /** Rust parser and WASM-boundary validation codes; unknown future codes remain strings. */
 export type RustCopcParseErrorCode =
   /** Request data or ABI arguments are malformed. */
-  | 'invalid-input'
+  | "invalid-input"
   /** Input bytes ended before the requested structure was complete. */
-  | 'truncated'
+  | "truncated"
   /** LAS/COPC header fields are inconsistent or invalid. */
-  | 'invalid-header'
+  | "invalid-header"
   /** A parsed value is outside the supported domain. */
-  | 'unsupported-value'
+  | "unsupported-value"
   /** A required value violates the format's structural constraints. */
-  | 'invalid-value'
+  | "invalid-value"
   /** Required COPC info metadata is absent. */
-  | 'missing-copc-info'
+  | "missing-copc-info"
   /** COPC info record is malformed. */
-  | 'malformed-copc-info'
+  | "malformed-copc-info"
   /** CRS WKT could not be parsed. */
-  | 'malformed-wkt'
+  | "malformed-wkt"
   /** Hierarchy entry or page data is invalid. */
-  | 'invalid-hierarchy'
+  | "invalid-hierarchy"
   /** A checked offset, length, or count calculation overflowed. */
-  | 'overflow'
+  | "overflow"
   /** Memory allocation failed. */
-  | 'allocation'
+  | "allocation"
   /** Rust could not serialize a response. */
-  | 'serialization'
+  | "serialization"
   /** Other parser code retained for forward compatibility. */
   | string;
 
@@ -33,16 +33,31 @@ export class RustCopcParseError extends Error {
   readonly code: RustCopcParseErrorCode;
 
   /** Create a structured parser error and preserve an optional cause. */
-  constructor(code: RustCopcParseErrorCode, message: string, options?: ErrorOptions) {
+  constructor(
+    code: RustCopcParseErrorCode,
+    message: string,
+    options?: ErrorOptions,
+  ) {
     super(message, options);
-    this.name = 'RustCopcParseError';
+    this.name = "RustCopcParseError";
     this.code = code;
   }
 }
 
-export function requireRustWasmPointer(pointer: number, length: number, what: string): number {
-  if (!Number.isSafeInteger(pointer) || pointer < 0 || (length > 0 && pointer === 0)) {
-    throw new RustCopcParseError('allocation', `Rust WASM allocation for ${what} failed`);
+export function requireRustWasmPointer(
+  pointer: number,
+  length: number,
+  what: string,
+): number {
+  if (
+    !Number.isSafeInteger(pointer) ||
+    pointer < 0 ||
+    (length > 0 && pointer === 0)
+  ) {
+    throw new RustCopcParseError(
+      "allocation",
+      `Rust WASM allocation for ${what} failed`,
+    );
   }
   return pointer;
 }

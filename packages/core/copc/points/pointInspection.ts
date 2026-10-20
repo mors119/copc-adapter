@@ -1,5 +1,5 @@
-import type { CopcBackendName } from '../backend/selection';
-import type { GeographicPointBuffer } from '../types/copc';
+import type { CopcBackendName } from "../backend/selection";
+import type { GeographicPointBuffer } from "../types/copc";
 
 /** Small project-owned reference carried by a rendered point. */
 export type CopcPointPickId = Readonly<{
@@ -37,7 +37,7 @@ export type CopcPointInspection = {
   /** Optional WGS84 ECEF point coordinates retained for renderer diagnostics. */
   world?: {
     /** Identifies WGS84 Earth-centred, Earth-fixed metre coordinates. */
-    coordinateSystem: 'wgs84-ecef-meters';
+    coordinateSystem: "wgs84-ecef-meters";
     /** ECEF X coordinate in metres. */
     x: number;
     /** ECEF Y coordinate in metres. */
@@ -66,32 +66,34 @@ export type CopcPointInspection = {
    */
   dimensions?: Record<string, number | bigint>;
   /** Built-in backend that decoded the point or `custom` for an injected backend. */
-  backend: CopcBackendName | 'custom';
+  backend: CopcBackendName | "custom";
 };
 
 const ASPRS_CLASSIFICATION_LABELS: Readonly<Record<number, string>> = {
-  0: 'Never Classified',
-  1: 'Unclassified',
-  2: 'Ground',
-  3: 'Low Vegetation',
-  4: 'Medium Vegetation',
-  5: 'High Vegetation',
-  6: 'Building',
+  0: "Never Classified",
+  1: "Unclassified",
+  2: "Ground",
+  3: "Low Vegetation",
+  4: "Medium Vegetation",
+  5: "High Vegetation",
+  6: "Building",
 };
 
 /** Check whether an unknown value has a node key and non-negative safe point index. */
 export function isCopcPointPickId(value: unknown): value is CopcPointPickId {
-  if (value === null || typeof value !== 'object') {
+  if (value === null || typeof value !== "object") {
     return false;
   }
 
   const candidate = value as Partial<CopcPointPickId>;
   const pointIndex = candidate.pointIndex;
-  return typeof candidate.nodeKey === 'string'
-    && candidate.nodeKey.length > 0
-    && typeof pointIndex === 'number'
-    && Number.isSafeInteger(pointIndex)
-    && pointIndex >= 0;
+  return (
+    typeof candidate.nodeKey === "string" &&
+    candidate.nodeKey.length > 0 &&
+    typeof pointIndex === "number" &&
+    Number.isSafeInteger(pointIndex) &&
+    pointIndex >= 0
+  );
 }
 
 function getClassificationLabel(code: number): string | undefined {
@@ -106,12 +108,14 @@ export function inspectCopcPoint(
   pickId: CopcPointPickId,
   node: { level: number },
   points: GeographicPointBuffer,
-  backend: CopcBackendName | 'custom',
+  backend: CopcBackendName | "custom",
 ): CopcPointInspection | undefined {
-  if (!isCopcPointPickId(pickId)
-    || !Number.isSafeInteger(node.level)
-    || pickId.pointIndex >= points.pointCount
-    || pickId.pointIndex * 3 + 2 >= points.coordinates.length) {
+  if (
+    !isCopcPointPickId(pickId) ||
+    !Number.isSafeInteger(node.level) ||
+    pickId.pointIndex >= points.pointCount ||
+    pickId.pointIndex * 3 + 2 >= points.coordinates.length
+  ) {
     return undefined;
   }
 
@@ -126,7 +130,10 @@ export function inspectCopcPoint(
     backend,
   };
 
-  if (points.sourceCoordinates && points.sourceCoordinates.length >= offset + 3) {
+  if (
+    points.sourceCoordinates &&
+    points.sourceCoordinates.length >= offset + 3
+  ) {
     inspection.source = {
       x: points.sourceCoordinates[offset],
       y: points.sourceCoordinates[offset + 1],
@@ -136,14 +143,15 @@ export function inspectCopcPoint(
 
   if (points.worldCoordinates && points.worldCoordinates.length >= offset + 3) {
     inspection.world = {
-      coordinateSystem: 'wgs84-ecef-meters',
+      coordinateSystem: "wgs84-ecef-meters",
       x: points.worldCoordinates[offset],
       y: points.worldCoordinates[offset + 1],
       z: points.worldCoordinates[offset + 2],
     };
   }
 
-  const { intensity, classification, red, green, blue } = points.attributes ?? {};
+  const { intensity, classification, red, green, blue } =
+    points.attributes ?? {};
   if (intensity && pickId.pointIndex < intensity.length) {
     inspection.intensity = intensity[pickId.pointIndex];
   }
@@ -153,10 +161,14 @@ export function inspectCopcPoint(
       classification[pickId.pointIndex],
     );
   }
-  if (red && green && blue
-    && pickId.pointIndex < red.length
-    && pickId.pointIndex < green.length
-    && pickId.pointIndex < blue.length) {
+  if (
+    red &&
+    green &&
+    blue &&
+    pickId.pointIndex < red.length &&
+    pickId.pointIndex < green.length &&
+    pickId.pointIndex < blue.length
+  ) {
     inspection.rgb = {
       red: red[pickId.pointIndex],
       green: green[pickId.pointIndex],
@@ -164,9 +176,11 @@ export function inspectCopcPoint(
     };
   }
 
-  for (const [name, values] of Object.entries(points.attributes?.extraDimensions ?? {})) {
+  for (const [name, values] of Object.entries(
+    points.attributes?.extraDimensions ?? {},
+  )) {
     if (pickId.pointIndex < values.length) {
-      Object.defineProperty(inspection.dimensions ??= {}, name, {
+      Object.defineProperty((inspection.dimensions ??= {}), name, {
         value: values[pickId.pointIndex],
         enumerable: true,
         configurable: true,

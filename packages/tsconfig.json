@@ -19,5 +19,5 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["core", "cesium", "three", "test/coordinate-boundary-types.ts"]
+  "include": ["core", "cesium", "three", "test/core/coordinates/boundary-types.ts"]
 }

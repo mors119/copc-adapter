@@ -1,4 +1,4 @@
-import proj4 from 'proj4';
+import proj4 from "proj4";
 import type {
   CopcMetadata,
   CopcPoint,
@@ -6,28 +6,23 @@ import type {
   GeographicPoint,
   GeographicPointBuffer,
   PreparedPointData,
-} from '../../copc/types/copc';
+} from "../../copc/types/copc";
 import {
   createPreparedPointData,
   preparedPointDataToGeographicBuffer,
   assertPreparedPointData,
-} from '../../point/preparedPoint';
-import { geographicToEcef } from './worldCoordinates';
+} from "../../point/preparedPoint";
+import { geographicToEcef } from "./worldCoordinates";
 import {
   extractHorizontalCrsWkt,
   extractVerticalUnitScale,
-} from '../crs/parseCopcWkt';
-import { resolveHeightOffsetMeters } from './heightOffset';
+} from "../crs/parseCopcWkt";
+import { resolveHeightOffsetMeters } from "./heightOffset";
 
 function hasGeographicBounds(metadata: CopcMetadata): boolean {
   const { minX, minY, maxX, maxY } = metadata.bounds;
 
-  return (
-    minX >= -180 &&
-    maxX <= 180 &&
-    minY >= -90 &&
-    maxY <= 90
-  );
+  return minX >= -180 && maxX <= 180 && minY >= -90 && maxY <= 90;
 }
 
 /**
@@ -56,13 +51,13 @@ export function createPointTransformer(
     }
 
     throw new Error(
-      'COPC metadata WKT is required to transform projected coordinates for geographic rendering',
+      "COPC metadata WKT is required to transform projected coordinates for geographic rendering",
     );
   }
 
   const horizontalWkt = extractHorizontalCrsWkt(metadata.wkt);
   const verticalUnitScale = extractVerticalUnitScale(metadata.wkt);
-  const projection = proj4(horizontalWkt, 'WGS84');
+  const projection = proj4(horizontalWkt, "WGS84");
 
   return (point: CopcPoint): GeographicPoint => {
     const [longitude, latitude] = projection.forward([point.x, point.y]);
@@ -71,7 +66,8 @@ export function createPointTransformer(
     return {
       longitude,
       latitude,
-      height: heightOffset === 0 ? convertedHeight : convertedHeight + heightOffset,
+      height:
+        heightOffset === 0 ? convertedHeight : convertedHeight + heightOffset,
     };
   };
 }
@@ -97,13 +93,13 @@ export function createProjectPointTransformer(
     }
 
     throw new Error(
-      'COPC metadata WKT is required to transform projected view bounds',
+      "COPC metadata WKT is required to transform projected view bounds",
     );
   }
 
   const horizontalWkt = extractHorizontalCrsWkt(metadata.wkt);
   const verticalUnitScale = extractVerticalUnitScale(metadata.wkt);
-  const projection = proj4(horizontalWkt, 'WGS84');
+  const projection = proj4(horizontalWkt, "WGS84");
 
   return (point: GeographicPoint): CopcPoint => {
     const [x, y] = projection.inverse([point.longitude, point.latitude]);
@@ -131,7 +127,11 @@ export function transformPointBuffer(
   heightOffsetMeters = 0,
 ): GeographicPointBuffer {
   return preparedPointDataToGeographicBuffer(
-    transformPointBufferToPreparedPointData(metadata, points, heightOffsetMeters),
+    transformPointBufferToPreparedPointData(
+      metadata,
+      points,
+      heightOffsetMeters,
+    ),
   );
 }
 
@@ -146,7 +146,11 @@ export function transformPointBufferToPointData(
   points: CopcPointBuffer,
   heightOffsetMeters = 0,
 ): PreparedPointData {
-  return transformPointBufferToPreparedPointData(metadata, points, heightOffsetMeters);
+  return transformPointBufferToPreparedPointData(
+    metadata,
+    points,
+    heightOffsetMeters,
+  );
 }
 
 /**

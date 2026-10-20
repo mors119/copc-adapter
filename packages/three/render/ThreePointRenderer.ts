@@ -1,38 +1,41 @@
-import * as THREE from 'three';
+import * as THREE from "three";
 import type {
   CopcMetadata,
   GeographicPointBuffer,
   PreparedPointData,
-} from '../../core/copc/types/copc';
-import { performanceNow } from '../../core/copc/performance';
-import { createPointTransformer } from '../../core/coordinates/transform/createPointTransformer';
+} from "../../core/copc/types/copc";
+import { performanceNow } from "../../core/copc/performance";
+import { createPointTransformer } from "../../core/coordinates/transform/createPointTransformer";
 import {
   geographicToEcef,
   worldBufferToLocal,
-} from '../../core/coordinates/transform/worldCoordinates';
-import { worldBufferToDatasetLocal } from '../../core/coordinates/transform/datasetLocalFrame';
-import type { DatasetLocalFrame, Wgs84EcefPoint } from '../../core/coordinates/types';
+} from "../../core/coordinates/transform/worldCoordinates";
+import { worldBufferToDatasetLocal } from "../../core/coordinates/transform/datasetLocalFrame";
+import type {
+  DatasetLocalFrame,
+  Wgs84EcefPoint,
+} from "../../core/coordinates/types";
 import {
   getThreePointsMaterialOptions,
   prepareThreePointColorBuffer,
-} from '../style/pointStyle';
+} from "../style/pointStyle";
 import type {
   CopcPointRenderer,
   CopcPointRendererOptions,
-} from '../../core/streaming/renderer';
+} from "../../core/streaming/renderer";
 
 /** Three renderer preparation stage reported with a duration in milliseconds. */
 export type ThreePointRendererPerformanceStage =
   /** Convert shared ECEF positions to the dataset's renderer-local frame. */
-  | 'worldToLocal'
+  | "worldToLocal"
   /** Allocate point geometry and attributes. */
-  | 'geometryCreation'
+  | "geometryCreation"
   /** Allocate the points material. */
-  | 'materialCreation'
+  | "materialCreation"
   /** Total preparation time for the node. */
-  | 'rendererPreparation'
+  | "rendererPreparation"
   /** Remove and release one node's geometry and material. */
-  | 'nodeRemoval';
+  | "nodeRemoval";
 
 /** Options passed to the Three point renderer for one node. */
 export type ThreePointRendererOptions = CopcPointRendererOptions & {
@@ -70,25 +73,40 @@ export function createThreeLocalOrigin(metadata: CopcMetadata): Wgs84EcefPoint {
 
 function assertPointCount(points: GeographicPointBuffer): void {
   if (!Number.isSafeInteger(points.pointCount) || points.pointCount < 0) {
-    throw new Error('Three.js point buffers must have a non-negative safe point count');
+    throw new Error(
+      "Three.js point buffers must have a non-negative safe point count",
+    );
   }
 
   if (points.coordinates.length !== points.pointCount * 3) {
-    throw new Error('Three.js point buffers must contain three geographic values per point');
+    throw new Error(
+      "Three.js point buffers must contain three geographic values per point",
+    );
   }
 
-  if (points.worldCoordinates
-    && points.worldCoordinates.length !== points.pointCount * 3) {
-    throw new Error('Three.js world point buffers must contain three values per point');
+  if (
+    points.worldCoordinates &&
+    points.worldCoordinates.length !== points.pointCount * 3
+  ) {
+    throw new Error(
+      "Three.js world point buffers must contain three values per point",
+    );
   }
 
-  if (points.worldCoordinateSystem
-    && points.worldCoordinateSystem !== 'wgs84-ecef-meters') {
-    throw new Error('Three.js point buffers must use wgs84-ecef-meters world coordinates');
+  if (
+    points.worldCoordinateSystem &&
+    points.worldCoordinateSystem !== "wgs84-ecef-meters"
+  ) {
+    throw new Error(
+      "Three.js point buffers must use wgs84-ecef-meters world coordinates",
+    );
   }
 }
 
-function assertFiniteCoordinates(coordinates: Float64Array, label: string): void {
+function assertFiniteCoordinates(
+  coordinates: Float64Array,
+  label: string,
+): void {
   for (const value of coordinates) {
     if (!Number.isFinite(value)) {
       throw new Error(`Three.js ${label} coordinates must be finite`);
@@ -98,7 +116,7 @@ function assertFiniteCoordinates(coordinates: Float64Array, label: string): void
 
 function toWorldCoordinates(points: GeographicPointBuffer): Float64Array {
   if (points.worldCoordinates) {
-    assertFiniteCoordinates(points.worldCoordinates, 'world');
+    assertFiniteCoordinates(points.worldCoordinates, "world");
     return points.worldCoordinates;
   }
 
@@ -119,26 +137,28 @@ function toWorldCoordinates(points: GeographicPointBuffer): Float64Array {
 
 function copyEcefPoint(point: Wgs84EcefPoint): Wgs84EcefPoint {
   if (![point.x, point.y, point.z].every(Number.isFinite)) {
-    throw new Error('Three.js local origin must have finite coordinates');
+    throw new Error("Three.js local origin must have finite coordinates");
   }
-  if (point.coordinateSystem !== 'wgs84-ecef-meters') {
-    throw new Error('Three.js local origin must use wgs84-ecef-meters');
+  if (point.coordinateSystem !== "wgs84-ecef-meters") {
+    throw new Error("Three.js local origin must use wgs84-ecef-meters");
   }
   return {
-    coordinateSystem: 'wgs84-ecef-meters',
+    coordinateSystem: "wgs84-ecef-meters",
     x: point.x,
     y: point.y,
     z: point.z,
   };
 }
 
-function deriveOrigin(worldCoordinates: Float64Array): Wgs84EcefPoint | undefined {
+function deriveOrigin(
+  worldCoordinates: Float64Array,
+): Wgs84EcefPoint | undefined {
   if (worldCoordinates.length === 0) {
     return undefined;
   }
 
   return {
-    coordinateSystem: 'wgs84-ecef-meters',
+    coordinateSystem: "wgs84-ecef-meters",
     x: worldCoordinates[0],
     y: worldCoordinates[1],
     z: worldCoordinates[2],
@@ -147,7 +167,7 @@ function deriveOrigin(worldCoordinates: Float64Array): Wgs84EcefPoint | undefine
 
 function createMaterial(pointSize: number): THREE.PointsMaterial {
   if (!Number.isFinite(pointSize) || pointSize <= 0) {
-    throw new Error('Three.js pointSize must be a positive finite number');
+    throw new Error("Three.js pointSize must be a positive finite number");
   }
 
   return new THREE.PointsMaterial({
@@ -179,16 +199,16 @@ export class ThreePointRenderer implements CopcPointRenderer {
     if (options.localFrame) {
       this.setLocalFrame(options.localFrame);
     }
-    this.root.name = 'copc-three-root';
+    this.root.name = "copc-three-root";
   }
 
   /** Attach the adapter-owned root group to the caller-owned scene. */
   attachTo(scene: THREE.Scene): void {
     if (this.destroyed) {
-      throw new Error('ThreePointRenderer has been destroyed');
+      throw new Error("ThreePointRenderer has been destroyed");
     }
-    if (!scene || typeof scene.add !== 'function') {
-      throw new Error('ThreePointRenderer requires a Three.js scene');
+    if (!scene || typeof scene.add !== "function") {
+      throw new Error("ThreePointRenderer requires a Three.js scene");
     }
     if (this.scene === scene) {
       return;
@@ -224,15 +244,21 @@ export class ThreePointRenderer implements CopcPointRenderer {
    */
   setLocalFrame(frame: DatasetLocalFrame): void {
     if (this.destroyed) {
-      throw new Error('ThreePointRenderer has been destroyed');
+      throw new Error("ThreePointRenderer has been destroyed");
     }
     if (this.pointsByNode.size > 0) {
-      throw new Error('ThreePointRenderer cannot change its frame while nodes are rendered');
+      throw new Error(
+        "ThreePointRenderer cannot change its frame while nodes are rendered",
+      );
     }
-    if (frame.coordinateSystem !== 'renderer-local'
-      || frame.axisConvention !== 'enu'
-      || frame.units !== 'metres') {
-      throw new Error('ThreePointRenderer requires a dataset-local ENU metre frame');
+    if (
+      frame.coordinateSystem !== "renderer-local" ||
+      frame.axisConvention !== "enu" ||
+      frame.units !== "metres"
+    ) {
+      throw new Error(
+        "ThreePointRenderer requires a dataset-local ENU metre frame",
+      );
     }
     this.localFrame = frame;
     this.localOrigin = undefined;
@@ -258,13 +284,13 @@ export class ThreePointRenderer implements CopcPointRenderer {
     options: ThreePointRendererOptions,
   ): void {
     if (this.destroyed) {
-      throw new Error('ThreePointRenderer has been destroyed');
+      throw new Error("ThreePointRenderer has been destroyed");
     }
     if (!this.scene) {
-      throw new Error('ThreePointRenderer is not attached to a Three.js scene');
+      throw new Error("ThreePointRenderer is not attached to a Three.js scene");
     }
     if (!nodeKey) {
-      throw new Error('Three.js rendered nodes require a non-empty node key');
+      throw new Error("Three.js rendered nodes require a non-empty node key");
     }
 
     assertPointCount(points);
@@ -277,7 +303,7 @@ export class ThreePointRenderer implements CopcPointRenderer {
       }
     }
     const origin = this.localOrigin ?? {
-      coordinateSystem: 'wgs84-ecef-meters' as const,
+      coordinateSystem: "wgs84-ecef-meters" as const,
       x: 0,
       y: 0,
       z: 0,
@@ -289,26 +315,29 @@ export class ThreePointRenderer implements CopcPointRenderer {
       : worldBufferToLocal(worldCoordinates, origin);
     const positions = new Float32Array(localCoordinates);
     options.onPerformance?.(
-      'worldToLocal',
+      "worldToLocal",
       performanceNow() - localStartedAt,
       points.pointCount,
     );
 
     const geometryStartedAt = performanceNow();
     const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geometry.setAttribute('color', new THREE.BufferAttribute(
-      prepareThreePointColorBuffer(points, {
-        colorMode: options.colorMode,
-        elevationRange: options.elevationRange,
-        rgbMax: options.rgbMax,
-      }),
-      3,
-    ));
+    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute(
+      "color",
+      new THREE.BufferAttribute(
+        prepareThreePointColorBuffer(points, {
+          colorMode: options.colorMode,
+          elevationRange: options.elevationRange,
+          rgbMax: options.rgbMax,
+        }),
+        3,
+      ),
+    );
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
     options.onPerformance?.(
-      'geometryCreation',
+      "geometryCreation",
       performanceNow() - geometryStartedAt,
       points.pointCount,
     );
@@ -322,7 +351,7 @@ export class ThreePointRenderer implements CopcPointRenderer {
       throw error;
     }
     options.onPerformance?.(
-      'materialCreation',
+      "materialCreation",
       performanceNow() - materialStartedAt,
       points.pointCount,
     );
@@ -343,7 +372,7 @@ export class ThreePointRenderer implements CopcPointRenderer {
     this.root.add(renderedPoints);
     this.pointsByNode.set(nodeKey, renderedPoints);
     options.onPerformance?.(
-      'rendererPreparation',
+      "rendererPreparation",
       performanceNow() - rendererStartedAt,
       points.pointCount,
     );
@@ -359,9 +388,13 @@ export class ThreePointRenderer implements CopcPointRenderer {
     const startedAt = performanceNow();
     this.disposeNode(nodeKey, points);
     const observer = points.userData.copcPerformanceObserver as
-      | ThreePointRendererOptions['onPerformance']
+      | ThreePointRendererOptions["onPerformance"]
       | undefined;
-    observer?.('nodeRemoval', performanceNow() - startedAt, points.userData.copcPointCount ?? 0);
+    observer?.(
+      "nodeRemoval",
+      performanceNow() - startedAt,
+      points.userData.copcPointCount ?? 0,
+    );
   }
 
   /** Remove and dispose all node objects while keeping the renderer reusable. */
@@ -387,7 +420,8 @@ export class ThreePointRenderer implements CopcPointRenderer {
 
   /** Return the point count for one committed node, or `undefined` when absent. */
   getRenderedNodePointCount(nodeKey: string): number | undefined {
-    return this.pointsByNode.get(nodeKey)?.geometry.getAttribute('position')?.count;
+    return this.pointsByNode.get(nodeKey)?.geometry.getAttribute("position")
+      ?.count;
   }
 
   /** Return sorted keys for nodes currently committed to the scene. */
@@ -399,7 +433,7 @@ export class ThreePointRenderer implements CopcPointRenderer {
   getRenderedPointCount(): number {
     let total = 0;
     for (const points of this.pointsByNode.values()) {
-      total += points.geometry.getAttribute('position')?.count ?? 0;
+      total += points.geometry.getAttribute("position")?.count ?? 0;
     }
     return total;
   }

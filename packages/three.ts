@@ -15,42 +15,45 @@ export {
   CopcLoadError,
   CopcMetadataError,
   CopcSourceError,
-} from './core/copc/errors';
-export type {
-  CopcBackendErrorCode,
-  CopcLoadStage,
-} from './core/copc/errors';
-export { CopcJsBackend, copcJsBackend } from './core/copc/backend/copcJsBackend';
+} from "./core/copc/errors";
+export type { CopcBackendErrorCode, CopcLoadStage } from "./core/copc/errors";
+export {
+  CopcJsBackend,
+  copcJsBackend,
+} from "./core/copc/backend/copcJsBackend";
 export {
   RustCopcBackend,
   rustCopcBackend,
-} from './core/copc/backend/rustCopcBackend';
+} from "./core/copc/backend/rustCopcBackend";
 export type {
   CopcBackendName,
   CopcBackendSelection,
   CopcJsBackendOptions,
   RustByteSourceFactory,
   RustCopcBackendOptions,
-} from './core/copc/backend';
+} from "./core/copc/backend";
 export type {
   CopcBackend,
   CopcBackendOpenOptions,
   CopcPointLoadOptions,
   CopcSource,
   CopcWorkerDiagnostics,
-} from './core/copc/backend/types';
-export type { CopcPerformanceEvent, CopcPerformanceObserver } from './core/copc/performance';
-export { CopcWasmError } from './core/wasm/copcWasm';
-export { RustCrsTransformer } from './core/coordinates/transform/rustCrsTransformer';
-export type { RustPreparedCoordinateBuffer } from './core/coordinates/transform/rustCrsTransformer';
+} from "./core/copc/backend/types";
+export type {
+  CopcPerformanceEvent,
+  CopcPerformanceObserver,
+} from "./core/copc/performance";
+export { CopcWasmError } from "./core/wasm/copcWasm";
+export { RustCrsTransformer } from "./core/coordinates/transform/rustCrsTransformer";
+export type { RustPreparedCoordinateBuffer } from "./core/coordinates/transform/rustCrsTransformer";
 export type {
   CopcHierarchyBounds,
   CopcHierarchyQueryBounds,
   CopcHierarchyDiagnostics,
   CopcHierarchyQuery,
   CopcProjectBounds,
-} from './core/copc/hierarchy/types';
-export type { CopcPointDecoder } from './core/copc/points/types';
+} from "./core/copc/hierarchy/types";
+export type { CopcPointDecoder } from "./core/copc/points/types";
 export {
   HttpRangeByteSource,
   BlobByteSource,
@@ -59,8 +62,8 @@ export {
   DEFAULT_MAX_RANGE_BYTES,
   DEFAULT_MAX_CONCURRENT_RANGE_REQUESTS,
   validateByteRange,
-} from './core/copc/range';
-export type { BlobByteSourceOptions } from './core/copc/range';
+} from "./core/copc/range";
+export type { BlobByteSourceOptions } from "./core/copc/range";
 export type {
   ByteRange,
   RangeFetch,
@@ -71,23 +74,23 @@ export type {
   RangeSourceErrorDetails,
   RandomAccessByteSource,
   CopcInputSource,
-} from './core/copc/range';
-export { probeCopcSource } from './core/copc/sourceProbe';
+} from "./core/copc/range";
+export { probeCopcSource } from "./core/copc/sourceProbe";
 export type {
   CopcSourceProbeOptions,
   CopcSourceProbeResult,
   ProbeTruth,
-} from './core/copc/sourceProbe';
+} from "./core/copc/sourceProbe";
 export {
   allCopcPointFields,
   createCopcPointFieldSelection,
   getCopcPointFieldSelection,
-} from './core/copc/points/fieldSelection';
+} from "./core/copc/points/fieldSelection";
 export type {
   CopcPointComponent,
   CopcPointField,
   CopcPointFieldSelection,
-} from './core/copc/points/fieldSelection';
+} from "./core/copc/points/fieldSelection";
 export type {
   CopcMetadata,
   CopcPoint,
@@ -99,7 +102,7 @@ export type {
   PreparedPointStatistics,
   GeographicPoint,
   GeographicPointBuffer,
-} from './core/copc/types/copc';
+} from "./core/copc/types/copc";
 export type {
   CoordinateBounds,
   CoordinateBuffer,
@@ -111,16 +114,16 @@ export type {
   Wgs84EcefPoint,
   Wgs84GeographicBounds,
   Wgs84GeographicPoint,
-} from './core/coordinates/types';
+} from "./core/coordinates/types";
 export {
   transformPointBufferToPointData,
   transformPointBufferToPreparedPointData,
-} from './core/coordinates/transform/createPointTransformer';
+} from "./core/coordinates/transform/createPointTransformer";
 export {
   assertPreparedPointData,
   createPreparedPointData,
   preparedPointDataToGeographicBuffer,
-} from './core/point/preparedPoint';
+} from "./core/point/preparedPoint";
 export {
   createDatasetLocalFrame,
   datasetLocalDirectionToWorld,
@@ -129,23 +132,23 @@ export {
   worldBufferToDatasetLocal,
   worldDirectionToDatasetLocal,
   worldToDatasetLocal,
-} from './core/coordinates/transform/datasetLocalFrame';
+} from "./core/coordinates/transform/datasetLocalFrame";
 export {
   worldBufferToLocal,
   worldToLocal,
-} from './core/coordinates/transform/worldCoordinates';
+} from "./core/coordinates/transform/worldCoordinates";
 export {
   inspectCopcPoint,
   isCopcPointPickId,
-} from './core/copc/points/pointInspection';
+} from "./core/copc/points/pointInspection";
 export type {
   CopcPointInspection,
   CopcPointPickId,
-} from './core/copc/points/pointInspection';
+} from "./core/copc/points/pointInspection";
 export {
   CopcStreamingCore,
   CopcStreamingController,
-} from './core/streaming/CopcStreamingCore';
+} from "./core/streaming/CopcStreamingCore";
 export type {
   CopcStreamingCoreOptions,
   CopcStreamingControllerOptions,
@@ -155,12 +158,12 @@ export type {
   CopcStreamingProgressHandler,
   CopcStreamingSnapshot,
   CopcStreamingTransitionState,
-} from './core/streaming/CopcStreamingCore';
+} from "./core/streaming/CopcStreamingCore";
 export type {
   CopcPointRenderer,
   CopcPointRendererOptions,
   CopcValueRange,
-} from './core/streaming/renderer';
+} from "./core/streaming/renderer";
 export type {
   BoundingSphere,
   BoundingSphereInput,
@@ -181,9 +184,15 @@ export type {
   StreamingSchedulingDiagnostics,
   StreamingSelectionOptions,
   StreamingUpdateResult,
-} from './core/streaming/types';
-export type { RefinementAlgorithm, RefinementFocus } from './core/streaming/refinementStrategies';
-export { DEFAULT_REFINEMENT_ALGORITHM, MAX_REFINEMENT_FOCUS_DETAIL_BIAS } from './core/streaming/refinementStrategies';
+} from "./core/streaming/types";
+export type {
+  RefinementAlgorithm,
+  RefinementFocus,
+} from "./core/streaming/refinementStrategies";
+export {
+  DEFAULT_REFINEMENT_ALGORITHM,
+  MAX_REFINEMENT_FOCUS_DETAIL_BIAS,
+} from "./core/streaming/refinementStrategies";
 export type {
   AdaptiveViewDistanceDiagnostics,
   AdaptiveViewDistanceTransition,
@@ -191,17 +200,15 @@ export type {
   GeographicViewBounds,
   StreamingViewBounds,
   StreamingViewBoundsInput,
-} from './core/streaming/view';
+} from "./core/streaming/view";
 export {
   createPerspectiveViewFrustum,
   createStreamingViewBounds,
   ecefToGeographic,
   geographicToEcef,
   intersectsViewFrustum,
-} from './core/streaming/view';
-export {
-  CopcThreeLayer,
-} from './three/layer/CopcThreeLayer';
+} from "./core/streaming/view";
+export { CopcThreeLayer } from "./three/layer/CopcThreeLayer";
 export type {
   CopcThreeLayerAttachment,
   CopcThreeLayerErrorEvent,
@@ -222,20 +229,18 @@ export type {
   CopcThreeLayerViewSettledEvent,
   CopcLayerErrorEvent,
   CopcViewCancellationReason,
-} from './three/layer/CopcThreeLayer';
+} from "./three/layer/CopcThreeLayer";
 export {
   ThreePointRenderer,
   createThreeLocalOrigin,
-} from './three/render/ThreePointRenderer';
+} from "./three/render/ThreePointRenderer";
 export type {
   ThreePointRendererConstructorOptions,
   ThreePointRendererOptions,
   ThreePointRendererPerformanceStage,
-} from './three/render/ThreePointRenderer';
-export {
-  createThreeStreamingView,
-} from './three/view/ThreeViewAdapter';
+} from "./three/render/ThreePointRenderer";
+export { createThreeStreamingView } from "./three/view/ThreeViewAdapter";
 export type {
   ThreeStreamingViewOptions,
   ThreeViewportSource,
-} from './three/view/ThreeViewAdapter';
+} from "./three/view/ThreeViewAdapter";

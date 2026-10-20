@@ -2,17 +2,14 @@ import type {
   CopcHierarchyNode,
   CopcMetadata,
   GeographicPoint,
-} from '../copc/types/copc';
-import { extractHorizontalUnitScale } from '../coordinates/crs/parseCopcWkt';
-import { createPointTransformer } from '../coordinates/transform/createPointTransformer';
-import type {
-  BoundingBox,
-  StreamingHierarchy,
-} from './types';
-import { createBoundingSphereFromGeographicBounds } from './view';
+} from "../copc/types/copc";
+import { extractHorizontalUnitScale } from "../coordinates/crs/parseCopcWkt";
+import { createPointTransformer } from "../coordinates/transform/createPointTransformer";
+import type { BoundingBox, StreamingHierarchy } from "./types";
+import { createBoundingSphereFromGeographicBounds } from "./view";
 
-type CopcSourceBounds = Omit<BoundingBox, 'coordinateSystem'> & {
-  coordinateSystem: 'copc-source';
+type CopcSourceBounds = Omit<BoundingBox, "coordinateSystem"> & {
+  coordinateSystem: "copc-source";
 };
 
 function createChildKey(parent: CopcHierarchyNode, childIndex: number): string {
@@ -54,12 +51,12 @@ function getNodeCenter(
   node: CopcHierarchyNode,
 ): { x: number; y: number; z: number } {
   const cubeSide = getCubeSideLength(metadata);
-  const nodeSide = cubeSide / (2 ** node.level);
+  const nodeSide = cubeSide / 2 ** node.level;
 
   return {
-    x: metadata.cube.minX + (node.x * nodeSide) + (nodeSide / 2),
-    y: metadata.cube.minY + (node.y * nodeSide) + (nodeSide / 2),
-    z: metadata.cube.minZ + (node.z * nodeSide) + (nodeSide / 2),
+    x: metadata.cube.minX + node.x * nodeSide + nodeSide / 2,
+    y: metadata.cube.minY + node.y * nodeSide + nodeSide / 2,
+    z: metadata.cube.minZ + node.z * nodeSide + nodeSide / 2,
   };
 }
 
@@ -68,21 +65,25 @@ function getNodeBounds(
   node: CopcHierarchyNode,
 ): CopcSourceBounds {
   const cubeSide = getCubeSideLength(metadata);
-  const nodeSide = cubeSide / (2 ** node.level);
+  const nodeSide = cubeSide / 2 ** node.level;
 
   return {
-    coordinateSystem: 'copc-source',
-    minX: metadata.cube.minX + (node.x * nodeSide),
-    minY: metadata.cube.minY + (node.y * nodeSide),
-    minZ: metadata.cube.minZ + (node.z * nodeSide),
-    maxX: metadata.cube.minX + ((node.x + 1) * nodeSide),
-    maxY: metadata.cube.minY + ((node.y + 1) * nodeSide),
-    maxZ: metadata.cube.minZ + ((node.z + 1) * nodeSide),
+    coordinateSystem: "copc-source",
+    minX: metadata.cube.minX + node.x * nodeSide,
+    minY: metadata.cube.minY + node.y * nodeSide,
+    minZ: metadata.cube.minZ + node.z * nodeSide,
+    maxX: metadata.cube.minX + (node.x + 1) * nodeSide,
+    maxY: metadata.cube.minY + (node.y + 1) * nodeSide,
+    maxZ: metadata.cube.minZ + (node.z + 1) * nodeSide,
   };
 }
 
 function toGeographicBounds(
-  transformPoint: (point: { x: number; y: number; z: number }) => GeographicPoint,
+  transformPoint: (point: {
+    x: number;
+    y: number;
+    z: number;
+  }) => GeographicPoint,
   bounds: CopcSourceBounds,
 ): BoundingBox {
   const corners = [
@@ -96,23 +97,26 @@ function toGeographicBounds(
     transformPoint({ x: bounds.maxX, y: bounds.maxY, z: bounds.maxZ }),
   ];
 
-  return corners.reduce<BoundingBox>((accumulator, corner) => ({
-    coordinateSystem: 'wgs84-geographic',
-    minX: Math.min(accumulator.minX, corner.longitude),
-    minY: Math.min(accumulator.minY, corner.latitude),
-    minZ: Math.min(accumulator.minZ, corner.height),
-    maxX: Math.max(accumulator.maxX, corner.longitude),
-    maxY: Math.max(accumulator.maxY, corner.latitude),
-    maxZ: Math.max(accumulator.maxZ, corner.height),
-  }), {
-    coordinateSystem: 'wgs84-geographic',
-    minX: Number.POSITIVE_INFINITY,
-    minY: Number.POSITIVE_INFINITY,
-    minZ: Number.POSITIVE_INFINITY,
-    maxX: Number.NEGATIVE_INFINITY,
-    maxY: Number.NEGATIVE_INFINITY,
-    maxZ: Number.NEGATIVE_INFINITY,
-  });
+  return corners.reduce<BoundingBox>(
+    (accumulator, corner) => ({
+      coordinateSystem: "wgs84-geographic",
+      minX: Math.min(accumulator.minX, corner.longitude),
+      minY: Math.min(accumulator.minY, corner.latitude),
+      minZ: Math.min(accumulator.minZ, corner.height),
+      maxX: Math.max(accumulator.maxX, corner.longitude),
+      maxY: Math.max(accumulator.maxY, corner.latitude),
+      maxZ: Math.max(accumulator.maxZ, corner.height),
+    }),
+    {
+      coordinateSystem: "wgs84-geographic",
+      minX: Number.POSITIVE_INFINITY,
+      minY: Number.POSITIVE_INFINITY,
+      minZ: Number.POSITIVE_INFINITY,
+      maxX: Number.NEGATIVE_INFINITY,
+      maxY: Number.NEGATIVE_INFINITY,
+      maxZ: Number.NEGATIVE_INFINITY,
+    },
+  );
 }
 
 /**
@@ -141,9 +145,12 @@ export function buildStreamingHierarchy(
 
   for (const node of nodes) {
     const children = getChildKeys(node, nodeMap);
-    const nodeSide = cubeSide / (2 ** node.level);
+    const nodeSide = cubeSide / 2 ** node.level;
     const center = getNodeCenter(metadata, node);
-    const bounds = toGeographicBounds(transformPoint, getNodeBounds(metadata, node));
+    const bounds = toGeographicBounds(
+      transformPoint,
+      getNodeBounds(metadata, node),
+    );
     const geographicCenter = transformPoint(center);
 
     streamingNodes.set(node.key, {
@@ -154,11 +161,15 @@ export function buildStreamingHierarchy(
       bounds,
       approximateSizeMeters: nodeSide * horizontalUnitScale,
       geometricErrorMeters: Math.max(
-        (metadata.spacing ?? cubeSide) * horizontalUnitScale / (2 ** node.level),
-        nodeSide * horizontalUnitScale / 2,
+        ((metadata.spacing ?? cubeSide) * horizontalUnitScale) /
+          2 ** node.level,
+        (nodeSide * horizontalUnitScale) / 2,
       ),
       boundingRadiusMeters: (Math.sqrt(3) * nodeSide * horizontalUnitScale) / 2,
-      boundingSphere: createBoundingSphereFromGeographicBounds(geographicCenter, bounds),
+      boundingSphere: createBoundingSphereFromGeographicBounds(
+        geographicCenter,
+        bounds,
+      ),
     });
   }
 

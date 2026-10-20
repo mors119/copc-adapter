@@ -1,15 +1,15 @@
-import * as THREE from 'three';
+import * as THREE from "three";
 import {
   datasetLocalDirectionToWorld,
   datasetLocalToWorld,
-} from '../../core/coordinates/transform/datasetLocalFrame';
-import { ecefToGeographic } from '../../core/coordinates/transform/worldCoordinates';
-import type { DatasetLocalFrame } from '../../core/coordinates/types';
+} from "../../core/coordinates/transform/datasetLocalFrame";
+import { ecefToGeographic } from "../../core/coordinates/transform/worldCoordinates";
+import type { DatasetLocalFrame } from "../../core/coordinates/types";
 import {
   createPerspectiveViewFrustum,
   type ViewVector3,
-} from '../../core/streaming/view';
-import type { StreamingView } from '../../core/streaming/types';
+} from "../../core/streaming/view";
+import type { StreamingView } from "../../core/streaming/types";
 
 /** The small renderer surface used to obtain a pixel viewport for SSE. */
 export type ThreeViewportSource = {
@@ -52,7 +52,9 @@ function toViewVector(vector: THREE.Vector3): ViewVector3 {
   return { x: vector.x, y: vector.y, z: vector.z };
 }
 
-function getViewportSize(renderer: ThreeViewportSource | undefined): THREE.Vector2 {
+function getViewportSize(
+  renderer: ThreeViewportSource | undefined,
+): THREE.Vector2 {
   const size = new THREE.Vector2();
   if (renderer?.getDrawingBufferSize) {
     renderer.getDrawingBufferSize(size);
@@ -93,7 +95,10 @@ function getCameraBasis(camera: THREE.Camera): {
   return { position, direction, up, right };
 }
 
-function localToWorldVector(vector: THREE.Vector3, frame: DatasetLocalFrame): ViewVector3 {
+function localToWorldVector(
+  vector: THREE.Vector3,
+  frame: DatasetLocalFrame,
+): ViewVector3 {
   return datasetLocalDirectionToWorld(toViewVector(vector), frame);
 }
 
@@ -105,25 +110,30 @@ function getVerticalFovRadians(
   },
 ): number | undefined {
   const fovDegrees = camera.fov;
-  if (typeof fovDegrees !== 'number' || !Number.isFinite(fovDegrees)) {
+  if (typeof fovDegrees !== "number" || !Number.isFinite(fovDegrees)) {
     return undefined;
   }
 
   let effectiveFovDegrees = fovDegrees;
-  if (typeof camera.getEffectiveFOV === 'function') {
+  if (typeof camera.getEffectiveFOV === "function") {
     effectiveFovDegrees = camera.getEffectiveFOV();
-  } else if (typeof camera.zoom === 'number'
-    && Number.isFinite(camera.zoom)
-    && camera.zoom > 0) {
+  } else if (
+    typeof camera.zoom === "number" &&
+    Number.isFinite(camera.zoom) &&
+    camera.zoom > 0
+  ) {
     effectiveFovDegrees = THREE.MathUtils.radToDeg(
-      2 * Math.atan(
-        Math.tan(THREE.MathUtils.degToRad(fovDegrees) / 2) / camera.zoom,
-      ),
+      2 *
+        Math.atan(
+          Math.tan(THREE.MathUtils.degToRad(fovDegrees) / 2) / camera.zoom,
+        ),
     );
   }
-  if (!Number.isFinite(effectiveFovDegrees)
-    || effectiveFovDegrees <= 0
-    || effectiveFovDegrees >= 180) {
+  if (
+    !Number.isFinite(effectiveFovDegrees) ||
+    effectiveFovDegrees <= 0 ||
+    effectiveFovDegrees >= 180
+  ) {
     return undefined;
   }
   return THREE.MathUtils.degToRad(effectiveFovDegrees);
@@ -134,12 +144,15 @@ export function createThreeStreamingView(
   options: ThreeStreamingViewOptions,
 ): StreamingView {
   const basis = getCameraBasis(options.camera);
-  const worldPosition = datasetLocalToWorld({
-    coordinateSystem: 'renderer-local',
-    x: basis.position.x,
-    y: basis.position.y,
-    z: basis.position.z,
-  }, options.frame);
+  const worldPosition = datasetLocalToWorld(
+    {
+      coordinateSystem: "renderer-local",
+      x: basis.position.x,
+      y: basis.position.y,
+      z: basis.position.z,
+    },
+    options.frame,
+  );
   const geographicPosition = ecefToGeographic(worldPosition);
   const viewport = getViewportSize(options.renderer);
   const cameraWithPerspectiveFields = options.camera as THREE.Camera & {
@@ -169,8 +182,10 @@ export function createThreeStreamingView(
   };
 
   const verticalFovRadians = getVerticalFovRadians(cameraWithPerspectiveFields);
-  if (cameraWithPerspectiveFields.isPerspectiveCamera !== false
-    && verticalFovRadians !== undefined) {
+  if (
+    cameraWithPerspectiveFields.isPerspectiveCamera !== false &&
+    verticalFovRadians !== undefined
+  ) {
     view.viewFrustum = createPerspectiveViewFrustum({
       position: {
         x: worldPosition.x,

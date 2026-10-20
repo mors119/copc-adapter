@@ -9,16 +9,18 @@
  */
 export type CoordinateSystem =
   /** Source/project XYZ decoded from the COPC; units are defined by its CRS. */
-  | 'copc-source'
+  | "copc-source"
   /** WGS84 longitude/latitude in degrees and ellipsoidal height in metres. */
-  | 'wgs84-geographic'
+  | "wgs84-geographic"
   /** WGS84 Earth-centred, Earth-fixed XYZ in metres. */
-  | 'wgs84-ecef-meters'
+  | "wgs84-ecef-meters"
   /** Adapter-owned local coordinates; the renderer contract defines the frame. */
-  | 'renderer-local';
+  | "renderer-local";
 
 /** Three numeric components tagged with the coordinate space they represent. */
-export type CoordinateVector3<System extends CoordinateSystem = CoordinateSystem> = {
+export type CoordinateVector3<
+  System extends CoordinateSystem = CoordinateSystem,
+> = {
   /** Coordinate space in which the vector components are expressed. */
   coordinateSystem: System;
   /** First component; its axis meaning depends on `coordinateSystem`. */
@@ -30,7 +32,9 @@ export type CoordinateVector3<System extends CoordinateSystem = CoordinateSystem
 };
 
 /** Axis-aligned bounds tagged with the coordinate space and units they use. */
-export type CoordinateBounds<System extends CoordinateSystem = CoordinateSystem> = {
+export type CoordinateBounds<
+  System extends CoordinateSystem = CoordinateSystem,
+> = {
   /** Coordinate space in which all bounds are expressed. */
   coordinateSystem: System;
   /** Minimum value along the space's X axis. */
@@ -48,7 +52,9 @@ export type CoordinateBounds<System extends CoordinateSystem = CoordinateSystem>
 };
 
 /** Interleaved, high-precision XYZ triples in one explicitly named space. */
-export type CoordinateBuffer<System extends CoordinateSystem = CoordinateSystem> = {
+export type CoordinateBuffer<
+  System extends CoordinateSystem = CoordinateSystem,
+> = {
   /** Coordinate space and units used by each interleaved triple. */
   coordinateSystem: System;
   /** Number of triples stored in `coordinates`. */
@@ -60,7 +66,7 @@ export type CoordinateBuffer<System extends CoordinateSystem = CoordinateSystem>
 /** WGS84 geographic longitude/latitude in degrees and ellipsoidal height in metres. */
 export type Wgs84GeographicPoint = {
   /** Identifies the WGS84 geographic coordinate space. */
-  coordinateSystem: 'wgs84-geographic';
+  coordinateSystem: "wgs84-geographic";
   /** WGS84 longitude in degrees. */
   longitude: number;
   /** WGS84 latitude in degrees. */
@@ -70,10 +76,10 @@ export type Wgs84GeographicPoint = {
 };
 
 /** WGS84 Earth-centred, Earth-fixed XYZ position in metres. */
-export type Wgs84EcefPoint = CoordinateVector3<'wgs84-ecef-meters'>;
+export type Wgs84EcefPoint = CoordinateVector3<"wgs84-ecef-meters">;
 
 /** Position in the renderer adapter's local frame. */
-export type RendererLocalPoint = CoordinateVector3<'renderer-local'>;
+export type RendererLocalPoint = CoordinateVector3<"renderer-local">;
 
 /** A finite, unlabelled vector used for frame directions and camera axes. */
 export type CoordinateDirection = {
@@ -94,11 +100,11 @@ export type CoordinateDirection = {
  */
 export type DatasetLocalFrame = Readonly<{
   /** Identifies the renderer-local coordinate space. */
-  coordinateSystem: 'renderer-local';
+  coordinateSystem: "renderer-local";
   /** Local +X east, +Y north, and +Z up. */
-  axisConvention: 'enu';
+  axisConvention: "enu";
   /** Unit used for local point positions and frame origin distances. */
-  units: 'metres';
+  units: "metres";
   /** Fixed WGS84 ECEF origin in metres. */
   origin: Readonly<Wgs84EcefPoint>;
   /** Unit east direction expressed in ECEF axes. */
@@ -110,8 +116,8 @@ export type DatasetLocalFrame = Readonly<{
 }>;
 
 /** Axis-aligned WGS84 geographic bounds, with degree and metre axes. */
-export type Wgs84GeographicBounds = CoordinateBounds<'wgs84-geographic'>;
+export type Wgs84GeographicBounds = CoordinateBounds<"wgs84-geographic">;
 /** Axis-aligned WGS84 ECEF bounds in metres. */
-export type Wgs84EcefBounds = CoordinateBounds<'wgs84-ecef-meters'>;
+export type Wgs84EcefBounds = CoordinateBounds<"wgs84-ecef-meters">;
 /** Axis-aligned bounds in the adapter's renderer-local frame. */
-export type RendererLocalBounds = CoordinateBounds<'renderer-local'>;
+export type RendererLocalBounds = CoordinateBounds<"renderer-local">;

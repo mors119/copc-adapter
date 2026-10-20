@@ -1,6 +1,11 @@
-import { createPerspectiveViewFrustum, intersectsViewFrustum } from './view';
-import type { BoundingSphere, StreamingView, ViewFrustum, ViewVector3 } from './types';
-import type { CameraMotionPrediction } from './motionLookahead';
+import { createPerspectiveViewFrustum, intersectsViewFrustum } from "./view";
+import type {
+  BoundingSphere,
+  StreamingView,
+  ViewFrustum,
+  ViewVector3,
+} from "./types";
+import type { CameraMotionPrediction } from "./motionLookahead";
 
 const MIN_PREDICTED_DISPLACEMENT_DEGREES = 0.05;
 
@@ -52,17 +57,20 @@ export function createPredictedStreamingView(
   const current = view.viewFrustum;
   const horizontalDegrees = prediction.predictedHorizontalDisplacementDegrees;
   const verticalDegrees = prediction.predictedVerticalDisplacementDegrees;
-  if (!prediction.enabled
-    || prediction.activity <= 0
-    || !current
-    || !Number.isFinite(horizontalDegrees)
-    || !Number.isFinite(verticalDegrees)
-    || Math.hypot(horizontalDegrees, verticalDegrees) < MIN_PREDICTED_DISPLACEMENT_DEGREES) {
+  if (
+    !prediction.enabled ||
+    prediction.activity <= 0 ||
+    !current ||
+    !Number.isFinite(horizontalDegrees) ||
+    !Number.isFinite(verticalDegrees) ||
+    Math.hypot(horizontalDegrees, verticalDegrees) <
+      MIN_PREDICTED_DISPLACEMENT_DEGREES
+  ) {
     return undefined;
   }
 
-  const yawRadians = horizontalDegrees * Math.PI / 180;
-  const pitchRadians = verticalDegrees * Math.PI / 180;
+  const yawRadians = (horizontalDegrees * Math.PI) / 180;
+  const pitchRadians = (verticalDegrees * Math.PI) / 180;
   const yawAxis = normalize(cross(current.direction, current.right));
   if (!yawAxis) return undefined;
   const yawDirection = rotateAroundAxis(current.direction, yawAxis, yawRadians);
@@ -93,9 +101,11 @@ export function createPredictedStreamingView(
 export function isOffscreenFromCurrentView(
   current: ViewFrustum | undefined,
   candidate: ViewFrustum | undefined,
-  sphere: BoundingSphere | Omit<BoundingSphere, 'coordinateSystem'> | undefined,
+  sphere: BoundingSphere | Omit<BoundingSphere, "coordinateSystem"> | undefined,
 ): boolean {
   if (!current || !candidate || !sphere) return false;
-  return intersectsViewFrustum(candidate, sphere)
-    && !intersectsViewFrustum(current, sphere);
+  return (
+    intersectsViewFrustum(candidate, sphere) &&
+    !intersectsViewFrustum(current, sphere)
+  );
 }
