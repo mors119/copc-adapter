@@ -1,17 +1,24 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from "@playwright/test";
 
-const SOFI_SOURCE = 'https://hobu-lidar.s3.amazonaws.com/sofi.copc.laz';
+const SOFI_SOURCE = "https://hobu-lidar.s3.amazonaws.com/sofi.copc.laz";
 const SOFI_OBJECT_BYTES = 2_029_696_615;
 const POINT_BUDGET = 250_000;
 const CACHE_BUDGET_BYTES = 256 * 1024 * 1024;
-const SOFI_CENTER = { longitudeDegrees: -118.3377231, latitudeDegrees: 33.9537444 };
+const SOFI_CENTER = {
+  longitudeDegrees: -118.3377231,
+  latitudeDegrees: 33.9537444,
+};
 const requestedRefinementAlgorithm = process.env.COPC_REFINEMENT_ALGORITHM;
-if (requestedRefinementAlgorithm !== undefined
-  && requestedRefinementAlgorithm !== 'foveated'
-  && requestedRefinementAlgorithm !== 'screen-projection') {
-  throw new Error('COPC_REFINEMENT_ALGORITHM must be foveated or screen-projection.');
+if (
+  requestedRefinementAlgorithm !== undefined &&
+  requestedRefinementAlgorithm !== "foveated" &&
+  requestedRefinementAlgorithm !== "screen-projection"
+) {
+  throw new Error(
+    "COPC_REFINEMENT_ALGORITHM must be foveated or screen-projection.",
+  );
 }
-const refinementAlgorithm = requestedRefinementAlgorithm ?? 'foveated';
+const refinementAlgorithm = requestedRefinementAlgorithm ?? "foveated";
 
 type DebugState = {
   layerLoaded: boolean;
@@ -103,7 +110,12 @@ type RangeResponse = {
   contentLength: number;
 };
 
-type FrameSummary = { count: number; medianMs: number; p95Ms: number; maxMs: number };
+type FrameSummary = {
+  count: number;
+  medianMs: number;
+  p95Ms: number;
+  maxMs: number;
+};
 
 function summarizeRendererStages(
   label: string,
@@ -137,7 +149,10 @@ function summarizeRendererStages(
 type DebugAdapter = {
   getState(): DebugState;
   setCameraView(view: CameraView): void;
-  probePublicBatchCpuPick?(offsetPx?: number, clickTolerancePx?: number): {
+  probePublicBatchCpuPick?(
+    offsetPx?: number,
+    clickTolerancePx?: number,
+  ): {
     picked: boolean;
     nodeKey?: string;
     pointIndex?: number;
@@ -155,25 +170,33 @@ declare global {
   }
 }
 
-async function getState(page: import('@playwright/test').Page): Promise<DebugState> {
+async function getState(
+  page: import("@playwright/test").Page,
+): Promise<DebugState> {
   return page.evaluate(() => {
-    if (!window.__COPC_DEBUG__) throw new Error('COPC debug adapter is unavailable');
+    if (!window.__COPC_DEBUG__)
+      throw new Error("COPC debug adapter is unavailable");
     return window.__COPC_DEBUG__.getState();
   });
 }
 
-async function waitForIdle(page: import('@playwright/test').Page): Promise<DebugState> {
+async function waitForIdle(
+  page: import("@playwright/test").Page,
+): Promise<DebugState> {
   let stableSamples = 0;
   let previous = await getState(page);
 
   for (let attempt = 0; attempt < 120; attempt += 1) {
     await page.waitForTimeout(250);
     const current = await getState(page);
-    const workerIdle = !current.worker
-      || (current.worker.activeCount === 0 && current.worker.queuedCount === 0);
-    if (workerIdle
-      && current.rangeRequests.active === 0
-      && current.streamingUpdateCount === previous.streamingUpdateCount) {
+    const workerIdle =
+      !current.worker ||
+      (current.worker.activeCount === 0 && current.worker.queuedCount === 0);
+    if (
+      workerIdle &&
+      current.rangeRequests.active === 0 &&
+      current.streamingUpdateCount === previous.streamingUpdateCount
+    ) {
       stableSamples += 1;
       if (stableSamples >= 3) return current;
     } else {
@@ -186,7 +209,7 @@ async function waitForIdle(page: import('@playwright/test').Page): Promise<Debug
 }
 
 async function sampleFrames(
-  page: import('@playwright/test').Page,
+  page: import("@playwright/test").Page,
 ): Promise<{ count: number; medianMs: number; p95Ms: number; maxMs: number }> {
   const frames = await page.evaluate(async () => {
     const intervals: number[] = [];
@@ -205,10 +228,9 @@ async function sampleFrames(
   });
   const warmupFrames = Math.min(5, Math.max(0, frames.length - 1));
   const sorted = frames.slice(warmupFrames).sort((left, right) => left - right);
-  const at = (fraction: number): number => sorted[Math.min(
-    sorted.length - 1,
-    Math.floor(sorted.length * fraction),
-  )] ?? 0;
+  const at = (fraction: number): number =>
+    sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * fraction))] ??
+    0;
   return {
     count: frames.length,
     medianMs: at(0.5),
@@ -229,7 +251,8 @@ function summarize(state: DebugState): Record<string, unknown> {
     refinementFocusEnabled: state.performance.refinementFocusEnabled,
     focusCandidateCount: state.performance.focusCandidateCount,
     focusWeightMax: state.performance.focusWeightMax,
-    focusInfluencedRefinementCount: state.performance.focusInfluencedRefinementCount,
+    focusInfluencedRefinementCount:
+      state.performance.focusInfluencedRefinementCount,
     detailBiasMax: state.performance.detailBiasMax,
     motionLookaheadEnabled: state.performance.motionLookaheadEnabled,
     motionSampledMovementCount: state.performance.motionSampledMovementCount,
@@ -242,7 +265,8 @@ function summarize(state: DebugState): Record<string, unknown> {
       loadedNodeCount: state.performance.loadedNodeCount,
       loadedPointCount: state.performance.loadedPointCount,
       activeRenderedPointCount: state.performance.activeRenderedPointCount,
-      candidateSelectedPointCount: state.performance.candidateSelectedPointCount,
+      candidateSelectedPointCount:
+        state.performance.candidateSelectedPointCount,
       deferredNodeCount: state.performance.deferredNodeCount,
       deferredPointCount: state.performance.deferredPointCount,
       activeNodeCount: state.performance.activeNodeCount,
@@ -253,16 +277,23 @@ function summarize(state: DebugState): Record<string, unknown> {
       decodeDurationMs: state.performance.decodeDurationMs,
       pointPreparationDurationMs: state.performance.pointPreparationDurationMs,
       crsTransformDurationMs: state.performance.crsTransformDurationMs,
-      geographicToCartesianDurationMs: state.performance.geographicToCartesianDurationMs,
+      geographicToCartesianDurationMs:
+        state.performance.geographicToCartesianDurationMs,
       worldToCartesianDurationMs: state.performance.worldToCartesianDurationMs,
-      pointStylePreparationDurationMs: state.performance.pointStylePreparationDurationMs,
-      pointCollectionCreationDurationMs: state.performance.pointCollectionCreationDurationMs,
+      pointStylePreparationDurationMs:
+        state.performance.pointStylePreparationDurationMs,
+      pointCollectionCreationDurationMs:
+        state.performance.pointCollectionCreationDurationMs,
       pointAddDurationMs: state.performance.pointAddDurationMs,
-      rendererPreparationDurationMs: state.performance.rendererPreparationDurationMs,
+      rendererPreparationDurationMs:
+        state.performance.rendererPreparationDurationMs,
       nodeRemovalDurationMs: state.performance.nodeRemovalDurationMs,
-      firstHighPriorityNodeStartLatencyMs: state.performance.firstHighPriorityNodeStartLatencyMs,
-      firstHighPriorityNodeReadyLatencyMs: state.performance.firstHighPriorityNodeReadyLatencyMs,
-      longestMainThreadBlockingSectionMs: state.performance.longestMainThreadBlockingSectionMs,
+      firstHighPriorityNodeStartLatencyMs:
+        state.performance.firstHighPriorityNodeStartLatencyMs,
+      firstHighPriorityNodeReadyLatencyMs:
+        state.performance.firstHighPriorityNodeReadyLatencyMs,
+      longestMainThreadBlockingSectionMs:
+        state.performance.longestMainThreadBlockingSectionMs,
     },
     pointCache: {
       cacheByteBudget: state.pointCache.cacheByteBudget,
@@ -296,7 +327,10 @@ function summarize(state: DebugState): Record<string, unknown> {
   };
 }
 
-test('records bounded SoFi multi-GB Cesium browser streaming', async ({ page, browser }) => {
+test("records bounded SoFi multi-GB Cesium browser streaming", async ({
+  page,
+  browser,
+}) => {
   test.setTimeout(12 * 60 * 1_000);
 
   const rangeResponses: RangeResponse[] = [];
@@ -312,44 +346,53 @@ test('records bounded SoFi multi-GB Cesium browser streaming', async ({ page, br
     releaseDelayedRange = resolve;
   });
 
-  page.on('console', (message) => {
-    if (message.type() === 'error') console.error(`[browser] ${message.text()}`);
+  page.on("console", (message) => {
+    if (message.type() === "error")
+      console.error(`[browser] ${message.text()}`);
   });
-  page.on('pageerror', (error) => console.error(`[pageerror] ${error.message}`));
+  page.on("pageerror", (error) =>
+    console.error(`[pageerror] ${error.message}`),
+  );
 
   // S3 allows this origin, but omits Content-Range from
   // Access-Control-Expose-Headers. Preserve every real upstream response and
   // add only the response headers a browser Range reader needs to inspect it.
-  await page.route('https://hobu-lidar.s3.amazonaws.com/sofi.copc.laz', async (route) => {
-    const requestedRange = route.request().headers().range;
-    if (!requestedRange) {
-      await route.abort();
-      throw new Error('Blocked a SoFi request without Range to prevent a whole-object transfer');
-    }
-    // S3 occasionally resets long-running Range connections. Retry only
-    // transport-level ECONNRESET failures; HTTP responses remain observable.
-    const upstream = await route.fetch({ maxRetries: 2 });
-    const headers = upstream.headers();
-    if (delayNextRangeResponse) {
-      delayNextRangeResponse = false;
-      delayedRangeCount += 1;
-      resolveDelayedRange();
-      await releaseRange;
-    }
-    await route.fulfill({
-      response: upstream,
-      headers: {
-        ...headers,
-        'access-control-allow-origin': '*',
-        'access-control-allow-methods': 'GET, HEAD, OPTIONS',
-        'access-control-allow-headers': 'Range',
-        'access-control-expose-headers': 'Accept-Ranges, Content-Length, Content-Range',
-      },
-    });
-  });
+  await page.route(
+    "https://hobu-lidar.s3.amazonaws.com/sofi.copc.laz",
+    async (route) => {
+      const requestedRange = route.request().headers().range;
+      if (!requestedRange) {
+        await route.abort();
+        throw new Error(
+          "Blocked a SoFi request without Range to prevent a whole-object transfer",
+        );
+      }
+      // S3 occasionally resets long-running Range connections. Retry only
+      // transport-level ECONNRESET failures; HTTP responses remain observable.
+      const upstream = await route.fetch({ maxRetries: 2 });
+      const headers = upstream.headers();
+      if (delayNextRangeResponse) {
+        delayNextRangeResponse = false;
+        delayedRangeCount += 1;
+        resolveDelayedRange();
+        await releaseRange;
+      }
+      await route.fulfill({
+        response: upstream,
+        headers: {
+          ...headers,
+          "access-control-allow-origin": "*",
+          "access-control-allow-methods": "GET, HEAD, OPTIONS",
+          "access-control-allow-headers": "Range",
+          "access-control-expose-headers":
+            "Accept-Ranges, Content-Length, Content-Range",
+        },
+      });
+    },
+  );
 
-  page.on('response', (response) => {
-    if (new URL(response.url()).pathname !== '/sofi.copc.laz') return;
+  page.on("response", (response) => {
+    if (new URL(response.url()).pathname !== "/sofi.copc.laz") return;
     const request = response.request();
     const requestedRange = request.headers().range;
     if (!requestedRange) return;
@@ -357,36 +400,47 @@ test('records bounded SoFi multi-GB Cesium browser streaming', async ({ page, br
     rangeResponses.push({
       requestedRange,
       status: response.status(),
-      contentRange: headers['content-range'],
-      contentLength: Number(headers['content-length'] ?? 0),
+      contentRange: headers["content-range"],
+      contentLength: Number(headers["content-length"] ?? 0),
     });
   });
 
   const sourceQuery = encodeURIComponent(SOFI_SOURCE);
-  const renderer = process.env.COPC_RENDERER_VARIANT === 'public-batched'
-    ? '&renderer=public-batched'
-    : '';
+  const renderer =
+    process.env.COPC_RENDERER_VARIANT === "public-batched"
+      ? "&renderer=public-batched"
+      : "";
   await page.goto(
     `/?scenario=issue68&backend=rust&debugPanel=false&budget=${POINT_BUDGET}&source=${sourceQuery}&refinementAlgorithm=${refinementAlgorithm}${renderer}`,
   );
-  await expect.poll(async () => {
-    const state = await getState(page);
-    return state.layerLoaded && state.renderedPointCount > 0;
-  }, { timeout: 180_000 }).toBe(true);
+  await expect
+    .poll(
+      async () => {
+        const state = await getState(page);
+        return state.layerLoaded && state.renderedPointCount > 0;
+      },
+      { timeout: 180_000 },
+    )
+    .toBe(true);
   const firstUsefulVisiblePointMs = Date.now() - pageStartedAt;
   const initial = await waitForIdle(page);
   expect(initial.performance.refinementAlgorithm).toBe(refinementAlgorithm);
-  const rendererStageEvidence = [summarizeRendererStages('initial', initial, await sampleFrames(page))];
-  console.log(JSON.stringify({
-    scenario: 'issue-212-sofi-initial',
-    firstUsefulVisiblePointMs,
-    state: summarize(initial),
-  }));
+  const rendererStageEvidence = [
+    summarizeRendererStages("initial", initial, await sampleFrames(page)),
+  ];
+  console.log(
+    JSON.stringify({
+      scenario: "issue-212-sofi-initial",
+      firstUsefulVisiblePointMs,
+      state: summarize(initial),
+    }),
+  );
 
-  if (process.env.COPC_RENDERER_VARIANT === 'public-batched') {
+  if (process.env.COPC_RENDERER_VARIANT === "public-batched") {
     const cpuPickSamples = await page.evaluate(() => {
       const probes = Array.from({ length: 5 }, () =>
-        window.__COPC_DEBUG__?.probePublicBatchCpuPick?.());
+        window.__COPC_DEBUG__?.probePublicBatchCpuPick?.(),
+      );
       return probes.filter((probe) => probe !== undefined);
     });
     const cpuTimes = cpuPickSamples
@@ -395,14 +449,20 @@ test('records bounded SoFi multi-GB Cesium browser streaming', async ({ page, br
     const fullTimes = cpuPickSamples
       .map((probe) => probe.totalDurationMs)
       .sort((left, right) => left - right);
-    console.log(JSON.stringify({
-      scenario: 'issue-233-sofi-cpu-pick-250k-budget',
-      totalRenderedPointCount: initial.renderedPointCount,
-      renderedNodeCount: initial.renderedNodeKeys.length,
-      cpuPickSamples,
-      medianCpuResolveMs: cpuTimes[Math.floor(cpuTimes.length / 2)] ?? 0,
-      medianFullPickMs: fullTimes[Math.floor(fullTimes.length / 2)] ?? 0,
-    }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          scenario: "issue-233-sofi-cpu-pick-250k-budget",
+          totalRenderedPointCount: initial.renderedPointCount,
+          renderedNodeCount: initial.renderedNodeKeys.length,
+          cpuPickSamples,
+          medianCpuResolveMs: cpuTimes[Math.floor(cpuTimes.length / 2)] ?? 0,
+          medianFullPickMs: fullTimes[Math.floor(fullTimes.length / 2)] ?? 0,
+        },
+        null,
+        2,
+      ),
+    );
     expect(cpuPickSamples).toHaveLength(5);
     for (const probe of cpuPickSamples) {
       expect(probe).toMatchObject({
@@ -416,22 +476,42 @@ test('records bounded SoFi multi-GB Cesium browser streaming', async ({ page, br
   }
 
   const transitions: Record<string, unknown>[] = [];
-  const view = async (label: string, camera: CameraView): Promise<DebugState> => {
+  const view = async (
+    label: string,
+    camera: CameraView,
+  ): Promise<DebugState> => {
     const before = await getState(page);
-    const previousNodeKeys = [...before.selectedNodeKeys].sort().join('\0');
+    const previousNodeKeys = [...before.selectedNodeKeys].sort().join("\0");
     const startedAt = Date.now();
-    await page.evaluate((nextView) => window.__COPC_DEBUG__?.setCameraView(nextView), camera);
-    await expect.poll(async () => {
-      const current = await getState(page);
-      return current.streamingUpdateCount > before.streamingUpdateCount
-        || [...current.selectedNodeKeys].sort().join('\0') !== previousNodeKeys;
-    }, { timeout: 60_000 }).toBe(true);
+    await page.evaluate(
+      (nextView) => window.__COPC_DEBUG__?.setCameraView(nextView),
+      camera,
+    );
+    await expect
+      .poll(
+        async () => {
+          const current = await getState(page);
+          return (
+            current.streamingUpdateCount > before.streamingUpdateCount ||
+            [...current.selectedNodeKeys].sort().join("\0") !== previousNodeKeys
+          );
+        },
+        { timeout: 60_000 },
+      )
+      .toBe(true);
     const firstUpdateMs = Date.now() - startedAt;
-    await expect.poll(async () => {
-      const current = await getState(page);
-      return (current.viewDistance?.updateCount ?? 0)
-        > (before.viewDistance?.updateCount ?? 0);
-    }, { timeout: 60_000 }).toBe(true);
+    await expect
+      .poll(
+        async () => {
+          const current = await getState(page);
+          return (
+            (current.viewDistance?.updateCount ?? 0) >
+            (before.viewDistance?.updateCount ?? 0)
+          );
+        },
+        { timeout: 60_000 },
+      )
+      .toBe(true);
     const state = await waitForIdle(page);
     const frames = await sampleFrames(page);
     rendererStageEvidence.push(summarizeRendererStages(label, state, frames));
@@ -445,46 +525,46 @@ test('records bounded SoFi multi-GB Cesium browser streaming', async ({ page, br
     return state;
   };
 
-  const closeDownward = await view('close-downward', {
+  const closeDownward = await view("close-downward", {
     ...SOFI_CENTER,
     heightMeters: 1_500,
     headingDegrees: 0,
     pitchDegrees: -89,
   });
-  const mediumOverview = await view('medium-overview', {
+  const mediumOverview = await view("medium-overview", {
     ...SOFI_CENTER,
     heightMeters: 20_000,
     headingDegrees: 0,
     pitchDegrees: -80,
   });
-  const highOverview = await view('high-overview', {
+  const highOverview = await view("high-overview", {
     ...SOFI_CENTER,
     heightMeters: 100_000,
     headingDegrees: 0,
     pitchDegrees: -80,
   });
-  const oblique = await view('oblique', {
+  const oblique = await view("oblique", {
     longitudeDegrees: SOFI_CENTER.longitudeDegrees - 0.0025,
     latitudeDegrees: SOFI_CENTER.latitudeDegrees - 0.002,
     heightMeters: 500,
     headingDegrees: 45,
     pitchDegrees: -55,
   });
-  const areaA = await view('area-a', {
+  const areaA = await view("area-a", {
     longitudeDegrees: SOFI_CENTER.longitudeDegrees - 0.0012,
     latitudeDegrees: SOFI_CENTER.latitudeDegrees,
     heightMeters: 3_000,
     headingDegrees: 20,
     pitchDegrees: -55,
   });
-  const areaB = await view('area-b', {
+  const areaB = await view("area-b", {
     longitudeDegrees: SOFI_CENTER.longitudeDegrees + 0.0012,
     latitudeDegrees: SOFI_CENTER.latitudeDegrees,
     heightMeters: 3_000,
     headingDegrees: 200,
     pitchDegrees: -55,
   });
-  const areaAReturn = await view('area-a-return', {
+  const areaAReturn = await view("area-a-return", {
     longitudeDegrees: SOFI_CENTER.longitudeDegrees - 0.0012,
     latitudeDegrees: SOFI_CENTER.latitudeDegrees,
     heightMeters: 3_000,
@@ -494,32 +574,42 @@ test('records bounded SoFi multi-GB Cesium browser streaming', async ({ page, br
 
   delayNextRangeResponse = true;
   const beforeSlowRange = await getState(page);
-  await page.evaluate((nextView) => window.__COPC_DEBUG__?.setCameraView(nextView), {
-    longitudeDegrees: SOFI_CENTER.longitudeDegrees,
-    latitudeDegrees: SOFI_CENTER.latitudeDegrees + 0.001,
-    heightMeters: 1_500,
-    headingDegrees: 0,
-    pitchDegrees: -80,
-  });
-  await expect.poll(() => delayedRangeCount, {
-    timeout: 60_000,
-    message: 'A new point Range request must be available to supersede',
-  }).toBeGreaterThan(0);
+  await page.evaluate(
+    (nextView) => window.__COPC_DEBUG__?.setCameraView(nextView),
+    {
+      longitudeDegrees: SOFI_CENTER.longitudeDegrees,
+      latitudeDegrees: SOFI_CENTER.latitudeDegrees + 0.001,
+      heightMeters: 1_500,
+      headingDegrees: 0,
+      pitchDegrees: -80,
+    },
+  );
+  await expect
+    .poll(() => delayedRangeCount, {
+      timeout: 60_000,
+      message: "A new point Range request must be available to supersede",
+    })
+    .toBeGreaterThan(0);
   const heldRangeState = await getState(page);
   expect(heldRangeState.rangeRequests.active).toBeGreaterThan(0);
-  await page.evaluate((nextView) => window.__COPC_DEBUG__?.setCameraView(nextView), {
-    ...SOFI_CENTER,
-    heightMeters: 100_000,
-    headingDegrees: 0,
-    pitchDegrees: -80,
-  });
-  await expect.poll(async () => (await getState(page)).rangeRequests.abortedSuperseded, {
-    timeout: 30_000,
-  }).toBeGreaterThan(beforeSlowRange.rangeRequests.abortedSuperseded);
+  await page.evaluate(
+    (nextView) => window.__COPC_DEBUG__?.setCameraView(nextView),
+    {
+      ...SOFI_CENTER,
+      heightMeters: 100_000,
+      headingDegrees: 0,
+      pitchDegrees: -80,
+    },
+  );
+  await expect
+    .poll(async () => (await getState(page)).rangeRequests.abortedSuperseded, {
+      timeout: 30_000,
+    })
+    .toBeGreaterThan(beforeSlowRange.rangeRequests.abortedSuperseded);
   releaseDelayedRange();
   const staleWork = await waitForIdle(page);
   transitions.push({
-    label: 'slow-range-superseded-by-high-overview',
+    label: "slow-range-superseded-by-high-overview",
     delayedRangeCount,
     state: summarize(staleWork),
   });
@@ -531,58 +621,78 @@ test('records bounded SoFi multi-GB Cesium browser streaming', async ({ page, br
     0,
   );
 
-  console.log(JSON.stringify({
-    scenario: 'issue-212-sofi-multigb-browser-validation',
-    dataset: {
-      url: SOFI_SOURCE,
-      totalBytes: SOFI_OBJECT_BYTES,
-      pointCount: initial.metadataPointCount,
-    },
-    environment: {
-      os: `${process.platform}-${process.arch}`,
-      node: process.version,
-      browser: browser.version(),
-      viewport: page.viewportSize(),
-      webgl: 'SwiftShader',
-    },
-    configuration: {
-      backend: 'rust',
-      colorMode: 'elevation',
-      refinementAlgorithm,
-      maxNodes: 32,
-      maxDepth: 6,
-      maxScreenSpaceError: 8,
-      maxRenderDistanceMeters: 20_000,
-      configuredPointBudget: POINT_BUDGET,
-      decodedPointCacheByteBudget: initial.pointCache.cacheByteBudget,
-    },
-    firstUsefulVisiblePointMs,
-    rangeTraffic: {
-      requestCount: rangeResponses.length,
-      transferredBytes: transferredRangeBytes,
-      objectFraction: transferredRangeBytes / SOFI_OBJECT_BYTES,
-      successful206Responses: rangeResponses.filter((response) => response.status === 206).length,
-      largestResponseBytes: Math.max(0, ...rangeResponses.map((response) => response.contentLength)),
-      sampleRanges: rangeResponses.slice(0, 8),
-      instrumentedReader: finalState.rangeRequests,
-    },
-    initial: summarize(initial),
-    transitions,
-  }, null, 2));
-  console.log(JSON.stringify({
-    renderer: process.env.COPC_RENDERER_VARIANT ?? 'point-primitive',
-    rendererStageEvidence,
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        scenario: "issue-212-sofi-multigb-browser-validation",
+        dataset: {
+          url: SOFI_SOURCE,
+          totalBytes: SOFI_OBJECT_BYTES,
+          pointCount: initial.metadataPointCount,
+        },
+        environment: {
+          os: `${process.platform}-${process.arch}`,
+          node: process.version,
+          browser: browser.version(),
+          viewport: page.viewportSize(),
+          webgl: "SwiftShader",
+        },
+        configuration: {
+          backend: "rust",
+          colorMode: "elevation",
+          refinementAlgorithm,
+          maxNodes: 32,
+          maxDepth: 6,
+          maxScreenSpaceError: 8,
+          maxRenderDistanceMeters: 20_000,
+          configuredPointBudget: POINT_BUDGET,
+          decodedPointCacheByteBudget: initial.pointCache.cacheByteBudget,
+        },
+        firstUsefulVisiblePointMs,
+        rangeTraffic: {
+          requestCount: rangeResponses.length,
+          transferredBytes: transferredRangeBytes,
+          objectFraction: transferredRangeBytes / SOFI_OBJECT_BYTES,
+          successful206Responses: rangeResponses.filter(
+            (response) => response.status === 206,
+          ).length,
+          largestResponseBytes: Math.max(
+            0,
+            ...rangeResponses.map((response) => response.contentLength),
+          ),
+          sampleRanges: rangeResponses.slice(0, 8),
+          instrumentedReader: finalState.rangeRequests,
+        },
+        initial: summarize(initial),
+        transitions,
+      },
+      null,
+      2,
+    ),
+  );
+  console.log(
+    JSON.stringify(
+      {
+        renderer: process.env.COPC_RENDERER_VARIANT ?? "point-primitive",
+        rendererStageEvidence,
+      },
+      null,
+      2,
+    ),
+  );
 
-  expect(initial.backend).toBe('rust');
+  expect(initial.backend).toBe("rust");
   expect(initial.performance.configuredPointBudget).toBe(POINT_BUDGET);
   expect(initial.pointCache.cacheByteBudget).toBe(CACHE_BUDGET_BYTES);
   expect(initial.renderedPointCount).toBeGreaterThan(0);
   expect(initial.renderedPointCount).toBeLessThanOrEqual(POINT_BUDGET);
   expect(oblique.renderedPointCount).toBeGreaterThan(0);
-  expect(closeDownward.viewDistance?.effectiveDistanceMeters).toBeLessThan(9_000);
-  expect(highOverview.viewDistance?.effectiveDistanceMeters)
-    .toBeGreaterThan(closeDownward.viewDistance?.effectiveDistanceMeters ?? 0);
+  expect(closeDownward.viewDistance?.effectiveDistanceMeters).toBeLessThan(
+    9_000,
+  );
+  expect(highOverview.viewDistance?.effectiveDistanceMeters).toBeGreaterThan(
+    closeDownward.viewDistance?.effectiveDistanceMeters ?? 0,
+  );
   const settledStates = [
     closeDownward,
     mediumOverview,
@@ -593,44 +703,76 @@ test('records bounded SoFi multi-GB Cesium browser streaming', async ({ page, br
     areaAReturn,
     staleWork,
   ];
-  expect(settledStates.every((state) => state.lastError === undefined)).toBe(true);
-  expect(settledStates.every((state) =>
-    (state.viewDistance?.effectiveDistanceMeters ?? Number.POSITIVE_INFINITY) <= 20_000,
-  )).toBe(true);
-  expect(settledStates.every((state) => state.renderedPointCount <= POINT_BUDGET)).toBe(true);
-  expect(settledStates.every((state) => state.pointCache.currentCacheBytes <= CACHE_BUDGET_BYTES)).toBe(true);
+  expect(settledStates.every((state) => state.lastError === undefined)).toBe(
+    true,
+  );
+  expect(
+    settledStates.every(
+      (state) =>
+        (state.viewDistance?.effectiveDistanceMeters ??
+          Number.POSITIVE_INFINITY) <= 20_000,
+    ),
+  ).toBe(true);
+  expect(
+    settledStates.every((state) => state.renderedPointCount <= POINT_BUDGET),
+  ).toBe(true);
+  expect(
+    settledStates.every(
+      (state) => state.pointCache.currentCacheBytes <= CACHE_BUDGET_BYTES,
+    ),
+  ).toBe(true);
   expect(areaAReturn.pointCache.hits).toBeGreaterThan(areaB.pointCache.hits);
   expect(finalState.renderedPointCount).toBeLessThanOrEqual(POINT_BUDGET);
   expect(finalState.selectedNodeKeys.length).toBeLessThanOrEqual(32);
-  expect(finalState.pointCache.currentCacheBytes).toBeLessThanOrEqual(CACHE_BUDGET_BYTES);
+  expect(finalState.pointCache.currentCacheBytes).toBeLessThanOrEqual(
+    CACHE_BUDGET_BYTES,
+  );
   expect(finalState.rangeRequests.active).toBe(0);
   expect(finalState.rangeRequests.failed).toBe(0);
   expect(finalState.rangeRequests.requested).toBe(
-    finalState.rangeRequests.completed
-      + finalState.rangeRequests.failed
-      + finalState.rangeRequests.abortedSuperseded
-      + finalState.rangeRequests.abortedLifecycle,
+    finalState.rangeRequests.completed +
+      finalState.rangeRequests.failed +
+      finalState.rangeRequests.abortedSuperseded +
+      finalState.rangeRequests.abortedLifecycle,
   );
   expect(finalState.worker).toBeDefined();
-  expect(finalState.worker!.activeCount).toBeLessThanOrEqual(finalState.worker!.workerCount);
+  expect(finalState.worker!.activeCount).toBeLessThanOrEqual(
+    finalState.worker!.workerCount,
+  );
   expect(finalState.worker!.queuedCount).toBe(0);
   expect(staleWork.rangeRequests.abortedSuperseded).toBeGreaterThan(
     beforeSlowRange.rangeRequests.abortedSuperseded,
   );
   expect(delayedRangeCount).toBe(1);
   expect(rangeResponses.length).toBeGreaterThan(0);
-  expect(rangeResponses.every((response) => response.status === 206)).toBe(true);
-  expect(rangeResponses.every((response) => response.contentRange?.endsWith(`/${SOFI_OBJECT_BYTES}`))).toBe(true);
-  expect(rangeResponses.every((response) => {
-    const requested = /^bytes=(\d+)-(\d+)$/.exec(response.requestedRange ?? '');
-    const returned = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(response.contentRange ?? '');
-    if (!requested || !returned) return false;
-    const [requestedStart, requestedEnd] = requested.slice(1, 3).map(Number);
-    const [returnedStart, returnedEnd, returnedTotal] = returned.slice(1, 4).map(Number);
-    return requestedStart === returnedStart
-      && requestedEnd === returnedEnd
-      && returnedTotal === SOFI_OBJECT_BYTES
-      && response.contentLength === requestedEnd - requestedStart + 1;
-  })).toBe(true);
+  expect(rangeResponses.every((response) => response.status === 206)).toBe(
+    true,
+  );
+  expect(
+    rangeResponses.every((response) =>
+      response.contentRange?.endsWith(`/${SOFI_OBJECT_BYTES}`),
+    ),
+  ).toBe(true);
+  expect(
+    rangeResponses.every((response) => {
+      const requested = /^bytes=(\d+)-(\d+)$/.exec(
+        response.requestedRange ?? "",
+      );
+      const returned = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(
+        response.contentRange ?? "",
+      );
+      if (!requested || !returned) return false;
+      const [requestedStart, requestedEnd] = requested.slice(1, 3).map(Number);
+      const [returnedStart, returnedEnd, returnedTotal] = returned
+        .slice(1, 4)
+        .map(Number);
+      return (
+        requestedStart === returnedStart &&
+        requestedEnd === returnedEnd &&
+        returnedTotal === SOFI_OBJECT_BYTES &&
+        response.contentLength === requestedEnd - requestedStart + 1
+      );
+    }),
+  ).toBe(true);
   expect(transferredRangeBytes).toBeLessThan(SOFI_OBJECT_BYTES);
 });

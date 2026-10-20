@@ -4,31 +4,36 @@ import type {
   CopcHierarchyPage,
   CopcHierarchySubtree,
   CopcHierarchyTree,
-} from './types';
-import {
-  CopcHierarchyPageError,
-  CopcHierarchyTraversalError,
-} from './types';
+} from "./types";
+import { CopcHierarchyPageError, CopcHierarchyTraversalError } from "./types";
 
 type MutableHierarchyTree = {
   nodeMap: Map<string, CopcHierarchyNode>;
   pageMap: Map<string, CopcHierarchyPage>;
 };
 
-function intersects(left: CopcHierarchyBounds, right: CopcHierarchyBounds): boolean {
-  return left.minX <= right.maxX && left.maxX >= right.minX
-    && left.minY <= right.maxY && left.maxY >= right.minY
-    && left.minZ <= right.maxZ && left.maxZ >= right.minZ;
+function intersects(
+  left: CopcHierarchyBounds,
+  right: CopcHierarchyBounds,
+): boolean {
+  return (
+    left.minX <= right.maxX &&
+    left.maxX >= right.minX &&
+    left.minY <= right.maxY &&
+    left.maxY >= right.minY &&
+    left.minZ <= right.maxZ &&
+    left.maxZ >= right.minZ
+  );
 }
 
 function getPageBounds(
   pageKey: string,
   cubeBounds: CopcHierarchyBounds,
 ): CopcHierarchyBounds | undefined {
-  const values = pageKey.split('-').map(Number);
+  const values = pageKey.split("-").map(Number);
   if (
-    values.length !== 4
-    || values.some((value) => !Number.isSafeInteger(value) || value < 0)
+    values.length !== 4 ||
+    values.some((value) => !Number.isSafeInteger(value) || value < 0)
   ) {
     return undefined;
   }
@@ -60,7 +65,7 @@ function getNodeChildKeys(
   const childKeys: string[] = [];
 
   for (let childIndex = 0; childIndex < 8; childIndex += 1) {
-    const childKey = `${node.level + 1}-${(node.x * 2) + (childIndex & 1)}-${(node.y * 2) + ((childIndex >> 1) & 1)}-${(node.z * 2) + ((childIndex >> 2) & 1)}`;
+    const childKey = `${node.level + 1}-${node.x * 2 + (childIndex & 1)}-${node.y * 2 + ((childIndex >> 1) & 1)}-${node.z * 2 + ((childIndex >> 2) & 1)}`;
 
     if (nodeMap.has(childKey)) {
       childKeys.push(childKey);
@@ -71,9 +76,14 @@ function getNodeChildKeys(
 }
 
 function getParentKey(key: string): string | undefined {
-  const [level, x, y, z] = key.split('-').map(Number);
-  if (!Number.isSafeInteger(level) || level <= 0
-    || !Number.isSafeInteger(x) || !Number.isSafeInteger(y) || !Number.isSafeInteger(z)) {
+  const [level, x, y, z] = key.split("-").map(Number);
+  if (
+    !Number.isSafeInteger(level) ||
+    level <= 0 ||
+    !Number.isSafeInteger(x) ||
+    !Number.isSafeInteger(y) ||
+    !Number.isSafeInteger(z)
+  ) {
     return undefined;
   }
 
@@ -121,10 +131,8 @@ export function mergeHierarchySubtree(
 
     if (
       existingPage &&
-      (
-        existingPage.pageOffset !== page.pageOffset ||
-        existingPage.pageLength !== page.pageLength
-      )
+      (existingPage.pageOffset !== page.pageOffset ||
+        existingPage.pageLength !== page.pageLength)
     ) {
       throw new CopcHierarchyTraversalError(
         `Conflicting hierarchy page definition for key: ${page.key}`,
@@ -139,11 +147,9 @@ export function mergeHierarchySubtree(
 
     if (
       existingNode &&
-      (
-        existingNode.pointCount !== node.pointCount ||
+      (existingNode.pointCount !== node.pointCount ||
         existingNode.pointDataOffset !== node.pointDataOffset ||
-        existingNode.pointDataLength !== node.pointDataLength
-      )
+        existingNode.pointDataLength !== node.pointDataLength)
     ) {
       throw new CopcHierarchyTraversalError(
         `Conflicting hierarchy node definition for key: ${node.key}`,

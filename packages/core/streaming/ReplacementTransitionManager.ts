@@ -1,9 +1,9 @@
-import type { PreparedPointData } from '../copc/types/copc';
-import type { CopcPointRenderer } from './renderer';
+import type { PreparedPointData } from "../copc/types/copc";
+import type { CopcPointRenderer } from "./renderer";
 import type {
   StreamingReplacementGroup,
   StreamingReplacementKind,
-} from './types';
+} from "./types";
 
 /** Counts describing visible-node coverage transitions. */
 export type ReplacementTransitionDiagnostics = {
@@ -22,7 +22,10 @@ type ActiveReplacementGroup = StreamingReplacementGroup & {
 
 type ReplacementTransitionRenderer = Pick<
   CopcPointRenderer,
-  'getRenderedNodeKeys' | 'getRenderedPointCount' | 'getRenderedNodePointCount' | 'hasNode'
+  | "getRenderedNodeKeys"
+  | "getRenderedPointCount"
+  | "getRenderedNodePointCount"
+  | "hasNode"
 >;
 
 type ReplacementTransitionManagerOptions = {
@@ -70,7 +73,9 @@ export class ReplacementTransitionManager {
     }
 
     const previousGroups = [...this.activeGroups.values()];
-    const stagedNodeKeys = new Set(previousGroups.flatMap((group) => group.newNodeKeys));
+    const stagedNodeKeys = new Set(
+      previousGroups.flatMap((group) => group.newNodeKeys),
+    );
     for (const nodeKey of stagedNodeKeys) {
       if (!selectedNodeKeys.includes(nodeKey)) {
         this.options.removeNode(nodeKey);
@@ -83,7 +88,8 @@ export class ReplacementTransitionManager {
     this.generation = generation;
 
     const desiredNodeKeys = new Set(selectedNodeKeys);
-    const renderedOldNodeKeys = this.options.renderer.getRenderedNodeKeys()
+    const renderedOldNodeKeys = this.options.renderer
+      .getRenderedNodeKeys()
       .filter((nodeKey) => !desiredNodeKeys.has(nodeKey));
     const desiredNewNodeKeys = [...desiredNodeKeys]
       .filter((nodeKey) => !this.options.renderer.hasNode(nodeKey))
@@ -100,18 +106,23 @@ export class ReplacementTransitionManager {
     const incomingNewNodeKeys = new Set(
       replacementGroups.flatMap((group) => group.newNodeKeys),
     );
-    const groupsCoverRenderer = renderedOldNodeKeys.every((nodeKey) =>
-      incomingOldNodeKeys.has(nodeKey))
-      && desiredNewNodeKeys.every((nodeKey) => incomingNewNodeKeys.has(nodeKey));
-    const groups = renderedOldNodeKeys.length > 0
-      && desiredNewNodeKeys.length > 0
-      && !groupsCoverRenderer
-      ? [{
-          kind: this.inferReplacementKind(replacementGroups),
-          oldNodeKeys: renderedOldNodeKeys,
-          newNodeKeys: desiredNewNodeKeys,
-        }]
-      : replacementGroups;
+    const groupsCoverRenderer =
+      renderedOldNodeKeys.every((nodeKey) =>
+        incomingOldNodeKeys.has(nodeKey),
+      ) &&
+      desiredNewNodeKeys.every((nodeKey) => incomingNewNodeKeys.has(nodeKey));
+    const groups =
+      renderedOldNodeKeys.length > 0 &&
+      desiredNewNodeKeys.length > 0 &&
+      !groupsCoverRenderer
+        ? [
+            {
+              kind: this.inferReplacementKind(replacementGroups),
+              oldNodeKeys: renderedOldNodeKeys,
+              newNodeKeys: desiredNewNodeKeys,
+            },
+          ]
+        : replacementGroups;
 
     for (const group of groups) {
       if (group.newNodeKeys.length === 0) {
@@ -129,8 +140,9 @@ export class ReplacementTransitionManager {
 
   /** Check whether a rendered node remains as old coverage during replacement. */
   isReplacementOldNode(nodeKey: string): boolean {
-    return [...this.activeGroups.values()]
-      .some((group) => group.oldNodeKeys.includes(nodeKey));
+    return [...this.activeGroups.values()].some((group) =>
+      group.oldNodeKeys.includes(nodeKey),
+    );
   }
 
   /** Estimate point usage after replacing active old coverage with one new node. */
@@ -143,9 +155,10 @@ export class ReplacementTransitionManager {
       if (!this.options.renderer.hasNode(oldNodeKey)) {
         continue;
       }
-      projectedPointCount -= this.options.renderer.getRenderedNodePointCount?.(oldNodeKey)
-        ?? this.options.getHierarchyNodePointCount(oldNodeKey)
-        ?? 0;
+      projectedPointCount -=
+        this.options.renderer.getRenderedNodePointCount?.(oldNodeKey) ??
+        this.options.getHierarchyNodePointCount(oldNodeKey) ??
+        0;
     }
     if (!this.options.renderer.hasNode(nodeKey)) {
       projectedPointCount += pointCount;
@@ -156,8 +169,12 @@ export class ReplacementTransitionManager {
   /** Commit groups once all of their new coverage is rendered. */
   commitReady(generation: number): void {
     for (const [groupKey, group] of [...this.activeGroups.entries()]) {
-      if (group.generation !== generation
-        || !group.newNodeKeys.every((nodeKey) => this.options.renderer.hasNode(nodeKey))) {
+      if (
+        group.generation !== generation ||
+        !group.newNodeKeys.every((nodeKey) =>
+          this.options.renderer.hasNode(nodeKey),
+        )
+      ) {
         continue;
       }
 
@@ -165,9 +182,9 @@ export class ReplacementTransitionManager {
         this.options.removeNode(oldNodeKey);
       }
       this.activeGroups.delete(groupKey);
-      if (group.kind === 'refinement') {
+      if (group.kind === "refinement") {
         this.diagnostics.refinementReplacementCommitCount += 1;
-      } else if (group.kind === 'collapse') {
+      } else if (group.kind === "collapse") {
         this.diagnostics.collapseReplacementCommitCount += 1;
       }
     }
@@ -176,14 +193,20 @@ export class ReplacementTransitionManager {
   /** Refresh coverage counters after renderer progress has been applied. */
   updateDiagnostics(): void {
     this.diagnostics.activeReplacementGroupCount = this.activeGroups.size;
-    this.diagnostics.replacementGroupsWaitingCount = [...this.activeGroups.values()]
-      .filter((group) => !group.newNodeKeys.every((nodeKey) => this.options.renderer.hasNode(nodeKey)))
-      .length;
-    this.diagnostics.coarseNodesRetainedForCoverageCount = [...this.activeGroups.values()]
-      .filter((group) => group.kind === 'refinement')
+    this.diagnostics.replacementGroupsWaitingCount = [
+      ...this.activeGroups.values(),
+    ].filter(
+      (group) =>
+        !group.newNodeKeys.every((nodeKey) =>
+          this.options.renderer.hasNode(nodeKey),
+        ),
+    ).length;
+    this.diagnostics.coarseNodesRetainedForCoverageCount = [
+      ...this.activeGroups.values(),
+    ]
+      .filter((group) => group.kind === "refinement")
       .flatMap((group) => group.oldNodeKeys)
-      .filter((nodeKey) => this.options.renderer.hasNode(nodeKey))
-      .length;
+      .filter((nodeKey) => this.options.renderer.hasNode(nodeKey)).length;
   }
 
   /** Reset transition state and counters when a source or attachment is cleared. */
@@ -199,8 +222,11 @@ export class ReplacementTransitionManager {
     readyPointBuffers: ReadonlyMap<string, PreparedPointData>,
     viewGeneration: number,
   ): boolean {
-    if ([...this.activeGroups.values()]
-      .some((group) => group.viewGeneration === viewGeneration)) {
+    if (
+      [...this.activeGroups.values()].some(
+        (group) => group.viewGeneration === viewGeneration,
+      )
+    ) {
       return false;
     }
     return selectedNodeKeys.every((nodeKey) => {
@@ -215,10 +241,10 @@ export class ReplacementTransitionManager {
   private inferReplacementKind(
     groups: readonly StreamingReplacementGroup[],
   ): StreamingReplacementKind {
-    return groups.length === 1 ? groups[0].kind : 'retarget';
+    return groups.length === 1 ? groups[0].kind : "retarget";
   }
 
   private getGroupKey(group: StreamingReplacementGroup): string {
-    return `${group.kind}:${[...group.oldNodeKeys].sort().join(',')}->${[...group.newNodeKeys].sort().join(',')}`;
+    return `${group.kind}:${[...group.oldNodeKeys].sort().join(",")}->${[...group.newNodeKeys].sort().join(",")}`;
   }
 }

@@ -1,4 +1,4 @@
-import type { CopcColorMode } from '../../core/copc/points/fieldSelection';
+import type { CopcColorMode } from "../../core/copc/points/fieldSelection";
 
 /** Include and/or exclude LAS classification codes (unsigned byte values). */
 export type CopcClassificationFilter = {

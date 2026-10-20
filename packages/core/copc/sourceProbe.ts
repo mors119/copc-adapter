@@ -1,7 +1,7 @@
 import {
   parseContentRangeHeader,
   type ParsedContentRange,
-} from './range/contentRange';
+} from "./range/contentRange";
 import {
   type ByteRange,
   type RangeFetch,
@@ -9,7 +9,7 @@ import {
   type RangeValidationPolicy,
   redactSourceForDiagnostics,
   validateByteRange,
-} from './range/types';
+} from "./range/types";
 
 const DEFAULT_PROBE_LENGTH = 1024;
 const LAS_HEADER_LENGTH = 375;
@@ -24,7 +24,7 @@ const MAX_PROBE_METADATA_BYTES = 1024 * 1024;
  * `true` means the tested condition was observed, `false` means it was
  * disproven, and `'unknown'` means the browser could not establish it.
  */
-export type ProbeTruth = boolean | 'unknown';
+export type ProbeTruth = boolean | "unknown";
 
 /** Outcome of a bounded HTTP range probe for a remote COPC resource. */
 export type CopcSourceProbeResult = {
@@ -106,9 +106,13 @@ type ProbeRangeValidation = {
 };
 
 class ProbeHeadError extends Error {
-  readonly level: 'incompatible' | 'unknown';
+  readonly level: "incompatible" | "unknown";
 
-  constructor(level: 'incompatible' | 'unknown', message: string, options?: ErrorOptions) {
+  constructor(
+    level: "incompatible" | "unknown",
+    message: string,
+    options?: ErrorOptions,
+  ) {
     super(message, options);
     this.level = level;
   }
@@ -119,7 +123,7 @@ function formatRequestedRange(range: ByteRange): string {
 }
 
 function readContentLength(response: Response): number | undefined {
-  const value = response.headers.get('Content-Length');
+  const value = response.headers.get("Content-Length");
   if (!value || !/^\d+$/.test(value.trim())) {
     return undefined;
   }
@@ -149,9 +153,8 @@ async function readBodyPrefix(
 
       const chunk = next.value;
       const remaining = maximumBytes - total;
-      const bounded = chunk.byteLength > remaining
-        ? chunk.slice(0, remaining)
-        : chunk;
+      const bounded =
+        chunk.byteLength > remaining ? chunk.slice(0, remaining) : chunk;
       chunks.push(bounded);
       total += bounded.byteLength;
     }
@@ -176,7 +179,7 @@ async function requestRange(
 ): Promise<ProbeResponse> {
   const requestHeaders = new Headers(options.headers);
   requestHeaders.set(
-    'Range',
+    "Range",
     `bytes=${range.offset}-${range.offset + range.length - 1}`,
   );
   const fetchImpl = options.fetch ?? globalThis.fetch.bind(globalThis);
@@ -184,10 +187,11 @@ async function requestRange(
     headers: requestHeaders,
     signal: options.signal,
   });
-  const contentRange = response.headers.get('Content-Range') ?? undefined;
-  const parsed = response.status === 206
-    ? parseContentRangeHeader(contentRange ?? null)
-    : undefined;
+  const contentRange = response.headers.get("Content-Range") ?? undefined;
+  const parsed =
+    response.status === 206
+      ? parseContentRangeHeader(contentRange ?? null)
+      : undefined;
   const bodyLimit = response.status === 206 ? range.length + 1 : range.length;
   let bytes: Uint8Array;
   try {
@@ -198,7 +202,7 @@ async function requestRange(
       contentRange,
       parsedContentRange: parsed?.ok ? parsed.value : undefined,
       contentRangeError: parsed && !parsed.ok ? parsed.message : undefined,
-      bodyReadError: 'The response body could not be read.',
+      bodyReadError: "The response body could not be read.",
       bytes: new Uint8Array(),
     };
   }
@@ -217,19 +221,19 @@ async function fetchHeadProbeMetadata(
   options: CopcSourceProbeOptions,
 ): Promise<HeadProbeMetadata> {
   const requestHeaders = new Headers(options.headers);
-  requestHeaders.delete('Range');
+  requestHeaders.delete("Range");
   const fetchImpl = options.fetch ?? globalThis.fetch.bind(globalThis);
   let response: Response;
   try {
     response = await fetchImpl(source, {
-      method: 'HEAD',
+      method: "HEAD",
       headers: requestHeaders,
       signal: options.signal,
     });
   } catch (error: unknown) {
     throw new ProbeHeadError(
-      'unknown',
-      'HEAD metadata could not be inspected by the browser; check network availability and CORS policy.',
+      "unknown",
+      "HEAD metadata could not be inspected by the browser; check network availability and CORS policy.",
       { cause: error },
     );
   }
@@ -237,37 +241,43 @@ async function fetchHeadProbeMetadata(
   if (!response.ok) {
     await response.body?.cancel().catch(() => undefined);
     throw new ProbeHeadError(
-      'incompatible',
+      "incompatible",
       `HEAD metadata request returned HTTP ${response.status}; the compatibility path requires a successful HEAD response.`,
     );
   }
 
   await response.body?.cancel().catch(() => undefined);
 
-  const contentEncoding = response.headers.get('Content-Encoding')?.trim().toLowerCase();
-  if (contentEncoding && contentEncoding !== 'identity') {
+  const contentEncoding = response.headers
+    .get("Content-Encoding")
+    ?.trim()
+    .toLowerCase();
+  if (contentEncoding && contentEncoding !== "identity") {
     throw new ProbeHeadError(
-      'incompatible',
+      "incompatible",
       `HEAD reports Content-Encoding: ${contentEncoding}; byte ranges require an identity representation.`,
     );
   }
 
-  const rawLength = response.headers.get('Content-Length');
-  const size = rawLength && /^\d+$/.test(rawLength.trim())
-    ? Number(rawLength)
-    : Number.NaN;
+  const rawLength = response.headers.get("Content-Length");
+  const size =
+    rawLength && /^\d+$/.test(rawLength.trim())
+      ? Number(rawLength)
+      : Number.NaN;
   if (!Number.isSafeInteger(size) || size <= 0) {
     throw new ProbeHeadError(
-      'incompatible',
-      'HEAD must return a positive, safe-integer Content-Length; check HEAD support and source metadata.',
+      "incompatible",
+      "HEAD must return a positive, safe-integer Content-Length; check HEAD support and source metadata.",
     );
   }
 
   return {
     size,
-    ...(response.headers.get('ETag') ? { etag: response.headers.get('ETag')! } : {}),
-    ...(response.headers.get('Last-Modified')
-      ? { lastModified: response.headers.get('Last-Modified')! }
+    ...(response.headers.get("ETag")
+      ? { etag: response.headers.get("ETag")! }
+      : {}),
+    ...(response.headers.get("Last-Modified")
+      ? { lastModified: response.headers.get("Last-Modified")! }
       : {}),
   };
 }
@@ -280,20 +290,24 @@ async function validateProbeRange(
   representation: ProbeRepresentation,
 ): Promise<ProbeRangeValidation> {
   if (probe.response.status !== 206) {
-    return { usable: false, level: 'incompatible' };
+    return { usable: false, level: "incompatible" };
   }
   if (probe.bodyReadError) {
-    return { usable: false, level: 'incompatible', warning: probe.bodyReadError };
+    return {
+      usable: false,
+      level: "incompatible",
+      warning: probe.bodyReadError,
+    };
   }
   if (probe.bytes.byteLength !== range.length) {
     return {
       usable: false,
-      level: 'incompatible',
+      level: "incompatible",
       warning: `The partial response body contained ${probe.bytes.byteLength} bytes; expected exactly ${range.length}.`,
     };
   }
 
-  const responseContentLength = probe.response.headers.get('Content-Length');
+  const responseContentLength = probe.response.headers.get("Content-Length");
   if (responseContentLength !== null) {
     const bodyLength = /^\d+$/.test(responseContentLength.trim())
       ? Number(responseContentLength)
@@ -301,17 +315,20 @@ async function validateProbeRange(
     if (!Number.isSafeInteger(bodyLength) || bodyLength !== range.length) {
       return {
         usable: false,
-        level: 'incompatible',
+        level: "incompatible",
         warning: `The partial response declared Content-Length ${responseContentLength}; expected ${range.length}.`,
       };
     }
   }
 
-  const contentEncoding = probe.response.headers.get('Content-Encoding')?.trim().toLowerCase();
-  if (contentEncoding && contentEncoding !== 'identity') {
+  const contentEncoding = probe.response.headers
+    .get("Content-Encoding")
+    ?.trim()
+    .toLowerCase();
+  if (contentEncoding && contentEncoding !== "identity") {
     return {
       usable: false,
-      level: 'incompatible',
+      level: "incompatible",
       warning: `The partial response uses Content-Encoding: ${contentEncoding}; byte ranges require an identity representation.`,
     };
   }
@@ -320,31 +337,39 @@ async function validateProbeRange(
     if (probe.contentRangeError || !probe.parsedContentRange) {
       return {
         usable: false,
-        level: 'incompatible',
-        warning: probe.contentRangeError ?? 'Content-Range could not be validated.',
+        level: "incompatible",
+        warning:
+          probe.contentRangeError ?? "Content-Range could not be validated.",
       };
     }
-    const exactRange = probe.parsedContentRange.start === range.offset
-      && probe.parsedContentRange.end === range.offset + range.length - 1;
+    const exactRange =
+      probe.parsedContentRange.start === range.offset &&
+      probe.parsedContentRange.end === range.offset + range.length - 1;
     if (!exactRange) {
       return {
         usable: false,
-        level: 'incompatible',
+        level: "incompatible",
         warning: `Content-Range does not match the requested byte range ${formatRequestedRange(range)}.`,
       };
     }
     const total = probe.parsedContentRange.total;
-    const etag = probe.response.headers.get('ETag') || undefined;
-    const lastModified = probe.response.headers.get('Last-Modified') || undefined;
-    if ((total !== undefined && representation.size !== undefined
-        && total !== representation.size)
-      || (representation.etag && etag && representation.etag !== etag)
-      || (representation.lastModified && lastModified
-        && representation.lastModified !== lastModified)) {
+    const etag = probe.response.headers.get("ETag") || undefined;
+    const lastModified =
+      probe.response.headers.get("Last-Modified") || undefined;
+    if (
+      (total !== undefined &&
+        representation.size !== undefined &&
+        total !== representation.size) ||
+      (representation.etag && etag && representation.etag !== etag) ||
+      (representation.lastModified &&
+        lastModified &&
+        representation.lastModified !== lastModified)
+    ) {
       return {
         usable: false,
-        level: 'incompatible',
-        warning: 'The source size or a readable representation validator changed between range requests.',
+        level: "incompatible",
+        warning:
+          "The source size or a readable representation validator changed between range requests.",
       };
     }
     if (total !== undefined) representation.size = total;
@@ -352,16 +377,17 @@ async function validateProbeRange(
     representation.lastModified ??= lastModified;
     return {
       usable: true,
-      level: 'strict',
+      level: "strict",
       total,
     };
   }
 
-  if (options.rangeValidation !== 'head-fallback') {
+  if (options.rangeValidation !== "head-fallback") {
     return {
       usable: false,
-      level: 'incompatible',
-      warning: 'Content-Range was not readable by JavaScript; it may be absent or hidden by CORS.',
+      level: "incompatible",
+      warning:
+        "Content-Range was not readable by JavaScript; it may be absent or hidden by CORS.",
     };
   }
 
@@ -371,18 +397,22 @@ async function validateProbeRange(
   } catch (error: unknown) {
     return {
       usable: false,
-      level: error instanceof ProbeHeadError ? error.level : 'unknown',
-      warning: error instanceof Error
-        ? error.message
-        : 'HEAD metadata could not be inspected by the browser.',
+      level: error instanceof ProbeHeadError ? error.level : "unknown",
+      warning:
+        error instanceof Error
+          ? error.message
+          : "HEAD metadata could not be inspected by the browser.",
     };
   }
 
   const end = range.offset + range.length - 1;
-  if (representation.size !== undefined && representation.size !== metadata.size) {
+  if (
+    representation.size !== undefined &&
+    representation.size !== metadata.size
+  ) {
     return {
       usable: false,
-      level: 'incompatible',
+      level: "incompatible",
       total: metadata.size,
       warning: `The source size changed from ${representation.size} to ${metadata.size} between range requests.`,
     };
@@ -390,27 +420,36 @@ async function validateProbeRange(
   if (end >= metadata.size) {
     return {
       usable: false,
-      level: 'incompatible',
+      level: "incompatible",
       total: metadata.size,
       warning: `The requested byte range ends at ${end}, beyond the HEAD-reported source size ${metadata.size}.`,
     };
   }
 
-  const etag = probe.response.headers.get('ETag') || undefined;
-  const lastModified = probe.response.headers.get('Last-Modified') || undefined;
-  if ((metadata.etag && etag && metadata.etag !== etag)
-    || (metadata.lastModified && lastModified && metadata.lastModified !== lastModified)
-    || (representation.etag && etag && representation.etag !== etag)
-    || (representation.lastModified && lastModified
-      && representation.lastModified !== lastModified)
-    || (metadata.etag && representation.etag && metadata.etag !== representation.etag)
-    || (metadata.lastModified && representation.lastModified
-      && metadata.lastModified !== representation.lastModified)) {
+  const etag = probe.response.headers.get("ETag") || undefined;
+  const lastModified = probe.response.headers.get("Last-Modified") || undefined;
+  if (
+    (metadata.etag && etag && metadata.etag !== etag) ||
+    (metadata.lastModified &&
+      lastModified &&
+      metadata.lastModified !== lastModified) ||
+    (representation.etag && etag && representation.etag !== etag) ||
+    (representation.lastModified &&
+      lastModified &&
+      representation.lastModified !== lastModified) ||
+    (metadata.etag &&
+      representation.etag &&
+      metadata.etag !== representation.etag) ||
+    (metadata.lastModified &&
+      representation.lastModified &&
+      metadata.lastModified !== representation.lastModified)
+  ) {
     return {
       usable: false,
-      level: 'incompatible',
+      level: "incompatible",
       total: metadata.size,
-      warning: 'The HEAD and Range responses expose different representation validators; the source may have changed.',
+      warning:
+        "The HEAD and Range responses expose different representation validators; the source may have changed.",
     };
   }
 
@@ -420,39 +459,45 @@ async function validateProbeRange(
 
   return {
     usable: true,
-    level: 'compatibility-limited',
+    level: "compatibility-limited",
     total: metadata.size,
-    warning: 'Content-Range was not readable by JavaScript; HEAD size and exact body length provide limited validation but cannot prove the returned byte offset or immutable object version.',
+    warning:
+      "Content-Range was not readable by JavaScript; HEAD size and exact body length provide limited validation but cannot prove the returned byte offset or immutable object version.",
   };
 }
 
 function readAscii(bytes: Uint8Array, offset: number, length: number): string {
-  return new TextDecoder().decode(bytes.subarray(offset, offset + length))
-    .replace(/\0+$/, '')
+  return new TextDecoder()
+    .decode(bytes.subarray(offset, offset + length))
+    .replace(/\0+$/, "")
     .trim();
 }
 
 function inspectHeader(bytes: Uint8Array): HeaderInspection {
   if (bytes.byteLength < 4) {
     return {
-      copcDetected: 'unknown',
-      warnings: ['The response was too short to inspect the LAS file signature.'],
+      copcDetected: "unknown",
+      warnings: [
+        "The response was too short to inspect the LAS file signature.",
+      ],
     };
   }
 
-  if (readAscii(bytes, 0, 4) !== 'LASF') {
+  if (readAscii(bytes, 0, 4) !== "LASF") {
     return {
       copcDetected: false,
-      warnings: ['The response does not begin with the LASF file signature.'],
+      warnings: ["The response does not begin with the LASF file signature."],
     };
   }
 
   const pointFormat = bytes.byteLength > 104 ? bytes[104] : undefined;
   if (bytes.byteLength < LAS_HEADER_LENGTH) {
     return {
-      copcDetected: 'unknown',
+      copcDetected: "unknown",
       pointFormat,
-      warnings: [`The LAS header is incomplete; received ${bytes.byteLength} of ${LAS_HEADER_LENGTH} bytes.`],
+      warnings: [
+        `The LAS header is incomplete; received ${bytes.byteLength} of ${LAS_HEADER_LENGTH} bytes.`,
+      ],
     };
   }
 
@@ -461,24 +506,28 @@ function inspectHeader(bytes: Uint8Array): HeaderInspection {
   const pointDataOffset = view.getUint32(96, true);
   const numberOfVlrs = view.getUint32(100, true);
   if (
-    headerSize < LAS_HEADER_LENGTH
-    || pointDataOffset < headerSize
-    || pointDataOffset > MAX_METADATA_BYTES
+    headerSize < LAS_HEADER_LENGTH ||
+    pointDataOffset < headerSize ||
+    pointDataOffset > MAX_METADATA_BYTES
   ) {
     return {
-      copcDetected: 'unknown',
+      copcDetected: "unknown",
       pointFormat,
       metadataEnd: pointDataOffset,
-      warnings: ['The LAS header contains an invalid metadata area; COPC metadata could not be inspected.'],
+      warnings: [
+        "The LAS header contains an invalid metadata area; COPC metadata could not be inspected.",
+      ],
     };
   }
 
   if (bytes.byteLength < pointDataOffset) {
     return {
-      copcDetected: 'unknown',
+      copcDetected: "unknown",
       pointFormat,
       metadataEnd: pointDataOffset,
-      warnings: [`COPC metadata extends to byte ${pointDataOffset}; the initial probe prefix was not enough to inspect it.`],
+      warnings: [
+        `COPC metadata extends to byte ${pointDataOffset}; the initial probe prefix was not enough to inspect it.`,
+      ],
     };
   }
 
@@ -486,10 +535,12 @@ function inspectHeader(bytes: Uint8Array): HeaderInspection {
   for (let index = 0; index < numberOfVlrs; index += 1) {
     if (cursor + LAS_VLR_HEADER_LENGTH > pointDataOffset) {
       return {
-        copcDetected: 'unknown',
+        copcDetected: "unknown",
         pointFormat,
         metadataEnd: pointDataOffset,
-        warnings: ['The LAS VLR area is truncated; COPC metadata could not be inspected.'],
+        warnings: [
+          "The LAS VLR area is truncated; COPC metadata could not be inspected.",
+        ],
       };
     }
 
@@ -499,23 +550,32 @@ function inspectHeader(bytes: Uint8Array): HeaderInspection {
     cursor += LAS_VLR_HEADER_LENGTH;
     if (cursor + recordLength > pointDataOffset) {
       return {
-        copcDetected: 'unknown',
+        copcDetected: "unknown",
         pointFormat,
         metadataEnd: pointDataOffset,
-        warnings: ['A LAS VLR payload is truncated; COPC metadata could not be inspected.'],
+        warnings: [
+          "A LAS VLR payload is truncated; COPC metadata could not be inspected.",
+        ],
       };
     }
 
-    if (userId === 'copc' && recordId === 1) {
+    if (userId === "copc" && recordId === 1) {
       if (recordLength < COPC_INFO_RECORD_LENGTH) {
         return {
           copcDetected: false,
           pointFormat,
           metadataEnd: pointDataOffset,
-          warnings: ['The COPC info VLR is shorter than the required 160-byte record.'],
+          warnings: [
+            "The COPC info VLR is shorter than the required 160-byte record.",
+          ],
         };
       }
-      return { copcDetected: true, pointFormat, metadataEnd: pointDataOffset, warnings: [] };
+      return {
+        copcDetected: true,
+        pointFormat,
+        metadataEnd: pointDataOffset,
+        warnings: [],
+      };
     }
     cursor += recordLength;
   }
@@ -524,7 +584,9 @@ function inspectHeader(bytes: Uint8Array): HeaderInspection {
     copcDetected: false,
     pointFormat,
     metadataEnd: pointDataOffset,
-    warnings: ['The LASF response is readable, but no COPC info VLR was found.'],
+    warnings: [
+      "The LASF response is readable, but no COPC info VLR was found.",
+    ],
   };
 }
 
@@ -535,11 +597,11 @@ function resultBase(
   return {
     source: redactSourceForDiagnostics(source),
     reachable: false,
-    rangeSupported: 'unknown',
-    validationLevel: 'unknown',
+    rangeSupported: "unknown",
+    validationLevel: "unknown",
     requestedRange,
-    corsReadable: 'unknown',
-    copcDetected: 'unknown',
+    corsReadable: "unknown",
+    copcDetected: "unknown",
     warnings: [],
   };
 }
@@ -566,17 +628,16 @@ export async function probeCopcSource(
   source: string,
   options: CopcSourceProbeOptions = {},
 ): Promise<CopcSourceProbeResult> {
-  const rangeValidation = options.rangeValidation ?? 'head-fallback';
+  const rangeValidation = options.rangeValidation ?? "head-fallback";
   const requestedRange = validateByteRange(source, 0, DEFAULT_PROBE_LENGTH);
   const base = resultBase(source, requestedRange);
   let first: ProbeResponse;
   try {
     first = await requestRange(source, requestedRange, options);
   } catch {
-    return withWarnings(
-      base,
-      ['The response could not be inspected by the browser. Check network availability and CORS policy.'],
-    );
+    return withWarnings(base, [
+      "The response could not be inspected by the browser. Check network availability and CORS policy.",
+    ]);
   }
 
   let headMetadataPromise: Promise<HeadProbeMetadata> | undefined;
@@ -595,18 +656,22 @@ export async function probeCopcSource(
     partialStatus: response.status,
     // A 206 Content-Length describes only the returned partial body. The full
     // resource length is reported only after one selected validation succeeds.
-    contentLength: response.status === 200 ? readContentLength(response) : undefined,
-    ...(first.contentRange === undefined ? {} : { contentRange: first.contentRange }),
+    contentLength:
+      response.status === 200 ? readContentLength(response) : undefined,
+    ...(first.contentRange === undefined
+      ? {}
+      : { contentRange: first.contentRange }),
     ...(first.parsedContentRange
       ? {
           returnedRange: {
             offset: first.parsedContentRange.start,
-            length: first.parsedContentRange.end - first.parsedContentRange.start + 1,
+            length:
+              first.parsedContentRange.end - first.parsedContentRange.start + 1,
           },
         }
       : {}),
     corsReadable: true,
-    copcDetected: 'unknown',
+    copcDetected: "unknown",
     warnings: [],
   };
 
@@ -614,7 +679,7 @@ export async function probeCopcSource(
   let metadataBytes = first.bytes;
   let extraWarnings: string[] = [...inspection.warnings];
   let metadataRangeSupported = true;
-  let validationLevel: RangeValidationLevel = 'incompatible';
+  let validationLevel: RangeValidationLevel = "incompatible";
   let firstRangeUsable = false;
   let detectedContentLength = result.contentLength;
 
@@ -629,13 +694,15 @@ export async function probeCopcSource(
     firstRangeUsable = initialValidation.usable;
     validationLevel = initialValidation.level;
     detectedContentLength = initialValidation.total ?? detectedContentLength;
-    if (initialValidation.warning) extraWarnings.push(initialValidation.warning);
+    if (initialValidation.warning)
+      extraWarnings.push(initialValidation.warning);
 
     if (
-      firstRangeUsable
-      && inspection.metadataEnd !== undefined
-      && inspection.metadataEnd > first.bytes.byteLength
-      && inspection.metadataEnd - first.bytes.byteLength <= MAX_PROBE_METADATA_BYTES
+      firstRangeUsable &&
+      inspection.metadataEnd !== undefined &&
+      inspection.metadataEnd > first.bytes.byteLength &&
+      inspection.metadataEnd - first.bytes.byteLength <=
+        MAX_PROBE_METADATA_BYTES
     ) {
       const extensionRange = validateByteRange(
         source,
@@ -654,29 +721,37 @@ export async function probeCopcSource(
         if (!extensionValidation.usable) {
           metadataRangeSupported = false;
           validationLevel = extensionValidation.level;
-          extraWarnings.push(extensionValidation.warning
-            ?? 'The additional metadata range did not satisfy the selected validation contract.');
+          extraWarnings.push(
+            extensionValidation.warning ??
+              "The additional metadata range did not satisfy the selected validation contract.",
+          );
         } else {
-          if (extensionValidation.level === 'compatibility-limited') {
-            validationLevel = 'compatibility-limited';
+          if (extensionValidation.level === "compatibility-limited") {
+            validationLevel = "compatibility-limited";
           }
-          detectedContentLength = extensionValidation.total ?? detectedContentLength;
-          const combined = new Uint8Array(first.bytes.byteLength + extension.bytes.byteLength);
+          detectedContentLength =
+            extensionValidation.total ?? detectedContentLength;
+          const combined = new Uint8Array(
+            first.bytes.byteLength + extension.bytes.byteLength,
+          );
           combined.set(first.bytes);
           combined.set(extension.bytes, first.bytes.byteLength);
           metadataBytes = combined;
-          extraWarnings = extraWarnings.filter((warning) =>
-            !warning.startsWith('COPC metadata extends to byte'));
+          extraWarnings = extraWarnings.filter(
+            (warning) => !warning.startsWith("COPC metadata extends to byte"),
+          );
         }
       } catch {
         metadataRangeSupported = false;
-        validationLevel = 'unknown';
-        extraWarnings.push('COPC metadata could not be inspected from the additional range.');
+        validationLevel = "unknown";
+        extraWarnings.push(
+          "COPC metadata could not be inspected from the additional range.",
+        );
       }
     } else if (
-      firstRangeUsable
-      && inspection.metadataEnd !== undefined
-      && inspection.metadataEnd > first.bytes.byteLength
+      firstRangeUsable &&
+      inspection.metadataEnd !== undefined &&
+      inspection.metadataEnd > first.bytes.byteLength
     ) {
       extraWarnings.push(
         `COPC metadata extends beyond the probe safety limit; only the initial prefix was inspected.`,
@@ -685,29 +760,31 @@ export async function probeCopcSource(
   } else if (response.status === 200) {
     extraWarnings.push(
       `Requested bytes ${formatRequestedRange(requestedRange)} but the server returned HTTP 200. The server appears to ignore Range requests.`,
-      'COPC streaming requires reliable partial-content access.',
+      "COPC streaming requires reliable partial-content access.",
     );
   } else {
-    extraWarnings.push(`The range request returned HTTP ${response.status}; expected HTTP 206 Partial Content.`);
+    extraWarnings.push(
+      `The range request returned HTTP ${response.status}; expected HTTP 206 Partial Content.`,
+    );
     if (response.status === 404) {
-      extraWarnings.push('The COPC resource was not found at this URL.');
+      extraWarnings.push("The COPC resource was not found at this URL.");
     }
     if (response.status === 416) {
-      extraWarnings.push('The requested byte range was not satisfiable for this resource.');
+      extraWarnings.push(
+        "The requested byte range was not satisfiable for this resource.",
+      );
     }
   }
 
-  const finalInspection = metadataBytes === first.bytes
-    ? inspection
-    : inspectHeader(metadataBytes);
+  const finalInspection =
+    metadataBytes === first.bytes ? inspection : inspectHeader(metadataBytes);
   const warnings = [...extraWarnings, ...finalInspection.warnings];
-  const rangeSupported: ProbeTruth = response.status === 206
-    && firstRangeUsable
-    && metadataRangeSupported
-    ? true
-    : validationLevel === 'unknown'
-      ? 'unknown'
-      : false;
+  const rangeSupported: ProbeTruth =
+    response.status === 206 && firstRangeUsable && metadataRangeSupported
+      ? true
+      : validationLevel === "unknown"
+        ? "unknown"
+        : false;
 
   return withWarnings(
     {

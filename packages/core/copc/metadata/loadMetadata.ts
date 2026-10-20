@@ -1,13 +1,13 @@
 import {
   resolveCopcContext,
   type CopcContextInput,
-} from '../context/createCopcContext';
-import type { CopcMetadata } from '../types/copc';
-import { CopcLoadError, CopcMetadataError } from '../errors';
+} from "../context/createCopcContext";
+import type { CopcMetadata } from "../types/copc";
+import { CopcLoadError, CopcMetadataError } from "../errors";
 import {
   CopcMetadataValidationError,
   validateCopcMetadata,
-} from './validateMetadata';
+} from "./validateMetadata";
 
 export async function loadCopcMetadata(
   source: CopcContextInput,
@@ -26,9 +26,10 @@ export async function loadCopcMetadata(
 
     throw new CopcMetadataError(context.source, {
       cause: error,
-      detail: error instanceof CopcMetadataValidationError
-        ? error.message
-        : undefined,
+      detail:
+        error instanceof CopcMetadataValidationError
+          ? error.message
+          : undefined,
     });
   }
 }

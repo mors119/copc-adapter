@@ -1,21 +1,21 @@
-import * as THREE from 'three';
-import type { CopcMetadata } from '../../core/copc/types/copc';
-import type { CopcHierarchyDiagnostics } from '../../core/copc/hierarchy/types';
-import type { CopcPointInspection } from '../../core/copc/points/pointInspection';
-import type { NodePointCacheDiagnostics } from '../../core/streaming/createNodePointCache';
-import type { DatasetLocalFrame } from '../../core/coordinates/types';
+import * as THREE from "three";
+import type { CopcMetadata } from "../../core/copc/types/copc";
+import type { CopcHierarchyDiagnostics } from "../../core/copc/hierarchy/types";
+import type { CopcPointInspection } from "../../core/copc/points/pointInspection";
+import type { NodePointCacheDiagnostics } from "../../core/streaming/createNodePointCache";
+import type { DatasetLocalFrame } from "../../core/coordinates/types";
 import type {
   CopcThreeLayerEventMap,
   CopcThreeLayerEventType,
-} from '../events/CopcThreeLayerEvents';
-import { ThreeLayerController } from './ThreeLayerController';
+} from "../events/CopcThreeLayerEvents";
+import { ThreeLayerController } from "./ThreeLayerController";
 import type {
   CopcThreeLayerAttachment,
   CopcThreeLayerOptions,
   CopcThreeLayerPickOptions,
   CopcThreeLayerPickPosition,
   CopcThreeLayerSnapshot,
-} from './types';
+} from "./types";
 
 export type {
   CopcThreeLayerEventMap,
@@ -26,11 +26,11 @@ export type {
   CopcThreeLayerProgressEvent,
   CopcThreeLayerViewCancelledEvent,
   CopcThreeLayerViewSettledEvent,
-} from '../events/CopcThreeLayerEvents';
+} from "../events/CopcThreeLayerEvents";
 export type {
   CopcLayerErrorEvent,
   CopcViewCancellationReason,
-} from '../../core/events/layerEventLifecycle';
+} from "../../core/events/layerEventLifecycle";
 
 export type {
   CopcThreeLayerAttachment,
@@ -42,7 +42,7 @@ export type {
   CopcThreeLayerTransitionDiagnostics,
   CopcThreePointRenderer,
   CopcThreeRendererPerformanceSnapshot,
-} from './types';
+} from "./types";
 
 /**
  * Streams a COPC resource into a caller-owned Three.js scene.

@@ -1,23 +1,29 @@
-import type * as THREE from 'three';
-import type { CopcBackendName, CopcBackendSelection } from '../../core/copc/backend/selection';
-import type { CopcWorkerDiagnostics } from '../../core/copc/backend/types';
-import type { CopcPointInspection } from '../../core/copc/points/pointInspection';
-import type { CopcColorMode } from '../../core/copc/points/fieldSelection';
-import type { GeographicPointBuffer, PreparedPointData } from '../../core/copc/types/copc';
+import type * as THREE from "three";
+import type {
+  CopcBackendName,
+  CopcBackendSelection,
+} from "../../core/copc/backend/selection";
+import type { CopcWorkerDiagnostics } from "../../core/copc/backend/types";
+import type { CopcPointInspection } from "../../core/copc/points/pointInspection";
+import type { CopcColorMode } from "../../core/copc/points/fieldSelection";
+import type {
+  GeographicPointBuffer,
+  PreparedPointData,
+} from "../../core/copc/types/copc";
 import type {
   CopcStreamingPerformanceSnapshot,
   PredictivePrefetchDiagnostics,
-} from '../../core/streaming/CopcStreamingCore';
-import type { StreamingSelectionOptions } from '../../core/streaming/types';
-import type { NodePointCacheDiagnostics } from '../../core/streaming/createNodePointCache';
-import type { AdaptiveViewDistanceDiagnostics } from '../../core/streaming/view';
-import type { RangeValidationPolicy } from '../../core/copc/range/types';
-import type { CopcInputSource } from '../../core/copc/range/types';
-import type { CopcPointRenderer } from '../../core/streaming/renderer';
-import type { DatasetLocalFrame } from '../../core/coordinates/types';
-import type { ThreePointRendererOptions } from '../render/ThreePointRenderer';
-import type { ThreeViewportSource } from '../view/ThreeViewAdapter';
-import type { CopcThreeLayer } from './CopcThreeLayer';
+} from "../../core/streaming/CopcStreamingCore";
+import type { StreamingSelectionOptions } from "../../core/streaming/types";
+import type { NodePointCacheDiagnostics } from "../../core/streaming/createNodePointCache";
+import type { AdaptiveViewDistanceDiagnostics } from "../../core/streaming/view";
+import type { RangeValidationPolicy } from "../../core/copc/range/types";
+import type { CopcInputSource } from "../../core/copc/range/types";
+import type { CopcPointRenderer } from "../../core/streaming/renderer";
+import type { DatasetLocalFrame } from "../../core/coordinates/types";
+import type { ThreePointRendererOptions } from "../render/ThreePointRenderer";
+import type { ThreeViewportSource } from "../view/ThreeViewAdapter";
+import type { CopcThreeLayer } from "./CopcThreeLayer";
 
 /** Configuration for a {@link CopcThreeLayer} and its shared streaming core. */
 export type CopcThreeLayerOptions = {
@@ -36,7 +42,7 @@ export type CopcThreeLayerOptions = {
   /** Defaults to stable `copc-js`; `rust` is explicit opt-in. */
   backend?: CopcBackendSelection;
   /** Decoder used to convert point-data views into project point buffers. */
-  decoder?: import('../../core/copc/points/types').CopcPointDecoder;
+  decoder?: import("../../core/copc/points/types").CopcPointDecoder;
   /** Maximum retained decoded CPU point-buffer bytes; defaults to 256 MiB. */
   maxPointCacheBytes?: number;
   /** HTTP validation policy; defaults to `head-fallback`. Use `strict` to require readable Content-Range. */
@@ -68,15 +74,15 @@ export type CopcThreeLayerAttachment = {
 /** Public lifecycle states reported in {@link CopcThreeLayerSnapshot}. */
 export type CopcThreeLayerLifecycleState =
   /** Constructed but not attached or loading. */
-  | 'idle'
+  | "idle"
   /** Attached to a scene without loaded metadata. */
-  | 'mounted'
+  | "mounted"
   /** Metadata and root hierarchy load is in progress. */
-  | 'loading'
+  | "loading"
   /** Metadata and root hierarchy are available; point nodes stream per view. */
-  | 'ready'
+  | "ready"
   /** Permanently destroyed; only repeated `destroy()` calls are harmless. */
-  | 'destroyed';
+  | "destroyed";
 
 /** Counts describing visible-node replacement transitions. */
 export type CopcThreeLayerTransitionDiagnostics = {
@@ -117,7 +123,7 @@ export type CopcThreeLayerSnapshot = {
   /** Configured COPC resource URL supplied to the layer. */
   datasetUrl: string;
   /** Built-in backend name or `custom` for a supplied backend object. */
-  backend: CopcBackendName | 'custom';
+  backend: CopcBackendName | "custom";
   /** Hierarchy nodes selected for the current streaming view. */
   selectedNodeKeys: string[];
   /** Nodes currently committed to the renderer. */
@@ -135,7 +141,7 @@ export type CopcThreeLayerSnapshot = {
   /** Adaptive view-distance estimate, when a camera view has been observed. */
   viewDistance?: AdaptiveViewDistanceDiagnostics;
   /** Hierarchy request and page-cache counters, after source initialization. */
-  hierarchy?: import('../../core/copc/hierarchy/types').CopcHierarchyDiagnostics;
+  hierarchy?: import("../../core/copc/hierarchy/types").CopcHierarchyDiagnostics;
   /** Decoded CPU point-buffer cache counters and retained bytes. */
   pointCache: NodePointCacheDiagnostics;
   /** Rust/WASM worker queue counters, when that backend exposes them. */

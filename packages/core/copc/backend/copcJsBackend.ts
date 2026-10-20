@@ -1,16 +1,20 @@
-import { Copc, Las } from 'copc';
+import { Copc, Las } from "copc";
 import {
   toCopcHierarchyNode,
   toCopcHierarchyPage,
-} from '../adapters/hierarchyAdapter';
-import { toCopcMetadata } from '../adapters/metadataAdapter';
-import { createCopcGetter, getCopcSourceIdentity, type CopcRangeGetter } from '../getter/createCopcGetter';
-import type { CopcInputSource } from '../range/types';
-import { decodeCopcPointBuffer } from '../../wasm/copcDecoder';
+} from "../adapters/hierarchyAdapter";
+import { toCopcMetadata } from "../adapters/metadataAdapter";
+import {
+  createCopcGetter,
+  getCopcSourceIdentity,
+  type CopcRangeGetter,
+} from "../getter/createCopcGetter";
+import type { CopcInputSource } from "../range/types";
+import { decodeCopcPointBuffer } from "../../wasm/copcDecoder";
 import type {
   CopcHierarchyPageLoadOptions,
   CopcHierarchySubtree,
-} from '../hierarchy/types';
+} from "../hierarchy/types";
 import type {
   CopcHierarchyNode,
   CopcHierarchyPage,
@@ -18,41 +22,43 @@ import type {
   CopcMetadata,
   CopcPointBuffer,
   CopcPointView,
-} from '../types/copc';
+} from "../types/copc";
 import {
   type CopcPointComponent,
   type CopcPointField,
   type CopcPointFieldSelection,
-} from '../points/fieldSelection';
+} from "../points/fieldSelection";
 import {
   createExtraDimensionReaders,
   type CopcExtraDimensionSelection,
-} from '../points/extraDimensions';
+} from "../points/extraDimensions";
 import type {
   CopcBackend,
   CopcBackendOpenOptions,
   CopcPointLoadOptions,
   CopcSource,
-} from './types';
-import { performanceNow, type CopcPerformanceObserver } from '../performance';
-import { CopcBackendError } from '../errors';
+} from "./types";
+import { performanceNow, type CopcPerformanceObserver } from "../performance";
+import { CopcBackendError } from "../errors";
 
 const SOURCE_DIMENSIONS: Readonly<Record<CopcPointComponent, string>> = {
-  x: 'X',
-  y: 'Y',
-  z: 'Z',
-  intensity: 'Intensity',
-  classification: 'Classification',
-  red: 'Red',
-  green: 'Green',
-  blue: 'Blue',
+  x: "X",
+  y: "Y",
+  z: "Z",
+  intensity: "Intensity",
+  classification: "Classification",
+  red: "Red",
+  green: "Green",
+  blue: "Blue",
 };
 
-const FIELD_COMPONENTS: Readonly<Record<CopcPointField, readonly CopcPointComponent[]>> = {
-  position: ['x', 'y', 'z'],
-  intensity: ['intensity'],
-  classification: ['classification'],
-  rgb: ['red', 'green', 'blue'],
+const FIELD_COMPONENTS: Readonly<
+  Record<CopcPointField, readonly CopcPointComponent[]>
+> = {
+  position: ["x", "y", "z"],
+  intensity: ["intensity"],
+  classification: ["classification"],
+  rgb: ["red", "green", "blue"],
 };
 
 type SourcePointView = {
@@ -64,7 +70,7 @@ type SourcePointView = {
 function mapCopcJsError(
   source: string,
   error: unknown,
-  operation: 'open' | 'hierarchy' | 'point',
+  operation: "open" | "hierarchy" | "point",
   nodeKey?: string,
 ): CopcBackendError {
   if (error instanceof CopcBackendError) {
@@ -72,36 +78,40 @@ function mapCopcJsError(
   }
 
   const message = error instanceof Error ? error.message : String(error);
-  if (operation === 'open') {
-    const metadataFailure = /header|signature|version|VLR|COPC info|WKT/i.test(message);
+  if (operation === "open") {
+    const metadataFailure = /header|signature|version|VLR|COPC info|WKT/i.test(
+      message,
+    );
     return new CopcBackendError(
       source,
-      metadataFailure ? 'metadata' : 'source',
-      metadataFailure ? 'header-parse' : 'source-range',
+      metadataFailure ? "metadata" : "source",
+      metadataFailure ? "header-parse" : "source-range",
       message,
       { cause: error },
     );
   }
 
-  if (operation === 'hierarchy') {
-    return new CopcBackendError(source, 'hierarchy', 'hierarchy', message, { cause: error });
+  if (operation === "hierarchy") {
+    return new CopcBackendError(source, "hierarchy", "hierarchy", message, {
+      cause: error,
+    });
   }
 
   if (/point selection|unsupported/i.test(message)) {
-    return new CopcBackendError(source, 'decode', 'unsupported', message, {
+    return new CopcBackendError(source, "decode", "unsupported", message, {
       cause: error,
       nodeKey,
     });
   }
 
   if (/point range returned/i.test(message)) {
-    return new CopcBackendError(source, 'point-data', 'point-chunk', message, {
+    return new CopcBackendError(source, "point-data", "point-chunk", message, {
       cause: error,
       nodeKey,
     });
   }
 
-  return new CopcBackendError(source, 'decode', 'laz-decode', message, {
+  return new CopcBackendError(source, "decode", "laz-decode", message, {
     cause: error,
     nodeKey,
   });
@@ -119,7 +129,11 @@ export function toCopcPointView(
   for (const field of requestedFields) {
     const components = FIELD_COMPONENTS[field];
 
-    if (components.every((component) => sourceDimensions.has(SOURCE_DIMENSIONS[component]))) {
+    if (
+      components.every((component) =>
+        sourceDimensions.has(SOURCE_DIMENSIONS[component]),
+      )
+    ) {
       availableFields.add(field);
       for (const component of components) {
         availableComponents.add(component);
@@ -179,9 +193,9 @@ class CopcJsSource implements CopcSource {
       );
     }
     if (
-      nodeKey
-      && nodePointCount !== undefined
-      && bytes.byteLength >= this.copc.header.pointDataRecordLength + 4
+      nodeKey &&
+      nodePointCount !== undefined &&
+      bytes.byteLength >= this.copc.header.pointDataRecordLength + 4
     ) {
       const countOffset = this.copc.header.pointDataRecordLength;
       const compressedPointCount = new DataView(
@@ -196,7 +210,7 @@ class CopcJsSource implements CopcSource {
       }
     }
     this.resolvePerformanceObserver(performanceObserver)?.({
-      stage: 'rangeFetch',
+      stage: "rangeFetch",
       durationMs: performanceNow() - rangeStartedAt,
       nodeKey,
       bytes: bytes.byteLength,
@@ -207,7 +221,9 @@ class CopcJsSource implements CopcSource {
   private resolvePerformanceObserver(
     override?: CopcPerformanceObserver | null,
   ): CopcPerformanceObserver | undefined {
-    return override === undefined ? this.performanceObserver : override ?? undefined;
+    return override === undefined
+      ? this.performanceObserver
+      : (override ?? undefined);
   }
 
   getMetadata(): CopcMetadata {
@@ -216,7 +232,7 @@ class CopcJsSource implements CopcSource {
 
   getRootHierarchyPage(): CopcHierarchyPage {
     return {
-      key: '0-0-0-0',
+      key: "0-0-0-0",
       pageOffset: this.copc.info.rootHierarchyPage.pageOffset,
       pageLength: this.copc.info.rootHierarchyPage.pageLength,
     };
@@ -227,22 +243,24 @@ class CopcJsSource implements CopcSource {
     options: CopcHierarchyPageLoadOptions = {},
   ): Promise<CopcHierarchySubtree> {
     try {
-      const getter = options.performanceObserver === undefined
-        ? this.getter
-        : (begin: number, end: number) => this.readRange(
-          begin,
-          end,
-          undefined,
-          undefined,
-          undefined,
-          options.performanceObserver,
-        );
+      const getter =
+        options.performanceObserver === undefined
+          ? this.getter
+          : (begin: number, end: number) =>
+              this.readRange(
+                begin,
+                end,
+                undefined,
+                undefined,
+                undefined,
+                options.performanceObserver,
+              );
       const subtree = await Copc.loadHierarchyPage(getter, {
         pageOffset: page.pageOffset,
         pageLength: page.pageLength,
       });
-      const nodes: CopcHierarchySubtree['nodes'] = [];
-      const pages: CopcHierarchySubtree['pages'] = [];
+      const nodes: CopcHierarchySubtree["nodes"] = [];
+      const pages: CopcHierarchySubtree["pages"] = [];
 
       for (const [key, node] of Object.entries(subtree.nodes)) {
         if (node) {
@@ -258,7 +276,7 @@ class CopcJsSource implements CopcSource {
 
       return { nodes, pages };
     } catch (error: unknown) {
-      throw mapCopcJsError(this.source, error, 'hierarchy');
+      throw mapCopcJsError(this.source, error, "hierarchy");
     }
   }
 
@@ -267,18 +285,21 @@ class CopcJsSource implements CopcSource {
     fields: CopcPointFieldSelection,
     options: CopcPointLoadOptions = {},
   ): Promise<CopcPointView> {
-    if (!fields.has('position')) {
+    if (!fields.has("position")) {
       throw mapCopcJsError(
         this.source,
-        new Error('COPC point selection must include position'),
-        'point',
+        new Error("COPC point selection must include position"),
+        "point",
         hierarchyNode.key,
       );
     }
     let pointRangeDurationMs = 0;
     const startedAt = performanceNow();
     try {
-      const nodeGetter = async (begin: number, end: number): Promise<Uint8Array> => {
+      const nodeGetter = async (
+        begin: number,
+        end: number,
+      ): Promise<Uint8Array> => {
         const rangeStartedAt = performanceNow();
         const bytes = await this.readRange(
           begin,
@@ -294,17 +315,23 @@ class CopcJsSource implements CopcSource {
       // Extra dimensions need the decoded record buffer for exact 64-bit
       // reads, so decode and wrap it here the same way Copc.loadPointDataView
       // does; the default path is unchanged.
-      const points = this.extraDimensions === undefined
-        ? undefined
-        : await Copc.loadPointDataBuffer(nodeGetter, this.copc.header, hierarchyNode);
-      const view = points === undefined
-        ? await Copc.loadPointDataView(nodeGetter, this.copc, hierarchyNode)
-        : Las.View.create(points, this.copc.header, this.copc.eb);
+      const points =
+        this.extraDimensions === undefined
+          ? undefined
+          : await Copc.loadPointDataBuffer(
+              nodeGetter,
+              this.copc.header,
+              hierarchyNode,
+            );
+      const view =
+        points === undefined
+          ? await Copc.loadPointDataView(nodeGetter, this.copc, hierarchyNode)
+          : Las.View.create(points, this.copc.header, this.copc.eb);
       if (options.signal?.aborted) {
-        const error = new Error('Point-node load was cancelled', {
+        const error = new Error("Point-node load was cancelled", {
           cause: options.signal.reason,
         });
-        error.name = 'AbortError';
+        error.name = "AbortError";
         throw error;
       }
 
@@ -312,22 +339,26 @@ class CopcJsSource implements CopcSource {
       // fields enforced at this adapter boundary until a backend can skip LAZ
       // layers during decode.
       this.resolvePerformanceObserver(options.performanceObserver)?.({
-        stage: 'decode',
-        durationMs: Math.max(0, performanceNow() - startedAt - pointRangeDurationMs),
+        stage: "decode",
+        durationMs: Math.max(
+          0,
+          performanceNow() - startedAt - pointRangeDurationMs,
+        ),
         nodeKey: hierarchyNode.key,
         blocksMainThread: true,
       });
-      const extraDimensions = this.extraDimensions !== undefined && points !== undefined
-        ? createExtraDimensionReaders(view, this.extraDimensions, {
-          data: points,
-          header: this.copc.header,
-          extraBytes: this.copc.eb,
-        })
-        : undefined;
+      const extraDimensions =
+        this.extraDimensions !== undefined && points !== undefined
+          ? createExtraDimensionReaders(view, this.extraDimensions, {
+              data: points,
+              header: this.copc.header,
+              extraBytes: this.copc.eb,
+            })
+          : undefined;
 
       return toCopcPointView(view, fields, extraDimensions);
     } catch (error: unknown) {
-      throw mapCopcJsError(this.source, error, 'point', hierarchyNode.key);
+      throw mapCopcJsError(this.source, error, "point", hierarchyNode.key);
     }
   }
 
@@ -336,12 +367,14 @@ class CopcJsSource implements CopcSource {
     fields: CopcPointFieldSelection,
     options: CopcPointLoadOptions = {},
   ): Promise<CopcPointBuffer> {
-    const buffer = decodeCopcPointBuffer(await this.loadPointDataView(hierarchyNode, fields, options));
+    const buffer = decodeCopcPointBuffer(
+      await this.loadPointDataView(hierarchyNode, fields, options),
+    );
     if (options.signal?.aborted) {
-      const error = new Error('Point-node load was cancelled', {
+      const error = new Error("Point-node load was cancelled", {
         cause: options.signal.reason,
       });
-      error.name = 'AbortError';
+      error.name = "AbortError";
       throw error;
     }
     return buffer;
@@ -389,7 +422,7 @@ export class CopcJsBackend implements CopcBackend {
 
       return new CopcJsSource(identity, getter, copc, this.extraDimensions);
     } catch (error: unknown) {
-      throw mapCopcJsError(getCopcSourceIdentity(source), error, 'open');
+      throw mapCopcJsError(getCopcSourceIdentity(source), error, "open");
     }
   }
 }

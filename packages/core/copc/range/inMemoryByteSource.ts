@@ -4,7 +4,7 @@ import {
   type RangeReadOptions,
   type RandomAccessByteSource,
   validateByteRange,
-} from './types';
+} from "./types";
 
 /** Deterministic random-access source for parser and backend tests. */
 export class InMemoryByteSource implements RandomAccessByteSource {
@@ -13,11 +13,15 @@ export class InMemoryByteSource implements RandomAccessByteSource {
   private readonly bytes: Uint8Array;
 
   /** Copy the supplied bytes so later caller mutations do not change this source. */
-  constructor(bytes: ArrayBuffer | ArrayLike<number>, source = 'memory://copc') {
+  constructor(
+    bytes: ArrayBuffer | ArrayLike<number>,
+    source = "memory://copc",
+  ) {
     this.source = source;
-    this.bytes = bytes instanceof ArrayBuffer
-      ? new Uint8Array(bytes.slice(0))
-      : Uint8Array.from(bytes);
+    this.bytes =
+      bytes instanceof ArrayBuffer
+        ? new Uint8Array(bytes.slice(0))
+        : Uint8Array.from(bytes);
   }
 
   /** Return the copied byte-array length. */
@@ -36,7 +40,7 @@ export class InMemoryByteSource implements RandomAccessByteSource {
 
     if (end > this.bytes.byteLength) {
       throw new RangeSourceError(
-        'out-of-bounds',
+        "out-of-bounds",
         `Requested bytes=${offset}-${end - 1} exceed source size ${this.bytes.byteLength}`,
         { source: this.source, offset, length },
       );
@@ -50,7 +54,10 @@ export class InMemoryByteSource implements RandomAccessByteSource {
     ranges: readonly ByteRange[],
     options: RangeReadOptions = {},
   ): Promise<Uint8Array[]> {
-    return Promise.all(ranges.map(({ offset, length }) =>
-      this.readRange(offset, length, options)));
+    return Promise.all(
+      ranges.map(({ offset, length }) =>
+        this.readRange(offset, length, options),
+      ),
+    );
   }
 }

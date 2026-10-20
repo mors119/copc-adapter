@@ -1,11 +1,11 @@
-import { createPointTransformer } from '../../coordinates/transform/createPointTransformer';
-import type { CopcMetadata } from '../types/copc';
+import { createPointTransformer } from "../../coordinates/transform/createPointTransformer";
+import type { CopcMetadata } from "../types/copc";
 
 /** Internal validation detail used to produce actionable public metadata errors. */
 export class CopcMetadataValidationError extends Error {
   constructor(message: string, options?: ErrorOptions) {
     super(message, options);
-    this.name = 'CopcMetadataValidationError';
+    this.name = "CopcMetadataValidationError";
   }
 }
 
@@ -19,7 +19,7 @@ function assertFiniteValues(label: string, values: number[]): void {
 
 function assertOrderedBounds(
   label: string,
-  bounds: CopcMetadata['bounds'] | CopcMetadata['cube'],
+  bounds: CopcMetadata["bounds"] | CopcMetadata["cube"],
 ): void {
   assertFiniteValues(label, [
     bounds.minX,
@@ -45,19 +45,19 @@ function assertOrderedBounds(
 export function validateCopcMetadata(metadata: CopcMetadata): void {
   if (!Number.isSafeInteger(metadata.pointCount) || metadata.pointCount < 0) {
     throw new CopcMetadataValidationError(
-      'COPC pointCount must be a non-negative safe integer.',
+      "COPC pointCount must be a non-negative safe integer.",
     );
   }
 
-  assertOrderedBounds('bounds', metadata.bounds);
-  assertOrderedBounds('cube', metadata.cube);
+  assertOrderedBounds("bounds", metadata.bounds);
+  assertOrderedBounds("cube", metadata.cube);
 
   if (
     metadata.spacing !== undefined &&
     (!Number.isFinite(metadata.spacing) || metadata.spacing <= 0)
   ) {
     throw new CopcMetadataValidationError(
-      'COPC spacing must be a positive finite number.',
+      "COPC spacing must be a positive finite number.",
     );
   }
 
@@ -69,7 +69,7 @@ export function validateCopcMetadata(metadata: CopcMetadata): void {
       z: (metadata.bounds.minZ + metadata.bounds.maxZ) / 2,
     });
 
-    assertFiniteValues('CRS transformation result', [
+    assertFiniteValues("CRS transformation result", [
       transformed.longitude,
       transformed.latitude,
       transformed.height,
@@ -79,9 +79,7 @@ export function validateCopcMetadata(metadata: CopcMetadata): void {
       throw error;
     }
 
-    const detail = error instanceof Error
-      ? error.message
-      : 'unknown CRS error';
+    const detail = error instanceof Error ? error.message : "unknown CRS error";
 
     throw new CopcMetadataValidationError(
       `COPC CRS is missing, malformed, or unsupported: ${detail}`,

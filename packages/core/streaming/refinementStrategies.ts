@@ -1,15 +1,15 @@
-import type { ViewVector3 } from './types';
+import type { ViewVector3 } from "./types";
 
 /** Named refinement weighting policies supported by the shared selector. */
-export type RefinementAlgorithm = 'foveated' | 'screen-projection';
+export type RefinementAlgorithm = "foveated" | "screen-projection";
 
 /** Default refinement weighting used by v0.6.0 and later. */
-export const DEFAULT_REFINEMENT_ALGORITHM: RefinementAlgorithm = 'foveated';
+export const DEFAULT_REFINEMENT_ALGORITHM: RefinementAlgorithm = "foveated";
 
 /** A circular focus lens in normalized viewer-canvas coordinates. */
 export type RefinementFocus = {
   /** Lens shape. */
-  type: 'screen-circle';
+  type: "screen-circle";
   /** Center in normalized viewport coordinates: x left→right, y top→bottom. */
   center: { x: number; y: number };
   /** Circle radius as a fraction of the smaller drawing-buffer dimension. */
@@ -28,36 +28,50 @@ export function normalizeRefinementFocus(
   if (focus === undefined) {
     return undefined;
   }
-  if (focus === null || typeof focus !== 'object' || Array.isArray(focus)) {
-    throw new TypeError('Refinement focus must be a screen-circle object or undefined');
+  if (focus === null || typeof focus !== "object" || Array.isArray(focus)) {
+    throw new TypeError(
+      "Refinement focus must be a screen-circle object or undefined",
+    );
   }
-  if (focus.type !== 'screen-circle') {
+  if (focus.type !== "screen-circle") {
     throw new TypeError('Refinement focus type must be "screen-circle"');
   }
-  if (focus.center === null || typeof focus.center !== 'object' || Array.isArray(focus.center)) {
-    throw new TypeError('Refinement focus center must contain normalized x and y values');
+  if (
+    focus.center === null ||
+    typeof focus.center !== "object" ||
+    Array.isArray(focus.center)
+  ) {
+    throw new TypeError(
+      "Refinement focus center must contain normalized x and y values",
+    );
   }
   for (const [name, value] of Object.entries({
     x: focus.center.x,
     y: focus.center.y,
   })) {
     if (!Number.isFinite(value) || value < 0 || value > 1) {
-      throw new RangeError(`Refinement focus center.${name} must be finite and between 0 and 1`);
+      throw new RangeError(
+        `Refinement focus center.${name} must be finite and between 0 and 1`,
+      );
     }
   }
   if (!Number.isFinite(focus.radius) || focus.radius <= 0 || focus.radius > 1) {
-    throw new RangeError('Refinement focus radius must be finite and in the interval (0, 1]');
+    throw new RangeError(
+      "Refinement focus radius must be finite and in the interval (0, 1]",
+    );
   }
-  if (!Number.isFinite(focus.detailBias)
-    || focus.detailBias < 1
-    || focus.detailBias > MAX_REFINEMENT_FOCUS_DETAIL_BIAS) {
+  if (
+    !Number.isFinite(focus.detailBias) ||
+    focus.detailBias < 1 ||
+    focus.detailBias > MAX_REFINEMENT_FOCUS_DETAIL_BIAS
+  ) {
     throw new RangeError(
       `Refinement focus detailBias must be finite and between 1 and ${MAX_REFINEMENT_FOCUS_DETAIL_BIAS}`,
     );
   }
 
   return {
-    type: 'screen-circle',
+    type: "screen-circle",
     center: { x: focus.center.x, y: focus.center.y },
     radius: focus.radius,
     detailBias: focus.detailBias,
@@ -65,11 +79,13 @@ export function normalizeRefinementFocus(
 }
 
 /** Validate an algorithm supplied through an untyped JavaScript boundary. */
-export function resolveRefinementAlgorithm(value: unknown): RefinementAlgorithm {
+export function resolveRefinementAlgorithm(
+  value: unknown,
+): RefinementAlgorithm {
   if (value === undefined) {
     return DEFAULT_REFINEMENT_ALGORITHM;
   }
-  if (value === 'foveated' || value === 'screen-projection') {
+  if (value === "foveated" || value === "screen-projection") {
     return value;
   }
   throw new TypeError(
@@ -117,7 +133,7 @@ function smoothstep(edge0: number, edge1: number, value: number): number {
 }
 
 const screenProjectionStrategy: RefinementRelevanceStrategy = {
-  algorithm: 'screen-projection',
+  algorithm: "screen-projection",
   evaluate(input) {
     return {
       refinementWeight: input.screenProjectionWeight,
@@ -127,7 +143,7 @@ const screenProjectionStrategy: RefinementRelevanceStrategy = {
 };
 
 const foveatedStrategy: RefinementRelevanceStrategy = {
-  algorithm: 'foveated',
+  algorithm: "foveated",
   evaluate(input) {
     const gap = input.angularGapRadians;
     const falloff = input.angularFalloffRadians;
@@ -146,7 +162,7 @@ const foveatedStrategy: RefinementRelevanceStrategy = {
 
 const strategies: Record<RefinementAlgorithm, RefinementRelevanceStrategy> = {
   foveated: foveatedStrategy,
-  'screen-projection': screenProjectionStrategy,
+  "screen-projection": screenProjectionStrategy,
 };
 
 /** Create the shared selector policy for a validated algorithm name. */

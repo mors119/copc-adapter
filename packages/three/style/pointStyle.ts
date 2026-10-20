@@ -1,9 +1,9 @@
-import type { GeographicPointBuffer } from '../../core/copc/types/copc';
+import type { GeographicPointBuffer } from "../../core/copc/types/copc";
 import {
   prepareCopcPointColorBuffer,
   type CopcPointStyleInput,
   type CopcPointStyleState,
-} from '../../core/point/style/pointStyle';
+} from "../../core/point/style/pointStyle";
 
 /** Style inputs plus the Three.js point diameter in screen-space pixels. */
 export type CopcThreePointStyleOptions = CopcPointStyleInput & {
@@ -62,4 +62,4 @@ export type {
   CopcPointStyleInput,
   CopcPointStyleState,
   CopcValueRange,
-} from '../../core/point/style/pointStyle';
+} from "../../core/point/style/pointStyle";

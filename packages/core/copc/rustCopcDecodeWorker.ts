@@ -1,13 +1,11 @@
 import {
   decodeRustCopcNode,
   RustCopcNodePreparer,
-} from './rustCopcNodeDecoder';
-import { loadCopcWasmWorker } from '../wasm/copcWasmWorker';
-import { createCopcPointFieldSelection } from './points/fieldSelection';
-import type {
-  RustCopcDecodeWorkerRequest,
-} from './rustCopcDecodeWorkerProtocol';
-import { DEFAULT_MAX_RANGE_BYTES } from './range/types';
+} from "./rustCopcNodeDecoder";
+import { loadCopcWasmWorker } from "../wasm/copcWasmWorker";
+import { createCopcPointFieldSelection } from "./points/fieldSelection";
+import type { RustCopcDecodeWorkerRequest } from "./rustCopcDecodeWorkerProtocol";
+import { DEFAULT_MAX_RANGE_BYTES } from "./range/types";
 
 let metadataBytes: Uint8Array | undefined;
 let wasmBinary: Uint8Array | undefined;
@@ -19,28 +17,31 @@ const workerScope = self as unknown as {
   postMessage(message: unknown, transfer?: Transferable[]): void;
 };
 
-workerScope.onmessage = async (event: MessageEvent<RustCopcDecodeWorkerRequest>) => {
+workerScope.onmessage = async (
+  event: MessageEvent<RustCopcDecodeWorkerRequest>,
+) => {
   const request = event.data;
   try {
-    if (request.type === 'init') {
+    if (request.type === "init") {
       nodePreparer?.dispose();
       nodePreparer = undefined;
       metadataBytes = new Uint8Array(request.metadata);
       wasmBinary = new Uint8Array(request.wasm);
       maxRangeBytes = request.maxRangeBytes;
       heightOffsetMeters = request.heightOffsetMeters;
-      workerScope.postMessage({ type: 'ready' });
+      workerScope.postMessage({ type: "ready" });
       return;
     }
 
     const fields = createCopcPointFieldSelection([
-      'position',
-      ...(request.requestedFields & 1 ? ['intensity' as const] : []),
-      ...(request.requestedFields & 2 ? ['classification' as const] : []),
-      ...(request.requestedFields & 4 ? ['rgb' as const] : []),
+      "position",
+      ...(request.requestedFields & 1 ? ["intensity" as const] : []),
+      ...(request.requestedFields & 2 ? ["classification" as const] : []),
+      ...(request.requestedFields & 4 ? ["rgb" as const] : []),
     ]);
-    if (!metadataBytes || !wasmBinary) throw new Error('Rust COPC decode worker was not initialized');
-    if (request.type === 'prepare') {
+    if (!metadataBytes || !wasmBinary)
+      throw new Error("Rust COPC decode worker was not initialized");
+    if (request.type === "prepare") {
       if (!nodePreparer) {
         const wasm = await loadCopcWasmWorker(wasmBinary);
         nodePreparer = await RustCopcNodePreparer.fromMetadata(
@@ -57,15 +58,15 @@ workerScope.onmessage = async (event: MessageEvent<RustCopcDecodeWorkerRequest>)
       );
       const prepared = result.prepared;
       const response = {
-        type: 'result' as const,
+        type: "result" as const,
         id: request.id,
         nodeKey: request.nodeKey,
-        operation: 'prepare' as const,
+        operation: "prepare" as const,
         pointCount: prepared.pointCount,
         durationMs: result.durationMs,
         decodeDurationMs: result.decodeDurationMs,
         preparationDurationMs: result.preparationDurationMs,
-        coordinateSystem: 'wgs84-geographic' as const,
+        coordinateSystem: "wgs84-geographic" as const,
         sourceCoordinateSystem: prepared.source.coordinateSystem,
         worldCoordinateSystem: prepared.world.coordinateSystem,
         coordinates: prepared.geographic.coordinates.buffer,
@@ -73,9 +74,15 @@ workerScope.onmessage = async (event: MessageEvent<RustCopcDecodeWorkerRequest>)
         geographicCoordinates: prepared.geographic.coordinates.buffer,
         worldCoordinates: prepared.world.coordinates.buffer,
         statistics: {
-          ...(prepared.statistics.elevation ? { elevation: prepared.statistics.elevation } : {}),
-          ...(prepared.statistics.intensity ? { intensity: prepared.statistics.intensity } : {}),
-          ...(prepared.statistics.rgbMax !== undefined ? { rgbMax: prepared.statistics.rgbMax } : {}),
+          ...(prepared.statistics.elevation
+            ? { elevation: prepared.statistics.elevation }
+            : {}),
+          ...(prepared.statistics.intensity
+            ? { intensity: prepared.statistics.intensity }
+            : {}),
+          ...(prepared.statistics.rgbMax !== undefined
+            ? { rgbMax: prepared.statistics.rgbMax }
+            : {}),
         },
         intensity: prepared.attributes?.intensity?.buffer,
         classification: prepared.attributes?.classification?.buffer,
@@ -109,12 +116,12 @@ workerScope.onmessage = async (event: MessageEvent<RustCopcDecodeWorkerRequest>)
     );
     const attributes = result.buffer.attributes;
     const response = {
-      type: 'result' as const,
+      type: "result" as const,
       id: request.id,
       nodeKey: request.nodeKey,
       pointCount: result.buffer.pointCount,
       durationMs: result.durationMs,
-      coordinateSystem: result.buffer.coordinateSystem ?? 'copc-source',
+      coordinateSystem: result.buffer.coordinateSystem ?? "copc-source",
       coordinates: result.buffer.coordinates.buffer,
       intensity: attributes?.intensity?.buffer,
       classification: attributes?.classification?.buffer,
@@ -132,13 +139,24 @@ workerScope.onmessage = async (event: MessageEvent<RustCopcDecodeWorkerRequest>)
     ].filter((buffer): buffer is ArrayBuffer => buffer !== undefined);
     workerScope.postMessage(response, transferables);
   } catch (error: unknown) {
-    const structured = error instanceof Error
-      ? { name: error.name, message: error.message, code: 'code' in error ? String(error.code) : undefined }
-      : { name: 'Error', message: String(error) };
+    const structured =
+      error instanceof Error
+        ? {
+            name: error.name,
+            message: error.message,
+            code: "code" in error ? String(error.code) : undefined,
+          }
+        : { name: "Error", message: String(error) };
     workerScope.postMessage({
-      type: 'error',
-      id: request.type === 'decode' || request.type === 'prepare' ? request.id : undefined,
-      nodeKey: request.type === 'decode' || request.type === 'prepare' ? request.nodeKey : undefined,
+      type: "error",
+      id:
+        request.type === "decode" || request.type === "prepare"
+          ? request.id
+          : undefined,
+      nodeKey:
+        request.type === "decode" || request.type === "prepare"
+          ? request.nodeKey
+          : undefined,
       error: structured,
     });
   }

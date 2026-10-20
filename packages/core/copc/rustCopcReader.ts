@@ -1,26 +1,28 @@
-import { loadCopcWasm } from '../wasm/copcWasm';
+import { loadCopcWasm } from "../wasm/copcWasm";
 import {
   decodeRustCopcNode,
   getRustPointFieldMask,
   RustCopcNodePreparer,
-} from './rustCopcNodeDecoder';
-import {
-  RustCopcDecodeWorkerPool,
-} from './rustCopcDecodeWorkerPool';
+} from "./rustCopcNodeDecoder";
+import { RustCopcDecodeWorkerPool } from "./rustCopcDecodeWorkerPool";
 import type {
   CopcHierarchyNode,
   CopcHierarchyPage,
   CopcHierarchySubtree,
-} from './hierarchy/types';
-import type { CopcMetadata, CopcPointBuffer, PreparedPointData } from './types/copc';
-import type { RandomAccessByteSource } from './range/types';
-import type { CopcPointLoadOptions } from './backend/types';
-import type { CopcHierarchyPageLoadOptions } from './hierarchy/types';
-import type { CopcPointFieldSelection } from './points/fieldSelection';
-import type { CopcWorkerDiagnostics } from './backend/types';
-import { performanceNow, type CopcPerformanceObserver } from './performance';
-import { resolveMaxRangeBytes, resolveWasmMaxRangeBytes } from './range/types';
-import { resolveHeightOffsetMeters } from '../coordinates/transform/heightOffset';
+} from "./hierarchy/types";
+import type {
+  CopcMetadata,
+  CopcPointBuffer,
+  PreparedPointData,
+} from "./types/copc";
+import type { RandomAccessByteSource } from "./range/types";
+import type { CopcPointLoadOptions } from "./backend/types";
+import type { CopcHierarchyPageLoadOptions } from "./hierarchy/types";
+import type { CopcPointFieldSelection } from "./points/fieldSelection";
+import type { CopcWorkerDiagnostics } from "./backend/types";
+import { performanceNow, type CopcPerformanceObserver } from "./performance";
+import { resolveMaxRangeBytes, resolveWasmMaxRangeBytes } from "./range/types";
+import { resolveHeightOffsetMeters } from "../coordinates/transform/heightOffset";
 
 const INITIAL_LAS_HEADER_LENGTH = 375;
 const MAX_SAFE_INTEGER = Number.MAX_SAFE_INTEGER;
@@ -92,18 +94,18 @@ type RustParserResponse<T> = {
   };
 };
 
-export { RustCopcParseError } from './rustCopcErrors';
-export type { RustCopcParseErrorCode } from './rustCopcErrors';
-import { requireRustWasmPointer, RustCopcParseError } from './rustCopcErrors';
+export { RustCopcParseError } from "./rustCopcErrors";
+export type { RustCopcParseErrorCode } from "./rustCopcErrors";
+import { requireRustWasmPointer, RustCopcParseError } from "./rustCopcErrors";
 
 /** Header fields parsed from the COPC source by the Rust/WASM reader. */
 export type RustCopcHeader = RustHeaderValue;
 
 function requireDecodePointCount(value: number): number {
-  const count = requireSafeInteger(value, 'point count');
+  const count = requireSafeInteger(value, "point count");
   if (count === 0 || count > MAX_DECODE_POINTS) {
     throw new RustCopcParseError(
-      'unsupported-value',
+      "unsupported-value",
       `point count must be between 1 and ${MAX_DECODE_POINTS}`,
     );
   }
@@ -113,7 +115,7 @@ function requireDecodePointCount(value: number): number {
 function requireSafeInteger(value: number, name: string): number {
   if (!Number.isSafeInteger(value) || value < 0 || value > MAX_SAFE_INTEGER) {
     throw new RustCopcParseError(
-      'unsupported-value',
+      "unsupported-value",
       `${name} is not a non-negative JavaScript-safe integer`,
     );
   }
@@ -123,16 +125,19 @@ function requireSafeInteger(value: number, name: string): number {
 function requirePositiveSafeInteger(value: number, name: string): number {
   const checked = requireSafeInteger(value, name);
   if (checked === 0) {
-    throw new RustCopcParseError('invalid-value', `${name} must be positive`);
+    throw new RustCopcParseError("invalid-value", `${name} must be positive`);
   }
   return checked;
 }
 
-function requireHierarchyPageLength(value: number, maxRangeBytes: number): number {
-  const checked = requirePositiveSafeInteger(value, 'hierarchy page length');
+function requireHierarchyPageLength(
+  value: number,
+  maxRangeBytes: number,
+): number {
+  const checked = requirePositiveSafeInteger(value, "hierarchy page length");
   if (checked > maxRangeBytes) {
     throw new RustCopcParseError(
-      'unsupported-value',
+      "unsupported-value",
       `hierarchy page exceeds the ${maxRangeBytes}-byte safety limit`,
     );
   }
@@ -142,41 +147,61 @@ function requireHierarchyPageLength(value: number, maxRangeBytes: number): numbe
 function readCString(memory: WebAssembly.Memory, pointer: number): string {
   const bytes = new Uint8Array(memory.buffer);
   if (pointer === 0) {
-    throw new RustCopcParseError('serialization', 'Rust parser could not allocate a response');
+    throw new RustCopcParseError(
+      "serialization",
+      "Rust parser could not allocate a response",
+    );
   }
-  if (!Number.isSafeInteger(pointer) || pointer < 0 || pointer >= bytes.length) {
-    throw new RustCopcParseError('invalid-input', 'Rust parser returned an invalid response pointer');
+  if (
+    !Number.isSafeInteger(pointer) ||
+    pointer < 0 ||
+    pointer >= bytes.length
+  ) {
+    throw new RustCopcParseError(
+      "invalid-input",
+      "Rust parser returned an invalid response pointer",
+    );
   }
   let end = pointer;
   while (end < bytes.length && bytes[end] !== 0) {
     end += 1;
   }
   if (end === bytes.length) {
-    throw new RustCopcParseError('invalid-input', 'Rust parser returned an unterminated response');
+    throw new RustCopcParseError(
+      "invalid-input",
+      "Rust parser returned an unterminated response",
+    );
   }
   return new TextDecoder().decode(bytes.subarray(pointer, end));
 }
 
 async function parseWithRust<T>(
   bytes: Uint8Array,
-  parse: (wasm: Awaited<ReturnType<typeof loadCopcWasm>>, pointer: number, length: number) => number,
+  parse: (
+    wasm: Awaited<ReturnType<typeof loadCopcWasm>>,
+    pointer: number,
+    length: number,
+  ) => number,
 ): Promise<T> {
   const wasm = await loadCopcWasm();
   const inputPointer = requireRustWasmPointer(
     wasm.alloc_bytes(bytes.byteLength),
     bytes.byteLength,
-    'parser input',
+    "parser input",
   );
   new Uint8Array(wasm.memory.buffer, inputPointer, bytes.byteLength).set(bytes);
 
   try {
     const responsePointer = parse(wasm, inputPointer, bytes.byteLength);
     try {
-      const response = JSON.parse(readCString(wasm.memory, responsePointer)) as RustParserResponse<T>;
+      const response = JSON.parse(
+        readCString(wasm.memory, responsePointer),
+      ) as RustParserResponse<T>;
       if (!response.ok || response.value === undefined) {
         throw new RustCopcParseError(
-          response.error?.code ?? 'invalid-input',
-          response.error?.message ?? 'Rust parser returned an invalid error response',
+          response.error?.code ?? "invalid-input",
+          response.error?.message ??
+            "Rust parser returned an invalid error response",
         );
       }
       return response.value;
@@ -194,22 +219,32 @@ function headerLayout(
 ): { headerSize: number; pointDataOffset: number } {
   if (initialBytes.byteLength < INITIAL_LAS_HEADER_LENGTH) {
     throw new RustCopcParseError(
-      'truncated',
+      "truncated",
       `LAS header requires ${INITIAL_LAS_HEADER_LENGTH} bytes, received ${initialBytes.byteLength}`,
     );
   }
-  const view = new DataView(initialBytes.buffer, initialBytes.byteOffset, initialBytes.byteLength);
+  const view = new DataView(
+    initialBytes.buffer,
+    initialBytes.byteOffset,
+    initialBytes.byteLength,
+  );
   const headerSize = view.getUint16(94, true);
   const pointDataOffset = view.getUint32(96, true);
   if (headerSize < INITIAL_LAS_HEADER_LENGTH) {
-    throw new RustCopcParseError('invalid-header', `LAS header size ${headerSize} is too small`);
+    throw new RustCopcParseError(
+      "invalid-header",
+      `LAS header size ${headerSize} is too small`,
+    );
   }
   if (pointDataOffset < headerSize) {
-    throw new RustCopcParseError('invalid-header', 'point data offset precedes the LAS header');
+    throw new RustCopcParseError(
+      "invalid-header",
+      "point data offset precedes the LAS header",
+    );
   }
   if (pointDataOffset > maxRangeBytes) {
     throw new RustCopcParseError(
-      'unsupported-value',
+      "unsupported-value",
       `LAS metadata area exceeds the ${maxRangeBytes}-byte safety limit`,
     );
   }
@@ -225,21 +260,37 @@ function toHierarchySubtree(
   maxRangeBytes: number,
 ): CopcHierarchySubtree {
   return {
-    nodes: value.nodes.map((node): CopcHierarchyNode => ({
-      key: key(node.level, node.x, node.y, node.z),
-      level: node.level,
-      x: node.x,
-      y: node.y,
-      z: node.z,
-      pointCount: requireSafeInteger(node.point_count, 'hierarchy point count'),
-      pointDataOffset: requireSafeInteger(node.point_data_offset, 'point data offset'),
-      pointDataLength: requireSafeInteger(node.point_data_length, 'point data length'),
-    })),
-    pages: value.pages.map((page): CopcHierarchyPage => ({
-      key: key(page.level, page.x, page.y, page.z),
-      pageOffset: requireSafeInteger(page.page_offset, 'hierarchy page offset'),
-      pageLength: requireHierarchyPageLength(page.page_length, maxRangeBytes),
-    })),
+    nodes: value.nodes.map(
+      (node): CopcHierarchyNode => ({
+        key: key(node.level, node.x, node.y, node.z),
+        level: node.level,
+        x: node.x,
+        y: node.y,
+        z: node.z,
+        pointCount: requireSafeInteger(
+          node.point_count,
+          "hierarchy point count",
+        ),
+        pointDataOffset: requireSafeInteger(
+          node.point_data_offset,
+          "point data offset",
+        ),
+        pointDataLength: requireSafeInteger(
+          node.point_data_length,
+          "point data length",
+        ),
+      }),
+    ),
+    pages: value.pages.map(
+      (page): CopcHierarchyPage => ({
+        key: key(page.level, page.x, page.y, page.z),
+        pageOffset: requireSafeInteger(
+          page.page_offset,
+          "hierarchy page offset",
+        ),
+        pageLength: requireHierarchyPageLength(page.page_length, maxRangeBytes),
+      }),
+    ),
   };
 }
 
@@ -272,9 +323,10 @@ export class RustCopcReader {
     this.header = header;
     this.maxRangeBytes = maxRangeBytes;
     this.heightOffsetMeters = heightOffsetMeters;
-    this.decodeWorkerPool = typeof Worker !== 'undefined'
-      ? new RustCopcDecodeWorkerPool({ maxRangeBytes, heightOffsetMeters })
-      : undefined;
+    this.decodeWorkerPool =
+      typeof Worker !== "undefined"
+        ? new RustCopcDecodeWorkerPool({ maxRangeBytes, heightOffsetMeters })
+        : undefined;
   }
 
   private metadataBytes: Uint8Array | undefined;
@@ -294,7 +346,7 @@ export class RustCopcReader {
     const startedAt = performanceNow();
     const bytes = await this.byteSource.readRange(offset, length, { signal });
     this.resolvePerformanceObserver(performanceObserver)?.({
-      stage: 'rangeFetch',
+      stage: "rangeFetch",
       durationMs: performanceNow() - startedAt,
       nodeKey,
       bytes: bytes.byteLength,
@@ -305,7 +357,9 @@ export class RustCopcReader {
   private resolvePerformanceObserver(
     override?: CopcPerformanceObserver | null,
   ): CopcPerformanceObserver | undefined {
-    return override === undefined ? this.performanceObserver : override ?? undefined;
+    return override === undefined
+      ? this.performanceObserver
+      : (override ?? undefined);
   }
 
   /**
@@ -320,18 +374,32 @@ export class RustCopcReader {
     byteSource: RandomAccessByteSource,
     options: RustCopcReaderOptions = {},
   ): Promise<RustCopcReader> {
-    const maxRangeBytes = resolveMaxRangeBytes(byteSource.source, options.maxRangeBytes);
-    const heightOffsetMeters = resolveHeightOffsetMeters(options.heightOffsetMeters);
-    const initialBytes = await byteSource.readRange(0, INITIAL_LAS_HEADER_LENGTH);
+    const maxRangeBytes = resolveMaxRangeBytes(
+      byteSource.source,
+      options.maxRangeBytes,
+    );
+    const heightOffsetMeters = resolveHeightOffsetMeters(
+      options.heightOffsetMeters,
+    );
+    const initialBytes = await byteSource.readRange(
+      0,
+      INITIAL_LAS_HEADER_LENGTH,
+    );
     const { pointDataOffset } = headerLayout(initialBytes, maxRangeBytes);
-    const metadataBytes = pointDataOffset <= initialBytes.byteLength
-      ? initialBytes.slice(0, pointDataOffset)
-      : await byteSource.readRange(0, pointDataOffset);
+    const metadataBytes =
+      pointDataOffset <= initialBytes.byteLength
+        ? initialBytes.slice(0, pointDataOffset)
+        : await byteSource.readRange(0, pointDataOffset);
     const header = await parseWithRust<RustCopcHeader>(
       metadataBytes,
       (wasm, pointer, length) => wasm.parse_copc_header_json(pointer, length),
     );
-    const reader = new RustCopcReader(byteSource, header, maxRangeBytes, heightOffsetMeters);
+    const reader = new RustCopcReader(
+      byteSource,
+      header,
+      maxRangeBytes,
+      heightOffsetMeters,
+    );
     reader.metadataBytes = metadataBytes;
     reader.decodeWorkerPool?.setMetadata(metadataBytes);
     return reader;
@@ -341,17 +409,25 @@ export class RustCopcReader {
   getMetadata(): CopcMetadata {
     const { bounds, cube, scale, offset } = this.header;
     return {
-      pointCount: requireSafeInteger(this.header.point_count, 'point count'),
+      pointCount: requireSafeInteger(this.header.point_count, "point count"),
       bounds: {
-        minX: bounds[0], minY: bounds[1], minZ: bounds[2],
-        maxX: bounds[3], maxY: bounds[4], maxZ: bounds[5],
+        minX: bounds[0],
+        minY: bounds[1],
+        minZ: bounds[2],
+        maxX: bounds[3],
+        maxY: bounds[4],
+        maxZ: bounds[5],
       },
       spacing: this.header.spacing,
       scale: { x: scale[0], y: scale[1], z: scale[2] },
       offset: { x: offset[0], y: offset[1], z: offset[2] },
       cube: {
-        minX: cube[0], minY: cube[1], minZ: cube[2],
-        maxX: cube[3], maxY: cube[4], maxZ: cube[5],
+        minX: cube[0],
+        minY: cube[1],
+        minZ: cube[2],
+        maxX: cube[3],
+        maxY: cube[4],
+        maxZ: cube[5],
       },
       wkt: this.header.wkt,
     };
@@ -360,10 +436,10 @@ export class RustCopcReader {
   /** Return the root hierarchy byte range parsed from the COPC header. */
   getRootHierarchyPage(): CopcHierarchyPage {
     return {
-      key: '0-0-0-0',
+      key: "0-0-0-0",
       pageOffset: requireSafeInteger(
         this.header.root_hierarchy_page_offset,
-        'root hierarchy page offset',
+        "root hierarchy page offset",
       ),
       pageLength: requireHierarchyPageLength(
         this.header.root_hierarchy_page_length,
@@ -377,11 +453,20 @@ export class RustCopcReader {
     page: CopcHierarchyPage,
     options: CopcHierarchyPageLoadOptions = {},
   ): Promise<CopcHierarchySubtree> {
-    const pageOffset = requireSafeInteger(page.pageOffset, 'hierarchy page offset');
-    const pageLength = requireHierarchyPageLength(page.pageLength, this.maxRangeBytes);
+    const pageOffset = requireSafeInteger(
+      page.pageOffset,
+      "hierarchy page offset",
+    );
+    const pageLength = requireHierarchyPageLength(
+      page.pageLength,
+      this.maxRangeBytes,
+    );
     const end = pageOffset + pageLength;
     if (!Number.isSafeInteger(end)) {
-      throw new RustCopcParseError('overflow', 'hierarchy page range exceeds JavaScript-safe integers');
+      throw new RustCopcParseError(
+        "overflow",
+        "hierarchy page range exceeds JavaScript-safe integers",
+      );
     }
     const bytes = await this.readRange(
       pageOffset,
@@ -390,14 +475,16 @@ export class RustCopcReader {
       undefined,
       options.performanceObserver,
     );
-    return toHierarchySubtree(await parseWithRust(
-      bytes,
-      (wasm, pointer, length) => wasm.parse_root_hierarchy_with_limit_json(
-        pointer,
-        length,
-        resolveWasmMaxRangeBytes(this.source, this.maxRangeBytes),
+    return toHierarchySubtree(
+      await parseWithRust(bytes, (wasm, pointer, length) =>
+        wasm.parse_root_hierarchy_with_limit_json(
+          pointer,
+          length,
+          resolveWasmMaxRangeBytes(this.source, this.maxRangeBytes),
+        ),
       ),
-    ), this.maxRangeBytes);
+      this.maxRangeBytes,
+    );
   }
 
   /** Load the root page only; referenced child pages remain lazy. */
@@ -433,7 +520,7 @@ export class RustCopcReader {
         chunk: chunkBytes,
       });
       this.resolvePerformanceObserver(options.performanceObserver)?.({
-        stage: 'decode',
+        stage: "decode",
         durationMs: decoded.decodeDurationMs,
         nodeKey: node.key,
         blocksMainThread: false,
@@ -452,7 +539,7 @@ export class RustCopcReader {
       this.maxRangeBytes,
     );
     this.resolvePerformanceObserver(options.performanceObserver)?.({
-      stage: 'decode',
+      stage: "decode",
       durationMs: decoded.durationMs,
       nodeKey: node.key,
       blocksMainThread: true,
@@ -490,13 +577,13 @@ export class RustCopcReader {
     if (this.decodeWorkerPool) {
       const result = await this.decodeWorkerPool.submitPrepared(request);
       this.resolvePerformanceObserver(options.performanceObserver)?.({
-        stage: 'decode',
+        stage: "decode",
         durationMs: result.decodeDurationMs,
         nodeKey: node.key,
         blocksMainThread: false,
       });
       this.resolvePerformanceObserver(options.performanceObserver)?.({
-        stage: 'pointPreparation',
+        stage: "pointPreparation",
         durationMs: result.preparationDurationMs,
         nodeKey: node.key,
         blocksMainThread: false,
@@ -513,15 +600,19 @@ export class RustCopcReader {
         this.heightOffsetMeters,
       );
     }
-    const result = (await this.nodePreparer).prepare(chunkBytes, pointCount, fields);
+    const result = (await this.nodePreparer).prepare(
+      chunkBytes,
+      pointCount,
+      fields,
+    );
     this.resolvePerformanceObserver(options.performanceObserver)?.({
-      stage: 'decode',
+      stage: "decode",
       durationMs: result.decodeDurationMs,
       nodeKey: node.key,
       blocksMainThread: true,
     });
     this.resolvePerformanceObserver(options.performanceObserver)?.({
-      stage: 'pointPreparation',
+      stage: "pointPreparation",
       durationMs: result.preparationDurationMs,
       nodeKey: node.key,
       blocksMainThread: true,
@@ -535,25 +626,41 @@ export class RustCopcReader {
     fields: CopcPointFieldSelection,
     signal?: AbortSignal,
     performanceObserver?: CopcPerformanceObserver | null,
-  ): Promise<{ metadataBytes: Uint8Array; chunkBytes: Uint8Array; pointCount: number }> {
-    if (!fields.has('position')) {
-      throw new RustCopcParseError('invalid-value', 'COPC point selection must include position');
+  ): Promise<{
+    metadataBytes: Uint8Array;
+    chunkBytes: Uint8Array;
+    pointCount: number;
+  }> {
+    if (!fields.has("position")) {
+      throw new RustCopcParseError(
+        "invalid-value",
+        "COPC point selection must include position",
+      );
     }
     const pointCount = requireDecodePointCount(node.pointCount);
     const coordinateLength = pointCount * 3;
     if (!Number.isSafeInteger(coordinateLength)) {
-      throw new RustCopcParseError('overflow', 'coordinate output length exceeds safe integer range');
-    }
-    if (!Number.isSafeInteger(node.pointDataLength) || node.pointDataLength > this.maxRangeBytes) {
       throw new RustCopcParseError(
-        'unsupported-value',
+        "overflow",
+        "coordinate output length exceeds safe integer range",
+      );
+    }
+    if (
+      !Number.isSafeInteger(node.pointDataLength) ||
+      node.pointDataLength > this.maxRangeBytes
+    ) {
+      throw new RustCopcParseError(
+        "unsupported-value",
         `point data chunk must not exceed ${this.maxRangeBytes} bytes`,
       );
     }
 
     const metadataBytes = this.metadataBytes;
     if (!metadataBytes) {
-      throw new RustCopcParseError('invalid-input', 'Rust COPC reader metadata is unavailable');
+      throw new RustCopcParseError(
+        "invalid-input",
+        "Rust COPC reader metadata is unavailable",
+      );
     }
     const chunkBytes = await this.readRange(
       node.pointDataOffset,
@@ -589,7 +696,9 @@ function throwIfPointLoadAborted(signal?: AbortSignal): void {
   if (!signal?.aborted) {
     return;
   }
-  const error = new Error('Point-node load was cancelled', { cause: signal.reason });
-  error.name = 'AbortError';
+  const error = new Error("Point-node load was cancelled", {
+    cause: signal.reason,
+  });
+  error.name = "AbortError";
   throw error;
 }

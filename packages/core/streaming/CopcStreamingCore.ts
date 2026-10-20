@@ -1,57 +1,55 @@
-import {
-  createCopcContext,
-} from '../copc/context/createCopcContext';
-import type { CopcSource, CopcWorkerDiagnostics } from '../copc/backend/types';
+import { createCopcContext } from "../copc/context/createCopcContext";
+import type { CopcSource, CopcWorkerDiagnostics } from "../copc/backend/types";
 import {
   getCopcBackendName,
   type CopcBackendSelection,
   type CopcBackendName,
-} from '../copc/backend/selection';
-import type { CopcPointDecoder } from '../copc/points/types';
-import { HierarchyLoader } from '../copc/hierarchy/HierarchyLoader';
+} from "../copc/backend/selection";
+import type { CopcPointDecoder } from "../copc/points/types";
+import { HierarchyLoader } from "../copc/hierarchy/HierarchyLoader";
 import type {
   CopcHierarchyBounds,
   CopcHierarchyDiagnostics,
   CopcProjectBounds,
   CopcHierarchyQuery,
-} from '../copc/hierarchy/types';
-import { CopcHierarchyLoadError, CopcLoadError } from '../copc/errors';
-import { loadCopcMetadata } from '../copc/metadata/loadMetadata';
-import { loadCopcPointBuffer } from '../copc/points/loadPointData';
-import { wasmCopcPointDecoder } from '../wasm/copcDecoder';
-import { createCopcPointFieldSelection, type CopcPointFieldSelection } from '../copc/points/fieldSelection';
+} from "../copc/hierarchy/types";
+import { CopcHierarchyLoadError, CopcLoadError } from "../copc/errors";
+import { loadCopcMetadata } from "../copc/metadata/loadMetadata";
+import { loadCopcPointBuffer } from "../copc/points/loadPointData";
+import { wasmCopcPointDecoder } from "../wasm/copcDecoder";
+import {
+  createCopcPointFieldSelection,
+  type CopcPointFieldSelection,
+} from "../copc/points/fieldSelection";
 import {
   applyPreparedPointHeightOffset,
   createPointTransformer,
   createProjectPointTransformer,
   transformPointBufferToPreparedPointData,
-} from '../coordinates/transform/createPointTransformer';
-import { resolveHeightOffsetMeters } from '../coordinates/transform/heightOffset';
+} from "../coordinates/transform/createPointTransformer";
+import { resolveHeightOffsetMeters } from "../coordinates/transform/heightOffset";
 import type {
   CopcMetadata,
   GeographicPointBuffer,
   PreparedPointData,
-} from '../copc/types/copc';
+} from "../copc/types/copc";
 import {
   assertPreparedPointData,
   preparedPointDataToGeographicBuffer,
-} from '../point/preparedPoint';
-import type { CopcPerformanceObserver } from '../copc/performance';
-import { performanceNow } from '../copc/performance';
-import { buildStreamingHierarchy } from './buildStreamingHierarchy';
+} from "../point/preparedPoint";
+import type { CopcPerformanceObserver } from "../copc/performance";
+import { performanceNow } from "../copc/performance";
+import { buildStreamingHierarchy } from "./buildStreamingHierarchy";
 import {
   createNodePointCache,
   type NodePointCache,
   type NodePointCacheDiagnostics,
   type NodePointLoadPurpose,
-} from './createNodePointCache';
-import { DEFAULT_MAX_RENDERED_POINTS, NodeSelector } from './NodeSelector';
-import { StreamingManager } from './StreamingManager';
-import {
-  AdaptiveViewDistancePolicy,
-  createStreamingViewBounds,
-} from './view';
-import type { AdaptiveViewDistanceDiagnostics } from './view';
+} from "./createNodePointCache";
+import { DEFAULT_MAX_RENDERED_POINTS, NodeSelector } from "./NodeSelector";
+import { StreamingManager } from "./StreamingManager";
+import { AdaptiveViewDistancePolicy, createStreamingViewBounds } from "./view";
+import type { AdaptiveViewDistanceDiagnostics } from "./view";
 import type {
   StreamingHierarchy,
   StreamingHierarchyNode,
@@ -61,48 +59,48 @@ import type {
   StreamingUpdateResult,
   StreamingView,
   StreamingWorkProgress,
-} from './types';
+} from "./types";
 import {
   StreamingPerformanceRecorder,
   type StreamingPerformanceSnapshot,
-} from './performance';
-import { DEFAULT_MAX_CONCURRENT_NODE_LOADS } from './scheduler';
-import { areStreamingViewsEquivalent } from './areStreamingViewsEquivalent';
+} from "./performance";
+import { DEFAULT_MAX_CONCURRENT_NODE_LOADS } from "./scheduler";
+import { areStreamingViewsEquivalent } from "./areStreamingViewsEquivalent";
 import {
   CameraMotionLookaheadEstimator,
   type CameraMotionLiveDiagnostics,
   type CameraMotionObservation,
   type CameraMotionPrediction,
-} from './motionLookahead';
+} from "./motionLookahead";
 import {
   createPredictedStreamingView,
   isOffscreenFromCurrentView,
-} from './predictivePrefetch';
+} from "./predictivePrefetch";
 import {
   RANGE_CANCELLATION_REASON,
   RangeRequestDiagnosticsRecorder,
-} from '../copc/range/requestDiagnostics';
-import type { RangeRequestDiagnostics } from '../copc/range/requestDiagnostics';
-import type { RangeValidationPolicy } from '../copc/range/types';
-import type { CopcInputSource } from '../copc/range/types';
-import { getCopcSourceIdentity } from '../copc/getter/createCopcGetter';
+} from "../copc/range/requestDiagnostics";
+import type { RangeRequestDiagnostics } from "../copc/range/requestDiagnostics";
+import type { RangeValidationPolicy } from "../copc/range/types";
+import type { CopcInputSource } from "../copc/range/types";
+import { getCopcSourceIdentity } from "../copc/getter/createCopcGetter";
 import {
   DEFAULT_REFINEMENT_ALGORITHM,
   normalizeRefinementFocus,
   resolveRefinementAlgorithm,
   type RefinementFocus,
-} from './refinementStrategies';
+} from "./refinementStrategies";
 
 /** Lifecycle states that do not depend on an attached rendering engine. */
 export type CopcStreamingLifecycleState =
   /** Constructed and not loading a source. */
-  | 'idle'
+  | "idle"
   /** Opening source, reading metadata, or loading the root hierarchy. */
-  | 'loading'
+  | "loading"
   /** Metadata and root hierarchy are ready for view-driven point loading. */
-  | 'ready'
+  | "ready"
   /** Permanently destroyed. */
-  | 'destroyed';
+  | "destroyed";
 
 /** Renderer-facing coverage replacement intent for one view generation. */
 export type CopcStreamingTransitionState = {
@@ -144,8 +142,12 @@ export type CopcStreamingControllerOptions = {
 export type CopcStreamingCoreOptions = CopcStreamingControllerOptions;
 
 /** Receives incremental prepared-node data while the current view is loading. */
-export type CopcStreamingProgressHandler = (progress: StreamingProgress) => void;
-export type CopcStreamingWorkProgressHandler = (progress: StreamingWorkProgress) => void;
+export type CopcStreamingProgressHandler = (
+  progress: StreamingProgress,
+) => void;
+export type CopcStreamingWorkProgressHandler = (
+  progress: StreamingWorkProgress,
+) => void;
 
 /**
  * Core-owned streaming, range-fetch, decode, and point-preparation measurements.
@@ -156,96 +158,96 @@ export type CopcStreamingWorkProgressHandler = (progress: StreamingWorkProgress)
  */
 export type CopcStreamingPerformanceSnapshot = Pick<
   StreamingPerformanceSnapshot,
-  | 'updateDurationMs'
-  | 'nodeSelectionMs'
-  | 'selectedNodeCount'
-  | 'estimatedSelectedPointCount'
-  | 'configuredPointBudget'
-  | 'candidateSelectedPointCount'
-  | 'activeRenderedPointCount'
-  | 'deferredNodeCount'
-  | 'deferredPointCount'
-  | 'budgetDeferDropCount'
-  | 'budgetUtilizationPercent'
-  | 'candidatesBeforeCulling'
-  | 'frustumCulledCount'
-  | 'maxScreenSpaceError'
-  | 'screenSpaceErrorMin'
-  | 'screenSpaceErrorMax'
-  | 'effectiveScreenSpaceErrorMin'
-  | 'effectiveScreenSpaceErrorMax'
-  | 'refinedNodeCount'
-  | 'keptNodeCount'
-  | 'frontierNodeCount'
-  | 'frontierPointCount'
-  | 'acceptedRefinementCount'
-  | 'refinementRejectedByNodeBudgetCount'
-  | 'refinementRejectedByPointBudgetCount'
-  | 'refinementDeferredByIncompleteHierarchyCount'
-  | 'minimumFrontierExceedsNodeBudget'
-  | 'minimumFrontierExceedsPointBudget'
-  | 'maxConcurrentNodeLoads'
-  | 'queuedNodeCount'
-  | 'activeNodeCount'
-  | 'queuedHighPriorityNodeCount'
-  | 'activeHighPriorityNodeCount'
-  | 'completedNodeCount'
-  | 'cancelledNodeCount'
-  | 'peakActiveNodeCount'
-  | 'completedSchedulingPriorityMin'
-  | 'completedSchedulingPriorityMax'
-  | 'pendingSchedulingPriorityMin'
-  | 'pendingSchedulingPriorityMax'
-  | 'firstHighPriorityNodeStartLatencyMs'
-  | 'firstHighPriorityNodeReadyLatencyMs'
-  | 'centerWeightMin'
-  | 'centerWeightMax'
-  | 'refinementCenterWeightMin'
-  | 'refinementCenterWeightMax'
-  | 'schedulingCenterWeightMin'
-  | 'schedulingCenterWeightMax'
-  | 'detailBiasMin'
-  | 'detailBiasMax'
-  | 'candidatesWithNonZeroInfluenceCount'
-  | 'acceptedGazeInfluencedRefinementCount'
-  | 'focusCandidateCount'
-  | 'focusWeightMin'
-  | 'focusWeightMax'
-  | 'focusInfluencedRefinementCount'
-  | 'motionLookaheadEnabled'
-  | 'motionSampledMovementCount'
-  | 'motionHorizontalAngularVelocityDegreesPerSecond'
-  | 'motionVerticalAngularVelocityDegreesPerSecond'
-  | 'motionHorizonMilliseconds'
-  | 'motionPredictedHorizontalDisplacementDegrees'
-  | 'motionPredictedVerticalDisplacementDegrees'
-  | 'motionCandidateCount'
-  | 'motionWeightMin'
-  | 'motionWeightMax'
-  | 'motionInfluencedRefinementCount'
-  | 'refinementAlgorithm'
-  | 'refinementFocusEnabled'
-  | 'influenceClampCount'
-  | 'acceptedRefinementPriorityMin'
-  | 'acceptedRefinementPriorityMax'
-  | 'refinementPriorityMin'
-  | 'refinementPriorityMax'
-  | 'schedulingPriorityMin'
-  | 'schedulingPriorityMax'
-  | 'candidatesWithCenterBoostCount'
-  | 'hysteresisHoldCount'
-  | 'refineDecisionCount'
-  | 'collapseDecisionCount'
-  | 'visibleLevelRange'
-  | 'cameraDirection'
-  | 'loadedNodeCount'
-  | 'loadedPointCount'
-  | 'rangeFetchDurationMs'
-  | 'rangeFetchBytes'
-  | 'decodeDurationMs'
-  | 'pointPreparationDurationMs'
-  | 'crsTransformDurationMs'
-  | 'longestMainThreadBlockingSectionMs'
+  | "updateDurationMs"
+  | "nodeSelectionMs"
+  | "selectedNodeCount"
+  | "estimatedSelectedPointCount"
+  | "configuredPointBudget"
+  | "candidateSelectedPointCount"
+  | "activeRenderedPointCount"
+  | "deferredNodeCount"
+  | "deferredPointCount"
+  | "budgetDeferDropCount"
+  | "budgetUtilizationPercent"
+  | "candidatesBeforeCulling"
+  | "frustumCulledCount"
+  | "maxScreenSpaceError"
+  | "screenSpaceErrorMin"
+  | "screenSpaceErrorMax"
+  | "effectiveScreenSpaceErrorMin"
+  | "effectiveScreenSpaceErrorMax"
+  | "refinedNodeCount"
+  | "keptNodeCount"
+  | "frontierNodeCount"
+  | "frontierPointCount"
+  | "acceptedRefinementCount"
+  | "refinementRejectedByNodeBudgetCount"
+  | "refinementRejectedByPointBudgetCount"
+  | "refinementDeferredByIncompleteHierarchyCount"
+  | "minimumFrontierExceedsNodeBudget"
+  | "minimumFrontierExceedsPointBudget"
+  | "maxConcurrentNodeLoads"
+  | "queuedNodeCount"
+  | "activeNodeCount"
+  | "queuedHighPriorityNodeCount"
+  | "activeHighPriorityNodeCount"
+  | "completedNodeCount"
+  | "cancelledNodeCount"
+  | "peakActiveNodeCount"
+  | "completedSchedulingPriorityMin"
+  | "completedSchedulingPriorityMax"
+  | "pendingSchedulingPriorityMin"
+  | "pendingSchedulingPriorityMax"
+  | "firstHighPriorityNodeStartLatencyMs"
+  | "firstHighPriorityNodeReadyLatencyMs"
+  | "centerWeightMin"
+  | "centerWeightMax"
+  | "refinementCenterWeightMin"
+  | "refinementCenterWeightMax"
+  | "schedulingCenterWeightMin"
+  | "schedulingCenterWeightMax"
+  | "detailBiasMin"
+  | "detailBiasMax"
+  | "candidatesWithNonZeroInfluenceCount"
+  | "acceptedGazeInfluencedRefinementCount"
+  | "focusCandidateCount"
+  | "focusWeightMin"
+  | "focusWeightMax"
+  | "focusInfluencedRefinementCount"
+  | "motionLookaheadEnabled"
+  | "motionSampledMovementCount"
+  | "motionHorizontalAngularVelocityDegreesPerSecond"
+  | "motionVerticalAngularVelocityDegreesPerSecond"
+  | "motionHorizonMilliseconds"
+  | "motionPredictedHorizontalDisplacementDegrees"
+  | "motionPredictedVerticalDisplacementDegrees"
+  | "motionCandidateCount"
+  | "motionWeightMin"
+  | "motionWeightMax"
+  | "motionInfluencedRefinementCount"
+  | "refinementAlgorithm"
+  | "refinementFocusEnabled"
+  | "influenceClampCount"
+  | "acceptedRefinementPriorityMin"
+  | "acceptedRefinementPriorityMax"
+  | "refinementPriorityMin"
+  | "refinementPriorityMax"
+  | "schedulingPriorityMin"
+  | "schedulingPriorityMax"
+  | "candidatesWithCenterBoostCount"
+  | "hysteresisHoldCount"
+  | "refineDecisionCount"
+  | "collapseDecisionCount"
+  | "visibleLevelRange"
+  | "cameraDirection"
+  | "loadedNodeCount"
+  | "loadedPointCount"
+  | "rangeFetchDurationMs"
+  | "rangeFetchBytes"
+  | "decodeDurationMs"
+  | "pointPreparationDurationMs"
+  | "crsTransformDurationMs"
+  | "longestMainThreadBlockingSectionMs"
 > & {
   /** Current decayed estimator state, sampled when `getSnapshot()` is called. */
   motionLive: CameraMotionLiveDiagnostics & {
@@ -261,7 +263,7 @@ export type CopcStreamingSnapshot = {
   /** Open resource identity or configured source URL before opening. */
   source: string;
   /** Built-in backend identifier or `custom`. */
-  backend: CopcBackendName | 'custom';
+  backend: CopcBackendName | "custom";
   /** Selected hierarchy nodes for the latest completed view update. */
   selectedNodeKeys: string[];
   /** Number of view updates completed by the core. */
@@ -354,8 +356,10 @@ function createTransitionState(): CopcStreamingTransitionState {
 }
 
 function createPointLoadAbortError(signal: AbortSignal): Error {
-  const error = new Error('Point-node load was cancelled', { cause: signal.reason });
-  error.name = 'AbortError';
+  const error = new Error("Point-node load was cancelled", {
+    cause: signal.reason,
+  });
+  error.name = "AbortError";
   return error;
 }
 
@@ -388,25 +392,29 @@ function toProjectBounds(
     [geographicBounds.maxX, geographicBounds.maxY, geographicBounds.minZ],
     [geographicBounds.maxX, geographicBounds.maxY, geographicBounds.maxZ],
   ].map(([longitude, latitude, height]) =>
-    toProject({ longitude, latitude, height }));
+    toProject({ longitude, latitude, height }),
+  );
 
-  return corners.reduce<CopcProjectBounds>((bounds, point) => ({
-    coordinateSystem: 'copc-source',
-    minX: Math.min(bounds.minX, point.x),
-    minY: Math.min(bounds.minY, point.y),
-    minZ: Math.min(bounds.minZ, point.z),
-    maxX: Math.max(bounds.maxX, point.x),
-    maxY: Math.max(bounds.maxY, point.y),
-    maxZ: Math.max(bounds.maxZ, point.z),
-  }), {
-    coordinateSystem: 'copc-source',
-    minX: Number.POSITIVE_INFINITY,
-    minY: Number.POSITIVE_INFINITY,
-    minZ: Number.POSITIVE_INFINITY,
-    maxX: Number.NEGATIVE_INFINITY,
-    maxY: Number.NEGATIVE_INFINITY,
-    maxZ: Number.NEGATIVE_INFINITY,
-  });
+  return corners.reduce<CopcProjectBounds>(
+    (bounds, point) => ({
+      coordinateSystem: "copc-source",
+      minX: Math.min(bounds.minX, point.x),
+      minY: Math.min(bounds.minY, point.y),
+      minZ: Math.min(bounds.minZ, point.z),
+      maxX: Math.max(bounds.maxX, point.x),
+      maxY: Math.max(bounds.maxY, point.y),
+      maxZ: Math.max(bounds.maxZ, point.z),
+    }),
+    {
+      coordinateSystem: "copc-source",
+      minX: Number.POSITIVE_INFINITY,
+      minY: Number.POSITIVE_INFINITY,
+      minZ: Number.POSITIVE_INFINITY,
+      maxX: Number.NEGATIVE_INFINITY,
+      maxY: Number.NEGATIVE_INFINITY,
+      maxZ: Number.NEGATIVE_INFINITY,
+    },
+  );
 }
 
 function getMinimumDatasetHeightMeters(
@@ -437,7 +445,8 @@ export class CopcStreamingCore {
   private readonly options: CopcStreamingControllerOptions;
   private readonly heightOffsetMeters: number;
   private performanceRecorder: StreamingPerformanceRecorder;
-  private readonly rangeRequestDiagnostics = new RangeRequestDiagnosticsRecorder();
+  private readonly rangeRequestDiagnostics =
+    new RangeRequestDiagnosticsRecorder();
   private readonly initialCache: NodePointCache<PreparedPointData>;
   private readonly pointFields: CopcPointFieldSelection;
   private streamingState?: StreamingState;
@@ -446,20 +455,23 @@ export class CopcStreamingCore {
   private streamingUpdateCount = 0;
   private selectedNodeKeys = new Set<string>();
   private currentView?: StreamingView;
-  private readonly adaptiveViewDistancePolicy = new AdaptiveViewDistancePolicy();
+  private readonly adaptiveViewDistancePolicy =
+    new AdaptiveViewDistancePolicy();
   private readonly motionEstimator: CameraMotionLookaheadEstimator;
   private motionSampledMovementCount = 0;
   private motionTimestampOffsetMilliseconds?: number;
   private motionTimestampAnchorMilliseconds?: number;
   private motionTimestampAnchorPerformanceMilliseconds?: number;
   private transition = createTransitionState();
-  private lifecycle: CopcStreamingLifecycleState = 'idle';
+  private lifecycle: CopcStreamingLifecycleState = "idle";
   private lifecycleAbortController?: AbortController;
   private refinementFocus?: RefinementFocus;
   private predictivePrefetchGeneration = 0;
   private predictivePrefetchController?: AbortController;
   private predictivePrefetchQueue: string[] = [];
-  private readonly activePredictivePrefetchTasks = new Set<{ state: StreamingState }>();
+  private readonly activePredictivePrefetchTasks = new Set<{
+    state: StreamingState;
+  }>();
   private predictivePrefetchCompletedNodeCount = 0;
   private predictivePrefetchFailedNodeCount = 0;
   private predictivePrefetchCancelledNodeCount = 0;
@@ -471,7 +483,9 @@ export class CopcStreamingCore {
   private predictivePrefetchHierarchyPageCacheHitCount = 0;
 
   constructor(options: CopcStreamingControllerOptions) {
-    this.heightOffsetMeters = resolveHeightOffsetMeters(options.heightOffsetMeters);
+    this.heightOffsetMeters = resolveHeightOffsetMeters(
+      options.heightOffsetMeters,
+    );
     const refinementAlgorithm = resolveRefinementAlgorithm(
       options.streaming?.refinementAlgorithm,
     );
@@ -487,7 +501,7 @@ export class CopcStreamingCore {
       options.streaming?.motionLookahead !== false,
     );
     this.pointFields = createCopcPointFieldSelection([
-      'position',
+      "position",
       ...(options.pointFields ?? []),
     ]);
     this.performanceRecorder = this.createPerformanceRecorder();
@@ -504,17 +518,19 @@ export class CopcStreamingCore {
    * @throws If source opening, metadata parsing, or root hierarchy loading fails.
    */
   async load(): Promise<void> {
-    if (this.lifecycle === 'destroyed') {
-      throw new Error('CopcStreamingController has been destroyed');
+    if (this.lifecycle === "destroyed") {
+      throw new Error("CopcStreamingController has been destroyed");
     }
     if (this.streamingState) {
-      throw new Error('COPC streaming controller is already loaded; call reload() to load it again');
+      throw new Error(
+        "COPC streaming controller is already loaded; call reload() to load it again",
+      );
     }
-    if (this.lifecycle === 'loading') {
-      throw new Error('COPC streaming controller is already loading');
+    if (this.lifecycle === "loading") {
+      throw new Error("COPC streaming controller is already loading");
     }
 
-    this.lifecycle = 'loading';
+    this.lifecycle = "loading";
     const loadGeneration = ++this.loadGeneration;
     const lifecycleAbortController = new AbortController();
     this.lifecycleAbortController = lifecycleAbortController;
@@ -523,15 +539,22 @@ export class CopcStreamingCore {
 
     try {
       const sourceOpenStartedAt = performanceNow();
-      context = await createCopcContext(this.options.url, this.options.backend, {
-        signal: lifecycleAbortController.signal,
-        rangeRequestDiagnostics: this.rangeRequestDiagnostics,
-        rangeValidation: this.options.rangeValidation,
-        maxRangeBytes: this.options.maxRangeBytes,
-        maxConcurrentRangeRequests: this.options.maxConcurrentRangeRequests,
-        heightOffsetMeters: this.heightOffsetMeters,
-      });
-      const sourceOpenDurationMs = Math.max(0, performanceNow() - sourceOpenStartedAt);
+      context = await createCopcContext(
+        this.options.url,
+        this.options.backend,
+        {
+          signal: lifecycleAbortController.signal,
+          rangeRequestDiagnostics: this.rangeRequestDiagnostics,
+          rangeValidation: this.options.rangeValidation,
+          maxRangeBytes: this.options.maxRangeBytes,
+          maxConcurrentRangeRequests: this.options.maxConcurrentRangeRequests,
+          heightOffsetMeters: this.heightOffsetMeters,
+        },
+      );
+      const sourceOpenDurationMs = Math.max(
+        0,
+        performanceNow() - sourceOpenStartedAt,
+      );
       if (!this.isCurrentLoad(loadGeneration)) {
         context.destroy?.();
         return;
@@ -613,8 +636,8 @@ export class CopcStreamingCore {
         cache,
         manager,
       };
-      this.lifecycle = 'ready';
-      this.debug('COPC metadata and hierarchy loaded');
+      this.lifecycle = "ready";
+      this.debug("COPC metadata and hierarchy loaded");
     } catch (error: unknown) {
       if (!this.isCurrentLoad(loadGeneration)) {
         context?.destroy?.();
@@ -625,7 +648,7 @@ export class CopcStreamingCore {
         this.lifecycleAbortController = undefined;
       }
       context?.destroy?.();
-      this.lifecycle = 'idle';
+      this.lifecycle = "idle";
       throw error;
     }
   }
@@ -648,12 +671,12 @@ export class CopcStreamingCore {
     onProgress?: CopcStreamingProgressHandler,
     onWorkProgress?: CopcStreamingWorkProgressHandler,
   ): Promise<StreamingUpdateResult | undefined> {
-    if (this.lifecycle === 'destroyed') {
-      throw new Error('CopcStreamingController has been destroyed');
+    if (this.lifecycle === "destroyed") {
+      throw new Error("CopcStreamingController has been destroyed");
     }
     const streamingState = this.streamingState;
-    if (!streamingState || this.lifecycle !== 'ready') {
-      throw new Error('COPC streaming controller is not loaded');
+    if (!streamingState || this.lifecycle !== "ready") {
+      throw new Error("COPC streaming controller is not loaded");
     }
     // Adapters may also sample intermediate camera events between streaming
     // transactions. Sampling here makes the documented direct-core update loop
@@ -668,8 +691,9 @@ export class CopcStreamingCore {
       streamingState.minimumDatasetHeightMeters,
     );
 
-    const equivalentToCurrentView = this.currentView !== undefined
-      && areStreamingViewsEquivalent(this.currentView, adaptiveView);
+    const equivalentToCurrentView =
+      this.currentView !== undefined &&
+      areStreamingViewsEquivalent(this.currentView, adaptiveView);
     const viewGeneration = ++this.viewGeneration;
     if (!equivalentToCurrentView) {
       this.supersedePredictivePrefetch();
@@ -678,7 +702,7 @@ export class CopcStreamingCore {
     // still in flight. The manager also invalidates at update start, matching
     // the established stale-result semantics.
     if (!equivalentToCurrentView) {
-      streamingState.manager.invalidate('superseded', adaptiveView);
+      streamingState.manager.invalidate("superseded", adaptiveView);
     }
     // Start measuring before a view can discover uncached hierarchy pages. The
     // manager is told to continue this recording after the query completes.
@@ -712,14 +736,15 @@ export class CopcStreamingCore {
     // Start the capped future-view hierarchy query before current point loads
     // begin. Its continuation is attached after manager.update() has
     // synchronously selected and queued current-view work.
-    const predictivePrefetchPlan = this.getStreamingOptions().predictivePrefetch === true
-      ? this.preparePredictivePrefetch(
-        viewGeneration,
-        adaptiveView,
-        streamingState,
-        motionPrediction,
-      )
-      : undefined;
+    const predictivePrefetchPlan =
+      this.getStreamingOptions().predictivePrefetch === true
+        ? this.preparePredictivePrefetch(
+            viewGeneration,
+            adaptiveView,
+            streamingState,
+            motionPrediction,
+          )
+        : undefined;
 
     let progressApplied = false;
     const applyProgress = (progress: StreamingProgress): void => {
@@ -730,21 +755,25 @@ export class CopcStreamingCore {
       progressApplied = true;
       this.applyProgress(progress, onProgress, viewGeneration);
     };
-    const updatePromise = streamingState.manager.update(adaptiveView, applyProgress, {
-      performanceAlreadyStarted: true,
-      ...(onWorkProgress
-        ? {
-            onWorkProgress: (progress: StreamingWorkProgress) => {
-              if (this.isCurrentView(viewGeneration, streamingState)) {
-                onWorkProgress(progress);
-              }
-            },
-          }
-        : {}),
-    });
+    const updatePromise = streamingState.manager.update(
+      adaptiveView,
+      applyProgress,
+      {
+        performanceAlreadyStarted: true,
+        ...(onWorkProgress
+          ? {
+              onWorkProgress: (progress: StreamingWorkProgress) => {
+                if (this.isCurrentView(viewGeneration, streamingState)) {
+                  onWorkProgress(progress);
+                }
+              },
+            }
+          : {}),
+      },
+    );
     if (predictivePrefetchPlan) {
       void predictivePrefetchPlan
-        .then((plan) => plan ? this.runPredictivePrefetch(plan) : undefined)
+        .then((plan) => (plan ? this.runPredictivePrefetch(plan) : undefined))
         .catch(() => {
           // Speculative work is isolated from current-view update results.
         });
@@ -793,7 +822,7 @@ export class CopcStreamingCore {
   private createHierarchyQuery(view: StreamingView): CopcHierarchyQuery {
     const metadata = this.streamingState?.metadata;
     if (!metadata) {
-      throw new Error('COPC streaming controller is not loaded');
+      throw new Error("COPC streaming controller is not loaded");
     }
 
     const streamingOptions = this.getStreamingOptions();
@@ -816,7 +845,7 @@ export class CopcStreamingCore {
 
   /** Remove source, hierarchy, cache, and selected-view state while keeping the core reusable. */
   unload(): void {
-    if (this.lifecycle === 'destroyed') {
+    if (this.lifecycle === "destroyed") {
       return;
     }
 
@@ -845,8 +874,8 @@ export class CopcStreamingCore {
     this.motionTimestampAnchorMilliseconds = undefined;
     this.motionTimestampAnchorPerformanceMilliseconds = undefined;
     this.resetPredictivePrefetchDiagnostics();
-    this.lifecycle = 'idle';
-    this.debug('COPC streaming controller unloaded');
+    this.lifecycle = "idle";
+    this.debug("COPC streaming controller unloaded");
   }
 
   /** Unload current state and load the configured source again. */
@@ -857,12 +886,12 @@ export class CopcStreamingCore {
 
   /** Permanently release all source-owned state; the core cannot be loaded again. */
   destroy(): void {
-    if (this.lifecycle === 'destroyed') {
+    if (this.lifecycle === "destroyed") {
       return;
     }
 
     this.unload();
-    this.lifecycle = 'destroyed';
+    this.lifecycle = "destroyed";
   }
 
   /** Return a fresh diagnostics snapshot; it does not expose mutable live state. */
@@ -881,11 +910,16 @@ export class CopcStreamingCore {
         ? { viewDistance: { ...this.currentView.viewDistanceDiagnostics } }
         : {}),
       ...(state ? { hierarchy: state.hierarchyLoader.getDiagnostics() } : {}),
-      pointCache: state?.cache.getDiagnostics() ?? this.initialCache.getDiagnostics(),
+      pointCache:
+        state?.cache.getDiagnostics() ?? this.initialCache.getDiagnostics(),
       rangeRequests: this.rangeRequestDiagnostics.getSnapshot(),
       ...(worker ? { worker } : {}),
       ...(this.getStreamingOptions().predictivePrefetch === true
-        ? { predictivePrefetch: this.getPredictivePrefetchDiagnostics(state?.cache) }
+        ? {
+            predictivePrefetch: this.getPredictivePrefetchDiagnostics(
+              state?.cache,
+            ),
+          }
         : {}),
     };
   }
@@ -902,8 +936,10 @@ export class CopcStreamingCore {
 
   /** Return current decoded CPU point-buffer cache counters. */
   getPointCacheDiagnostics(): NodePointCacheDiagnostics {
-    return this.streamingState?.cache.getDiagnostics()
-      ?? this.initialCache.getDiagnostics();
+    return (
+      this.streamingState?.cache.getDiagnostics() ??
+      this.initialCache.getDiagnostics()
+    );
   }
 
   /** Return sorted node keys selected for the most recent completed view. */
@@ -940,19 +976,26 @@ export class CopcStreamingCore {
     const now = performanceNow();
     let estimatorTimestamp = this.getMotionEstimatorTimestamp(now);
     if (timestampMilliseconds !== undefined) {
-      if (Number.isFinite(timestampMilliseconds) && timestampMilliseconds >= 0) {
+      if (
+        Number.isFinite(timestampMilliseconds) &&
+        timestampMilliseconds >= 0
+      ) {
         // Explicit timestamps may use another monotonic origin (for example,
         // Date.now() or a deterministic test clock). Rebase that clock once
         // onto performance.now(); the anchor below lets the internal clock
         // advance from the latest explicit sample before wall time catches up.
         this.motionTimestampOffsetMilliseconds ??= now - timestampMilliseconds;
-        estimatorTimestamp = timestampMilliseconds + this.motionTimestampOffsetMilliseconds;
+        estimatorTimestamp =
+          timestampMilliseconds + this.motionTimestampOffsetMilliseconds;
       } else {
         // Preserve the estimator's invalid-timestamp handling.
         estimatorTimestamp = timestampMilliseconds;
       }
     }
-    const observation = this.motionEstimator.observe(view.viewFrustum, estimatorTimestamp);
+    const observation = this.motionEstimator.observe(
+      view.viewFrustum,
+      estimatorTimestamp,
+    );
     if (observation.sampledMovement) {
       this.supersedePredictivePrefetch();
     }
@@ -960,8 +1003,10 @@ export class CopcStreamingCore {
       this.motionTimestampAnchorMilliseconds = estimatorTimestamp;
       this.motionTimestampAnchorPerformanceMilliseconds = now;
     }
-    if (observation.sampledMovement
-      && this.motionSampledMovementCount < Number.MAX_SAFE_INTEGER) {
+    if (
+      observation.sampledMovement &&
+      this.motionSampledMovementCount < Number.MAX_SAFE_INTEGER
+    ) {
       this.motionSampledMovementCount += 1;
     }
     this.streamingState?.manager.setMotionPrediction(observation.prediction);
@@ -987,7 +1032,7 @@ export class CopcStreamingCore {
 
   /** Invalidate an in-flight view and cancel reads outside an optional next view. */
   invalidateView(view?: StreamingView): void {
-    if (this.lifecycle === 'destroyed') {
+    if (this.lifecycle === "destroyed") {
       return;
     }
 
@@ -995,11 +1040,11 @@ export class CopcStreamingCore {
     this.supersedePredictivePrefetch();
     const adaptiveView = view
       ? this.adaptiveViewDistancePolicy.preview(
-        view,
-        this.getStreamingOptions().maxRenderDistanceMeters,
-      )
+          view,
+          this.getStreamingOptions().maxRenderDistanceMeters,
+        )
       : undefined;
-    this.streamingState?.manager.invalidate('superseded', adaptiveView);
+    this.streamingState?.manager.invalidate("superseded", adaptiveView);
   }
 
   /** Return a detached copy of the current replacement intent. */
@@ -1024,11 +1069,15 @@ export class CopcStreamingCore {
     state: StreamingState,
     prediction: CameraMotionPrediction,
   ): Promise<PredictivePrefetchPlan | undefined> {
-    if (this.predictivePrefetchController && !this.predictivePrefetchController.signal.aborted) {
+    if (
+      this.predictivePrefetchController &&
+      !this.predictivePrefetchController.signal.aborted
+    ) {
       return undefined;
     }
     const predictedView = createPredictedStreamingView(view, prediction);
-    if (!predictedView || !this.isCurrentView(viewGeneration, state)) return undefined;
+    if (!predictedView || !this.isCurrentView(viewGeneration, state))
+      return undefined;
 
     const controller = new AbortController();
     this.predictivePrefetchController = controller;
@@ -1053,8 +1102,10 @@ export class CopcStreamingCore {
         },
       );
     } catch {
-      if (!controller.signal.aborted
-        && this.isCurrentPrefetch(generation, state, controller)) {
+      if (
+        !controller.signal.aborted &&
+        this.isCurrentPrefetch(generation, state, controller)
+      ) {
         this.predictivePrefetchFailedNodeCount += 1;
       }
       if (this.predictivePrefetchController === controller) {
@@ -1062,7 +1113,8 @@ export class CopcStreamingCore {
       }
       return undefined;
     }
-    if (!this.isCurrentPrefetch(generation, state, controller)) return undefined;
+    if (!this.isCurrentPrefetch(generation, state, controller))
+      return undefined;
 
     const discoveredNodes = buildStreamingHierarchy(
       state.metadata,
@@ -1090,10 +1142,14 @@ export class CopcStreamingCore {
       predictivePrefetch: false,
     });
     selector.setRefinementFocus(this.refinementFocus);
-    const candidates = selector.selectVisibleNodes(predictedView, availableNodes, {
-      previousSelectedNodeKeys: new Set(this.selectedNodeKeys),
-      isNodeCached: (nodeKey) => state.cache.has(nodeKey),
-    });
+    const candidates = selector.selectVisibleNodes(
+      predictedView,
+      availableNodes,
+      {
+        previousSelectedNodeKeys: new Set(this.selectedNodeKeys),
+        isNodeCached: (nodeKey) => state.cache.has(nodeKey),
+      },
+    );
     const maxDecodedBytes = Math.min(
       MAX_PREFETCH_POINTS_PER_UPDATE * ESTIMATED_PREPARED_BYTES_PER_POINT,
       MAX_PREFETCH_POINT_RANGE_BYTES_PER_UPDATE,
@@ -1106,21 +1162,25 @@ export class CopcStreamingCore {
       const node = candidate.node;
       const pointCount = node.pointCount;
       const pointRangeBytes = node.pointDataLength;
-      const estimatedDecodedBytes = pointCount * ESTIMATED_PREPARED_BYTES_PER_POINT;
-      if (this.selectedNodeKeys.has(node.key)
-        || state.cache.has(node.key)
-        || pointCount <= 0
-        || !Number.isSafeInteger(pointRangeBytes)
-        || pointRangeBytes <= 0
-        || pointRangeBytes > MAX_PREFETCH_POINT_RANGE_BYTES_PER_UPDATE
-        || !isOffscreenFromCurrentView(
+      const estimatedDecodedBytes =
+        pointCount * ESTIMATED_PREPARED_BYTES_PER_POINT;
+      if (
+        this.selectedNodeKeys.has(node.key) ||
+        state.cache.has(node.key) ||
+        pointCount <= 0 ||
+        !Number.isSafeInteger(pointRangeBytes) ||
+        pointRangeBytes <= 0 ||
+        pointRangeBytes > MAX_PREFETCH_POINT_RANGE_BYTES_PER_UPDATE ||
+        !isOffscreenFromCurrentView(
           view.viewFrustum,
           predictedView.viewFrustum,
           availableNodes.get(node.key)?.boundingSphere,
-        )
-        || estimatedDecodedBytes > maxDecodedBytes
-        || queuedPointCount + pointCount > MAX_PREFETCH_POINTS_PER_UPDATE
-        || queuedRangeBytes + pointRangeBytes > MAX_PREFETCH_POINT_RANGE_BYTES_PER_UPDATE) {
+        ) ||
+        estimatedDecodedBytes > maxDecodedBytes ||
+        queuedPointCount + pointCount > MAX_PREFETCH_POINTS_PER_UPDATE ||
+        queuedRangeBytes + pointRangeBytes >
+          MAX_PREFETCH_POINT_RANGE_BYTES_PER_UPDATE
+      ) {
         continue;
       }
       queue.push(node.key);
@@ -1138,14 +1198,24 @@ export class CopcStreamingCore {
     };
   }
 
-  private async runPredictivePrefetch(plan: PredictivePrefetchPlan): Promise<void> {
+  private async runPredictivePrefetch(
+    plan: PredictivePrefetchPlan,
+  ): Promise<void> {
     const { generation, controller, state, queue } = plan;
-    while (queue.length > 0
-      && this.isCurrentPrefetch(generation, state, controller)) {
-      const currentPrediction = this.motionEstimator.getPrediction(this.getMotionEstimatorTimestamp());
+    while (
+      queue.length > 0 &&
+      this.isCurrentPrefetch(generation, state, controller)
+    ) {
+      const currentPrediction = this.motionEstimator.getPrediction(
+        this.getMotionEstimatorTimestamp(),
+      );
       if (currentPrediction.activity <= 0) break;
       const worker = state.context.getWorkerDiagnostics?.();
-      if (worker && (worker.workerCount <= 1 || worker.activeCount >= worker.workerCount - 1)) {
+      if (
+        worker &&
+        (worker.workerCount <= 1 ||
+          worker.activeCount >= worker.workerCount - 1)
+      ) {
         break;
       }
       if (!state.manager.tryAcquirePrefetchSlot()) break;
@@ -1158,17 +1228,22 @@ export class CopcStreamingCore {
       const activeTask = { state };
       this.activePredictivePrefetchTasks.add(activeTask);
       try {
-        await state.cache.load(nodeKey, 'prefetch');
+        await state.cache.load(nodeKey, "prefetch");
         if (this.isCurrentPrefetch(generation, state, controller)) {
           this.predictivePrefetchCompletedNodeCount += 1;
-        } else if (this.streamingState === state && this.lifecycle === 'ready') {
+        } else if (
+          this.streamingState === state &&
+          this.lifecycle === "ready"
+        ) {
           this.predictivePrefetchCancelledNodeCount += 1;
         }
       } catch {
-        if ((controller.signal.aborted
-          || !this.isCurrentPrefetch(generation, state, controller))
-          && this.streamingState === state
-          && this.lifecycle === 'ready') {
+        if (
+          (controller.signal.aborted ||
+            !this.isCurrentPrefetch(generation, state, controller)) &&
+          this.streamingState === state &&
+          this.lifecycle === "ready"
+        ) {
           this.predictivePrefetchCancelledNodeCount += 1;
         } else if (this.isCurrentPrefetch(generation, state, controller)) {
           this.predictivePrefetchFailedNodeCount += 1;
@@ -1178,8 +1253,10 @@ export class CopcStreamingCore {
         state.manager.releasePrefetchSlot();
       }
     }
-    if (this.isCurrentPrefetch(generation, state, controller)
-      && queue.length > 0) {
+    if (
+      this.isCurrentPrefetch(generation, state, controller) &&
+      queue.length > 0
+    ) {
       this.predictivePrefetchCancelledNodeCount += queue.length;
       queue.length = 0;
     }
@@ -1196,22 +1273,28 @@ export class CopcStreamingCore {
     state: StreamingState,
     controller: AbortController,
   ): boolean {
-    return !controller.signal.aborted
-      && generation === this.predictivePrefetchGeneration
-      && this.streamingState === state
-      && this.lifecycle === 'ready';
+    return (
+      !controller.signal.aborted &&
+      generation === this.predictivePrefetchGeneration &&
+      this.streamingState === state &&
+      this.lifecycle === "ready"
+    );
   }
 
   private supersedePredictivePrefetch(): void {
     this.predictivePrefetchGeneration += 1;
     if (this.predictivePrefetchQueue.length > 0) {
-      this.predictivePrefetchCancelledNodeCount += this.predictivePrefetchQueue.length;
+      this.predictivePrefetchCancelledNodeCount +=
+        this.predictivePrefetchQueue.length;
       this.predictivePrefetchQueue = [];
     }
     const controller = this.predictivePrefetchController;
     this.predictivePrefetchController = undefined;
     controller?.abort(RANGE_CANCELLATION_REASON.superseded);
-    this.streamingState?.cache.cancelPendingExcept(this.selectedNodeKeys, 'superseded');
+    this.streamingState?.cache.cancelPendingExcept(
+      this.selectedNodeKeys,
+      "superseded",
+    );
   }
 
   private getPredictivePrefetchDiagnostics(
@@ -1222,9 +1305,9 @@ export class CopcStreamingCore {
       enabled: this.getStreamingOptions().predictivePrefetch === true,
       generation: this.predictivePrefetchGeneration,
       queuedNodeCount: this.predictivePrefetchQueue.length,
-      activeNodeCount: [...this.activePredictivePrefetchTasks]
-        .filter((task) => task.state === this.streamingState)
-        .length,
+      activeNodeCount: [...this.activePredictivePrefetchTasks].filter(
+        (task) => task.state === this.streamingState,
+      ).length,
       completedNodeCount: this.predictivePrefetchCompletedNodeCount,
       failedNodeCount: this.predictivePrefetchFailedNodeCount,
       cancelledNodeCount: this.predictivePrefetchCancelledNodeCount,
@@ -1234,8 +1317,10 @@ export class CopcStreamingCore {
       pointRangeBytesRequested: this.predictivePrefetchPointRangeBytesRequested,
       hierarchyQueryCount: this.predictivePrefetchHierarchyQueryCount,
       hierarchyPageVisitCount: this.predictivePrefetchHierarchyPageVisitCount,
-      hierarchyPageRequestCount: this.predictivePrefetchHierarchyPageRequestCount,
-      hierarchyPageCacheHitCount: this.predictivePrefetchHierarchyPageCacheHitCount,
+      hierarchyPageRequestCount:
+        this.predictivePrefetchHierarchyPageRequestCount,
+      hierarchyPageCacheHitCount:
+        this.predictivePrefetchHierarchyPageCacheHitCount,
       maxNodesPerUpdate: MAX_PREFETCH_NODES_PER_UPDATE,
       maxPointsPerUpdate: MAX_PREFETCH_POINTS_PER_UPDATE,
       maxPointRangeBytesPerUpdate: MAX_PREFETCH_POINT_RANGE_BYTES_PER_UPDATE,
@@ -1273,7 +1358,7 @@ export class CopcStreamingCore {
   private createEmptyCache(): NodePointCache<PreparedPointData> {
     return createNodePointCache(
       async () => {
-        throw new Error('COPC streaming controller is not loaded');
+        throw new Error("COPC streaming controller is not loaded");
       },
       {
         maxEntries: MAX_CACHED_NODES,
@@ -1289,15 +1374,16 @@ export class CopcStreamingCore {
     performanceRecorder: StreamingPerformanceRecorder,
   ): NodePointCache<PreparedPointData> {
     return createNodePointCache(
-      (nodeKey, signal, purpose) => this.loadRenderableNodePoints(
-        context,
-        metadata,
-        nodesRef,
-        performanceRecorder,
-        nodeKey,
-        signal,
-        purpose,
-      ),
+      (nodeKey, signal, purpose) =>
+        this.loadRenderableNodePoints(
+          context,
+          metadata,
+          nodesRef,
+          performanceRecorder,
+          nodeKey,
+          signal,
+          purpose,
+        ),
       {
         maxEntries: MAX_CACHED_NODES,
         maxBytes: this.options.maxPointCacheBytes ?? DEFAULT_POINT_CACHE_BYTES,
@@ -1312,26 +1398,28 @@ export class CopcStreamingCore {
     performanceRecorder: StreamingPerformanceRecorder,
     nodeKey: string,
     signal: AbortSignal,
-    purpose: NodePointLoadPurpose = 'current',
+    purpose: NodePointLoadPurpose = "current",
   ): Promise<PreparedPointData> {
     const streamingNode = nodesRef.current.get(nodeKey);
     if (!streamingNode) {
       throw new Error(`Unknown COPC hierarchy node: ${nodeKey}`);
     }
-    if (purpose === 'prefetch') {
+    if (purpose === "prefetch") {
       this.predictivePrefetchPointRangeRequestCount += 1;
-      this.predictivePrefetchPointRangeBytesRequested += streamingNode.node.pointDataLength;
+      this.predictivePrefetchPointRangeBytesRequested +=
+        streamingNode.node.pointDataLength;
     }
 
-    const usesRustPointPath = this.options.decoder === undefined
-      || this.options.decoder === wasmCopcPointDecoder;
+    const usesRustPointPath =
+      this.options.decoder === undefined ||
+      this.options.decoder === wasmCopcPointDecoder;
     if (usesRustPointPath && context.loadPreparedPointData) {
       const prepared = await context.loadPreparedPointData(
         streamingNode.node,
         this.pointFields,
         {
           signal,
-          ...(purpose === 'prefetch' ? { performanceObserver: null } : {}),
+          ...(purpose === "prefetch" ? { performanceObserver: null } : {}),
         },
       );
       if (signal.aborted) {
@@ -1352,7 +1440,7 @@ export class CopcStreamingCore {
       this.pointFields,
       {
         signal,
-        ...(purpose === 'prefetch' ? { performanceObserver: null } : {}),
+        ...(purpose === "prefetch" ? { performanceObserver: null } : {}),
       },
     );
     if (signal.aborted) {
@@ -1365,9 +1453,9 @@ export class CopcStreamingCore {
       this.heightOffsetMeters,
     );
     assertPreparedPointData(transformed);
-    if (purpose !== 'prefetch') {
+    if (purpose !== "prefetch") {
       performanceRecorder.recordStage(
-        'crsTransformDurationMs',
+        "crsTransformDurationMs",
         performanceNow() - transformStartedAt,
         true,
       );
@@ -1379,15 +1467,16 @@ export class CopcStreamingCore {
     performanceRecorder: StreamingPerformanceRecorder,
   ): CopcPerformanceObserver {
     return (event) => {
-      const stage = event.stage === 'rangeFetch'
-        ? 'rangeFetchDurationMs'
-        : event.stage === 'pointPreparation'
-          ? 'pointPreparationDurationMs'
-          : 'decodeDurationMs';
+      const stage =
+        event.stage === "rangeFetch"
+          ? "rangeFetchDurationMs"
+          : event.stage === "pointPreparation"
+            ? "pointPreparationDurationMs"
+            : "decodeDurationMs";
       performanceRecorder.recordStage(
         stage,
         event.durationMs,
-        event.blocksMainThread ?? event.stage === 'decode',
+        event.blocksMainThread ?? event.stage === "decode",
         event.bytes,
       );
     };
@@ -1411,7 +1500,8 @@ export class CopcStreamingCore {
 
   private getMotionEstimatorTimestamp(now = performanceNow()): number {
     const anchor = this.motionTimestampAnchorMilliseconds;
-    const anchorPerformanceTime = this.motionTimestampAnchorPerformanceMilliseconds;
+    const anchorPerformanceTime =
+      this.motionTimestampAnchorPerformanceMilliseconds;
     if (anchor === undefined || anchorPerformanceTime === undefined) {
       return now;
     }
@@ -1440,50 +1530,77 @@ export class CopcStreamingCore {
       frontierNodeCount: snapshot.frontierNodeCount,
       frontierPointCount: snapshot.frontierPointCount,
       acceptedRefinementCount: snapshot.acceptedRefinementCount,
-      refinementRejectedByNodeBudgetCount: snapshot.refinementRejectedByNodeBudgetCount,
-      refinementRejectedByPointBudgetCount: snapshot.refinementRejectedByPointBudgetCount,
-      refinementDeferredByIncompleteHierarchyCount: snapshot.refinementDeferredByIncompleteHierarchyCount,
-      minimumFrontierExceedsNodeBudget: snapshot.minimumFrontierExceedsNodeBudget,
-      minimumFrontierExceedsPointBudget: snapshot.minimumFrontierExceedsPointBudget,
-      refinementAlgorithm: this.getStreamingOptions().refinementAlgorithm
-        ?? DEFAULT_REFINEMENT_ALGORITHM,
+      refinementRejectedByNodeBudgetCount:
+        snapshot.refinementRejectedByNodeBudgetCount,
+      refinementRejectedByPointBudgetCount:
+        snapshot.refinementRejectedByPointBudgetCount,
+      refinementDeferredByIncompleteHierarchyCount:
+        snapshot.refinementDeferredByIncompleteHierarchyCount,
+      minimumFrontierExceedsNodeBudget:
+        snapshot.minimumFrontierExceedsNodeBudget,
+      minimumFrontierExceedsPointBudget:
+        snapshot.minimumFrontierExceedsPointBudget,
+      refinementAlgorithm:
+        this.getStreamingOptions().refinementAlgorithm ??
+        DEFAULT_REFINEMENT_ALGORITHM,
       refinementFocusEnabled: this.refinementFocus !== undefined,
-      motionLookaheadEnabled: this.getStreamingOptions().motionLookahead !== false,
+      motionLookaheadEnabled:
+        this.getStreamingOptions().motionLookahead !== false,
       motionSampledMovementCount: this.motionSampledMovementCount,
       motionLive: {
-        ...this.motionEstimator.getDiagnostics(this.getMotionEstimatorTimestamp()),
+        ...this.motionEstimator.getDiagnostics(
+          this.getMotionEstimatorTimestamp(),
+        ),
         acceptedMovementSampleCount: this.motionSampledMovementCount,
       },
       ...(snapshot.maxConcurrentNodeLoads === undefined
         ? {}
         : {
-          maxConcurrentNodeLoads: snapshot.maxConcurrentNodeLoads,
-          queuedNodeCount: snapshot.queuedNodeCount,
-          activeNodeCount: snapshot.activeNodeCount,
-          queuedHighPriorityNodeCount: snapshot.queuedHighPriorityNodeCount,
-          activeHighPriorityNodeCount: snapshot.activeHighPriorityNodeCount,
-          completedNodeCount: snapshot.completedNodeCount,
-          cancelledNodeCount: snapshot.cancelledNodeCount,
-          peakActiveNodeCount: snapshot.peakActiveNodeCount,
-          ...(snapshot.completedSchedulingPriorityMin === undefined
-            ? {}
-            : { completedSchedulingPriorityMin: snapshot.completedSchedulingPriorityMin }),
-          ...(snapshot.completedSchedulingPriorityMax === undefined
-            ? {}
-            : { completedSchedulingPriorityMax: snapshot.completedSchedulingPriorityMax }),
-          ...(snapshot.pendingSchedulingPriorityMin === undefined
-            ? {}
-            : { pendingSchedulingPriorityMin: snapshot.pendingSchedulingPriorityMin }),
-          ...(snapshot.pendingSchedulingPriorityMax === undefined
-            ? {}
-            : { pendingSchedulingPriorityMax: snapshot.pendingSchedulingPriorityMax }),
-        }),
+            maxConcurrentNodeLoads: snapshot.maxConcurrentNodeLoads,
+            queuedNodeCount: snapshot.queuedNodeCount,
+            activeNodeCount: snapshot.activeNodeCount,
+            queuedHighPriorityNodeCount: snapshot.queuedHighPriorityNodeCount,
+            activeHighPriorityNodeCount: snapshot.activeHighPriorityNodeCount,
+            completedNodeCount: snapshot.completedNodeCount,
+            cancelledNodeCount: snapshot.cancelledNodeCount,
+            peakActiveNodeCount: snapshot.peakActiveNodeCount,
+            ...(snapshot.completedSchedulingPriorityMin === undefined
+              ? {}
+              : {
+                  completedSchedulingPriorityMin:
+                    snapshot.completedSchedulingPriorityMin,
+                }),
+            ...(snapshot.completedSchedulingPriorityMax === undefined
+              ? {}
+              : {
+                  completedSchedulingPriorityMax:
+                    snapshot.completedSchedulingPriorityMax,
+                }),
+            ...(snapshot.pendingSchedulingPriorityMin === undefined
+              ? {}
+              : {
+                  pendingSchedulingPriorityMin:
+                    snapshot.pendingSchedulingPriorityMin,
+                }),
+            ...(snapshot.pendingSchedulingPriorityMax === undefined
+              ? {}
+              : {
+                  pendingSchedulingPriorityMax:
+                    snapshot.pendingSchedulingPriorityMax,
+                }),
+          }),
       ...(snapshot.firstHighPriorityNodeStartLatencyMs === undefined
         ? {}
-        : { firstHighPriorityNodeStartLatencyMs: snapshot.firstHighPriorityNodeStartLatencyMs }),
+        : {
+            firstHighPriorityNodeStartLatencyMs:
+              snapshot.firstHighPriorityNodeStartLatencyMs,
+          }),
       ...(snapshot.firstHighPriorityNodeReadyLatencyMs === undefined
         ? {}
-        : { firstHighPriorityNodeReadyLatencyMs: snapshot.firstHighPriorityNodeReadyLatencyMs }),
+        : {
+            firstHighPriorityNodeReadyLatencyMs:
+              snapshot.firstHighPriorityNodeReadyLatencyMs,
+          }),
       loadedNodeCount: snapshot.loadedNodeCount,
       loadedPointCount: snapshot.loadedPointCount,
       rangeFetchDurationMs: snapshot.rangeFetchDurationMs,
@@ -1491,7 +1608,8 @@ export class CopcStreamingCore {
       decodeDurationMs: snapshot.decodeDurationMs,
       pointPreparationDurationMs: snapshot.pointPreparationDurationMs,
       crsTransformDurationMs: snapshot.crsTransformDurationMs,
-      longestMainThreadBlockingSectionMs: snapshot.longestMainThreadBlockingSectionMs,
+      longestMainThreadBlockingSectionMs:
+        snapshot.longestMainThreadBlockingSectionMs,
       ...(snapshot.screenSpaceErrorMin === undefined
         ? {}
         : { screenSpaceErrorMin: snapshot.screenSpaceErrorMin }),
@@ -1500,10 +1618,14 @@ export class CopcStreamingCore {
         : { screenSpaceErrorMax: snapshot.screenSpaceErrorMax }),
       ...(snapshot.effectiveScreenSpaceErrorMin === undefined
         ? {}
-        : { effectiveScreenSpaceErrorMin: snapshot.effectiveScreenSpaceErrorMin }),
+        : {
+            effectiveScreenSpaceErrorMin: snapshot.effectiveScreenSpaceErrorMin,
+          }),
       ...(snapshot.effectiveScreenSpaceErrorMax === undefined
         ? {}
-        : { effectiveScreenSpaceErrorMax: snapshot.effectiveScreenSpaceErrorMax }),
+        : {
+            effectiveScreenSpaceErrorMax: snapshot.effectiveScreenSpaceErrorMax,
+          }),
       ...(snapshot.visibleLevelRange === undefined
         ? {}
         : { visibleLevelRange: snapshot.visibleLevelRange }),
@@ -1536,37 +1658,43 @@ export class CopcStreamingCore {
         : { detailBiasMax: snapshot.detailBiasMax }),
       ...(snapshot.candidatesWithNonZeroInfluenceCount === undefined
         ? {}
-        : { candidatesWithNonZeroInfluenceCount: snapshot.candidatesWithNonZeroInfluenceCount }),
+        : {
+            candidatesWithNonZeroInfluenceCount:
+              snapshot.candidatesWithNonZeroInfluenceCount,
+          }),
       ...(snapshot.acceptedGazeInfluencedRefinementCount === undefined
         ? {}
-        : { acceptedGazeInfluencedRefinementCount: snapshot.acceptedGazeInfluencedRefinementCount }),
+        : {
+            acceptedGazeInfluencedRefinementCount:
+              snapshot.acceptedGazeInfluencedRefinementCount,
+          }),
       ...(snapshot.motionHorizontalAngularVelocityDegreesPerSecond === undefined
         ? {}
         : {
-          motionHorizontalAngularVelocityDegreesPerSecond:
-            snapshot.motionHorizontalAngularVelocityDegreesPerSecond,
-        }),
+            motionHorizontalAngularVelocityDegreesPerSecond:
+              snapshot.motionHorizontalAngularVelocityDegreesPerSecond,
+          }),
       ...(snapshot.motionVerticalAngularVelocityDegreesPerSecond === undefined
         ? {}
         : {
-          motionVerticalAngularVelocityDegreesPerSecond:
-            snapshot.motionVerticalAngularVelocityDegreesPerSecond,
-        }),
+            motionVerticalAngularVelocityDegreesPerSecond:
+              snapshot.motionVerticalAngularVelocityDegreesPerSecond,
+          }),
       ...(snapshot.motionHorizonMilliseconds === undefined
         ? {}
         : { motionHorizonMilliseconds: snapshot.motionHorizonMilliseconds }),
       ...(snapshot.motionPredictedHorizontalDisplacementDegrees === undefined
         ? {}
         : {
-          motionPredictedHorizontalDisplacementDegrees:
-            snapshot.motionPredictedHorizontalDisplacementDegrees,
-        }),
+            motionPredictedHorizontalDisplacementDegrees:
+              snapshot.motionPredictedHorizontalDisplacementDegrees,
+          }),
       ...(snapshot.motionPredictedVerticalDisplacementDegrees === undefined
         ? {}
         : {
-          motionPredictedVerticalDisplacementDegrees:
-            snapshot.motionPredictedVerticalDisplacementDegrees,
-        }),
+            motionPredictedVerticalDisplacementDegrees:
+              snapshot.motionPredictedVerticalDisplacementDegrees,
+          }),
       ...(snapshot.motionCandidateCount === undefined
         ? {}
         : { motionCandidateCount: snapshot.motionCandidateCount }),
@@ -1578,7 +1706,10 @@ export class CopcStreamingCore {
         : { motionWeightMax: snapshot.motionWeightMax }),
       ...(snapshot.motionInfluencedRefinementCount === undefined
         ? {}
-        : { motionInfluencedRefinementCount: snapshot.motionInfluencedRefinementCount }),
+        : {
+            motionInfluencedRefinementCount:
+              snapshot.motionInfluencedRefinementCount,
+          }),
       ...(snapshot.focusCandidateCount === undefined
         ? {}
         : { focusCandidateCount: snapshot.focusCandidateCount }),
@@ -1590,16 +1721,25 @@ export class CopcStreamingCore {
         : { focusWeightMax: snapshot.focusWeightMax }),
       ...(snapshot.focusInfluencedRefinementCount === undefined
         ? {}
-        : { focusInfluencedRefinementCount: snapshot.focusInfluencedRefinementCount }),
+        : {
+            focusInfluencedRefinementCount:
+              snapshot.focusInfluencedRefinementCount,
+          }),
       ...(snapshot.influenceClampCount === undefined
         ? {}
         : { influenceClampCount: snapshot.influenceClampCount }),
       ...(snapshot.acceptedRefinementPriorityMin === undefined
         ? {}
-        : { acceptedRefinementPriorityMin: snapshot.acceptedRefinementPriorityMin }),
+        : {
+            acceptedRefinementPriorityMin:
+              snapshot.acceptedRefinementPriorityMin,
+          }),
       ...(snapshot.acceptedRefinementPriorityMax === undefined
         ? {}
-        : { acceptedRefinementPriorityMax: snapshot.acceptedRefinementPriorityMax }),
+        : {
+            acceptedRefinementPriorityMax:
+              snapshot.acceptedRefinementPriorityMax,
+          }),
       ...(snapshot.refinementPriorityMin === undefined
         ? {}
         : { refinementPriorityMin: snapshot.refinementPriorityMin }),
@@ -1614,7 +1754,10 @@ export class CopcStreamingCore {
         : { schedulingPriorityMax: snapshot.schedulingPriorityMax }),
       ...(snapshot.candidatesWithCenterBoostCount === undefined
         ? {}
-        : { candidatesWithCenterBoostCount: snapshot.candidatesWithCenterBoostCount }),
+        : {
+            candidatesWithCenterBoostCount:
+              snapshot.candidatesWithCenterBoostCount,
+          }),
       ...(snapshot.hysteresisHoldCount === undefined
         ? {}
         : { hysteresisHoldCount: snapshot.hysteresisHoldCount }),
@@ -1628,23 +1771,29 @@ export class CopcStreamingCore {
   }
 
   private getMaxRenderedPoints(): number {
-    return this.options.maxRenderedPoints
-      ?? this.options.streaming?.maxRenderedPoints
-      ?? DEFAULT_STREAMING_OPTIONS.maxRenderedPoints
-      ?? DEFAULT_MAX_RENDERED_POINTS;
+    return (
+      this.options.maxRenderedPoints ??
+      this.options.streaming?.maxRenderedPoints ??
+      DEFAULT_STREAMING_OPTIONS.maxRenderedPoints ??
+      DEFAULT_MAX_RENDERED_POINTS
+    );
   }
 
   private isCurrentLoad(loadGeneration: number): boolean {
-    return loadGeneration === this.loadGeneration && this.lifecycle !== 'destroyed';
+    return (
+      loadGeneration === this.loadGeneration && this.lifecycle !== "destroyed"
+    );
   }
 
   private isCurrentView(
     viewGeneration: number,
     state: StreamingState,
   ): boolean {
-    return viewGeneration === this.viewGeneration
-      && this.streamingState === state
-      && this.lifecycle === 'ready';
+    return (
+      viewGeneration === this.viewGeneration &&
+      this.streamingState === state &&
+      this.lifecycle === "ready"
+    );
   }
 
   private debug(message: string): void {

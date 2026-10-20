@@ -1,19 +1,19 @@
-import * as Cesium from 'cesium';
-import type { CopcPointAttributes } from '../../core/copc/types/copc';
+import * as Cesium from "cesium";
+import type { CopcPointAttributes } from "../../core/copc/types/copc";
 import {
   getCopcPointColor,
   normalizeElevation,
   normalizeIntensity,
   type CopcPointStyleOptions,
-} from '../../core/point/style/pointStyle';
+} from "../../core/point/style/pointStyle";
 
-export type { CopcColorMode } from '../../core/copc/points/fieldSelection';
+export type { CopcColorMode } from "../../core/copc/points/fieldSelection";
 
 export type {
   CopcElevationRange,
   CopcPointStyleOptions,
   CopcValueRange,
-} from '../../core/point/style/pointStyle';
+} from "../../core/point/style/pointStyle";
 
 /** Convert the shared normalized color into Cesium's renderer-native value. */
 export function getPointColor(
@@ -33,11 +33,11 @@ export {
   getPointBufferRgbMax,
   prepareCopcPointColorBuffer,
   resolveCopcPointStyleOptions,
-} from '../../core/point/style/pointStyle';
+} from "../../core/point/style/pointStyle";
 
 export { normalizeElevation, normalizeIntensity };
 
 export type {
   CopcNormalizedColor,
   CopcPointStyleInput,
-} from '../../core/point/style/pointStyle';
+} from "../../core/point/style/pointStyle";

@@ -1,17 +1,18 @@
-import assert from 'node:assert/strict';
+import assert from "node:assert/strict";
 
 import {
   CopcJsBackend,
   InMemoryByteSource,
   RustCopcBackend,
-} from '../../index.ts';
+} from "../../index.ts";
 
 /** XYZ values cross a different decoder boundary, so compare them explicitly. */
 export const POINT_COORDINATE_EPSILON = 1e-6;
 
 export async function openBackendPair(source, bytes) {
   const rust = await new RustCopcBackend({
-    createByteSource: (requestedSource) => new InMemoryByteSource(bytes, requestedSource),
+    createByteSource: (requestedSource) =>
+      new InMemoryByteSource(bytes, requestedSource),
   }).open(source);
   const copcJs = await new CopcJsBackend().open(source);
 
@@ -22,7 +23,7 @@ export function normalizeRootHierarchy(subtree) {
   return [
     ...subtree.nodes.map((node) => ({
       key: node.key,
-      kind: 'node',
+      kind: "node",
       level: node.level,
       x: node.x,
       y: node.y,
@@ -33,7 +34,7 @@ export function normalizeRootHierarchy(subtree) {
     })),
     ...subtree.pages.map((page) => ({
       key: page.key,
-      kind: 'page',
+      kind: "page",
       pointCount: null,
       offset: page.pageOffset,
       length: page.pageLength,
@@ -43,14 +44,12 @@ export function normalizeRootHierarchy(subtree) {
     if (keyOrder !== 0) {
       return keyOrder;
     }
-    return left.kind === right.kind ? 0 : left.kind === 'node' ? -1 : 1;
+    return left.kind === right.kind ? 0 : left.kind === "node" ? -1 : 1;
   });
 }
 
 export function normalizeHierarchySubtree(subtree) {
-  return [
-    ...normalizeRootHierarchy(subtree),
-  ];
+  return [...normalizeRootHierarchy(subtree)];
 }
 
 export function normalizeHierarchyTree(tree) {
@@ -62,7 +61,7 @@ function compareHierarchyEntries(left, right) {
   if (keyOrder !== 0) {
     return keyOrder;
   }
-  return left.kind === right.kind ? 0 : left.kind === 'node' ? -1 : 1;
+  return left.kind === right.kind ? 0 : left.kind === "node" ? -1 : 1;
 }
 
 export function assertMetadataParity(rustMetadata, copcJsMetadata) {
@@ -73,15 +72,21 @@ export function assertMetadataParity(rustMetadata, copcJsMetadata) {
   assert.equal(rustMetadata.spacing, copcJsMetadata.spacing);
   assert.deepEqual(rustMetadata.cube, copcJsMetadata.cube);
 
-  const meaningfulWkt = (value) => value?.replaceAll('\0', '').trim() || undefined;
-  assert.equal(meaningfulWkt(rustMetadata.wkt), meaningfulWkt(copcJsMetadata.wkt));
+  const meaningfulWkt = (value) =>
+    value?.replaceAll("\0", "").trim() || undefined;
+  assert.equal(
+    meaningfulWkt(rustMetadata.wkt),
+    meaningfulWkt(copcJsMetadata.wkt),
+  );
 }
 
 export async function assertRootHierarchyParity(rust, copcJs) {
   assert.deepEqual(rust.getRootHierarchyPage(), copcJs.getRootHierarchyPage());
 
   const rustRoot = await rust.loadHierarchyPage(rust.getRootHierarchyPage());
-  const copcJsRoot = await copcJs.loadHierarchyPage(copcJs.getRootHierarchyPage());
+  const copcJsRoot = await copcJs.loadHierarchyPage(
+    copcJs.getRootHierarchyPage(),
+  );
 
   assert.deepEqual(
     normalizeRootHierarchy(rustRoot),
@@ -95,8 +100,12 @@ export async function assertHierarchyParity(rust, copcJs) {
   assertMetadataParity(rust.getMetadata(), copcJs.getMetadata());
   assert.deepEqual(rust.getRootHierarchyPage(), copcJs.getRootHierarchyPage());
 
-  const rustPages = new Map([[rust.getRootHierarchyPage().key, rust.getRootHierarchyPage()]]);
-  const copcJsPages = new Map([[copcJs.getRootHierarchyPage().key, copcJs.getRootHierarchyPage()]]);
+  const rustPages = new Map([
+    [rust.getRootHierarchyPage().key, rust.getRootHierarchyPage()],
+  ]);
+  const copcJsPages = new Map([
+    [copcJs.getRootHierarchyPage().key, copcJs.getRootHierarchyPage()],
+  ]);
   const rustEntries = [];
   const copcJsEntries = [];
 
@@ -127,29 +136,31 @@ export async function assertHierarchyParity(rust, copcJs) {
 }
 
 export function pointSampleIndices(pointCount) {
-  return [...new Set([
-    0,
-    1,
-    Math.floor(pointCount / 7),
-    Math.floor(pointCount * 2 / 5),
-    Math.floor(pointCount / 2),
-    Math.floor(pointCount * 4 / 5),
-    pointCount - 1,
-  ])].filter((index) => index >= 0 && index < pointCount);
+  return [
+    ...new Set([
+      0,
+      1,
+      Math.floor(pointCount / 7),
+      Math.floor((pointCount * 2) / 5),
+      Math.floor(pointCount / 2),
+      Math.floor((pointCount * 4) / 5),
+      pointCount - 1,
+    ]),
+  ].filter((index) => index >= 0 && index < pointCount);
 }
 
 const FIELD_COMPONENTS = {
-  position: ['x', 'y', 'z'],
-  intensity: ['intensity'],
-  classification: ['classification'],
-  rgb: ['red', 'green', 'blue'],
+  position: ["x", "y", "z"],
+  intensity: ["intensity"],
+  classification: ["classification"],
+  rgb: ["red", "green", "blue"],
 };
 
 export async function assertPointParity(
   rust,
   copcJs,
   node,
-  fields = new Set(['position', 'intensity', 'classification', 'rgb']),
+  fields = new Set(["position", "intensity", "classification", "rgb"]),
 ) {
   assert.ok(node.pointCount > 0, `${node.key} must contain at least one point`);
 
@@ -171,13 +182,17 @@ export async function assertPointParity(
       for (const component of FIELD_COMPONENTS[field]) {
         const rustValue = rustView.getter(component)(index);
         const copcJsValue = copcJsView.getter(component)(index);
-        if (field === 'position') {
+        if (field === "position") {
           assert.ok(
             Math.abs(rustValue - copcJsValue) <= POINT_COORDINATE_EPSILON,
             `${node.key} point[${index}] ${component} differs beyond ${POINT_COORDINATE_EPSILON}`,
           );
         } else {
-          assert.equal(rustValue, copcJsValue, `${node.key} point[${index}] ${component} differs`);
+          assert.equal(
+            rustValue,
+            copcJsValue,
+            `${node.key} point[${index}] ${component} differs`,
+          );
         }
       }
     }

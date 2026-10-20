@@ -2,7 +2,7 @@ import {
   createHierarchyTree,
   finalizeHierarchyTree,
   mergeHierarchySubtree,
-} from './HierarchyTree';
+} from "./HierarchyTree";
 import type {
   CopcHierarchyBounds,
   CopcHierarchyDiagnostics,
@@ -11,15 +11,15 @@ import type {
   CopcHierarchySource,
   CopcHierarchySubtree,
   CopcHierarchyTree,
-} from './types';
+} from "./types";
 import {
   CopcHierarchyError,
   CopcHierarchyPageError,
   CopcHierarchyTraversalError,
-} from './types';
-import { CopcLoadError } from '../errors';
-import { performanceNow } from '../performance';
-import type { CopcPerformanceObserver } from '../performance';
+} from "./types";
+import { CopcLoadError } from "../errors";
+import { performanceNow } from "../performance";
+import type { CopcPerformanceObserver } from "../performance";
 
 type MutableHierarchyTree = ReturnType<typeof createHierarchyTree>;
 
@@ -94,19 +94,21 @@ function assertQuery(query: CopcHierarchyQuery): void {
   // sending a geographic or renderer-local envelope to the source-space
   // hierarchy traversal. Missing labels remain accepted for old callers.
   if (
-    'coordinateSystem' in query.bounds
-    && query.bounds.coordinateSystem !== 'copc-source'
+    "coordinateSystem" in query.bounds &&
+    query.bounds.coordinateSystem !== "copc-source"
   ) {
     throw new CopcHierarchyError(
-      'Hierarchy query bounds must use the copc-source coordinate system',
+      "Hierarchy query bounds must use the copc-source coordinate system",
     );
   }
-  assertBounds(query.bounds, 'hierarchy query');
+  assertBounds(query.bounds, "hierarchy query");
   if (
     query.maxLevel !== undefined &&
     (!Number.isSafeInteger(query.maxLevel) || query.maxLevel < 0)
   ) {
-    throw new CopcHierarchyError('Hierarchy query maxLevel must be a non-negative integer');
+    throw new CopcHierarchyError(
+      "Hierarchy query maxLevel must be a non-negative integer",
+    );
   }
 }
 
@@ -116,7 +118,7 @@ function parseHierarchyKey(key: string): {
   y: number;
   z: number;
 } {
-  const values = key.split('-').map(Number);
+  const values = key.split("-").map(Number);
   if (
     values.length !== 4 ||
     values.some((value) => !Number.isSafeInteger(value) || value < 0)
@@ -125,22 +127,27 @@ function parseHierarchyKey(key: string): {
   }
 
   const [level, x, y, z] = values;
-  if (
-    level > 31 ||
-    x >= 2 ** level ||
-    y >= 2 ** level ||
-    z >= 2 ** level
-  ) {
-    throw new CopcHierarchyTraversalError(`Hierarchy key is outside its level: ${key}`);
+  if (level > 31 || x >= 2 ** level || y >= 2 ** level || z >= 2 ** level) {
+    throw new CopcHierarchyTraversalError(
+      `Hierarchy key is outside its level: ${key}`,
+    );
   }
 
   return { level, x, y, z };
 }
 
-function intersects(left: CopcHierarchyBounds, right: CopcHierarchyBounds): boolean {
-  return left.minX <= right.maxX && left.maxX >= right.minX
-    && left.minY <= right.maxY && left.maxY >= right.minY
-    && left.minZ <= right.maxZ && left.maxZ >= right.minZ;
+function intersects(
+  left: CopcHierarchyBounds,
+  right: CopcHierarchyBounds,
+): boolean {
+  return (
+    left.minX <= right.maxX &&
+    left.maxX >= right.minX &&
+    left.minY <= right.maxY &&
+    left.maxY >= right.minY &&
+    left.minZ <= right.maxZ &&
+    left.maxZ >= right.minZ
+  );
 }
 
 function pageBounds(
@@ -164,24 +171,24 @@ function pageBounds(
 }
 
 function assertNoPageCycles(pageChildren: Map<string, string[]>): void {
-  const states = new Map<string, 'visiting' | 'visited'>();
+  const states = new Map<string, "visiting" | "visited">();
 
   const visit = (key: string): void => {
     const state = states.get(key);
-    if (state === 'visited') {
+    if (state === "visited") {
       return;
     }
-    if (state === 'visiting') {
+    if (state === "visiting") {
       throw new CopcHierarchyTraversalError(
         `Recursive hierarchy page reference detected for key: ${key}`,
       );
     }
 
-    states.set(key, 'visiting');
+    states.set(key, "visiting");
     for (const childKey of pageChildren.get(key) ?? []) {
       visit(childKey);
     }
-    states.set(key, 'visited');
+    states.set(key, "visited");
   };
 
   for (const key of pageChildren.keys()) {
@@ -220,11 +227,16 @@ export class HierarchyLoader {
     cubeBounds: CopcHierarchyBounds = DEFAULT_CUBE_BOUNDS,
     options: HierarchyLoaderOptions = {},
   ) {
-    assertBounds(cubeBounds, 'COPC cube');
-    const maxConcurrentPageLoads = options.maxConcurrentPageLoads
-      ?? DEFAULT_MAX_CONCURRENT_PAGE_LOADS;
-    if (!Number.isSafeInteger(maxConcurrentPageLoads) || maxConcurrentPageLoads < 1) {
-      throw new CopcHierarchyError('Hierarchy page concurrency must be a positive safe integer');
+    assertBounds(cubeBounds, "COPC cube");
+    const maxConcurrentPageLoads =
+      options.maxConcurrentPageLoads ?? DEFAULT_MAX_CONCURRENT_PAGE_LOADS;
+    if (
+      !Number.isSafeInteger(maxConcurrentPageLoads) ||
+      maxConcurrentPageLoads < 1
+    ) {
+      throw new CopcHierarchyError(
+        "Hierarchy page concurrency must be a positive safe integer",
+      );
     }
     this.source = source;
     this.cubeBounds = cubeBounds;
@@ -238,7 +250,7 @@ export class HierarchyLoader {
     return this.query({
       bounds: {
         ...this.cubeBounds,
-        coordinateSystem: 'copc-source',
+        coordinateSystem: "copc-source",
       },
     });
   }
@@ -251,7 +263,10 @@ export class HierarchyLoader {
       await this.loadPage(this.source.getRootHierarchyPage());
     } finally {
       if (generation === this.cacheGeneration) {
-        this.rootHierarchyLoadDurationMs = Math.max(0, performanceNow() - startedAt);
+        this.rootHierarchyLoadDurationMs = Math.max(
+          0,
+          performanceNow() - startedAt,
+        );
       }
     }
     this.assertCurrentGeneration(generation);
@@ -271,11 +286,18 @@ export class HierarchyLoader {
     const generation = this.cacheGeneration;
     try {
       assertQuery(query);
-      if (options.maxPages !== undefined
-        && (!Number.isSafeInteger(options.maxPages) || options.maxPages < 1)) {
-        throw new CopcHierarchyError('Hierarchy query maxPages must be a positive safe integer');
+      if (
+        options.maxPages !== undefined &&
+        (!Number.isSafeInteger(options.maxPages) || options.maxPages < 1)
+      ) {
+        throw new CopcHierarchyError(
+          "Hierarchy query maxPages must be a positive safe integer",
+        );
       }
-      await this.loadPage(this.source.getRootHierarchyPage(), options.performanceObserver);
+      await this.loadPage(
+        this.source.getRootHierarchyPage(),
+        options.performanceObserver,
+      );
       this.assertCurrentGeneration(generation);
 
       const pendingPages = [...this.tree.pageMap.values()];
@@ -330,8 +352,10 @@ export class HierarchyLoader {
               continue;
             }
 
-            if (options.maxPages !== undefined
-              && visitedPageCount >= options.maxPages) {
+            if (
+              options.maxPages !== undefined &&
+              visitedPageCount >= options.maxPages
+            ) {
               continue;
             }
             visitedPageCount += 1;
@@ -372,8 +396,10 @@ export class HierarchyLoader {
         throw failure;
       }
       if (options.signal?.aborted) {
-        const error = new Error('Hierarchy query was cancelled', { cause: options.signal.reason });
-        error.name = 'AbortError';
+        const error = new Error("Hierarchy query was cancelled", {
+          cause: options.signal.reason,
+        });
+        error.name = "AbortError";
         throw error;
       }
 
@@ -399,7 +425,8 @@ export class HierarchyLoader {
       pageCacheHits: this.pageCacheHits,
       hierarchyBytesFetched: this.hierarchyBytesFetched,
       loadedPageCount: this.pageCache.size,
-      discoveredPageCount: this.tree.pageMap.size + Number(this.loadedPageKeys.size > 0),
+      discoveredPageCount:
+        this.tree.pageMap.size + Number(this.loadedPageKeys.size > 0),
       completedPageCount: this.loadedPageKeys.size,
       activePageLoads: this.activePageLoads,
       peakActivePageLoads: this.peakActivePageLoads,
@@ -445,9 +472,8 @@ export class HierarchyLoader {
 
     this.pageRequests += 1;
     this.hierarchyBytesFetched += page.pageLength;
-    const request = this.withPageLoadSlot(
-      generation,
-      () => this.source.loadHierarchyPage(
+    const request = this.withPageLoadSlot(generation, () =>
+      this.source.loadHierarchyPage(
         page,
         performanceObserver === undefined ? undefined : { performanceObserver },
       ),
@@ -458,7 +484,10 @@ export class HierarchyLoader {
         }
         mergeHierarchySubtree(this.tree, subtree);
         this.loadedPageKeys.add(page.key);
-        this.pageChildren.set(page.key, subtree.pages.map((child) => child.key));
+        this.pageChildren.set(
+          page.key,
+          subtree.pages.map((child) => child.key),
+        );
         return subtree;
       })
       .catch((error: unknown) => {
@@ -511,7 +540,9 @@ export class HierarchyLoader {
 
   private assertCurrentGeneration(generation: number): void {
     if (generation !== this.cacheGeneration) {
-      throw new CopcHierarchyTraversalError('Hierarchy loader was reset during a query');
+      throw new CopcHierarchyTraversalError(
+        "Hierarchy loader was reset during a query",
+      );
     }
   }
 }

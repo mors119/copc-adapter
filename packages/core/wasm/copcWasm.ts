@@ -1,4 +1,4 @@
-import { rawWasmImports } from './copcWasmImports';
+import { rawWasmImports } from "./copcWasmImports";
 
 /**
  * TypeScript view of the package's Rust/WASM C-compatible exports.
@@ -35,7 +35,11 @@ export type CopcWasmExports = {
   ): number;
   parse_copc_header_json(pointer: number, length: number): number;
   parse_root_hierarchy_json(pointer: number, length: number): number;
-  parse_root_hierarchy_with_limit_json(pointer: number, length: number, maxPageBytes: number): number;
+  parse_root_hierarchy_with_limit_json(
+    pointer: number,
+    length: number,
+    maxPageBytes: number,
+  ): number;
   decode_copc_node_json(
     metadataPointer: number,
     metadataLength: number,
@@ -72,7 +76,9 @@ export type CopcWasmExports = {
     heightOffsetMeters: number,
   ): number;
   create_geographic_crs_transform_json(): number;
-  create_geographic_crs_transform_with_height_offset_json(heightOffsetMeters: number): number;
+  create_geographic_crs_transform_with_height_offset_json(
+    heightOffsetMeters: number,
+  ): number;
   transform_crs_points_json(
     handle: number,
     inputPointer: number,
@@ -82,7 +88,11 @@ export type CopcWasmExports = {
   ): number;
   free_crs_transform(handle: number): void;
   create_copc_node_preparer_json(pointer: number, length: number): number;
-  create_copc_node_preparer_with_limit_json(pointer: number, length: number, maxChunkBytes: number): number;
+  create_copc_node_preparer_with_limit_json(
+    pointer: number,
+    length: number,
+    maxChunkBytes: number,
+  ): number;
   create_copc_node_preparer_with_limit_and_height_offset_json(
     pointer: number,
     length: number,
@@ -111,18 +121,18 @@ export type CopcWasmExports = {
 /** Runtime or asset failure while loading the shared Rust/WASM module. */
 export class CopcWasmError extends Error {
   /** Asset-fetch, compilation, or module-instantiation stage that failed. */
-  readonly stage:
-    /** Fetching the packaged WASM asset failed. */ 'fetch'
-    | /** WebAssembly compilation failed. */ 'compile'
-    | /** Required exports or runtime imports could not be initialized. */ 'instantiate';
+  readonly stage: /** Fetching the packaged WASM asset failed. */
+    | "fetch"
+    | /** WebAssembly compilation failed. */ "compile"
+    | /** Required exports or runtime imports could not be initialized. */ "instantiate";
 
   constructor(
-    stage: CopcWasmError['stage'],
+    stage: CopcWasmError["stage"],
     message: string,
     options?: ErrorOptions,
   ) {
     super(message, options);
-    this.name = 'CopcWasmError';
+    this.name = "CopcWasmError";
     this.stage = stage;
   }
 }
@@ -133,9 +143,10 @@ let bundledWasmUrlPromise: Promise<URL> | undefined;
 
 async function getBundledWasmUrl(): Promise<URL> {
   if (!bundledWasmUrlPromise) {
-    bundledWasmUrlPromise = import('./copc_adapter_wasm.wasm?url&no-inline').then(
-      ({ default: assetUrl }) => new URL(assetUrl, import.meta.url),
-    );
+    bundledWasmUrlPromise =
+      import("./copc_adapter_wasm.wasm?url&no-inline").then(
+        ({ default: assetUrl }) => new URL(assetUrl, import.meta.url),
+      );
   }
   return bundledWasmUrlPromise;
 }
@@ -149,8 +160,10 @@ export async function getCopcWasmBinary(): Promise<Uint8Array> {
 }
 
 function isBrowser(): boolean {
-  return typeof window !== 'undefined'
-    || (typeof self !== 'undefined' && typeof document === 'undefined');
+  return (
+    typeof window !== "undefined" ||
+    (typeof self !== "undefined" && typeof document === "undefined")
+  );
 }
 
 async function loadWasmBinary(): Promise<Uint8Array> {
@@ -159,12 +172,16 @@ async function loadWasmBinary(): Promise<Uint8Array> {
     try {
       response = await fetch(await getBundledWasmUrl());
     } catch (error: unknown) {
-      throw new CopcWasmError('fetch', 'Failed to fetch the COPC Rust/WASM module', { cause: error });
+      throw new CopcWasmError(
+        "fetch",
+        "Failed to fetch the COPC Rust/WASM module",
+        { cause: error },
+      );
     }
 
     if (!response.ok) {
       throw new CopcWasmError(
-        'fetch',
+        "fetch",
         `Failed to fetch the COPC Rust/WASM module (HTTP ${response.status})`,
       );
     }
@@ -173,12 +190,14 @@ async function loadWasmBinary(): Promise<Uint8Array> {
   }
 
   const [{ readFile }, pathModule, urlModule] = await Promise.all([
-    import('node:fs/promises'),
-    import('node:path'),
-    import('node:url'),
+    import("node:fs/promises"),
+    import("node:path"),
+    import("node:url"),
   ]);
   const modulePath = pathModule.resolve(
-    urlModule.fileURLToPath(new URL('./copc_adapter_wasm.wasm?no-inline', import.meta.url)),
+    urlModule.fileURLToPath(
+      new URL("./copc_adapter_wasm.wasm?no-inline", import.meta.url),
+    ),
   );
   return new Uint8Array(await readFile(modulePath));
 }
@@ -199,24 +218,39 @@ export async function loadCopcWasm(): Promise<CopcWasmExports> {
         binary = await getCopcWasmBinary();
       } catch (error: unknown) {
         if (error instanceof CopcWasmError) throw error;
-        throw new CopcWasmError('fetch', 'Failed to load the COPC Rust/WASM module', { cause: error });
+        throw new CopcWasmError(
+          "fetch",
+          "Failed to load the COPC Rust/WASM module",
+          { cause: error },
+        );
       }
 
       let module: WebAssembly.Module;
       try {
         module = await WebAssembly.compile(binary as unknown as BufferSource);
       } catch (error: unknown) {
-        throw new CopcWasmError('compile', 'Failed to compile the COPC Rust/WASM module', { cause: error });
+        throw new CopcWasmError(
+          "compile",
+          "Failed to compile the COPC Rust/WASM module",
+          { cause: error },
+        );
       }
 
       try {
         const rawImports = rawWasmImports(module);
-        const instance = await WebAssembly.instantiate(module, rawImports.imports);
+        const instance = await WebAssembly.instantiate(
+          module,
+          rawImports.imports,
+        );
         const exports = instance.exports as unknown as CopcWasmExports;
         rawImports.setMemory(exports.memory);
         return exports;
       } catch (error: unknown) {
-        throw new CopcWasmError('instantiate', 'Failed to instantiate the COPC Rust/WASM module', { cause: error });
+        throw new CopcWasmError(
+          "instantiate",
+          "Failed to instantiate the COPC Rust/WASM module",
+          { cause: error },
+        );
       }
     })();
   }

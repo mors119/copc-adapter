@@ -1,10 +1,8 @@
-import type {
-  PreparedPointData,
-} from '../copc/types/copc';
-import type { NodePointCache } from './createNodePointCache';
-import { NodeSelector } from './NodeSelector';
-import type { RefinementFocus } from './refinementStrategies';
-import type { CameraMotionPrediction } from './motionLookahead';
+import type { PreparedPointData } from "../copc/types/copc";
+import type { NodePointCache } from "./createNodePointCache";
+import { NodeSelector } from "./NodeSelector";
+import type { RefinementFocus } from "./refinementStrategies";
+import type { CameraMotionPrediction } from "./motionLookahead";
 import type {
   StreamingCameraState,
   StreamingHierarchy,
@@ -14,14 +12,14 @@ import type {
   StreamingSelectedNode,
   StreamingUpdateResult,
   StreamingWorkProgress,
-} from './types';
-import { performanceNow } from '../copc/performance';
-import { StreamingPerformanceRecorder } from './performance';
+} from "./types";
+import { performanceNow } from "../copc/performance";
+import { StreamingPerformanceRecorder } from "./performance";
 import {
   DEFAULT_MAX_CONCURRENT_NODE_LOADS,
   runBoundedPriorityWork,
   StreamingWorkConcurrencyLimiter,
-} from './scheduler';
+} from "./scheduler";
 
 /** Loads renderer-neutral prepared points for one selected COPC hierarchy key. */
 export type StreamingNodePointLoader = (
@@ -40,14 +38,20 @@ export type StreamingManagerUpdateOptions = {
 };
 
 function isQueuedDecodeCancellation(error: unknown): boolean {
-  if (!(error instanceof Error) || !('code' in error) || error.code !== 'worker') {
+  if (
+    !(error instanceof Error) ||
+    !("code" in error) ||
+    error.code !== "worker"
+  ) {
     return false;
   }
-  const cause = 'cause' in error ? error.cause : undefined;
-  return typeof cause === 'object'
-    && cause !== null
-    && 'workerCode' in cause
-    && cause.workerCode === 'worker-cancelled';
+  const cause = "cause" in error ? error.cause : undefined;
+  return (
+    typeof cause === "object" &&
+    cause !== null &&
+    "workerCode" in cause &&
+    cause.workerCode === "worker-cancelled"
+  );
 }
 
 function isAncestor(
@@ -91,13 +95,14 @@ function createReplacementGroups(
 
   for (const oldNodeKey of removed) {
     const descendants = added.filter((nodeKey) =>
-      isAncestor(oldNodeKey, nodeKey, hierarchy));
+      isAncestor(oldNodeKey, nodeKey, hierarchy),
+    );
     if (descendants.length === 0) {
       continue;
     }
 
     groups.push({
-      kind: 'refinement',
+      kind: "refinement",
       oldNodeKeys: [oldNodeKey],
       newNodeKeys: descendants,
     });
@@ -112,14 +117,16 @@ function createReplacementGroups(
       continue;
     }
 
-    const descendants = removed.filter((nodeKey) =>
-      !usedOld.has(nodeKey) && isAncestor(newNodeKey, nodeKey, hierarchy));
+    const descendants = removed.filter(
+      (nodeKey) =>
+        !usedOld.has(nodeKey) && isAncestor(newNodeKey, nodeKey, hierarchy),
+    );
     if (descendants.length === 0) {
       continue;
     }
 
     groups.push({
-      kind: 'collapse',
+      kind: "collapse",
       oldNodeKeys: descendants,
       newNodeKeys: [newNodeKey],
     });
@@ -133,7 +140,7 @@ function createReplacementGroups(
   const remainingNew = added.filter((nodeKey) => !usedNew.has(nodeKey));
   if (remainingOld.length > 0 && remainingNew.length > 0) {
     groups.push({
-      kind: 'retarget',
+      kind: "retarget",
       oldNodeKeys: remainingOld,
       newNodeKeys: remainingNew,
     });
@@ -175,9 +182,11 @@ export class StreamingManager {
     this.performanceRecorder.setConfiguredPointBudget(
       this.selector.getSelectionMetrics().maxRenderedPoints,
     );
-    this.maxConcurrentNodeLoads = options.maxConcurrentNodeLoads
-      ?? DEFAULT_MAX_CONCURRENT_NODE_LOADS;
-    this.workLimiter = new StreamingWorkConcurrencyLimiter(this.maxConcurrentNodeLoads);
+    this.maxConcurrentNodeLoads =
+      options.maxConcurrentNodeLoads ?? DEFAULT_MAX_CONCURRENT_NODE_LOADS;
+    this.workLimiter = new StreamingWorkConcurrencyLimiter(
+      this.maxConcurrentNodeLoads,
+    );
     this.onInvalidate = onInvalidate;
   }
 
@@ -224,7 +233,7 @@ export class StreamingManager {
    */
   async update(
     camera: StreamingCameraState,
-    onProgress?: (progress: import('./types').StreamingProgress) => void,
+    onProgress?: (progress: import("./types").StreamingProgress) => void,
     options: StreamingManagerUpdateOptions = {},
   ): Promise<StreamingUpdateResult> {
     const updateGeneration = ++this.updateGeneration;
@@ -234,10 +243,14 @@ export class StreamingManager {
       this.performanceRecorder.beginUpdate();
     }
     const selectionStartedAt = performanceNow();
-    const selectedNodes = this.selector.selectVisibleNodes(camera, this.hierarchy, {
-      previousSelectedNodeKeys: this.selectedNodeKeys,
-      isNodeCached: (nodeKey) => this.cache.has(nodeKey),
-    });
+    const selectedNodes = this.selector.selectVisibleNodes(
+      camera,
+      this.hierarchy,
+      {
+        previousSelectedNodeKeys: this.selectedNodeKeys,
+        isNodeCached: (nodeKey) => this.cache.has(nodeKey),
+      },
+    );
     const levels = selectedNodes.map((entry) => entry.node.level);
     this.performanceRecorder.setSelection(
       selectedNodes.length,
@@ -245,16 +258,17 @@ export class StreamingManager {
       performanceNow() - selectionStartedAt,
       {
         ...this.selector.getSelectionMetrics(),
-        visibleLevelRange: levels.length > 0
-          ? { min: Math.min(...levels), max: Math.max(...levels) }
-          : undefined,
+        visibleLevelRange:
+          levels.length > 0
+            ? { min: Math.min(...levels), max: Math.max(...levels) }
+            : undefined,
         cameraDirection: camera.viewFrustum?.direction,
       },
     );
     const nextSelectedNodeKeys = new Set(
       selectedNodes.map((entry) => entry.node.key),
     );
-    this.cache.cancelPendingCurrentExcept(nextSelectedNodeKeys, 'superseded');
+    this.cache.cancelPendingCurrentExcept(nextSelectedNodeKeys, "superseded");
     const highPriorityNodeKeys = new Set(
       selectedNodes
         .slice(0, Math.max(1, Math.ceil(selectedNodes.length * 0.25)))
@@ -341,11 +355,13 @@ export class StreamingManager {
       isReady: (node) => this.cache.get(node.node.key) !== undefined,
       shouldContinue: () => updateGeneration === this.updateGeneration,
       onDiagnostics: (diagnostics) => {
-        const cancelledNodeDelta = diagnostics.cancelledNodeCount
-          - reportedCancelledNodeCount;
+        const cancelledNodeDelta =
+          diagnostics.cancelledNodeCount - reportedCancelledNodeCount;
         reportedCancelledNodeCount = diagnostics.cancelledNodeCount;
         if (cancelledNodeDelta > 0) {
-          this.performanceRecorder.recordSchedulingCancellations(cancelledNodeDelta);
+          this.performanceRecorder.recordSchedulingCancellations(
+            cancelledNodeDelta,
+          );
         }
         if (updateGeneration === this.updateGeneration) {
           this.performanceRecorder.setSchedulingDiagnostics(diagnostics);
@@ -368,8 +384,10 @@ export class StreamingManager {
         if (highPriorityNodeKeys.has(node.node.key)) {
           this.performanceRecorder.recordFirstHighPriorityNodeReady();
         }
-        if (this.selectedNodeKeys.has(loaded.nodeKey)
-          && this.acceptLoadedNode(loaded.node, loaded.points.pointCount)) {
+        if (
+          this.selectedNodeKeys.has(loaded.nodeKey) &&
+          this.acceptLoadedNode(loaded.node, loaded.points.pointCount)
+        ) {
           loadedNodePoints.set(loaded.nodeKey, loaded.points);
           this.performanceRecorder.recordLoadedNode(loaded.points.pointCount);
           onProgress?.({
@@ -401,7 +419,7 @@ export class StreamingManager {
 
   /** Invalidate active work and clear selection state and retained point values. */
   clear(): void {
-    this.invalidate('lifecycle');
+    this.invalidate("lifecycle");
     this.selectedNodeKeys.clear();
     this.activeNodePointCounts.clear();
     this.cache.clear();
@@ -409,21 +427,19 @@ export class StreamingManager {
 
   /** Invalidate a generation and cancel pending point reads outside its next selection. */
   invalidate(
-    reason: 'superseded' | 'lifecycle' = 'superseded',
+    reason: "superseded" | "lifecycle" = "superseded",
     camera?: StreamingCameraState,
   ): void {
     this.updateGeneration += 1;
-    if (reason === 'lifecycle') {
+    if (reason === "lifecycle") {
       this.cache.cancelPending(reason);
     } else if (camera) {
-      const selectedNodeKeys = this.selector.selectVisibleNodes(
-        camera,
-        this.hierarchy,
-        {
+      const selectedNodeKeys = this.selector
+        .selectVisibleNodes(camera, this.hierarchy, {
           previousSelectedNodeKeys: this.selectedNodeKeys,
           isNodeCached: (nodeKey) => this.cache.has(nodeKey),
-        },
-      ).map((entry) => entry.node.key);
+        })
+        .map((entry) => entry.node.key);
       this.cache.cancelPendingExcept(selectedNodeKeys, reason);
     }
     this.onInvalidate?.();
@@ -434,15 +450,17 @@ export class StreamingManager {
     node: StreamingHierarchyNode,
     actualPointCount: number,
   ): boolean {
-    const pointCount = Number.isSafeInteger(actualPointCount) && actualPointCount >= 0
-      ? actualPointCount
-      : 0;
+    const pointCount =
+      Number.isSafeInteger(actualPointCount) && actualPointCount >= 0
+        ? actualPointCount
+        : 0;
     const budget = this.selector.getSelectionMetrics().maxRenderedPoints;
     let currentPointCount = 0;
     for (const count of this.activeNodePointCounts.values()) {
       currentPointCount += count;
     }
-    const previousPointCount = this.activeNodePointCounts.get(node.node.key) ?? 0;
+    const previousPointCount =
+      this.activeNodePointCounts.get(node.node.key) ?? 0;
     const nextPointCount = currentPointCount - previousPointCount + pointCount;
 
     if (nextPointCount > budget) {

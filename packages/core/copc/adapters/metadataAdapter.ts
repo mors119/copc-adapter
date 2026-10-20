@@ -1,5 +1,5 @@
-import type { Copc } from 'copc';
-import type { CopcMetadata } from '../types/copc';
+import type { Copc } from "copc";
+import type { CopcMetadata } from "../types/copc";
 
 export function toCopcMetadata(copc: Copc): CopcMetadata {
   const { header, info } = copc;

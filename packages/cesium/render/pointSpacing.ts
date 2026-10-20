@@ -1,6 +1,9 @@
-import type { GeographicPoint, CopcMetadata } from '../../core/copc/types/copc';
-import { createPointTransformer, createProjectPointTransformer } from '../../core/coordinates/transform/createPointTransformer';
-import { geographicToEcef } from '../../core/coordinates/transform/worldCoordinates';
+import type { GeographicPoint, CopcMetadata } from "../../core/copc/types/copc";
+import {
+  createPointTransformer,
+  createProjectPointTransformer,
+} from "../../core/coordinates/transform/createPointTransformer";
+import { geographicToEcef } from "../../core/coordinates/transform/worldCoordinates";
 
 /**
  * Derive one hierarchy node's approximate point spacing in metres.
@@ -23,8 +26,13 @@ export function deriveNodePointSpacingMeters(
   level: number,
   center: GeographicPoint,
 ): number | undefined {
-  if (!Number.isFinite(metadata.spacing) || (metadata.spacing ?? 0) <= 0
-    || !Number.isSafeInteger(level) || level < 0 || level > 1023) {
+  if (
+    !Number.isFinite(metadata.spacing) ||
+    (metadata.spacing ?? 0) <= 0 ||
+    !Number.isSafeInteger(level) ||
+    level < 0 ||
+    level > 1023
+  ) {
     return undefined;
   }
 
@@ -38,14 +46,18 @@ export function deriveNodePointSpacingMeters(
     const sourceCenter = createProjectPointTransformer(metadata)(center);
     const toGeographic = createPointTransformer(metadata);
     const origin = geographicToEcef(toGeographic(sourceCenter));
-    const east = geographicToEcef(toGeographic({
-      ...sourceCenter,
-      x: sourceCenter.x + sourceSpacing,
-    }));
-    const north = geographicToEcef(toGeographic({
-      ...sourceCenter,
-      y: sourceCenter.y + sourceSpacing,
-    }));
+    const east = geographicToEcef(
+      toGeographic({
+        ...sourceCenter,
+        x: sourceCenter.x + sourceSpacing,
+      }),
+    );
+    const north = geographicToEcef(
+      toGeographic({
+        ...sourceCenter,
+        y: sourceCenter.y + sourceSpacing,
+      }),
+    );
     const eastSpacing = distance(origin, east);
     const northSpacing = distance(origin, north);
     const spacingMeters = Math.sqrt(eastSpacing * northSpacing);

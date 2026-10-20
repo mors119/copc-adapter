@@ -1,6 +1,6 @@
-import * as Cesium from 'cesium';
-import type { StreamingView, ViewVector3 } from '../../core/streaming/types';
-import { createPerspectiveViewFrustum } from '../../core/streaming/view';
+import * as Cesium from "cesium";
+import type { StreamingView, ViewVector3 } from "../../core/streaming/types";
+import { createPerspectiveViewFrustum } from "../../core/streaming/view";
 
 type CesiumPerspectiveFrustum = {
   fov?: number;
@@ -19,7 +19,9 @@ function toVector(value: Cesium.Cartesian3): ViewVector3 {
 }
 
 function getCameraPosition(viewer: Cesium.Viewer): StreamingView {
-  const cartographic = Cesium.Cartographic.fromCartesian(viewer.camera.positionWC);
+  const cartographic = Cesium.Cartographic.fromCartesian(
+    viewer.camera.positionWC,
+  );
 
   return {
     longitude: Cesium.Math.toDegrees(cartographic.longitude),
@@ -30,37 +32,43 @@ function getCameraPosition(viewer: Cesium.Viewer): StreamingView {
 }
 
 function getViewportHeightPixels(viewer: Cesium.Viewer): number {
-  return viewer.scene.drawingBufferHeight
-    || viewer.scene.canvas.clientHeight
-    || viewer.scene.canvas.height;
+  return (
+    viewer.scene.drawingBufferHeight ||
+    viewer.scene.canvas.clientHeight ||
+    viewer.scene.canvas.height
+  );
 }
 
 /**
  * Translate Cesium's live camera into the serializable view consumed by the
  * renderer-neutral streaming core.
  */
-export function createCesiumStreamingView(viewer: Cesium.Viewer): StreamingView {
+export function createCesiumStreamingView(
+  viewer: Cesium.Viewer,
+): StreamingView {
   const view = getCameraPosition(viewer);
   const camera = viewer.camera;
-  const frustum = camera.frustum as unknown as CesiumPerspectiveFrustum | undefined;
+  const frustum = camera.frustum as unknown as
+    | CesiumPerspectiveFrustum
+    | undefined;
   if (!frustum) {
     return view;
   }
 
   const { fov, fovy, aspectRatio, near, far } = frustum;
   const viewportHeightPixels = getViewportHeightPixels(viewer);
-  const hasFov = typeof fov === 'number' && Number.isFinite(fov);
-  const hasFovy = typeof fovy === 'number' && Number.isFinite(fovy);
+  const hasFov = typeof fov === "number" && Number.isFinite(fov);
+  const hasFovy = typeof fovy === "number" && Number.isFinite(fovy);
   if (
-    (!hasFov && !hasFovy)
-    || typeof aspectRatio !== 'number'
-    || typeof near !== 'number'
-    || typeof far !== 'number'
-    || !Number.isFinite(viewportHeightPixels)
-    || viewportHeightPixels <= 0
-    || !Number.isFinite(aspectRatio)
-    || !Number.isFinite(near)
-    || !Number.isFinite(far)
+    (!hasFov && !hasFovy) ||
+    typeof aspectRatio !== "number" ||
+    typeof near !== "number" ||
+    typeof far !== "number" ||
+    !Number.isFinite(viewportHeightPixels) ||
+    viewportHeightPixels <= 0 ||
+    !Number.isFinite(aspectRatio) ||
+    !Number.isFinite(near) ||
+    !Number.isFinite(far)
   ) {
     return view;
   }
@@ -97,4 +105,3 @@ export function createCesiumStreamingView(viewer: Cesium.Viewer): StreamingView 
     return view;
   }
 }
-

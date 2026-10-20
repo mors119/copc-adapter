@@ -1,11 +1,11 @@
 /** Pipeline stage measured by a backend performance observer. */
 export type CopcPerformanceStage =
   /** HTTP or random-access byte-range read. */
-  | 'rangeFetch'
+  | "rangeFetch"
   /** LAZ point-record decoding. */
-  | 'decode'
+  | "decode"
   /** CRS transformation and renderer-neutral point preparation. */
-  | 'pointPreparation';
+  | "pointPreparation";
 
 /** One completed backend measurement; it does not include renderer or GPU frame time. */
 export type CopcPerformanceEvent = {

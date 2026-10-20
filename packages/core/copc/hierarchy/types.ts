@@ -1,4 +1,4 @@
-import type { CopcPerformanceObserver } from '../performance';
+import type { CopcPerformanceObserver } from "../performance";
 
 /** One decoded COPC hierarchy entry and its point-data byte range. */
 export type CopcHierarchyNode = {
@@ -45,7 +45,7 @@ export type CopcHierarchyBounds = {
 
 /** Bounds accepted by the shared hierarchy boundary, always in COPC XYZ. */
 export type CopcProjectBounds = CopcHierarchyBounds & {
-  coordinateSystem: 'copc-source';
+  coordinateSystem: "copc-source";
 };
 
 /**
@@ -55,7 +55,7 @@ export type CopcProjectBounds = CopcHierarchyBounds & {
  * the pre-#134 API. New project-owned queries should use CopcProjectBounds.
  */
 export type CopcHierarchyQueryBounds = CopcHierarchyBounds & {
-  coordinateSystem?: 'copc-source';
+  coordinateSystem?: "copc-source";
 };
 
 /** Project-owned request for the hierarchy needed by one view update. */
@@ -147,7 +147,7 @@ export class CopcHierarchyError extends Error {
   /** Create an error and preserve an optional underlying cause. */
   constructor(message: string, options?: ErrorOptions) {
     super(message, options);
-    this.name = 'CopcHierarchyError';
+    this.name = "CopcHierarchyError";
   }
 }
 
@@ -156,7 +156,7 @@ export class CopcHierarchyPageError extends CopcHierarchyError {
   /** Create a page error and preserve an optional underlying cause. */
   constructor(message: string, options?: ErrorOptions) {
     super(message, options);
-    this.name = 'CopcHierarchyPageError';
+    this.name = "CopcHierarchyPageError";
   }
 }
 
@@ -165,6 +165,6 @@ export class CopcHierarchyTraversalError extends CopcHierarchyError {
   /** Create a traversal error and preserve an optional underlying cause. */
   constructor(message: string, options?: ErrorOptions) {
     super(message, options);
-    this.name = 'CopcHierarchyTraversalError';
+    this.name = "CopcHierarchyTraversalError";
   }
 }

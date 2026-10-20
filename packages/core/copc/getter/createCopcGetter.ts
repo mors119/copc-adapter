@@ -1,9 +1,12 @@
-import { Getter } from 'copc';
-import { HttpRangeByteSource } from '../range/httpRangeSource';
-import { BlobByteSource } from '../range/blobByteSource';
-import type { CopcInputSource, RandomAccessByteSource } from '../range/types';
-import { ProjectOwnedByteSource, RangeRequestDiagnosticsRecorder } from '../range/requestDiagnostics';
-import type { RangeReadOptions, RangeValidationPolicy } from '../range/types';
+import { Getter } from "copc";
+import { HttpRangeByteSource } from "../range/httpRangeSource";
+import { BlobByteSource } from "../range/blobByteSource";
+import type { CopcInputSource, RandomAccessByteSource } from "../range/types";
+import {
+  ProjectOwnedByteSource,
+  RangeRequestDiagnosticsRecorder,
+} from "../range/requestDiagnostics";
+import type { RangeReadOptions, RangeValidationPolicy } from "../range/types";
 
 export type CopcRangeGetter = (
   begin: number,
@@ -22,41 +25,52 @@ export type CopcGetterOptions = {
 };
 
 function isHttpSource(source: string): boolean {
-  return source.startsWith('http://') || source.startsWith('https://');
+  return source.startsWith("http://") || source.startsWith("https://");
 }
 
 function isBrowser(): boolean {
-  return typeof window !== 'undefined';
+  return typeof window !== "undefined";
 }
 
 export function isBlobSource(source: unknown): source is Blob {
-  return typeof Blob !== 'undefined' && source instanceof Blob;
+  return typeof Blob !== "undefined" && source instanceof Blob;
 }
 
-function isRandomAccessByteSource(source: unknown): source is RandomAccessByteSource {
-  if (!source || typeof source !== 'object') return false;
+function isRandomAccessByteSource(
+  source: unknown,
+): source is RandomAccessByteSource {
+  if (!source || typeof source !== "object") return false;
   const candidate = source as Partial<RandomAccessByteSource>;
-  return typeof candidate.source === 'string' && candidate.source.length > 0
-    && typeof candidate.readRange === 'function'
-    && typeof candidate.readRanges === 'function'
-    && typeof candidate.size === 'function';
+  return (
+    typeof candidate.source === "string" &&
+    candidate.source.length > 0 &&
+    typeof candidate.readRange === "function" &&
+    typeof candidate.readRanges === "function" &&
+    typeof candidate.size === "function"
+  );
 }
 
 export function getCopcSourceIdentity(source: CopcInputSource): string {
-  if (typeof source === 'string') return source;
+  if (typeof source === "string") return source;
   if (isBlobSource(source)) {
-    return typeof File !== 'undefined' && source instanceof File && source.name
-      ? `file://${encodeURIComponent(source.name)}` : 'blob://local-copc';
+    return typeof File !== "undefined" && source instanceof File && source.name
+      ? `file://${encodeURIComponent(source.name)}`
+      : "blob://local-copc";
   }
   if (!isRandomAccessByteSource(source)) {
-    throw new TypeError('COPC source must be a URL, Blob/File, or RandomAccessByteSource');
+    throw new TypeError(
+      "COPC source must be a URL, Blob/File, or RandomAccessByteSource",
+    );
   }
   return source.source;
 }
 
-export function createCopcGetter(input: CopcInputSource, options: CopcGetterOptions = {}): CopcRangeGetter {
+export function createCopcGetter(
+  input: CopcInputSource,
+  options: CopcGetterOptions = {},
+): CopcRangeGetter {
   const source = getCopcSourceIdentity(input);
-  if (typeof input !== 'string') {
+  if (typeof input !== "string") {
     const byteSource: RandomAccessByteSource = isBlobSource(input)
       ? new BlobByteSource(input, source, {
           maxRangeBytes: options.maxRangeBytes,
@@ -70,11 +84,16 @@ export function createCopcGetter(input: CopcInputSource, options: CopcGetterOpti
     );
     return async (begin, end, readOptions) => {
       const sourceSize = await owned.size();
-      const boundedEnd = sourceSize === undefined ? end : Math.min(end, sourceSize);
+      const boundedEnd =
+        sourceSize === undefined ? end : Math.min(end, sourceSize);
       if (begin >= boundedEnd) {
-        throw new RangeError(`COPC byte range starts beyond source end: ${begin}`);
+        throw new RangeError(
+          `COPC byte range starts beyond source end: ${begin}`,
+        );
       }
-      return owned.readRange(begin, boundedEnd - begin, { signal: readOptions?.signal });
+      return owned.readRange(begin, boundedEnd - begin, {
+        signal: readOptions?.signal,
+      });
     };
   }
   if (isHttpSource(source) || isBrowser()) {
@@ -90,9 +109,10 @@ export function createCopcGetter(input: CopcInputSource, options: CopcGetterOpti
       options.signal,
       options.rangeRequestDiagnostics ?? new RangeRequestDiagnosticsRecorder(),
     );
-    return (begin, end, readOptions) => byteSource.readRange(begin, end - begin, {
-      signal: readOptions?.signal,
-    });
+    return (begin, end, readOptions) =>
+      byteSource.readRange(begin, end - begin, {
+        signal: readOptions?.signal,
+      });
   }
 
   return Getter.create(source);

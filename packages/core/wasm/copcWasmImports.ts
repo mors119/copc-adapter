@@ -1,4 +1,4 @@
-import type { CopcWasmExports } from './copcWasm';
+import type { CopcWasmExports } from "./copcWasm";
 
 /**
  * proj4rs ships optional wasm-bindgen exports alongside its pure Rust API.
@@ -17,25 +17,27 @@ export function rawWasmImports(module: WebAssembly.Module): RawWasmImportSet {
   let memory: WebAssembly.Memory | undefined;
   const decoder = new TextDecoder();
   const readString = (pointer: number, length: number): string => {
-    if (!memory) throw new Error('Raw WASM memory is not initialized');
+    if (!memory) throw new Error("Raw WASM memory is not initialized");
     return decoder.decode(new Uint8Array(memory.buffer, pointer, length));
   };
 
   for (const imported of WebAssembly.Module.imports(module)) {
-    if (imported.kind !== 'function') {
+    if (imported.kind !== "function") {
       throw new Error(`Unsupported raw WASM import kind: ${imported.kind}`);
     }
     const namespace = imports[imported.module] ?? {};
-    if (imported.name.startsWith('__wbg_parseFloat_')) {
-      namespace[imported.name] = (pointer: number, length: number) => (
-        Number.parseFloat(readString(pointer, length))
-      );
-    } else if (imported.name.startsWith('__wbg_parseInt_')) {
-      namespace[imported.name] = (pointer: number, length: number, radix: number) => (
-        Number.parseInt(readString(pointer, length), radix)
-      );
-    } else if (imported.module === 'env' && imported.name === 'copc_now_ms') {
-      namespace[imported.name] = () => globalThis.performance?.now() ?? Date.now();
+    if (imported.name.startsWith("__wbg_parseFloat_")) {
+      namespace[imported.name] = (pointer: number, length: number) =>
+        Number.parseFloat(readString(pointer, length));
+    } else if (imported.name.startsWith("__wbg_parseInt_")) {
+      namespace[imported.name] = (
+        pointer: number,
+        length: number,
+        radix: number,
+      ) => Number.parseInt(readString(pointer, length), radix);
+    } else if (imported.module === "env" && imported.name === "copc_now_ms") {
+      namespace[imported.name] = () =>
+        globalThis.performance?.now() ?? Date.now();
     } else {
       namespace[imported.name] = () => 0;
     }
@@ -49,7 +51,9 @@ export function rawWasmImports(module: WebAssembly.Module): RawWasmImportSet {
   };
 }
 
-export async function instantiateCopcWasm(binary: Uint8Array): Promise<CopcWasmExports> {
+export async function instantiateCopcWasm(
+  binary: Uint8Array,
+): Promise<CopcWasmExports> {
   const module = await WebAssembly.compile(binary as unknown as BufferSource);
   const rawImports = rawWasmImports(module);
   const instance = await WebAssembly.instantiate(module, rawImports.imports);

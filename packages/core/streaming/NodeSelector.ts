@@ -1,10 +1,10 @@
-import { intersectsViewFrustum } from './view';
-import type { CameraMotionPrediction } from './motionLookahead';
+import { intersectsViewFrustum } from "./view";
+import type { CameraMotionPrediction } from "./motionLookahead";
 import type {
   StreamingHierarchyNode,
   StreamingSelectedNode,
   StreamingSelectionMetrics,
-} from './types';
+} from "./types";
 import type {
   StreamingCameraState,
   StreamingHierarchy,
@@ -12,18 +12,18 @@ import type {
   StreamingSelectionContext,
   ViewFrustum,
   ViewVector3,
-} from './types';
+} from "./types";
 import {
   calculateRefinementInfluence,
   DEFAULT_MAX_REFINEMENT_DETAIL_BIAS,
   type RefinementInfluence,
-} from './refinementInfluence';
+} from "./refinementInfluence";
 import {
   createRefinementRelevanceStrategy,
   normalizeRefinementFocus,
   type RefinementFocus,
   type RefinementRelevanceStrategy,
-} from './refinementStrategies';
+} from "./refinementStrategies";
 
 function toRadians(value: number): number {
   return (value * Math.PI) / 180;
@@ -135,16 +135,19 @@ function isNodeFrustumVisible(
 ): boolean {
   // Nodes without a volume are retained so missing bounds can never create a
   // false negative. Production hierarchy nodes always have one.
-  return !camera.viewFrustum
-    || !Array.isArray(camera.viewFrustum.planes)
-    || !node.boundingSphere
-    || intersectsViewFrustum(camera.viewFrustum, node.boundingSphere);
+  return (
+    !camera.viewFrustum ||
+    !Array.isArray(camera.viewFrustum.planes) ||
+    !node.boundingSphere ||
+    intersectsViewFrustum(camera.viewFrustum, node.boundingSphere)
+  );
 }
 
 const DEFAULT_MAX_SCREEN_SPACE_ERROR = 8;
 const DEFAULT_SCREEN_SPACE_ERROR_HYSTERESIS_FRACTION = 0.125;
 /** Maximum additional refinement pressure available to passive screen-centre gaze. */
-export const DEFAULT_CENTER_PRIORITY_BOOST = DEFAULT_MAX_REFINEMENT_DETAIL_BIAS - 1;
+export const DEFAULT_CENTER_PRIORITY_BOOST =
+  DEFAULT_MAX_REFINEMENT_DETAIL_BIAS - 1;
 /**
  * Conservative first workload default, informed by the issue-48 renderer
  * measurements. It is a point-pressure guard, not a GPU-memory limit.
@@ -166,11 +169,15 @@ type GazeProjection = {
   horizontalTangent: number;
 };
 
-function isFiniteVector(vector: ViewVector3 | undefined): vector is ViewVector3 {
-  return vector !== undefined
-    && Number.isFinite(vector.x)
-    && Number.isFinite(vector.y)
-    && Number.isFinite(vector.z);
+function isFiniteVector(
+  vector: ViewVector3 | undefined,
+): vector is ViewVector3 {
+  return (
+    vector !== undefined &&
+    Number.isFinite(vector.x) &&
+    Number.isFinite(vector.y) &&
+    Number.isFinite(vector.z)
+  );
 }
 
 function normalizeVector(vector: ViewVector3): ViewVector3 | undefined {
@@ -186,18 +193,22 @@ function normalizeVector(vector: ViewVector3): ViewVector3 | undefined {
   };
 }
 
-function createGazeProjection(frustum: ViewFrustum | undefined): GazeProjection | undefined {
-  if (!frustum
-    || !Array.isArray(frustum.planes)
-    || !isFiniteVector(frustum.position)
-    || !isFiniteVector(frustum.direction)
-    || !isFiniteVector(frustum.up)
-    || !isFiniteVector(frustum.right)
-    || !Number.isFinite(frustum.verticalFovRadians)
-    || frustum.verticalFovRadians <= 0
-    || frustum.verticalFovRadians >= Math.PI
-    || !Number.isFinite(frustum.aspectRatio)
-    || frustum.aspectRatio <= 0) {
+function createGazeProjection(
+  frustum: ViewFrustum | undefined,
+): GazeProjection | undefined {
+  if (
+    !frustum ||
+    !Array.isArray(frustum.planes) ||
+    !isFiniteVector(frustum.position) ||
+    !isFiniteVector(frustum.direction) ||
+    !isFiniteVector(frustum.up) ||
+    !isFiniteVector(frustum.right) ||
+    !Number.isFinite(frustum.verticalFovRadians) ||
+    frustum.verticalFovRadians <= 0 ||
+    frustum.verticalFovRadians >= Math.PI ||
+    !Number.isFinite(frustum.aspectRatio) ||
+    frustum.aspectRatio <= 0
+  ) {
     return undefined;
   }
 
@@ -206,11 +217,15 @@ function createGazeProjection(frustum: ViewFrustum | undefined): GazeProjection 
   const right = normalizeVector(frustum.right);
   const verticalTangent = Math.tan(frustum.verticalFovRadians / 2);
   const horizontalTangent = verticalTangent * frustum.aspectRatio;
-  if (!direction || !up || !right
-    || !Number.isFinite(verticalTangent)
-    || verticalTangent <= 0
-    || !Number.isFinite(horizontalTangent)
-    || horizontalTangent <= 0) {
+  if (
+    !direction ||
+    !up ||
+    !right ||
+    !Number.isFinite(verticalTangent) ||
+    verticalTangent <= 0 ||
+    !Number.isFinite(horizontalTangent) ||
+    horizontalTangent <= 0
+  ) {
     return undefined;
   }
 
@@ -263,7 +278,11 @@ function projectNodeCentre(
   node: StreamingHierarchyNode,
   projection: GazeProjection | undefined,
 ): ProjectedNodeCentre | undefined {
-  if (!projection || !node.boundingSphere || !isFiniteVector(node.boundingSphere.center)) {
+  if (
+    !projection ||
+    !node.boundingSphere ||
+    !isFiniteVector(node.boundingSphere.center)
+  ) {
     return undefined;
   }
 
@@ -277,12 +296,14 @@ function projectNodeCentre(
     return undefined;
   }
 
-  const signedHorizontalDisplacement = dot(vector, projection.right) /
-    (forward * projection.horizontalTangent);
-  const signedVerticalDisplacement = dot(vector, projection.up) /
-    (forward * projection.verticalTangent);
-  if (!Number.isFinite(signedHorizontalDisplacement)
-    || !Number.isFinite(signedVerticalDisplacement)) {
+  const signedHorizontalDisplacement =
+    dot(vector, projection.right) / (forward * projection.horizontalTangent);
+  const signedVerticalDisplacement =
+    dot(vector, projection.up) / (forward * projection.verticalTangent);
+  if (
+    !Number.isFinite(signedHorizontalDisplacement) ||
+    !Number.isFinite(signedVerticalDisplacement)
+  ) {
     return undefined;
   }
 
@@ -317,10 +338,10 @@ function createMotionLookaheadTarget(
   const verticalDisplacement = toRadians(
     prediction.predictedVerticalDisplacementDegrees,
   );
-  const targetX = 0.5 + Math.tan(horizontalDisplacement)
-    / (2 * projection.horizontalTangent);
-  const targetY = 0.5 - Math.tan(verticalDisplacement)
-    / (2 * projection.verticalTangent);
+  const targetX =
+    0.5 + Math.tan(horizontalDisplacement) / (2 * projection.horizontalTangent);
+  const targetY =
+    0.5 - Math.tan(verticalDisplacement) / (2 * projection.verticalTangent);
   if (!Number.isFinite(targetX) || !Number.isFinite(targetY)) {
     return undefined;
   }
@@ -348,8 +369,8 @@ function calculateMotionLookaheadWeight(
   const distanceSquared = deltaX * deltaX + deltaY * deltaY;
   const falloffSquared = 0.75 * 0.75;
   const normalizedDistance = clamp(distanceSquared / falloffSquared, 0, 1);
-  const falloff = 1 - normalizedDistance * normalizedDistance
-    * (3 - 2 * normalizedDistance);
+  const falloff =
+    1 - normalizedDistance * normalizedDistance * (3 - 2 * normalizedDistance);
   const weight = target.activity * falloff;
   return Number.isFinite(weight) ? clamp(weight, 0, 1) : 0;
 }
@@ -358,7 +379,11 @@ function calculateAngularGapRadians(
   node: StreamingHierarchyNode,
   projection: GazeProjection | undefined,
 ): number | undefined {
-  if (!projection || !node.boundingSphere || !isFiniteVector(node.boundingSphere.center)) {
+  if (
+    !projection ||
+    !node.boundingSphere ||
+    !isFiniteVector(node.boundingSphere.center)
+  ) {
     return undefined;
   }
   const vector = {
@@ -393,8 +418,12 @@ function calculateManualFocusWeight(
   projection: GazeProjection | undefined,
   focus: RefinementFocus | undefined,
 ): number {
-  if (!focus || !projection || !node.boundingSphere
-    || !isFiniteVector(node.boundingSphere.center)) {
+  if (
+    !focus ||
+    !projection ||
+    !node.boundingSphere ||
+    !isFiniteVector(node.boundingSphere.center)
+  ) {
     return 0;
   }
   const projected = projectNodeCentre(node, projection);
@@ -420,24 +449,30 @@ function calculateManualFocusWeight(
     y: vector.y / distanceMeters,
     z: vector.z / distanceMeters,
   };
-  const centerAngle = Math.acos(clamp(dot(centerDirection, projection.direction), -1, 1));
+  const centerAngle = Math.acos(
+    clamp(dot(centerDirection, projection.direction), -1, 1),
+  );
   const outerAngle = centerAngle + angularRadius;
   if (outerAngle >= Math.PI / 2) {
     // The projected silhouette is unbounded at the horizon, but remains on
     // the sphere's angular side of the view. Compare the lens rays with the
     // sphere's angular cap so an opposite-side lens does not get full weight.
-    const horizontalSlope = (2 * focus.center.x - 1) * projection.horizontalTangent;
+    const horizontalSlope =
+      (2 * focus.center.x - 1) * projection.horizontalTangent;
     const verticalSlope = (1 - 2 * focus.center.y) * projection.verticalTangent;
     const focusRayVector = {
-      x: projection.direction.x
-        + horizontalSlope * projection.right.x
-        + verticalSlope * projection.up.x,
-      y: projection.direction.y
-        + horizontalSlope * projection.right.y
-        + verticalSlope * projection.up.y,
-      z: projection.direction.z
-        + horizontalSlope * projection.right.z
-        + verticalSlope * projection.up.z,
+      x:
+        projection.direction.x +
+        horizontalSlope * projection.right.x +
+        verticalSlope * projection.up.x,
+      y:
+        projection.direction.y +
+        horizontalSlope * projection.right.y +
+        verticalSlope * projection.up.y,
+      z:
+        projection.direction.z +
+        horizontalSlope * projection.right.z +
+        verticalSlope * projection.up.z,
     };
     const focusRay = normalizeVector(focusRayVector);
     if (!focusRay) {
@@ -453,18 +488,20 @@ function calculateManualFocusWeight(
       focusRayVector.z,
     );
     const angularRadiusForScreenCircle = (screenRadius: number): number => {
-      const slopeRadius = 2 * projection.verticalTangent
-        * Math.min(1, aspect)
-        * screenRadius;
-      const vectorRadius = slopeRadius
-        * Math.sqrt(1 + Math.abs(dot(projection.right, projection.up)));
+      const slopeRadius =
+        2 * projection.verticalTangent * Math.min(1, aspect) * screenRadius;
+      const vectorRadius =
+        slopeRadius *
+        Math.sqrt(1 + Math.abs(dot(projection.right, projection.up)));
       return vectorRadius >= focusRayLength
         ? Math.PI
         : Math.asin(clamp(vectorRadius / focusRayLength, 0, 1));
     };
     const lensAngularRadius = angularRadiusForScreenCircle(focus.radius);
     const feather = Math.max(focus.radius * 0.25, 0.02);
-    const featheredLensAngularRadius = angularRadiusForScreenCircle(focus.radius + feather);
+    const featheredLensAngularRadius = angularRadiusForScreenCircle(
+      focus.radius + feather,
+    );
     if (angularGap <= lensAngularRadius) {
       return 1;
     }
@@ -476,7 +513,11 @@ function calculateManualFocusWeight(
     if (angularFeather <= 0) {
       return 0;
     }
-    const falloff = clamp((angularGap - lensAngularRadius) / angularFeather, 0, 1);
+    const falloff = clamp(
+      (angularGap - lensAngularRadius) / angularFeather,
+      0,
+      1,
+    );
     const smoothFalloff = falloff * falloff * (3 - 2 * falloff);
     return clamp(1 - smoothFalloff, 0, 1);
   }
@@ -494,9 +535,10 @@ function calculateManualFocusWeight(
   // Perspective projection is gnomonic: a sphere's outer cone edge projects
   // at tan(theta + alpha), not linearly in angle. Subtracting the projected
   // center radius gives a conservative off-axis extent as well.
-  const projectedRadius = (Math.tan(outerAngle) - Math.tan(centerAngle))
-    / (2 * projection.verticalTangent)
-    * Math.max(1, 1 / aspect);
+  const projectedRadius =
+    ((Math.tan(outerAngle) - Math.tan(centerAngle)) /
+      (2 * projection.verticalTangent)) *
+    Math.max(1, 1 / aspect);
   if (!Number.isFinite(viewportDistance) || !Number.isFinite(projectedRadius)) {
     return 0;
   }
@@ -525,7 +567,9 @@ function calculateCenterWeightForProjection(
   const radius = Number.isFinite(node.boundingSphere.radiusMeters)
     ? Math.max(node.boundingSphere.radiusMeters, 0)
     : 0;
-  const angularRadius = radius / Math.max(projected.forward, 1e-6) /
+  const angularRadius =
+    radius /
+    Math.max(projected.forward, 1e-6) /
     Math.min(projection.horizontalTangent, projection.verticalTangent);
   return clamp(
     1 - Math.max(0, projected.normalizedScreenDistance - angularRadius),
@@ -547,8 +591,8 @@ function calculateSchedulingCenterWeightForProjection(
   // Scheduling uses the projected centre instead, with a smooth Gaussian
   // falloff. This sharpens work order without introducing a hard screen band
   // or changing which nodes are eligible for refinement.
-  const normalizedFalloff = projected.normalizedScreenDistance /
-    DEFAULT_SCHEDULING_CENTER_FALLOFF;
+  const normalizedFalloff =
+    projected.normalizedScreenDistance / DEFAULT_SCHEDULING_CENTER_FALLOFF;
   const weight = Math.exp(-0.5 * normalizedFalloff * normalizedFalloff);
   return Number.isFinite(weight) ? clamp(weight, 0, 1) : 0;
 }
@@ -558,7 +602,10 @@ export function calculateGazeCenterWeight(
   camera: StreamingCameraState,
   node: StreamingHierarchyNode,
 ): number {
-  return calculateCenterWeightForProjection(node, createGazeProjection(camera.viewFrustum));
+  return calculateCenterWeightForProjection(
+    node,
+    createGazeProjection(camera.viewFrustum),
+  );
 }
 
 /** Calculate the sharper, scheduling-only screen-centre relevance. */
@@ -573,7 +620,8 @@ export function calculateSchedulingCenterWeight(
 }
 
 function getGeometricErrorMeters(node: StreamingHierarchyNode): number {
-  const geometricError = node.geometricErrorMeters ?? node.approximateSizeMeters / 2;
+  const geometricError =
+    node.geometricErrorMeters ?? node.approximateSizeMeters / 2;
   return Number.isFinite(geometricError) ? Math.max(geometricError, 0) : 0;
 }
 
@@ -594,17 +642,19 @@ export function calculateScreenSpaceErrorPixels(
   node: StreamingHierarchyNode,
 ): number {
   const projection = camera.viewFrustum;
-  const viewportHeightPixels = projection
-    && Number.isFinite(projection.viewportHeightPixels)
-    && projection.viewportHeightPixels > 0
-    ? projection.viewportHeightPixels
-    : DEFAULT_VIEWPORT_HEIGHT_PIXELS;
-  const verticalFovRadians = projection
-    && Number.isFinite(projection.verticalFovRadians)
-    && projection.verticalFovRadians > 0
-    && projection.verticalFovRadians < Math.PI
-    ? projection.verticalFovRadians
-    : DEFAULT_VERTICAL_FOV_RADIANS;
+  const viewportHeightPixels =
+    projection &&
+    Number.isFinite(projection.viewportHeightPixels) &&
+    projection.viewportHeightPixels > 0
+      ? projection.viewportHeightPixels
+      : DEFAULT_VIEWPORT_HEIGHT_PIXELS;
+  const verticalFovRadians =
+    projection &&
+    Number.isFinite(projection.verticalFovRadians) &&
+    projection.verticalFovRadians > 0 &&
+    projection.verticalFovRadians < Math.PI
+      ? projection.verticalFovRadians
+      : DEFAULT_VERTICAL_FOV_RADIANS;
   const geometricErrorMeters = Math.max(getGeometricErrorMeters(node), 0);
   // A camera can be inside a node volume. Clamp the perspective distance to
   // the node's detail scale rather than allowing a singular near-field SSE.
@@ -614,7 +664,8 @@ export function calculateScreenSpaceErrorPixels(
     1e-6,
   );
 
-  const screenSpaceErrorPixels = geometricErrorMeters * viewportHeightPixels /
+  const screenSpaceErrorPixels =
+    (geometricErrorMeters * viewportHeightPixels) /
     (2 * distanceMeters * Math.tan(verticalFovRadians / 2));
   return Number.isFinite(screenSpaceErrorPixels)
     ? Math.max(screenSpaceErrorPixels, 0)
@@ -628,28 +679,28 @@ function shouldRefine(
   options: StreamingSelectionOptions,
   effectiveScreenSpaceErrorPixels: number,
   wasPreviouslyRefined: boolean,
-): 'refine' | 'hold' | 'collapse' {
+): "refine" | "hold" | "collapse" {
   if (node.children.length === 0 || node.node.level >= options.maxDepth) {
-    return 'hold';
+    return "hold";
   }
 
-  const nominalThreshold = options.maxScreenSpaceError
-    ?? DEFAULT_MAX_SCREEN_SPACE_ERROR;
+  const nominalThreshold =
+    options.maxScreenSpaceError ?? DEFAULT_MAX_SCREEN_SPACE_ERROR;
   const hysteresis = options.screenSpaceErrorHysteresis ?? 0;
   const refineThreshold = nominalThreshold + hysteresis;
   const collapseThreshold = Math.max(0, nominalThreshold - hysteresis);
 
   if (wasPreviouslyRefined) {
     if (effectiveScreenSpaceErrorPixels < collapseThreshold) {
-      return 'collapse';
+      return "collapse";
     }
     if (effectiveScreenSpaceErrorPixels <= refineThreshold) {
-      return 'hold';
+      return "hold";
     }
-    return 'refine';
+    return "refine";
   }
 
-  return effectiveScreenSpaceErrorPixels > refineThreshold ? 'refine' : 'hold';
+  return effectiveScreenSpaceErrorPixels > refineThreshold ? "refine" : "hold";
 }
 
 function getRootNodes(hierarchy: StreamingHierarchy): StreamingHierarchyNode[] {
@@ -659,7 +710,7 @@ function getRootNodes(hierarchy: StreamingHierarchy): StreamingHierarchyNode[] {
 function validateMaxRenderedPoints(value: number): number {
   if (!Number.isSafeInteger(value) || value < 1) {
     throw new RangeError(
-      'Streaming maxRenderedPoints must be a positive safe integer',
+      "Streaming maxRenderedPoints must be a positive safe integer",
     );
   }
 
@@ -709,16 +760,18 @@ function compareRefinementPriorityByScore(
 ): number {
   // Refinement and coverage decisions use only the conservative influence
   // model. Scheduling relevance is deliberately absent from this comparator.
-  return rightScore - leftScore
-    || right.screenSpaceErrorPixels - left.screenSpaceErrorPixels
-    || right.centerWeight - left.centerWeight
-    || left.boundsDistanceMeters - right.boundsDistanceMeters
-    || right.node.node.level - left.node.node.level
-    || Number(right.wasPreviouslyRefined) - Number(left.wasPreviouslyRefined)
-    || Number(right.wasPreviouslySelected) - Number(left.wasPreviouslySelected)
-    || Number(right.isCached) - Number(left.isCached)
-    || left.pointCost - right.pointCost
-    || left.node.node.key.localeCompare(right.node.node.key);
+  return (
+    rightScore - leftScore ||
+    right.screenSpaceErrorPixels - left.screenSpaceErrorPixels ||
+    right.centerWeight - left.centerWeight ||
+    left.boundsDistanceMeters - right.boundsDistanceMeters ||
+    right.node.node.level - left.node.node.level ||
+    Number(right.wasPreviouslyRefined) - Number(left.wasPreviouslyRefined) ||
+    Number(right.wasPreviouslySelected) - Number(left.wasPreviouslySelected) ||
+    Number(right.isCached) - Number(left.isCached) ||
+    left.pointCost - right.pointCost ||
+    left.node.node.key.localeCompare(right.node.node.key)
+  );
 }
 
 function compareSchedulingPriority(
@@ -728,18 +781,20 @@ function compareSchedulingPriority(
   // This comparator is used only after the selected frontier is valid. Raw
   // SSE remains an explicit tie-breaker so a large peripheral visual error
   // retains authority over a modest centre preference.
-  return right.schedulingPriority - left.schedulingPriority
-    || right.refinementPriority - left.refinementPriority
-    || right.screenSpaceErrorPixels - left.screenSpaceErrorPixels
-    || right.schedulingCenterWeight - left.schedulingCenterWeight
-    || right.centerWeight - left.centerWeight
-    || left.boundsDistanceMeters - right.boundsDistanceMeters
-    || right.node.node.level - left.node.node.level
-    || Number(right.wasPreviouslyRefined) - Number(left.wasPreviouslyRefined)
-    || Number(right.wasPreviouslySelected) - Number(left.wasPreviouslySelected)
-    || Number(right.isCached) - Number(left.isCached)
-    || left.pointCost - right.pointCost
-    || left.node.node.key.localeCompare(right.node.node.key);
+  return (
+    right.schedulingPriority - left.schedulingPriority ||
+    right.refinementPriority - left.refinementPriority ||
+    right.screenSpaceErrorPixels - left.screenSpaceErrorPixels ||
+    right.schedulingCenterWeight - left.schedulingCenterWeight ||
+    right.centerWeight - left.centerWeight ||
+    left.boundsDistanceMeters - right.boundsDistanceMeters ||
+    right.node.node.level - left.node.node.level ||
+    Number(right.wasPreviouslyRefined) - Number(left.wasPreviouslyRefined) ||
+    Number(right.wasPreviouslySelected) - Number(left.wasPreviouslySelected) ||
+    Number(right.isCached) - Number(left.isCached) ||
+    left.pointCost - right.pointCost ||
+    left.node.node.key.localeCompare(right.node.node.key)
+  );
 }
 
 function toSelectedNode(candidate: PrioritisedNode): StreamingSelectedNode {
@@ -768,12 +823,12 @@ type RefinementCandidate = PrioritisedNode & {
 function createSelectionMetrics(
   maxScreenSpaceError: number,
   maxRenderedPoints: number,
-  refinementAlgorithm: StreamingSelectionOptions['refinementAlgorithm'],
+  refinementAlgorithm: StreamingSelectionOptions["refinementAlgorithm"],
   refinementFocusEnabled: boolean,
   motionPrediction: CameraMotionPrediction,
 ): StreamingSelectionMetrics {
   return {
-    refinementAlgorithm: refinementAlgorithm ?? 'foveated',
+    refinementAlgorithm: refinementAlgorithm ?? "foveated",
     refinementFocusEnabled,
     motionLookaheadEnabled: motionPrediction.enabled,
     motionHorizontalAngularVelocityDegreesPerSecond:
@@ -825,10 +880,13 @@ export function compareNodePriority(
   left: StreamingHierarchyNode,
   right: StreamingHierarchyNode,
 ): number {
-  return right.node.level - left.node.level
-    || calculateBoundsDistanceMeters(camera, left) - calculateBoundsDistanceMeters(camera, right)
-    || left.node.pointCount - right.node.pointCount
-    || left.node.key.localeCompare(right.node.key);
+  return (
+    right.node.level - left.node.level ||
+    calculateBoundsDistanceMeters(camera, left) -
+      calculateBoundsDistanceMeters(camera, right) ||
+    left.node.pointCount - right.node.pointCount ||
+    left.node.key.localeCompare(right.node.key)
+  );
 }
 
 /**
@@ -844,21 +902,22 @@ export class NodeSelector {
   private readonly strategy: RefinementRelevanceStrategy;
   private refinementFocus?: RefinementFocus;
   private motionPrediction?: CameraMotionPrediction;
-  private lastSelectionMetrics: StreamingSelectionMetrics = createSelectionMetrics(
-    DEFAULT_MAX_SCREEN_SPACE_ERROR,
-    DEFAULT_MAX_RENDERED_POINTS,
-    'foveated',
-    false,
-    {
-      enabled: true,
-      horizontalAngularVelocityDegreesPerSecond: 0,
-      verticalAngularVelocityDegreesPerSecond: 0,
-      horizonMilliseconds: 200,
-      predictedHorizontalDisplacementDegrees: 0,
-      predictedVerticalDisplacementDegrees: 0,
-      activity: 0,
-    },
-  );
+  private lastSelectionMetrics: StreamingSelectionMetrics =
+    createSelectionMetrics(
+      DEFAULT_MAX_SCREEN_SPACE_ERROR,
+      DEFAULT_MAX_RENDERED_POINTS,
+      "foveated",
+      false,
+      {
+        enabled: true,
+        horizontalAngularVelocityDegreesPerSecond: 0,
+        verticalAngularVelocityDegreesPerSecond: 0,
+        horizonMilliseconds: 200,
+        predictedHorizontalDisplacementDegrees: 0,
+        predictedVerticalDisplacementDegrees: 0,
+        activity: 0,
+      },
+    );
 
   /**
    * Create a selector with required node/depth/distance limits.
@@ -870,14 +929,21 @@ export class NodeSelector {
    * @throws `RangeError` if the hysteresis or point-budget configuration is invalid.
    */
   constructor(options: StreamingSelectionOptions) {
-    this.strategy = createRefinementRelevanceStrategy(options.refinementAlgorithm);
-    const maxScreenSpaceError = options.maxScreenSpaceError
-      ?? DEFAULT_MAX_SCREEN_SPACE_ERROR;
-    const screenSpaceErrorHysteresis = options.screenSpaceErrorHysteresis
-      ?? Math.max(maxScreenSpaceError, 0) * DEFAULT_SCREEN_SPACE_ERROR_HYSTERESIS_FRACTION;
-    if (!Number.isFinite(screenSpaceErrorHysteresis) || screenSpaceErrorHysteresis < 0) {
+    this.strategy = createRefinementRelevanceStrategy(
+      options.refinementAlgorithm,
+    );
+    const maxScreenSpaceError =
+      options.maxScreenSpaceError ?? DEFAULT_MAX_SCREEN_SPACE_ERROR;
+    const screenSpaceErrorHysteresis =
+      options.screenSpaceErrorHysteresis ??
+      Math.max(maxScreenSpaceError, 0) *
+        DEFAULT_SCREEN_SPACE_ERROR_HYSTERESIS_FRACTION;
+    if (
+      !Number.isFinite(screenSpaceErrorHysteresis) ||
+      screenSpaceErrorHysteresis < 0
+    ) {
       throw new RangeError(
-        'Streaming screenSpaceErrorHysteresis must be a non-negative finite number',
+        "Streaming screenSpaceErrorHysteresis must be a non-negative finite number",
       );
     }
 
@@ -929,9 +995,10 @@ export class NodeSelector {
     hierarchy: StreamingHierarchy,
     context: StreamingSelectionContext = {},
   ): StreamingSelectedNode[] {
-    const maxScreenSpaceError = this.options.maxScreenSpaceError
-      ?? DEFAULT_MAX_SCREEN_SPACE_ERROR;
-    const budget = this.options.maxRenderedPoints ?? DEFAULT_MAX_RENDERED_POINTS;
+    const maxScreenSpaceError =
+      this.options.maxScreenSpaceError ?? DEFAULT_MAX_SCREEN_SPACE_ERROR;
+    const budget =
+      this.options.maxRenderedPoints ?? DEFAULT_MAX_RENDERED_POINTS;
     this.lastSelectionMetrics = createSelectionMetrics(
       maxScreenSpaceError,
       budget,
@@ -950,18 +1017,22 @@ export class NodeSelector {
 
     const frontier = new Map<string, StreamingHierarchyNode>();
     const gazeProjection = createGazeProjection(camera.viewFrustum);
-    const evaluations = new Map<string, {
-      visible: boolean;
-      screenSpaceErrorPixels: number;
-      influence: RefinementInfluence;
-      focusWeight: number;
-      schedulingWeight: number;
-      motionWeight: number;
-    }>();
+    const evaluations = new Map<
+      string,
+      {
+        visible: boolean;
+        screenSpaceErrorPixels: number;
+        influence: RefinementInfluence;
+        focusWeight: number;
+        schedulingWeight: number;
+        motionWeight: number;
+      }
+    >();
     const priorityMetricsRecorded = new Set<string>();
-    const motionTarget = this.options.motionLookahead === false
-      ? undefined
-      : createMotionLookaheadTarget(gazeProjection, this.motionPrediction);
+    const motionTarget =
+      this.options.motionLookahead === false
+        ? undefined
+        : createMotionLookaheadTarget(gazeProjection, this.motionPrediction);
 
     const evaluate = (node: StreamingHierarchyNode) => {
       const existing = evaluations.get(node.node.key);
@@ -997,13 +1068,24 @@ export class NodeSelector {
         return result;
       }
 
-      const screenSpaceErrorPixels = calculateScreenSpaceErrorPixels(camera, node);
+      const screenSpaceErrorPixels = calculateScreenSpaceErrorPixels(
+        camera,
+        node,
+      );
       const projected = projectNodeCentre(node, gazeProjection);
-      const angularGapRadians = calculateAngularGapRadians(node, gazeProjection);
+      const angularGapRadians = calculateAngularGapRadians(
+        node,
+        gazeProjection,
+      );
       const angularFalloffRadians = gazeProjection
-        ? Math.atan(gazeProjection.verticalTangent * DEFAULT_SCHEDULING_CENTER_FALLOFF)
+        ? Math.atan(
+            gazeProjection.verticalTangent * DEFAULT_SCHEDULING_CENTER_FALLOFF,
+          )
         : undefined;
-      const screenProjectionWeight = calculateCenterWeightForProjection(node, gazeProjection);
+      const screenProjectionWeight = calculateCenterWeightForProjection(
+        node,
+        gazeProjection,
+      );
       const screenProjectionSchedulingWeight =
         calculateSchedulingCenterWeightForProjection(node, gazeProjection);
       const relevance = this.strategy.evaluate({
@@ -1019,12 +1101,10 @@ export class NodeSelector {
         gazeProjection,
         this.refinementFocus,
       );
-      const motionWeight = this.options.motionLookahead === false
-        ? 0
-        : calculateMotionLookaheadWeight(
-          projected,
-          motionTarget,
-        );
+      const motionWeight =
+        this.options.motionLookahead === false
+          ? 0
+          : calculateMotionLookaheadWeight(projected, motionTarget);
       const influence = calculateRefinementInfluence({
         rawScreenSpaceError: screenSpaceErrorPixels,
         gazeWeight: relevance.refinementWeight,
@@ -1035,11 +1115,13 @@ export class NodeSelector {
           : {}),
       });
       this.lastSelectionMetrics.screenSpaceErrorMin = Math.min(
-        this.lastSelectionMetrics.screenSpaceErrorMin ?? Number.POSITIVE_INFINITY,
+        this.lastSelectionMetrics.screenSpaceErrorMin ??
+          Number.POSITIVE_INFINITY,
         screenSpaceErrorPixels,
       );
       this.lastSelectionMetrics.screenSpaceErrorMax = Math.max(
-        this.lastSelectionMetrics.screenSpaceErrorMax ?? Number.NEGATIVE_INFINITY,
+        this.lastSelectionMetrics.screenSpaceErrorMax ??
+          Number.NEGATIVE_INFINITY,
         screenSpaceErrorPixels,
       );
       const result = {
@@ -1067,7 +1149,8 @@ export class NodeSelector {
     };
 
     for (const rootNode of getRootNodes(hierarchy).sort((left, right) =>
-      left.node.key.localeCompare(right.node.key))) {
+      left.node.key.localeCompare(right.node.key),
+    )) {
       const evaluation = evaluate(rootNode);
       if (evaluation.visible && rootNode.node.pointCount > 0) {
         frontier.set(rootNode.node.key, rootNode);
@@ -1078,10 +1161,11 @@ export class NodeSelector {
     if (frontier.size === 0 && !camera.viewFrustum) {
       const fallback = [...hierarchy.values()]
         .filter((entry) => entry.node.pointCount > 0)
-        .sort((left, right) =>
-          calculateBoundsDistanceMeters(camera, left) -
-          calculateBoundsDistanceMeters(camera, right)
-          || left.node.key.localeCompare(right.node.key),
+        .sort(
+          (left, right) =>
+            calculateBoundsDistanceMeters(camera, left) -
+              calculateBoundsDistanceMeters(camera, right) ||
+            left.node.key.localeCompare(right.node.key),
         )[0];
 
       if (fallback) {
@@ -1097,8 +1181,10 @@ export class NodeSelector {
     );
     const exceedsNodeBudget = initialFrontier.length > this.options.maxNodes;
     const exceedsPointBudget = initialPointCount > budget;
-    this.lastSelectionMetrics.minimumFrontierExceedsNodeBudget = exceedsNodeBudget;
-    this.lastSelectionMetrics.minimumFrontierExceedsPointBudget = exceedsPointBudget;
+    this.lastSelectionMetrics.minimumFrontierExceedsNodeBudget =
+      exceedsNodeBudget;
+    this.lastSelectionMetrics.minimumFrontierExceedsPointBudget =
+      exceedsPointBudget;
 
     const previousRefinementMemo = new Map<string, boolean>();
     const hasPreviouslyRefinedDescendant = (
@@ -1138,17 +1224,20 @@ export class NodeSelector {
       // A single multiplier keeps the existing 1.5x ceiling and leaves the
       // no-focus legacy score unchanged.
       const schedulingInfluence = clamp(
-        schedulingCenterWeight + evaluation.focusWeight + evaluation.motionWeight,
+        schedulingCenterWeight +
+          evaluation.focusWeight +
+          evaluation.motionWeight,
         0,
         1,
       );
-      const schedulingMultiplier = 1
-        + schedulingInfluence * DEFAULT_MAX_SCHEDULING_CENTER_BOOST;
+      const schedulingMultiplier =
+        1 + schedulingInfluence * DEFAULT_MAX_SCHEDULING_CENTER_BOOST;
       // Start from raw SSE so the conservative, extent-aware refinement
       // influence cannot leak back into scheduling through the broad sphere
       // overlap signal. The refinement score remains a deterministic visual
       // tie-breaker in compareSchedulingPriority.
-      const schedulingProduct = evaluation.screenSpaceErrorPixels * schedulingMultiplier;
+      const schedulingProduct =
+        evaluation.screenSpaceErrorPixels * schedulingMultiplier;
       return {
         node,
         screenSpaceErrorPixels: evaluation.screenSpaceErrorPixels,
@@ -1162,7 +1251,8 @@ export class NodeSelector {
           ? schedulingProduct
           : Number.MAX_VALUE,
         boundsDistanceMeters: calculateBoundsDistanceMeters(camera, node),
-        wasPreviouslySelected: context.previousSelectedNodeKeys?.has(node.node.key) ?? false,
+        wasPreviouslySelected:
+          context.previousSelectedNodeKeys?.has(node.node.key) ?? false,
         wasPreviouslyRefined: hasPreviouslyRefinedDescendant(node),
         isCached: context.isNodeCached?.(node.node.key) ?? false,
         pointCost: getNodePointCost(node),
@@ -1176,13 +1266,13 @@ export class NodeSelector {
       priorityMetricsRecorded.add(candidate.node.node.key);
       const { influence } = candidate;
       this.lastSelectionMetrics.effectiveScreenSpaceErrorMin = Math.min(
-        this.lastSelectionMetrics.effectiveScreenSpaceErrorMin
-          ?? Number.POSITIVE_INFINITY,
+        this.lastSelectionMetrics.effectiveScreenSpaceErrorMin ??
+          Number.POSITIVE_INFINITY,
         influence.effectiveScreenSpaceError,
       );
       this.lastSelectionMetrics.effectiveScreenSpaceErrorMax = Math.max(
-        this.lastSelectionMetrics.effectiveScreenSpaceErrorMax
-          ?? Number.NEGATIVE_INFINITY,
+        this.lastSelectionMetrics.effectiveScreenSpaceErrorMax ??
+          Number.NEGATIVE_INFINITY,
         influence.effectiveScreenSpaceError,
       );
       this.lastSelectionMetrics.detailBiasMin = Math.min(
@@ -1206,11 +1296,13 @@ export class NodeSelector {
       this.lastSelectionMetrics.refinementCenterWeightMax =
         this.lastSelectionMetrics.centerWeightMax;
       this.lastSelectionMetrics.schedulingCenterWeightMin = Math.min(
-        this.lastSelectionMetrics.schedulingCenterWeightMin ?? Number.POSITIVE_INFINITY,
+        this.lastSelectionMetrics.schedulingCenterWeightMin ??
+          Number.POSITIVE_INFINITY,
         candidate.schedulingCenterWeight,
       );
       this.lastSelectionMetrics.schedulingCenterWeightMax = Math.max(
-        this.lastSelectionMetrics.schedulingCenterWeightMax ?? Number.NEGATIVE_INFINITY,
+        this.lastSelectionMetrics.schedulingCenterWeightMax ??
+          Number.NEGATIVE_INFINITY,
         candidate.schedulingCenterWeight,
       );
       this.lastSelectionMetrics.focusWeightMin = Math.min(
@@ -1226,24 +1318,29 @@ export class NodeSelector {
           (this.lastSelectionMetrics.focusCandidateCount ?? 0) + 1;
       }
       this.lastSelectionMetrics.refinementPriorityMin = Math.min(
-        this.lastSelectionMetrics.refinementPriorityMin ?? Number.POSITIVE_INFINITY,
+        this.lastSelectionMetrics.refinementPriorityMin ??
+          Number.POSITIVE_INFINITY,
         candidate.refinementPriority,
       );
       this.lastSelectionMetrics.refinementPriorityMax = Math.max(
-        this.lastSelectionMetrics.refinementPriorityMax ?? Number.NEGATIVE_INFINITY,
+        this.lastSelectionMetrics.refinementPriorityMax ??
+          Number.NEGATIVE_INFINITY,
         candidate.refinementPriority,
       );
       this.lastSelectionMetrics.schedulingPriorityMin = Math.min(
-        this.lastSelectionMetrics.schedulingPriorityMin ?? Number.POSITIVE_INFINITY,
+        this.lastSelectionMetrics.schedulingPriorityMin ??
+          Number.POSITIVE_INFINITY,
         candidate.schedulingPriority,
       );
       this.lastSelectionMetrics.schedulingPriorityMax = Math.max(
-        this.lastSelectionMetrics.schedulingPriorityMax ?? Number.NEGATIVE_INFINITY,
+        this.lastSelectionMetrics.schedulingPriorityMax ??
+          Number.NEGATIVE_INFINITY,
         candidate.schedulingPriority,
       );
       if (influence.combinedWeight > 0) {
         this.lastSelectionMetrics.candidatesWithNonZeroInfluenceCount =
-          (this.lastSelectionMetrics.candidatesWithNonZeroInfluenceCount ?? 0) + 1;
+          (this.lastSelectionMetrics.candidatesWithNonZeroInfluenceCount ?? 0) +
+          1;
       }
       if (influence.wasClamped) {
         this.lastSelectionMetrics.influenceClampCount =
@@ -1262,7 +1359,10 @@ export class NodeSelector {
         if (!evaluation.visible) {
           return;
         }
-        if (parent.children.length === 0 || parent.node.level >= this.options.maxDepth) {
+        if (
+          parent.children.length === 0 ||
+          parent.node.level >= this.options.maxDepth
+        ) {
           return;
         }
 
@@ -1274,15 +1374,18 @@ export class NodeSelector {
           prioritised.influence.effectiveScreenSpaceError,
           prioritised.wasPreviouslyRefined,
         );
-        const influenceWithoutManualFocus = calculateInfluenceWithoutManualFocus(
-          prioritised.influence,
-          this.refinementFocus,
-        );
-        const focusContributesToRefinement = prioritised.focusWeight > 0
-          && prioritised.influence.effectiveScreenSpaceError
-            > influenceWithoutManualFocus.effectiveScreenSpaceError;
-        const focusChangedRefinementDecision = focusContributesToRefinement
-          && shouldRefine(
+        const influenceWithoutManualFocus =
+          calculateInfluenceWithoutManualFocus(
+            prioritised.influence,
+            this.refinementFocus,
+          );
+        const focusContributesToRefinement =
+          prioritised.focusWeight > 0 &&
+          prioritised.influence.effectiveScreenSpaceError >
+            influenceWithoutManualFocus.effectiveScreenSpaceError;
+        const focusChangedRefinementDecision =
+          focusContributesToRefinement &&
+          shouldRefine(
             parent,
             this.options,
             influenceWithoutManualFocus.effectiveScreenSpaceError,
@@ -1292,32 +1395,33 @@ export class NodeSelector {
           prioritised.influence,
           this.refinementFocus,
         );
-        const motionChangedRefinementDecision = prioritised.motionWeight > 0
-          && prioritised.influence.effectiveScreenSpaceError
-            > influenceWithoutMotion.effectiveScreenSpaceError
-          && shouldRefine(
+        const motionChangedRefinementDecision =
+          prioritised.motionWeight > 0 &&
+          prioritised.influence.effectiveScreenSpaceError >
+            influenceWithoutMotion.effectiveScreenSpaceError &&
+          shouldRefine(
             parent,
             this.options,
             influenceWithoutMotion.effectiveScreenSpaceError,
             prioritised.wasPreviouslyRefined,
           ) !== decision;
-        const hasPreviousState = prioritised.wasPreviouslySelected
-          || prioritised.wasPreviouslyRefined;
-        if (decision === 'hold' && hasPreviousState) {
+        const hasPreviousState =
+          prioritised.wasPreviouslySelected || prioritised.wasPreviouslyRefined;
+        if (decision === "hold" && hasPreviousState) {
           this.lastSelectionMetrics.hysteresisHoldCount =
             (this.lastSelectionMetrics.hysteresisHoldCount ?? 0) + 1;
         }
-        if (decision === 'collapse') {
+        if (decision === "collapse") {
           this.lastSelectionMetrics.collapseDecisionCount =
             (this.lastSelectionMetrics.collapseDecisionCount ?? 0) + 1;
           return;
         }
-        if (decision === 'hold' && !prioritised.wasPreviouslyRefined) {
+        if (decision === "hold" && !prioritised.wasPreviouslyRefined) {
           return;
         }
 
         this.lastSelectionMetrics.refinedNodeCount += 1;
-        if (decision === 'refine') {
+        if (decision === "refine") {
           this.lastSelectionMetrics.refineDecisionCount =
             (this.lastSelectionMetrics.refineDecisionCount ?? 0) + 1;
         }
@@ -1328,7 +1432,8 @@ export class NodeSelector {
 
         if (parent.childrenComplete !== true) {
           this.lastSelectionMetrics.refinementDeferredByIncompleteHierarchyCount =
-            (this.lastSelectionMetrics.refinementDeferredByIncompleteHierarchyCount ?? 0) + 1;
+            (this.lastSelectionMetrics
+              .refinementDeferredByIncompleteHierarchyCount ?? 0) + 1;
           return;
         }
 
@@ -1337,7 +1442,8 @@ export class NodeSelector {
           const child = hierarchy.get(childKey);
           if (!child) {
             this.lastSelectionMetrics.refinementDeferredByIncompleteHierarchyCount =
-              (this.lastSelectionMetrics.refinementDeferredByIncompleteHierarchyCount ?? 0) + 1;
+              (this.lastSelectionMetrics
+                .refinementDeferredByIncompleteHierarchyCount ?? 0) + 1;
             return;
           }
 
@@ -1377,21 +1483,26 @@ export class NodeSelector {
         nodeCount: number,
         pointCount: number,
       ): boolean => {
-        const resultingNodeCount = nodeCount - 1 + replacementCandidate.replacement.length;
-        const resultingPointCount = pointCount
-          - replacementCandidate.pointCost
-          + replacementCandidate.replacementPointCost;
-        return (resultingNodeCount <= this.options.maxNodes
-          && resultingPointCount <= budget)
-          || (nodeCount <= this.options.maxNodes
-            && pointCount > budget
-            && resultingNodeCount <= this.options.maxNodes
-            && resultingPointCount < pointCount);
+        const resultingNodeCount =
+          nodeCount - 1 + replacementCandidate.replacement.length;
+        const resultingPointCount =
+          pointCount -
+          replacementCandidate.pointCost +
+          replacementCandidate.replacementPointCost;
+        return (
+          (resultingNodeCount <= this.options.maxNodes &&
+            resultingPointCount <= budget) ||
+          (nodeCount <= this.options.maxNodes &&
+            pointCount > budget &&
+            resultingNodeCount <= this.options.maxNodes &&
+            resultingPointCount < pointCount)
+        );
       };
 
       while (pending.size > 0) {
-        const candidate = [...pending.values()]
-          .sort(compareRefinementPriority)[0];
+        const candidate = [...pending.values()].sort(
+          compareRefinementPriority,
+        )[0];
         pending.delete(candidate.node.node.key);
 
         if (!frontier.has(candidate.node.node.key)) {
@@ -1399,72 +1510,86 @@ export class NodeSelector {
         }
 
         const nextNodeCount = frontier.size - 1 + candidate.replacement.length;
-        const nextPointCount = frontierPointCount
-          - candidate.pointCost
-          + candidate.replacementPointCost;
-        const fitsBudgets = nextNodeCount <= this.options.maxNodes
-          && nextPointCount <= budget;
+        const nextPointCount =
+          frontierPointCount -
+          candidate.pointCost +
+          candidate.replacementPointCost;
+        const fitsBudgets =
+          nextNodeCount <= this.options.maxNodes && nextPointCount <= budget;
         // An initially oversized point frontier may need more than one
         // refinement before it fits. Permit only a strictly point-reducing
         // intermediate transaction, and never let the internal frontier
         // exceed the node budget. The returned frontier is still hard-bounded.
-        const isBudgetReducingPointStep = frontier.size <= this.options.maxNodes
-          && frontierPointCount > budget
-          && nextNodeCount <= this.options.maxNodes
-          && nextPointCount < frontierPointCount;
+        const isBudgetReducingPointStep =
+          frontier.size <= this.options.maxNodes &&
+          frontierPointCount > budget &&
+          nextNodeCount <= this.options.maxNodes &&
+          nextPointCount < frontierPointCount;
 
-        const focusChangedBudgetWinner = fitsBudgets || isBudgetReducingPointStep
-          ? [...pending.values()].some((other) => {
-            const focusOrder = compareRefinementPriority(candidate, other);
-            const noFocusOrder = compareRefinementPriorityByScore(
-              candidate,
-              other,
-              candidate.refinementPriorityWithoutManualFocus,
-              other.refinementPriorityWithoutManualFocus,
-            );
-            if (focusOrder >= 0 || noFocusOrder <= 0) {
-              return false;
-            }
+        const focusChangedBudgetWinner =
+          fitsBudgets || isBudgetReducingPointStep
+            ? [...pending.values()].some((other) => {
+                const focusOrder = compareRefinementPriority(candidate, other);
+                const noFocusOrder = compareRefinementPriorityByScore(
+                  candidate,
+                  other,
+                  candidate.refinementPriorityWithoutManualFocus,
+                  other.refinementPriorityWithoutManualFocus,
+                );
+                if (focusOrder >= 0 || noFocusOrder <= 0) {
+                  return false;
+                }
 
-            const otherFitsBefore = canApplyWithinBudgets(
-              other,
-              frontier.size,
-              frontierPointCount,
-            );
-            const otherFitsAfter = canApplyWithinBudgets(other, nextNodeCount, nextPointCount);
-            return otherFitsBefore && !otherFitsAfter;
-          })
-          : false;
-        const motionChangedBudgetWinner = fitsBudgets || isBudgetReducingPointStep
-          ? [...pending.values()].some((other) => {
-            const motionOrder = compareRefinementPriority(candidate, other);
-            const noMotionOrder = compareRefinementPriorityByScore(
-              candidate,
-              other,
-              candidate.refinementPriorityWithoutMotion,
-              other.refinementPriorityWithoutMotion,
-            );
-            if (motionOrder >= 0 || noMotionOrder <= 0) {
-              return false;
-            }
+                const otherFitsBefore = canApplyWithinBudgets(
+                  other,
+                  frontier.size,
+                  frontierPointCount,
+                );
+                const otherFitsAfter = canApplyWithinBudgets(
+                  other,
+                  nextNodeCount,
+                  nextPointCount,
+                );
+                return otherFitsBefore && !otherFitsAfter;
+              })
+            : false;
+        const motionChangedBudgetWinner =
+          fitsBudgets || isBudgetReducingPointStep
+            ? [...pending.values()].some((other) => {
+                const motionOrder = compareRefinementPriority(candidate, other);
+                const noMotionOrder = compareRefinementPriorityByScore(
+                  candidate,
+                  other,
+                  candidate.refinementPriorityWithoutMotion,
+                  other.refinementPriorityWithoutMotion,
+                );
+                if (motionOrder >= 0 || noMotionOrder <= 0) {
+                  return false;
+                }
 
-            const otherFitsBefore = canApplyWithinBudgets(
-              other,
-              frontier.size,
-              frontierPointCount,
-            );
-            const otherFitsAfter = canApplyWithinBudgets(other, nextNodeCount, nextPointCount);
-            return otherFitsBefore && !otherFitsAfter;
-          })
-          : false;
+                const otherFitsBefore = canApplyWithinBudgets(
+                  other,
+                  frontier.size,
+                  frontierPointCount,
+                );
+                const otherFitsAfter = canApplyWithinBudgets(
+                  other,
+                  nextNodeCount,
+                  nextPointCount,
+                );
+                return otherFitsBefore && !otherFitsAfter;
+              })
+            : false;
 
         if (!fitsBudgets && !isBudgetReducingPointStep) {
           if (nextNodeCount > this.options.maxNodes) {
             this.lastSelectionMetrics.refinementRejectedByNodeBudgetCount =
-              (this.lastSelectionMetrics.refinementRejectedByNodeBudgetCount ?? 0) + 1;
+              (this.lastSelectionMetrics.refinementRejectedByNodeBudgetCount ??
+                0) + 1;
           } else {
             this.lastSelectionMetrics.refinementRejectedByPointBudgetCount =
-              (this.lastSelectionMetrics.refinementRejectedByPointBudgetCount ?? 0) + 1;
+              (this.lastSelectionMetrics.refinementRejectedByPointBudgetCount ??
+                0) + 1;
           }
           continue;
         }
@@ -1477,24 +1602,34 @@ export class NodeSelector {
         this.lastSelectionMetrics.acceptedRefinementCount =
           (this.lastSelectionMetrics.acceptedRefinementCount ?? 0) + 1;
         this.lastSelectionMetrics.acceptedRefinementPriorityMin = Math.min(
-          this.lastSelectionMetrics.acceptedRefinementPriorityMin ?? Number.POSITIVE_INFINITY,
+          this.lastSelectionMetrics.acceptedRefinementPriorityMin ??
+            Number.POSITIVE_INFINITY,
           candidate.refinementPriority,
         );
         this.lastSelectionMetrics.acceptedRefinementPriorityMax = Math.max(
-          this.lastSelectionMetrics.acceptedRefinementPriorityMax ?? Number.NEGATIVE_INFINITY,
+          this.lastSelectionMetrics.acceptedRefinementPriorityMax ??
+            Number.NEGATIVE_INFINITY,
           candidate.refinementPriority,
         );
         if (candidate.influence.gazeWeight > 0) {
           this.lastSelectionMetrics.acceptedGazeInfluencedRefinementCount =
-            (this.lastSelectionMetrics.acceptedGazeInfluencedRefinementCount ?? 0) + 1;
+            (this.lastSelectionMetrics.acceptedGazeInfluencedRefinementCount ??
+              0) + 1;
         }
-        if (candidate.focusChangedRefinementDecision || focusChangedBudgetWinner) {
+        if (
+          candidate.focusChangedRefinementDecision ||
+          focusChangedBudgetWinner
+        ) {
           this.lastSelectionMetrics.focusInfluencedRefinementCount =
             (this.lastSelectionMetrics.focusInfluencedRefinementCount ?? 0) + 1;
         }
-        if (candidate.motionChangedRefinementDecision || motionChangedBudgetWinner) {
+        if (
+          candidate.motionChangedRefinementDecision ||
+          motionChangedBudgetWinner
+        ) {
           this.lastSelectionMetrics.motionInfluencedRefinementCount =
-            (this.lastSelectionMetrics.motionInfluencedRefinementCount ?? 0) + 1;
+            (this.lastSelectionMetrics.motionInfluencedRefinementCount ?? 0) +
+            1;
         }
 
         for (const child of candidate.replacement) {
@@ -1518,8 +1653,9 @@ export class NodeSelector {
       // no complete refinement sequence can bring the minimum visible
       // frontier under the configured limits.
       if (
-        (frontier.size > this.options.maxNodes || frontierPointCount > budget)
-        && (exceedsNodeBudget || exceedsPointBudget)
+        (frontier.size > this.options.maxNodes ||
+          frontierPointCount > budget) &&
+        (exceedsNodeBudget || exceedsPointBudget)
       ) {
         const accepted: PrioritisedNode[] = [];
         let acceptedPointCount = 0;
@@ -1527,7 +1663,8 @@ export class NodeSelector {
           .map(toPrioritised)
           .sort(compareRefinementPriority)) {
           const canFitNodeBudget = accepted.length < this.options.maxNodes;
-          const canFitPointBudget = candidate.pointCost <= budget - acceptedPointCount;
+          const canFitPointBudget =
+            candidate.pointCost <= budget - acceptedPointCount;
           if (canFitNodeBudget && canFitPointBudget) {
             accepted.push(candidate);
             acceptedPointCount += candidate.pointCost;
@@ -1545,20 +1682,33 @@ export class NodeSelector {
           })
           .sort(compareSchedulingPriority)
           .map(toSelectedNode);
-        this.recordFrontierMetrics(selected, initialPointCount, acceptedPointCount);
+        this.recordFrontierMetrics(
+          selected,
+          initialPointCount,
+          acceptedPointCount,
+        );
         return selected;
       }
 
-      this.recordFrontierMetrics(selected, initialPointCount, frontierPointCount);
+      this.recordFrontierMetrics(
+        selected,
+        initialPointCount,
+        frontierPointCount,
+      );
       return selected;
     }
 
     if (fallbackUsed) {
       const fallback = [...frontier.values()][0];
-      if (!fallback || this.options.maxNodes < 1 || getNodePointCost(fallback) > budget) {
+      if (
+        !fallback ||
+        this.options.maxNodes < 1 ||
+        getNodePointCost(fallback) > budget
+      ) {
         if (fallback) {
           this.lastSelectionMetrics.deferredNodeCount += 1;
-          this.lastSelectionMetrics.deferredPointCount += getNodePointCost(fallback);
+          this.lastSelectionMetrics.deferredPointCount +=
+            getNodePointCost(fallback);
           this.lastSelectionMetrics.budgetDeferDropCount += 1;
         }
         this.recordFrontierMetrics([], initialPointCount, 0);

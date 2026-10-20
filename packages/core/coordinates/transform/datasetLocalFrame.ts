@@ -1,8 +1,6 @@
-import type { CopcMetadata } from '../../copc/types/copc';
-import { createPointTransformer } from './createPointTransformer';
-import {
-  geographicToEcef,
-} from './worldCoordinates';
+import type { CopcMetadata } from "../../copc/types/copc";
+import { createPointTransformer } from "./createPointTransformer";
+import { geographicToEcef } from "./worldCoordinates";
 import type {
   CoordinateDirection,
   CoordinateBounds,
@@ -10,10 +8,10 @@ import type {
   RendererLocalPoint,
   Wgs84EcefBounds,
   Wgs84EcefPoint,
-} from '../types';
+} from "../types";
 
-const WORLD_COORDINATE_SYSTEM = 'wgs84-ecef-meters' as const;
-const LOCAL_COORDINATE_SYSTEM = 'renderer-local' as const;
+const WORLD_COORDINATE_SYSTEM = "wgs84-ecef-meters" as const;
+const LOCAL_COORDINATE_SYSTEM = "renderer-local" as const;
 
 type FiniteVector = { x: number; y: number; z: number };
 
@@ -36,7 +34,7 @@ function assertLocalPoint(point: RendererLocalPoint): void {
     throw new Error(`Local point must use ${LOCAL_COORDINATE_SYSTEM}`);
   }
 
-  assertFiniteVector(point, 'Local point');
+  assertFiniteVector(point, "Local point");
 }
 
 function dot(left: FiniteVector, right: FiniteVector): number {
@@ -59,7 +57,9 @@ function freezePoint(point: Wgs84EcefPoint): Readonly<Wgs84EcefPoint> {
   return Object.freeze({ ...point });
 }
 
-function freezeDirection(direction: CoordinateDirection): Readonly<CoordinateDirection> {
+function freezeDirection(
+  direction: CoordinateDirection,
+): Readonly<CoordinateDirection> {
   return Object.freeze({ ...direction });
 }
 
@@ -72,11 +72,11 @@ function getDatasetSourceOrigin(metadata: CopcMetadata): {
   const cubeValues = [minX, minY, minZ, maxX, maxY, maxZ];
 
   if (!cubeValues.every(Number.isFinite)) {
-    throw new Error('COPC cube bounds must have finite coordinates');
+    throw new Error("COPC cube bounds must have finite coordinates");
   }
 
   if (maxX <= minX || maxY <= minY || maxZ <= minZ) {
-    throw new Error('COPC cube bounds must have positive dimensions');
+    throw new Error("COPC cube bounds must have positive dimensions");
   }
 
   return {
@@ -100,7 +100,10 @@ export function createDatasetLocalFrame(
   heightOffsetMeters = 0,
 ): DatasetLocalFrame {
   const sourceOrigin = getDatasetSourceOrigin(metadata);
-  const geographicOrigin = createPointTransformer(metadata, heightOffsetMeters)(sourceOrigin);
+  const geographicOrigin = createPointTransformer(
+    metadata,
+    heightOffsetMeters,
+  )(sourceOrigin);
   const origin = geographicToEcef(geographicOrigin);
   const longitude = (geographicOrigin.longitude * Math.PI) / 180;
   const latitude = (geographicOrigin.latitude * Math.PI) / 180;
@@ -125,15 +128,15 @@ export function createDatasetLocalFrame(
     z: sinLatitude,
   };
 
-  assertWorldPoint(origin, 'Dataset frame origin');
-  assertFiniteVector(east, 'Dataset frame east axis');
-  assertFiniteVector(north, 'Dataset frame north axis');
-  assertFiniteVector(up, 'Dataset frame up axis');
+  assertWorldPoint(origin, "Dataset frame origin");
+  assertFiniteVector(east, "Dataset frame east axis");
+  assertFiniteVector(north, "Dataset frame north axis");
+  assertFiniteVector(up, "Dataset frame up axis");
 
   return Object.freeze({
     coordinateSystem: LOCAL_COORDINATE_SYSTEM,
-    axisConvention: 'enu',
-    units: 'metres',
+    axisConvention: "enu",
+    units: "metres",
     origin: freezePoint(origin),
     east: freezeDirection(east),
     north: freezeDirection(north),
@@ -146,7 +149,7 @@ export function worldToDatasetLocal(
   world: Wgs84EcefPoint,
   frame: DatasetLocalFrame,
 ): RendererLocalPoint {
-  assertWorldPoint(world, 'World point');
+  assertWorldPoint(world, "World point");
   const delta = {
     x: world.x - frame.origin.x,
     y: world.y - frame.origin.y,
@@ -190,7 +193,7 @@ export function worldDirectionToDatasetLocal(
   worldDirection: CoordinateDirection,
   frame: DatasetLocalFrame,
 ): CoordinateDirection {
-  assertFiniteVector(worldDirection, 'World direction');
+  assertFiniteVector(worldDirection, "World direction");
 
   return {
     x: dot(worldDirection, frame.east),
@@ -204,7 +207,7 @@ export function datasetLocalDirectionToWorld(
   localDirection: CoordinateDirection,
   frame: DatasetLocalFrame,
 ): CoordinateDirection {
-  assertFiniteVector(localDirection, 'Local direction');
+  assertFiniteVector(localDirection, "Local direction");
 
   return addScaled(
     addScaled(
@@ -223,17 +226,20 @@ export function worldBufferToDatasetLocal(
   frame: DatasetLocalFrame,
 ): Float64Array {
   if (worldCoordinates.length % 3 !== 0) {
-    throw new Error('World coordinate buffer must contain XYZ triples');
+    throw new Error("World coordinate buffer must contain XYZ triples");
   }
 
   const localCoordinates = new Float64Array(worldCoordinates.length);
   for (let index = 0; index < worldCoordinates.length; index += 3) {
-    const local = worldToDatasetLocal({
-      coordinateSystem: WORLD_COORDINATE_SYSTEM,
-      x: worldCoordinates[index],
-      y: worldCoordinates[index + 1],
-      z: worldCoordinates[index + 2],
-    }, frame);
+    const local = worldToDatasetLocal(
+      {
+        coordinateSystem: WORLD_COORDINATE_SYSTEM,
+        x: worldCoordinates[index],
+        y: worldCoordinates[index + 1],
+        z: worldCoordinates[index + 2],
+      },
+      frame,
+    );
     localCoordinates[index] = local.x;
     localCoordinates[index + 1] = local.y;
     localCoordinates[index + 2] = local.z;
@@ -251,7 +257,7 @@ export function worldBufferToDatasetLocal(
 export function worldBoundsToDatasetLocal(
   bounds: Wgs84EcefBounds,
   frame: DatasetLocalFrame,
-): CoordinateBounds<'renderer-local'> {
+): CoordinateBounds<"renderer-local"> {
   if (bounds.coordinateSystem !== WORLD_COORDINATE_SYSTEM) {
     throw new Error(`World bounds must use ${WORLD_COORDINATE_SYSTEM}`);
   }
@@ -265,7 +271,7 @@ export function worldBoundsToDatasetLocal(
     bounds.maxZ,
   ];
   if (!values.every(Number.isFinite)) {
-    throw new Error('World bounds must have finite coordinates');
+    throw new Error("World bounds must have finite coordinates");
   }
 
   const corners = [
@@ -277,28 +283,36 @@ export function worldBoundsToDatasetLocal(
     [bounds.maxX, bounds.minY, bounds.maxZ],
     [bounds.maxX, bounds.maxY, bounds.minZ],
     [bounds.maxX, bounds.maxY, bounds.maxZ],
-  ].map(([x, y, z]) => worldToDatasetLocal({
-    coordinateSystem: WORLD_COORDINATE_SYSTEM,
-    x,
-    y,
-    z,
-  }, frame));
+  ].map(([x, y, z]) =>
+    worldToDatasetLocal(
+      {
+        coordinateSystem: WORLD_COORDINATE_SYSTEM,
+        x,
+        y,
+        z,
+      },
+      frame,
+    ),
+  );
 
-  return corners.reduce<CoordinateBounds<'renderer-local'>>((result, corner) => ({
-    coordinateSystem: LOCAL_COORDINATE_SYSTEM,
-    minX: Math.min(result.minX, corner.x),
-    minY: Math.min(result.minY, corner.y),
-    minZ: Math.min(result.minZ, corner.z),
-    maxX: Math.max(result.maxX, corner.x),
-    maxY: Math.max(result.maxY, corner.y),
-    maxZ: Math.max(result.maxZ, corner.z),
-  }), {
-    coordinateSystem: LOCAL_COORDINATE_SYSTEM,
-    minX: Number.POSITIVE_INFINITY,
-    minY: Number.POSITIVE_INFINITY,
-    minZ: Number.POSITIVE_INFINITY,
-    maxX: Number.NEGATIVE_INFINITY,
-    maxY: Number.NEGATIVE_INFINITY,
-    maxZ: Number.NEGATIVE_INFINITY,
-  });
+  return corners.reduce<CoordinateBounds<"renderer-local">>(
+    (result, corner) => ({
+      coordinateSystem: LOCAL_COORDINATE_SYSTEM,
+      minX: Math.min(result.minX, corner.x),
+      minY: Math.min(result.minY, corner.y),
+      minZ: Math.min(result.minZ, corner.z),
+      maxX: Math.max(result.maxX, corner.x),
+      maxY: Math.max(result.maxY, corner.y),
+      maxZ: Math.max(result.maxZ, corner.z),
+    }),
+    {
+      coordinateSystem: LOCAL_COORDINATE_SYSTEM,
+      minX: Number.POSITIVE_INFINITY,
+      minY: Number.POSITIVE_INFINITY,
+      minZ: Number.POSITIVE_INFINITY,
+      maxX: Number.NEGATIVE_INFINITY,
+      maxY: Number.NEGATIVE_INFINITY,
+      maxZ: Number.NEGATIVE_INFINITY,
+    },
+  );
 }

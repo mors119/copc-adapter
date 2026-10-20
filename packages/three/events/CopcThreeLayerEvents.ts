@@ -1,11 +1,14 @@
-import type { CopcLayerErrorEvent, CopcViewCancellationReason } from '../../core/events/layerEventLifecycle';
-import type { CopcMetadata } from '../../core/copc/types/copc';
-import { reportListenerError } from '../../core/events/layerEventLifecycle';
+import type {
+  CopcLayerErrorEvent,
+  CopcViewCancellationReason,
+} from "../../core/events/layerEventLifecycle";
+import type { CopcMetadata } from "../../core/copc/types/copc";
+import { reportListenerError } from "../../core/events/layerEventLifecycle";
 
 /** Scheduler queue occupancy snapshot for the active view generation. */
 export type CopcThreeLayerProgressEvent = {
   /** Discriminator for the pending/active work event. */
-  type: 'progress';
+  type: "progress";
   /** Layer instance that dispatched the event. */
   target?: object;
   /** Number of node loads waiting for a scheduler slot. */
@@ -19,7 +22,7 @@ export type CopcThreeLayerProgressEvent = {
 /** Emitted after source metadata and the root hierarchy have loaded. */
 export type CopcThreeLayerMetadataReadyEvent = {
   /** Discriminator for the metadata-ready event. */
-  type: 'metadataready';
+  type: "metadataready";
   /** Layer instance that dispatched the event. */
   target?: object;
   /** Immutable snapshot of source metadata; no point nodes are implied loaded. */
@@ -31,7 +34,7 @@ export type CopcThreeLayerMetadataReadyEvent = {
 /** Emitted when the first nonempty selected node has been committed to the renderer. */
 export type CopcThreeLayerFirstVisibleEvent = {
   /** Discriminator for the first-visible event. */
-  type: 'firstvisible';
+  type: "firstvisible";
   /** Layer instance that dispatched the event. */
   target?: object;
   /** Load attempt that produced the visible node. */
@@ -43,7 +46,7 @@ export type CopcThreeLayerFirstVisibleEvent = {
 /** Emitted after the selected node work for a view has been committed. */
 export type CopcThreeLayerViewSettledEvent = {
   /** Discriminator for the settled-view event. */
-  type: 'viewsettled';
+  type: "viewsettled";
   /** Layer instance that dispatched the event. */
   target?: object;
   /** View generation that completed. */
@@ -55,7 +58,7 @@ export type CopcThreeLayerViewSettledEvent = {
 /** Emitted when active work for a view is invalidated before settling. */
 export type CopcThreeLayerViewCancelledEvent = {
   /** Discriminator for the cancelled-view event. */
-  type: 'viewcancelled';
+  type: "viewcancelled";
   /** Layer instance that dispatched the event. */
   target?: object;
   /** Invalidated view generation. */
@@ -67,7 +70,7 @@ export type CopcThreeLayerViewCancelledEvent = {
 /** Three.js layer error event with a standard type and dispatch target. */
 export type CopcThreeLayerErrorEvent = CopcLayerErrorEvent & {
   /** Discriminator for the error event. */
-  type: 'error';
+  type: "error";
   /** Layer instance that dispatched the event. */
   target?: object;
 };
@@ -112,7 +115,7 @@ export class CopcThreeLayerEventDispatcher {
     listener: CopcThreeLayerEventListener<CopcThreeLayerEventMap[TType]>,
   ): void {
     if (this.disposed) {
-      throw new Error('CopcThreeLayer has been destroyed');
+      throw new Error("CopcThreeLayer has been destroyed");
     }
     let listeners = this.listeners.get(type);
     if (!listeners) {

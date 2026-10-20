@@ -1,8 +1,8 @@
 export function extractHorizontalWkt(wkt: string): string {
-  const start = wkt.indexOf('PROJCS[');
+  const start = wkt.indexOf("PROJCS[");
 
   if (start === -1) {
-    throw new Error('COPC WKT does not contain a projected horizontal CRS');
+    throw new Error("COPC WKT does not contain a projected horizontal CRS");
   }
 
   let depth = 0;
@@ -10,11 +10,11 @@ export function extractHorizontalWkt(wkt: string): string {
   for (let index = start; index < wkt.length; index += 1) {
     const character = wkt[index];
 
-    if (character === '[') {
+    if (character === "[") {
       depth += 1;
     }
 
-    if (character === ']') {
+    if (character === "]") {
       depth -= 1;
 
       if (depth === 0) {
@@ -23,19 +23,19 @@ export function extractHorizontalWkt(wkt: string): string {
     }
   }
 
-  throw new Error('Failed to parse projected CRS from COPC WKT');
+  throw new Error("Failed to parse projected CRS from COPC WKT");
 }
 
 /** Extract the horizontal WKT1 CRS, whether geographic or projected. */
 export function extractHorizontalCrsWkt(wkt: string): string {
-  const startTokens = ['PROJCS[', 'GEOGCS['];
+  const startTokens = ["PROJCS[", "GEOGCS["];
   const starts = startTokens
     .map((token) => ({ token, index: wkt.indexOf(token) }))
     .filter((entry) => entry.index >= 0)
     .sort((left, right) => left.index - right.index);
   const start = starts[0];
   if (!start) {
-    throw new Error('COPC WKT does not contain a supported horizontal CRS');
+    throw new Error("COPC WKT does not contain a supported horizontal CRS");
   }
 
   let depth = 0;
@@ -49,9 +49,9 @@ export function extractHorizontalCrsWkt(wkt: string): string {
     if (inString) {
       continue;
     }
-    if (character === '[') {
+    if (character === "[") {
       depth += 1;
-    } else if (character === ']') {
+    } else if (character === "]") {
       depth -= 1;
       if (depth === 0) {
         return wkt.slice(start.index, index + 1);
@@ -59,14 +59,14 @@ export function extractHorizontalCrsWkt(wkt: string): string {
     }
   }
 
-  throw new Error('Failed to parse horizontal CRS from COPC WKT');
+  throw new Error("Failed to parse horizontal CRS from COPC WKT");
 }
 
 export function extractHorizontalUnitScale(wkt: string): number {
-  const horizontalWkt = wkt.includes('PROJCS[')
+  const horizontalWkt = wkt.includes("PROJCS[")
     ? extractHorizontalWkt(wkt)
     : extractHorizontalCrsWkt(wkt);
-  const geographic = horizontalWkt.startsWith('GEOGCS[');
+  const geographic = horizontalWkt.startsWith("GEOGCS[");
 
   let depth = 0;
   let inString = false;
@@ -83,12 +83,12 @@ export function extractHorizontalUnitScale(wkt: string): number {
       continue;
     }
 
-    if (character === '[') {
+    if (character === "[") {
       depth += 1;
       continue;
     }
 
-    if (character === ']') {
+    if (character === "]") {
       depth -= 1;
       continue;
     }
@@ -96,7 +96,7 @@ export function extractHorizontalUnitScale(wkt: string): number {
     // Ignore nested units and read only the horizontal CRS's own unit.
     if (
       depth === 1 &&
-      horizontalWkt.slice(index).toUpperCase().startsWith('UNIT[')
+      horizontalWkt.slice(index).toUpperCase().startsWith("UNIT[")
     ) {
       const unitText = horizontalWkt.slice(index);
 
@@ -106,7 +106,7 @@ export function extractHorizontalUnitScale(wkt: string): number {
 
       if (!match) {
         if (geographic) {
-          throw new Error('COPC geographic WKT has an invalid angular unit');
+          throw new Error("COPC geographic WKT has an invalid angular unit");
         }
         return 1;
       }
@@ -114,7 +114,7 @@ export function extractHorizontalUnitScale(wkt: string): number {
       const unitScale = Number(match[1]);
       if (!Number.isFinite(unitScale) || unitScale <= 0) {
         if (geographic) {
-          throw new Error('COPC geographic WKT has an invalid angular unit');
+          throw new Error("COPC geographic WKT has an invalid angular unit");
         }
         return 1;
       }
@@ -128,7 +128,7 @@ export function extractHorizontalUnitScale(wkt: string): number {
   }
 
   if (geographic) {
-    throw new Error('COPC geographic WKT does not declare an angular unit');
+    throw new Error("COPC geographic WKT does not declare an angular unit");
   }
 
   return 1;

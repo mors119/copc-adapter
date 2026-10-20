@@ -1,87 +1,93 @@
-import * as Cesium from 'cesium';
+import * as Cesium from "cesium";
 import {
   PointPrimitiveRenderer,
   type CesiumPointRenderer,
   type CopcCesiumPointRendererOptions,
-} from '../render/CopcPointRenderer';
+} from "../render/CopcPointRenderer";
 import {
   DEFAULT_MAX_ATTENUATED_POINT_SIZE_CSS_PIXELS,
   DEFAULT_MIN_ATTENUATED_POINT_SIZE_CSS_PIXELS,
   MAX_ATTENUATED_POINT_SIZE_CSS_PIXELS,
-} from '../render/projectedPointSize';
-import { deriveNodePointSpacingMeters } from '../render/pointSpacing';
-import { createCesiumStreamingView } from '../view/CesiumViewAdapter';
-import { createMetadataBoundingSphere } from '../geometry/metadataBoundingSphere';
-import { CesiumPointPicker } from '../picking/CesiumPointPicker';
-import { CopcCesiumEvent } from './cesiumLayerEvents';
+} from "../render/projectedPointSize";
+import { deriveNodePointSpacingMeters } from "../render/pointSpacing";
+import { createCesiumStreamingView } from "../view/CesiumViewAdapter";
+import { createMetadataBoundingSphere } from "../geometry/metadataBoundingSphere";
+import { CesiumPointPicker } from "../picking/CesiumPointPicker";
+import { CopcCesiumEvent } from "./cesiumLayerEvents";
 import {
   CopcLayerEventLifecycle,
   type CopcLayerErrorEvent,
   type CopcViewCancellationReason,
   snapshotCopcError,
   snapshotCopcMetadata,
-} from '../../core/events/layerEventLifecycle';
+} from "../../core/events/layerEventLifecycle";
 import {
   allCopcPointFields,
   type CopcColorMode,
-} from '../../core/copc/points/fieldSelection';
+} from "../../core/copc/points/fieldSelection";
 import type {
   CopcBackendName,
   CopcBackendSelection,
-} from '../../core/copc/backend/selection';
-import type { CopcWorkerDiagnostics } from '../../core/copc/backend/types';
+} from "../../core/copc/backend/selection";
+import type { CopcWorkerDiagnostics } from "../../core/copc/backend/types";
 import {
   inspectCopcPoint,
   type CopcPointInspection,
-} from '../../core/copc/points/pointInspection';
-import type { CopcMetadata, PreparedPointData } from '../../core/copc/types/copc';
-import { extractHorizontalUnitScale } from '../../core/coordinates/crs/parseCopcWkt';
-import { createPointTransformer } from '../../core/coordinates/transform/createPointTransformer';
+} from "../../core/copc/points/pointInspection";
+import type {
+  CopcMetadata,
+  PreparedPointData,
+} from "../../core/copc/types/copc";
+import { extractHorizontalUnitScale } from "../../core/coordinates/crs/parseCopcWkt";
+import { createPointTransformer } from "../../core/coordinates/transform/createPointTransformer";
 import {
   createCopcPointStyleState,
   getDatasetElevationRange,
-} from '../../core/point/style/pointStyle';
+} from "../../core/point/style/pointStyle";
 import {
   CopcStreamingCore,
   type CopcStreamingPerformanceSnapshot,
   type PredictivePrefetchDiagnostics,
   type CopcStreamingProgressHandler,
   type CopcStreamingWorkProgressHandler,
-} from '../../core/streaming/CopcStreamingCore';
-import { areStreamingViewsEquivalent } from '../../core/streaming/areStreamingViewsEquivalent';
-import { ReplacementTransitionManager } from '../../core/streaming/ReplacementTransitionManager';
+} from "../../core/streaming/CopcStreamingCore";
+import { areStreamingViewsEquivalent } from "../../core/streaming/areStreamingViewsEquivalent";
+import { ReplacementTransitionManager } from "../../core/streaming/ReplacementTransitionManager";
 import type {
   StreamingProgress,
   StreamingSelectionOptions,
-} from '../../core/streaming/types';
-import { DEFAULT_MAX_RENDERED_POINTS } from '../../core/streaming/NodeSelector';
-import { normalizeRefinementFocus, type RefinementFocus } from '../../core/streaming/refinementStrategies';
-import { StreamingPerformanceRecorder } from '../../core/streaming/performance';
-import { MOTION_LOOKAHEAD_DECAY_MS } from '../../core/streaming/motionLookahead';
-import type { NodePointCacheDiagnostics } from '../../core/streaming/createNodePointCache';
-import type { AdaptiveViewDistanceDiagnostics } from '../../core/streaming/view';
-import type { RangeRequestDiagnostics } from '../../core/copc/range/requestDiagnostics';
-import type { RangeValidationPolicy } from '../../core/copc/range/types';
-import type { CopcInputSource } from '../../core/copc/range/types';
-import { getCopcSourceIdentity } from '../../core/copc/getter/createCopcGetter';
+} from "../../core/streaming/types";
+import { DEFAULT_MAX_RENDERED_POINTS } from "../../core/streaming/NodeSelector";
+import {
+  normalizeRefinementFocus,
+  type RefinementFocus,
+} from "../../core/streaming/refinementStrategies";
+import { StreamingPerformanceRecorder } from "../../core/streaming/performance";
+import { MOTION_LOOKAHEAD_DECAY_MS } from "../../core/streaming/motionLookahead";
+import type { NodePointCacheDiagnostics } from "../../core/streaming/createNodePointCache";
+import type { AdaptiveViewDistanceDiagnostics } from "../../core/streaming/view";
+import type { RangeRequestDiagnostics } from "../../core/copc/range/requestDiagnostics";
+import type { RangeValidationPolicy } from "../../core/copc/range/types";
+import type { CopcInputSource } from "../../core/copc/range/types";
+import { getCopcSourceIdentity } from "../../core/copc/getter/createCopcGetter";
 import type {
   CopcCesiumPointStyle,
   CopcCesiumPointStyleUpdate,
   CopcClassificationFilter,
-} from '../style/CesiumPointStyle';
+} from "../style/CesiumPointStyle";
 
 export type {
   CopcCesiumPointStyle,
   CopcCesiumPointStyleUpdate,
   CopcClassificationFilter,
-} from '../style/CesiumPointStyle';
+} from "../style/CesiumPointStyle";
 
 export type CopcLayerOptions = {
   url: CopcInputSource;
   /** Fixed CSS-pixel point diameter. Defaults to 3. */
   pointSize?: number;
   /** Fixed by default; attenuation requires renderer shader support. */
-  pointSizeMode?: 'fixed' | 'attenuated';
+  pointSizeMode?: "fixed" | "attenuated";
   /** Lower attenuated point diameter in CSS pixels. Defaults to 1. */
   minPointSize?: number;
   /** Upper attenuated point diameter in CSS pixels. Defaults to 12; maximum is 64. */
@@ -93,7 +99,7 @@ export type CopcLayerOptions = {
   maxRenderedPoints?: number;
   streaming?: Partial<StreamingSelectionOptions>;
   backend?: CopcBackendSelection;
-  decoder?: import('../../core/copc/points/types').CopcPointDecoder;
+  decoder?: import("../../core/copc/points/types").CopcPointDecoder;
   renderer?: CesiumPointRenderer;
   /** Called when a rendered COPC point is selected or selection is cleared. */
   onPointPicked?: (point: CopcPointInspection | undefined) => void;
@@ -110,15 +116,15 @@ export type CopcLayerOptions = {
 /** Lifecycle values included in the Cesium layer diagnostic snapshot. */
 export type CopcLayerLifecycleState =
   /** Constructed but not attached or loading. */
-  | 'idle'
+  | "idle"
   /** Attached to a Viewer without loaded metadata. */
-  | 'mounted'
+  | "mounted"
   /** Source metadata and root hierarchy are loading. */
-  | 'loading'
+  | "loading"
   /** Metadata and root hierarchy are ready for view-driven point streaming. */
-  | 'ready'
+  | "ready"
   /** Permanently destroyed. */
-  | 'destroyed';
+  | "destroyed";
 
 /** Counts describing visible-node coverage transitions. */
 export type CopcLayerTransitionDiagnostics = {
@@ -153,10 +159,10 @@ export type CopcLayerSnapshot = {
   /** Whether the layer is attached to a Cesium Viewer. */
   attached: boolean;
   /** Built-in backend name or `custom` for a supplied backend. */
-  backend: CopcBackendName | 'custom';
+  backend: CopcBackendName | "custom";
   /** Core range-fetch, decode, and point-preparation measurements. */
-  performance: ReturnType<StreamingPerformanceRecorder['getSnapshot']>
-    & Pick<CopcStreamingPerformanceSnapshot, 'motionLive'>;
+  performance: ReturnType<StreamingPerformanceRecorder["getSnapshot"]> &
+    Pick<CopcStreamingPerformanceSnapshot, "motionLive">;
   /** Visible-node replacement diagnostics. */
   transition: CopcLayerTransitionDiagnostics;
   /** Adaptive current-view distance diagnostics, when a view has been evaluated. */
@@ -182,27 +188,33 @@ type ActiveStreamingUpdate = {
 
 function combinePerformance(
   corePerformance: CopcStreamingPerformanceSnapshot,
-  rendererPerformance: ReturnType<StreamingPerformanceRecorder['getSnapshot']>,
+  rendererPerformance: ReturnType<StreamingPerformanceRecorder["getSnapshot"]>,
   renderedPointCount: number,
-): ReturnType<StreamingPerformanceRecorder['getSnapshot']>
-  & Pick<CopcStreamingPerformanceSnapshot, 'motionLive'> {
-  const configuredPointBudget = corePerformance.configuredPointBudget
-    || rendererPerformance.configuredPointBudget;
+): ReturnType<StreamingPerformanceRecorder["getSnapshot"]> &
+  Pick<CopcStreamingPerformanceSnapshot, "motionLive"> {
+  const configuredPointBudget =
+    corePerformance.configuredPointBudget ||
+    rendererPerformance.configuredPointBudget;
   const activeRenderedPointCount = Math.max(0, renderedPointCount);
 
   return {
     ...corePerformance,
     configuredPointBudget,
     activeRenderedPointCount,
-    budgetUtilizationPercent: configuredPointBudget > 0
-      ? (activeRenderedPointCount / configuredPointBudget) * 100
-      : 0,
-    geographicToCartesianDurationMs: rendererPerformance.geographicToCartesianDurationMs,
+    budgetUtilizationPercent:
+      configuredPointBudget > 0
+        ? (activeRenderedPointCount / configuredPointBudget) * 100
+        : 0,
+    geographicToCartesianDurationMs:
+      rendererPerformance.geographicToCartesianDurationMs,
     worldToCartesianDurationMs: rendererPerformance.worldToCartesianDurationMs,
-    pointStylePreparationDurationMs: rendererPerformance.pointStylePreparationDurationMs,
-    pointCollectionCreationDurationMs: rendererPerformance.pointCollectionCreationDurationMs,
+    pointStylePreparationDurationMs:
+      rendererPerformance.pointStylePreparationDurationMs,
+    pointCollectionCreationDurationMs:
+      rendererPerformance.pointCollectionCreationDurationMs,
     pointAddDurationMs: rendererPerformance.pointAddDurationMs,
-    rendererPreparationDurationMs: rendererPerformance.rendererPreparationDurationMs,
+    rendererPreparationDurationMs:
+      rendererPerformance.rendererPreparationDurationMs,
     nodeRemovalDurationMs: rendererPerformance.nodeRemovalDurationMs,
     longestMainThreadBlockingSectionMs: Math.max(
       corePerformance.longestMainThreadBlockingSectionMs,
@@ -212,18 +224,18 @@ function combinePerformance(
 }
 
 const SUPPORTED_COLOR_MODES = new Set<CopcColorMode>([
-  'fixed',
-  'elevation',
-  'rgb',
-  'intensity',
-  'classification',
+  "fixed",
+  "elevation",
+  "rgb",
+  "intensity",
+  "classification",
 ]);
 
 function cloneClassificationFilter(
   filter: CopcClassificationFilter,
 ): CopcClassificationFilter {
-  if (filter === null || typeof filter !== 'object' || Array.isArray(filter)) {
-    throw new TypeError('Classification filter must be an object');
+  if (filter === null || typeof filter !== "object" || Array.isArray(filter)) {
+    throw new TypeError("Classification filter must be an object");
   }
 
   const cloneCodes = (values: readonly number[] | undefined, name: string) => {
@@ -235,14 +247,16 @@ function cloneClassificationFilter(
     }
     for (const value of values) {
       if (!Number.isInteger(value) || value < 0 || value > 255) {
-        throw new RangeError(`Classification filter codes must be integers from 0 to 255`);
+        throw new RangeError(
+          `Classification filter codes must be integers from 0 to 255`,
+        );
       }
     }
     return [...values];
   };
 
-  const include = cloneCodes(filter.include, 'include');
-  const exclude = cloneCodes(filter.exclude, 'exclude');
+  const include = cloneCodes(filter.include, "include");
+  const exclude = cloneCodes(filter.exclude, "exclude");
   return {
     ...(include === undefined ? {} : { include }),
     ...(exclude === undefined ? {} : { exclude }),
@@ -255,7 +269,10 @@ function isPointVisibleForStyle(
   style: CopcCesiumPointStyle,
 ): boolean {
   const filter = style.classificationFilter;
-  if (!filter || (filter.include === undefined && filter.exclude === undefined)) {
+  if (
+    !filter ||
+    (filter.include === undefined && filter.exclude === undefined)
+  ) {
     return true;
   }
 
@@ -283,7 +300,9 @@ export class CesiumLayerController {
   readonly metadataReady = new CopcCesiumEvent<[CopcMetadata, number]>();
   readonly firstVisible = new CopcCesiumEvent<[number, number]>();
   readonly viewSettled = new CopcCesiumEvent<[number, readonly string[]]>();
-  readonly viewCancelled = new CopcCesiumEvent<[number, CopcViewCancellationReason]>();
+  readonly viewCancelled = new CopcCesiumEvent<
+    [number, CopcViewCancellationReason]
+  >();
   readonly error = new CopcCesiumEvent<[CopcLayerErrorEvent]>();
 
   private readonly core: CopcStreamingCore;
@@ -314,10 +333,10 @@ export class CesiumLayerController {
   private streamingGeneration = 0;
   private readonly replacementTransitions: ReplacementTransitionManager;
   private hasFlownToDataset = false;
-  private lifecycle: CopcLayerLifecycleState = 'idle';
-  private lastStreamingView?: import('../../core/streaming/types').StreamingView;
+  private lifecycle: CopcLayerLifecycleState = "idle";
+  private lastStreamingView?: import("../../core/streaming/types").StreamingView;
   private refinementFocus?: RefinementFocus;
-  private pendingInvalidatedView?: import('../../core/streaming/types').StreamingView;
+  private pendingInvalidatedView?: import("../../core/streaming/types").StreamingView;
   private activeStreamingUpdate?: ActiveStreamingUpdate;
   private readonly handleCameraMoveEnd = (): void => {
     const motion = this.observeCurrentCameraMotion();
@@ -330,29 +349,37 @@ export class CesiumLayerController {
 
   constructor(options: CopcLayerOptions) {
     const pointSize = options.pointSize ?? 3;
-    const minPointSize = options.minPointSize
-      ?? DEFAULT_MIN_ATTENUATED_POINT_SIZE_CSS_PIXELS;
-    const maxPointSize = options.maxPointSize
-      ?? DEFAULT_MAX_ATTENUATED_POINT_SIZE_CSS_PIXELS;
+    const minPointSize =
+      options.minPointSize ?? DEFAULT_MIN_ATTENUATED_POINT_SIZE_CSS_PIXELS;
+    const maxPointSize =
+      options.maxPointSize ?? DEFAULT_MAX_ATTENUATED_POINT_SIZE_CSS_PIXELS;
     if (!Number.isFinite(pointSize) || pointSize <= 0) {
-      throw new RangeError('pointSize must be a positive finite number');
+      throw new RangeError("pointSize must be a positive finite number");
     }
-    if (options.pointSizeMode !== undefined
-      && options.pointSizeMode !== 'fixed'
-      && options.pointSizeMode !== 'attenuated') {
+    if (
+      options.pointSizeMode !== undefined &&
+      options.pointSizeMode !== "fixed" &&
+      options.pointSizeMode !== "attenuated"
+    ) {
       throw new TypeError('pointSizeMode must be "fixed" or "attenuated"');
     }
-    if (!Number.isFinite(minPointSize) || minPointSize <= 0
-      || !Number.isFinite(maxPointSize) || maxPointSize < minPointSize
-      || maxPointSize > MAX_ATTENUATED_POINT_SIZE_CSS_PIXELS) {
+    if (
+      !Number.isFinite(minPointSize) ||
+      minPointSize <= 0 ||
+      !Number.isFinite(maxPointSize) ||
+      maxPointSize < minPointSize ||
+      maxPointSize > MAX_ATTENUATED_POINT_SIZE_CSS_PIXELS
+    ) {
       throw new RangeError(
         `minPointSize and maxPointSize must satisfy 0 < minPointSize <= maxPointSize <= ${MAX_ATTENUATED_POINT_SIZE_CSS_PIXELS}`,
       );
     }
     this.options = options;
-    this.style = { colorMode: options.colorMode ?? 'fixed' };
+    this.style = { colorMode: options.colorMode ?? "fixed" };
     this.pointRenderer = options.renderer ?? new PointPrimitiveRenderer();
-    this.rendererPerformance.setConfiguredPointBudget(this.getMaxRenderedPoints());
+    this.rendererPerformance.setConfiguredPointBudget(
+      this.getMaxRenderedPoints(),
+    );
     this.core = new CopcStreamingCore({
       url: options.url,
       backend: options.backend,
@@ -374,13 +401,18 @@ export class CesiumLayerController {
         const node = this.core.getHierarchyNode(pickId.nodeKey);
         const points = this.core.getCachedPointBuffer(pickId.nodeKey);
         return node && points
-          ? inspectCopcPoint(pickId, node.node, points, this.core.getSnapshot().backend)
+          ? inspectCopcPoint(
+              pickId,
+              node.node,
+              points,
+              this.core.getSnapshot().backend,
+            )
           : undefined;
       },
       hasNode: (nodeKey) => this.pointRenderer.hasNode(nodeKey),
       resolveBatchedPoint: this.pointRenderer.resolvePointPick
         ? (scene, position, pickedObject) =>
-          this.pointRenderer.resolvePointPick?.(scene, position, pickedObject)
+            this.pointRenderer.resolvePointPick?.(scene, position, pickedObject)
         : undefined,
       onPointPicked: options.onPointPicked,
     });
@@ -394,8 +426,8 @@ export class CesiumLayerController {
 
   /** Attach the layer's Cesium primitives and camera listeners. */
   attachTo(viewer: Cesium.Viewer): void {
-    if (this.lifecycle === 'destroyed') {
-      throw new Error('CopcCesiumLayer has been destroyed');
+    if (this.lifecycle === "destroyed") {
+      throw new Error("CopcCesiumLayer has been destroyed");
     }
 
     if (this.viewer && this.viewer !== viewer) {
@@ -415,8 +447,8 @@ export class CesiumLayerController {
     // Seed orientation history before the next user movement. Detach clears
     // camera history, and a first movement event alone cannot estimate a delta.
     this.observeCurrentCameraMotion();
-    if (this.lifecycle !== 'loading') {
-      this.lifecycle = this.core.getMetadata() ? 'ready' : 'mounted';
+    if (this.lifecycle !== "loading") {
+      this.lifecycle = this.core.getMetadata() ? "ready" : "mounted";
     }
 
     const metadata = this.core.getMetadata();
@@ -431,11 +463,11 @@ export class CesiumLayerController {
   }
 
   set show(value: boolean) {
-    if (this.lifecycle === 'destroyed') {
-      throw new Error('CopcCesiumLayer has been destroyed');
+    if (this.lifecycle === "destroyed") {
+      throw new Error("CopcCesiumLayer has been destroyed");
     }
-    if (typeof value !== 'boolean') {
-      throw new TypeError('COPC layer show must be a boolean');
+    if (typeof value !== "boolean") {
+      throw new TypeError("COPC layer show must be a boolean");
     }
     this.showState = value;
     this.pointRenderer.setShow?.(value);
@@ -450,26 +482,41 @@ export class CesiumLayerController {
 
   /** Fly the attached application's camera to the metadata-derived extent. */
   zoomTo(offset?: Cesium.HeadingPitchRange): Promise<boolean> {
-    if (this.lifecycle === 'destroyed') {
-      return Promise.reject(new Error('CopcCesiumLayer has been destroyed'));
+    if (this.lifecycle === "destroyed") {
+      return Promise.reject(new Error("CopcCesiumLayer has been destroyed"));
     }
     const viewer = this.viewer;
     if (!viewer) {
-      return Promise.reject(new Error('CopcCesiumLayer must be attached before zoomTo()'));
+      return Promise.reject(
+        new Error("CopcCesiumLayer must be attached before zoomTo()"),
+      );
     }
     if (viewer.isDestroyed()) {
-      return Promise.reject(new Error('The attached Cesium Viewer has been destroyed'));
+      return Promise.reject(
+        new Error("The attached Cesium Viewer has been destroyed"),
+      );
     }
     if (viewer.scene.mode === Cesium.SceneMode.MORPHING) {
-      return Promise.reject(new Error('Cannot start zoomTo() while the Cesium scene is morphing'));
+      return Promise.reject(
+        new Error("Cannot start zoomTo() while the Cesium scene is morphing"),
+      );
     }
     const sphere = this.boundingSphere;
     if (!sphere) {
-      return Promise.reject(new Error('COPC dataset does not have a supported bounding sphere'));
+      return Promise.reject(
+        new Error("COPC dataset does not have a supported bounding sphere"),
+      );
     }
-    if (offset && (![offset.heading, offset.pitch, offset.range].every(Number.isFinite)
-      || offset.range < 0)) {
-      return Promise.reject(new RangeError('zoomTo offset must contain finite values and a non-negative range'));
+    if (
+      offset &&
+      (![offset.heading, offset.pitch, offset.range].every(Number.isFinite) ||
+        offset.range < 0)
+    ) {
+      return Promise.reject(
+        new RangeError(
+          "zoomTo offset must contain finite values and a non-negative range",
+        ),
+      );
     }
 
     this.cancelCameraFlight();
@@ -504,11 +551,11 @@ export class CesiumLayerController {
 
   /** Detach primitives and listeners without unloading COPC data. */
   detachFrom(): void {
-    if (this.lifecycle === 'destroyed') {
+    if (this.lifecycle === "destroyed") {
       return;
     }
 
-    this.cancelActiveView('detach');
+    this.cancelActiveView("detach");
     if (this.isDestroyed()) {
       return;
     }
@@ -522,8 +569,8 @@ export class CesiumLayerController {
     this.pendingForceSelection = false;
 
     this.detachViewerResources();
-    if (this.lifecycle !== 'loading') {
-      this.lifecycle = this.core.getMetadata() ? 'ready' : 'idle';
+    if (this.lifecycle !== "loading") {
+      this.lifecycle = this.core.getMetadata() ? "ready" : "idle";
     }
   }
 
@@ -547,17 +594,19 @@ export class CesiumLayerController {
 
   /** Load source metadata and the root hierarchy without requiring a viewer. */
   async load(): Promise<void> {
-    if (this.lifecycle === 'destroyed') {
-      throw new Error('CopcCesiumLayer has been destroyed');
+    if (this.lifecycle === "destroyed") {
+      throw new Error("CopcCesiumLayer has been destroyed");
     }
     if (this.core.getMetadata()) {
-      throw new Error('COPC layer is already loaded; call reload() to load it again');
+      throw new Error(
+        "COPC layer is already loaded; call reload() to load it again",
+      );
     }
-    if (this.lifecycle === 'loading') {
-      throw new Error('COPC layer is already loading');
+    if (this.lifecycle === "loading") {
+      throw new Error("COPC layer is already loading");
     }
 
-    this.lifecycle = 'loading';
+    this.lifecycle = "loading";
     const loadGeneration = ++this.loadGeneration;
     this.loadOperationGeneration = loadGeneration;
     this.loadOperationViewErrorGeneration = undefined;
@@ -569,7 +618,7 @@ export class CesiumLayerController {
 
       const metadata = this.core.getMetadata();
       if (!metadata) {
-        throw new Error('COPC layer loaded without metadata');
+        throw new Error("COPC layer loaded without metadata");
       }
       if (this.viewer) {
         // Source replacement resets the shared estimator while the layer may
@@ -585,12 +634,15 @@ export class CesiumLayerController {
         this.options.heightOffsetMeters,
       );
       this.firstVisibleLoadGeneration = undefined;
-      this.metadataReady.raiseEvent(snapshotCopcMetadata(metadata), loadGeneration);
+      this.metadataReady.raiseEvent(
+        snapshotCopcMetadata(metadata),
+        loadGeneration,
+      );
       if (loadGeneration !== this.loadGeneration || this.isDestroyed()) {
         return;
       }
-      this.lifecycle = 'ready';
-      this.debug('COPC metadata and hierarchy loaded');
+      this.lifecycle = "ready";
+      this.debug("COPC metadata and hierarchy loaded");
       if (this.viewer) {
         const metadata = this.core.getMetadata();
         if (metadata) {
@@ -601,13 +653,15 @@ export class CesiumLayerController {
     } catch (error: unknown) {
       if (loadGeneration === this.loadGeneration) {
         if (this.loadOperationViewErrorGeneration !== loadGeneration) {
-          this.error.raiseEvent(Object.freeze({
-            error: snapshotCopcError(error),
-            phase: 'load',
-            loadGeneration,
-          }));
+          this.error.raiseEvent(
+            Object.freeze({
+              error: snapshotCopcError(error),
+              phase: "load",
+              loadGeneration,
+            }),
+          );
         }
-        this.unloadInternal('unload');
+        this.unloadInternal("unload");
       }
       throw error;
     } finally {
@@ -622,15 +676,15 @@ export class CesiumLayerController {
 
   /** Release loaded COPC data while retaining the layer and viewer attachment. */
   unload(): void {
-    if (this.lifecycle === 'destroyed') {
+    if (this.lifecycle === "destroyed") {
       return;
     }
 
-    this.unloadInternal('unload');
+    this.unloadInternal("unload");
   }
 
   private unloadInternal(reason: CopcViewCancellationReason): void {
-    if (this.lifecycle === 'destroyed') {
+    if (this.lifecycle === "destroyed") {
       return;
     }
     this.cancelActiveView(reason);
@@ -657,29 +711,29 @@ export class CesiumLayerController {
     this.lastStreamingView = undefined;
     this.activeStreamingUpdate = undefined;
     this.hasFlownToDataset = false;
-    this.lifecycle = this.viewer ? 'mounted' : 'idle';
-    this.debug('COPC layer unloaded');
+    this.lifecycle = this.viewer ? "mounted" : "idle";
+    this.debug("COPC layer unloaded");
   }
 
   /** Unload and load the configured COPC resource again. */
   async reload(): Promise<void> {
-    if (this.lifecycle === 'destroyed') {
-      throw new Error('CopcCesiumLayer has been destroyed');
+    if (this.lifecycle === "destroyed") {
+      throw new Error("CopcCesiumLayer has been destroyed");
     }
-    this.unloadInternal('reload');
+    this.unloadInternal("reload");
     await this.load();
   }
 
   /** Release layer resources without destroying the caller-owned viewer. */
   destroy(): void {
-    if (this.lifecycle === 'destroyed') {
+    if (this.lifecycle === "destroyed") {
       return;
     }
 
-    this.lifecycle = 'destroyed';
+    this.lifecycle = "destroyed";
     this.loadGeneration += 1;
     this.streamingGeneration += 1;
-    this.cancelActiveView('destroy');
+    this.cancelActiveView("destroy");
     this.cancelCameraFlight();
     this.clearScheduledUpdate();
     this.clearMotionDecayTimer();
@@ -696,8 +750,9 @@ export class CesiumLayerController {
   getSnapshot(): CopcLayerSnapshot {
     const coreSnapshot = this.core.getSnapshot();
     const renderedPointCount = this.getRenderedPointCount();
-    const streamingUpdateCount = coreSnapshot.streamingUpdateCount
-      + (this.activeStreamingUpdate?.progressApplied ? 1 : 0);
+    const streamingUpdateCount =
+      coreSnapshot.streamingUpdateCount +
+      (this.activeStreamingUpdate?.progressApplied ? 1 : 0);
     return {
       lifecycle: this.lifecycle,
       renderedNodeKeys: this.getRenderedNodeKeys(),
@@ -713,7 +768,9 @@ export class CesiumLayerController {
         renderedPointCount,
       ),
       transition: this.replacementTransitions.getDiagnostics(),
-      ...(coreSnapshot.viewDistance ? { viewDistance: coreSnapshot.viewDistance } : {}),
+      ...(coreSnapshot.viewDistance
+        ? { viewDistance: coreSnapshot.viewDistance }
+        : {}),
       pointCache: coreSnapshot.pointCache,
       rangeRequests: coreSnapshot.rangeRequests,
       ...(coreSnapshot.worker ? { worker: coreSnapshot.worker } : {}),
@@ -746,47 +803,61 @@ export class CesiumLayerController {
       colorMode: this.style.colorMode,
       ...(this.style.classificationFilter === undefined
         ? {}
-        : { classificationFilter: cloneClassificationFilter(this.style.classificationFilter) }),
+        : {
+            classificationFilter: cloneClassificationFilter(
+              this.style.classificationFilter,
+            ),
+          }),
     };
   }
 
   /** Update colors and classification visibility using currently cached nodes. */
   setStyle(update: CopcCesiumPointStyleUpdate): void {
-    if (this.lifecycle === 'destroyed') {
-      throw new Error('CopcCesiumLayer has been destroyed');
+    if (this.lifecycle === "destroyed") {
+      throw new Error("CopcCesiumLayer has been destroyed");
     }
-    if (update === null || typeof update !== 'object') {
-      throw new TypeError('Point style update must be an object');
+    if (update === null || typeof update !== "object") {
+      throw new TypeError("Point style update must be an object");
     }
 
     const nextStyle: CopcCesiumPointStyle = {
       colorMode: this.style.colorMode,
       ...(this.style.classificationFilter === undefined
         ? {}
-        : { classificationFilter: cloneClassificationFilter(this.style.classificationFilter) }),
+        : {
+            classificationFilter: cloneClassificationFilter(
+              this.style.classificationFilter,
+            ),
+          }),
     };
     if (update.colorMode !== undefined) {
       if (!SUPPORTED_COLOR_MODES.has(update.colorMode)) {
-        throw new RangeError(`Unsupported COPC point color mode: ${String(update.colorMode)}`);
+        throw new RangeError(
+          `Unsupported COPC point color mode: ${String(update.colorMode)}`,
+        );
       }
       nextStyle.colorMode = update.colorMode;
     }
     if (update.classificationFilter === null) {
       delete nextStyle.classificationFilter;
     } else if (update.classificationFilter !== undefined) {
-      nextStyle.classificationFilter = cloneClassificationFilter(update.classificationFilter);
+      nextStyle.classificationFilter = cloneClassificationFilter(
+        update.classificationFilter,
+      );
     }
 
-    const renderedNodes = this.pointRenderer.getRenderedNodeKeys().map((nodeKey) => {
-      const points = this.core.getCachedPreparedPointData(nodeKey);
-      if (!points) {
-        throw new Error(
-          `Cannot restyle rendered node ${nodeKey}: its decoded point buffer is not cached; `
-          + 'the style update does not reload or re-decode COPC data.',
-        );
-      }
-      return { nodeKey, points };
-    });
+    const renderedNodes = this.pointRenderer
+      .getRenderedNodeKeys()
+      .map((nodeKey) => {
+        const points = this.core.getCachedPreparedPointData(nodeKey);
+        if (!points) {
+          throw new Error(
+            `Cannot restyle rendered node ${nodeKey}: its decoded point buffer is not cached; ` +
+              "the style update does not reload or re-decode COPC data.",
+          );
+        }
+        return { nodeKey, points };
+      });
 
     const previousStyle = this.style;
     this.style = nextStyle;
@@ -809,13 +880,23 @@ export class CesiumLayerController {
 
     const selectedPick = this.pointPicker.getSelectedPickId();
     if (selectedPick) {
-      const selectedPoints = this.core.getCachedPreparedPointData(selectedPick.nodeKey);
-      if (!selectedPoints
-        || !isPointVisibleForStyle(selectedPoints, selectedPick.pointIndex, nextStyle)) {
+      const selectedPoints = this.core.getCachedPreparedPointData(
+        selectedPick.nodeKey,
+      );
+      if (
+        !selectedPoints ||
+        !isPointVisibleForStyle(
+          selectedPoints,
+          selectedPick.pointIndex,
+          nextStyle,
+        )
+      ) {
         this.pointPicker.clear();
       }
     }
-    this.rendererPerformance.setActiveRenderedPointCount(this.getRenderedPointCount());
+    this.rendererPerformance.setActiveRenderedPointCount(
+      this.getRenderedPointCount(),
+    );
   }
 
   getRenderedNodeKeys(): string[] {
@@ -831,8 +912,8 @@ export class CesiumLayerController {
   }
 
   setRefinementFocus(focus: RefinementFocus | undefined): void {
-    if (this.lifecycle === 'destroyed') {
-      throw new Error('CopcCesiumLayer has been destroyed');
+    if (this.lifecycle === "destroyed") {
+      throw new Error("CopcCesiumLayer has been destroyed");
     }
     const nextFocus = normalizeRefinementFocus(focus);
     if (this.areRefinementFociEquivalent(this.refinementFocus, nextFocus)) {
@@ -849,7 +930,7 @@ export class CesiumLayerController {
     // and force a fresh selector pass even though the camera did not move.
     this.streamingGeneration += 1;
     this.lastStreamingView = undefined;
-    this.cancelActiveView('focus-change');
+    this.cancelActiveView("focus-change");
     const currentView = createCesiumStreamingView(this.viewer);
     this.pendingInvalidatedView = currentView;
     this.core.invalidateView(currentView);
@@ -870,19 +951,26 @@ export class CesiumLayerController {
       // progress cannot reach the renderer while the update drains.
       this.updatePending = true;
       this.pendingForceSelection ||= forceSelection;
-      const currentView = this.viewer && this.core.getMetadata()
-        ? createCesiumStreamingView(this.viewer)
-        : undefined;
-      if (!this.lastStreamingView
-        || !currentView
-        || !areStreamingViewsEquivalent(this.lastStreamingView, currentView)) {
-        this.cancelActiveView('camera-change');
+      const currentView =
+        this.viewer && this.core.getMetadata()
+          ? createCesiumStreamingView(this.viewer)
+          : undefined;
+      if (
+        !this.lastStreamingView ||
+        !currentView ||
+        !areStreamingViewsEquivalent(this.lastStreamingView, currentView)
+      ) {
+        this.cancelActiveView("camera-change");
         this.streamingGeneration += 1;
-        if (!this.pendingInvalidatedView
-          || !currentView
-          || !areStreamingViewsEquivalent(this.pendingInvalidatedView, currentView)) {
+        if (
+          !this.pendingInvalidatedView ||
+          !currentView ||
+          !areStreamingViewsEquivalent(this.pendingInvalidatedView, currentView)
+        ) {
           this.pendingInvalidatedView = currentView;
-          this.core.invalidateView(shouldInvalidateActive ? currentView : undefined);
+          this.core.invalidateView(
+            shouldInvalidateActive ? currentView : undefined,
+          );
         }
       }
 
@@ -926,15 +1014,17 @@ export class CesiumLayerController {
 
   private async performStreamingUpdate(forceSelection = false): Promise<void> {
     const viewer = this.viewer;
-    if (!viewer || !this.core.getMetadata() || this.lifecycle === 'destroyed') {
+    if (!viewer || !this.core.getMetadata() || this.lifecycle === "destroyed") {
       return;
     }
 
     const streamingGeneration = ++this.streamingGeneration;
     const view = createCesiumStreamingView(viewer);
-    if (!forceSelection
-      && this.lastStreamingView
-      && areStreamingViewsEquivalent(this.lastStreamingView, view)) {
+    if (
+      !forceSelection &&
+      this.lastStreamingView &&
+      areStreamingViewsEquivalent(this.lastStreamingView, view)
+    ) {
       this.pendingInvalidatedView = undefined;
       return;
     }
@@ -946,8 +1036,10 @@ export class CesiumLayerController {
       );
     }
     const publicViewGeneration = begunView.viewGeneration;
-    if (this.isDestroyed()
-      || !this.eventLifecycle.isActiveView(publicViewGeneration)) {
+    if (
+      this.isDestroyed() ||
+      !this.eventLifecycle.isActiveView(publicViewGeneration)
+    ) {
       return;
     }
     this.pendingInvalidatedView = undefined;
@@ -961,8 +1053,10 @@ export class CesiumLayerController {
     let lastQueuedNodeCount: number | undefined;
     let lastActiveNodeCount: number | undefined;
     const onProgress: CopcStreamingProgressHandler = (progress) => {
-      if (!this.isCurrentStreamingGeneration(streamingGeneration, viewer)
-        || !this.eventLifecycle.isActiveView(publicViewGeneration)) {
+      if (
+        !this.isCurrentStreamingGeneration(streamingGeneration, viewer) ||
+        !this.eventLifecycle.isActiveView(publicViewGeneration)
+      ) {
         return;
       }
 
@@ -980,10 +1074,12 @@ export class CesiumLayerController {
     const onWorkProgress: CopcStreamingWorkProgressHandler | undefined =
       this.loadProgress.numberOfListeners > 0
         ? (progress) => {
-            if (!this.isCurrentStreamingGeneration(streamingGeneration, viewer)
-              || !this.eventLifecycle.isActiveView(publicViewGeneration)
-              || (progress.queuedNodeCount === lastQueuedNodeCount
-                && progress.activeNodeCount === lastActiveNodeCount)) {
+            if (
+              !this.isCurrentStreamingGeneration(streamingGeneration, viewer) ||
+              !this.eventLifecycle.isActiveView(publicViewGeneration) ||
+              (progress.queuedNodeCount === lastQueuedNodeCount &&
+                progress.activeNodeCount === lastActiveNodeCount)
+            ) {
               return;
             }
             lastQueuedNodeCount = progress.queuedNodeCount;
@@ -996,7 +1092,7 @@ export class CesiumLayerController {
           }
         : undefined;
 
-    let update: Awaited<ReturnType<CopcStreamingCore['updateView']>>;
+    let update: Awaited<ReturnType<CopcStreamingCore["updateView"]>>;
     try {
       update = await this.core.updateView(view, onProgress, onWorkProgress);
     } catch (error: unknown) {
@@ -1007,11 +1103,13 @@ export class CesiumLayerController {
         if (this.loadOperationGeneration === this.loadGeneration) {
           this.loadOperationViewErrorGeneration = this.loadGeneration;
         }
-        this.error.raiseEvent(Object.freeze({
-          error: snapshotCopcError(error),
-          phase: 'view',
-          viewGeneration: publicViewGeneration,
-        }));
+        this.error.raiseEvent(
+          Object.freeze({
+            error: snapshotCopcError(error),
+            phase: "view",
+            viewGeneration: publicViewGeneration,
+          }),
+        );
       }
       if (this.activeStreamingUpdate === activeStreamingUpdate) {
         this.activeStreamingUpdate = undefined;
@@ -1024,9 +1122,12 @@ export class CesiumLayerController {
       // progress that was delivered during the update.
       this.activeStreamingUpdate = undefined;
     }
-    if (!this.isCurrentStreamingGeneration(streamingGeneration, viewer) || !update) {
+    if (
+      !this.isCurrentStreamingGeneration(streamingGeneration, viewer) ||
+      !update
+    ) {
       if (this.eventLifecycle.isActiveView(publicViewGeneration)) {
-        this.cancelActiveView('camera-change');
+        this.cancelActiveView("camera-change");
       }
       return;
     }
@@ -1034,19 +1135,26 @@ export class CesiumLayerController {
     // Keep the adapter tolerant of alternate core implementations that only
     // return an all-at-once update and do not emit progress.
     if (!progressApplied) {
-      this.applyStreamingProgress(viewer, {
-        ...update,
-        completedBatchPointCount: update.loadedNodePoints.size,
-      }, streamingGeneration, publicViewGeneration);
+      this.applyStreamingProgress(
+        viewer,
+        {
+          ...update,
+          completedBatchPointCount: update.loadedNodePoints.size,
+        },
+        streamingGeneration,
+        publicViewGeneration,
+      );
     }
-    if (!this.updatePending
-      && this.eventLifecycle.isActiveView(publicViewGeneration)
-      && this.replacementTransitions.isViewRendererCommitted(
+    if (
+      !this.updatePending &&
+      this.eventLifecycle.isActiveView(publicViewGeneration) &&
+      this.replacementTransitions.isViewRendererCommitted(
         update.selectedNodeKeys,
         update.loadedNodePoints,
         publicViewGeneration,
-      )
-      && this.eventLifecycle.settleView(publicViewGeneration)) {
+      ) &&
+      this.eventLifecycle.settleView(publicViewGeneration)
+    ) {
       this.viewSettled.raiseEvent(
         publicViewGeneration,
         Object.freeze([...update.selectedNodeKeys]),
@@ -1074,24 +1182,33 @@ export class CesiumLayerController {
     }
 
     for (const [nodeKey, points] of progress.loadedNodePoints) {
-      if (this.viewer !== viewer || !progress.selectedNodeKeys.includes(nodeKey)) {
+      if (
+        this.viewer !== viewer ||
+        !progress.selectedNodeKeys.includes(nodeKey)
+      ) {
         continue;
       }
       if (this.pointRenderer.hasNode(nodeKey)) {
         continue;
       }
 
-      if (this.replacementTransitions.getProjectedPointCount(nodeKey, points.pointCount)
-        > this.getMaxRenderedPoints()) {
+      if (
+        this.replacementTransitions.getProjectedPointCount(
+          nodeKey,
+          points.pointCount,
+        ) > this.getMaxRenderedPoints()
+      ) {
         // The shared manager owns workload-budget diagnostics. This adapter
         // guard only prevents a renderer-side replacement oversubscription.
         continue;
       }
 
       this.addPointCollection(nodeKey, points);
-      if (points.pointCount > 0
-        && this.pointRenderer.hasNode(nodeKey)
-        && this.firstVisibleLoadGeneration !== this.loadGeneration) {
+      if (
+        points.pointCount > 0 &&
+        this.pointRenderer.hasNode(nodeKey) &&
+        this.firstVisibleLoadGeneration !== this.loadGeneration
+      ) {
         this.firstVisibleLoadGeneration = this.loadGeneration;
         this.firstVisible.raiseEvent(this.loadGeneration, viewGeneration);
         if (!this.isCurrentStreamingGeneration(generation, viewer)) {
@@ -1101,7 +1218,9 @@ export class CesiumLayerController {
     }
 
     this.replacementTransitions.commitReady(generation);
-    this.rendererPerformance.setActiveRenderedPointCount(this.getRenderedPointCount());
+    this.rendererPerformance.setActiveRenderedPointCount(
+      this.getRenderedPointCount(),
+    );
     this.replacementTransitions.updateDiagnostics();
   }
 
@@ -1118,7 +1237,11 @@ export class CesiumLayerController {
     points: PreparedPointData,
     style: CopcCesiumPointStyle,
   ): void {
-    const rendererOptions = this.createPointRendererOptions(nodeKey, points, style);
+    const rendererOptions = this.createPointRendererOptions(
+      nodeKey,
+      points,
+      style,
+    );
     if (this.pointRenderer.updateNodeStyle) {
       this.pointRenderer.updateNodeStyle(nodeKey, points, rendererOptions);
     } else {
@@ -1133,45 +1256,55 @@ export class CesiumLayerController {
   ): CopcCesiumPointRendererOptions {
     const metadata = this.core.getMetadata();
     const hierarchyNode = this.core.getHierarchyNode(nodeKey);
-    let pointSizeMode: 'fixed' | 'attenuated' = this.options.pointSizeMode === 'attenuated'
-      && this.pointRenderer.supportsPointSizeAttenuation === true
-      ? 'attenuated'
-      : 'fixed';
-    const pointSpacingMeters = pointSizeMode === 'attenuated' && metadata && hierarchyNode
-      ? deriveNodePointSpacingMeters(metadata, hierarchyNode.node.level, hierarchyNode.center)
-      : undefined;
-    if (pointSpacingMeters === undefined) pointSizeMode = 'fixed';
+    let pointSizeMode: "fixed" | "attenuated" =
+      this.options.pointSizeMode === "attenuated" &&
+      this.pointRenderer.supportsPointSizeAttenuation === true
+        ? "attenuated"
+        : "fixed";
+    const pointSpacingMeters =
+      pointSizeMode === "attenuated" && metadata && hierarchyNode
+        ? deriveNodePointSpacingMeters(
+            metadata,
+            hierarchyNode.node.level,
+            hierarchyNode.center,
+          )
+        : undefined;
+    if (pointSpacingMeters === undefined) pointSizeMode = "fixed";
     return {
       pointSize: this.options.pointSize ?? 3,
       pointSizeMode,
-      minPointSize: this.options.minPointSize
-        ?? DEFAULT_MIN_ATTENUATED_POINT_SIZE_CSS_PIXELS,
-      maxPointSize: this.options.maxPointSize
-        ?? DEFAULT_MAX_ATTENUATED_POINT_SIZE_CSS_PIXELS,
+      minPointSize:
+        this.options.minPointSize ??
+        DEFAULT_MIN_ATTENUATED_POINT_SIZE_CSS_PIXELS,
+      maxPointSize:
+        this.options.maxPointSize ??
+        DEFAULT_MAX_ATTENUATED_POINT_SIZE_CSS_PIXELS,
       ...(pointSpacingMeters === undefined ? {} : { pointSpacingMeters }),
       colorMode: style.colorMode,
       elevationRange: this.datasetElevationRange,
       rgbMax: this.pointStyleState.getRgbMax(points),
-      pointFilter: (pointIndex: number) => isPointVisibleForStyle(points, pointIndex, style),
+      pointFilter: (pointIndex: number) =>
+        isPointVisibleForStyle(points, pointIndex, style),
       pointId: (pointIndex: number) => ({
         nodeKey,
         pointIndex,
         ownerId: this.pointPicker.ownerId,
       }),
       onPerformance: (stage, durationMs) => {
-        const metricStage = stage === 'geographicToCartesian'
-          ? 'geographicToCartesianDurationMs'
-          : stage === 'worldToCartesian'
-            ? 'worldToCartesianDurationMs'
-            : stage === 'pointStylePreparation'
-              ? 'pointStylePreparationDurationMs'
-              : stage === 'pointCollectionCreation'
-                ? 'pointCollectionCreationDurationMs'
-                : stage === 'pointAdd'
-                  ? 'pointAddDurationMs'
-                  : stage === 'rendererPreparation'
-                    ? 'rendererPreparationDurationMs'
-                    : 'nodeRemovalDurationMs';
+        const metricStage =
+          stage === "geographicToCartesian"
+            ? "geographicToCartesianDurationMs"
+            : stage === "worldToCartesian"
+              ? "worldToCartesianDurationMs"
+              : stage === "pointStylePreparation"
+                ? "pointStylePreparationDurationMs"
+                : stage === "pointCollectionCreation"
+                  ? "pointCollectionCreationDurationMs"
+                  : stage === "pointAdd"
+                    ? "pointAddDurationMs"
+                    : stage === "rendererPreparation"
+                      ? "rendererPreparationDurationMs"
+                      : "nodeRemovalDurationMs";
         this.rendererPerformance.recordStage(metricStage, durationMs, true);
       },
     };
@@ -1185,7 +1318,7 @@ export class CesiumLayerController {
   }
 
   private isDestroyed(): boolean {
-    return this.lifecycle === 'destroyed';
+    return this.lifecycle === "destroyed";
   }
 
   private cancelCameraFlight(): void {
@@ -1223,7 +1356,10 @@ export class CesiumLayerController {
       return;
     }
 
-    const transformPoint = createPointTransformer(metadata, this.options.heightOffsetMeters);
+    const transformPoint = createPointTransformer(
+      metadata,
+      this.options.heightOffsetMeters,
+    );
     const center = transformPoint({
       x: (metadata.cube.minX + metadata.cube.maxX) / 2,
       y: (metadata.cube.minY + metadata.cube.maxY) / 2,
@@ -1271,9 +1407,13 @@ export class CesiumLayerController {
     shouldInvalidateActive = false,
     forceSelection = false,
   ): void {
-    void this.updateStreamingView(shouldInvalidateActive, forceSelection).catch((error: unknown) => {
-      this.debug(`COPC streaming update failed: ${error instanceof Error ? error.message : String(error)}`);
-    });
+    void this.updateStreamingView(shouldInvalidateActive, forceSelection).catch(
+      (error: unknown) => {
+        this.debug(
+          `COPC streaming update failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      },
+    );
   }
 
   private clearScheduledUpdate(): void {
@@ -1285,11 +1425,15 @@ export class CesiumLayerController {
     this.scheduledUpdateForceSelection = false;
   }
 
-  private observeCurrentCameraMotion(): ReturnType<CopcStreamingCore['observeCameraMotion']> | undefined {
+  private observeCurrentCameraMotion():
+    | ReturnType<CopcStreamingCore["observeCameraMotion"]>
+    | undefined {
     if (!this.viewer) {
       return undefined;
     }
-    const observation = this.core.observeCameraMotion(createCesiumStreamingView(this.viewer));
+    const observation = this.core.observeCameraMotion(
+      createCesiumStreamingView(this.viewer),
+    );
     if (observation.sampledMovement) {
       this.scheduleMotionDecayUpdate();
     }
@@ -1300,7 +1444,11 @@ export class CesiumLayerController {
     this.clearMotionDecayTimer();
     this.motionDecayTimer = window.setTimeout(() => {
       this.motionDecayTimer = undefined;
-      if (!this.viewer || !this.core.getMetadata() || this.lifecycle === 'destroyed') {
+      if (
+        !this.viewer ||
+        !this.core.getMetadata() ||
+        this.lifecycle === "destroyed"
+      ) {
         return;
       }
       const observation = this.core.observeCameraMotion(
@@ -1325,26 +1473,30 @@ export class CesiumLayerController {
   ): boolean {
     return left === undefined || right === undefined
       ? left === right
-      : left.type === right.type
-        && left.center.x === right.center.x
-        && left.center.y === right.center.y
-        && left.radius === right.radius
-        && left.detailBias === right.detailBias;
+      : left.type === right.type &&
+          left.center.x === right.center.x &&
+          left.center.y === right.center.y &&
+          left.radius === right.radius &&
+          left.detailBias === right.detailBias;
   }
 
   private isCurrentStreamingGeneration(
     generation: number,
     viewer: Cesium.Viewer,
   ): boolean {
-    return generation === this.streamingGeneration
-      && this.viewer === viewer
-      && this.lifecycle !== 'destroyed';
+    return (
+      generation === this.streamingGeneration &&
+      this.viewer === viewer &&
+      this.lifecycle !== "destroyed"
+    );
   }
 
   private getMaxRenderedPoints(): number {
-    return this.options.maxRenderedPoints
-      ?? this.options.streaming?.maxRenderedPoints
-      ?? DEFAULT_MAX_RENDERED_POINTS;
+    return (
+      this.options.maxRenderedPoints ??
+      this.options.streaming?.maxRenderedPoints ??
+      DEFAULT_MAX_RENDERED_POINTS
+    );
   }
 
   private debug(message: string): void {

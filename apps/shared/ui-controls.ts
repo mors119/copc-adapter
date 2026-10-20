@@ -29,15 +29,19 @@ export function nextSegmentedValue<Value extends string>(
   if (enabled.length === 0) return undefined;
 
   const currentIndex = enabled.findIndex((option) => option.value === current);
-  if (key === 'Home') return enabled[0]?.value;
-  if (key === 'End') return enabled.at(-1)?.value;
-  if (key !== 'ArrowRight' && key !== 'ArrowDown'
-    && key !== 'ArrowLeft' && key !== 'ArrowUp') {
+  if (key === "Home") return enabled[0]?.value;
+  if (key === "End") return enabled.at(-1)?.value;
+  if (
+    key !== "ArrowRight" &&
+    key !== "ArrowDown" &&
+    key !== "ArrowLeft" &&
+    key !== "ArrowUp"
+  ) {
     return undefined;
   }
 
   const start = currentIndex < 0 ? 0 : currentIndex;
-  const direction = key === 'ArrowRight' || key === 'ArrowDown' ? 1 : -1;
+  const direction = key === "ArrowRight" || key === "ArrowDown" ? 1 : -1;
   return enabled[(start + direction + enabled.length) % enabled.length]?.value;
 }
 
@@ -52,20 +56,21 @@ export function mountSegmentedControl<Value extends string>(
     readonly className?: string;
   },
 ): UiSegmentedControl<Value> {
-  const group = document.createElement('div');
+  const group = document.createElement("div");
   group.className = options.className
     ? `ui-segmented ${options.className}`
-    : 'ui-segmented';
-  group.setAttribute('role', 'radiogroup');
-  group.setAttribute('aria-label', options.label);
+    : "ui-segmented";
+  group.setAttribute("role", "radiogroup");
+  group.setAttribute("aria-label", options.label);
 
   let choices = [...options.choices];
   let value = options.value;
   const buttons = new Map<Value, HTMLButtonElement>();
 
   const sync = (): void => {
-    const selectedIsEnabled = choices.some((choice) =>
-      choice.value === value && !choice.disabled);
+    const selectedIsEnabled = choices.some(
+      (choice) => choice.value === value && !choice.disabled,
+    );
     if (!selectedIsEnabled) {
       value = choices.find((choice) => !choice.disabled)?.value ?? value;
     }
@@ -73,11 +78,11 @@ export function mountSegmentedControl<Value extends string>(
     for (const choice of choices) {
       let button = buttons.get(choice.value);
       if (!button) {
-        button = document.createElement('button');
-        button.type = 'button';
-        button.setAttribute('role', 'radio');
-        button.addEventListener('click', () => select(choice.value, true));
-        button.addEventListener('keydown', (event) => {
+        button = document.createElement("button");
+        button.type = "button";
+        button.setAttribute("role", "radio");
+        button.addEventListener("click", () => select(choice.value, true));
+        button.addEventListener("keydown", (event) => {
           const next = nextSegmentedValue(choices, value, event.key);
           if (next === undefined) return;
           event.preventDefault();
@@ -87,11 +92,11 @@ export function mountSegmentedControl<Value extends string>(
         buttons.set(choice.value, button);
       }
       button.textContent = choice.label;
-      button.setAttribute('aria-checked', String(choice.value === value));
+      button.setAttribute("aria-checked", String(choice.value === value));
       button.tabIndex = choice.value === value ? 0 : -1;
       button.disabled = choice.disabled ?? false;
       if (choice.title) button.title = choice.title;
-      else button.removeAttribute('title');
+      else button.removeAttribute("title");
     }
 
     for (const [choiceValue, button] of buttons) {
@@ -101,8 +106,11 @@ export function mountSegmentedControl<Value extends string>(
       }
     }
     const orderedButtons = choices.map((choice) => buttons.get(choice.value)!);
-    const orderIsCurrent = group.childElementCount === orderedButtons.length
-      && orderedButtons.every((button, index) => group.children.item(index) === button);
+    const orderIsCurrent =
+      group.childElementCount === orderedButtons.length &&
+      orderedButtons.every(
+        (button, index) => group.children.item(index) === button,
+      );
     if (!orderIsCurrent) group.replaceChildren(...orderedButtons);
   };
 
@@ -120,7 +128,8 @@ export function mountSegmentedControl<Value extends string>(
   return {
     getValue: () => value,
     setValue(next) {
-      if (!choices.some((choice) => choice.value === next && !choice.disabled)) return;
+      if (!choices.some((choice) => choice.value === next && !choice.disabled))
+        return;
       value = next;
       sync();
     },
@@ -142,11 +151,21 @@ export type UiRangeScale = {
 };
 
 /** Clamp and step-snap a slider value using the range's configured scale. */
-export function normalizeRangeValue(value: number, scale: UiRangeScale): number {
-  if (!Number.isFinite(value) || !Number.isFinite(scale.min)
-    || !Number.isFinite(scale.max) || !Number.isFinite(scale.step)
-    || scale.step <= 0 || scale.max < scale.min) {
-    throw new RangeError('A slider value and scale must be finite with a positive step.');
+export function normalizeRangeValue(
+  value: number,
+  scale: UiRangeScale,
+): number {
+  if (
+    !Number.isFinite(value) ||
+    !Number.isFinite(scale.min) ||
+    !Number.isFinite(scale.max) ||
+    !Number.isFinite(scale.step) ||
+    scale.step <= 0 ||
+    scale.max < scale.min
+  ) {
+    throw new RangeError(
+      "A slider value and scale must be finite with a positive step.",
+    );
   }
   const bounded = Math.min(scale.max, Math.max(scale.min, value));
   const steps = Math.round((bounded - scale.min) / scale.step);
@@ -155,11 +174,16 @@ export function normalizeRangeValue(value: number, scale: UiRangeScale): number 
     decimalPlaces(scale.min),
     decimalPlaces(scale.step),
   );
-  return Number(Math.min(scale.max, Math.max(scale.min, snapped)).toFixed(precision));
+  return Number(
+    Math.min(scale.max, Math.max(scale.min, snapped)).toFixed(precision),
+  );
 }
 
 /** Format controls with consistent locale grouping and stable decimal precision. */
-export function formatUiNumber(value: number, maximumFractionDigits = 2): string {
+export function formatUiNumber(
+  value: number,
+  maximumFractionDigits = 2,
+): string {
   return new Intl.NumberFormat(undefined, {
     maximumFractionDigits,
     useGrouping: true,
@@ -197,39 +221,40 @@ export function mountSlider(
 ): UiSlider {
   const scale = { min: options.min, max: options.max, step: options.step };
   const id = options.id ?? `ui-range-${++sliderId}`;
-  const wrapper = document.createElement('div');
-  wrapper.className = 'ui-slider';
-  const heading = document.createElement('div');
-  heading.className = 'ui-slider__heading';
-  const label = document.createElement('label');
+  const wrapper = document.createElement("div");
+  wrapper.className = "ui-slider";
+  const heading = document.createElement("div");
+  heading.className = "ui-slider__heading";
+  const label = document.createElement("label");
   label.htmlFor = id;
   label.textContent = options.label;
-  const output = document.createElement('output');
+  const output = document.createElement("output");
   output.htmlFor = id;
-  const input = document.createElement('input');
+  const input = document.createElement("input");
   input.id = id;
-  input.type = 'range';
+  input.type = "range";
   input.min = String(options.min);
   input.max = String(options.max);
   input.step = String(options.step);
-  input.setAttribute('aria-label', options.label);
+  input.setAttribute("aria-label", options.label);
   heading.append(label, output);
   wrapper.append(heading, input);
   target.replaceChildren(wrapper);
 
-  const format = options.formatValue ?? ((value: number) => formatUiNumber(value));
+  const format =
+    options.formatValue ?? ((value: number) => formatUiNumber(value));
   let value = normalizeRangeValue(options.value, scale);
   const sync = (): void => {
     input.value = String(value);
     output.value = format(value);
     output.textContent = format(value);
   };
-  input.addEventListener('input', () => {
+  input.addEventListener("input", () => {
     value = normalizeRangeValue(Number(input.value), scale);
     sync();
     options.onPreview?.(value);
   });
-  input.addEventListener('change', () => options.onCommit(value));
+  input.addEventListener("change", () => options.onCommit(value));
   sync();
 
   return {
@@ -251,8 +276,8 @@ let sliderId = 0;
 
 function decimalPlaces(value: number): number {
   const text = value.toString().toLowerCase();
-  const [coefficient, exponentText] = text.split('e');
-  const fractionDigits = coefficient?.split('.')[1]?.length ?? 0;
+  const [coefficient, exponentText] = text.split("e");
+  const fractionDigits = coefficient?.split(".")[1]?.length ?? 0;
   const exponent = exponentText ? Number(exponentText) : 0;
   return Math.max(0, Math.min(12, fractionDigits - exponent));
 }

@@ -1,10 +1,12 @@
-import * as Cesium from 'cesium';
-import { reportListenerError } from '../../core/events/layerEventLifecycle';
+import * as Cesium from "cesium";
+import { reportListenerError } from "../../core/events/layerEventLifecycle";
 
 type CopcCesiumListener<Args extends unknown[]> = (...args: Args) => void;
 
 /** Native Cesium event with layer-scoped listener cleanup. */
-export class CopcCesiumEvent<Args extends unknown[]> extends Cesium.Event<CopcCesiumListener<Args>> {
+export class CopcCesiumEvent<Args extends unknown[]> extends Cesium.Event<
+  CopcCesiumListener<Args>
+> {
   private readonly registrations = new Map<
     CopcCesiumListener<Args>,
     Map<unknown, { remove: Cesium.Event.RemoveCallback }>
@@ -22,7 +24,7 @@ export class CopcCesiumEvent<Args extends unknown[]> extends Cesium.Event<CopcCe
     scope?: unknown,
   ): Cesium.Event.RemoveCallback {
     if (this.disposed) {
-      throw new Error('COPC layer event is disposed');
+      throw new Error("COPC layer event is disposed");
     }
     const existing = this.registrations.get(listener)?.get(scope);
     if (existing) {
@@ -83,8 +85,9 @@ export class CopcCesiumEvent<Args extends unknown[]> extends Cesium.Event<CopcCe
   /** Remove all layer-owned listener wrappers and ignore later raises. */
   dispose(): void {
     this.disposed = true;
-    const registrations = [...this.registrations.values()]
-      .flatMap((scopes) => [...scopes.values()]);
+    const registrations = [...this.registrations.values()].flatMap((scopes) => [
+      ...scopes.values(),
+    ]);
     for (const registration of registrations) {
       registration.remove();
     }

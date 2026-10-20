@@ -1,38 +1,38 @@
 /** Stage at which a COPC resource operation failed. */
 export type CopcLoadStage =
   /** Opening the byte source or establishing random access. */
-  | 'source'
+  | "source"
   /** Reading or validating COPC/LAS header, VLR, or CRS metadata. */
-  | 'metadata'
+  | "metadata"
   /** Reading or traversing hierarchy pages. */
-  | 'hierarchy'
+  | "hierarchy"
   /** Reading a selected point-data byte range. */
-  | 'point-data'
+  | "point-data"
   /** Decoding a selected point chunk. */
-  | 'decode'
+  | "decode"
   /** Loading or invoking the Rust/WASM runtime. */
-  | 'wasm';
+  | "wasm";
 
 /** Stable backend failure categories for programmatic error handling. */
 export type CopcBackendErrorCode =
   /** Random-access source failure while reading bytes. */
-  | 'source-range'
+  | "source-range"
   /** COPC/LAS header or metadata could not be parsed. */
-  | 'header-parse'
+  | "header-parse"
   /** Hierarchy page read, parse, or traversal failed. */
-  | 'hierarchy'
+  | "hierarchy"
   /** Selected node point-data range could not be read. */
-  | 'point-chunk'
+  | "point-chunk"
   /** LAZ point chunk could not be decoded. */
-  | 'laz-decode'
+  | "laz-decode"
   /** Requested format, field, or feature is unsupported. */
-  | 'unsupported'
+  | "unsupported"
   /** Rust/WASM runtime or ABI failed. */
-  | 'wasm'
+  | "wasm"
   /** Decode worker creation, communication, or execution failed. */
-  | 'worker'
+  | "worker"
   /** Failure did not match a more specific category. */
-  | 'unknown';
+  | "unknown";
 
 type CopcLoadErrorOptions = ErrorOptions & {
   detail?: string;
@@ -42,11 +42,11 @@ function displaySource(source: string): string {
   try {
     const url = new URL(source);
 
-    if (url.protocol === 'http:' || url.protocol === 'https:') {
-      url.username = '';
-      url.password = '';
-      url.search = '';
-      url.hash = '';
+    if (url.protocol === "http:" || url.protocol === "https:") {
+      url.username = "";
+      url.password = "";
+      url.search = "";
+      url.hash = "";
       return url.toString();
     }
   } catch {
@@ -71,7 +71,7 @@ export class CopcLoadError extends Error {
     options?: ErrorOptions,
   ) {
     super(message, options);
-    this.name = 'CopcLoadError';
+    this.name = "CopcLoadError";
     this.stage = stage;
     this.source = source;
   }
@@ -82,26 +82,26 @@ export class CopcSourceError extends CopcLoadError {
   constructor(source: string, options?: ErrorOptions) {
     super(
       `Failed to create COPC source context for "${displaySource(source)}". Check that the resource is reachable and supports HTTP range requests and CORS.`,
-      'source',
+      "source",
       source,
       options,
     );
-    this.name = 'CopcSourceError';
+    this.name = "CopcSourceError";
   }
 }
 
 /** Failure while reading or validating COPC metadata, including its CRS. */
 export class CopcMetadataError extends CopcLoadError {
   constructor(source: string, options?: CopcLoadErrorOptions) {
-    const detail = options?.detail ? ` ${options.detail}` : '';
+    const detail = options?.detail ? ` ${options.detail}` : "";
 
     super(
       `Failed to read or validate COPC metadata for "${displaySource(source)}".${detail}`,
-      'metadata',
+      "metadata",
       source,
       options,
     );
-    this.name = 'CopcMetadataError';
+    this.name = "CopcMetadataError";
   }
 }
 
@@ -110,11 +110,11 @@ export class CopcHierarchyLoadError extends CopcLoadError {
   constructor(source: string, options?: ErrorOptions) {
     super(
       `Failed to load COPC hierarchy for "${displaySource(source)}".`,
-      'hierarchy',
+      "hierarchy",
       source,
       options,
     );
-    this.name = 'CopcHierarchyLoadError';
+    this.name = "CopcHierarchyLoadError";
   }
 }
 
@@ -138,7 +138,7 @@ export class CopcBackendError extends CopcLoadError {
       source,
       options,
     );
-    this.name = 'CopcBackendError';
+    this.name = "CopcBackendError";
     this.code = code;
     this.nodeKey = options?.nodeKey;
   }

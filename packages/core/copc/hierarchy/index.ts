@@ -1,9 +1,9 @@
-export { HierarchyLoader } from './HierarchyLoader';
+export { HierarchyLoader } from "./HierarchyLoader";
 export {
   CopcHierarchyError,
   CopcHierarchyPageError,
   CopcHierarchyTraversalError,
-} from './types';
+} from "./types";
 export type {
   CopcHierarchyBounds,
   CopcHierarchyQueryBounds,
@@ -16,4 +16,4 @@ export type {
   CopcHierarchySource,
   CopcHierarchySubtree,
   CopcHierarchyTree,
-} from './types';
+} from "./types";

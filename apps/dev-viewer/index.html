@@ -8,7 +8,10 @@
   </head>
   <body>
     <main class="dev-workbench" aria-label="COPC Adapter development viewer">
-      <div id="cesium-container" aria-label="Interactive COPC point cloud viewport"></div>
+      <div
+        id="cesium-container"
+        aria-label="Interactive COPC point cloud viewport"
+      ></div>
 
       <button
         class="dev-panel-toggle dev-panel-toggle--left"
@@ -18,15 +21,22 @@
         aria-expanded="true"
         aria-label="Collapse controls panel"
         title="Collapse controls panel"
-      ><span aria-hidden="true">‹</span></button>
-      <aside class="dev-panel dev-panel--left" id="controls-panel" aria-label="Viewer controls">
+      >
+        <span aria-hidden="true">‹</span>
+      </button>
+      <aside
+        class="dev-panel dev-panel--left"
+        id="controls-panel"
+        aria-label="Viewer controls"
+      >
         <header class="dev-panel__header">
           <h2>Controls</h2>
         </header>
         <div class="dev-panel__content">
           <details class="dev-control-section" open>
             <summary>Source</summary>
-            <label class="ui-field" for="source-selection">Dataset
+            <label class="ui-field" for="source-selection"
+              >Dataset
               <select id="source-selection">
                 <option value="local-autzen">Autzen · local fixture</option>
                 <option value="autzen-remote">Autzen · public HTTP</option>
@@ -34,23 +44,43 @@
                 <option value="custom">Custom HTTP URL</option>
               </select>
             </label>
-            <label class="ui-field" for="custom-source-url">COPC URL
-              <input id="custom-source-url" type="url" placeholder="https://host.example/area.copc.laz" disabled>
+            <label class="ui-field" for="custom-source-url"
+              >COPC URL
+              <input
+                id="custom-source-url"
+                type="url"
+                placeholder="https://host.example/area.copc.laz"
+                disabled
+              />
             </label>
-            <button class="dev-action" id="load-source" type="button">Load selected source</button>
-            <p class="dev-help">This loads the selected source with the visible configuration. The current source stays active while the new source is checked and loaded.</p>
-            <label class="dev-file" for="local-source-file">Open local COPC file
-              <input id="local-source-file" type="file" accept=".copc.laz,.laz,.copc,application/octet-stream">
+            <button class="dev-action" id="load-source" type="button">
+              Load selected source
+            </button>
+            <p class="dev-help">
+              This loads the selected source with the visible configuration. The
+              current source stays active while the new source is checked and
+              loaded.
+            </p>
+            <label class="dev-file" for="local-source-file"
+              >Open local COPC file
+              <input
+                id="local-source-file"
+                type="file"
+                accept=".copc.laz,.laz,.copc,application/octet-stream"
+              />
             </label>
           </details>
 
           <details class="dev-control-section" open>
             <summary>Renderer and Backend</summary>
-            <span class="control-label">Rendering engine</span><div id="renderer-control"></div>
+            <span class="control-label">Rendering engine</span>
+            <div id="renderer-control"></div>
             <div id="cesium-point-renderer-group">
-              <span class="control-label">Cesium point renderer</span><div id="cesium-renderer-control"></div>
+              <span class="control-label">Cesium point renderer</span>
+              <div id="cesium-renderer-control"></div>
             </div>
-            <span class="control-label">Backend</span><div id="backend-control"></div>
+            <span class="control-label">Backend</span>
+            <div id="backend-control"></div>
           </details>
 
           <details class="dev-control-section" open>
@@ -60,38 +90,91 @@
 
           <details class="dev-control-section" open>
             <summary>Appearance</summary>
-            <span class="control-label">Color mode</span><div id="color-control"></div>
+            <span class="control-label">Color mode</span>
+            <div id="color-control"></div>
             <div class="control-slider" id="point-size-control"></div>
           </details>
 
           <details class="dev-control-section" open>
             <summary>Streaming</summary>
-            <span class="control-label">Refinement Algorithm</span><div id="refinement-control"></div>
-            <span class="control-label">Motion Lookahead</span><div id="motion-lookahead-control"></div>
-            <span class="control-label">HTTP Range Validation</span><div id="range-validation-control"></div>
-            <p class="dev-help">HTTP Range Validation applies only to HTTP/HTTPS sources. Local File sources use Blob reads.</p>
-            <p class="dev-help">Motion Lookahead takes effect after applying settings. The current camera view is retained.</p>
+            <span class="control-label">Refinement Algorithm</span>
+            <div id="refinement-control"></div>
+            <span class="control-label">Motion Lookahead</span>
+            <div id="motion-lookahead-control"></div>
+            <span class="control-label">HTTP Range Validation</span>
+            <div id="range-validation-control"></div>
+            <p class="dev-help">
+              HTTP Range Validation applies only to HTTP/HTTPS sources. Local
+              File sources use Blob reads.
+            </p>
+            <p class="dev-help">
+              Motion Lookahead takes effect after applying settings. The current
+              camera view is retained.
+            </p>
             <div class="control-slider" id="max-nodes-control"></div>
             <div class="control-slider" id="max-points-control"></div>
           </details>
 
           <details class="dev-control-section dev-advanced-settings">
             <summary>Advanced settings</summary>
-            <label class="ui-field" for="max-depth">Max depth<input id="max-depth" type="number" min="1" max="24" step="1"></label>
-            <label class="ui-field" for="max-sse">Screen-space error (px)<input id="max-sse" type="number" min="1" max="128" step="0.5"></label>
-            <label class="ui-field" for="camera-render-distance">Camera distance (m)<input id="camera-render-distance" type="number" min="1" step="1"></label>
-            <label class="ui-field" for="max-render-distance">Max render distance (m)<input id="max-render-distance" type="number" min="1" step="1"></label>
+            <label class="ui-field" for="max-depth"
+              >Max depth<input
+                id="max-depth"
+                type="number"
+                min="1"
+                max="24"
+                step="1"
+            /></label>
+            <label class="ui-field" for="max-sse"
+              >Screen-space error (px)<input
+                id="max-sse"
+                type="number"
+                min="1"
+                max="128"
+                step="0.5"
+            /></label>
+            <label class="ui-field" for="camera-render-distance"
+              >Camera distance (m)<input
+                id="camera-render-distance"
+                type="number"
+                min="1"
+                step="1"
+            /></label>
+            <label class="ui-field" for="max-render-distance"
+              >Max render distance (m)<input
+                id="max-render-distance"
+                type="number"
+                min="1"
+                step="1"
+            /></label>
           </details>
           <div class="dev-settings-actions" aria-label="Configuration actions">
             <p id="configuration-state" role="status">Applied configuration</p>
             <p id="configuration-error" role="alert" hidden></p>
-            <button class="dev-action" id="apply-settings" type="button" disabled>Apply Settings</button>
-            <button class="dev-action dev-action--secondary" id="reload-current-source" type="button">Reload current source</button>
+            <button
+              class="dev-action"
+              id="apply-settings"
+              type="button"
+              disabled
+            >
+              Apply Settings
+            </button>
+            <button
+              class="dev-action dev-action--secondary"
+              id="reload-current-source"
+              type="button"
+            >
+              Reload current source
+            </button>
           </div>
         </div>
       </aside>
 
-      <span class="dev-version" id="package-version" aria-label="Workspace adapter version"></span>
+      <span
+        class="dev-version"
+        id="package-version"
+        aria-label="Workspace adapter version"
+      ></span>
       <button
         class="dev-panel-toggle dev-panel-toggle--right"
         id="inspector-toggle"
@@ -100,8 +183,14 @@
         aria-expanded="true"
         aria-label="Collapse inspector panel"
         title="Collapse inspector panel"
-      ><span aria-hidden="true">›</span></button>
-      <aside class="dev-panel dev-panel--right copc-debug-panel" id="inspector-panel" aria-label="COPC runtime debug panel">
+      >
+        <span aria-hidden="true">›</span>
+      </button>
+      <aside
+        class="dev-panel dev-panel--right copc-debug-panel"
+        id="inspector-panel"
+        aria-label="COPC runtime debug panel"
+      >
         <div class="dev-panel__header">
           <h2>Inspector</h2>
         </div>

@@ -1,14 +1,17 @@
 import {
   resolveCopcContext,
   type CopcContextInput,
-} from '../context/createCopcContext';
-import { wasmCopcPointDecoder } from '../../wasm/copcDecoder';
-import { readPointsFromBuffer } from './readPoint';
-import type { CopcHierarchyNode } from '../types/copc';
-import type { CopcPoint, CopcPointBuffer, CopcPointView } from '../types/copc';
-import type { CopcPointDecoder } from './types';
-import { allCopcPointFields, type CopcPointFieldSelection } from './fieldSelection';
-import type { CopcPointLoadOptions } from '../backend/types';
+} from "../context/createCopcContext";
+import { wasmCopcPointDecoder } from "../../wasm/copcDecoder";
+import { readPointsFromBuffer } from "./readPoint";
+import type { CopcHierarchyNode } from "../types/copc";
+import type { CopcPoint, CopcPointBuffer, CopcPointView } from "../types/copc";
+import type { CopcPointDecoder } from "./types";
+import {
+  allCopcPointFields,
+  type CopcPointFieldSelection,
+} from "./fieldSelection";
+import type { CopcPointLoadOptions } from "../backend/types";
 
 export async function loadPointDataView(
   source: CopcContextInput,
@@ -28,7 +31,13 @@ export async function loadCopcPoints(
   fields: CopcPointFieldSelection = allCopcPointFields(),
   options: CopcPointLoadOptions = {},
 ): Promise<CopcPoint[]> {
-  const buffer = await loadCopcPointBuffer(source, hierarchyNode, decoder, fields, options);
+  const buffer = await loadCopcPointBuffer(
+    source,
+    hierarchyNode,
+    decoder,
+    fields,
+    options,
+  );
 
   return readPointsFromBuffer(buffer);
 }
@@ -43,7 +52,9 @@ export async function loadCopcPointBuffer(
   const context = await resolveCopcContext(source);
 
   if (decoder === wasmCopcPointDecoder && context.loadPointDataBuffer) {
-    return validateCopcPointBuffer(await context.loadPointDataBuffer(hierarchyNode, fields, options));
+    return validateCopcPointBuffer(
+      await context.loadPointDataBuffer(hierarchyNode, fields, options),
+    );
   }
 
   const view = await context.loadPointDataView(hierarchyNode, fields, options);
@@ -52,12 +63,19 @@ export async function loadCopcPointBuffer(
 }
 
 /** Reject malformed buffers instead of letting renderers consume partial attributes. */
-export function validateCopcPointBuffer(buffer: CopcPointBuffer): CopcPointBuffer {
-  if (buffer.coordinateSystem !== undefined && buffer.coordinateSystem !== 'copc-source') {
-    throw new Error('COPC point buffers must use copc-source coordinates');
+export function validateCopcPointBuffer(
+  buffer: CopcPointBuffer,
+): CopcPointBuffer {
+  if (
+    buffer.coordinateSystem !== undefined &&
+    buffer.coordinateSystem !== "copc-source"
+  ) {
+    throw new Error("COPC point buffers must use copc-source coordinates");
   }
   if (buffer.coordinates.length !== buffer.pointCount * 3) {
-    throw new Error('COPC point buffer coordinates must contain three values per point');
+    throw new Error(
+      "COPC point buffer coordinates must contain three values per point",
+    );
   }
 
   const { extraDimensions, ...attributes } = buffer.attributes ?? {};
@@ -68,7 +86,9 @@ export function validateCopcPointBuffer(buffer: CopcPointBuffer): CopcPointBuffe
   }
   for (const [name, values] of Object.entries(extraDimensions ?? {})) {
     if (values.length !== buffer.pointCount) {
-      throw new Error(`COPC point buffer extra dimension length mismatch: ${name}`);
+      throw new Error(
+        `COPC point buffer extra dimension length mismatch: ${name}`,
+      );
     }
   }
 

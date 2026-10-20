@@ -1,8 +1,8 @@
 # Sample Datasets
 
-이 프로젝트는 대용량 COPC 데이터를 Git 저장소에 포함하지 않습니다.
+This project does not include large COPC datasets in the Git repository.
 
-샘플 데이터는 아래 명령으로 자동 다운로드할 수 있습니다.
+Sample datasets can be downloaded automatically using the following commands:
 
 ```bash
 npm run setup
@@ -10,19 +10,20 @@ npm run download-samples
 npm run download-samples -- autzen
 ```
 
-`npm run setup`은 검증용 Autzen의 설정된 파일 크기와 SHA-256을 확인합니다.
-Cesium 개발 서버는 `samples/local/` 파일을 same-origin HTTP Range
-미들웨어로 직접 제공합니다. 정적 호스트에 게시할 때만 `apps/dev-viewer/public/samples/`
-아래에 별도 복사본을 둘 수 있습니다.
+`npm run setup` verifies the configured file size and SHA-256 checksum of the Autzen dataset used for validation.
 
-기본 저장 위치:
+The Cesium development server serves files directly from `samples/local/` through same-origin HTTP Range middleware.
+
+When deploying to a static hosting service, a separate copy of the dataset can be placed under `apps/dev-viewer/public/samples/`.
+
+**Default storage location:**
 
 `samples/local/`
 
-지원되는 샘플 목록은 [datasets.json](datasets.json)에서 관리됩니다.
+The list of supported sample datasets is maintained in [datasets.json](https://github.com/mors119/copc-adapter/blob/main/samples/datasets.json).
 
-2026-06-29 기준 링크 확인 결과:
+**Dataset URL availability as of June 29, 2026:**
 
-- `autzen`: `200 OK`, 공개 S3 객체, 다운로드 가능
-- `sofi`: `200 OK`, 공개 S3 객체, 다운로드 가능
-- `millsite`: `404 Not Found`, 현재 URL 기준 다운로드 불가
+- `autzen`: `200 OK` — Public S3 object; available for download.
+- `sofi`: `200 OK` — Public S3 object; available for download.
+- `millsite`: `404 Not Found` — Unavailable for download at the currently configured URL.

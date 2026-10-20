@@ -1,11 +1,11 @@
-import * as Cesium from 'cesium';
-import type { CopcMetadata } from '../../core/copc/types/copc';
-import { createPointTransformer } from '../../core/coordinates/transform/createPointTransformer';
+import * as Cesium from "cesium";
+import type { CopcMetadata } from "../../core/copc/types/copc";
+import { createPointTransformer } from "../../core/coordinates/transform/createPointTransformer";
 import {
   extractHorizontalCrsWkt,
   extractHorizontalUnitScale,
   extractVerticalUnitScale,
-} from '../../core/coordinates/crs/parseCopcWkt';
+} from "../../core/coordinates/crs/parseCopcWkt";
 
 const MINIMUM_SUBDIVISIONS = 8;
 const MAXIMUM_SUBDIVISIONS = 256;
@@ -32,10 +32,15 @@ export function createMetadataBoundingSphere(
   try {
     const { minX, minY, minZ, maxX, maxY, maxZ } = metadata.bounds;
     const bounds = [minX, minY, minZ, maxX, maxY, maxZ];
-    if (!bounds.every(Number.isFinite)
-      || minX > maxX || minY > maxY || minZ > maxZ
-      || !Number.isFinite(metadata.pointCount) || metadata.pointCount <= 0
-      || !Number.isFinite(heightOffsetMeters)) {
+    if (
+      !bounds.every(Number.isFinite) ||
+      minX > maxX ||
+      minY > maxY ||
+      minZ > maxZ ||
+      !Number.isFinite(metadata.pointCount) ||
+      metadata.pointCount <= 0 ||
+      !Number.isFinite(heightOffsetMeters)
+    ) {
       return undefined;
     }
 
@@ -43,18 +48,29 @@ export function createMetadataBoundingSphere(
     const horizontalWkt = metadata.wkt
       ? extractHorizontalCrsWkt(metadata.wkt)
       : undefined;
-    const geographicWkt = horizontalWkt?.startsWith('GEOGCS[') ?? false;
-    const inferredGeographic = metadata.wkt === undefined
-      && minX >= -180 && maxX <= 180 && minY >= -90 && maxY <= 90;
+    const geographicWkt = horizontalWkt?.startsWith("GEOGCS[") ?? false;
+    const inferredGeographic =
+      metadata.wkt === undefined &&
+      minX >= -180 &&
+      maxX <= 180 &&
+      minY >= -90 &&
+      maxY <= 90;
     let horizontalUnitScale: number;
     if (metadata.wkt && geographicWkt) {
-      const angularUnit = horizontalWkt?.match(/UNIT\["[^"]+",\s*([0-9.eE+-]+)\s*\]/i);
-      const radiansPerSourceUnit = angularUnit ? Number(angularUnit[1]) : undefined;
-      if (radiansPerSourceUnit === undefined || !Number.isFinite(radiansPerSourceUnit)
-        || radiansPerSourceUnit <= 0) {
+      const angularUnit = horizontalWkt?.match(
+        /UNIT\["[^"]+",\s*([0-9.eE+-]+)\s*\]/i,
+      );
+      const radiansPerSourceUnit = angularUnit
+        ? Number(angularUnit[1])
+        : undefined;
+      if (
+        radiansPerSourceUnit === undefined ||
+        !Number.isFinite(radiansPerSourceUnit) ||
+        radiansPerSourceUnit <= 0
+      ) {
         return undefined;
       }
-      horizontalUnitScale = radiansPerSourceUnit * 180 / Math.PI * 111_320;
+      horizontalUnitScale = ((radiansPerSourceUnit * 180) / Math.PI) * 111_320;
     } else if (metadata.wkt) {
       horizontalUnitScale = extractHorizontalUnitScale(metadata.wkt);
     } else if (inferredGeographic) {
@@ -65,22 +81,29 @@ export function createMetadataBoundingSphere(
     const verticalUnitScale = metadata.wkt
       ? extractVerticalUnitScale(metadata.wkt)
       : 1;
-    if (!Number.isFinite(horizontalUnitScale) || horizontalUnitScale <= 0
-      || !Number.isFinite(verticalUnitScale) || verticalUnitScale <= 0) {
+    if (
+      !Number.isFinite(horizontalUnitScale) ||
+      horizontalUnitScale <= 0 ||
+      !Number.isFinite(verticalUnitScale) ||
+      verticalUnitScale <= 0
+    ) {
       return undefined;
     }
 
     const sourceWidthMeters = (maxX - minX) * horizontalUnitScale;
     const sourceHeightMeters = (maxY - minY) * horizontalUnitScale;
     const sourceVerticalSpanMeters = (maxZ - minZ) * verticalUnitScale;
-    if (!Number.isFinite(sourceWidthMeters) || !Number.isFinite(sourceHeightMeters)
-      || !Number.isFinite(sourceVerticalSpanMeters)
-      || (inferredGeographic || geographicWkt
-        ? sourceWidthMeters > MAX_SUPPORTED_GEOGRAPHIC_SPAN_METERS
-          || sourceHeightMeters > MAX_SUPPORTED_GEOGRAPHIC_SPAN_METERS
-        : sourceWidthMeters > MAX_SUPPORTED_PROJECTED_SPAN_METERS
-          || sourceHeightMeters > MAX_SUPPORTED_PROJECTED_SPAN_METERS)
-      || sourceVerticalSpanMeters > MAX_SUPPORTED_HEIGHT_SPAN_METERS) {
+    if (
+      !Number.isFinite(sourceWidthMeters) ||
+      !Number.isFinite(sourceHeightMeters) ||
+      !Number.isFinite(sourceVerticalSpanMeters) ||
+      (inferredGeographic || geographicWkt
+        ? sourceWidthMeters > MAX_SUPPORTED_GEOGRAPHIC_SPAN_METERS ||
+          sourceHeightMeters > MAX_SUPPORTED_GEOGRAPHIC_SPAN_METERS
+        : sourceWidthMeters > MAX_SUPPORTED_PROJECTED_SPAN_METERS ||
+          sourceHeightMeters > MAX_SUPPORTED_PROJECTED_SPAN_METERS) ||
+      sourceVerticalSpanMeters > MAX_SUPPORTED_HEIGHT_SPAN_METERS
+    ) {
       return undefined;
     }
 
@@ -88,8 +111,10 @@ export function createMetadataBoundingSphere(
       MAXIMUM_SUBDIVISIONS,
       Math.max(
         MINIMUM_SUBDIVISIONS,
-        Math.ceil(Math.max(sourceWidthMeters, sourceHeightMeters)
-          / TARGET_PROJECTED_CELL_SIZE_METERS),
+        Math.ceil(
+          Math.max(sourceWidthMeters, sourceHeightMeters) /
+            TARGET_PROJECTED_CELL_SIZE_METERS,
+        ),
       ),
     );
     const positions: Cesium.Cartesian3[] = [];
@@ -103,11 +128,16 @@ export function createMetadataBoundingSphere(
         z,
       };
       const geographicPoint = transformPoint(sourcePoint);
-      if (!Number.isFinite(geographicPoint.longitude)
-        || !Number.isFinite(geographicPoint.latitude)
-        || !Number.isFinite(geographicPoint.height)
-        || geographicPoint.latitude < -90 || geographicPoint.latitude > 90) {
-        throw new Error('Transformed COPC bounds contain invalid geographic coordinates');
+      if (
+        !Number.isFinite(geographicPoint.longitude) ||
+        !Number.isFinite(geographicPoint.latitude) ||
+        !Number.isFinite(geographicPoint.height) ||
+        geographicPoint.latitude < -90 ||
+        geographicPoint.latitude > 90
+      ) {
+        throw new Error(
+          "Transformed COPC bounds contain invalid geographic coordinates",
+        );
       }
       const worldPoint = Cesium.Cartesian3.fromDegrees(
         geographicPoint.longitude,
@@ -115,7 +145,9 @@ export function createMetadataBoundingSphere(
         geographicPoint.height,
       );
       if (![worldPoint.x, worldPoint.y, worldPoint.z].every(Number.isFinite)) {
-        throw new Error('Transformed COPC bounds contain invalid ECEF coordinates');
+        throw new Error(
+          "Transformed COPC bounds contain invalid ECEF coordinates",
+        );
       }
       return worldPoint;
     };
@@ -129,9 +161,8 @@ export function createMetadataBoundingSphere(
       for (let xIndex = 0; xIndex <= subdivisions; xIndex += 1) {
         const xRatio = xIndex / subdivisions;
         const lowPoint = sourcePointAt(xRatio, yRatio, minZ);
-        const highPoint = minZ === maxZ
-          ? lowPoint
-          : sourcePointAt(xRatio, yRatio, maxZ);
+        const highPoint =
+          minZ === maxZ ? lowPoint : sourcePointAt(xRatio, yRatio, maxZ);
         lowRow.push(lowPoint);
         highRow.push(highPoint);
         positions.push(lowPoint);
@@ -188,14 +219,27 @@ export function createMetadataBoundingSphere(
       sourceWidthMeters / subdivisions,
       sourceHeightMeters / subdivisions,
     );
-    if (maximumHorizontalSampleStep > Math.max(1, expectedCellDiagonalMeters) * 4) {
+    if (
+      maximumHorizontalSampleStep >
+      Math.max(1, expectedCellDiagonalMeters) * 4
+    ) {
       return undefined;
     }
-    const padding = Math.SQRT2 * maximumHorizontalSampleStep
-      + 4 * maximumCellResidual
-      + BOUNDARY_PADDING_METERS;
-    if (![sphere.center.x, sphere.center.y, sphere.center.z, sphere.radius, padding]
-      .every(Number.isFinite) || sphere.radius < 0 || padding < 0) {
+    const padding =
+      Math.SQRT2 * maximumHorizontalSampleStep +
+      4 * maximumCellResidual +
+      BOUNDARY_PADDING_METERS;
+    if (
+      ![
+        sphere.center.x,
+        sphere.center.y,
+        sphere.center.z,
+        sphere.radius,
+        padding,
+      ].every(Number.isFinite) ||
+      sphere.radius < 0 ||
+      padding < 0
+    ) {
       return undefined;
     }
     sphere.radius += padding;

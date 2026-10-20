@@ -1,4 +1,4 @@
-import * as Cesium from 'cesium';
+import * as Cesium from "cesium";
 
 export function createCesiumViewer(
   container: string | HTMLElement,
@@ -19,6 +19,9 @@ export function createCesiumViewer(
     scene3DOnly: options.scene3DOnly ?? false,
     ...(options.useBrowserRecommendedResolution === undefined
       ? {}
-      : { useBrowserRecommendedResolution: options.useBrowserRecommendedResolution }),
+      : {
+          useBrowserRecommendedResolution:
+            options.useBrowserRecommendedResolution,
+        }),
   });
 }

@@ -1,5 +1,5 @@
-import type { CopcColorMode } from '../copc/points/fieldSelection';
-import type { PreparedPointData } from '../copc/types/copc';
+import type { CopcColorMode } from "../copc/points/fieldSelection";
+import type { PreparedPointData } from "../copc/types/copc";
 
 /** A project-owned numeric range used by renderer-independent styling. */
 export type CopcValueRange = {

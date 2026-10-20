@@ -36,7 +36,11 @@ function putVlr(bytes, offset, userId, recordId, payload) {
   return offset + 54 + payload.length;
 }
 
-function putHierarchyEntry(bytes, offset, { level, x, y, z, byteOffset, byteLength, pointCount }) {
+function putHierarchyEntry(
+  bytes,
+  offset,
+  { level, x, y, z, byteOffset, byteLength, pointCount },
+) {
   putI32(bytes, offset, level);
   putI32(bytes, offset + 4, x);
   putI32(bytes, offset + 8, y);
@@ -64,7 +68,7 @@ export function createDeterministicCopcFixture({ rootPageLength = 96 } = {}) {
   const wkt = new TextEncoder().encode('PROJCS["Fixture CRS"]\0');
   const pointDataOffset = HEADER_SIZE + 54 + COPC_INFO_SIZE + 54 + wkt.length;
   const bytes = new Uint8Array(CHILD_PAGE_OFFSET + 64);
-  bytes.set(new TextEncoder().encode('LASF'), 0);
+  bytes.set(new TextEncoder().encode("LASF"), 0);
   bytes[24] = 1;
   bytes[25] = 4;
   putU16(bytes, 94, HEADER_SIZE);
@@ -86,30 +90,68 @@ export function createDeterministicCopcFixture({ rootPageLength = 96 } = {}) {
   putF64(bytes, 211, 300);
   putF64(bytes, 219, 3);
 
-  let nextVlr = putVlr(bytes, HEADER_SIZE, 'copc', 1, copcPayload);
-  putVlr(bytes, nextVlr, 'LASF_Projection', 2112, wkt);
+  let nextVlr = putVlr(bytes, HEADER_SIZE, "copc", 1, copcPayload);
+  putVlr(bytes, nextVlr, "LASF_Projection", 2112, wkt);
 
   putHierarchyEntry(bytes, ROOT_PAGE_OFFSET, {
-    level: 0, x: 0, y: 0, z: 0, byteOffset: 1200, byteLength: 10, pointCount: 100,
+    level: 0,
+    x: 0,
+    y: 0,
+    z: 0,
+    byteOffset: 1200,
+    byteLength: 10,
+    pointCount: 100,
   });
   putHierarchyEntry(bytes, ROOT_PAGE_OFFSET + 32, {
-    level: 1, x: 0, y: 0, z: 0, byteOffset: 1300, byteLength: 20, pointCount: 60,
+    level: 1,
+    x: 0,
+    y: 0,
+    z: 0,
+    byteOffset: 1300,
+    byteLength: 20,
+    pointCount: 60,
   });
   putHierarchyEntry(bytes, ROOT_PAGE_OFFSET + 64, {
-    level: 1, x: 1, y: 0, z: 0, byteOffset: CHILD_PAGE_OFFSET, byteLength: 64, pointCount: -1,
+    level: 1,
+    x: 1,
+    y: 0,
+    z: 0,
+    byteOffset: CHILD_PAGE_OFFSET,
+    byteLength: 64,
+    pointCount: -1,
   });
 
   putHierarchyEntry(bytes, CHILD_PAGE_OFFSET, {
-    level: 1, x: 1, y: 0, z: 0, byteOffset: 1400, byteLength: 5, pointCount: 40,
+    level: 1,
+    x: 1,
+    y: 0,
+    z: 0,
+    byteOffset: 1400,
+    byteLength: 5,
+    pointCount: 40,
   });
   putHierarchyEntry(bytes, CHILD_PAGE_OFFSET + 32, {
-    level: 2, x: 3, y: 0, z: 0, byteOffset: 1500, byteLength: 6, pointCount: 20,
+    level: 2,
+    x: 3,
+    y: 0,
+    z: 0,
+    byteOffset: 1500,
+    byteLength: 6,
+    pointCount: 20,
   });
 
   return {
     bytes,
-    rootPage: { key: '0-0-0-0', pageOffset: ROOT_PAGE_OFFSET, pageLength: rootPageLength },
-    childPage: { key: '1-1-0-0', pageOffset: CHILD_PAGE_OFFSET, pageLength: 64 },
+    rootPage: {
+      key: "0-0-0-0",
+      pageOffset: ROOT_PAGE_OFFSET,
+      pageLength: rootPageLength,
+    },
+    childPage: {
+      key: "1-1-0-0",
+      pageOffset: CHILD_PAGE_OFFSET,
+      pageLength: 64,
+    },
     pointDataOffset,
   };
 }

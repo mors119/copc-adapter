@@ -1,13 +1,13 @@
-import type { CopcPoint, CopcPointBuffer, CopcPointView } from '../types/copc';
+import type { CopcPoint, CopcPointBuffer, CopcPointView } from "../types/copc";
 
 export type PointReader = {
   read(index: number): CopcPoint;
 };
 
 export function createPointReader(view: CopcPointView): PointReader {
-  const getX = view.getter('x');
-  const getY = view.getter('y');
-  const getZ = view.getter('z');
+  const getX = view.getter("x");
+  const getY = view.getter("y");
+  const getZ = view.getter("z");
 
   return {
     read(index: number): CopcPoint {

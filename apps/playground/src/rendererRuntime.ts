@@ -1,19 +1,23 @@
-import type * as CesiumTypes from 'cesium';
-import type * as ThreeTypes from 'three';
+import type * as CesiumTypes from "cesium";
+import type * as ThreeTypes from "three";
 import type {
   CopcCesiumLayer,
   CopcCesiumLayerOptions,
   CopcPointInspection,
   RefinementAlgorithm,
   RefinementFocus,
-} from '@frillab/copc-adapter/cesium';
-import type { CopcThreeLayer } from '@frillab/copc-adapter/three';
+} from "@frillab/copc-adapter/cesium";
+import type { CopcThreeLayer } from "@frillab/copc-adapter/three";
 
-export type PlaygroundRenderer = 'cesium' | 'three';
-export type PlaygroundBackend = 'copc-js' | 'rust';
+export type PlaygroundRenderer = "cesium" | "three";
+export type PlaygroundBackend = "copc-js" | "rust";
 export type PlaygroundSource = string | File;
-export type PlaygroundColorMode = 'rgb' | 'elevation' | 'intensity' | 'classification';
-export type PlaygroundCameraView = 'overview' | 'near' | 'far';
+export type PlaygroundColorMode =
+  | "rgb"
+  | "elevation"
+  | "intensity"
+  | "classification";
+export type PlaygroundCameraView = "overview" | "near" | "far";
 
 export type PlaygroundCameraState = {
   readonly longitude: number;
@@ -73,12 +77,21 @@ export type PlaygroundRuntimeOptions = {
   readonly canAutoZoom?: () => boolean;
 };
 
-type CesiumLayer = Pick<CopcCesiumLayer,
-  'load' | 'attachTo' | 'destroy' | 'getSnapshot' | 'getSelectedPoint' | 'zoomTo'
-  | 'boundingSphere' | 'setRefinementFocus'>;
+type CesiumLayer = Pick<
+  CopcCesiumLayer,
+  | "load"
+  | "attachTo"
+  | "destroy"
+  | "getSnapshot"
+  | "getSelectedPoint"
+  | "zoomTo"
+  | "boundingSphere"
+  | "setRefinementFocus"
+>;
 
-export type CesiumLayerFactory = (options: CopcCesiumLayerOptions) => CesiumLayer;
-
+export type CesiumLayerFactory = (
+  options: CopcCesiumLayerOptions,
+) => CesiumLayer;
 
 function getInitialThreeCameraDistance(sourceName: string): number {
   if (/chicago/i.test(sourceName)) return 14_000;
@@ -86,11 +99,15 @@ function getInitialThreeCameraDistance(sourceName: string): number {
   return 3_000;
 }
 
-function normalizeLod(value: unknown): { min: number; max: number } | undefined {
-  if (value === null || typeof value !== 'object') return undefined;
+function normalizeLod(
+  value: unknown,
+): { min: number; max: number } | undefined {
+  if (value === null || typeof value !== "object") return undefined;
   const range = value as { min?: unknown; max?: unknown };
-  return typeof range.min === 'number' && Number.isFinite(range.min)
-    && typeof range.max === 'number' && Number.isFinite(range.max)
+  return typeof range.min === "number" &&
+    Number.isFinite(range.min) &&
+    typeof range.max === "number" &&
+    Number.isFinite(range.max)
     ? { min: range.min, max: range.max }
     : undefined;
 }
@@ -104,14 +121,19 @@ function snapshotFromCesium(layer: CesiumLayer): PlaygroundSnapshot {
     selectedNodes: snapshot.selectedNodeKeys.length,
     selectedNodeKeys: snapshot.selectedNodeKeys,
     ...(normalizeLod(snapshot.performance.visibleLevelRange)
-      ? { visibleLevelRange: normalizeLod(snapshot.performance.visibleLevelRange)! }
+      ? {
+          visibleLevelRange: normalizeLod(
+            snapshot.performance.visibleLevelRange,
+          )!,
+        }
       : {}),
     refinementAlgorithm: snapshot.performance.refinementAlgorithm,
     refinementFocusEnabled: snapshot.performance.refinementFocusEnabled,
     focusCandidateCount: snapshot.performance.focusCandidateCount,
     focusWeightMin: snapshot.performance.focusWeightMin,
     focusWeightMax: snapshot.performance.focusWeightMax,
-    focusInfluencedRefinementCount: snapshot.performance.focusInfluencedRefinementCount,
+    focusInfluencedRefinementCount:
+      snapshot.performance.focusInfluencedRefinementCount,
   };
 }
 
@@ -124,19 +146,24 @@ function snapshotFromThree(layer: CopcThreeLayer): PlaygroundSnapshot {
     selectedNodes: snapshot.selectedNodeKeys.length,
     selectedNodeKeys: snapshot.selectedNodeKeys,
     ...(normalizeLod(snapshot.performance.visibleLevelRange)
-      ? { visibleLevelRange: normalizeLod(snapshot.performance.visibleLevelRange)! }
+      ? {
+          visibleLevelRange: normalizeLod(
+            snapshot.performance.visibleLevelRange,
+          )!,
+        }
       : {}),
     refinementAlgorithm: snapshot.performance.refinementAlgorithm,
     refinementFocusEnabled: snapshot.performance.refinementFocusEnabled,
     focusCandidateCount: snapshot.performance.focusCandidateCount,
     focusWeightMin: snapshot.performance.focusWeightMin,
     focusWeightMax: snapshot.performance.focusWeightMax,
-    focusInfluencedRefinementCount: snapshot.performance.focusInfluencedRefinementCount,
+    focusInfluencedRefinementCount:
+      snapshot.performance.focusInfluencedRefinementCount,
   };
 }
 
 function* getCesiumPointCollections(
-  Cesium: typeof import('cesium'),
+  Cesium: typeof import("cesium"),
   collection: CesiumTypes.PrimitiveCollection,
 ): Generator<CesiumTypes.PointPrimitiveCollection> {
   for (let index = 0; index < collection.length; index += 1) {
@@ -150,18 +177,26 @@ function* getCesiumPointCollections(
 }
 
 function getCesiumPickPosition(
-  Cesium: typeof import('cesium'),
+  Cesium: typeof import("cesium"),
   viewer: CesiumTypes.Viewer,
 ): { x: number; y: number } | undefined {
   const canvas = viewer.scene.canvas;
-  for (const collection of getCesiumPointCollections(Cesium, viewer.scene.primitives)) {
+  for (const collection of getCesiumPointCollections(
+    Cesium,
+    viewer.scene.primitives,
+  )) {
     for (let index = 0; index < collection.length; index += 1) {
       const screen = Cesium.SceneTransforms.worldToWindowCoordinates(
         viewer.scene,
         collection.get(index).position,
       );
-      if (screen && screen.x >= 2 && screen.x < canvas.clientWidth - 2
-        && screen.y >= 2 && screen.y < canvas.clientHeight - 2) {
+      if (
+        screen &&
+        screen.x >= 2 &&
+        screen.x < canvas.clientWidth - 2 &&
+        screen.y >= 2 &&
+        screen.y < canvas.clientHeight - 2
+      ) {
         const pixel = new Cesium.Cartesian2(screen.x, screen.y);
         if (viewer.scene.pick(pixel)) return { x: screen.x, y: screen.y };
       }
@@ -171,7 +206,7 @@ function getCesiumPickPosition(
 }
 
 function getThreePickPosition(
-  THREE: typeof import('three'),
+  THREE: typeof import("three"),
   root: ThreeTypes.Object3D | undefined,
   camera: ThreeTypes.PerspectiveCamera,
   renderer: ThreeTypes.WebGLRenderer,
@@ -184,15 +219,27 @@ function getThreePickPosition(
   let position: { x: number; y: number } | undefined;
   root.traverse((object) => {
     if (position || !(object instanceof THREE.Points)) return;
-    const attribute = object.geometry.getAttribute('position');
+    const attribute = object.geometry.getAttribute("position");
     if (!attribute || attribute.count === 0) return;
     object.updateMatrixWorld(true);
     const world = new THREE.Vector3();
     const stride = Math.max(1, Math.floor(attribute.count / 256));
     for (let index = 0; index < attribute.count; index += stride) {
-      world.fromBufferAttribute(attribute, index).applyMatrix4(object.matrixWorld).project(camera);
-      if (world.z < -1 || world.z > 1 || Math.abs(world.x) > 0.98 || Math.abs(world.y) > 0.98) continue;
-      position = { x: (world.x + 1) * width / 2, y: (1 - world.y) * height / 2 };
+      world
+        .fromBufferAttribute(attribute, index)
+        .applyMatrix4(object.matrixWorld)
+        .project(camera);
+      if (
+        world.z < -1 ||
+        world.z > 1 ||
+        Math.abs(world.x) > 0.98 ||
+        Math.abs(world.y) > 0.98
+      )
+        continue;
+      position = {
+        x: ((world.x + 1) * width) / 2,
+        y: ((1 - world.y) * height) / 2,
+      };
       break;
     }
   });
@@ -203,10 +250,10 @@ export async function createPlaygroundRuntime(
   options: PlaygroundRuntimeOptions,
   layerFactory?: CesiumLayerFactory,
 ): Promise<PlaygroundRuntime | undefined> {
-  if (options.renderer === 'cesium') {
+  if (options.renderer === "cesium") {
     const [Cesium, adapter] = await Promise.all([
-      import('cesium'),
-      import('@frillab/copc-adapter/cesium'),
+      import("cesium"),
+      import("@frillab/copc-adapter/cesium"),
     ]);
     if (!options.isCurrent()) return undefined;
     const viewer = new Cesium.Viewer(options.container, {
@@ -223,8 +270,8 @@ export async function createPlaygroundRuntime(
       timeline: false,
       terrainProvider: new Cesium.EllipsoidTerrainProvider(),
     });
-    viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#172635');
-    viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#08111d');
+    viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString("#172635");
+    viewer.scene.backgroundColor = Cesium.Color.fromCssColorString("#08111d");
     viewer.camera.setView({
       destination: Cesium.Cartesian3.fromDegrees(-12, 24, 19_000_000),
     });
@@ -241,7 +288,9 @@ export async function createPlaygroundRuntime(
       },
       onPointPicked: options.onPointPicked,
     };
-    const layer = layerFactory ? layerFactory(layerOptions) : new adapter.CopcCesiumLayer(layerOptions);
+    const layer = layerFactory
+      ? layerFactory(layerOptions)
+      : new adapter.CopcCesiumLayer(layerOptions);
     layer.attachTo(viewer);
     let destroyed = false;
     let previousCameraInputs: boolean | undefined;
@@ -262,22 +311,26 @@ export async function createPlaygroundRuntime(
     });
 
     return {
-      renderer: 'cesium',
+      renderer: "cesium",
       ready,
       getSnapshot: () => snapshotFromCesium(layer),
       getSelectedPoint: () => layer.getSelectedPoint(),
       async setCameraView(view) {
         if (destroyed) return;
         const radius = layer.boundingSphere?.radius ?? 1_000;
-        const multiplier = view === 'near' ? 1.5 : view === 'far' ? 6 : 3;
-        await layer.zoomTo(new Cesium.HeadingPitchRange(
-          0,
-          -Cesium.Math.PI_OVER_FOUR,
-          Math.max(100, radius * multiplier),
-        ));
+        const multiplier = view === "near" ? 1.5 : view === "far" ? 6 : 3;
+        await layer.zoomTo(
+          new Cesium.HeadingPitchRange(
+            0,
+            -Cesium.Math.PI_OVER_FOUR,
+            Math.max(100, radius * multiplier),
+          ),
+        );
       },
       getCameraState: () => {
-        const cartographic = Cesium.Cartographic.fromCartesian(viewer.camera.positionWC);
+        const cartographic = Cesium.Cartographic.fromCartesian(
+          viewer.camera.positionWC,
+        );
         return {
           longitude: Cesium.Math.toDegrees(cartographic.longitude),
           latitude: Cesium.Math.toDegrees(cartographic.latitude),
@@ -287,21 +340,29 @@ export async function createPlaygroundRuntime(
           roll: Cesium.Math.toDegrees(viewer.camera.roll),
         };
       },
-      setCameraState: (state) => viewer.camera.setView({
-        destination: Cesium.Cartesian3.fromDegrees(state.longitude, state.latitude, state.height),
-        orientation: {
-          heading: Cesium.Math.toRadians(state.heading),
-          pitch: Cesium.Math.toRadians(state.pitch),
-          roll: Cesium.Math.toRadians(state.roll),
-        },
-      }),
-      getPickablePointScreenPosition: () => getCesiumPickPosition(Cesium, viewer),
+      setCameraState: (state) =>
+        viewer.camera.setView({
+          destination: Cesium.Cartesian3.fromDegrees(
+            state.longitude,
+            state.latitude,
+            state.height,
+          ),
+          orientation: {
+            heading: Cesium.Math.toRadians(state.heading),
+            pitch: Cesium.Math.toRadians(state.pitch),
+            roll: Cesium.Math.toRadians(state.roll),
+          },
+        }),
+      getPickablePointScreenPosition: () =>
+        getCesiumPickPosition(Cesium, viewer),
       setRefinementFocus: (focus) => layer.setRefinementFocus(focus),
-      getFocusCanvas: () => destroyed || viewer.isDestroyed() ? undefined : viewer.scene.canvas,
+      getFocusCanvas: () =>
+        destroyed || viewer.isDestroyed() ? undefined : viewer.scene.canvas,
       setFocusDragging,
-      getCameraInputsEnabled: () => destroyed || viewer.isDestroyed()
-        ? undefined
-        : viewer.scene.screenSpaceCameraController.enableInputs,
+      getCameraInputsEnabled: () =>
+        destroyed || viewer.isDestroyed()
+          ? undefined
+          : viewer.scene.screenSpaceCameraController.enableInputs,
       destroy() {
         if (destroyed) return;
         destroyed = true;
@@ -313,23 +374,30 @@ export async function createPlaygroundRuntime(
   }
 
   const [THREE, { OrbitControls }, adapter] = await Promise.all([
-    import('three'),
-    import('three/addons/controls/OrbitControls.js'),
-    import('@frillab/copc-adapter/three'),
+    import("three"),
+    import("three/addons/controls/OrbitControls.js"),
+    import("@frillab/copc-adapter/three"),
   ]);
   if (!options.isCurrent()) return undefined;
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color('#08111d');
+  scene.background = new THREE.Color("#08111d");
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-  renderer.setSize(options.container.clientWidth, options.container.clientHeight);
-  renderer.domElement.setAttribute('aria-label', 'Interactive Three.js point cloud viewport');
-  renderer.domElement.setAttribute('role', 'img');
+  renderer.setSize(
+    options.container.clientWidth,
+    options.container.clientHeight,
+  );
+  renderer.domElement.setAttribute(
+    "aria-label",
+    "Interactive Three.js point cloud viewport",
+  );
+  renderer.domElement.setAttribute("role", "img");
   options.container.replaceChildren(renderer.domElement);
 
   const camera = new THREE.PerspectiveCamera(
     45,
-    Math.max(1, options.container.clientWidth) / Math.max(1, options.container.clientHeight),
+    Math.max(1, options.container.clientWidth) /
+      Math.max(1, options.container.clientHeight),
     0.1,
     250_000,
   );
@@ -337,7 +405,9 @@ export async function createPlaygroundRuntime(
   let cameraDistance = getInitialThreeCameraDistance(options.sourceName);
   const cameraTarget = new THREE.Vector3(0, 0, 0);
   const initialCameraDirection = new THREE.Vector3(0, -1, 0.38).normalize();
-  camera.position.copy(cameraTarget).addScaledVector(initialCameraDirection, cameraDistance);
+  camera.position
+    .copy(cameraTarget)
+    .addScaledVector(initialCameraDirection, cameraDistance);
   camera.lookAt(cameraTarget);
 
   const controls = new OrbitControls(camera, renderer.domElement);
@@ -345,8 +415,10 @@ export async function createPlaygroundRuntime(
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
   let userInteracted = false;
-  const onCameraStart = (): void => { userInteracted = true; };
-  controls.addEventListener('start', onCameraStart);
+  const onCameraStart = (): void => {
+    userInteracted = true;
+  };
+  controls.addEventListener("start", onCameraStart);
 
   const layerOptions = {
     url: options.source,
@@ -361,12 +433,16 @@ export async function createPlaygroundRuntime(
     onPointPicked: options.onPointPicked,
   };
   const layer = new adapter.CopcThreeLayer(layerOptions);
-  layer.addEventListener('error', (event) => {
-    options.onError(event.error instanceof Error ? event.error.message : String(event.error));
+  layer.addEventListener("error", (event) => {
+    options.onError(
+      event.error instanceof Error ? event.error.message : String(event.error),
+    );
   });
   const sceneChildrenBeforeAttach = new Set(scene.children);
   layer.attachTo({ scene, camera, renderer });
-  const layerRoot = scene.children.find((child) => !sceneChildrenBeforeAttach.has(child));
+  const layerRoot = scene.children.find(
+    (child) => !sceneChildrenBeforeAttach.has(child),
+  );
   let destroyed = false;
   let animationFrame = 0;
   const draw = (): void => {
@@ -383,7 +459,7 @@ export async function createPlaygroundRuntime(
       options.onError(error instanceof Error ? error.message : String(error));
     });
   };
-  controls.addEventListener('change', onCameraChange);
+  controls.addEventListener("change", onCameraChange);
   const resizeObserver = new ResizeObserver(() => {
     if (destroyed) return;
     const width = options.container.clientWidth;
@@ -403,7 +479,13 @@ export async function createPlaygroundRuntime(
     pointerStart = { x: event.clientX, y: event.clientY };
   };
   const onPointerUp = (event: PointerEvent): void => {
-    if (!pointerStart || Math.hypot(event.clientX - pointerStart.x, event.clientY - pointerStart.y) > 5) {
+    if (
+      !pointerStart ||
+      Math.hypot(
+        event.clientX - pointerStart.x,
+        event.clientY - pointerStart.y,
+      ) > 5
+    ) {
       pointerStart = undefined;
       return;
     }
@@ -415,8 +497,8 @@ export async function createPlaygroundRuntime(
       y: -(((event.clientY - rect.top) / rect.height) * 2 - 1),
     });
   };
-  renderer.domElement.addEventListener('pointerdown', onPointerDown);
-  renderer.domElement.addEventListener('pointerup', onPointerUp);
+  renderer.domElement.addEventListener("pointerdown", onPointerDown);
+  renderer.domElement.addEventListener("pointerup", onPointerUp);
 
   const ready = layer.load().then(async () => {
     await layer.update();
@@ -427,7 +509,9 @@ export async function createPlaygroundRuntime(
     const sphere = bounds.getBoundingSphere(new THREE.Sphere());
     cameraTarget.copy(sphere.center);
     cameraDistance = Math.max(10, sphere.radius * 2.8);
-    camera.position.copy(cameraTarget).addScaledVector(initialCameraDirection, cameraDistance);
+    camera.position
+      .copy(cameraTarget)
+      .addScaledVector(initialCameraDirection, cameraDistance);
     camera.lookAt(cameraTarget);
     controls.target.copy(cameraTarget);
     synchronizingCamera = true;
@@ -436,15 +520,21 @@ export async function createPlaygroundRuntime(
     await layer.update();
   });
   return {
-    renderer: 'three',
+    renderer: "three",
     ready,
     getSnapshot: () => snapshotFromThree(layer),
     getSelectedPoint: () => layer.getSelectedPoint(),
     async setCameraView(view) {
       if (destroyed) return;
-      const distance = cameraDistance * (view === 'near' ? 0.55 : view === 'far' ? 2.5 : 1);
-      const direction = camera.position.clone().sub(controls.target).normalize();
-      camera.position.copy(controls.target).addScaledVector(direction, distance);
+      const distance =
+        cameraDistance * (view === "near" ? 0.55 : view === "far" ? 2.5 : 1);
+      const direction = camera.position
+        .clone()
+        .sub(controls.target)
+        .normalize();
+      camera.position
+        .copy(controls.target)
+        .addScaledVector(direction, distance);
       controls.update();
       await layer.update();
     },
@@ -462,7 +552,8 @@ export async function createPlaygroundRuntime(
       camera.lookAt(controls.target);
       controls.update();
     },
-    getPickablePointScreenPosition: () => getThreePickPosition(THREE, layerRoot, camera, renderer),
+    getPickablePointScreenPosition: () =>
+      getThreePickPosition(THREE, layerRoot, camera, renderer),
     setRefinementFocus(): void {},
     getFocusCanvas: () => undefined,
     setFocusDragging(): void {},
@@ -472,11 +563,11 @@ export async function createPlaygroundRuntime(
       destroyed = true;
       cancelAnimationFrame(animationFrame);
       resizeObserver.disconnect();
-      controls.removeEventListener('start', onCameraStart);
-      controls.removeEventListener('change', onCameraChange);
+      controls.removeEventListener("start", onCameraStart);
+      controls.removeEventListener("change", onCameraChange);
       controls.dispose();
-      renderer.domElement.removeEventListener('pointerdown', onPointerDown);
-      renderer.domElement.removeEventListener('pointerup', onPointerUp);
+      renderer.domElement.removeEventListener("pointerdown", onPointerDown);
+      renderer.domElement.removeEventListener("pointerup", onPointerUp);
       layer.destroy();
       renderer.dispose();
       renderer.domElement.remove();
