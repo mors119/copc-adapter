@@ -30,10 +30,11 @@ export function getDatasetElevationRange(
   verticalGrid?: GtxGeoidGrid,
 ): CopcElevationRange {
   const heightOffset = resolveHeightOffsetMeters(heightOffsetMeters);
-  verticalGrid?.assertCompatibleSourceWkt(metadata.wkt);
-  const verticalUnitScale = metadata.wkt
-    ? extractVerticalUnitScale(metadata.wkt)
-    : 1;
+  const verticalUnitScale = verticalGrid
+    ? verticalGrid.getSourceVerticalUnitScale(metadata.wkt)
+    : metadata.wkt
+      ? extractVerticalUnitScale(metadata.wkt)
+      : 1;
   const convertedMin = metadata.bounds.minZ * verticalUnitScale;
   const convertedMax = metadata.bounds.maxZ * verticalUnitScale;
   const min =

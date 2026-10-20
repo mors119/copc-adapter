@@ -30,7 +30,6 @@ import {
 } from "../coordinates/transform/createPointTransformer";
 import { resolveHeightOffsetMeters } from "../coordinates/transform/heightOffset";
 import { GtxGeoidGrid } from "../coordinates/transform/verticalGrid";
-import { extractVerticalUnitScale } from "../coordinates/crs/parseCopcWkt";
 import type {
   CopcMetadata,
   GeographicPointBuffer,
@@ -426,9 +425,9 @@ function toProjectBounds(
     },
   );
   if (!verticalGrid) return transformed;
-  const verticalUnitScale = metadata.wkt
-    ? extractVerticalUnitScale(metadata.wkt)
-    : 1;
+  const verticalUnitScale = verticalGrid.getSourceVerticalUnitScale(
+    metadata.wkt,
+  );
   const conservativeMinimum =
     (geographicBounds.minZ - heightOffsetMeters - verticalGrid.maximumUndulationMeters) /
     verticalUnitScale;
@@ -449,9 +448,9 @@ function getMinimumDatasetHeightMeters(
 ): number | undefined {
   try {
     if (verticalGrid) {
-      const verticalUnitScale = metadata.wkt
-        ? extractVerticalUnitScale(metadata.wkt)
-        : 1;
+      const verticalUnitScale = verticalGrid.getSourceVerticalUnitScale(
+        metadata.wkt,
+      );
       const minimum =
         metadata.bounds.minZ * verticalUnitScale +
         verticalGrid.minimumUndulationMeters +

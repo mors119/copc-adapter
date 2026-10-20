@@ -200,6 +200,43 @@ function findWktSection(wkt: string, keyword: string): string | undefined {
   throw new Error(`Failed to parse ${keyword.slice(0, -1)} from WKT`);
 }
 
+function findDirectWktSections(
+  wktSection: string,
+  keywords: readonly string[],
+): Array<{ keyword: string; section: string }> {
+  const matches: Array<{ keyword: string; section: string }> = [];
+  let inString = false;
+  let depth = 0;
+  for (let index = 0; index < wktSection.length; index += 1) {
+    const keyword = !inString && depth === 1
+      ? keywords.find((candidate) =>
+          wktSection.slice(index, index + candidate.length).toUpperCase() === candidate,
+        )
+      : undefined;
+    if (keyword) {
+      const section = findWktSection(wktSection.slice(index), keyword);
+      if (!section) throw new Error(`Failed to parse direct ${keyword.slice(0, -1)} from WKT`);
+      matches.push({ keyword, section });
+      index += section.length - 1;
+      continue;
+    }
+
+    const character = wktSection[index];
+    if (character === '"') {
+      if (inString && wktSection[index + 1] === '"') {
+        index += 1;
+        continue;
+      }
+      inString = !inString;
+    } else if (!inString && character === "[") {
+      depth += 1;
+    } else if (!inString && character === "]") {
+      depth -= 1;
+    }
+  }
+  return matches;
+}
+
 /**
  * Read the vertical CRS identity without guessing from horizontal CRS or
  * country. This supports WKT1 `VERT_CS` and WKT2 `VERTCRS` sections.
@@ -213,9 +250,13 @@ export function getVerticalCrsIdentity(
   if (!nameMatch) {
     throw new Error("Vertical CRS WKT does not begin with a quoted name");
   }
-  const identifiers = [
-    ...section.matchAll(/(?:AUTHORITY|ID)\s*\[\s*"([^"]+)"\s*,\s*(?:"([^"]+)"|(\d+))/gi),
-  ];
+  const identifiers = findDirectWktSections(section, ["AUTHORITY[", "ID["])
+    .map(({ section: identifierSection }) =>
+      identifierSection.match(
+        /^(?:AUTHORITY|ID)\[\s*"([^"]+)"\s*,\s*(?:"([^"]+)"|(\d+))/i,
+      ),
+    )
+    .filter((match): match is RegExpMatchArray => match !== null);
   const identifier = identifiers.at(-1);
   return {
     name: nameMatch[1].replaceAll('""', '"'),
@@ -239,43 +280,15 @@ export function getVerticalCrsIdentity(
 export function extractExplicitVerticalUnitScale(wkt: string): number | undefined {
   const section = findWktSection(wkt, "VERT_CS[");
   if (!section) return undefined;
-
-  let inString = false;
-  let depth = 0;
-  for (let index = 0; index < section.length; index += 1) {
-    if (
-      !inString &&
-      depth === 1 &&
-      section.slice(index).toUpperCase().startsWith("UNIT[")
-    ) {
-      const unit = findWktSection(section.slice(index), "UNIT[");
-      const match = unit?.match(
-        /^UNIT\[\s*"[^"]+"\s*,\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)\s*\]/i,
-      );
-      if (!match) throw new Error("COPC vertical WKT has an invalid unit");
-      const scale = Number(match[1]);
-      if (!Number.isFinite(scale) || scale <= 0) {
-        throw new Error("COPC vertical WKT unit scale must be finite and positive");
-      }
-      return scale;
-    }
-
-    const character = section[index];
-    if (character === '"') {
-      if (inString && section[index + 1] === '"') {
-        index += 1;
-        continue;
-      }
-      inString = !inString;
-      continue;
-    }
-    if (inString) continue;
-    if (character === "[") {
-      depth += 1;
-    } else if (character === "]") {
-      depth -= 1;
-    }
+  const unit = findDirectWktSections(section, ["UNIT["])[0]?.section;
+  if (!unit) return undefined;
+  const match = unit.match(
+    /^UNIT\[\s*"[^"]+"\s*,\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)(?=\s*(?:,|\]))/i,
+  );
+  if (!match) throw new Error("COPC vertical WKT has an invalid unit");
+  const scale = Number(match[1]);
+  if (!Number.isFinite(scale) || scale <= 0) {
+    throw new Error("COPC vertical WKT unit scale must be finite and positive");
   }
-
-  return undefined;
+  return scale;
 }

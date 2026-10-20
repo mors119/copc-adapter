@@ -116,9 +116,9 @@ test("Rust CRS transformer preserves the projected-WKT requirement without hidde
   );
 });
 
-test("Rust/WASM and JavaScript preparation agree after one shared synthetic geoid pass", async () => {
+test("Rust/WASM and JavaScript agree on foot units after one shared synthetic geoid pass", async () => {
   const point = { x: 126.5, y: 37.5 };
-  const compoundWkt = `COMPD_CS["WGS 84 + Local orthometric height",${WGS84_GEOGRAPHIC_WKT},VERT_CS["Local orthometric height",VERT_DATUM["Local vertical datum",2005],UNIT["metre",1],AXIS["Gravity-related height",UP]]]`;
+  const compoundWkt = `COMPD_CS["WGS 84 + Local orthometric height",${WGS84_GEOGRAPHIC_WKT},VERT_CS["Local orthometric height",VERT_DATUM["Local vertical datum",2005],UNIT["foot", 0.3048,AUTHORITY["EPSG","9002"]],AXIS["Gravity-related height",UP]]]`;
   const metadata = {
     wkt: compoundWkt,
     bounds: {
@@ -180,7 +180,7 @@ test("Rust/WASM and JavaScript preparation agree after one shared synthetic geoi
     });
     const rustCorrected = applyPreparedPointVerticalGrid(rustPrepared, grid);
     assert.equal(rustCorrected.geographic.coordinates[2], javascript.geographic.coordinates[2]);
-    assert.equal(rustCorrected.geographic.coordinates[2], 130);
+    assert.equal(rustCorrected.geographic.coordinates[2], 60.480000000000004);
     for (let axis = 0; axis < 3; axis += 1) {
       assert.ok(
         Math.abs(rustCorrected.world.coordinates[axis] - javascript.world.coordinates[axis]) < 1e-6,

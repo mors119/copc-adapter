@@ -6,7 +6,6 @@ import type {
 import { extractHorizontalUnitScale } from "../coordinates/crs/parseCopcWkt";
 import { createPointTransformer } from "../coordinates/transform/createPointTransformer";
 import type { GtxGeoidGrid } from "../coordinates/transform/verticalGrid";
-import { extractVerticalUnitScale } from "../coordinates/crs/parseCopcWkt";
 import type { BoundingBox, StreamingHierarchy } from "./types";
 import { createBoundingSphereFromGeographicBounds } from "./view";
 
@@ -126,9 +125,9 @@ function toGeographicBounds(
 
   // A geoid is spatially varying. Expanding by the grid-wide extrema keeps
   // hierarchy bounds conservative even when a node spans unsampled grid cells.
-  const verticalUnitScale = metadata.wkt
-    ? extractVerticalUnitScale(metadata.wkt)
-    : 1;
+  const verticalUnitScale = verticalGrid.getSourceVerticalUnitScale(
+    metadata.wkt,
+  );
   const sourceMinHeight = bounds.minZ * verticalUnitScale;
   const sourceMaxHeight = bounds.maxZ * verticalUnitScale;
   const conservativeMinimum =

@@ -84,9 +84,11 @@ export function createMetadataBoundingSphere(
     } else {
       horizontalUnitScale = 1;
     }
-    const verticalUnitScale = metadata.wkt
-      ? extractVerticalUnitScale(metadata.wkt)
-      : 1;
+    const verticalUnitScale = verticalGrid
+      ? verticalGrid.getSourceVerticalUnitScale(metadata.wkt)
+      : metadata.wkt
+        ? extractVerticalUnitScale(metadata.wkt)
+        : 1;
     if (
       !Number.isFinite(horizontalUnitScale) ||
       horizontalUnitScale <= 0 ||

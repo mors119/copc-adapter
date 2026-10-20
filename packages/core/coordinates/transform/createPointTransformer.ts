@@ -43,7 +43,11 @@ export function createPointTransformer(
   verticalGrid?: GtxGeoidGrid,
 ): (point: CopcPoint) => GeographicPoint {
   const heightOffset = resolveHeightOffsetMeters(heightOffsetMeters);
-  verticalGrid?.assertCompatibleSourceWkt(metadata.wkt);
+  const verticalUnitScale = verticalGrid
+    ? verticalGrid.getSourceVerticalUnitScale(metadata.wkt)
+    : metadata.wkt
+      ? extractVerticalUnitScale(metadata.wkt)
+      : 1;
   if (!metadata.wkt) {
     if (hasGeographicBounds(metadata)) {
       return (point: CopcPoint): GeographicPoint => ({
@@ -59,7 +63,6 @@ export function createPointTransformer(
   }
 
   const horizontalWkt = extractHorizontalCrsWkt(metadata.wkt);
-  const verticalUnitScale = extractVerticalUnitScale(metadata.wkt);
   const projection = proj4(horizontalWkt, "WGS84");
 
   return (point: CopcPoint): GeographicPoint => {
@@ -95,7 +98,11 @@ export function createProjectPointTransformer(
   verticalGrid?: GtxGeoidGrid,
 ): (point: GeographicPoint) => CopcPoint {
   const heightOffset = resolveHeightOffsetMeters(heightOffsetMeters);
-  verticalGrid?.assertCompatibleSourceWkt(metadata.wkt);
+  const verticalUnitScale = verticalGrid
+    ? verticalGrid.getSourceVerticalUnitScale(metadata.wkt)
+    : metadata.wkt
+      ? extractVerticalUnitScale(metadata.wkt)
+      : 1;
   if (!metadata.wkt) {
     if (hasGeographicBounds(metadata)) {
       return (point: GeographicPoint): CopcPoint => ({
@@ -111,7 +118,6 @@ export function createProjectPointTransformer(
   }
 
   const horizontalWkt = extractHorizontalCrsWkt(metadata.wkt);
-  const verticalUnitScale = extractVerticalUnitScale(metadata.wkt);
   const projection = proj4(horizontalWkt, "WGS84");
 
   return (point: GeographicPoint): CopcPoint => {

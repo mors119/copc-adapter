@@ -296,6 +296,98 @@ test("source WKT, grid units, manual offset, inverse query and ECEF agree", asyn
   assert.deepEqual([...correctedPrepared.world.coordinates], [...prepared.world.coordinates]);
 });
 
+test("grid transforms use the strict vertical unit scale in both directions and bounds", async () => {
+  const grid = await loadGrid(encodeGtx({ values: [10, 20, 30, 40] }));
+  const footWkt = ORTHOMETRIC_WKT.replace(
+    'UNIT["metre",1]',
+    'UNIT["foot", 0.3048]',
+  );
+  const metadata = createMetadata({ wkt: footWkt });
+  const geographic = createPointTransformer(metadata, 5, grid)({
+    x: 0.5,
+    y: 0.5,
+    z: 100,
+  });
+  assert.equal(geographic.height, 60.480000000000004);
+  assert.ok(
+    Math.abs(
+      createProjectPointTransformer(metadata, 5, grid)(geographic).z - 100,
+    ) < 1e-12,
+  );
+  assert.deepEqual(getDatasetElevationRange(metadata, 5, grid), {
+    min: 45.480000000000004,
+    max: 105.96000000000001,
+  });
+
+  const hierarchy = buildStreamingHierarchy(
+    metadata,
+    [
+      {
+        key: "0-0-0-0",
+        level: 0,
+        x: 0,
+        y: 0,
+        z: 0,
+        pointCount: 1,
+        pointDataOffset: 0,
+        pointDataLength: 1,
+      },
+    ],
+    5,
+    grid,
+  );
+  const nodeBounds = hierarchy.get("0-0-0-0");
+  assert.equal(nodeBounds.center.height, 60.632400000000004);
+  assert.equal(nodeBounds.bounds.minZ, 45.480000000000004);
+  assert.equal(nodeBounds.bounds.maxZ, 75.7848);
+
+  const authorizedUnitWkt = footWkt.replace(
+    'UNIT["foot", 0.3048]',
+    'UNIT["foot", 0.3048,AUTHORITY["EPSG","9002"]]',
+  );
+  assert.equal(
+    createPointTransformer(
+      createMetadata({ wkt: authorizedUnitWkt }),
+      0,
+      grid,
+    )({ x: 0.5, y: 0.5, z: 100 }).height,
+    55.480000000000004,
+  );
+});
+
+test("only a vertical CRS authority on the outer WKT section can satisfy an EPSG source", async () => {
+  const bytes = encodeGtx({ values: [10, 20, 30, 40] });
+  const nestedAuthorityWkt = ORTHOMETRIC_WKT.replace(
+    'VERT_DATUM["Local vertical datum",2005]',
+    'VERT_DATUM["Local vertical datum",2005,AUTHORITY["EPSG","5703"]]',
+  );
+  const grid = await loadGrid(bytes, { sourceVerticalCrs: "EPSG:5703" });
+  assert.throws(
+    () =>
+      createPointTransformer(
+        createMetadata({ wkt: nestedAuthorityWkt }),
+        0,
+        grid,
+      ),
+    (error) =>
+      error instanceof VerticalTransformError &&
+      error.code === "unsupported-crs-pair",
+  );
+
+  const outerAuthorityWkt = nestedAuthorityWkt.replace(
+    'AXIS["Gravity-related height",UP]]',
+    'AXIS["Gravity-related height",UP],AUTHORITY["EPSG","5703"]]',
+  );
+  assert.equal(
+    createPointTransformer(
+      createMetadata({ wkt: outerAuthorityWkt }),
+      0,
+      grid,
+    )({ x: 0.5, y: 0.5, z: 100 }).height,
+    125,
+  );
+});
+
 test("configured source CRS must match COPC WKT and range bounds include grid extrema", async () => {
   const grid = await loadGrid(encodeGtx({ values: [10, 20, 30, 40] }));
   const mismatchedGrid = await loadGrid(encodeGtx({ values: [10, 20, 30, 40] }), {

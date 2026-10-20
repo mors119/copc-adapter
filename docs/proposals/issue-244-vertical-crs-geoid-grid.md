@@ -230,7 +230,7 @@ accuracy, or suitability.
 ### Implementation validation
 
 - `cd packages && npm run typecheck` — passed.
-- `npm --prefix packages test` — passed, 478/478 tests, no skips; prepares the
+- `npm --prefix packages test` — passed, 480/480 tests, no skips; prepares the
   Rust/WASM core before running the package suite.
 - `cd packages && npm run build:library` — passed; package declarations and
   Rust/WASM assets built.

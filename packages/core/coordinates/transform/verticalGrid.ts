@@ -594,6 +594,24 @@ export class GtxGeoidGrid {
     }
   }
 
+  /**
+   * Validate the source CRS and return its explicit conversion factor to
+   * metres. Grid-backed transforms must use this factor for forward and
+   * inverse height operations rather than the legacy metre fallback.
+   */
+  getSourceVerticalUnitScale(wkt: string | undefined): number {
+    this.assertCompatibleSourceWkt(wkt);
+    const scale = wkt ? extractExplicitVerticalUnitScale(wkt) : undefined;
+    if (scale === undefined) {
+      fail(
+        "unsupported-crs-pair",
+        "The requested vertical conversion requires an explicit WKT1 vertical unit",
+        this.gridId,
+      );
+    }
+    return scale;
+  }
+
   private resolveBoundedAxis(
     coordinate: number,
     size: number,
