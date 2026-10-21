@@ -994,6 +994,10 @@ test("records long-run Autzen streaming and repeated Cesium layer lifecycle evid
   const copcWorkersReleasedEachCycle = copcWorkerScriptsAfterDestroy.every(
     (scripts) => scripts.length === 0,
   );
+  const finalActiveCopcWorkerScripts = finalWorkerTracker.activeScripts.filter(
+    (script) => script.includes("rustCopcDecodeWorker"),
+  );
+  const finalCopcWorkersReleased = finalActiveCopcWorkerScripts.length === 0;
   const globalWorkerCountDidNotGrowAfterFirstCycle =
     workerCountsAfterDestroy.every(
       (count) => count <= firstLifecycleWorkerCount,
@@ -1071,7 +1075,8 @@ test("records long-run Autzen streaming and repeated Cesium layer lifecycle evid
     : contentRangeMismatches.length > 0 ||
         unexpectedRangeFailures.length > 0 ||
         !globalWorkerCountDidNotGrowAfterFirstCycle ||
-        !copcWorkersReleasedEachCycle
+        !copcWorkersReleasedEachCycle ||
+        !finalCopcWorkersReleased
       ? "FAIL"
       : "LIMITED";
   const summary = {
@@ -1247,6 +1252,8 @@ test("records long-run Autzen streaming and repeated Cesium layer lifecycle evid
         totalCreated: finalWorkerTracker.created,
         totalTerminated: finalWorkerTracker.terminated,
         finalActiveCount: finalWorkerTracker.active,
+        finalActiveCopcWorkerScripts,
+        finalCopcWorkersReleased,
         countsAfterDestroy: workerCountsAfterDestroy,
         finalActiveScripts: workerScriptsAfterDestroy.at(-1) ?? [],
         copcWorkersReleasedEachCycle,
@@ -1321,5 +1328,9 @@ test("records long-run Autzen streaming and repeated Cesium layer lifecycle evid
     initialCameraListeners.changed,
   );
   expect(globalWorkerCountDidNotGrowAfterFirstCycle).toBe(true);
+  expect(copcWorkersReleasedEachCycle).toBe(true);
+  expect(finalCopcWorkersReleased).toBe(true);
+  expect(finalActiveCopcWorkerScripts).toHaveLength(0);
+  expect(result).not.toBe("FAIL");
   expect(attachedPointCount).toBeGreaterThan(0);
 });
