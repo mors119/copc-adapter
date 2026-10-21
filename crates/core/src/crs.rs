@@ -381,26 +381,28 @@ fn extract_vertical_unit_scale(wkt: &str) -> Result<f64> {
         return Ok(1.0);
     };
 
-    let unit_keyword = if find_keyword(section, "UNIT[").is_some() {
-        "UNIT["
-    } else {
-        "LENGTHUNIT["
-    };
-    let Some(unit_start) = find_keyword(section, unit_keyword) else {
+    let Some(unit) =
+        find_section(section, "UNIT[").or_else(|| find_section(section, "LENGTHUNIT["))
+    else {
         return Ok(1.0);
     };
-    let open = unit_start + unit_keyword.len() - 1;
+    let Some(open) = unit.find('[') else {
+        return Err(CopcError::new(
+            "malformed-wkt",
+            "vertical CRS unit section is malformed",
+        ));
+    };
     let mut cursor = open + 1;
-    if section.as_bytes().get(cursor) != Some(&b'"') {
+    if unit.as_bytes().get(cursor) != Some(&b'"') {
         return Err(CopcError::new(
             "malformed-wkt",
             "vertical CRS unit name is malformed",
         ));
     }
     cursor += 1;
-    while cursor < section.len() {
-        if section.as_bytes()[cursor] == b'"' {
-            if section.as_bytes().get(cursor + 1) == Some(&b'"') {
+    while cursor < unit.len() {
+        if unit.as_bytes()[cursor] == b'"' {
+            if unit.as_bytes().get(cursor + 1) == Some(&b'"') {
                 cursor += 2;
                 continue;
             }
@@ -408,14 +410,14 @@ fn extract_vertical_unit_scale(wkt: &str) -> Result<f64> {
         }
         cursor += 1;
     }
-    if cursor >= section.len() {
+    if cursor >= unit.len() {
         return Err(CopcError::new(
             "malformed-wkt",
             "vertical CRS unit name is unterminated",
         ));
     }
     cursor += 1;
-    if section.as_bytes().get(cursor) != Some(&b',') {
+    if unit.as_bytes().get(cursor) != Some(&b',') {
         return Err(CopcError::new(
             "malformed-wkt",
             "vertical CRS unit scale is missing",
@@ -423,10 +425,10 @@ fn extract_vertical_unit_scale(wkt: &str) -> Result<f64> {
     }
     cursor += 1;
     let scale_start = cursor;
-    while cursor < section.len() && !matches!(section.as_bytes()[cursor], b',' | b']') {
+    while cursor < unit.len() && !matches!(unit.as_bytes()[cursor], b',' | b']') {
         cursor += 1;
     }
-    let scale = section[scale_start..cursor]
+    let scale = unit[scale_start..cursor]
         .trim()
         .parse::<f64>()
         .map_err(|_| CopcError::new("malformed-wkt", "vertical CRS unit scale is not numeric"))?;
@@ -468,10 +470,11 @@ fn find_section<'a>(wkt: &'a str, keyword: &str) -> Option<&'a str> {
 
 fn find_keyword(wkt: &str, keyword: &str) -> Option<usize> {
     let bytes = wkt.as_bytes();
-    let keyword_bytes = keyword.as_bytes();
+    let keyword_ends_with_bracket = keyword.ends_with('[');
+    let keyword_name = keyword.strip_suffix('[').unwrap_or(keyword).as_bytes();
     let mut in_string = false;
     let mut index = 0usize;
-    while index + keyword_bytes.len() <= bytes.len() {
+    while index + keyword_name.len() <= bytes.len() {
         if bytes[index] == b'"' {
             if in_string && bytes.get(index + 1) == Some(&b'"') {
                 index += 2;
@@ -482,10 +485,20 @@ fn find_keyword(wkt: &str, keyword: &str) -> Option<usize> {
             continue;
         }
         if !in_string
-            && bytes[index..index + keyword_bytes.len()].eq_ignore_ascii_case(keyword_bytes)
+            && bytes[index..index + keyword_name.len()].eq_ignore_ascii_case(keyword_name)
             && (index == 0 || !bytes[index - 1].is_ascii_alphanumeric() && bytes[index - 1] != b'_')
         {
-            return Some(index);
+            let mut end = index + keyword_name.len();
+            if keyword_ends_with_bracket {
+                while bytes.get(end).is_some_and(u8::is_ascii_whitespace) {
+                    end += 1;
+                }
+                if bytes.get(end) == Some(&b'[') {
+                    return Some(index);
+                }
+            } else {
+                return Some(index);
+            }
         }
         index += 1;
     }
@@ -533,6 +546,17 @@ mod tests {
             .transform_point([376392.9975, 3757833.2855, 545.1945])
             .unwrap();
         assert!((point.longitude + 118.33772305286695).abs() < 1e-7);
+        assert!((point.height - 545.1945 * 0.304800609601219).abs() < 1e-12);
+    }
+
+    #[test]
+    fn transforms_vertical_units_with_whitespace_before_the_bracket() {
+        let spaced_unit_wkt =
+            COMPOUND_UTM_WKT.replace("UNIT[\"US survey foot\"", "UNIT [\"US survey foot\"");
+        let transform = CrsTransform::from_wkt(&spaced_unit_wkt).unwrap();
+        let point = transform
+            .transform_point([376392.9975, 3757833.2855, 545.1945])
+            .unwrap();
         assert!((point.height - 545.1945 * 0.304800609601219).abs() < 1e-12);
     }
 

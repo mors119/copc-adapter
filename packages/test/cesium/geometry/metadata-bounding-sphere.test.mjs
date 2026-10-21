@@ -119,6 +119,9 @@ test("metadata sphere contains geographic metadata bounds and applies either hei
 });
 
 test("metadata sphere uses grid extrema without sampling synthetic extent points", async () => {
+  const spacedHorizontalWkt = 'COMPD_CS["WGS 84 + Local orthometric height",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],VERT_CS["Local orthometric height",VERT_DATUM["Local vertical datum",2005],UNIT["metre",1],AXIS["Gravity-related height",UP]]]'
+    .replace("GEOGCS[", "GEOGCS [")
+    .replace('UNIT["degree"', 'UNIT ["degree"');
   const source = metadata(
     {
       minX: -0.5,
@@ -129,7 +132,7 @@ test("metadata sphere uses grid extrema without sampling synthetic extent points
       maxZ: 200,
     },
     {
-      wkt: 'COMPD_CS["WGS 84 + Local orthometric height",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],VERT_CS["Local orthometric height",VERT_DATUM["Local vertical datum",2005],UNIT["metre",1],AXIS["Gravity-related height",UP]]]',
+      wkt: spacedHorizontalWkt,
     },
   );
   const sphere = createMetadataBoundingSphere(

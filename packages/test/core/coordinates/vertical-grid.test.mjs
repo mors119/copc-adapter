@@ -18,6 +18,11 @@ import { buildStreamingHierarchy } from "../../../core/streaming/buildStreamingH
 import { createDatasetLocalFrame } from "../../../core/coordinates/transform/datasetLocalFrame.ts";
 import { getDatasetElevationRange } from "../../../core/point/style/pointStyle.ts";
 import { applyPreparedPointVerticalGrid } from "../../../core/coordinates/transform/createPointTransformer.ts";
+import {
+  extractHorizontalCrsWkt,
+  extractHorizontalWkt,
+  extractHorizontalUnitScale,
+} from "../../../core/coordinates/crs/parseCopcWkt.ts";
 
 const ORTHOMETRIC_WKT =
   'COMPD_CS["WGS 84 + Local orthometric height",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],VERT_CS["Local orthometric height",VERT_DATUM["Local vertical datum",2005],UNIT["metre",1],AXIS["Gravity-related height",UP]]]';
@@ -354,6 +359,35 @@ test("grid transforms use the strict vertical unit scale in both directions and 
     )({ x: 0.5, y: 0.5, z: 100 }).height,
     55.480000000000004,
   );
+});
+
+test("grid transforms accept whitespace before horizontal WKT brackets", async () => {
+  const grid = await loadGrid(encodeGtx({ values: [10, 20, 30, 40] }));
+  const spacedWkt = ORTHOMETRIC_WKT
+    .replace("GEOGCS[", "GEOGCS [")
+    .replace('UNIT["degree"', 'UNIT ["degree"');
+  const horizontalWkt = extractHorizontalCrsWkt(spacedWkt);
+
+  assert.match(horizontalWkt, /^GEOGCS\s*\[/);
+  assert.ok(
+    Math.abs(
+      extractHorizontalUnitScale(spacedWkt) -
+        0.0174532925199433 * 6_400_000,
+    ) < 1e-8,
+  );
+  assert.equal(
+    createPointTransformer(createMetadata({ wkt: spacedWkt }), 0, grid)({
+      x: 0.5,
+      y: 0.5,
+      z: 100,
+    }).height,
+    125,
+  );
+
+  const spacedProjectedWkt =
+    'COMPD_CS["Projected height",PROJCS ["WGS 84 / Local projection",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],UNIT["degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],UNIT ["metre",1]],VERT_CS["Local orthometric height",VERT_DATUM["Local vertical datum",2005],UNIT["metre",1]]]';
+  assert.match(extractHorizontalWkt(spacedProjectedWkt), /^PROJCS\s*\[/);
+  assert.equal(extractHorizontalUnitScale(spacedProjectedWkt), 1);
 });
 
 test("hierarchy bounds use grid extrema without sampling padded cube corners", async () => {
