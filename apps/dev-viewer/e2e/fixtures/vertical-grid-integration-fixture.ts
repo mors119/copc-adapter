@@ -187,7 +187,7 @@ function collectPointOwners(
   }
 }
 
-function findPointScreenPosition(
+function findVisiblePointScreenPosition(
   collection: Cesium.PrimitiveCollection,
   ownerIds: ReadonlySet<string>,
   selectedNodeKeys: ReadonlySet<string>,
@@ -225,23 +225,15 @@ function findPointScreenPosition(
           position.y >= 10 &&
           position.y < height - 50
         ) {
-          const picked = viewer.scene.pick(
-            new Cesium.Cartesian2(position.x, position.y),
-          ) as { id?: unknown } | undefined;
-          const pickedId = picked?.id;
-          if (
-            pickedId !== null &&
-            typeof pickedId === "object" &&
-            "ownerId" in pickedId &&
-            typeof pickedId.ownerId === "string" &&
-            ownerIds.has(pickedId.ownerId)
-          ) {
-            return { x: position.x, y: position.y };
-          }
+          return { x: position.x, y: position.y };
         }
       }
     } else if (primitive instanceof Cesium.PrimitiveCollection) {
-      const nested = findPointScreenPosition(primitive, ownerIds, selectedNodeKeys);
+      const nested = findVisiblePointScreenPosition(
+        primitive,
+        ownerIds,
+        selectedNodeKeys,
+      );
       if (nested) return nested;
     }
   }
@@ -423,7 +415,7 @@ integrationWindow.__VERTICAL_GRID_INTEGRATION__ = {
     const selectedNodeKeys = new Set(
       requireLayer(id).layer.getSnapshot().selectedNodeKeys,
     );
-    return findPointScreenPosition(
+    return findVisiblePointScreenPosition(
       viewer.scene.primitives,
       requireLayer(id).ownerIds,
       selectedNodeKeys,
