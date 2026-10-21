@@ -26,6 +26,7 @@ type LayerRecord = {
   layer: CopcCesiumLayer;
   errorMessages: string[];
   ownerIds: Set<string>;
+  preexistingOwnerIds: ReadonlySet<string>;
 };
 
 type LayerState = {
@@ -240,6 +241,16 @@ function findVisiblePointScreenPosition(
   return undefined;
 }
 
+function refreshLayerPointOwners(record: LayerRecord): void {
+  const currentOwners = new Set<string>();
+  collectPointOwners(viewer.scene.primitives, currentOwners);
+  for (const ownerId of currentOwners) {
+    if (!record.preexistingOwnerIds.has(ownerId)) {
+      record.ownerIds.add(ownerId);
+    }
+  }
+}
+
 function requireLayer(id: string): LayerRecord {
   const record = layers.get(id);
   if (!record) throw new Error(`Unknown vertical-grid layer: ${id}`);
@@ -301,6 +312,7 @@ integrationWindow.__VERTICAL_GRID_INTEGRATION__ = {
       }),
       errorMessages: [],
       ownerIds: new Set(),
+      preexistingOwnerIds: ownersBefore,
     };
     layers.set(options.id, record);
     record.layer.error.addEventListener((event) => {
@@ -341,12 +353,12 @@ integrationWindow.__VERTICAL_GRID_INTEGRATION__ = {
         });
       }
     }
-    collectPointOwners(viewer.scene.primitives, record.ownerIds);
-    for (const owner of ownersBefore) record.ownerIds.delete(owner);
+    refreshLayerPointOwners(record);
     return {};
   },
   getState(id) {
     const record = requireLayer(id);
+    refreshLayerPointOwners(record);
     const snapshot = record.layer.getSnapshot();
     const sphere = record.layer.boundingSphere;
     return {
@@ -412,12 +424,14 @@ integrationWindow.__VERTICAL_GRID_INTEGRATION__ = {
     };
   },
   getScreenPoint(id) {
+    const record = requireLayer(id);
+    refreshLayerPointOwners(record);
     const selectedNodeKeys = new Set(
-      requireLayer(id).layer.getSnapshot().selectedNodeKeys,
+      record.layer.getSnapshot().selectedNodeKeys,
     );
     return findVisiblePointScreenPosition(
       viewer.scene.primitives,
-      requireLayer(id).ownerIds,
+      record.ownerIds,
       selectedNodeKeys,
     );
   },
