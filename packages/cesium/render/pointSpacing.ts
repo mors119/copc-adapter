@@ -45,12 +45,20 @@ export function deriveNodePointSpacingMeters(
   }
 
   try {
+    // Spacing probes are synthetic horizontal offsets and may extend beyond a
+    // regional grid even when the node's actual points are covered.
     const sourceCenter = createProjectPointTransformer(
       metadata,
       0,
       verticalGrid,
+      { sampleVerticalGrid: false },
     )(center);
-    const toGeographic = createPointTransformer(metadata, 0, verticalGrid);
+    const toGeographic = createPointTransformer(
+      metadata,
+      0,
+      verticalGrid,
+      { sampleVerticalGrid: false },
+    );
     const origin = geographicToEcef(toGeographic(sourceCenter));
     const east = geographicToEcef(
       toGeographic({
