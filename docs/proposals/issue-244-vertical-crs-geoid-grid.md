@@ -462,6 +462,67 @@ selected automatically. The generic GTX provider still permits an operator to
 supply a separately documented grid when its metadata and source COPC meet
 the implemented CRS restrictions.
 
+## Browser, Worker, and Cesium integration validation (2026-10-22)
+
+The Playwright suite `apps/dev-viewer/e2e/vertical-grid-cesium-integration.spec.ts`
+was run in headless Chromium with the repository's SwiftShader WebGL path. Its
+fixture uses the Autzen COPC sample downloaded by the repository's existing
+sample script and served from the repository by a range-aware test route. The
+test rewrites only the sample's projection WKT VLR to label the horizontal CRS
+as WGS 84 for the supported CRS-pair checks. Point records are unchanged, and
+the resulting metadata combination is synthetic; it is not a geodetic
+reclassification of the Autzen survey. Local runs need
+`npm run download-samples -- autzen`; CI already downloads this sample.
+
+The test creates tiny 4 × 4 GTX grids in memory with constant positive,
+negative, and zero values. It checks grid opt-in/default behavior, the
+`heightOffsetMeters` composition, source/displayed heights, WGS 84 ECEF
+positions, bounding-sphere containment, `zoomTo`, actual Cesium point picking,
+frustum culling and return to view, node reload, range loading, cache reuse,
+source replacement, independent layers, layer disposal, and fail-closed
+missing-grid, CRS-pair, and coverage errors. A real Rust/WASM worker queue is
+also cancelled and worker termination on layer destruction is observed.
+
+Three preparation paths were exercised in the browser: the default JavaScript
+backend, Rust/WASM with a real Worker, and Rust/WASM with Worker creation
+disabled. The Rust layer snapshots confirm the selected backend and whether a
+Worker was created; the test does not accept JavaScript fallback as Rust
+coverage. The suite also prepares the same decoded COPC node through JavaScript
+and Rust independently, applies the same synthetic grid and offset, and checks
+that source coordinates are exactly equal, height differences are below
+0.01 m, and ECEF differences are below 0.05 m. Those are cross-implementation
+regression bounds, not geodetic accuracy claims. The Cesium ECEF assertions
+allow 0.02 m per component against `Cesium.Cartesian3.fromDegrees`; the observed
+point is checked against the layer's bounding sphere with a 0.05 m margin.
+
+The Three.js regression remains covered separately by the existing default
+local ENU renderer browser test and the packed Three.js consumer build. Those
+paths require no vertical CRS or grid. The clean packed-consumer tests also
+exercise the root and explicit Cesium package entries.
+
+Validation commands and results for this integration change:
+
+- `npm --prefix apps/dev-viewer run test:e2e -- e2e/vertical-grid-cesium-integration.spec.ts --reporter=line`
+  — passed, 3/3 browser scenarios in 2.1 minutes.
+- `npm --prefix apps/dev-viewer run test:e2e -- e2e/dev-viewer-controls.spec.ts -g 'switches renderer and backend' --reporter=line`
+  — passed, 1/1 existing Three.js renderer/backend regression scenario.
+- `npm --prefix packages test` — passed, 493/493 tests.
+- `npm --prefix packages run typecheck` and
+  `npm --prefix apps/dev-viewer run typecheck` — passed.
+- `npm run test:pack` — passed, 6/6 Chromium cases each for root production,
+  explicit Cesium production, and root development consumers.
+- `npm run test:pack:three` — passed, clean packed Three.js consumer build.
+- `npm --prefix apps/dev-viewer run build` and `npm run docs:build` — passed.
+
+This browser suite validates correction plumbing with synthetic grids only. It
+does not independently verify an EGM2008 or KNGeoid24 model, survey control
+points, Cesium Terrain alignment, Firefox/WebKit behavior, or performance under
+large streamed grids. The separate official EGM2008 grid and reference-sample
+validation recorded above is not repeated by this browser fixture; no
+authoritative validation is inferred from the synthetic WKT or grid. The
+browser test consumes the repository's existing Autzen sample and does not
+depend on a developer-specific path or require an external grid download.
+
 ## Sources
 
 - [NGS: Converting GPS Height into NAVD88 Elevation with the GEOID96 Geoid Height Model](https://www.ngs.noaa.gov/PUBS_LIB/gislis96.html)
