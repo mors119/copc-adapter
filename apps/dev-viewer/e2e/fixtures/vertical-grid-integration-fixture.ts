@@ -27,7 +27,11 @@ type LayerRecord = {
   errorMessages: string[];
   ownerIds: Set<string>;
   preexistingOwnerIds: ReadonlySet<string>;
+  startedAt: number;
+  firstVisibleAt?: number;
 };
+
+type GridShape = { width: number; height: number };
 
 type LayerState = {
   snapshot: Pick<
@@ -53,6 +57,7 @@ type LayerState = {
   hierarchy?: ReturnType<CopcCesiumLayer["getHierarchyDiagnostics"]>;
   selection?: { candidatesBeforeCulling: number; frustumCulledCount: number; selectedNodeCount: number };
   cameraTargetScreen?: { x: number; y: number };
+  timings?: { firstVisibleMs?: number; elapsedMs: number };
 }
 
 type VerticalGridIntegration = {
@@ -60,7 +65,16 @@ type VerticalGridIntegration = {
     metres: number,
     outsideCoverage?: boolean,
     sourceVerticalCrs?: string,
+    shape?: GridShape,
   ): Promise<string>;
+  getGridInfo(id: string): {
+    width: number;
+    height: number;
+    encodedByteLength: number;
+    decodedByteLength: number;
+    loadDurationMs: number;
+  };
+  releaseGrid(id: string): void;
   createLayer(options: LayerOptions): Promise<{ error?: string; code?: string }>;
   getState(id: string): LayerState;
   getScreenPoint(id: string): { x: number; y: number } | undefined;
@@ -131,6 +145,7 @@ viewer.camera.setView({
 
 const layers = new Map<string, LayerRecord>();
 const grids = new Map<string, GtxGeoidGrid>();
+const gridLoadDurationMs = new Map<string, number>();
 let nextGridId = 0;
 let lastCanvasClick:
   | { clientX: number; clientY: number; offsetX: number; offsetY: number }
@@ -144,16 +159,44 @@ viewer.scene.canvas.addEventListener("click", (event) => {
     offsetY: event.offsetY,
   };
 });
+viewer.scene.postRender.addEventListener(() => {
+  const now = performance.now();
+  for (const record of layers.values()) {
+    if (
+      record.firstVisibleAt === undefined &&
+      record.layer.getSnapshot().renderedPointCount > 0
+    ) {
+      record.firstVisibleAt = now;
+    }
+  }
+});
 
-function encodeGtx(metres: number, outsideCoverage: boolean): ArrayBuffer {
-  const width = 4;
-  const height = 4;
+function encodeGtx(
+  metres: number,
+  outsideCoverage: boolean,
+  shape?: GridShape,
+): ArrayBuffer {
+  const width = shape?.width ?? 4;
+  const height = shape?.height ?? 4;
+  if (
+    !Number.isSafeInteger(width) ||
+    !Number.isSafeInteger(height) ||
+    width < 2 ||
+    height < 2
+  ) {
+    throw new Error("Synthetic benchmark grid dimensions must be integers of at least 2");
+  }
+  const global = shape !== undefined;
   const bytes = new ArrayBuffer(40 + width * height * 4);
   const header = new DataView(bytes);
-  header.setFloat64(0, outsideCoverage ? -1 : 42, false);
-  header.setFloat64(8, outsideCoverage ? -1 : -125, false);
-  header.setFloat64(16, 1, false);
-  header.setFloat64(24, 1, false);
+  header.setFloat64(0, outsideCoverage ? -1 : global ? -90 : 42, false);
+  header.setFloat64(8, outsideCoverage ? -1 : global ? -180 : -125, false);
+  header.setFloat64(16, global ? 180 / (height - 1) : 1, false);
+  header.setFloat64(
+    24,
+    global ? (width === 361 ? 360 / (width - 1) : 360 / width) : 1,
+    false,
+  );
   header.setInt32(32, height, false);
   header.setInt32(36, width, false);
   for (let index = 0; index < width * height; index += 1) {
@@ -264,8 +307,14 @@ function requireLayer(id: string): LayerRecord {
 
 const integrationWindow = window as IntegrationWindow;
 integrationWindow.__VERTICAL_GRID_INTEGRATION__ = {
-  async createGrid(metres, outsideCoverage = false, sourceVerticalCrs = "EPSG:6360") {
-    const bytes = encodeGtx(metres, outsideCoverage);
+  async createGrid(
+    metres,
+    outsideCoverage = false,
+    sourceVerticalCrs = "EPSG:6360",
+    shape,
+  ) {
+    const bytes = encodeGtx(metres, outsideCoverage, shape);
+    const loadStartedAt = performance.now();
     const grid = await loadGtxGeoidGrid(bytes, {
       gridId: `browser-synthetic-${metres}-${outsideCoverage ? "outside" : "covered"}`,
       sourceVerticalCrs,
@@ -280,7 +329,26 @@ integrationWindow.__VERTICAL_GRID_INTEGRATION__ = {
     nextGridId += 1;
     const gridId = `grid-${nextGridId}`;
     grids.set(gridId, grid);
+    gridLoadDurationMs.set(gridId, performance.now() - loadStartedAt);
     return gridId;
+  },
+  getGridInfo(id) {
+    const grid = grids.get(id);
+    const loadDurationMs = gridLoadDurationMs.get(id);
+    if (!grid || loadDurationMs === undefined) {
+      throw new Error(`Unknown vertical grid: ${id}`);
+    }
+    return {
+      width: grid.width,
+      height: grid.height,
+      encodedByteLength: grid.encodedByteLength,
+      decodedByteLength: grid.decodedByteLength,
+      loadDurationMs,
+    };
+  },
+  releaseGrid(id) {
+    grids.delete(id);
+    gridLoadDurationMs.delete(id);
   },
   async createLayer(options) {
     if (layers.has(options.id)) {
@@ -295,7 +363,9 @@ integrationWindow.__VERTICAL_GRID_INTEGRATION__ = {
         value: undefined,
       });
     }
+    const startedAt = performance.now();
     const record: LayerRecord = {
+      startedAt,
       layer: new CopcCesiumLayer({
         url: options.source,
         backend: options.backend ?? "copc-js",
@@ -393,6 +463,12 @@ integrationWindow.__VERTICAL_GRID_INTEGRATION__ = {
             },
           }
         : {}),
+      timings: {
+        elapsedMs: performance.now() - record.startedAt,
+        ...(record.firstVisibleAt === undefined
+          ? {}
+          : { firstVisibleMs: record.firstVisibleAt - record.startedAt }),
+      },
       errors: [...record.errorMessages],
       ownerIds: [...record.ownerIds],
       camera: {
@@ -673,6 +749,7 @@ integrationWindow.__VERTICAL_GRID_INTEGRATION__ = {
     for (const record of layers.values()) record.layer.destroy();
     layers.clear();
     grids.clear();
+    gridLoadDurationMs.clear();
     if (!viewer.isDestroyed()) viewer.destroy();
   },
 };

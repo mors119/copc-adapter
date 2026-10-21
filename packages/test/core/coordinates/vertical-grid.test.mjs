@@ -179,6 +179,14 @@ test("GTX loader snapshots mutable caller bytes before integrity verification", 
   assert.equal(grid.sampleUndulation(0, 0), 10);
 });
 
+test("GTX loader decodes from its snapshot without mutating caller-owned bytes", async () => {
+  const bytes = encodeGtx({ values: [10, 20, 30, 40] });
+  const originalBytes = new Uint8Array(bytes).slice();
+  const grid = await loadGrid(bytes);
+  assert.equal(grid.sampleUndulation(0.5, 0.5), 25);
+  assert.deepEqual(new Uint8Array(bytes), originalBytes);
+});
+
 test("GTX loader snapshots CRS and unit metadata before asynchronous verification", async () => {
   const bytes = encodeGtx({ values: [10, 20, 30, 40] });
   const options = {

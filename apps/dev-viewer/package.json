@@ -15,6 +15,7 @@
     "test:functional": "playwright test e2e/functional-validation.spec.ts --reporter=line",
     "benchmark:streaming": "playwright test e2e/streaming-performance.spec.ts --reporter=line",
     "benchmark:first-visible": "playwright test e2e/streaming-performance.spec.ts --grep 'records first-visible startup latency' --reporter=line",
+    "benchmark:vertical-grid": "COPC_VERTICAL_GRID_BENCHMARK=1 playwright test e2e/vertical-grid-cesium-integration.spec.ts --grep 'measures Cesium vertical-grid streaming costs' --workers=1 --reporter=line",
     "test:soak": "COPC_RUN_STREAMING_SOAK=1 playwright test e2e/copc-streaming-soak.spec.ts --workers=1 --reporter=line",
     "test:soak:smoke": "COPC_RUN_STREAMING_SOAK=1 COPC_SOAK_ALLOW_SHORT=1 COPC_SOAK_MINUTES=2 COPC_SOAK_SAMPLE_INTERVAL_MS=15000 playwright test e2e/copc-streaming-soak.spec.ts --workers=1 --reporter=line",
     "test:soak:three": "COPC_RUN_THREE_LIFECYCLE=1 playwright test e2e/three-layer-lifecycle-validation.spec.ts --workers=1 --reporter=line",
