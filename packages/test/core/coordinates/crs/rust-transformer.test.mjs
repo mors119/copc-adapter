@@ -118,7 +118,8 @@ test("Rust CRS transformer preserves the projected-WKT requirement without hidde
 
 test("Rust/WASM and JavaScript agree on foot units after one shared synthetic geoid pass", async () => {
   const point = { x: 126.5, y: 37.5 };
-  const compoundWkt = `COMPD_CS["WGS 84 + Local orthometric height",${WGS84_GEOGRAPHIC_WKT},VERT_CS["Local orthometric height",VERT_DATUM["Local vertical datum",2005],UNIT["foot", 0.3048,AUTHORITY["EPSG","9002"]],AXIS["Gravity-related height",UP]]]`;
+  const spacedHorizontalWkt = WGS84_GEOGRAPHIC_WKT.replace("GEOGCS[", "GEOGCS [");
+  const compoundWkt = `COMPD_CS["WGS 84 + Local orthometric height",${spacedHorizontalWkt},VERT_CS["Local orthometric height",VERT_DATUM["Local vertical datum",2005],UNIT ["foot", 0.3048,AUTHORITY["EPSG","9002"]],AXIS["Gravity-related height",UP]]]`;
   const metadata = {
     wkt: compoundWkt,
     bounds: {

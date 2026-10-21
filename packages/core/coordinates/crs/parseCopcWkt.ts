@@ -1,72 +1,30 @@
 export function extractHorizontalWkt(wkt: string): string {
-  const start = wkt.indexOf("PROJCS[");
-
-  if (start === -1) {
+  const projected = findWktSectionWithOffset(wkt, "PROJCS[");
+  if (!projected) {
     throw new Error("COPC WKT does not contain a projected horizontal CRS");
   }
-
-  let depth = 0;
-
-  for (let index = start; index < wkt.length; index += 1) {
-    const character = wkt[index];
-
-    if (character === "[") {
-      depth += 1;
-    }
-
-    if (character === "]") {
-      depth -= 1;
-
-      if (depth === 0) {
-        return wkt.slice(start, index + 1);
-      }
-    }
-  }
-
-  throw new Error("Failed to parse projected CRS from COPC WKT");
+  return projected.section;
 }
 
 /** Extract the horizontal WKT1 CRS, whether geographic or projected. */
 export function extractHorizontalCrsWkt(wkt: string): string {
-  const startTokens = ["PROJCS[", "GEOGCS["];
-  const starts = startTokens
-    .map((token) => ({ token, index: wkt.indexOf(token) }))
-    .filter((entry) => entry.index >= 0)
-    .sort((left, right) => left.index - right.index);
-  const start = starts[0];
-  if (!start) {
+  const horizontal = [
+    findWktSectionWithOffset(wkt, "PROJCS["),
+    findWktSectionWithOffset(wkt, "GEOGCS["),
+  ]
+    .filter((match): match is WktSectionMatch => match !== undefined)
+    .sort((left, right) => left.start - right.start)[0];
+  if (!horizontal) {
     throw new Error("COPC WKT does not contain a supported horizontal CRS");
   }
-
-  let depth = 0;
-  let inString = false;
-  for (let index = start.index; index < wkt.length; index += 1) {
-    const character = wkt[index];
-    if (character === '"') {
-      inString = !inString;
-      continue;
-    }
-    if (inString) {
-      continue;
-    }
-    if (character === "[") {
-      depth += 1;
-    } else if (character === "]") {
-      depth -= 1;
-      if (depth === 0) {
-        return wkt.slice(start.index, index + 1);
-      }
-    }
-  }
-
-  throw new Error("Failed to parse horizontal CRS from COPC WKT");
+  return horizontal.section;
 }
 
 export function extractHorizontalUnitScale(wkt: string): number {
-  const horizontalWkt = wkt.includes("PROJCS[")
+  const horizontalWkt = findWktSectionWithOffset(wkt, "PROJCS[")
     ? extractHorizontalWkt(wkt)
     : extractHorizontalCrsWkt(wkt);
-  const geographic = horizontalWkt.startsWith("GEOGCS[");
+  const geographic = /^GEOGCS\s*\[/i.test(horizontalWkt);
 
   let depth = 0;
   let inString = false;
@@ -96,12 +54,12 @@ export function extractHorizontalUnitScale(wkt: string): number {
     // Ignore nested units and read only the horizontal CRS's own unit.
     if (
       depth === 1 &&
-      horizontalWkt.slice(index).toUpperCase().startsWith("UNIT[")
+      /^UNIT\s*\[/i.test(horizontalWkt.slice(index))
     ) {
       const unitText = horizontalWkt.slice(index);
 
       const match = unitText.match(
-        /^UNIT\["[^"]+",\s*([0-9.]+(?:e[+-]?\d+)?)/i,
+        /^UNIT\s*\[\s*"[^"]+"\s*,\s*([0-9.]+(?:e[+-]?\d+)?)/i,
       );
 
       if (!match) {
@@ -180,6 +138,15 @@ function findWktSectionStart(
 }
 
 function findWktSection(wkt: string, keyword: string): string | undefined {
+  return findWktSectionWithOffset(wkt, keyword)?.section;
+}
+
+type WktSectionMatch = { start: number; section: string };
+
+function findWktSectionWithOffset(
+  wkt: string,
+  keyword: string,
+): WktSectionMatch | undefined {
   let inString = false;
   let start = -1;
   let openBracket = -1;
@@ -222,7 +189,9 @@ function findWktSection(wkt: string, keyword: string): string | undefined {
     if (character === "[") depth += 1;
     else if (character === "]") {
       depth -= 1;
-      if (depth === 0) return wkt.slice(start, index + 1);
+      if (depth === 0) {
+        return { start, section: wkt.slice(start, index + 1) };
+      }
     }
   }
   throw new Error(`Failed to parse ${keyword.slice(0, -1)} from WKT`);

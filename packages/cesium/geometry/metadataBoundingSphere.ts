@@ -56,7 +56,7 @@ export function createMetadataBoundingSphere(
     const horizontalWkt = metadata.wkt
       ? extractHorizontalCrsWkt(metadata.wkt)
       : undefined;
-    const geographicWkt = horizontalWkt?.startsWith("GEOGCS[") ?? false;
+    const geographicWkt = /^GEOGCS\s*\[/i.test(horizontalWkt ?? "");
     const inferredGeographic =
       metadata.wkt === undefined &&
       minX >= -180 &&
@@ -66,7 +66,7 @@ export function createMetadataBoundingSphere(
     let horizontalUnitScale: number;
     if (metadata.wkt && geographicWkt) {
       const angularUnit = horizontalWkt?.match(
-        /UNIT\["[^"]+",\s*([0-9.eE+-]+)\s*\]/i,
+        /UNIT\s*\[\s*"[^"]+"\s*,\s*([0-9.eE+-]+)\s*\]/i,
       );
       const radiansPerSourceUnit = angularUnit
         ? Number(angularUnit[1])
