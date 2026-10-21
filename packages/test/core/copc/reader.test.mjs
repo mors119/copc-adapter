@@ -12,6 +12,7 @@ import {
   DEFAULT_MAX_RANGE_BYTES,
   DEFAULT_MAX_CONCURRENT_RANGE_REQUESTS,
   getCopcPointFieldSelection,
+  loadNgaEgm2008Grid,
 } from "../../../index.ts";
 import { Getter } from "copc";
 import {
@@ -1065,6 +1066,7 @@ test("createNodePointCache clears stored entries", async () => {
 
 test("public API exports CopcCesiumLayer", () => {
   assert.equal(typeof CopcCesiumLayer, "function");
+  assert.equal(typeof loadNgaEgm2008Grid, "function");
   assert.equal(typeof CopcJsBackend, "function");
   assert.equal(DEFAULT_MAX_RANGE_BYTES, 64 * 1024 * 1024);
   assert.equal(DEFAULT_MAX_CONCURRENT_RANGE_REQUESTS, 4);

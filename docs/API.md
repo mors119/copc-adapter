@@ -720,7 +720,8 @@ selected from location or CRS guesses. The implemented provider reads one
 offline GTX file supplied as a `File`/`Blob`, `ArrayBuffer`, or typed-array
 view. GTX is the historical binary vertical-shift grid format; this provider
 accepts big-endian float32 or float64 values and bilinear interpolation.
-It does not download grids or convert EGM2008 or KNGeoid24 source formats.
+It does not download grids. A separate explicit loader supports the exact NGA
+EGM2008 2.5-minute small-endian grid described below; KNGeoid24 is unsupported.
 
 ```ts
 import * as Cesium from 'cesium';
@@ -786,14 +787,62 @@ authority/name mismatch, downward vertical axes, unsupported epochs, NoData
 samples, or points outside coverage fail the requested point preparation.
 There is no fallback to uncorrected heights or to a constant offset.
 
+### NGA EGM2008 2.5-minute grid
+
+The dedicated loader accepts only the extracted raw
+`Und_min2.5x2.5_egm2008_isw=82_WGS84_TideFree_SE` member from NGA's official
+`EGM2008_Interpolation_Grid.zip`. Select/extract that file locally before
+calling the API. It verifies the exact inspected file digest and Fortran
+record structure, then fixes the operation to EGM2008 gravity-related height
+(`EPSG:3855`) → WGS 84 ellipsoidal height (`EPSG:4979`), WGS 84 geographic
+sampling (`EPSG:4326`), metres, `h - H`, no NoData sentinel, and bilinear
+interpolation.
+
+```ts
+import * as Cesium from 'cesium';
+import {
+  CopcCesiumLayer,
+  loadNgaEgm2008Grid,
+} from '@frillab/copc-adapter';
+
+const gridFile = (document.querySelector('#egm2008-grid') as HTMLInputElement)
+  .files?.[0];
+if (!gridFile) throw new Error('Select the extracted NGA EGM2008 grid file');
+
+const egm2008 = await loadNgaEgm2008Grid(gridFile);
+const viewer = new Cesium.Viewer('cesium-container');
+const layer = new CopcCesiumLayer({
+  url: '/data/egm2008-height.copc.laz',
+  verticalTransform: egm2008,
+  heightOffsetMeters: 0,
+});
+await layer.load();
+layer.attachTo(viewer);
+```
+
+This profile applies only when the COPC compound WKT explicitly identifies
+EPSG:3855 and its horizontal CRS meets the supported WGS 84 restriction. It
+does not propagate a coordinate epoch or transform between WGS 84 frame
+realizations. The source grid is not bundled or fetched by the library; no
+grid request occurs in CI or during point streaming. NGA's accessed page and
+archive materials do not state redistribution/modification terms, so users
+must obtain and supply the file themselves under terms applicable to their
+use. This loader is pinned to one file digest and rejects other releases or
+byte layouts.
+
 `noDataValue` is mandatory: provide the documented finite sentinel or `null`
 when the grid documentation confirms there is none. Grid values must already
 use the declared sign convention; this API does not infer or reverse signs.
 `valueUnit` is converted to metres. The loader defaults to a 256 MiB encoded
 grid limit and allows an explicit increase up to 512 MiB. It holds one private
 decoded grid in the layer/core; input bytes and decoded values can together
-use roughly twice the grid size during loading. Grid data is not sent to each
-Worker. Rust/WASM preparation and JavaScript preparation both pass through the
+use roughly twice the grid size during loading. The NGA EGM2008 file is
+149,368,328 bytes encoded and 149,333,760 bytes decoded (about 284.86 MiB
+together before runtime overhead). Mutable `ArrayBuffer` and typed-array input
+is snapshotted during loading; if the caller keeps that original buffer alive,
+it adds another 142.45 MiB. A local `File`/`Blob` avoids that caller-owned copy.
+Grid data is not sent to each Worker.
+Rust/WASM preparation and JavaScript preparation both pass through the
 shared TypeScript grid sampler, so corrected geographic and ECEF positions
 follow the same rule. Sampling currently runs synchronously in the shared
 streaming preparation stage.
@@ -804,9 +853,12 @@ when changing the transform configuration. Omitting `verticalTransform`
 disables datum conversion. `heightOffsetMeters` is then still available as
 the independent manual adjustment described above.
 
-The provider is validated with synthetic grids only. No EGM2008 or KNGeoid24
-grid is bundled or declared model-supported. Evidence gaps and requirements
-for model-specific support are recorded in the
+The generic GTX provider is tested with synthetic grids. The exact NGA
+EGM2008 file is also validated locally against NGA's official sample values
+and GeoGRAV bilinear outputs; those comparisons validate model samples and
+interpolation only, not survey-control accuracy or an arbitrary COPC dataset.
+No grid is bundled. No KNGeoid24 support is declared. Evidence gaps and
+requirements are recorded in the
 [issue #244 implementation record](proposals/issue-244-vertical-crs-geoid-grid.md).
 
 The projected EPSG:5186 Rust/JavaScript differential fixture checks longitude

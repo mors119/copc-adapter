@@ -12,6 +12,7 @@ import {
   VerticalTransformError,
   loadGtxGeoidGrid,
 } from "../../../core/coordinates/transform/verticalGrid.ts";
+import { loadNgaEgm2008Grid } from "../../../core/coordinates/transform/egm2008Grid.ts";
 import { geographicToEcef } from "../../../core/coordinates/transform/worldCoordinates.ts";
 import { createPreparedPointData } from "../../../core/point/preparedPoint.ts";
 import { buildStreamingHierarchy } from "../../../core/streaming/buildStreamingHierarchy.ts";
@@ -112,6 +113,25 @@ test("GTX loader validates SHA-256, header, dimensions and memory limits", async
   await assert.rejects(
     loadGrid(bytes, { maxGridBytes: 55 }),
     (error) => error instanceof VerticalTransformError && error.code === "resource-limit",
+  );
+});
+
+test("NGA EGM2008 loader requires the extracted model grid and a valid resource budget", async () => {
+  const bytes = encodeGtx({});
+  await assert.rejects(
+    loadNgaEgm2008Grid(bytes, {}),
+    (error) =>
+      error instanceof VerticalTransformError &&
+      error.code === "grid-format" &&
+      error.message.includes("NGA EGM2008 sequential grid"),
+  );
+  await assert.rejects(
+    loadNgaEgm2008Grid(bytes, { maxGridBytes: 55 }),
+    (error) => error instanceof VerticalTransformError && error.code === "resource-limit",
+  );
+  await assert.rejects(
+    loadNgaEgm2008Grid(bytes, null),
+    (error) => error instanceof VerticalTransformError && error.code === "invalid-grid-metadata",
   );
 });
 

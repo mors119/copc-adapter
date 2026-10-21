@@ -222,13 +222,13 @@ async function readGridBytes(
 ): Promise<Uint8Array<ArrayBuffer>> {
   if (typeof Blob !== "undefined" && source instanceof Blob) {
     if (source.size > maxBytes) {
-      fail("resource-limit", `GTX file exceeds the ${maxBytes}-byte encoded grid limit`, gridId);
+      fail("resource-limit", `Grid file exceeds the ${maxBytes}-byte encoded limit`, gridId);
     }
     return new Uint8Array(await source.arrayBuffer());
   }
   if (source instanceof ArrayBuffer) {
     if (source.byteLength > maxBytes) {
-      fail("resource-limit", `GTX buffer exceeds the ${maxBytes}-byte encoded grid limit`, gridId);
+      fail("resource-limit", `Grid buffer exceeds the ${maxBytes}-byte encoded limit`, gridId);
     }
     // Snapshot caller-owned mutable memory before the asynchronous digest and
     // decode phases, so the bytes checked are the bytes that are decoded.
@@ -236,11 +236,11 @@ async function readGridBytes(
   }
   if (ArrayBuffer.isView(source)) {
     if (source.byteLength > maxBytes) {
-      fail("resource-limit", `GTX view exceeds the ${maxBytes}-byte encoded grid limit`, gridId);
+      fail("resource-limit", `Grid view exceeds the ${maxBytes}-byte encoded limit`, gridId);
     }
     return new Uint8Array(source.buffer, source.byteOffset, source.byteLength).slice();
   }
-  fail("missing-grid", "Provide a local Blob/File, ArrayBuffer, or typed-array view; network URLs are not supported", gridId);
+  fail("missing-grid", "Provide local grid bytes as a Blob/File, ArrayBuffer, or typed-array view; network URLs are not supported", gridId);
 }
 
 async function sha256(bytes: Uint8Array<ArrayBuffer>, gridId: string): Promise<string> {
@@ -258,6 +258,25 @@ async function sha256(bytes: Uint8Array<ArrayBuffer>, gridId: string): Promise<s
 function near(left: number, right: number, tolerance: number): boolean {
   return Math.abs(left - right) <= tolerance;
 }
+
+/** @internal Already decoded regular-grid data for a model-specific adapter. */
+export type VerifiedGeoidGridData = {
+  options: GtxGeoidGridOptions;
+  sha256: string;
+  width: number;
+  height: number;
+  longitudeOrigin: number;
+  latitudeOrigin: number;
+  longitudeStep: number;
+  latitudeStep: number;
+  values: Float32Array | Float64Array;
+  encodedByteLength: number;
+  minimumUndulationMeters: number;
+  maximumUndulationMeters: number;
+  globalLongitudeCoverage: "none" | "duplicated-seam" | "periodic";
+};
+
+const CREATE_VERIFIED_GRID = Symbol("create-verified-vertical-grid");
 
 /**
  * Immutable, decoded GTX geoid/vertical-shift grid. The grid values and file
@@ -328,6 +347,12 @@ export class GtxGeoidGrid {
     this.maximumUndulationMeters = input.maximumUndulationMeters;
     this.#globalLongitudeCoverage = input.globalLongitudeCoverage;
     Object.freeze(this);
+  }
+
+  static [CREATE_VERIFIED_GRID](input: VerifiedGeoidGridData): GtxGeoidGrid {
+    const options = { ...input.options };
+    validateOptions(options);
+    return new GtxGeoidGrid({ ...input, options });
   }
 
   /**
@@ -705,4 +730,9 @@ export async function loadGtxGeoidGrid(
   options: GtxGeoidGridOptions,
 ): Promise<GtxGeoidGrid> {
   return GtxGeoidGrid.load(source, options);
+}
+
+/** @internal Build the shared sampler from a verified model-specific decoder. */
+export function createVerifiedGeoidGrid(data: VerifiedGeoidGridData): GtxGeoidGrid {
+  return GtxGeoidGrid[CREATE_VERIFIED_GRID](data);
 }

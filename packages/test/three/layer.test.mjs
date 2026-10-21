@@ -2,7 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 
-import { CopcThreeLayer, createThreeStreamingView } from "../../three.ts";
+import {
+  CopcThreeLayer,
+  createThreeStreamingView,
+  loadNgaEgm2008Grid,
+} from "../../three.ts";
 
 function createBackend({ pointCount = 2 } = {}) {
   const node = {
@@ -165,6 +169,10 @@ async function createLoadedLayer(renderer) {
 function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
+
+test("Three entrypoint exports the explicit EGM2008 grid loader", () => {
+  assert.equal(typeof loadNgaEgm2008Grid, "function");
+});
 
 test("default Three local rendering needs no vertical CRS metadata or geoid grid", async () => {
   const { layer, source, scene, applicationMesh, attachment } =
