@@ -564,17 +564,22 @@ function installStartupInstrumentation(): void {
           state.transition.activeReplacementGroupCount === 0 &&
           Number(state.performance.updateDurationMs) > 0;
         const stateKey = `${state.streamingUpdateCount}:${state.renderedPointCount}:${state.renderedNodeKeys.join(",")}`;
-        stableQualitySamples =
-          idle && stateKey === previousStateKey
-            ? stableQualitySamples + 1
-            : 0;
-        previousStateKey = stateKey;
-        if (stableQualitySamples >= 12 && profile.qualityAt === undefined) {
-          profile.qualityAt = now;
-          profile.qualityState = state;
-          profile.rangeBytesAtQuality = profile.ranges
-            .filter((range) => range.at <= now)
-            .reduce((sum, range) => sum + (range.receivedBytes ?? 0), 0);
+        if (profile.interactionResponseAt === undefined) {
+          stableQualitySamples = 0;
+          previousStateKey = "";
+        } else {
+          stableQualitySamples =
+            idle && stateKey === previousStateKey
+              ? stableQualitySamples + 1
+              : 0;
+          previousStateKey = stateKey;
+          if (stableQualitySamples >= 12 && profile.qualityAt === undefined) {
+            profile.qualityAt = now;
+            profile.qualityState = state;
+            profile.rangeBytesAtQuality = profile.ranges
+              .filter((range) => range.at <= now)
+              .reduce((sum, range) => sum + (range.receivedBytes ?? 0), 0);
+          }
         }
       }
       if (performance.memory) {
@@ -866,6 +871,18 @@ test("records first-visible startup latency on Autzen", async ({ browser }) => {
       undefined,
       { timeout: 60_000 },
     );
+    const qualityFollowedCameraResponse = await page.evaluate(() => {
+      const profile = window.__COPC_STARTUP_PROFILE__;
+      return (
+        profile?.interactionResponseAt !== undefined &&
+        profile.qualityAt !== undefined &&
+        profile.qualityAt >= profile.interactionResponseAt
+      );
+    });
+    expect(
+      qualityFollowedCameraResponse,
+      "target quality must settle after the camera responds to the gesture",
+    ).toBe(true);
 
     const result = await page.evaluate(() => {
       const profile = window.__COPC_STARTUP_PROFILE__;

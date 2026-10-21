@@ -134,6 +134,12 @@ Times are median / p95 across five runs. The camera gesture occurs after first
 draw. “Page to draw” starts at the benchmark's document-init timestamp;
 “Range to draw” starts at the first COPC Range request.
 
+The initial target-quality fields in this table are retained as a historical
+snapshot. Review found that the sampler could settle before the camera gesture
+on a slow runner; the corrected post-interaction measurements below supersede
+the initial target-quality, target-point, range-to-quality, worker-utilization,
+and decoded-cache values.
+
 | Measurement | Cold | Warm |
 | --- | ---: | ---: |
 | Page to first point draw | 1,726 / 1,761 ms | 1,389 / 1,423 ms |
@@ -204,6 +210,31 @@ workers, and hierarchy query, decode, preparation, and WebGL upload times are
 small relative to the end-to-end startup. The existing stale-work gate still
 passes, including one superseded Range cancellation and zero active requests at
 settle.
+
+### Review follow-up: quality measured after camera response
+
+The sampler now starts its 300 ms stable-quality window only after it observes
+the camera respond to the one-step gesture. The benchmark asserts that
+`qualityAt` is at or after `interactionResponseAt`. These additional corrected
+results are median / p95 from five cold and five warm runs on the same reference
+machine and emulated network:
+
+| Measurement | Cold | Warm |
+| --- | ---: | ---: |
+| Page to first point draw | 1,481 / 1,545 ms | 1,004 / 1,008 ms |
+| First Range to first point draw | 899 / 913 ms | 696 / 711 ms |
+| First Range to usable camera movement | 1,116 / 1,266 ms | 862 / 1,515 ms |
+| Pointer-down to camera response | 89 / 104 ms | 59 / 597 ms |
+| First Range to target quality after camera response | 1,600 / 1,778 ms | 1,392 / 1,871 ms |
+| Range bytes at first point | 1,349,753 / 1,349,753 bytes | 1,349,753 / 1,349,753 bytes |
+| Range bytes to target quality | 2,160,773 / 2,160,773 bytes | 2,160,773 / 3,613,793 bytes |
+| Points at first draw | 37,032 / 37,032 | 37,032 / 37,032 |
+| Selected target points after camera move | 195,538 / 195,538 | 195,538 / 233,383 |
+| Worker utilization through target quality; peak active workers | 16.2 / 16.7%; 4 | 16.7 / 17.7%; 4 |
+| Peak active Range requests | 4 / 4 | 4 / 4 |
+| Peak page JS heap | 207.6 / 212.0 MB | 213.9 / 332.7 MB |
+| Peak summed Chromium process RSS | 1.437 / 1.481 GB | 1.417 / 1.553 GB |
+| Decoded point cache at target quality | 15.8 / 15.8 MB | 15.8 / 26.6 MB |
 
 ### Measurement limits
 
