@@ -123,8 +123,9 @@ function toGeographicBounds(
   );
   if (!verticalGrid) return transformed;
 
-  // A geoid is spatially varying. Expanding by the grid-wide extrema keeps
-  // hierarchy bounds conservative even when a node spans unsampled grid cells.
+  // Hierarchy corners may lie in empty cube padding outside regional coverage.
+  // Grid-wide extrema keep their vertical bounds conservative without sampling
+  // the grid at those synthetic coordinates.
   const verticalUnitScale = verticalGrid.getSourceVerticalUnitScale(
     metadata.wkt,
   );
@@ -136,8 +137,8 @@ function toGeographicBounds(
     sourceMaxHeight + verticalGrid.maximumUndulationMeters + heightOffsetMeters;
   return {
     ...transformed,
-    minZ: Math.min(transformed.minZ, conservativeMinimum),
-    maxZ: Math.max(transformed.maxZ, conservativeMaximum),
+    minZ: conservativeMinimum,
+    maxZ: conservativeMaximum,
   };
 }
 
@@ -164,6 +165,7 @@ export function buildStreamingHierarchy(
     metadata,
     heightOffsetMeters,
     verticalGrid,
+    { sampleVerticalGrid: false },
   );
   const nodeMap = new Map(nodes.map((node) => [node.key, node]));
   const streamingNodes: StreamingHierarchy = new Map();
@@ -182,6 +184,14 @@ export function buildStreamingHierarchy(
       verticalGrid,
     );
     const geographicCenter = transformPoint(center);
+    if (verticalGrid) {
+      // This synthetic center can also lie outside coverage; use the midpoint
+      // of the global undulation range as its selection/culling estimate.
+      geographicCenter.height +=
+        (verticalGrid.minimumUndulationMeters +
+          verticalGrid.maximumUndulationMeters) /
+        2;
+    }
 
     streamingNodes.set(node.key, {
       node,

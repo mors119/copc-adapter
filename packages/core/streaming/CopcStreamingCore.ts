@@ -386,10 +386,13 @@ function toProjectBounds(
   heightOffsetMeters: number,
   verticalGrid?: GtxGeoidGrid,
 ): CopcProjectBounds {
+  // Camera-envelope corners are synthetic. Convert their horizontal position
+  // without sampling a regional grid, then bound source height from extrema.
   const toProject = createProjectPointTransformer(
     metadata,
     heightOffsetMeters,
     verticalGrid,
+    { sampleVerticalGrid: false },
   );
   const corners = [
     [geographicBounds.minX, geographicBounds.minY, geographicBounds.minZ],
@@ -429,15 +432,19 @@ function toProjectBounds(
     metadata.wkt,
   );
   const conservativeMinimum =
-    (geographicBounds.minZ - heightOffsetMeters - verticalGrid.maximumUndulationMeters) /
+    (geographicBounds.minZ -
+      heightOffsetMeters -
+      verticalGrid.maximumUndulationMeters) /
     verticalUnitScale;
   const conservativeMaximum =
-    (geographicBounds.maxZ - heightOffsetMeters - verticalGrid.minimumUndulationMeters) /
+    (geographicBounds.maxZ -
+      heightOffsetMeters -
+      verticalGrid.minimumUndulationMeters) /
     verticalUnitScale;
   return {
     ...transformed,
-    minZ: Math.min(transformed.minZ, conservativeMinimum),
-    maxZ: Math.max(transformed.maxZ, conservativeMaximum),
+    minZ: conservativeMinimum,
+    maxZ: conservativeMaximum,
   };
 }
 

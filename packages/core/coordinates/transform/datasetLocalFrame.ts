@@ -106,7 +106,15 @@ export function createDatasetLocalFrame(
     metadata,
     heightOffsetMeters,
     verticalGrid,
+    { sampleVerticalGrid: false },
   )(sourceOrigin);
+  if (verticalGrid) {
+    // The source cube centre may be empty padding outside regional coverage.
+    geographicOrigin.height +=
+      (verticalGrid.minimumUndulationMeters +
+        verticalGrid.maximumUndulationMeters) /
+      2;
+  }
   const origin = geographicToEcef(geographicOrigin);
   const longitude = (geographicOrigin.longitude * Math.PI) / 180;
   const latitude = (geographicOrigin.latitude * Math.PI) / 180;

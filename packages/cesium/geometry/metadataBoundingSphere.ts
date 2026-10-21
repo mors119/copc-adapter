@@ -50,6 +50,8 @@ export function createMetadataBoundingSphere(
       metadata,
       heightOffsetMeters,
       verticalGrid,
+      // Extent samples are synthetic; account for the undulation range below.
+      { sampleVerticalGrid: false },
     );
     const horizontalWkt = metadata.wkt
       ? extractHorizontalCrsWkt(metadata.wkt)
@@ -128,6 +130,11 @@ export function createMetadataBoundingSphere(
     const positions: Cesium.Cartesian3[] = [];
     let maximumHorizontalSampleStep = 0;
     let maximumCellResidual = 0;
+    const midpointUndulationMeters = verticalGrid
+      ? (verticalGrid.minimumUndulationMeters +
+          verticalGrid.maximumUndulationMeters) /
+        2
+      : 0;
 
     const sourcePointAt = (xRatio: number, yRatio: number, z: number) => {
       const sourcePoint = {
@@ -136,6 +143,7 @@ export function createMetadataBoundingSphere(
         z,
       };
       const geographicPoint = transformPoint(sourcePoint);
+      geographicPoint.height += midpointUndulationMeters;
       if (
         !Number.isFinite(geographicPoint.longitude) ||
         !Number.isFinite(geographicPoint.latitude) ||
@@ -237,8 +245,9 @@ export function createMetadataBoundingSphere(
       Math.SQRT2 * maximumHorizontalSampleStep +
       4 * maximumCellResidual +
       (verticalGrid
-        ? verticalGrid.maximumUndulationMeters -
-          verticalGrid.minimumUndulationMeters
+        ? (verticalGrid.maximumUndulationMeters -
+            verticalGrid.minimumUndulationMeters) /
+          2
         : 0) +
       BOUNDARY_PADDING_METERS;
     if (

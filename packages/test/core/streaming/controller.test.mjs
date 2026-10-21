@@ -239,15 +239,20 @@ function createPointBuffer(height = 150) {
   };
 }
 
-async function createSyntheticVerticalGrid() {
+async function createSyntheticVerticalGrid({
+  latitudeOrigin = 19,
+  longitudeOrigin = 9,
+  latitudeStep = 1,
+  longitudeStep = 1,
+} = {}) {
   const rows = 3;
   const columns = 3;
   const bytes = new ArrayBuffer(40 + rows * columns * 4);
   const view = new DataView(bytes);
-  view.setFloat64(0, 19, false);
-  view.setFloat64(8, 9, false);
-  view.setFloat64(16, 1, false);
-  view.setFloat64(24, 1, false);
+  view.setFloat64(0, latitudeOrigin, false);
+  view.setFloat64(8, longitudeOrigin, false);
+  view.setFloat64(16, latitudeStep, false);
+  view.setFloat64(24, longitudeStep, false);
   view.setInt32(32, rows, false);
   view.setInt32(36, columns, false);
   Array.from({ length: rows * columns }, () => 25).forEach((value, index) =>
@@ -370,6 +375,61 @@ test("shared streaming core applies a grid once after prepared Rust-style output
   prepared = core.getCachedPreparedPointData(ROOT_KEY);
   assert.equal(prepared.geographic.coordinates[2], 180);
   assert.deepEqual([...prepared.source.coordinates], [10.005, 20.005, 150]);
+  core.destroy();
+});
+
+test("regional geoid grids do not need to cover synthetic camera query corners", async () => {
+  const wkt =
+    'COMPD_CS["WGS 84 + Local orthometric height",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],VERT_CS["Local orthometric height",VERT_DATUM["Local vertical datum",2005],UNIT["metre",1],AXIS["Gravity-related height",UP]]]';
+  const source = createSourceFactory({
+    metadata: createMetadata(wkt),
+    prepared: true,
+    preparedHeightOffsetMeters: 5,
+    onPreparedPointLoad: () => {
+      const geographic = new Float64Array([10.005, 20.005, 155]);
+      const world = geographicToEcef({
+        longitude: geographic[0],
+        latitude: geographic[1],
+        height: geographic[2],
+      });
+      return createPreparedPointData({
+        pointCount: 1,
+        sourceCoordinates: new Float64Array([10.005, 20.005, 150]),
+        geographicCoordinates: geographic,
+        worldCoordinates: new Float64Array([world.x, world.y, world.z]),
+      });
+    },
+  });
+  const grid = await createSyntheticVerticalGrid({
+    latitudeOrigin: 20,
+    longitudeOrigin: 10,
+    latitudeStep: 0.01,
+    longitudeStep: 0.01,
+  });
+  const core = new CopcStreamingCore({
+    url: "memory://regional-geoid.copc.laz",
+    backend: source.backend,
+    heightOffsetMeters: 5,
+    verticalTransform: grid,
+    streaming: {
+      maxNodes: 8,
+      maxDepth: 0,
+      maxRenderDistanceMeters: 12_000,
+      maxScreenSpaceError: 8,
+      maxPointsPerBatch: 1,
+    },
+  });
+
+  await core.load();
+  const result = await core.updateView(
+    createView({ viewDistanceMeters: 12_000 }),
+  );
+  assert.ok(result.selectedNodeKeys.includes(ROOT_KEY));
+  assert.ok(result.loadedNodePoints.has(ROOT_KEY));
+  assert.equal(
+    core.getCachedPreparedPointData(ROOT_KEY).geographic.coordinates[2],
+    180,
+  );
   core.destroy();
 });
 

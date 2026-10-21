@@ -1367,12 +1367,21 @@ export class CesiumLayerController {
       metadata,
       this.options.heightOffsetMeters,
       this.options.verticalTransform,
+      { sampleVerticalGrid: false },
     );
     const center = transformPoint({
       x: (metadata.cube.minX + metadata.cube.maxX) / 2,
       y: (metadata.cube.minY + metadata.cube.maxY) / 2,
       z: (metadata.cube.minZ + metadata.cube.maxZ) / 2,
     });
+    if (this.options.verticalTransform) {
+      // The cube centre is a framing estimate, not a point that must sample
+      // within a regional grid's coverage.
+      center.height +=
+        (this.options.verticalTransform.minimumUndulationMeters +
+          this.options.verticalTransform.maximumUndulationMeters) /
+        2;
+    }
     const cubeWidth = metadata.cube.maxX - metadata.cube.minX;
     const cubeHeight = metadata.cube.maxY - metadata.cube.minY;
     const horizontalUnitScale = metadata.wkt

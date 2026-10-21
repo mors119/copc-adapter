@@ -35,14 +35,17 @@ function hasGeographicBounds(metadata: CopcMetadata): boolean {
  * identity horizontal mapping.
  *
  * @param heightOffsetMeters Additive correction to transformed ellipsoidal height; defaults to 0.
+ * @param options.sampleVerticalGrid Set false only for synthetic bounds that are expanded using the grid's extrema.
  * @throws If projected coordinates have no usable WKT.
  */
 export function createPointTransformer(
   metadata: CopcMetadata,
   heightOffsetMeters = 0,
   verticalGrid?: GtxGeoidGrid,
+  options: { sampleVerticalGrid?: boolean } = {},
 ): (point: CopcPoint) => GeographicPoint {
   const heightOffset = resolveHeightOffsetMeters(heightOffsetMeters);
+  const sampleVerticalGrid = options.sampleVerticalGrid !== false;
   const verticalUnitScale = verticalGrid
     ? verticalGrid.getSourceVerticalUnitScale(metadata.wkt)
     : metadata.wkt
@@ -68,14 +71,15 @@ export function createPointTransformer(
   return (point: CopcPoint): GeographicPoint => {
     const [longitude, latitude] = projection.forward([point.x, point.y]);
     const convertedHeight = point.z * verticalUnitScale;
-    const verticalHeight = verticalGrid
-      ? verticalGrid.transformHeight(
-          convertedHeight,
-          longitude,
-          latitude,
-          "orthometric-to-ellipsoidal",
-        )
-      : convertedHeight;
+    const verticalHeight =
+      verticalGrid && sampleVerticalGrid
+        ? verticalGrid.transformHeight(
+            convertedHeight,
+            longitude,
+            latitude,
+            "orthometric-to-ellipsoidal",
+          )
+        : convertedHeight;
 
     return {
       longitude,
@@ -90,14 +94,17 @@ export function createPointTransformer(
  * Create a WGS84 geographic to COPC source-XYZ transform for view queries.
  *
  * @param heightOffsetMeters Correction previously applied to ellipsoidal height; defaults to 0 and is removed before inverse transformation.
+ * @param options.sampleVerticalGrid Set false only for synthetic bounds that are expanded using the grid's extrema.
  * @throws If projected source coordinates have no usable WKT.
  */
 export function createProjectPointTransformer(
   metadata: CopcMetadata,
   heightOffsetMeters = 0,
   verticalGrid?: GtxGeoidGrid,
+  options: { sampleVerticalGrid?: boolean } = {},
 ): (point: GeographicPoint) => CopcPoint {
   const heightOffset = resolveHeightOffsetMeters(heightOffsetMeters);
+  const sampleVerticalGrid = options.sampleVerticalGrid !== false;
   const verticalUnitScale = verticalGrid
     ? verticalGrid.getSourceVerticalUnitScale(metadata.wkt)
     : metadata.wkt
@@ -123,14 +130,15 @@ export function createProjectPointTransformer(
   return (point: GeographicPoint): CopcPoint => {
     const [x, y] = projection.inverse([point.longitude, point.latitude]);
     const offsetRemovedHeight = point.height - heightOffset;
-    const sourceVerticalHeight = verticalGrid
-      ? verticalGrid.transformHeight(
-          offsetRemovedHeight,
-          point.longitude,
-          point.latitude,
-          "ellipsoidal-to-orthometric",
-        )
-      : offsetRemovedHeight;
+    const sourceVerticalHeight =
+      verticalGrid && sampleVerticalGrid
+        ? verticalGrid.transformHeight(
+            offsetRemovedHeight,
+            point.longitude,
+            point.latitude,
+            "ellipsoidal-to-orthometric",
+          )
+        : offsetRemovedHeight;
 
     return {
       x,

@@ -15,6 +15,7 @@ import {
 import { geographicToEcef } from "../../../core/coordinates/transform/worldCoordinates.ts";
 import { createPreparedPointData } from "../../../core/point/preparedPoint.ts";
 import { buildStreamingHierarchy } from "../../../core/streaming/buildStreamingHierarchy.ts";
+import { createDatasetLocalFrame } from "../../../core/coordinates/transform/datasetLocalFrame.ts";
 import { getDatasetElevationRange } from "../../../core/point/style/pointStyle.ts";
 import { applyPreparedPointVerticalGrid } from "../../../core/coordinates/transform/createPointTransformer.ts";
 
@@ -352,6 +353,64 @@ test("grid transforms use the strict vertical unit scale in both directions and 
       grid,
     )({ x: 0.5, y: 0.5, z: 100 }).height,
     55.480000000000004,
+  );
+});
+
+test("hierarchy bounds use grid extrema without sampling padded cube corners", async () => {
+  const grid = await loadGrid(encodeGtx({ values: [10, 20, 30, 40] }));
+  const metadata = createMetadata({
+    minX: 0.25,
+    minY: 0.25,
+    maxX: 0.75,
+    maxY: 0.75,
+    minZ: 100,
+    maxZ: 101,
+  });
+  metadata.cube = {
+    minX: -2,
+    minY: -2,
+    maxX: 1,
+    maxY: 1,
+    minZ: 100,
+    maxZ: 103,
+  };
+  const nodeBounds = buildStreamingHierarchy(
+    metadata,
+    [
+      {
+        key: "0-0-0-0",
+        level: 0,
+        x: 0,
+        y: 0,
+        z: 0,
+        pointCount: 1,
+        pointDataOffset: 0,
+        pointDataLength: 1,
+      },
+    ],
+    5,
+    grid,
+  ).get("0-0-0-0");
+
+  assert.equal(nodeBounds.center.height, 131.5);
+  assert.deepEqual(
+    [nodeBounds.bounds.minX, nodeBounds.bounds.minY],
+    [-2, -2],
+  );
+  assert.ok(Math.abs(nodeBounds.bounds.maxX - 1) < 1e-12);
+  assert.ok(Math.abs(nodeBounds.bounds.maxY - 1) < 1e-12);
+  assert.equal(nodeBounds.bounds.minZ, 115);
+  assert.equal(nodeBounds.bounds.maxZ, 148);
+
+  const frame = createDatasetLocalFrame(metadata, 5, grid);
+  const expectedOrigin = geographicToEcef({
+    longitude: -0.5,
+    latitude: -0.5,
+    height: 131.5,
+  });
+  assert.deepEqual(
+    [frame.origin.x, frame.origin.y, frame.origin.z],
+    [expectedOrigin.x, expectedOrigin.y, expectedOrigin.z],
   );
 });
 

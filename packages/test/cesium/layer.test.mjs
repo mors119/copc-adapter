@@ -1,11 +1,43 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import * as Cesium from "cesium";
 
 import { CopcCesiumLayer } from "../../index.ts";
 import { PointPrimitiveRenderer } from "../../cesium/render/CopcPointRenderer.ts";
 import { BatchedGeometryPointRenderer } from "../../cesium/render/BatchedGeometryPointRenderer.ts";
 import { createCesiumStreamingView } from "../../cesium/view/CesiumViewAdapter.ts";
+import { loadGtxGeoidGrid } from "../../core/coordinates/transform/verticalGrid.ts";
+
+async function createSyntheticVerticalGrid() {
+  const bytes = new ArrayBuffer(40 + 3 * 3 * 4);
+  const view = new DataView(bytes);
+  view.setFloat64(0, 44.3, false);
+  view.setFloat64(8, -122.7, false);
+  view.setFloat64(16, 0.2, false);
+  view.setFloat64(24, 0.2, false);
+  view.setInt32(32, 3, false);
+  view.setInt32(36, 3, false);
+  Array.from({ length: 9 }, () => 25).forEach((value, index) =>
+    view.setFloat32(40 + index * 4, value, false),
+  );
+  return loadGtxGeoidGrid(bytes, {
+    gridId: "layer-test-regional-grid",
+    sourceVerticalCrs: "Local orthometric height",
+    targetVerticalCrs: "EPSG:4979",
+    horizontalCrs: "EPSG:4326",
+    referenceEllipsoid: "WGS84",
+    sha256: createHash("sha256")
+      .update(new Uint8Array(bytes))
+      .digest("hex"),
+    valueUnit: "metre",
+    valueConvention: "ellipsoidal-minus-orthometric",
+    noDataValue: null,
+  });
+}
+
+const WGS84_ORTHOMETRIC_WKT =
+  'COMPD_CS["WGS 84 + Local orthometric height",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],VERT_CS["Local orthometric height",VERT_DATUM["Local vertical datum",2005],UNIT["metre",1],AXIS["Gravity-related height",UP]]]';
 
 function createEvent() {
   const listeners = new Set();
@@ -449,6 +481,52 @@ test("Cesium layers load geographic-WKT metadata with automatic framing before o
     assert.ok(layer.boundingSphere);
     layer.destroy();
   }
+});
+
+test("Cesium auto framing accepts padded cubes outside regional geoid coverage", async () => {
+  const metadata = {
+    pointCount: 2,
+    bounds: {
+      minX: -122.6,
+      minY: 44.4,
+      minZ: 12,
+      maxX: -122.4,
+      maxY: 44.6,
+      maxZ: 18,
+    },
+    cube: {
+      minX: -124,
+      minY: 42,
+      minZ: 0,
+      maxX: -122.4,
+      maxY: 44.6,
+      maxZ: 20,
+    },
+    wkt: WGS84_ORTHOMETRIC_WKT,
+  };
+  const source = createBackend({ metadata });
+  const layer = new CopcCesiumLayer({
+    url: "memory://regional-grid-padded-cube.copc.laz",
+    backend: source.backend,
+    decoder: source.decoder,
+    verticalTransform: await createSyntheticVerticalGrid(),
+  });
+  const viewer = createFakeViewer();
+  const automaticFlights = [];
+  const nativeFlyTo = viewer.camera.flyTo.bind(viewer.camera);
+  viewer.camera.flyTo = (options) => {
+    automaticFlights.push(options);
+    nativeFlyTo(options);
+  };
+
+  layer.attachTo(viewer);
+  await layer.load();
+  await waitFor(() => layer.getSnapshot().renderedPointCount === 2);
+
+  assert.equal(automaticFlights.length, 1);
+  assert.ok(layer.boundingSphere);
+  assert.equal(layer.getSnapshot().renderedPointCount, 2);
+  layer.destroy();
 });
 
 test("Cesium metadata and view events describe real milestones with one public view generation", async () => {
