@@ -331,10 +331,18 @@ async function createLayer(
 }
 
 async function pickLayerPoint(page: Page, id: string): Promise<Point> {
-  const screenPoint = await page.evaluate((layerId) => {
-    if (!window.__VERTICAL_GRID_INTEGRATION__) throw new Error("Fixture missing");
-    return window.__VERTICAL_GRID_INTEGRATION__.getScreenPoint(layerId);
-  }, id);
+  const readScreenPoint = () =>
+    page.evaluate((layerId) => {
+      if (!window.__VERTICAL_GRID_INTEGRATION__) throw new Error("Fixture missing");
+      return window.__VERTICAL_GRID_INTEGRATION__.getScreenPoint(layerId);
+    }, id);
+  let screenPoint: { x: number; y: number } | undefined;
+  await expect
+    .poll(async () => {
+      screenPoint = await readScreenPoint();
+      return screenPoint;
+    })
+    .toBeTruthy();
   expect(screenPoint).toBeTruthy();
   const canvasBounds = await page.locator("#viewer canvas").first().boundingBox();
   expect(canvasBounds).toBeTruthy();
@@ -436,7 +444,6 @@ test("Cesium applies opt-in GTX correction once through streaming, reload, bound
   await expect
     .poll(async () => (await layerState(page, "corrected")).snapshot.streamingUpdateCount)
     .toBeGreaterThan(beforeCameraMove.streamingUpdateCount);
-  const cacheHitsBeforeCameraRevisit = beforeCameraMove.pointCache.hits;
   const beforeLookingAway = (await layerState(page, "corrected")).snapshot;
   await page.evaluate(() =>
     window.__VERTICAL_GRID_INTEGRATION__!.setCamera(0, 0, 1_000_000),
@@ -449,6 +456,8 @@ test("Cesium applies opt-in GTX correction once through streaming, reload, bound
     })
     .toBe(true);
   await expect.poll(() => screenPoint(page, "corrected")).toBeUndefined();
+  const cacheHitsBeforeCameraRevisit =
+    (await layerState(page, "corrected")).snapshot.pointCache.hits;
   await page.evaluate(() =>
     window.__VERTICAL_GRID_INTEGRATION__!.setCamera(-123, 44, 18_000),
   );
