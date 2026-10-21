@@ -307,7 +307,7 @@ async function createLayer(
         { cause: error },
       );
     }
-    const settled = latestState!;
+    const settled = await layerState(page, id);
     if (allowStreamingError && settled.snapshot.renderedPointCount === 0) {
       expect(settled.errors.length).toBeGreaterThan(0);
       return result;
@@ -316,6 +316,12 @@ async function createLayer(
       settled.snapshot.renderedPointCount,
       `Cesium did not render points for ${id}: ${JSON.stringify(settled)}`,
     ).toBeGreaterThan(0);
+    if (!allowStreamingError) {
+      expect(
+        settled.errors,
+        `Cesium layer ${id} reported streaming errors: ${JSON.stringify(settled)}`,
+      ).toEqual([]);
+    }
     await expect
       .poll(async () => {
         const snapshot = (await layerState(page, id)).snapshot;
