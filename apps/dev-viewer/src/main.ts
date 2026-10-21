@@ -1118,7 +1118,9 @@ async function main(): Promise<void> {
         : value;
     },
   });
-  if (import.meta.env.DEV) window.__COPC_DEBUG__ = debugAdapterProxy;
+  if (import.meta.env.DEV || import.meta.env.MODE === "benchmark") {
+    window.__COPC_DEBUG__ = debugAdapterProxy;
+  }
 
   const container = getElement<HTMLElement>("#cesium-container");
   const controlsPanel = getElement<HTMLElement>("#controls-panel");

@@ -14,6 +14,7 @@
     "test:e2e": "playwright test",
     "test:functional": "playwright test e2e/functional-validation.spec.ts --reporter=line",
     "benchmark:streaming": "playwright test e2e/streaming-performance.spec.ts --reporter=line",
+    "benchmark:first-visible": "playwright test e2e/streaming-performance.spec.ts --grep 'records first-visible startup latency' --reporter=line",
     "preview": "vite preview",
     "prepare-assets": "npm --prefix ../../packages run prepare-copc-adapter-wasm && npm run prepare-laz-perf",
     "prepare-laz-perf": "cp ../../packages/node_modules/laz-perf/lib/laz-perf.wasm public/laz-perf.wasm"

@@ -182,8 +182,9 @@ async function parseWithRust<T>(
     pointer: number,
     length: number,
   ) => number,
+  wasmPromise?: ReturnType<typeof loadCopcWasm>,
 ): Promise<T> {
-  const wasm = await loadCopcWasm();
+  const wasm = await (wasmPromise ?? loadCopcWasm());
   const inputPointer = requireRustWasmPointer(
     wasm.alloc_bytes(bytes.byteLength),
     bytes.byteLength,
@@ -386,6 +387,11 @@ export class RustCopcReader {
       INITIAL_LAS_HEADER_LENGTH,
     );
     const { pointDataOffset } = headerLayout(initialBytes, maxRangeBytes);
+    // Start loading the parser while the remaining LAS metadata is in flight.
+    // Attach a rejection handler immediately because the metadata read may
+    // settle before the parser promise is awaited below.
+    const wasmPromise = loadCopcWasm();
+    void wasmPromise.catch(() => undefined);
     const metadataBytes =
       pointDataOffset <= initialBytes.byteLength
         ? initialBytes.slice(0, pointDataOffset)
@@ -393,6 +399,7 @@ export class RustCopcReader {
     const header = await parseWithRust<RustCopcHeader>(
       metadataBytes,
       (wasm, pointer, length) => wasm.parse_copc_header_json(pointer, length),
+      wasmPromise,
     );
     const reader = new RustCopcReader(
       byteSource,
