@@ -51,6 +51,7 @@ export {
   VerticalTransformError,
   loadGtxGeoidGrid,
 } from "./core/coordinates/transform/verticalGrid";
+export { loadNgaEgm2008Grid } from "./core/coordinates/transform/egm2008Grid";
 export type {
   GtxGeoidGridOptions,
   VerticalGridBytes,
@@ -58,6 +59,7 @@ export type {
   VerticalHeightDirection,
   VerticalTransformErrorCode,
 } from "./core/coordinates/transform/verticalGrid";
+export type { NgaEgm2008GridOptions } from "./core/coordinates/transform/egm2008Grid";
 export type {
   CopcHierarchyBounds,
   CopcHierarchyQueryBounds,
