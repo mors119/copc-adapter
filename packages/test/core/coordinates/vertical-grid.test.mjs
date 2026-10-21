@@ -484,6 +484,54 @@ test("vertical grid transforms reject downward axes and authority-name conflicts
   );
 });
 
+test("vertical WKT scanner accepts whitespace before section brackets", async () => {
+  const bytes = encodeGtx({ values: [10, 20, 30, 40] });
+  const namedGrid = await loadGrid(bytes);
+  const spacedDownwardWkt = ORTHOMETRIC_WKT.replace(
+    "VERT_CS[",
+    "VERT_CS [",
+  )
+    .replace('UNIT["metre",1]', 'UNIT ["metre",1]')
+    .replace(
+      'AXIS["Gravity-related height",UP]',
+      'AXIS ["Depth", DOWN]',
+    );
+
+  assert.throws(
+    () =>
+      createPointTransformer(
+        createMetadata({ wkt: spacedDownwardWkt }),
+        0,
+        namedGrid,
+      ),
+    (error) =>
+      error instanceof VerticalTransformError &&
+      error.code === "unsupported-crs-pair" &&
+      /requires an UP axis/.test(error.message),
+  );
+
+  const epsgGrid = await loadGrid(bytes, { sourceVerticalCrs: "EPSG:5703" });
+  const spacedAuthorityWkt = ORTHOMETRIC_WKT.replace(
+    "VERT_CS[",
+    "VERT_CS [",
+  )
+    .replace("VERT_DATUM[", "VERT_DATUM [")
+    .replace('UNIT["metre",1]', 'UNIT ["metre",1]')
+    .replace(
+      'AXIS["Gravity-related height",UP]]',
+      'AXIS ["Gravity-related height",UP],AUTHORITY ["EPSG","5703"]]',
+    );
+
+  assert.equal(
+    createPointTransformer(
+      createMetadata({ wkt: spacedAuthorityWkt }),
+      0,
+      epsgGrid,
+    )({ x: 0.5, y: 0.5, z: 100 }).height,
+    125,
+  );
+});
+
 test("vertical grid transforms accept the documented ESRI WGS 84 datum alias", async () => {
   const bytes = encodeGtx({ values: [10, 20, 30, 40] });
   const esriWkt = ORTHOMETRIC_WKT.replace(

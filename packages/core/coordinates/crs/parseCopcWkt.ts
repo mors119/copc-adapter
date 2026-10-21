@@ -158,11 +158,33 @@ export type VerticalCrsIdentity = {
   dynamic: boolean;
 };
 
+function findWktSectionStart(
+  source: string,
+  index: number,
+  keyword: string,
+): number | undefined {
+  const name = keyword.endsWith("[") ? keyword.slice(0, -1) : keyword;
+  if (index > 0 && /[A-Z0-9_]/i.test(source[index - 1])) {
+    return undefined;
+  }
+  if (
+    source.slice(index, index + name.length).toUpperCase() !==
+    name.toUpperCase()
+  ) {
+    return undefined;
+  }
+
+  let bracket = index + name.length;
+  while (/\s/.test(source[bracket] ?? "")) bracket += 1;
+  return source[bracket] === "[" ? bracket : undefined;
+}
+
 function findWktSection(wkt: string, keyword: string): string | undefined {
-  const normalized = keyword.toUpperCase();
   let inString = false;
   let start = -1;
-  for (let index = 0; index <= wkt.length - keyword.length; index += 1) {
+  let openBracket = -1;
+  const keywordName = keyword.endsWith("[") ? keyword.slice(0, -1) : keyword;
+  for (let index = 0; index <= wkt.length - keywordName.length; index += 1) {
     const character = wkt[index];
     if (character === '"') {
       if (inString && wkt[index + 1] === '"') {
@@ -172,17 +194,21 @@ function findWktSection(wkt: string, keyword: string): string | undefined {
       inString = !inString;
       continue;
     }
-    if (inString || wkt.slice(index, index + keyword.length).toUpperCase() !== normalized) {
+    if (inString) {
       continue;
     }
-    start = index;
-    break;
+    const bracket = findWktSectionStart(wkt, index, keyword);
+    if (bracket !== undefined) {
+      start = index;
+      openBracket = bracket;
+      break;
+    }
   }
   if (start < 0) return undefined;
 
   let depth = 0;
   inString = false;
-  for (let index = start; index < wkt.length; index += 1) {
+  for (let index = openBracket; index < wkt.length; index += 1) {
     const character = wkt[index];
     if (character === '"') {
       if (inString && wkt[index + 1] === '"') {
@@ -212,7 +238,7 @@ function findDirectWktSections(
   for (let index = 0; index < wktSection.length; index += 1) {
     const keyword = !inString && depth === 1
       ? keywords.find((candidate) =>
-          wktSection.slice(index, index + candidate.length).toUpperCase() === candidate,
+          findWktSectionStart(wktSection, index, candidate) !== undefined,
         )
       : undefined;
     if (keyword) {
@@ -255,14 +281,14 @@ export function getVerticalCrsIdentity(
   const identifiers = findDirectWktSections(section, ["AUTHORITY[", "ID["])
     .map(({ section: identifierSection }) =>
       identifierSection.match(
-        /^(?:AUTHORITY|ID)\[\s*"([^"]+)"\s*,\s*(?:"([^"]+)"|(\d+))/i,
+        /^(?:AUTHORITY|ID)\s*\[\s*"([^"]+)"\s*,\s*(?:"([^"]+)"|(\d+))/i,
       ),
     )
     .filter((match): match is RegExpMatchArray => match !== null);
   const identifier = identifiers.at(-1);
   const axes = findDirectWktSections(section, ["AXIS["]);
   const axisDirection = axes[0]?.section.match(
-    /^AXIS\[\s*"(?:""|[^"])*"\s*,\s*"?([A-Z]+)"?\s*(?:,|\])/i,
+    /^AXIS\s*\[\s*"(?:""|[^"])*"\s*,\s*"?([A-Z]+)"?\s*(?:,|\])/i,
   )?.[1]?.toUpperCase();
   if (axes.length > 0 && !axisDirection) {
     throw new Error("Vertical CRS WKT has a malformed axis declaration");
@@ -293,7 +319,7 @@ export function extractExplicitVerticalUnitScale(wkt: string): number | undefine
   const unit = findDirectWktSections(section, ["UNIT["])[0]?.section;
   if (!unit) return undefined;
   const match = unit.match(
-    /^UNIT\[\s*"[^"]+"\s*,\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)(?=\s*(?:,|\]))/i,
+    /^UNIT\s*\[\s*"[^"]+"\s*,\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)(?=\s*(?:,|\]))/i,
   );
   if (!match) throw new Error("COPC vertical WKT has an invalid unit");
   const scale = Number(match[1]);
