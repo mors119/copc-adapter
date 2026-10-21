@@ -3,6 +3,8 @@ import fs from "node:fs";
 
 const systemChromium =
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const benchmarkProduction = process.env.COPC_BENCHMARK_PRODUCTION === "1";
+const benchmarkHardware = process.env.COPC_BENCHMARK_HARDWARE === "1";
 const testPort = Number(process.env.PLAYWRIGHT_TEST_PORT ?? 4173);
 if (!Number.isSafeInteger(testPort) || testPort < 1 || testPort > 65_535) {
   throw new Error("PLAYWRIGHT_TEST_PORT must be an integer from 1 to 65535");
@@ -35,12 +37,12 @@ export default defineConfig({
       args: [
         "--enable-webgl",
         "--ignore-gpu-blocklist",
-        "--use-gl=swiftshader",
+        ...(benchmarkHardware ? [] : ["--use-gl=swiftshader"]),
       ],
     },
   },
   webServer: {
-    command: `npm run ${process.env.COPC_ADAPTER_WASM_PREPARED === "1" ? "dev:ci" : "dev"} -- --host 127.0.0.1 --port ${testPort} --strictPort`,
+    command: `npm run ${benchmarkProduction ? "preview" : process.env.COPC_ADAPTER_WASM_PREPARED === "1" ? "dev:ci" : "dev"} -- --host 127.0.0.1 --port ${testPort} --strictPort`,
     url: testUrl,
     reuseExistingServer:
       process.env.PLAYWRIGHT_REUSE_SERVER === "1" && !process.env.CI,
