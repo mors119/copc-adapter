@@ -6,6 +6,7 @@ import type {
 } from "../../copc/types/copc";
 import { extractVerticalUnitScale } from "../../coordinates/crs/parseCopcWkt";
 import { resolveHeightOffsetMeters } from "../../coordinates/transform/heightOffset";
+import type { GtxGeoidGrid } from "../../coordinates/transform/verticalGrid";
 
 /** Inclusive numeric range used to normalize a point attribute for display. */
 export type CopcValueRange = {
@@ -26,15 +27,24 @@ export type CopcElevationRange = CopcValueRange;
 export function getDatasetElevationRange(
   metadata: CopcMetadata,
   heightOffsetMeters = 0,
+  verticalGrid?: GtxGeoidGrid,
 ): CopcElevationRange {
   const heightOffset = resolveHeightOffsetMeters(heightOffsetMeters);
-  const verticalUnitScale = metadata.wkt
-    ? extractVerticalUnitScale(metadata.wkt)
-    : 1;
+  const verticalUnitScale = verticalGrid
+    ? verticalGrid.getSourceVerticalUnitScale(metadata.wkt)
+    : metadata.wkt
+      ? extractVerticalUnitScale(metadata.wkt)
+      : 1;
   const convertedMin = metadata.bounds.minZ * verticalUnitScale;
   const convertedMax = metadata.bounds.maxZ * verticalUnitScale;
-  const min = heightOffset === 0 ? convertedMin : convertedMin + heightOffset;
-  const max = heightOffset === 0 ? convertedMax : convertedMax + heightOffset;
+  const min =
+    convertedMin +
+    (verticalGrid?.minimumUndulationMeters ?? 0) +
+    heightOffset;
+  const max =
+    convertedMax +
+    (verticalGrid?.maximumUndulationMeters ?? 0) +
+    heightOffset;
 
   return {
     min: Math.min(min, max),

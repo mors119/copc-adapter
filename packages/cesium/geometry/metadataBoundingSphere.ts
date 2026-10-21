@@ -1,6 +1,7 @@
 import * as Cesium from "cesium";
 import type { CopcMetadata } from "../../core/copc/types/copc";
 import { createPointTransformer } from "../../core/coordinates/transform/createPointTransformer";
+import type { GtxGeoidGrid } from "../../core/coordinates/transform/verticalGrid";
 import {
   extractHorizontalCrsWkt,
   extractHorizontalUnitScale,
@@ -28,6 +29,7 @@ const BOUNDARY_PADDING_METERS = 0.05;
 export function createMetadataBoundingSphere(
   metadata: CopcMetadata,
   heightOffsetMeters = 0,
+  verticalGrid?: GtxGeoidGrid,
 ): Cesium.BoundingSphere | undefined {
   try {
     const { minX, minY, minZ, maxX, maxY, maxZ } = metadata.bounds;
@@ -44,7 +46,13 @@ export function createMetadataBoundingSphere(
       return undefined;
     }
 
-    const transformPoint = createPointTransformer(metadata, heightOffsetMeters);
+    const transformPoint = createPointTransformer(
+      metadata,
+      heightOffsetMeters,
+      verticalGrid,
+      // Extent samples are synthetic; account for the undulation range below.
+      { sampleVerticalGrid: false },
+    );
     const horizontalWkt = metadata.wkt
       ? extractHorizontalCrsWkt(metadata.wkt)
       : undefined;
@@ -78,9 +86,11 @@ export function createMetadataBoundingSphere(
     } else {
       horizontalUnitScale = 1;
     }
-    const verticalUnitScale = metadata.wkt
-      ? extractVerticalUnitScale(metadata.wkt)
-      : 1;
+    const verticalUnitScale = verticalGrid
+      ? verticalGrid.getSourceVerticalUnitScale(metadata.wkt)
+      : metadata.wkt
+        ? extractVerticalUnitScale(metadata.wkt)
+        : 1;
     if (
       !Number.isFinite(horizontalUnitScale) ||
       horizontalUnitScale <= 0 ||
@@ -120,6 +130,11 @@ export function createMetadataBoundingSphere(
     const positions: Cesium.Cartesian3[] = [];
     let maximumHorizontalSampleStep = 0;
     let maximumCellResidual = 0;
+    const midpointUndulationMeters = verticalGrid
+      ? (verticalGrid.minimumUndulationMeters +
+          verticalGrid.maximumUndulationMeters) /
+        2
+      : 0;
 
     const sourcePointAt = (xRatio: number, yRatio: number, z: number) => {
       const sourcePoint = {
@@ -128,6 +143,7 @@ export function createMetadataBoundingSphere(
         z,
       };
       const geographicPoint = transformPoint(sourcePoint);
+      geographicPoint.height += midpointUndulationMeters;
       if (
         !Number.isFinite(geographicPoint.longitude) ||
         !Number.isFinite(geographicPoint.latitude) ||
@@ -228,6 +244,11 @@ export function createMetadataBoundingSphere(
     const padding =
       Math.SQRT2 * maximumHorizontalSampleStep +
       4 * maximumCellResidual +
+      (verticalGrid
+        ? (verticalGrid.maximumUndulationMeters -
+            verticalGrid.minimumUndulationMeters) /
+          2
+        : 0) +
       BOUNDARY_PADDING_METERS;
     if (
       ![

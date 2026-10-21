@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import * as Cesium from "cesium";
 
 import {
@@ -8,6 +9,8 @@ import {
   toCartesian3ArrayFromWorldBuffer,
 } from "../../../cesium/render/renderPoints.ts";
 import { geographicToEcef } from "../../../core/coordinates/transform/worldCoordinates.ts";
+import { transformPointBufferToPreparedPointData } from "../../../core/coordinates/transform/createPointTransformer.ts";
+import { loadGtxGeoidGrid } from "../../../core/coordinates/transform/verticalGrid.ts";
 
 test("toCartesian3ArrayFromBuffer converts buffered geographic triples", () => {
   const positions = toCartesian3ArrayFromBuffer({
@@ -71,6 +74,66 @@ test("prepared ECEF positions match Cesium geographic conversion output", () => 
     positions.map(({ x, y, z }) => [x, y, z]),
     [[ecef.x, ecef.y, ecef.z]],
   );
+});
+
+test("Cesium consumes geoid-corrected WGS84 ECEF positions", async () => {
+  const bytes = new ArrayBuffer(40 + 4 * 4);
+  const view = new DataView(bytes);
+  view.setFloat64(0, 44, false);
+  view.setFloat64(8, -123, false);
+  view.setFloat64(16, 1, false);
+  view.setFloat64(24, 1, false);
+  view.setInt32(32, 2, false);
+  view.setInt32(36, 2, false);
+  for (let index = 0; index < 4; index += 1) {
+    view.setFloat32(40 + index * 4, 25, false);
+  }
+  const sha256 = createHash("sha256")
+    .update(new Uint8Array(bytes))
+    .digest("hex");
+  const grid = await loadGtxGeoidGrid(bytes, {
+    gridId: "synthetic-cesium-render-test",
+    sourceVerticalCrs: "Local orthometric height",
+    targetVerticalCrs: "EPSG:4979",
+    horizontalCrs: "EPSG:4326",
+    referenceEllipsoid: "WGS84",
+    sha256,
+    valueUnit: "metre",
+    valueConvention: "ellipsoidal-minus-orthometric",
+    noDataValue: null,
+  });
+  const metadata = {
+    pointCount: 1,
+    wkt: 'COMPD_CS["WGS 84 + Local orthometric height",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],VERT_CS["Local orthometric height",VERT_DATUM["Local vertical datum",2005],UNIT["metre",1],AXIS["Gravity-related height",UP]]]',
+    bounds: {
+      minX: -123,
+      minY: 44,
+      minZ: 100,
+      maxX: -123,
+      maxY: 44,
+      maxZ: 100,
+    },
+    cube: {
+      minX: -123,
+      minY: 44,
+      minZ: 100,
+      maxX: -123,
+      maxY: 44,
+      maxZ: 100,
+    },
+  };
+  const prepared = transformPointBufferToPreparedPointData(
+    metadata,
+    { pointCount: 1, coordinates: new Float64Array([-123, 44, 100]) },
+    0,
+    grid,
+  );
+  const renderedPosition = toCartesian3ArrayFromBuffer(prepared.geographic)[0];
+  const expectedPosition = Cesium.Cartesian3.fromDegrees(-123, 44, 125);
+
+  assert.equal(prepared.geographic.coordinates[2], 125);
+  assert.ok(Cesium.Cartesian3.distance(renderedPosition, expectedPosition) < 1e-6);
+  assert.deepEqual([...prepared.source.coordinates], [-123, 44, 100]);
 });
 
 test("renderCopcPoints reports the direct world-buffer stage for prepared data", () => {

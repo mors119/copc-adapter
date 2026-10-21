@@ -1,10 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { deriveNodePointSpacingMeters } from "../../../cesium/render/pointSpacing.ts";
 import { CopcCesiumLayer } from "../../../cesium/layer/CopcCesiumLayer.ts";
+import { loadGtxGeoidGrid } from "../../../core/coordinates/transform/verticalGrid.ts";
 import {
   computeProjectedPointSizeCssPixels,
   DEFAULT_MAX_ATTENUATED_POINT_SIZE_CSS_PIXELS,
@@ -14,6 +16,8 @@ import {
 
 const WGS84_WKT =
   'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]]';
+const ORTHOMETRIC_WKT =
+  'COMPD_CS["WGS 84 + Local orthometric height",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],VERT_CS["Local orthometric height",VERT_DATUM["Local vertical datum",2005],UNIT["metre",1],AXIS["Gravity-related height",UP]]]';
 
 function geographicMetadata(spacing = 0.001) {
   return {
@@ -35,6 +39,33 @@ function projectSize(overrides = {}) {
     minPointSize: 1,
     maxPointSize: 12,
     ...overrides,
+  });
+}
+
+async function createRegionalVerticalGrid() {
+  const bytes = new ArrayBuffer(40 + 4 * 4);
+  const view = new DataView(bytes);
+  view.setFloat64(0, 44.3, false);
+  view.setFloat64(8, -122.7, false);
+  view.setFloat64(16, 0.2, false);
+  view.setFloat64(24, 0.2, false);
+  view.setInt32(32, 2, false);
+  view.setInt32(36, 2, false);
+  [25, 25, 25, 25].forEach((value, index) =>
+    view.setFloat32(40 + index * 4, value, false),
+  );
+  return loadGtxGeoidGrid(bytes, {
+    gridId: "spacing-test-regional-grid",
+    sourceVerticalCrs: "Local orthometric height",
+    targetVerticalCrs: "EPSG:4979",
+    horizontalCrs: "EPSG:4326",
+    referenceEllipsoid: "WGS84",
+    sha256: createHash("sha256")
+      .update(new Uint8Array(bytes))
+      .digest("hex"),
+    valueUnit: "metre",
+    valueConvention: "ellipsoidal-minus-orthometric",
+    noDataValue: null,
   });
 }
 
@@ -90,6 +121,30 @@ test("node spacing converts projected source units through the render CRS transf
     spacing > 0.99 && spacing < 1.01,
     `expected metre CRS spacing, got ${spacing}`,
   );
+});
+
+test("regional geoid coverage does not restrict synthetic spacing probes", async () => {
+  const metadata = {
+    ...geographicMetadata(0.5),
+    wkt: ORTHOMETRIC_WKT,
+  };
+  const grid = await createRegionalVerticalGrid();
+
+  const centerOutsideGrid = deriveNodePointSpacingMeters(
+    metadata,
+    0,
+    { longitude: 0, latitude: 0, height: 0 },
+    grid,
+  );
+  const probesOutsideGrid = deriveNodePointSpacingMeters(
+    metadata,
+    0,
+    { longitude: -122.6, latitude: 44.4, height: 100 },
+    grid,
+  );
+
+  assert.ok(centerOutsideGrid > 0);
+  assert.ok(probesOutsideGrid > 0);
 });
 
 test("node spacing falls back when metadata or source CRS cannot produce metric spacing", () => {

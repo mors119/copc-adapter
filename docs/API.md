@@ -143,6 +143,9 @@ a separately defined and tested contract.
 - `heightOffsetMeters`: manual additive correction in metres applied after
   source vertical-unit conversion and horizontal reprojection, before ECEF
   preparation. Default: `0`.
+- `verticalTransform`: optional `GtxGeoidGrid` returned by
+  `loadGtxGeoidGrid()`. Applies a caller-verified orthometric-to-ellipsoidal
+  grid operation before `heightOffsetMeters`. Omitted by default.
 - `debug`: enable lifecycle messages through `console.debug`.
 - `maxRenderedPoints`: maximum estimated point workload in the active view.
   Default: `250000`.
@@ -440,7 +443,8 @@ function disposeLayer() {
 ```
 
 Current options include `url`, `pointSize` (default `3`), `colorMode`,
-`heightOffsetMeters` (default `0`), `maxRenderedPoints`, `streaming`, `backend`, `decoder`,
+`heightOffsetMeters` (default `0`), `verticalTransform` (omitted by default),
+`maxRenderedPoints`, `streaming`, `backend`, `decoder`,
 `maxPointCacheBytes`, `debug`, `pickingThreshold` (default `1` scene unit),
 an optional compatible `renderer`, and `onPointPicked`.
 
@@ -455,6 +459,13 @@ and +Z up. `pick({ x, y })` accepts normalized device coordinates and returns a
 `CopcPointInspection` or `undefined`. An optional `THREE.Raycaster` and
 threshold can be supplied. `detachFrom()`, `unload()`, `reload()`, and
 `destroy()` do not dispose application-owned Three.js resources.
+
+The default Three.js path keeps this local-coordinate workflow and does not
+require vertical CRS metadata or a geoid grid. It never selects or applies a
+grid automatically. Supply `verticalTransform` only when the application
+explicitly needs geographic alignment; correction uses the shared coordinate
+pipeline before Three converts the corrected ECEF positions into its local ENU
+frame.
 
 For a native bounds query, call `layer.getRoot().updateWorldMatrix(true, true)`
 and use `new THREE.Box3().setFromObject(layer.getRoot())`. This is the
@@ -490,6 +501,7 @@ await core.updateView({
 - `streaming`, with the shared selection limits;
 - `maxRenderedPoints`;
 - `heightOffsetMeters`, a manual additive ellipsoidal-height correction in metres;
+- `verticalTransform`, an optional caller-supplied `GtxGeoidGrid`;
 - `backend`;
 - `decoder`;
 - `pointFields`, a project-owned selection of `position`, `intensity`,
@@ -692,15 +704,110 @@ ellipsoidal display height in metres, and `world` is its corrected ECEF
 position. Point buffers, hierarchy bounds, camera queries, and camera fly-to
 use that same corrected frame.
 
-This option is a manual correction, not a vertical CRS transformation or a
-geoid conversion. Use it only when you know the needed offset and sign for the
-dataset and its target ellipsoid. WKT vertical units are applied, but vertical
-datum definitions and geoid grids are not used to derive an offset. There is
-no universal correction for Korean data or any other region; do not assume a
-fixed 20–30 m value. The Rust/WASM fused path applies the same offset after
-unit conversion and before ECEF preparation. The option works with scenes
-that show terrain and scenes that hide it; it does not sample terrain or
-change terrain heights.
+This option is a manual correction, separate from vertical datum conversion.
+Use it only when you know the needed residual and sign. When a geoid grid is
+configured, the adapter first converts the source vertical unit to metres,
+reprojects horizontal coordinates to WGS 84, samples the grid and applies
+`h = H + N`, then adds `heightOffsetMeters`, then prepares ECEF. Leave the
+manual offset at `0` when no independent residual is known. Terrain alignment
+from issue #305 remains separate; the adapter does not sample terrain or
+imagery to derive either correction.
+
+## Explicit vertical CRS grid conversion
+
+Vertical conversion is opt-in. The default is unchanged and no model is
+selected from location or CRS guesses. The implemented provider reads one
+offline GTX file supplied as a `File`/`Blob`, `ArrayBuffer`, or typed-array
+view. GTX is the historical binary vertical-shift grid format; this provider
+accepts big-endian float32 or float64 values and bilinear interpolation.
+It does not download grids or convert EGM2008 or KNGeoid24 source formats.
+
+```ts
+import * as Cesium from 'cesium';
+import {
+  CopcCesiumLayer,
+  loadGtxGeoidGrid,
+} from '@frillab/copc-adapter';
+
+const gridFile = (document.querySelector('#geoid-grid') as HTMLInputElement)
+  .files?.[0];
+if (!gridFile) throw new Error('Select a documented GTX grid first');
+
+async function sha256Hex(file: Blob): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+const verticalGrid = await loadGtxGeoidGrid(gridFile, {
+  gridId: 'operator-supplied-grid-version',
+  // Use the exact outer EPSG authority when the COPC WKT declares one;
+  // otherwise use its exact vertical CRS name.
+  sourceVerticalCrs: 'Exact source vertical CRS from the data and grid docs',
+  targetVerticalCrs: 'EPSG:4979',
+  horizontalCrs: 'EPSG:4326',
+  referenceEllipsoid: 'WGS84',
+  sha256: await sha256Hex(gridFile),
+  valueUnit: 'metre',
+  // Set null only when the grid documentation confirms that it has no
+  // finite NoData sentinel.
+  noDataValue: null,
+  valueConvention: 'ellipsoidal-minus-orthometric',
+  interpolation: 'bilinear',
+});
+
+const viewer = new Cesium.Viewer('cesium-container');
+const layer = new CopcCesiumLayer({
+  url: '/data/area.copc.laz',
+  verticalTransform: verticalGrid,
+  heightOffsetMeters: 0,
+});
+await layer.load();
+layer.attachTo(viewer);
+```
+
+Replace the example metadata with values verified for the exact grid file.
+The loader verifies the file SHA-256, GTX structure, geographic extent, memory
+budget, finite values, and the declared NoData sentinel. It cannot prove that
+the caller's CRS, sign, unit, epoch, license, or model label is true. The COPC
+WKT must be a supported WKT1 compound definition with a `GEOGCS` or `PROJCS`
+horizontal CRS and an explicit `VERT_CS` source vertical CRS. The horizontal
+component must declare a supported WGS 84 datum name and the exact WGS 84
+ellipsoid parameters; this includes ESRI's `D_WGS_1984` spelling. Other
+horizontal reference frames fail until a verified frame transformation is
+available. When the WKT declares an outer EPSG vertical authority, the
+configured source must use that EPSG code; names are accepted only when the
+WKT has no outer authority. Other authority namespaces are not configurable.
+Any explicitly declared vertical axis must point `UP`. The rendering target is
+WGS 84 ellipsoidal height
+(`EPSG:4979`). Missing CRS/grid metadata, hash mismatch, malformed data,
+authority/name mismatch, downward vertical axes, unsupported epochs, NoData
+samples, or points outside coverage fail the requested point preparation.
+There is no fallback to uncorrected heights or to a constant offset.
+
+`noDataValue` is mandatory: provide the documented finite sentinel or `null`
+when the grid documentation confirms there is none. Grid values must already
+use the declared sign convention; this API does not infer or reverse signs.
+`valueUnit` is converted to metres. The loader defaults to a 256 MiB encoded
+grid limit and allows an explicit increase up to 512 MiB. It holds one private
+decoded grid in the layer/core; input bytes and decoded values can together
+use roughly twice the grid size during loading. Grid data is not sent to each
+Worker. Rust/WASM preparation and JavaScript preparation both pass through the
+shared TypeScript grid sampler, so corrected geographic and ECEF positions
+follow the same rule. Sampling currently runs synchronously in the shared
+streaming preparation stage.
+
+The configured grid remains owned by the layer/core for its lifetime; reuse it
+across reloads that use the same grid and source CRS. Create a new layer/core
+when changing the transform configuration. Omitting `verticalTransform`
+disables datum conversion. `heightOffsetMeters` is then still available as
+the independent manual adjustment described above.
+
+The provider is validated with synthetic grids only. No EGM2008 or KNGeoid24
+grid is bundled or declared model-supported. Evidence gaps and requirements
+for model-specific support are recorded in the
+[issue #244 implementation record](proposals/issue-244-vertical-crs-geoid-grid.md).
 
 The projected EPSG:5186 Rust/JavaScript differential fixture checks longitude
 and latitude within `1e-7` degrees, corrected height within `1e-9` metres, and

@@ -1,11 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import * as Cesium from "cesium";
 
 import { createMetadataBoundingSphere } from "../../../cesium/geometry/metadataBoundingSphere.ts";
 import { createPointTransformer } from "../../../core/coordinates/transform/createPointTransformer.ts";
+import { loadGtxGeoidGrid } from "../../../core/coordinates/transform/verticalGrid.ts";
 
 const crsAuditPath = fileURLToPath(
   new URL("../../../../crates/crs-audit/src/fixtures.json", import.meta.url),
@@ -22,6 +24,33 @@ function metadata(bounds, options = {}) {
     cube: options.cube ?? bounds,
     ...(options.wkt === undefined ? {} : { wkt: options.wkt }),
   };
+}
+
+async function createSyntheticVerticalGrid() {
+  const bytes = new ArrayBuffer(40 + 4 * 4);
+  const view = new DataView(bytes);
+  view.setFloat64(0, 0, false);
+  view.setFloat64(8, 0, false);
+  view.setFloat64(16, 1, false);
+  view.setFloat64(24, 1, false);
+  view.setInt32(32, 2, false);
+  view.setInt32(36, 2, false);
+  [10, 20, 30, 40].forEach((value, index) =>
+    view.setFloat32(40 + index * 4, value, false),
+  );
+  return loadGtxGeoidGrid(bytes, {
+    gridId: "bounding-sphere-synthetic-grid",
+    sourceVerticalCrs: "Local orthometric height",
+    targetVerticalCrs: "EPSG:4979",
+    horizontalCrs: "EPSG:4326",
+    referenceEllipsoid: "WGS84",
+    sha256: createHash("sha256")
+      .update(new Uint8Array(bytes))
+      .digest("hex"),
+    valueUnit: "metre",
+    valueConvention: "ellipsoidal-minus-orthometric",
+    noDataValue: null,
+  });
 }
 
 function assertContainsTransformedGrid(
@@ -87,6 +116,30 @@ test("metadata sphere contains geographic metadata bounds and applies either hei
   const raised = createMetadataBoundingSphere(source, 35);
   assert.ok(base && raised);
   assert.notEqual(base.center.z, raised.center.z);
+});
+
+test("metadata sphere uses grid extrema without sampling synthetic extent points", async () => {
+  const source = metadata(
+    {
+      minX: -0.5,
+      minY: -0.5,
+      minZ: 100,
+      maxX: 1.5,
+      maxY: 1.5,
+      maxZ: 200,
+    },
+    {
+      wkt: 'COMPD_CS["WGS 84 + Local orthometric height",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],VERT_CS["Local orthometric height",VERT_DATUM["Local vertical datum",2005],UNIT["metre",1],AXIS["Gravity-related height",UP]]]',
+    },
+  );
+  const sphere = createMetadataBoundingSphere(
+    source,
+    0,
+    await createSyntheticVerticalGrid(),
+  );
+
+  assert.ok(sphere);
+  assert.ok(Number.isFinite(sphere.radius) && sphere.radius > 0);
 });
 
 test("metadata sphere supports geographic WKT angular units and vertical unit conversion", () => {

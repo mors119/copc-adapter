@@ -21,6 +21,7 @@ import type { RangeValidationPolicy } from "../../core/copc/range/types";
 import type { CopcInputSource } from "../../core/copc/range/types";
 import type { CopcPointRenderer } from "../../core/streaming/renderer";
 import type { DatasetLocalFrame } from "../../core/coordinates/types";
+import type { GtxGeoidGrid } from "../../core/coordinates/transform/verticalGrid";
 import type { ThreePointRendererOptions } from "../render/ThreePointRenderer";
 import type { ThreeViewportSource } from "../view/ThreeViewAdapter";
 import type { CopcThreeLayer } from "./CopcThreeLayer";
@@ -35,6 +36,8 @@ export type CopcThreeLayerOptions = {
   colorMode?: CopcColorMode;
   /** Manual additive correction in metres applied to ellipsoidal point height. Defaults to 0. */
   heightOffsetMeters?: number;
+  /** Explicit user-loaded GTX grid; absent means no vertical datum conversion. */
+  verticalTransform?: GtxGeoidGrid;
   /** Maximum estimated points in the active current-view workload; defaults to 250,000. */
   maxRenderedPoints?: number;
   /** Overrides for the shared streaming limits; unspecified values use core defaults. */

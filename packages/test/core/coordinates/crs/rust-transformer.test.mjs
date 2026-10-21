@@ -1,11 +1,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 
 import { RustCrsTransformer } from "../../../../core/coordinates/transform/rustCrsTransformer.ts";
 import { createPointTransformer } from "../../../../core/coordinates/transform/createPointTransformer.ts";
 import { geographicToEcef } from "../../../../core/coordinates/transform/worldCoordinates.ts";
 import { getCopcWasmBinary } from "../../../../core/wasm/copcWasm.ts";
 import { loadCopcWasmWorker } from "../../../../core/wasm/copcWasmWorker.ts";
+import { createPreparedPointData } from "../../../../core/point/preparedPoint.ts";
+import {
+  applyPreparedPointVerticalGrid,
+  transformPointBufferToPreparedPointData,
+} from "../../../../core/coordinates/transform/createPointTransformer.ts";
+import { loadGtxGeoidGrid } from "../../../../core/coordinates/transform/verticalGrid.ts";
 
 const WGS84_GEOGRAPHIC_WKT =
   'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]]';
@@ -107,4 +114,81 @@ test("Rust CRS transformer preserves the projected-WKT requirement without hidde
       }),
     (error) => error?.code === "missing-wkt",
   );
+});
+
+test("Rust/WASM and JavaScript agree on foot units after one shared synthetic geoid pass", async () => {
+  const point = { x: 126.5, y: 37.5 };
+  const compoundWkt = `COMPD_CS["WGS 84 + Local orthometric height",${WGS84_GEOGRAPHIC_WKT},VERT_CS["Local orthometric height",VERT_DATUM["Local vertical datum",2005],UNIT["foot", 0.3048,AUTHORITY["EPSG","9002"]],AXIS["Gravity-related height",UP]]]`;
+  const metadata = {
+    wkt: compoundWkt,
+    bounds: {
+      minX: point.x,
+      minY: point.y,
+      minZ: 100,
+      maxX: point.x,
+      maxY: point.y,
+      maxZ: 100,
+    },
+    cube: {
+      minX: point.x,
+      minY: point.y,
+      minZ: 100,
+      maxX: point.x,
+      maxY: point.y,
+      maxZ: 100,
+    },
+    pointCount: 1,
+  };
+  const sourceCoordinates = new Float64Array([point.x, point.y, 100]);
+  const bytes = new ArrayBuffer(56);
+  const gridHeader = new DataView(bytes);
+  gridHeader.setFloat64(0, 37, false);
+  gridHeader.setFloat64(8, 126, false);
+  gridHeader.setFloat64(16, 1, false);
+  gridHeader.setFloat64(24, 1, false);
+  gridHeader.setInt32(32, 2, false);
+  gridHeader.setInt32(36, 2, false);
+  [10, 20, 30, 40].forEach((value, index) =>
+    gridHeader.setFloat32(40 + index * 4, value, false),
+  );
+  const grid = await loadGtxGeoidGrid(bytes, {
+    gridId: "synthetic-korea-parity-grid",
+    sourceVerticalCrs: "Local orthometric height",
+    targetVerticalCrs: "EPSG:4979",
+    horizontalCrs: "EPSG:4326",
+    referenceEllipsoid: "WGS84",
+    sha256: createHash("sha256").update(new Uint8Array(bytes)).digest("hex"),
+    valueUnit: "metre",
+    valueConvention: "ellipsoidal-minus-orthometric",
+    noDataValue: null,
+  });
+  const offset = 5;
+  const javascript = transformPointBufferToPreparedPointData(
+    metadata,
+    { pointCount: 1, coordinates: sourceCoordinates },
+    offset,
+    grid,
+  );
+  const rustTransformer = await RustCrsTransformer.fromMetadata(metadata, offset);
+  try {
+    const rustRaw = rustTransformer.transform(sourceCoordinates);
+    const rustPrepared = createPreparedPointData({
+      pointCount: 1,
+      sourceCoordinates: sourceCoordinates.slice(),
+      geographicCoordinates: rustRaw.geographicCoordinates,
+      worldCoordinates: rustRaw.ecefCoordinates,
+    });
+    const rustCorrected = applyPreparedPointVerticalGrid(rustPrepared, grid);
+    assert.equal(rustCorrected.geographic.coordinates[2], javascript.geographic.coordinates[2]);
+    assert.equal(rustCorrected.geographic.coordinates[2], 60.480000000000004);
+    for (let axis = 0; axis < 3; axis += 1) {
+      assert.ok(
+        Math.abs(rustCorrected.world.coordinates[axis] - javascript.world.coordinates[axis]) < 1e-6,
+        `Rust/JS geoid-corrected ECEF axis ${axis} should match`,
+      );
+    }
+    assert.deepEqual([...rustCorrected.source.coordinates], [...sourceCoordinates]);
+  } finally {
+    rustTransformer.dispose();
+  }
 });

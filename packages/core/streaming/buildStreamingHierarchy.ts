@@ -5,6 +5,7 @@ import type {
 } from "../copc/types/copc";
 import { extractHorizontalUnitScale } from "../coordinates/crs/parseCopcWkt";
 import { createPointTransformer } from "../coordinates/transform/createPointTransformer";
+import type { GtxGeoidGrid } from "../coordinates/transform/verticalGrid";
 import type { BoundingBox, StreamingHierarchy } from "./types";
 import { createBoundingSphereFromGeographicBounds } from "./view";
 
@@ -85,6 +86,9 @@ function toGeographicBounds(
     z: number;
   }) => GeographicPoint,
   bounds: CopcSourceBounds,
+  metadata: CopcMetadata,
+  heightOffsetMeters: number,
+  verticalGrid?: GtxGeoidGrid,
 ): BoundingBox {
   const corners = [
     transformPoint({ x: bounds.minX, y: bounds.minY, z: bounds.minZ }),
@@ -97,7 +101,7 @@ function toGeographicBounds(
     transformPoint({ x: bounds.maxX, y: bounds.maxY, z: bounds.maxZ }),
   ];
 
-  return corners.reduce<BoundingBox>(
+  const transformed = corners.reduce<BoundingBox>(
     (accumulator, corner) => ({
       coordinateSystem: "wgs84-geographic",
       minX: Math.min(accumulator.minX, corner.longitude),
@@ -117,6 +121,25 @@ function toGeographicBounds(
       maxZ: Number.NEGATIVE_INFINITY,
     },
   );
+  if (!verticalGrid) return transformed;
+
+  // Hierarchy corners may lie in empty cube padding outside regional coverage.
+  // Grid-wide extrema keep their vertical bounds conservative without sampling
+  // the grid at those synthetic coordinates.
+  const verticalUnitScale = verticalGrid.getSourceVerticalUnitScale(
+    metadata.wkt,
+  );
+  const sourceMinHeight = bounds.minZ * verticalUnitScale;
+  const sourceMaxHeight = bounds.maxZ * verticalUnitScale;
+  const conservativeMinimum =
+    sourceMinHeight + verticalGrid.minimumUndulationMeters + heightOffsetMeters;
+  const conservativeMaximum =
+    sourceMaxHeight + verticalGrid.maximumUndulationMeters + heightOffsetMeters;
+  return {
+    ...transformed,
+    minZ: conservativeMinimum,
+    maxZ: conservativeMaximum,
+  };
 }
 
 /**
@@ -136,8 +159,14 @@ export function buildStreamingHierarchy(
   metadata: CopcMetadata,
   nodes: CopcHierarchyNode[],
   heightOffsetMeters = 0,
+  verticalGrid?: GtxGeoidGrid,
 ): StreamingHierarchy {
-  const transformPoint = createPointTransformer(metadata, heightOffsetMeters);
+  const transformPoint = createPointTransformer(
+    metadata,
+    heightOffsetMeters,
+    verticalGrid,
+    { sampleVerticalGrid: false },
+  );
   const nodeMap = new Map(nodes.map((node) => [node.key, node]));
   const streamingNodes: StreamingHierarchy = new Map();
   const horizontalUnitScale = getHorizontalUnitScale(metadata);
@@ -150,8 +179,19 @@ export function buildStreamingHierarchy(
     const bounds = toGeographicBounds(
       transformPoint,
       getNodeBounds(metadata, node),
+      metadata,
+      heightOffsetMeters,
+      verticalGrid,
     );
     const geographicCenter = transformPoint(center);
+    if (verticalGrid) {
+      // This synthetic center can also lie outside coverage; use the midpoint
+      // of the global undulation range as its selection/culling estimate.
+      geographicCenter.height +=
+        (verticalGrid.minimumUndulationMeters +
+          verticalGrid.maximumUndulationMeters) /
+        2;
+    }
 
     streamingNodes.set(node.key, {
       node,

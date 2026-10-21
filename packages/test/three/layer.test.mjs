@@ -166,7 +166,7 @@ function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-test("loads without a scene, attaches one root, and update is a no-op for an unchanged camera", async () => {
+test("default Three local rendering needs no vertical CRS metadata or geoid grid", async () => {
   const { layer, source, scene, applicationMesh, attachment } =
     await createLoadedLayer();
 
@@ -179,6 +179,14 @@ test("loads without a scene, attaches one root, and update is a no-op for an unc
   );
   assert.equal(layer.getSnapshot().renderedPointCount, 2);
   assert.equal(source.hierarchyRequestCount, 1);
+  // The fixture has geographic coordinates but no WKT or vertical datum.
+  // Default Three rendering still prepares local geometry without a grid.
+  const points = layer.getRoot().children[0];
+  assert.ok(points instanceof THREE.Points);
+  const positions = points.geometry.getAttribute("position").array;
+  assert.ok(positions instanceof Float32Array);
+  assert.ok([...positions].every(Number.isFinite));
+  assert.ok(Math.max(...positions.map(Math.abs)) < 100);
 
   layer.attachTo(attachment);
   await layer.update();

@@ -1,11 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import * as THREE from "three";
 
 import {
   ThreePointRenderer,
   createThreeLocalOrigin,
 } from "../../../three/render/ThreePointRenderer.ts";
+import { geographicToEcef } from "../../../core/coordinates/transform/worldCoordinates.ts";
+import { loadGtxGeoidGrid } from "../../../core/coordinates/transform/verticalGrid.ts";
 
 const ORIGIN = {
   coordinateSystem: "wgs84-ecef-meters",
@@ -229,6 +232,61 @@ test("metadata local origin uses the dataset cube center in shared ECEF space", 
   assert.ok(Number.isFinite(origin.x));
   assert.ok(Number.isFinite(origin.y));
   assert.ok(Number.isFinite(origin.z));
+});
+
+test("metadata local origin does not sample regional grid at padded cube center", async () => {
+  const bytes = new ArrayBuffer(40 + 3 * 3 * 4);
+  const view = new DataView(bytes);
+  view.setFloat64(0, 44.3, false);
+  view.setFloat64(8, -122.7, false);
+  view.setFloat64(16, 0.2, false);
+  view.setFloat64(24, 0.2, false);
+  view.setInt32(32, 3, false);
+  view.setInt32(36, 3, false);
+  Array.from({ length: 9 }, (_, index) => 20 + index * 2).forEach(
+    (value, index) => view.setFloat32(40 + index * 4, value, false),
+  );
+  const grid = await loadGtxGeoidGrid(bytes, {
+    gridId: "three-padded-origin-test-grid",
+    sourceVerticalCrs: "Local orthometric height",
+    targetVerticalCrs: "EPSG:4979",
+    horizontalCrs: "EPSG:4326",
+    referenceEllipsoid: "WGS84",
+    sha256: createHash("sha256").update(new Uint8Array(bytes)).digest("hex"),
+    valueUnit: "metre",
+    valueConvention: "ellipsoidal-minus-orthometric",
+    noDataValue: null,
+  });
+  const metadata = {
+    pointCount: 1,
+    bounds: {
+      minX: -122.6,
+      minY: 44.4,
+      minZ: 100,
+      maxX: -122.4,
+      maxY: 44.6,
+      maxZ: 200,
+    },
+    cube: {
+      minX: -124,
+      minY: 42,
+      minZ: 100,
+      maxX: -122,
+      maxY: 44,
+      maxZ: 200,
+    },
+    wkt: 'COMPD_CS["WGS 84 + Local orthometric height",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],VERT_CS["Local orthometric height",VERT_DATUM["Local vertical datum",2005],UNIT["metre",1],AXIS["Gravity-related height",UP]]]',
+  };
+
+  const origin = createThreeLocalOrigin(metadata, grid);
+  const expected = geographicToEcef({
+    longitude: -123,
+    latitude: 43,
+    height: 178,
+  });
+  assert.equal(origin.x, expected.x);
+  assert.equal(origin.y, expected.y);
+  assert.equal(origin.z, expected.z);
 });
 
 test("legacy geographic buffers are converted to local positions before Float32 narrowing", () => {

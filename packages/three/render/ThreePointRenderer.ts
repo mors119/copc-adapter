@@ -6,6 +6,7 @@ import type {
 } from "../../core/copc/types/copc";
 import { performanceNow } from "../../core/copc/performance";
 import { createPointTransformer } from "../../core/coordinates/transform/createPointTransformer";
+import type { GtxGeoidGrid } from "../../core/coordinates/transform/verticalGrid";
 import {
   geographicToEcef,
   worldBufferToLocal,
@@ -60,14 +61,27 @@ export type ThreePointRendererConstructorOptions = {
 };
 
 /** Metadata-derived origin for the renderer-local ECEF frame. */
-export function createThreeLocalOrigin(metadata: CopcMetadata): Wgs84EcefPoint {
-  const transformPoint = createPointTransformer(metadata);
+export function createThreeLocalOrigin(
+  metadata: CopcMetadata,
+  verticalGrid?: GtxGeoidGrid,
+): Wgs84EcefPoint {
+  const transformPoint = createPointTransformer(metadata, 0, verticalGrid, {
+    sampleVerticalGrid: false,
+  });
   const { minX, minY, minZ, maxX, maxY, maxZ } = metadata.cube;
   const center = transformPoint({
     x: (minX + maxX) / 2,
     y: (minY + maxY) / 2,
     z: (minZ + maxZ) / 2,
   });
+  if (verticalGrid) {
+    // This metadata-derived center can lie in empty padding outside a
+    // regional grid; use the grid-extrema midpoint for a stable origin.
+    center.height +=
+      (verticalGrid.minimumUndulationMeters +
+        verticalGrid.maximumUndulationMeters) /
+      2;
+  }
   return geographicToEcef(center);
 }
 
