@@ -359,6 +359,9 @@ test("shared streaming core applies a grid once after prepared Rust-style output
 
   await core.load();
   await core.updateView(createView());
+  const performance = core.getSnapshot().performance;
+  assert.ok(performance.crsTransformDurationMs > 0);
+  assert.ok(performance.longestMainThreadBlockingSectionMs > 0);
   let prepared = core.getCachedPreparedPointData(ROOT_KEY);
   assert.deepEqual([...prepared.source.coordinates], [10.005, 20.005, 150]);
   assert.equal(prepared.geographic.coordinates[2], 180);

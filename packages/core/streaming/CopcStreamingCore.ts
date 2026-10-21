@@ -1489,9 +1489,24 @@ export class CopcStreamingCore {
         prepared,
         this.heightOffsetMeters - alreadyAppliedOffset,
       );
-      return this.verticalGrid
-        ? applyPreparedPointVerticalGrid(offsetPrepared, this.verticalGrid)
-        : offsetPrepared;
+      if (!this.verticalGrid) {
+        return offsetPrepared;
+      }
+
+      const gridTransformStartedAt =
+        purpose === "prefetch" ? undefined : performanceNow();
+      const gridCorrected = applyPreparedPointVerticalGrid(
+        offsetPrepared,
+        this.verticalGrid,
+      );
+      if (gridTransformStartedAt !== undefined) {
+        performanceRecorder.recordStage(
+          "crsTransformDurationMs",
+          performanceNow() - gridTransformStartedAt,
+          true,
+        );
+      }
+      return gridCorrected;
     }
 
     const points = await loadCopcPointBuffer(
