@@ -64,7 +64,7 @@ export type VerticalGridBytes =
 export type GtxGeoidGridOptions = {
   /** Caller-chosen description; it does not select or infer a model. */
   gridId: string;
-  /** Exact vertical CRS authority (for example `EPSG:3855`) or WKT vertical CRS name. */
+  /** EPSG identifier, or exact WKT name when no outer authority is present. */
   sourceVerticalCrs: string;
   /** The adapter's only supported rendering target: WGS 84 ellipsoidal height. */
   targetVerticalCrs: "EPSG:4979";
@@ -550,10 +550,21 @@ export class GtxGeoidGrid {
         this.gridId,
       );
     }
+    if (identity.axisDirection && identity.axisDirection !== "UP") {
+      fail(
+        "unsupported-crs-pair",
+        `Vertical axis direction ${identity.axisDirection} is not supported; geoid height conversion requires an UP axis`,
+        this.gridId,
+      );
+    }
     const configuredEpsg = normalizeEpsg(this.sourceVerticalCrs);
-    const matches = configuredEpsg
-      ? identity.authority?.toUpperCase() === "EPSG" && identity.code === configuredEpsg.slice(5)
-      : identity.name === this.sourceVerticalCrs;
+    const hasAuthority =
+      identity.authority !== undefined || identity.code !== undefined;
+    const matches = hasAuthority
+      ? configuredEpsg !== undefined &&
+        identity.authority?.toUpperCase() === "EPSG" &&
+        identity.code === configuredEpsg.slice(5)
+      : configuredEpsg === undefined && identity.name === this.sourceVerticalCrs;
     if (!matches) {
       fail(
         "unsupported-crs-pair",
@@ -575,7 +586,9 @@ export class GtxGeoidGrid {
     const inverseFlattening = horizontalEllipsoid ? Number(horizontalEllipsoid[2]) : NaN;
     if (
       !horizontalDatum ||
-      !/^(?:WGS_1984|WGS 84|World Geodetic System 1984)$/i.test(horizontalDatum) ||
+      !/^(?:WGS_1984|D_WGS_1984|WGS 84|World Geodetic System 1984)$/i.test(
+        horizontalDatum,
+      ) ||
       !near(semiMajorAxis, 6378137, 1e-6) ||
       !near(inverseFlattening, 298.257223563, 1e-9)
     ) {

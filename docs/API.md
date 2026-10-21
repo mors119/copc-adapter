@@ -742,8 +742,8 @@ async function sha256Hex(file: Blob): Promise<string> {
 
 const verticalGrid = await loadGtxGeoidGrid(gridFile, {
   gridId: 'operator-supplied-grid-version',
-  // Use the exact authority or vertical CRS name present in both the COPC
-  // compound WKT and this grid's authoritative documentation.
+  // Use the exact outer EPSG authority when the COPC WKT declares one;
+  // otherwise use its exact vertical CRS name.
   sourceVerticalCrs: 'Exact source vertical CRS from the data and grid docs',
   targetVerticalCrs: 'EPSG:4979',
   horizontalCrs: 'EPSG:4326',
@@ -773,13 +773,18 @@ budget, finite values, and the declared NoData sentinel. It cannot prove that
 the caller's CRS, sign, unit, epoch, license, or model label is true. The COPC
 WKT must be a supported WKT1 compound definition with a `GEOGCS` or `PROJCS`
 horizontal CRS and an explicit `VERT_CS` source vertical CRS. The horizontal
-component must declare a WGS 84 datum and ellipsoid; other horizontal
-reference frames fail until a verified frame transformation is available. The
-rendering target is WGS 84 ellipsoidal height
+component must declare a supported WGS 84 datum name and the exact WGS 84
+ellipsoid parameters; this includes ESRI's `D_WGS_1984` spelling. Other
+horizontal reference frames fail until a verified frame transformation is
+available. When the WKT declares an outer EPSG vertical authority, the
+configured source must use that EPSG code; names are accepted only when the
+WKT has no outer authority. Other authority namespaces are not configurable.
+Any explicitly declared vertical axis must point `UP`. The rendering target is
+WGS 84 ellipsoidal height
 (`EPSG:4979`). Missing CRS/grid metadata, hash mismatch, malformed data,
-unsupported epochs, NoData samples, or points outside coverage fail the
-requested point preparation. There is no fallback to uncorrected heights or
-to a constant offset.
+authority/name mismatch, downward vertical axes, unsupported epochs, NoData
+samples, or points outside coverage fail the requested point preparation.
+There is no fallback to uncorrected heights or to a constant offset.
 
 `noDataValue` is mandatory: provide the documented finite sentinel or `null`
 when the grid documentation confirms there is none. Grid values must already

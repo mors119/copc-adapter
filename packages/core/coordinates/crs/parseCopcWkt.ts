@@ -149,9 +149,11 @@ export function extractVerticalUnitScale(wkt: string): number {
 export type VerticalCrsIdentity = {
   /** WKT name assigned to the vertical coordinate reference system. */
   name: string;
-  /** Last authority identifier attached to the vertical CRS, when present. */
+  /** Identifier attached directly to the vertical CRS, when present. */
   authority?: string;
   code?: string;
+  /** Explicit direction of the vertical axis, when the WKT declares one. */
+  axisDirection?: string;
   /** Whether this vertical CRS definition carries dynamic-frame metadata. */
   dynamic: boolean;
 };
@@ -258,6 +260,13 @@ export function getVerticalCrsIdentity(
     )
     .filter((match): match is RegExpMatchArray => match !== null);
   const identifier = identifiers.at(-1);
+  const axes = findDirectWktSections(section, ["AXIS["]);
+  const axisDirection = axes[0]?.section.match(
+    /^AXIS\[\s*"(?:""|[^"])*"\s*,\s*"?([A-Z]+)"?\s*(?:,|\])/i,
+  )?.[1]?.toUpperCase();
+  if (axes.length > 0 && !axisDirection) {
+    throw new Error("Vertical CRS WKT has a malformed axis declaration");
+  }
   return {
     name: nameMatch[1].replaceAll('""', '"'),
     ...(identifier
@@ -266,6 +275,7 @@ export function getVerticalCrsIdentity(
           code: identifier[2] ?? identifier[3],
         }
       : {}),
+    ...(axisDirection ? { axisDirection } : {}),
     dynamic: /(?:^|,)\s*DYNAMIC\s*\[|FRAMEEPOCH\s*\[/i.test(section),
   };
 }

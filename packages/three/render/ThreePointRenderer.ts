@@ -65,13 +65,23 @@ export function createThreeLocalOrigin(
   metadata: CopcMetadata,
   verticalGrid?: GtxGeoidGrid,
 ): Wgs84EcefPoint {
-  const transformPoint = createPointTransformer(metadata, 0, verticalGrid);
+  const transformPoint = createPointTransformer(metadata, 0, verticalGrid, {
+    sampleVerticalGrid: false,
+  });
   const { minX, minY, minZ, maxX, maxY, maxZ } = metadata.cube;
   const center = transformPoint({
     x: (minX + maxX) / 2,
     y: (minY + maxY) / 2,
     z: (minZ + maxZ) / 2,
   });
+  if (verticalGrid) {
+    // This metadata-derived center can lie in empty padding outside a
+    // regional grid; use the grid-extrema midpoint for a stable origin.
+    center.height +=
+      (verticalGrid.minimumUndulationMeters +
+        verticalGrid.maximumUndulationMeters) /
+      2;
+  }
   return geographicToEcef(center);
 }
 

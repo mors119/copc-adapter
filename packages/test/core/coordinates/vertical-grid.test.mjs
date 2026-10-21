@@ -447,6 +447,61 @@ test("only a vertical CRS authority on the outer WKT section can satisfy an EPSG
   );
 });
 
+test("vertical grid transforms reject downward axes and authority-name conflicts", async () => {
+  const bytes = encodeGtx({ values: [10, 20, 30, 40] });
+  const downwardWkt = ORTHOMETRIC_WKT.replace(
+    'AXIS["Gravity-related height",UP]',
+    'AXIS["Depth",DOWN]',
+  );
+  const namedGrid = await loadGrid(bytes);
+  assert.throws(
+    () =>
+      createPointTransformer(
+        createMetadata({ wkt: downwardWkt }),
+        0,
+        namedGrid,
+      ),
+    (error) =>
+      error instanceof VerticalTransformError &&
+      error.code === "unsupported-crs-pair" &&
+      /requires an UP axis/.test(error.message),
+  );
+
+  const authoritativeWkt = ORTHOMETRIC_WKT.replace(
+    'AXIS["Gravity-related height",UP]]',
+    'AXIS["Gravity-related height",UP],AUTHORITY["EPSG","5703"]]',
+  );
+  assert.throws(
+    () =>
+      createPointTransformer(
+        createMetadata({ wkt: authoritativeWkt }),
+        0,
+        namedGrid,
+      ),
+    (error) =>
+      error instanceof VerticalTransformError &&
+      error.code === "unsupported-crs-pair",
+  );
+});
+
+test("vertical grid transforms accept the documented ESRI WGS 84 datum alias", async () => {
+  const bytes = encodeGtx({ values: [10, 20, 30, 40] });
+  const esriWkt = ORTHOMETRIC_WKT.replace(
+    'DATUM["WGS_1984",SPHEROID["WGS 84"',
+    'DATUM["D_WGS_1984",SPHEROID["WGS_1984"',
+  );
+  const grid = await loadGrid(bytes);
+
+  assert.equal(
+    createPointTransformer(createMetadata({ wkt: esriWkt }), 0, grid)({
+      x: 0.5,
+      y: 0.5,
+      z: 100,
+    }).height,
+    125,
+  );
+});
+
 test("configured source CRS must match COPC WKT and range bounds include grid extrema", async () => {
   const grid = await loadGrid(encodeGtx({ values: [10, 20, 30, 40] }));
   const mismatchedGrid = await loadGrid(encodeGtx({ values: [10, 20, 30, 40] }), {

@@ -183,7 +183,7 @@ The public API is intentionally limited to `GtxGeoidGrid`:
 ```ts
 const grid = await loadGtxGeoidGrid(file, {
   gridId: "documented local grid/version",
-  sourceVerticalCrs: "exact vertical authority or WKT name",
+  sourceVerticalCrs: "exact outer EPSG authority, or WKT name without authority",
   targetVerticalCrs: "EPSG:4979",
   horizontalCrs: "EPSG:4326",
   referenceEllipsoid: "WGS84",
@@ -208,6 +208,13 @@ interpolation/direction, NoData, and out-of-coverage. The adapter never
 switches to EGM2008, KNGeoid18, KNGeoid24, `heightOffsetMeters`, or no transform
 after a requested grid conversion fails.
 
+When WKT declares an outer EPSG vertical CRS authority, `sourceVerticalCrs` must
+use its matching EPSG code; name matching is accepted only when the WKT has no
+outer authority. Other authority namespaces are not currently configurable. An
+explicitly declared vertical axis must be `UP`. Horizontal WKT
+accepts the documented ESRI `D_WGS_1984` datum alias only with the validated
+WGS 84 ellipsoid parameters ([Esri coordinate system reference](https://pro.arcgis.com/en/pro-app/2.9/help/mapping/properties/pdf/geographic_coordinate_systems.pdf)).
+
 Grid sampling happens after horizontal projection and before ECEF preparation.
 The corrected height drives display, inspection, ECEF, hierarchy/elevation
 bounds, metadata bounds, camera queries, and fly-to calculations. Bounds expand
@@ -230,7 +237,7 @@ accuracy, or suitability.
 ### Implementation validation
 
 - `cd packages && npm run typecheck` — passed.
-- `npm --prefix packages test` — passed, 484/484 tests, no skips; prepares the
+- `npm --prefix packages test` — passed, 487/487 tests, no skips; prepares the
   Rust/WASM core before running the package suite.
 - `cd packages && npm run build:library` — passed; package declarations and
   Rust/WASM assets built.
