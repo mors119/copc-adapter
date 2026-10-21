@@ -845,7 +845,10 @@ Grid data is not sent to each Worker.
 Rust/WASM preparation and JavaScript preparation both pass through the
 shared TypeScript grid sampler, so corrected geographic and ECEF positions
 follow the same rule. Sampling currently runs synchronously in the shared
-streaming preparation stage.
+streaming preparation stage. During initial EGM2008 loading, decoding yields to
+the event loop after each 16 latitude rows (138,240 samples); this keeps the
+entire 37-million-sample scan from running as one long browser task. Decoding
+still uses main-thread CPU time and is not moved to a Worker.
 
 The configured grid remains owned by the layer/core for its lifetime; reuse it
 across reloads that use the same grid and source CRS. Create a new layer/core

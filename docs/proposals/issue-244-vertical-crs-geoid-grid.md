@@ -219,6 +219,10 @@ spacing, axes, nodata, units, sign, and interpolation instructions.
   correction after either JavaScript or Rust/WASM preparation; grid
   initialization does not repeat for points or chunks. Sampling currently runs
   synchronously in that stage, so large streamed batches add main-thread work.
+- Loading the pinned EGM2008 grid scans 37,333,440 samples on the caller's
+  thread, but yields to the event loop after each 16 latitude rows (138,240
+  samples) instead of running the full decode as one long task. This improves
+  responsiveness; it is not a Worker offload or a measured performance claim.
 - HTTP Range COPC reads, hierarchy requests, point budgets, node cancellation,
   decoded cache, and LOD selection continue through existing paths. Prepared
   corrected data follows the core cache lifecycle; unload/reload rebuilds it
@@ -357,7 +361,7 @@ results do not establish model accuracy.
 ### Current EGM2008 adapter validation (2026-10-22)
 
 - `cd packages && npm run typecheck` — passed.
-- `cd packages && npm test` — passed, 491/491 tests, no skips; includes the
+- `cd packages && npm test` — passed, 492/492 tests, no skips; includes the
   Rust/WASM release build before the package test suite.
 - `cd packages && npm run build:library` — passed; browser bundles, WASM assets,
   and TypeScript declarations built.

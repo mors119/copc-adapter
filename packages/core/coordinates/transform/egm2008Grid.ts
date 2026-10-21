@@ -20,6 +20,7 @@ const NGA_EGM2008_COLUMNS = 8640;
 const NGA_EGM2008_ROW_SAMPLES_BYTES = NGA_EGM2008_COLUMNS * 4;
 const NGA_EGM2008_RECORD_BYTES = NGA_EGM2008_ROW_SAMPLES_BYTES + 8;
 const NGA_EGM2008_FILE_BYTES = NGA_EGM2008_ROWS * NGA_EGM2008_RECORD_BYTES;
+const NGA_EGM2008_ROWS_PER_CHUNK = 16;
 // Calculated from the raw member in NGA's official interpolation ZIP acquired
 // on 2026-10-22. NGA does not publish a separate checksum for this file.
 const NGA_EGM2008_EXPECTED_SHA256 =
@@ -27,6 +28,24 @@ const NGA_EGM2008_EXPECTED_SHA256 =
 const NGA_EGM2008_GRID_ID =
   "NGA EGM2008 2.5-minute WGS 84 Tide-Free small-endian grid";
 const MINIMUM_GRID_LIMIT = 40 + 2 * 2 * 4;
+
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => globalThis.setTimeout(resolve, 0));
+}
+
+/** @internal Process source rows in bounded chunks and yield between chunks. */
+export async function processNgaEgm2008Rows(
+  rowCount: number,
+  processRow: (row: number) => void,
+  yieldTask: () => Promise<void> = yieldToEventLoop,
+): Promise<void> {
+  for (let row = 0; row < rowCount; row += 1) {
+    processRow(row);
+    if ((row + 1) % NGA_EGM2008_ROWS_PER_CHUNK === 0 && row + 1 < rowCount) {
+      await yieldTask();
+    }
+  }
+}
 
 function fail(
   code: ConstructorParameters<typeof VerticalTransformError>[0],
@@ -155,7 +174,7 @@ export async function loadNgaEgm2008Grid(
   const values = new Float32Array(NGA_EGM2008_ROWS * NGA_EGM2008_COLUMNS);
   let minimum = Number.POSITIVE_INFINITY;
   let maximum = Number.NEGATIVE_INFINITY;
-  for (let sourceRow = 0; sourceRow < NGA_EGM2008_ROWS; sourceRow += 1) {
+  await processNgaEgm2008Rows(NGA_EGM2008_ROWS, (sourceRow) => {
     const recordOffset = sourceRow * NGA_EGM2008_RECORD_BYTES;
     const leadingMarker = view.getUint32(recordOffset, true);
     const trailingMarker = view.getUint32(
@@ -187,7 +206,7 @@ export async function loadNgaEgm2008Grid(
       minimum = Math.min(minimum, value);
       maximum = Math.max(maximum, value);
     }
-  }
+  });
 
   const gridData: VerifiedGeoidGridData = {
     options: createNgaGridOptions(maxGridBytes),

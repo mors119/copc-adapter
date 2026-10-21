@@ -12,7 +12,10 @@ import {
   VerticalTransformError,
   loadGtxGeoidGrid,
 } from "../../../core/coordinates/transform/verticalGrid.ts";
-import { loadNgaEgm2008Grid } from "../../../core/coordinates/transform/egm2008Grid.ts";
+import {
+  loadNgaEgm2008Grid,
+  processNgaEgm2008Rows,
+} from "../../../core/coordinates/transform/egm2008Grid.ts";
 import { geographicToEcef } from "../../../core/coordinates/transform/worldCoordinates.ts";
 import { createPreparedPointData } from "../../../core/point/preparedPoint.ts";
 import { buildStreamingHierarchy } from "../../../core/streaming/buildStreamingHierarchy.ts";
@@ -133,6 +136,18 @@ test("NGA EGM2008 loader requires the extracted model grid and a valid resource 
     loadNgaEgm2008Grid(bytes, null),
     (error) => error instanceof VerticalTransformError && error.code === "invalid-grid-metadata",
   );
+});
+
+test("NGA EGM2008 row decoding yields between bounded chunks", async () => {
+  const rows = [];
+  let yieldCount = 0;
+
+  await processNgaEgm2008Rows(35, (row) => rows.push(row), async () => {
+    yieldCount += 1;
+  });
+
+  assert.deepEqual(rows, Array.from({ length: 35 }, (_, row) => row));
+  assert.equal(yieldCount, 2);
 });
 
 test("GTX bilinear interpolation handles positive and negative values and cell boundaries", async () => {
