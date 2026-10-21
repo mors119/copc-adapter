@@ -68,7 +68,12 @@ type VerticalGridIntegration = {
   setShow(id: string, show: boolean): void;
   setRefinementFocus(id: string, enabled: boolean): void;
   zoomTo(id: string): Promise<boolean>;
-  setCamera(longitude: number, latitude: number, altitude: number): void;
+  setCamera(
+    longitude: number,
+    latitude: number,
+    altitude: number,
+    pitchRadians?: number,
+  ): void;
   reload(id: string): Promise<void>;
   destroyLayer(id: string): void;
   missingGridError(): Promise<string | undefined>;
@@ -458,12 +463,12 @@ integrationWindow.__VERTICAL_GRID_INTEGRATION__ = {
       new Cesium.HeadingPitchRange(0, -Cesium.Math.PI_OVER_FOUR, 1_500),
     );
   },
-  setCamera(longitude, latitude, altitude) {
+  setCamera(longitude, latitude, altitude, pitchRadians) {
     viewer.camera.setView({
       destination: Cesium.Cartesian3.fromDegrees(longitude, latitude, altitude),
       orientation: {
         heading: 0,
-        pitch: -Cesium.Math.PI_OVER_TWO,
+        pitch: pitchRadians ?? -Cesium.Math.PI_OVER_TWO,
         roll: 0,
       },
     });

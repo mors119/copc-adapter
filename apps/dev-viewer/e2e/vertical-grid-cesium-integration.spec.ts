@@ -62,7 +62,12 @@ type VerticalGridIntegration = {
   getLastCanvasClick(): { clientX: number; clientY: number; offsetX: number; offsetY: number } | undefined;
   setShow(id: string, show: boolean): void;
   zoomTo(id: string): Promise<boolean>;
-  setCamera(longitude: number, latitude: number, altitude: number): void;
+  setCamera(
+    longitude: number,
+    latitude: number,
+    altitude: number,
+    pitchRadians?: number,
+  ): void;
   reload(id: string): Promise<void>;
   destroyLayer(id: string): void;
   missingGridError(): Promise<string | undefined>;
@@ -446,7 +451,12 @@ test("Cesium applies opt-in GTX correction once through streaming, reload, bound
     .toBeGreaterThan(beforeCameraMove.streamingUpdateCount);
   const beforeLookingAway = (await layerState(page, "corrected")).snapshot;
   await page.evaluate(() =>
-    window.__VERTICAL_GRID_INTEGRATION__!.setCamera(0, 0, 1_000_000),
+    window.__VERTICAL_GRID_INTEGRATION__!.setCamera(
+      -123,
+      44,
+      18_000,
+      Math.PI / 2,
+    ),
   );
   await expect
     .poll(async () => {
