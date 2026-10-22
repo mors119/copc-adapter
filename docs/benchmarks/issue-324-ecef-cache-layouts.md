@@ -17,16 +17,12 @@ approval to remove source coordinates from the public API or to adopt C/D.
 
 ## Reproducibility
 
-The complete corrected per-run Node output is checked in as
-[machine-readable JSON](https://github.com/mors119/copc-adapter/blob/mors119/perf-p2-4-ecef/docs/benchmarks/issue-324-node-m2-2026-10-23.json). The
-initial [2026-10-22 JSON](https://github.com/mors119/copc-adapter/blob/mors119/perf-p2-4-ecef/docs/benchmarks/issue-324-node-m2-2026-10-22-initial.json)
-is retained as a historical record; its source re-read stage summaries
-included warm-ups and should not be used for those stage percentiles. The passing
-first-visible browser baseline, including raw per-run frame and Long Task
-samples, is in [browser JSON](https://github.com/mors119/copc-adapter/blob/mors119/perf-p2-4-ecef/docs/benchmarks/issue-324-browser-first-visible-m2-2026-10-23.json).
-The corrected JSON preserves all measured raw runs and recomputes only the
-source re-read stage summaries from the 15 measured runs, excluding the five
-warm-ups. Its `postProcessingCorrection` records the method and runner hash.
+The corrected per-run Node results are in the single
+[machine-readable JSON](https://github.com/mors119/copc-adapter/blob/mors119/perf-p2-4-ecef/docs/benchmarks/issue-324-node-m2-2026-10-23.json)
+required for the A/B/C/D measurements. It preserves all measured raw runs and
+recomputes only the source re-read stage summaries from the 15 measured runs,
+excluding the five warm-ups. Its `postProcessingCorrection` records the method
+and runner hash.
 
 | Setting | Value |
 | --- | --- |
@@ -177,7 +173,7 @@ environment-specific baseline observations.
 
 ## Validation
 
-- Package tests: 517 passed, 0 failed, 0 skipped.
+- Package tests: 518 passed, 0 failed, 0 skipped.
 - Package and dev-viewer typechecks passed.
 - Default browser streaming benchmark: 3 passed, 1 opt-in test skipped; the
   opt-in first-visible benchmark passed separately (5 cold + 5 warm runs).

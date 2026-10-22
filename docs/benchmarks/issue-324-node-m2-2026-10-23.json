@@ -47523,6 +47523,6 @@
     "measuredRunsPerDatasetAndBackend": 15,
     "correctionRunnerCommit": "64c53419004584ebf91d824cf33c4e2f44d31684",
     "correctionRunnerSha256": "d00be7472ec7831e95bfc199d842d0187d77e1bafc50370b592f1728e2ffec07",
-    "originalArtifact": "docs/benchmarks/issue-324-node-m2-2026-10-22-initial.json"
+    "rawSamplesSource": "rawRunSamples preserved in this corrected artifact"
   }
 }
