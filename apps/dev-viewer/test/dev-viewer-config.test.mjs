@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  getCesiumTerrainProviderUrl,
   getSafeSourceLabel,
   getSafeTerrainSourceLabel,
   hasUnappliedSettings,
@@ -152,9 +153,36 @@ test("redacts credentials and signed query values from source labels", () => {
 test("validates an explicit public Terrain endpoint and keeps its label safe", () => {
   assert.equal(
     validateDevViewerConfig(
+      createConfig({ terrainUrl: "http://localhost:8080/terrain" }),
+    ),
+    undefined,
+  );
+  assert.equal(
+    validateDevViewerConfig(
       createConfig({ terrainUrl: "http://localhost:8080/terrain/layer.json" }),
     ),
     undefined,
+  );
+  assert.equal(
+    getCesiumTerrainProviderUrl(
+      "http://localhost:8080/terrain",
+      "http://viewer.test/",
+    ),
+    "http://localhost:8080/terrain",
+  );
+  assert.equal(
+    getCesiumTerrainProviderUrl(
+      "http://localhost:8080/terrain/layer.json",
+      "http://viewer.test/",
+    ),
+    "http://localhost:8080/terrain",
+  );
+  assert.equal(
+    getCesiumTerrainProviderUrl(
+      "http://localhost:8080/terrain/layer.json/",
+      "http://viewer.test/",
+    ),
+    "http://localhost:8080/terrain",
   );
   assert.match(
     validateDevViewerConfig(

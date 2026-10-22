@@ -38,8 +38,6 @@ async function createSyntheticVerticalGrid() {
 
 const WGS84_ORTHOMETRIC_WKT =
   'COMPD_CS["WGS 84 + Local orthometric height",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],VERT_CS["Local orthometric height",VERT_DATUM["Local vertical datum",2005],UNIT["metre",1],AXIS["Gravity-related height",UP]]]';
-const WGS84_ELLIPSOIDAL_WKT =
-  'COMPD_CS["WGS 84 + ellipsoidal height",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],VERT_CS["WGS 84 ellipsoidal height",VERT_DATUM["WGS_1984",2005],UNIT["metre",1],AXIS["Ellipsoidal height",UP],AUTHORITY["EPSG","4979"]]]';
 
 function createEvent() {
   const listeners = new Set();
@@ -1621,6 +1619,7 @@ test("CesiumPointPicker delegates node-level hits to the injected renderer and i
 });
 
 test("terrain alignment estimates use the selected layer-owned point and invalidate on provider replacement", async () => {
+  const verticalTransform = await createSyntheticVerticalGrid();
   const source = createBackend({
     metadata: {
       pointCount: 2,
@@ -1640,7 +1639,7 @@ test("terrain alignment estimates use the selected layer-owned point and invalid
         maxY: 45,
         maxZ: 20,
       },
-      wkt: WGS84_ELLIPSOIDAL_WKT,
+      wkt: WGS84_ORTHOMETRIC_WKT,
     },
   });
   const layer = new CopcCesiumLayer({
@@ -1648,9 +1647,10 @@ test("terrain alignment estimates use the selected layer-owned point and invalid
     backend: source.backend,
     decoder: source.decoder,
     heightOffsetMeters: 5,
+    verticalTransform,
   });
   const viewer = createFakeViewer();
-  const provider = createTerrainSamplingProvider(40);
+  const provider = createTerrainSamplingProvider(65);
   viewer.terrainProvider = provider;
 
   await layer.load();
@@ -1667,23 +1667,23 @@ test("terrain alignment estimates use the selected layer-owned point and invalid
   const firstEstimate = await layer.estimateTerrainHeightAlignment(pickedBefore);
   assert.equal(firstEstimate.status, "ready");
   assert.equal(firstEstimate.actionable, true);
-  assert.equal(firstEstimate.anchor.displayedHeightMeters, 17);
-  assert.equal(firstEstimate.terrainHeightMeters, 40);
+  assert.equal(firstEstimate.anchor.displayedHeightMeters, 42);
+  assert.equal(firstEstimate.terrainHeightMeters, 65);
   assert.equal(firstEstimate.proposedOffsetMeters, 23);
   assert.equal(firstEstimate.existingHeightOffsetMeters, 5);
   assert.equal(firstEstimate.effectiveProposedHeightOffsetMeters, 28);
   assert.equal(firstEstimate.anchor.source.z, 12);
   assert.equal(layer.isTerrainHeightAlignmentEstimateCurrent(firstEstimate), true);
-  assert.equal(layer.getSelectedPoint().height, 17);
+  assert.equal(layer.getSelectedPoint().height, 42);
   assert.equal(layer.getSelectedPoint().source.z, 12);
   assert.deepEqual(layer.boundingSphere, boundsBefore);
 
-  viewer.terrainProvider = createTerrainSamplingProvider(41);
+  viewer.terrainProvider = createTerrainSamplingProvider(66);
   assert.equal(layer.isTerrainHeightAlignmentEstimateCurrent(firstEstimate), false);
   const secondEstimate = await layer.estimateTerrainHeightAlignment(
     layer.getSelectedPoint(),
   );
-  assert.equal(secondEstimate.terrainHeightMeters, 41);
+  assert.equal(secondEstimate.terrainHeightMeters, 66);
   assert.equal(layer.isTerrainHeightAlignmentEstimateCurrent(firstEstimate), false);
   assert.equal(layer.isTerrainHeightAlignmentEstimateCurrent(secondEstimate), true);
 
@@ -1697,9 +1697,10 @@ test("terrain alignment estimates use the selected layer-owned point and invalid
     backend: source.backend,
     decoder: source.decoder,
     heightOffsetMeters: approvedOffset,
+    verticalTransform,
   });
   const appliedViewer = createFakeViewer();
-  appliedViewer.terrainProvider = createTerrainSamplingProvider(41);
+  appliedViewer.terrainProvider = createTerrainSamplingProvider(66);
   await appliedLayer.load();
   appliedLayer.attachTo(appliedViewer);
   await waitFor(() => appliedLayer.getSnapshot().renderedPointCount === 2);
@@ -1721,7 +1722,7 @@ test("terrain alignment estimates use the selected layer-owned point and invalid
   );
   const appliedPoint = appliedLayer.getSelectedPoint();
   assert.equal(appliedPoint.source.z, 12);
-  assert.equal(appliedPoint.height, 41);
+  assert.equal(appliedPoint.height, 66);
 
   const zoomed = appliedLayer.zoomTo();
   assert.ok(appliedViewer.camera.lastBoundingSphereFlight);
@@ -1731,6 +1732,7 @@ test("terrain alignment estimates use the selected layer-owned point and invalid
 });
 
 test("terrain estimates stay independent for multiple layers on one Viewer", async () => {
+  const verticalTransform = await createSyntheticVerticalGrid();
   const firstSource = createBackend({
     metadata: {
       pointCount: 2,
@@ -1750,7 +1752,7 @@ test("terrain estimates stay independent for multiple layers on one Viewer", asy
         maxY: 45,
         maxZ: 20,
       },
-      wkt: WGS84_ELLIPSOIDAL_WKT,
+      wkt: WGS84_ORTHOMETRIC_WKT,
     },
   });
   const secondSource = createBackend({
@@ -1772,7 +1774,7 @@ test("terrain estimates stay independent for multiple layers on one Viewer", asy
         maxY: 45,
         maxZ: 20,
       },
-      wkt: WGS84_ELLIPSOIDAL_WKT,
+      wkt: WGS84_ORTHOMETRIC_WKT,
     },
   });
   const firstLayer = new CopcCesiumLayer({
@@ -1780,15 +1782,17 @@ test("terrain estimates stay independent for multiple layers on one Viewer", asy
     backend: firstSource.backend,
     decoder: firstSource.decoder,
     heightOffsetMeters: 2,
+    verticalTransform,
   });
   const secondLayer = new CopcCesiumLayer({
     url: "memory://terrain-second-layer.copc.laz",
     backend: secondSource.backend,
     decoder: secondSource.decoder,
     heightOffsetMeters: -3,
+    verticalTransform,
   });
   const viewer = createFakeViewer();
-  viewer.terrainProvider = createTerrainSamplingProvider(40);
+  viewer.terrainProvider = createTerrainSamplingProvider(65);
 
   await Promise.all([firstLayer.load(), secondLayer.load()]);
   firstLayer.attachTo(viewer);
@@ -1813,8 +1817,8 @@ test("terrain estimates stay independent for multiple layers on one Viewer", asy
   const firstAnchor = pickFirstLayer(firstLayer);
   const secondAnchor = pickFirstLayer(secondLayer);
   assert.notEqual(firstAnchor.ownerId, secondAnchor.ownerId);
-  assert.equal(firstAnchor.height, 14);
-  assert.equal(secondAnchor.height, 9);
+  assert.equal(firstAnchor.height, 39);
+  assert.equal(secondAnchor.height, 34);
 
   const firstEstimate = await firstLayer.estimateTerrainHeightAlignment(firstAnchor);
   const secondEstimate = await secondLayer.estimateTerrainHeightAlignment(secondAnchor);

@@ -116,6 +116,32 @@ export type VerticalCrsIdentity = {
   dynamic: boolean;
 };
 
+/** Identity and coordinate-system details from the root of a WKT2 CRS. */
+export type RootCrsIdentity = {
+  type: string;
+  name: string;
+  authority?: string;
+  code?: string;
+  coordinateSystemType?: string;
+  coordinateSystemDimension?: number;
+  axisDirections: string[];
+};
+
+/** True only for an explicitly identified, three-dimensional ellipsoidal WGS 84 CRS. */
+export function isWgs84Geographic3dCrs(
+  identity: RootCrsIdentity | undefined,
+): boolean {
+  return (
+    identity?.type === "GEOGCRS" &&
+    identity.authority?.toUpperCase() === "EPSG" &&
+    identity.code === "4979" &&
+    identity.coordinateSystemType === "ellipsoidal" &&
+    identity.coordinateSystemDimension === 3 &&
+    identity.axisDirections.length === 3 &&
+    identity.axisDirections.includes("UP")
+  );
+}
+
 function findWktSectionStart(
   source: string,
   index: number,
@@ -272,6 +298,76 @@ export function getVerticalCrsIdentity(
       : {}),
     ...(axisDirection ? { axisDirection } : {}),
     dynamic: /(?:^|,)\s*DYNAMIC\s*\[|FRAMEEPOCH\s*\[/i.test(section),
+  };
+}
+
+/**
+ * Read the root WKT2 CRS identity and its direct coordinate-system axes.
+ * Nested datum and ellipsoid identifiers are deliberately excluded.
+ */
+export function getRootCrsIdentity(wkt: string): RootCrsIdentity | undefined {
+  const rootMatch = /^\s*([A-Z][A-Z0-9_]*)\s*\[/i.exec(wkt);
+  if (!rootMatch) return undefined;
+  const type = rootMatch[1].toUpperCase();
+  const rootStart = wkt.search(/\S/);
+  const root = findWktSectionWithOffset(wkt, `${type}[`);
+  if (!root || root.start !== rootStart) return undefined;
+
+  const nameMatch = root.section.match(
+    /^\s*[A-Z][A-Z0-9_]*\s*\[\s*"((?:""|[^"])*)"/i,
+  );
+  if (!nameMatch) {
+    throw new Error("Root CRS WKT does not begin with a quoted name");
+  }
+
+  const directSections = findDirectWktSections(root.section, [
+    "ID[",
+    "AUTHORITY[",
+    "CS[",
+    "AXIS[",
+  ]);
+  const identifiers = directSections
+    .filter(({ keyword }) => keyword === "ID[" || keyword === "AUTHORITY[")
+    .map(({ section }) =>
+      section.match(
+        /^(?:ID|AUTHORITY)\s*\[\s*"([^"]+)"\s*,\s*(?:"([^"]+)"|(\d+))/i,
+      ),
+    )
+    .filter((match): match is RegExpMatchArray => match !== null);
+  const identifier = identifiers.at(-1);
+  const coordinateSystem = directSections.find(({ keyword }) => keyword === "CS[")
+    ?.section.match(
+      /^CS\s*\[\s*"?([A-Z_]+)"?\s*,\s*(\d+)/i,
+    );
+  const axes = directSections
+    .filter(({ keyword }) => keyword === "AXIS[")
+    .map(({ section }) =>
+      section.match(
+        /^AXIS\s*\[\s*"(?:""|[^"])*"\s*,\s*"?([A-Z]+)"?\s*(?:,|\])/i,
+      )?.[1]?.toUpperCase(),
+    );
+  if (axes.some((direction) => direction === undefined)) {
+    throw new Error("Root CRS WKT has a malformed axis declaration");
+  }
+
+  return {
+    type,
+    name: nameMatch[1].replaceAll('""', '"'),
+    ...(identifier
+      ? {
+          authority: identifier[1],
+          code: identifier[2] ?? identifier[3],
+        }
+      : {}),
+    ...(coordinateSystem
+      ? {
+          coordinateSystemType: coordinateSystem[1].toLowerCase(),
+          coordinateSystemDimension: Number(coordinateSystem[2]),
+        }
+      : {}),
+    axisDirections: axes.filter(
+      (direction): direction is string => direction !== undefined,
+    ),
   };
 }
 

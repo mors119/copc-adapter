@@ -66,11 +66,11 @@ conversion](API.md#explicit-vertical-crs-grid-conversion).
 
 Terrain is independent from imagery and the ellipsoid. Configure an application
 owned TerrainProvider before creating the Viewer; an unauthenticated local
-quantized-mesh service can expose a `layer.json` endpoint:
+quantized-mesh service can expose a `layer.json` endpoint under a service root:
 
 ```ts
 const terrainProvider = await Cesium.CesiumTerrainProvider.fromUrl(
-  'http://localhost:8080/terrain/layer.json',
+  'http://localhost:8080/terrain',
 );
 const viewer = new Cesium.Viewer('cesium-container', { terrainProvider });
 ```
@@ -85,8 +85,9 @@ API guide](API.md#explicit-cesium-terrain-residual-estimate) for the vertical
 reference checks, error cases, cancellation semantics and composition with
 `verticalTransform`.
 
-In the Dev Viewer, enter the Terrain `layer.json` URL, press **Apply Settings**,
-pick a COPC point, confirm ground status when needed, then use **Estimate
+In the Dev Viewer, enter the Terrain service root (the folder containing
+`layer.json`), press **Apply Settings**, pick a COPC point, confirm ground
+status when needed, then use **Estimate
 residual** and review the preview. **Apply proposed correction** is enabled
 only for a current, actionable estimate. The default remains ellipsoid-only.
 

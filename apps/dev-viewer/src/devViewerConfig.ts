@@ -20,7 +20,7 @@ export type DevViewerConfig = {
   source: string | File;
   /** Additive metre correction applied to Cesium display heights. */
   heightOffsetMeters: number;
-  /** Optional public or local Cesium quantized-mesh Terrain layer.json URL. */
+  /** Optional public or local Cesium quantized-mesh Terrain service root URL. */
   terrainUrl: string;
   colorMode: CopcColorMode;
   pointSize: number;
@@ -93,10 +93,10 @@ export function validateDevViewerConfig(
         terrainUrl.search ||
         terrainUrl.hash
       ) {
-        return "Terrain URL must be an HTTP or HTTPS layer.json endpoint without credentials, query parameters, or a fragment.";
+        return "Terrain URL must be an HTTP or HTTPS service root without credentials, query parameters, or a fragment.";
       }
     } catch {
-      return "Enter a valid HTTP or HTTPS Cesium Terrain layer.json URL.";
+      return "Enter a valid HTTP or HTTPS Cesium Terrain service root URL.";
     }
   }
   if (config.backend !== "copc-js" && config.backend !== "rust") {
@@ -150,6 +150,16 @@ export function validateDevViewerConfig(
     return "Max render distance must be a positive number of metres.";
   }
   return undefined;
+}
+
+/** Normalize a Terrain service root for Cesium fromUrl, which appends layer.json itself. */
+export function getCesiumTerrainProviderUrl(
+  source: string,
+  baseUrl: string,
+): string {
+  const url = new URL(source, baseUrl);
+  url.pathname = url.pathname.replace(/\/layer\.json\/?$/i, "") || "/";
+  return url.toString();
 }
 
 export function hasUnappliedSettings(

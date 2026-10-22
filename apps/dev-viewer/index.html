@@ -91,19 +91,20 @@
           <details class="dev-control-section" open>
             <summary>Terrain and height alignment</summary>
             <label class="ui-field" for="terrain-url"
-              >Cesium Terrain layer.json URL
+              >Cesium Terrain service root URL
               <input
                 id="terrain-url"
                 type="url"
-                placeholder="http://localhost:8080/terrain/layer.json"
+                placeholder="http://localhost:8080/terrain"
                 autocomplete="off"
               />
             </label>
             <p class="dev-help">
               Blank keeps the WGS84 ellipsoid. Use a public or locally hosted
-              quantized-mesh endpoint without credentials or query tokens, then
-              select Apply Settings. Imagery is not Terrain; 3D Tiles are not
-              sampled by this tool.
+              quantized-mesh service root (the folder containing layer.json)
+              without credentials or query tokens, then select Apply Settings.
+              A trailing /layer.json is also accepted. Imagery is not Terrain;
+              3D Tiles are not sampled by this tool.
             </p>
             <p id="terrain-source-status" role="status">
               Ellipsoid only · imagery may still be shown

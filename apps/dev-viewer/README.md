@@ -63,8 +63,9 @@ readable matching `Content-Range` and does not fall back to HEAD.
 
 The dev-viewer starts with the WGS 84 ellipsoid and imagery only. The ellipsoid
 is not measured local ground, and imagery has no elevation samples. To use
-Terrain, enter an explicitly configured Cesium quantized-mesh `layer.json` URL
-in **Terrain and height alignment** and press **Apply Settings**. A local
+Terrain, enter an explicitly configured Cesium quantized-mesh service root URL
+(the folder containing `layer.json`) in **Terrain and height alignment** and
+press **Apply Settings**. A trailing `/layer.json` is also accepted. A local
 unauthenticated source is supported. The viewer does not request Cesium ion
 credentials; Terrain endpoints containing URL credentials, query parameters,
 or fragments are rejected. If the source cannot load, the viewer remains usable

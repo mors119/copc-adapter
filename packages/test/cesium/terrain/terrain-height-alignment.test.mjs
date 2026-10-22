@@ -8,6 +8,8 @@ import {
 } from "../../../cesium/terrain/terrainHeightAlignment.ts";
 
 const ELLIPSOIDAL_WKT =
+  'GEOGCRS["WGS 84",DATUM["World Geodetic System 1984",ELLIPSOID["WGS 84",6378137,298.257223563,LENGTHUNIT["metre",1]],ID["EPSG",6326]],CS[ellipsoidal,3],AXIS["geodetic latitude (Lat)",north,ORDER[1],ANGLEUNIT["degree",0.0174532925199433]],AXIS["geodetic longitude (Lon)",east,ORDER[2],ANGLEUNIT["degree",0.0174532925199433]],AXIS["ellipsoidal height (h)",up,ORDER[3],LENGTHUNIT["metre",1]],ID["EPSG",4979]]';
+const INVALID_VERTICAL_4979_WKT =
   'VERT_CS["WGS 84 ellipsoidal height",VERT_DATUM["WGS_1984",2005],UNIT["metre",1],AXIS["Ellipsoidal height",UP],AUTHORITY["EPSG","4979"]]';
 const NAVD88_WKT =
   'COMPD_CS["NAD83 / Oregon GIC Lambert + NAVD88",PROJCS["NAD83 / Oregon GIC Lambert (ft)",GEOGCS["NAD83",DATUM["North American Datum 1983",SPHEROID["GRS 1980",6378137,298.257222101]],UNIT["degree",0.0174532925199433]],UNIT["US survey foot",0.3048006096012192]],VERT_CS["NAVD88 height",VERT_DATUM["North American Vertical Datum of 1988",2005],UNIT["US survey foot",0.3048006096012192],AXIS["Gravity-related height",UP],AUTHORITY["EPSG","6360"]]]';
@@ -213,6 +215,32 @@ test("does not sample or return an actionable result for unverified NAVD88 heigh
   assert.equal(result.verticalReference.sourceVerticalCrs, "EPSG:6360");
   assert.equal(result.verticalReference.displayHeightReference, "unverified");
   assert.match(result.rejectionReason, /no validated transformation/);
+});
+
+test("accepts EPSG:4979 only as a valid root 3D ellipsoidal GEOGCRS", async () => {
+  const valid = assessDisplayedHeightReference({ wkt: ELLIPSOIDAL_WKT });
+  assert.equal(valid.verified, true);
+  assert.equal(valid.sourceVerticalCrs, "EPSG:4979");
+  assert.equal(valid.displayHeightReference, "wgs84-ellipsoidal");
+
+  const invalidVertical = assessDisplayedHeightReference({
+    wkt: INVALID_VERTICAL_4979_WKT,
+  });
+  assert.equal(invalidVertical.verified, false);
+  assert.notEqual(invalidVertical.sourceVerticalCrs, "EPSG:4979");
+
+  const twoDimensional = ELLIPSOIDAL_WKT
+    .replace("CS[ellipsoidal,3]", "CS[ellipsoidal,2]")
+    .replace(',AXIS["ellipsoidal height (h)",up,ORDER[3],LENGTHUNIT["metre",1]]', "");
+  assert.equal(
+    assessDisplayedHeightReference({ wkt: twoDimensional }).verified,
+    false,
+  );
+
+  const nestedOnly = ELLIPSOIDAL_WKT
+    .replace(',ID["EPSG",4979]]', "]")
+    .replace('DATUM["World Geodetic System 1984",', 'DATUM["World Geodetic System 1984",ID["EPSG",4979],');
+  assert.equal(assessDisplayedHeightReference({ wkt: nestedOnly }).verified, false);
 });
 
 test("recognizes only an active, source-compatible validated vertical grid", async () => {

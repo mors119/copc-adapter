@@ -41,6 +41,7 @@ import {
 import { mountWorkbenchPanels } from "./workbenchPanels";
 import { mountDevViewerControls } from "./devViewerControls";
 import {
+  getCesiumTerrainProviderUrl,
   getSafeSourceLabel,
   getSafeTerrainSourceLabel,
   hasUnappliedSettings,
@@ -774,7 +775,7 @@ async function createCesiumSession(
   } else if (config.terrainUrl.trim()) {
     try {
       terrainProvider = await Cesium.CesiumTerrainProvider.fromUrl(
-        config.terrainUrl,
+        getCesiumTerrainProviderUrl(config.terrainUrl, window.location.href),
       );
       terrainSourceStatus =
         "Real Cesium Terrain · " +

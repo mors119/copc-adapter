@@ -130,11 +130,12 @@ Imagery는 색상/텍스처이므로 높이를 제공하지 않습니다. 기본
 3D Tiles를 샘플링하지 않습니다.
 
 애플리케이션이 직접 TerrainProvider를 만들어 Viewer에 전달합니다. 예를 들어 인증정보가
-없는 로컬 quantized-mesh 서비스의 `layer.json`을 사용할 수 있습니다.
+없는 로컬 quantized-mesh 서비스의 root URL을 사용할 수 있습니다. Cesium `fromUrl`이
+해당 경로에서 `layer.json`을 찾습니다.
 
 ```ts
 const terrainProvider = await Cesium.CesiumTerrainProvider.fromUrl(
-  'http://localhost:8080/terrain/layer.json',
+  'http://localhost:8080/terrain',
 );
 const viewer = new Cesium.Viewer('cesium-container', { terrainProvider });
 ```
@@ -178,7 +179,8 @@ TerrainProvider의 tile availability가 없거나 coverage가 없고, 요청이 
 한 번의 추정만 허용하고, 기본 대기 제한은 30초(최대 60초)입니다. Terrain LOD, 출처와
 anchor 품질 때문에 survey-grade 위치를 보장하지 않습니다.
 
-Dev Viewer에서는 Terrain URL을 입력하고 **Apply Settings**를 누른 뒤, COPC 점 선택 →
+Dev Viewer에서는 `layer.json`이 들어 있는 Terrain 서비스 root URL을 입력하고
+**Apply Settings**를 누릅니다. 끝에 `/layer.json`을 붙여도 됩니다. 이어서 COPC 점 선택 →
 지면 상태 확인 → **Estimate residual** → preview 검토 → **Apply proposed correction** 순서로
 진행합니다. 기본은 imagery가 있을 수 있는 ellipsoid-only 모드입니다. 승인하면 원본
 COPC에서 layer를 재구성하므로 범위 읽기, LAZ 디코딩, Worker 준비, renderer 업로드 및

@@ -1,5 +1,9 @@
 import * as Cesium from "cesium";
-import { getVerticalCrsIdentity } from "../../core/coordinates/crs/parseCopcWkt";
+import {
+  getRootCrsIdentity,
+  getVerticalCrsIdentity,
+  isWgs84Geographic3dCrs,
+} from "../../core/coordinates/crs/parseCopcWkt";
 import type { CopcMetadata } from "../../core/copc/types/copc";
 import type { CopcPointInspection } from "../../core/copc/points/pointInspection";
 import type { GtxGeoidGrid } from "../../core/coordinates/transform/verticalGrid";
@@ -104,8 +108,19 @@ const TERRAIN_SAMPLE_ABORTED = Symbol("terrain-sample-aborted");
 function sourceVerticalCrs(wkt: string | undefined): string | undefined {
   if (!wkt) return undefined;
   try {
+    const rootIdentity = getRootCrsIdentity(wkt);
+    if (isWgs84Geographic3dCrs(rootIdentity)) return "EPSG:4979";
     const identity = getVerticalCrsIdentity(wkt);
     if (!identity) return undefined;
+    // EPSG:4979 identifies a 3D geographic CRS, not a standalone vertical CRS.
+    // A VERT_CS carrying that ID is malformed and must not be reported as a
+    // verified source vertical reference.
+    if (
+      identity.authority?.toUpperCase() === "EPSG" &&
+      identity.code === "4979"
+    ) {
+      return identity.name;
+    }
     return identity.authority && identity.code
       ? `${identity.authority}:${identity.code}`
       : identity.name;
@@ -173,13 +188,8 @@ export function assessDisplayedHeightReference(
   }
 
   try {
-    const identity = getVerticalCrsIdentity(metadata.wkt);
-    if (
-      identity?.authority?.toUpperCase() === "EPSG" &&
-      identity.code === "4979" &&
-      identity.axisDirection !== "DOWN" &&
-      !identity.dynamic
-    ) {
+    const rootIdentity = getRootCrsIdentity(metadata.wkt);
+    if (isWgs84Geographic3dCrs(rootIdentity)) {
       return {
         sourceVerticalCrs: "EPSG:4979",
         displayHeightReference: "wgs84-ellipsoidal",

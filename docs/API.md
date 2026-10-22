@@ -728,14 +728,15 @@ The consumer chooses a provider when it creates its Viewer; for example:
 
 ```ts
 const terrainProvider = await Cesium.CesiumTerrainProvider.fromUrl(
-  '/terrain/layer.json',
+  '/terrain',
 );
 const viewer = new Cesium.Viewer('cesium-container', { terrainProvider });
 ```
 
 The URL must be an explicitly configured source that the application is
 authorized to use. This library does not configure Cesium ion, add credentials,
-or replace/destroy a provider on a consumer-owned Viewer.
+or replace/destroy a provider on a consumer-owned Viewer. Cesium's `fromUrl`
+expects the service root and resolves `layer.json` itself.
 
 ```ts
 const anchor = layer.getSelectedPoint();
