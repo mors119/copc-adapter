@@ -89,6 +89,51 @@
           </details>
 
           <details class="dev-control-section" open>
+            <summary>Terrain and height alignment</summary>
+            <label class="ui-field" for="terrain-url"
+              >Cesium Terrain service root URL
+              <input
+                id="terrain-url"
+                type="url"
+                placeholder="http://localhost:8080/terrain"
+                autocomplete="off"
+              />
+            </label>
+            <p class="dev-help">
+              Blank keeps the WGS84 ellipsoid. Use a public or locally hosted
+              quantized-mesh service root (the folder containing layer.json)
+              without credentials or query tokens, then select Apply Settings.
+              A trailing /layer.json is also accepted. Imagery is not Terrain;
+              3D Tiles are not sampled by this tool.
+            </p>
+            <p id="terrain-source-status" role="status">
+              Ellipsoid only · imagery may still be shown
+            </p>
+            <p class="dev-help">
+              Pick one COPC point in the viewport. Confirm ground status when
+              its class is not LAS class 2, estimate the Terrain residual, then
+              explicitly apply the proposed offset. This never snaps points
+              automatically.
+            </p>
+            <label class="ui-field ui-field--inline" for="ground-confirmation">
+              <input id="ground-confirmation" type="checkbox" />
+              I confirm the selected point is ground
+            </label>
+            <div class="dev-settings-actions">
+              <button class="dev-action" id="estimate-terrain" type="button" disabled>
+                Estimate residual
+              </button>
+              <button class="dev-action dev-action--secondary" id="cancel-terrain-estimate" type="button" disabled>
+                Cancel estimate
+              </button>
+              <button class="dev-action" id="apply-terrain-estimate" type="button" disabled>
+                Apply proposed correction
+              </button>
+            </div>
+            <pre id="terrain-estimate-preview" role="status" aria-live="polite">Select a point from the loaded COPC layer to begin.</pre>
+          </details>
+
+          <details class="dev-control-section" open>
             <summary>Appearance</summary>
             <span class="control-label">Color mode</span>
             <div id="color-control"></div>

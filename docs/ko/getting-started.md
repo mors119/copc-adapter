@@ -103,6 +103,28 @@ const layer = new CopcCesiumLayer({
 5. `setStyle()`로 색상 모드 변경
 6. 점을 클릭해 point inspection 확인
 
+## Terrain과 수직 기준 확인
+
+점군이 imagery 위에 떠 보이는 것만으로 필요한 높이 보정량을 알 수는 없습니다.
+Imagery에는 높이가 없고, ellipsoid 높이 0도 측량된 실제 지면이 아닙니다. 실제
+Cesium TerrainProvider가 있어야 Terrain 높이를 샘플링할 수 있습니다. 3D Tiles의 지붕이나
+벽은 이 Terrain 기능의 대상이 아닙니다.
+
+먼저 source의 vertical CRS와 단위를 확인하세요. 예를 들어 Autzen의 NAVD88 height는
+orthometric 높이이므로 Z를 US survey foot에서 미터로 변환하는 것만으로 Cesium의
+ellipsoidal height가 되지 않습니다. 호환되는 #244 vertical transform 없이는 Terrain
+추정이 uncertain이며 Apply할 수 없습니다. #237의 `heightOffsetMeters`는 사용자가 알고
+있는 균일한 잔차를 입력하는 값이고, #305는 명시적으로 선택한 ground anchor와 Terrain을
+비교해 offset을 제안합니다. 어느 쪽도 자동 geoid correction이 아닙니다.
+
+내부 Dev Viewer에서는 인증정보가 없는 local/public quantized-mesh 서비스 root 주소
+(`layer.json`이 있는 폴더)를 Terrain 설정에 입력하고 **Apply Settings**를 누릅니다.
+끝에 `/layer.json`을 붙여도 인식합니다. 현재 COPC 점을 선택한 뒤 지면인지
+확인하고, 필요하면 ground 확인 checkbox를 선택합니다. **Estimate residual**은 geometry를
+움직이지 않습니다. 미리보기와 vertical-reference warnings를 확인하고 actionable 상태일
+때만 **Apply proposed correction**을 눌러야 합니다. 자세한 API 및 timeout/lifecycle 계약은
+[명시적 Cesium Terrain 잔차 추정](./api#명시적-cesium-terrain-잔차-추정)을 참고하세요.
+
 ## 관련 소스 코드
 
 직접 구현을 공부하고 싶다면 다음 파일부터 보는 것이 좋습니다.

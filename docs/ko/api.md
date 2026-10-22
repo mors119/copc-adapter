@@ -112,7 +112,8 @@ if (sphere) {
 CRS 경로로 WGS84 ECEF 미터 단위로 변환합니다. `heightOffsetMeters`는 한 번 적용되며
 getter는 내부 값을 보호하는 clone을 반환합니다. 잘못된 bounds, 지원되지 않는 CRS,
 제한 범위를 벗어난 projection은 `undefined`입니다. 현재 제한은 지원되는 WKT1
-geographic/projected 변환, projected 축마다 최대 2,000 km, 수직 범위 최대 1,000 km입니다.
+geographic/projected 변환과 root WKT2 `GEOGCRS` 변환, projected 축마다 최대 2,000 km,
+수직 범위 최대 1,000 km입니다.
 grid sampling과 padding을 사용하지만 임의 projection singularity에 대한 보편적인
 수학적 보장을 뜻하지는 않습니다.
 
@@ -121,6 +122,79 @@ grid sampling과 padding을 사용하지만 임의 projection singularity에 대
 Cesium 오류는 reject됩니다. 기존 최초 자동 `flyToDataset()`은 유지됩니다.
 `layer.zoomTo()`, 최초 자동 framing, native `viewer.zoomTo(...)`는 서로 별도 동작이며
 `viewer.zoomTo(layer)`는 지원하지 않습니다.
+
+### 명시적 Cesium Terrain 잔차 추정
+
+이 기능은 선택한 지면 점 하나와 Cesium Terrain 높이를 비교하는 opt-in 진단입니다.
+Imagery는 색상/텍스처이므로 높이를 제공하지 않습니다. 기본 ellipsoid의 높이 0도 실제
+지면 측량값이 아닙니다. 3D Tiles에는 지붕, 벽, 식생이 포함될 수 있으므로 이 기능은
+3D Tiles를 샘플링하지 않습니다.
+
+애플리케이션이 직접 TerrainProvider를 만들어 Viewer에 전달합니다. 예를 들어 인증정보가
+없는 로컬 quantized-mesh 서비스의 root URL을 사용할 수 있습니다. Cesium `fromUrl`이
+해당 경로에서 `layer.json`을 찾습니다.
+
+```ts
+const terrainProvider = await Cesium.CesiumTerrainProvider.fromUrl(
+  'http://localhost:8080/terrain',
+);
+const viewer = new Cesium.Viewer('cesium-container', { terrainProvider });
+```
+
+Adapter는 consumer-owned Viewer의 provider를 바꾸거나 파괴하지 않습니다. 실제 지면 점을
+선택한 뒤 추정을 요청합니다.
+
+```ts
+const anchor = layer.getSelectedPoint();
+if (!anchor) throw new Error('먼저 현재 layer의 점을 선택하세요');
+
+const estimate = await layer.estimateTerrainHeightAlignment(anchor, {
+  groundConfirmed: true, // class 2가 아니면 직접 확인한 경우에만 설정
+  signal: abortController.signal,
+});
+
+if (estimate.status === 'ready' && estimate.actionable &&
+    layer.isTerrainHeightAlignmentEstimateCurrent(estimate)) {
+  // preview 후 사용자가 승인한 경우에만 기존 heightOffsetMeters로 재구성
+  const approvedHeightOffsetMeters =
+    estimate.effectiveProposedHeightOffsetMeters;
+}
+```
+
+추정식은 `Terrain 높이 - 현재 표시 높이`입니다. `heightOffsetMeters` 값은 결과의
+`existingHeightOffsetMeters`에 포함되고, 승인용 전체 값은
+`effectiveProposedHeightOffsetMeters`입니다. 원본 source XYZ는 바뀌지 않습니다.
+선택 점은 layer 소유여야 하며 좌표가 유한해야 합니다. LAS class 2는 ground로 확인된
+분류로 받아들이고, 다른 분류나 분류 누락은 호출자가 지면임을 직접 확인해야 합니다.
+선택, source generation, Viewer 또는 TerrainProvider가 바뀌면 결과는 stale 처리됩니다.
+
+현재 표시 높이와 Terrain 높이는 모두 WGS 84 ellipsoidal-height 참조여야 합니다.
+NAVD88 높이는 단위를 미터로 바꾸어도 orthometric height이므로 호환되지 않습니다.
+유효한 #244 `verticalTransform`이 현재 source WKT와 일치하거나 source가 지원되는
+ellipsoidal vertical reference를 명시해야 합니다. 불확실하면 결과는 `uncertain`이며
+Apply할 수 없습니다. Terrain 잔차로 geoid 변환 누락을 숨기면 안 됩니다.
+
+source가 ellipsoidal height를 직접 선언한 경우에는 root WKT2 `GEOGCRS`가 EPSG:4979이고,
+직접 좌표계가 `ellipsoidal`, 3차원이며 `UP` 축을 포함할 때만 인식합니다. EPSG:4979는
+독립 vertical CRS가 아니라 3D geographic CRS이므로 WKT1 `VERT_CS`에 이 코드를 붙인
+선언은 신뢰하지 않습니다.
+
+TerrainProvider의 tile availability가 없거나 coverage가 없고, 요청이 실패하거나 시간
+제한을 넘으면 추정은 적용 불가입니다. Cesium sampler 자체는 AbortSignal을 받지 않으므로
+취소는 결과를 버리며 이미 시작한 요청을 강제로 멈추지 못합니다. 한 Viewer에 동시에
+한 번의 추정만 허용하고, 기본 대기 제한은 30초(최대 60초)입니다. Terrain LOD, 출처와
+anchor 품질 때문에 survey-grade 위치를 보장하지 않습니다.
+
+Dev Viewer에서는 `layer.json`이 들어 있는 Terrain 서비스 root URL을 입력하고
+**Apply Settings**를 누릅니다. 끝에 `/layer.json`을 붙여도 됩니다. 이어서 COPC 점 선택 →
+지면 상태 확인 → **Estimate residual** → preview 검토 → **Apply proposed correction** 순서로
+진행합니다. 기본은 imagery가 있을 수 있는 ellipsoid-only 모드입니다. 승인하면 원본
+COPC에서 layer를 재구성하므로 범위 읽기, LAZ 디코딩, Worker 준비, renderer 업로드 및
+잠시 두 세션이 함께 존재하는 비용이 발생할 수 있습니다.
+
+용어를 구분하면 #244는 검증된 수직 CRS/geoid 변환, #237 `heightOffsetMeters`는 수동의
+균일 보정, #305 Terrain 잔차는 명시적으로 고른 지면 anchor에 대한 배치 제안입니다.
+Terrain imagery와 arbitrary 3D Tiles는 서로 대체할 수 없습니다.
 
 ### Layer lifecycle events
 

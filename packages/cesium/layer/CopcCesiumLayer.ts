@@ -19,6 +19,10 @@ import type { CopcPointInspection } from "../../core/copc/points/pointInspection
 import type { RangeValidationPolicy } from "../../core/copc/range/types";
 import type { CopcInputSource } from "../../core/copc/range/types";
 import type { GtxGeoidGrid } from "../../core/coordinates/transform/verticalGrid";
+import type {
+  TerrainHeightAlignmentEstimate,
+  TerrainHeightAlignmentOptions,
+} from "../terrain/terrainHeightAlignment";
 import type { NodePointCacheDiagnostics } from "../../core/streaming/createNodePointCache";
 import type {
   RefinementAlgorithm,
@@ -34,6 +38,11 @@ export type {
   CopcCesiumPointStyleUpdate,
   CopcClassificationFilter,
 } from "../style/CesiumPointStyle";
+export type {
+  TerrainHeightAlignmentEstimate,
+  TerrainHeightAlignmentOptions,
+  TerrainHeightAlignmentStatus,
+} from "../terrain/terrainHeightAlignment";
 
 export type { CopcColorMode } from "../../core/copc/points/fieldSelection";
 
@@ -283,6 +292,25 @@ export class CopcCesiumLayer {
   /** Return the selected point while its rendered node and decoded buffer remain live. */
   getSelectedPoint(): CopcPointInspection | undefined {
     return this.controller.getSelectedPoint();
+  }
+
+  /**
+   * Explicitly compare a selected COPC ground point with the attached Viewer's
+   * current real Terrain provider. This returns a proposal only; geometry is
+   * never changed by estimation or preview.
+   */
+  estimateTerrainHeightAlignment(
+    anchor: CopcPointInspection,
+    options?: TerrainHeightAlignmentOptions,
+  ): Promise<TerrainHeightAlignmentEstimate> {
+    return this.controller.estimateTerrainHeightAlignment(anchor, options);
+  }
+
+  /** Return whether an estimate still belongs to this live layer selection. */
+  isTerrainHeightAlignmentEstimateCurrent(
+    estimate: TerrainHeightAlignmentEstimate,
+  ): boolean {
+    return this.controller.isTerrainHeightAlignmentEstimateCurrent(estimate);
   }
 
   /** Return the current runtime color mode and classification filter. */

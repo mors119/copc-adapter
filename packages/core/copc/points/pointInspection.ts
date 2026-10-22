@@ -13,6 +13,8 @@ export type CopcPointPickId = Readonly<{
 
 /** Coordinate and available source attributes for one picked point. */
 export type CopcPointInspection = {
+  /** Opaque owner token for verifying this selection against a Cesium layer. */
+  ownerId?: string;
   /** Stable hierarchy key for the node containing the point. */
   nodeKey: string;
   /** COPC octree level of the selected node. */
@@ -121,6 +123,7 @@ export function inspectCopcPoint(
 
   const offset = pickId.pointIndex * 3;
   const inspection: CopcPointInspection = {
+    ...(pickId.ownerId === undefined ? {} : { ownerId: pickId.ownerId }),
     nodeKey: pickId.nodeKey,
     level: node.level,
     pointIndex: pickId.pointIndex,

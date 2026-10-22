@@ -39,6 +39,12 @@ import type {
   PreparedPointData,
 } from "../../core/copc/types/copc";
 import type { GtxGeoidGrid } from "../../core/coordinates/transform/verticalGrid";
+import {
+  createUnavailableTerrainHeightAlignmentEstimate,
+  estimateTerrainHeightAlignment as estimateTerrainHeightAlignmentForViewer,
+  type TerrainHeightAlignmentEstimate,
+  type TerrainHeightAlignmentOptions,
+} from "../terrain/terrainHeightAlignment";
 import { extractHorizontalUnitScale } from "../../core/coordinates/crs/parseCopcWkt";
 import { createPointTransformer } from "../../core/coordinates/transform/createPointTransformer";
 import {
@@ -313,6 +319,13 @@ export class CesiumLayerController {
   private readonly options: CopcLayerOptions;
   private readonly pointRenderer: CesiumPointRenderer;
   private readonly pointPicker: CesiumPointPicker;
+  private activeTerrainEstimate?: {
+    estimate: TerrainHeightAlignmentEstimate;
+    viewer: Cesium.Viewer;
+    provider: Cesium.TerrainProvider;
+    loadGeneration: number;
+    anchor: CopcPointInspection;
+  };
   private readonly pointStyleState = createCopcPointStyleState();
   private style: CopcCesiumPointStyle;
   private readonly rendererPerformance = new StreamingPerformanceRecorder();
@@ -418,7 +431,10 @@ export class CesiumLayerController {
         ? (scene, position, pickedObject) =>
             this.pointRenderer.resolvePointPick?.(scene, position, pickedObject)
         : undefined,
-      onPointPicked: options.onPointPicked,
+      onPointPicked: (point) => {
+        this.activeTerrainEstimate = undefined;
+        options.onPointPicked?.(point);
+      },
     });
     this.replacementTransitions = new ReplacementTransitionManager({
       renderer: this.pointRenderer,
@@ -579,6 +595,7 @@ export class CesiumLayerController {
   }
 
   private detachViewerResources(): void {
+    this.activeTerrainEstimate = undefined;
     if (this.viewer) {
       this.viewer.camera.moveEnd.removeEventListener(this.handleCameraMoveEnd);
       this.viewer.camera.changed?.removeEventListener(this.handleCameraChanged);
@@ -611,6 +628,7 @@ export class CesiumLayerController {
     }
 
     this.lifecycle = "loading";
+    this.activeTerrainEstimate = undefined;
     const loadGeneration = ++this.loadGeneration;
     this.loadOperationGeneration = loadGeneration;
     this.loadOperationViewErrorGeneration = undefined;
@@ -698,6 +716,7 @@ export class CesiumLayerController {
       return;
     }
     this.cancelCameraFlight();
+    this.activeTerrainEstimate = undefined;
 
     this.loadGeneration += 1;
     this.streamingGeneration += 1;
@@ -801,6 +820,101 @@ export class CesiumLayerController {
   /** Return the selected point while its node and decoded buffer are live. */
   getSelectedPoint(): CopcPointInspection | undefined {
     return this.pointPicker.getSelectedPoint();
+  }
+
+  /**
+   * Compare one explicitly selected ground point with the active real Terrain
+   * provider. The estimate never changes rendered positions.
+   */
+  async estimateTerrainHeightAlignment(
+    anchor: CopcPointInspection,
+    options: TerrainHeightAlignmentOptions = {},
+  ): Promise<TerrainHeightAlignmentEstimate> {
+    this.activeTerrainEstimate = undefined;
+    const metadata = this.core.getMetadata();
+    const viewer = this.viewer;
+    if (!metadata || !viewer || this.lifecycle !== "ready") {
+      return createUnavailableTerrainHeightAlignmentEstimate(
+        {
+          anchor,
+          metadata: metadata ?? { wkt: undefined },
+          verticalTransform: this.options.verticalTransform,
+          existingHeightOffsetMeters: this.options.heightOffsetMeters ?? 0,
+          sourceId: getCopcSourceIdentity(this.options.url),
+        },
+        "The COPC layer must be loaded and attached to a Viewer before estimating.",
+      );
+    }
+
+    const provider = viewer.terrainProvider;
+    const loadGeneration = this.loadGeneration;
+    const isCurrent = (): boolean =>
+      this.viewer === viewer &&
+      !viewer.isDestroyed() &&
+      this.lifecycle === "ready" &&
+      this.loadGeneration === loadGeneration &&
+      viewer.terrainProvider === provider &&
+      this.isSameSelectedAnchor(anchor, this.pointPicker.getSelectedPoint());
+
+    const estimate = await estimateTerrainHeightAlignmentForViewer({
+      viewer,
+      provider,
+      metadata,
+      verticalTransform: this.options.verticalTransform,
+      anchor,
+      expectedOwnerId: this.pointPicker.ownerId,
+      existingHeightOffsetMeters: this.options.heightOffsetMeters ?? 0,
+      sourceId: getCopcSourceIdentity(this.options.url),
+      terrainSourceId: options.terrainSourceId,
+      options,
+      isCurrent,
+    });
+    if (anchor && isCurrent()) {
+      this.activeTerrainEstimate = {
+        estimate,
+        viewer,
+        provider,
+        loadGeneration,
+        anchor,
+      };
+    }
+    return estimate;
+  }
+
+  /** Confirm that an estimate still belongs to this selected point and live layer. */
+  isTerrainHeightAlignmentEstimateCurrent(
+    estimate: TerrainHeightAlignmentEstimate,
+  ): boolean {
+    const active = this.activeTerrainEstimate;
+    return (
+      active !== undefined &&
+      active.estimate === estimate &&
+      active.viewer === this.viewer &&
+      !active.viewer.isDestroyed() &&
+      active.provider === active.viewer.terrainProvider &&
+      active.loadGeneration === this.loadGeneration &&
+      this.lifecycle === "ready" &&
+      this.isSameSelectedAnchor(active.anchor, this.pointPicker.getSelectedPoint())
+    );
+  }
+
+  private isSameSelectedAnchor(
+    expected: CopcPointInspection,
+    selected: CopcPointInspection | undefined,
+  ): boolean {
+    if (!selected) return false;
+    return (
+      expected.ownerId === selected.ownerId &&
+      expected.nodeKey === selected.nodeKey &&
+      expected.pointIndex === selected.pointIndex &&
+      expected.longitude === selected.longitude &&
+      expected.latitude === selected.latitude &&
+      expected.height === selected.height &&
+      expected.source?.x === selected.source?.x &&
+      expected.source?.y === selected.source?.y &&
+      expected.source?.z === selected.source?.z &&
+      expected.classification === selected.classification
+    );
   }
 
   /** Return a detached snapshot of the current Cesium presentation style. */

@@ -186,6 +186,30 @@ body {
   font-size: 12px;
 }
 
+.dev-panel .ui-field--inline {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+}
+
+.dev-panel .ui-field--inline input {
+  width: auto;
+}
+
+#terrain-estimate-preview {
+  max-height: 240px;
+  margin: 8px 0 0;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--ui-border);
+  border-radius: 6px;
+  color: #d9e7f3;
+  background: rgb(8 17 29 / 72%);
+  font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .control-label {
   display: block;
   margin: 12px 0 4px;

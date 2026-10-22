@@ -13,9 +13,15 @@ import {
   type CopcPointInspection,
   type CopcSourceProbeResult,
   type RangeValidationPolicy,
+  type TerrainHeightAlignmentEstimate,
+  type TerrainHeightAlignmentOptions,
 } from "@frillab/copc-adapter";
 import type { CopcCesiumLayerSnapshot } from "@frillab/copc-adapter";
 import type { CopcThreeLayerSnapshot } from "@frillab/copc-adapter/three";
+import type {
+  CopcBackendSelection,
+  CopcPointDecoder,
+} from "@frillab/copc-adapter/cesium";
 import {
   BatchedGeometryPointRenderer,
   PointPrimitiveRenderer,
@@ -39,7 +45,9 @@ import {
 import { mountWorkbenchPanels } from "./workbenchPanels";
 import { mountDevViewerControls } from "./devViewerControls";
 import {
+  getCesiumTerrainProviderUrl,
   getSafeSourceLabel,
+  getSafeTerrainSourceLabel,
   hasUnappliedSettings,
   isRangeValidationPolicy,
   isRefinementAlgorithm,
@@ -193,6 +201,14 @@ type ViewerSession = {
   getMetadata(): CopcMetadata | undefined;
   getHierarchyDiagnostics(): CopcHierarchyDiagnostics | undefined;
   getSelectedPoint(): CopcPointInspection | undefined;
+  terrainSourceStatus: string;
+  estimateTerrainHeightAlignment?(
+    anchor: CopcPointInspection,
+    options?: TerrainHeightAlignmentOptions,
+  ): Promise<TerrainHeightAlignmentEstimate>;
+  isTerrainHeightAlignmentEstimateCurrent?(
+    estimate: TerrainHeightAlignmentEstimate,
+  ): boolean;
   setCameraPreset(preset: CameraPreset): void;
   setCameraRenderDistance(distance: number): void;
   getCameraState(): ViewerCameraState;
@@ -212,11 +228,13 @@ declare global {
         | undefined;
       getSelectedPoint(): CopcPointInspection | undefined;
       getPickablePointScreenPosition(): { x: number; y: number } | undefined;
-      getConfiguration(): Omit<Readonly<DevViewerConfig>, "source"> & {
+      getConfiguration(): Omit<Readonly<DevViewerConfig>, "source" | "terrainUrl"> & {
         source: string;
+        terrainSource: string;
       };
-      getPendingConfiguration(): Omit<Readonly<DevViewerConfig>, "source"> & {
+      getPendingConfiguration(): Omit<Readonly<DevViewerConfig>, "source" | "terrainUrl"> & {
         source: string;
+        terrainSource: string;
       };
     };
   }
@@ -616,9 +634,8 @@ function getLayerOptions(
   const heightOffsetParam = params.get("heightOffsetMeters");
   const requestedHeightOffset =
     heightOffsetParam === null ? undefined : Number(heightOffsetParam);
-  const heightOffsetMeters = Number.isFinite(requestedHeightOffset)
-    ? requestedHeightOffset
-    : undefined;
+  const heightOffsetMeters = config?.heightOffsetMeters ??
+    (Number.isFinite(requestedHeightOffset) ? requestedHeightOffset : undefined);
   const requestedBudget = Number(params.get("budget"));
   const maxRenderedPoints =
     Number.isSafeInteger(requestedBudget) && requestedBudget > 0
@@ -739,17 +756,55 @@ function safeErrorMessage(error: unknown): string {
     .replace(/([?&][^=\s]+)=([^&\s]+)/g, "$1=[redacted]");
 }
 
-function createCesiumSession(
+async function createCesiumSession(
   container: HTMLElement,
   config: DevViewerConfig,
   onError: (error: unknown) => void,
-): ViewerSession {
+  onPointPicked: (point: CopcPointInspection | undefined) => void,
+): Promise<ViewerSession> {
   const params = new URLSearchParams(window.location.search);
   const usePublicBatchedRenderer = config.cesiumRenderer === "batched-geometry";
   const testHighDpiRendering = params.get("testDpr") === "1";
+  let ellipsoidalTerrainFixture:
+    | { backend: CopcBackendSelection; decoder: CopcPointDecoder }
+    | undefined;
+  if (
+    import.meta.env.DEV &&
+    params.get("terrainEllipsoidalFixture") === "1"
+  ) {
+    const { createDevEllipsoidalTerrainFixture } = await import(
+      "./devEllipsoidalTerrainFixture"
+    );
+    ellipsoidalTerrainFixture = createDevEllipsoidalTerrainFixture();
+  }
+  let terrainProvider: Cesium.TerrainProvider | undefined;
+  let terrainSourceStatus =
+    "WGS84 ellipsoid only · imagery may still be shown; no terrain elevations are available.";
+  const testTerrainFixture = params.get("terrainFixtureHeight");
+  if (import.meta.env.DEV && testTerrainFixture !== null) {
+    const height = Number(testTerrainFixture);
+    if (Number.isFinite(height)) {
+      const { createDevTerrainFixture } = await import("./devTerrainFixture");
+      terrainProvider = createDevTerrainFixture(height);
+      terrainSourceStatus = "Deterministic browser-test Terrain fixture.";
+    }
+  } else if (config.terrainUrl.trim()) {
+    try {
+      terrainProvider = await Cesium.CesiumTerrainProvider.fromUrl(
+        getCesiumTerrainProviderUrl(config.terrainUrl, window.location.href),
+      );
+      terrainSourceStatus =
+        "Real Cesium Terrain · " +
+        getSafeTerrainSourceLabel(config.terrainUrl, window.location.href);
+    } catch {
+      terrainSourceStatus =
+        "Terrain unavailable · using the WGS84 ellipsoid; imagery may still be shown.";
+    }
+  }
   const viewer = createCesiumViewer(container, {
     scene3DOnly: usePublicBatchedRenderer,
     ...(testHighDpiRendering ? { useBrowserRecommendedResolution: false } : {}),
+    ...(terrainProvider ? { terrainProvider } : {}),
   });
   const researchRenderer = usePublicBatchedRenderer
     ? new BatchedGeometryPointRenderer()
@@ -757,6 +812,13 @@ function createCesiumSession(
   const layer = new CopcCesiumLayer({
     ...getLayerOptions(config.source, config),
     renderer: researchRenderer ?? new PointPrimitiveRenderer(),
+    onPointPicked,
+    ...(ellipsoidalTerrainFixture
+      ? {
+          backend: ellipsoidalTerrainFixture.backend,
+          decoder: ellipsoidalTerrainFixture.decoder,
+        }
+      : {}),
   });
   const debugAdapter = installDebugAdapter(
     viewer,
@@ -778,12 +840,22 @@ function createCesiumSession(
 
   return {
     renderer: "cesium",
+    terrainSourceStatus,
     ready: ready.then(() => undefined),
     debugAdapter,
     getSnapshot: () => layer.getSnapshot(),
     getMetadata: () => layer.getMetadata(),
     getHierarchyDiagnostics: () => layer.getHierarchyDiagnostics(),
     getSelectedPoint: () => layer.getSelectedPoint(),
+    estimateTerrainHeightAlignment: (anchor, options = {}) =>
+      layer.estimateTerrainHeightAlignment(anchor, {
+        ...options,
+        terrainSourceId: config.terrainUrl.trim()
+          ? getSafeTerrainSourceLabel(config.terrainUrl, window.location.href)
+          : undefined,
+      }),
+    isTerrainHeightAlignmentEstimateCurrent: (estimate) =>
+      layer.isTerrainHeightAlignmentEstimateCurrent(estimate),
     setCameraPreset(preset) {
       debugAdapter.setCameraPreset(preset);
     },
@@ -858,6 +930,8 @@ function createThreeSession(
   });
   return {
     renderer: "three",
+    terrainSourceStatus:
+      "Three.js renderer · the dev-viewer Cesium Terrain provider is not used.",
     ready: viewer.ready,
     getSnapshot: () => viewer.getSnapshot(),
     getMetadata: () => viewer.getMetadata(),
@@ -995,6 +1069,12 @@ async function main(): Promise<void> {
       : /chicago/i.test(getSafeSourceLabel(initialSource, window.location.href))
         ? 14_000
         : 5_000;
+  const useEllipsoidalTerrainSourceFixture =
+    import.meta.env.DEV &&
+    params.get("terrainEllipsoidalFixture") === "1";
+  const configuredSource = useEllipsoidalTerrainSourceFixture
+    ? new File(["test fixture"], "ellipsoidal-terrain-fixture.copc.laz")
+    : initialSource;
   const cameraDistanceParam = params.get("cameraDistance");
   const requestedCameraDistance =
     cameraDistanceParam === null ? undefined : Number(cameraDistanceParam);
@@ -1019,7 +1099,7 @@ async function main(): Promise<void> {
       initialOptions.streaming?.refinementAlgorithm ?? "foveated",
     motionLookahead: initialOptions.streaming?.motionLookahead ?? true,
     rangeValidation: initialOptions.rangeValidation ?? "head-fallback",
-    source: initialSource,
+    source: configuredSource,
     colorMode: initialOptions.colorMode ?? "rgb",
     pointSize: initialOptions.pointSize ?? 3,
     maxNodes: initialStreaming?.maxNodes ?? 24,
@@ -1036,6 +1116,8 @@ async function main(): Promise<void> {
         ? presetDistance(renderer, initialSource, cameraPreset)
         : defaultCameraDistance),
     maxRenderDistance: initialStreaming?.maxRenderDistanceMeters ?? 12_000,
+    heightOffsetMeters: initialOptions.heightOffsetMeters ?? 0,
+    terrainUrl: "",
   };
   let activeConfig = { ...activeInitialConfig };
   let pendingConfig = { ...activeConfig };
@@ -1137,6 +1219,17 @@ async function main(): Promise<void> {
   const cesiumRendererGroup = getElement<HTMLElement>(
     "#cesium-point-renderer-group",
   );
+  const terrainUrlInput = getElement<HTMLInputElement>("#terrain-url");
+  const terrainSourceStatus = getElement<HTMLElement>("#terrain-source-status");
+  const groundConfirmation = getElement<HTMLInputElement>("#ground-confirmation");
+  const estimateTerrainButton = getElement<HTMLButtonElement>("#estimate-terrain");
+  const cancelTerrainButton = getElement<HTMLButtonElement>("#cancel-terrain-estimate");
+  const applyTerrainButton = getElement<HTMLButtonElement>("#apply-terrain-estimate");
+  const terrainPreview = getElement<HTMLElement>("#terrain-estimate-preview");
+  terrainUrlInput.value = activeConfig.terrainUrl;
+  let terrainEstimate: TerrainHeightAlignmentEstimate | undefined;
+  let terrainEstimateAbortController: AbortController | undefined;
+  let terrainEstimateInFlight = false;
   packageVersion.textContent =
     "v" + __COPC_ADAPTER_VERSION__ + " · workspace package";
   let inspectorExpanded = isDebugPanelEnabled();
@@ -1169,16 +1262,82 @@ async function main(): Promise<void> {
     }
     return left === right;
   };
-  const publicConfig = (config: DevViewerConfig) => ({
-    ...config,
-    source: getSafeSourceLabel(config.source, window.location.href),
-  });
+  const publicConfig = (config: DevViewerConfig) => {
+    const { terrainUrl, ...safeConfig } = config;
+    return {
+      ...safeConfig,
+      source: getSafeSourceLabel(config.source, window.location.href),
+      terrainSource: getSafeTerrainSourceLabel(
+        terrainUrl,
+        window.location.href,
+      ),
+    };
+  };
   const updateStatus = (
     message: string,
     tone: "loading" | "ready" | "error" | "inactive",
   ): void => {
     status.textContent = message;
     status.dataset.status = tone;
+  };
+  const updateTerrainAlignmentUi = (): void => {
+    const selectedPoint = activeSession?.renderer === "cesium"
+      ? activeSession.getSelectedPoint()
+      : undefined;
+    const estimateIsCurrent =
+      terrainEstimate !== undefined &&
+      activeSession?.isTerrainHeightAlignmentEstimateCurrent?.(terrainEstimate) === true;
+    terrainSourceStatus.textContent =
+      activeSession?.terrainSourceStatus ??
+      (activeConfig.terrainUrl.trim()
+        ? "Terrain source is not active yet. Apply Settings to load it."
+        : "WGS84 ellipsoid only · imagery may still be shown; no terrain elevations are available.");
+    estimateTerrainButton.disabled =
+      isLoading ||
+      terrainEstimateInFlight ||
+      !selectedPoint ||
+      activeSession?.renderer !== "cesium" ||
+      !activeSession?.estimateTerrainHeightAlignment;
+    cancelTerrainButton.disabled = !terrainEstimateInFlight;
+    applyTerrainButton.disabled =
+      isLoading ||
+      terrainEstimateInFlight ||
+      !terrainEstimate?.actionable ||
+      terrainEstimate.status !== "ready" ||
+      !estimateIsCurrent;
+
+    if (!terrainEstimate) {
+      terrainPreview.textContent = selectedPoint
+        ? [
+            "Selected COPC point (no Terrain request yet)",
+            `Node / index: ${selectedPoint.nodeKey} / ${selectedPoint.pointIndex}`,
+            `Classification: ${selectedPoint.classificationLabel ?? selectedPoint.classification ?? "not available"}`,
+            `Source XYZ: ${selectedPoint.source ? `${selectedPoint.source.x}, ${selectedPoint.source.y}, ${selectedPoint.source.z}` : "not available"}`,
+            `Displayed COPC height value (reference subject to validation): ${Number.isFinite(selectedPoint.height) ? `${selectedPoint.height.toFixed(3)} m` : "invalid"}`,
+            "Confirm that this is a ground point before estimating.",
+          ].join("\n")
+        : "Select a point from the loaded COPC layer to begin.";
+      return;
+    }
+
+    const estimateAnchor = terrainEstimate.anchor;
+    const lines = [
+      `Estimate status: ${terrainEstimate.status}${estimateIsCurrent ? " (current)" : " (stale; estimate again)"}`,
+      `COPC source: ${terrainEstimate.sourceId ?? "not identified"}`,
+      `Anchor: ${estimateAnchor ? `${estimateAnchor.longitudeDegrees.toFixed(7)}°, ${estimateAnchor.latitudeDegrees.toFixed(7)}° · ${estimateAnchor.nodeKey}/${estimateAnchor.pointIndex}` : "not selected"}`,
+      `Source XYZ: ${estimateAnchor?.source ? `${estimateAnchor.source.x}, ${estimateAnchor.source.y}, ${estimateAnchor.source.z}` : "not available"}`,
+      `Current displayed COPC height: ${estimateAnchor && Number.isFinite(estimateAnchor.displayedHeightMeters) ? `${estimateAnchor.displayedHeightMeters.toFixed(3)} m` : "invalid or unavailable"}`,
+      `Sampled Terrain height: ${terrainEstimate.terrainHeightMeters === undefined ? "unavailable" : `${terrainEstimate.terrainHeightMeters.toFixed(3)} m`}`,
+      `Proposed adjustment (Terrain − COPC): ${terrainEstimate.proposedOffsetMeters === undefined ? "unavailable" : `${terrainEstimate.proposedOffsetMeters.toFixed(3)} m`}`,
+      `Existing manual heightOffsetMeters: ${terrainEstimate.existingHeightOffsetMeters.toFixed(3)} m`,
+      `Effective offset after approval: ${terrainEstimate.effectiveProposedHeightOffsetMeters === undefined ? "unavailable" : `${terrainEstimate.effectiveProposedHeightOffsetMeters.toFixed(3)} m`}`,
+      `Vertical reference: ${terrainEstimate.verticalReference.sourceVerticalCrs ?? "not declared"} → ${terrainEstimate.verticalReference.displayHeightReference} (${terrainEstimate.verticalReference.conversion})`,
+      `Terrain provider: ${terrainEstimate.terrainProvider?.type ?? "not available"}${terrainEstimate.terrainSourceId ? ` · ${terrainEstimate.terrainSourceId}` : ""}`,
+      `Sampling: ${terrainEstimate.terrainSamplingCalls} call${terrainEstimate.terrainSamplingCalls === 1 ? "" : "s"}${terrainEstimate.samplingDurationMs === undefined ? "" : ` · ${terrainEstimate.samplingDurationMs.toFixed(1)} ms`}`,
+      ...(terrainEstimate.rejectionReason ? [`Unavailable: ${terrainEstimate.rejectionReason}`] : []),
+      ...terrainEstimate.warnings.map((warning) => `Warning: ${warning}`),
+    ];
+    terrainPreview.textContent = lines.join("\n");
   };
   const updateConfigurationState = (): void => {
     const dirty = hasUnappliedSettings(activeConfig, pendingConfig);
@@ -1210,6 +1369,7 @@ async function main(): Promise<void> {
       });
     cesiumRendererGroup.hidden =
       activeConfig.renderer !== "cesium" && pendingConfig.renderer !== "cesium";
+    updateTerrainAlignmentUi();
   };
   const showConfigurationError = (message: string): void => {
     configurationError = message;
@@ -1317,9 +1477,13 @@ async function main(): Promise<void> {
 
   async function runSession(
     config: DevViewerConfig,
-    purpose: "apply" | "load" | "reload",
+    purpose: "apply" | "alignment" | "load" | "reload",
   ): Promise<void> {
     const currentGeneration = ++generation;
+    terrainEstimateAbortController?.abort();
+    terrainEstimateAbortController = undefined;
+    terrainEstimateInFlight = false;
+    terrainEstimate = undefined;
     isLoading = false;
     probeAbortController?.abort();
     probeAbortController = undefined;
@@ -1383,6 +1547,11 @@ async function main(): Promise<void> {
           pendingConfig = { ...config };
         } else if (purpose === "apply") {
           pendingConfig = { ...config, source: previousPending.source };
+        } else if (purpose === "alignment") {
+          pendingConfig = {
+            ...previousPending,
+            heightOffsetMeters: config.heightOffsetMeters,
+          };
         } else {
           pendingConfig = previousPending;
         }
@@ -1447,7 +1616,18 @@ async function main(): Promise<void> {
       };
       candidateSession =
         config.renderer === "cesium"
-          ? createCesiumSession(candidateMount, config, reportCandidateError)
+          ? await createCesiumSession(
+              candidateMount,
+              config,
+              reportCandidateError,
+              () => {
+                if (activeSession !== candidateSession) return;
+                terrainEstimateAbortController?.abort();
+                terrainEstimate = undefined;
+                groundConfirmation.checked = false;
+                updateTerrainAlignmentUi();
+              },
+            )
           : createThreeSession(candidateMount, config, reportCandidateError);
       stagedSession = candidateSession;
       await candidateSession.ready;
@@ -1485,6 +1665,11 @@ async function main(): Promise<void> {
         pendingConfig = { ...config };
       } else if (purpose === "apply") {
         pendingConfig = { ...config, source: previousPending.source };
+      } else if (purpose === "alignment") {
+        pendingConfig = {
+          ...previousPending,
+          heightOffsetMeters: config.heightOffsetMeters,
+        };
       } else {
         pendingConfig = previousPending;
       }
@@ -1520,6 +1705,96 @@ async function main(): Promise<void> {
       }
     }
   }
+
+  terrainUrlInput.addEventListener("input", () => {
+    pendingConfig = { ...pendingConfig, terrainUrl: terrainUrlInput.value.trim() };
+    updateConfigurationState();
+  });
+  groundConfirmation.addEventListener("change", updateTerrainAlignmentUi);
+  estimateTerrainButton.addEventListener("click", () => {
+    const session = activeSession;
+    const anchor = session?.getSelectedPoint();
+    if (
+      !session ||
+      session.renderer !== "cesium" ||
+      !anchor ||
+      !session.estimateTerrainHeightAlignment ||
+      terrainEstimateInFlight
+    ) {
+      return;
+    }
+    const controller = new AbortController();
+    terrainEstimateAbortController = controller;
+    terrainEstimate = undefined;
+    terrainEstimateInFlight = true;
+    updateTerrainAlignmentUi();
+    void session
+      .estimateTerrainHeightAlignment(anchor, {
+        groundConfirmed: groundConfirmation.checked,
+        signal: controller.signal,
+      })
+      .then((estimate) => {
+        if (
+          activeSession !== session ||
+          terrainEstimateAbortController !== controller ||
+          disposed
+        ) {
+          return;
+        }
+        const currentAnchor = session.getSelectedPoint();
+        const sameAnchor =
+          currentAnchor !== undefined &&
+          currentAnchor.ownerId === anchor.ownerId &&
+          currentAnchor.nodeKey === anchor.nodeKey &&
+          currentAnchor.pointIndex === anchor.pointIndex;
+        if (
+          sameAnchor &&
+          (session.isTerrainHeightAlignmentEstimateCurrent?.(estimate) ||
+            estimate.status === "cancelled")
+        ) {
+          terrainEstimate = estimate;
+        }
+      })
+      .catch(() => {
+        if (terrainEstimateAbortController === controller) {
+          terrainPreview.textContent =
+            "Terrain estimate failed. Check that the selected point and active Terrain provider are still available.";
+        }
+      })
+      .finally(() => {
+        if (terrainEstimateAbortController === controller) {
+          terrainEstimateAbortController = undefined;
+          terrainEstimateInFlight = false;
+          updateTerrainAlignmentUi();
+        }
+      });
+  });
+  cancelTerrainButton.addEventListener("click", () => {
+    if (!terrainEstimateAbortController) return;
+    terrainEstimateAbortController.abort();
+    terrainPreview.textContent =
+      "Cancellation requested. Cesium may finish the current tile request before returning a cancelled result.";
+    updateTerrainAlignmentUi();
+  });
+  applyTerrainButton.addEventListener("click", () => {
+    const estimate = terrainEstimate;
+    const session = activeSession;
+    if (
+      !estimate?.actionable ||
+      estimate.status !== "ready" ||
+      !session?.isTerrainHeightAlignmentEstimateCurrent?.(estimate) ||
+      !Number.isFinite(estimate.effectiveProposedHeightOffsetMeters)
+    ) {
+      updateTerrainAlignmentUi();
+      return;
+    }
+    const effectiveOffset = estimate.effectiveProposedHeightOffsetMeters!;
+    terrainEstimate = undefined;
+    void runSession(
+      { ...activeConfig, heightOffsetMeters: effectiveOffset },
+      "alignment",
+    );
+  });
 
   const workbenchControls = mountDevViewerControls({
     initialConfig: pendingConfig,
