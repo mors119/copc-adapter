@@ -118,6 +118,9 @@ export type {
   CopcStreamingOptions,
   CopcLayerErrorEvent,
   CopcViewCancellationReason,
+  TerrainHeightAlignmentEstimate,
+  TerrainHeightAlignmentOptions,
+  TerrainHeightAlignmentStatus,
 } from "./cesium/layer/CopcCesiumLayer";
 export type {
   RefinementAlgorithm,

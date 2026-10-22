@@ -62,6 +62,34 @@ coverage, and usage terms are documented. No EGM2008 or KNGeoid24 model is
 bundled or automatically selected. See [Explicit vertical CRS grid
 conversion](API.md#explicit-vertical-crs-grid-conversion).
 
+## Opt-in Cesium Terrain Height Estimate
+
+Terrain is independent from imagery and the ellipsoid. Configure an application
+owned TerrainProvider before creating the Viewer; an unauthenticated local
+quantized-mesh service can expose a `layer.json` endpoint:
+
+```ts
+const terrainProvider = await Cesium.CesiumTerrainProvider.fromUrl(
+  'http://localhost:8080/terrain/layer.json',
+);
+const viewer = new Cesium.Viewer('cesium-container', { terrainProvider });
+```
+
+After the layer is loaded and attached, explicitly pick a ground point and
+request an estimate. The result is read-only. Present its heights, delta,
+datum, provider label and warnings; after a separate approval, recreate the
+layer from the same source using the returned effective `heightOffsetMeters`.
+The adapter checks that the estimate still belongs to the selected point and
+active TerrainProvider. See [Explicit Cesium Terrain residual estimate in the
+API guide](API.md#explicit-cesium-terrain-residual-estimate) for the vertical
+reference checks, error cases, cancellation semantics and composition with
+`verticalTransform`.
+
+In the Dev Viewer, enter the Terrain `layer.json` URL, press **Apply Settings**,
+pick a COPC point, confirm ground status when needed, then use **Estimate
+residual** and review the preview. **Apply proposed correction** is enabled
+only for a current, actionable estimate. The default remains ellipsoid-only.
+
 ## Build Note
 
 The dev viewer prepares the `copc-adapter-wasm` asset before running. Package

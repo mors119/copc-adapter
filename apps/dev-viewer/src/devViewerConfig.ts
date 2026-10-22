@@ -18,6 +18,10 @@ export type DevViewerConfig = {
   motionLookahead: boolean;
   rangeValidation: RangeValidationPolicy;
   source: string | File;
+  /** Additive metre correction applied to Cesium display heights. */
+  heightOffsetMeters: number;
+  /** Optional public or local Cesium quantized-mesh Terrain layer.json URL. */
+  terrainUrl: string;
   colorMode: CopcColorMode;
   pointSize: number;
   maxNodes: number;
@@ -75,6 +79,25 @@ export function validateDevViewerConfig(
   }
   if (!isRangeValidationPolicy(config.rangeValidation)) {
     return "Choose HEAD Fallback or Strict for HTTP Range validation.";
+  }
+  if (!Number.isFinite(config.heightOffsetMeters)) {
+    return "Height offset must be a finite number of metres.";
+  }
+  if (config.terrainUrl.trim()) {
+    try {
+      const terrainUrl = new URL(config.terrainUrl, globalThis.location?.href ?? "http://localhost/");
+      if (
+        (terrainUrl.protocol !== "http:" && terrainUrl.protocol !== "https:") ||
+        terrainUrl.username ||
+        terrainUrl.password ||
+        terrainUrl.search ||
+        terrainUrl.hash
+      ) {
+        return "Terrain URL must be an HTTP or HTTPS layer.json endpoint without credentials, query parameters, or a fragment.";
+      }
+    } catch {
+      return "Enter a valid HTTP or HTTPS Cesium Terrain layer.json URL.";
+    }
   }
   if (config.backend !== "copc-js" && config.backend !== "rust") {
     return "Choose JavaScript or Rust / WASM as the decoding backend.";
@@ -140,6 +163,8 @@ export function hasUnappliedSettings(
     applied.refinementAlgorithm !== pending.refinementAlgorithm ||
     applied.motionLookahead !== pending.motionLookahead ||
     applied.rangeValidation !== pending.rangeValidation ||
+    applied.heightOffsetMeters !== pending.heightOffsetMeters ||
+    applied.terrainUrl !== pending.terrainUrl ||
     applied.colorMode !== pending.colorMode ||
     applied.pointSize !== pending.pointSize ||
     applied.maxNodes !== pending.maxNodes ||
@@ -170,12 +195,29 @@ export function needsSessionRecreation(
     applied.maxDepth !== next.maxDepth ||
     applied.maxScreenSpaceError !== next.maxScreenSpaceError ||
     applied.maxRenderDistance !== next.maxRenderDistance ||
+    (next.renderer === "cesium" &&
+      (applied.heightOffsetMeters !== next.heightOffsetMeters ||
+        applied.terrainUrl !== next.terrainUrl)) ||
     (currentSourceUsesHttp &&
       applied.rangeValidation !== next.rangeValidation) ||
     (next.renderer === "three" && applied.colorMode !== next.colorMode) ||
     (next.renderer === "cesium" &&
       applied.cesiumRenderer !== next.cesiumRenderer)
   );
+}
+
+/** Display a configured Terrain URL without credentials or query data. */
+export function getSafeTerrainSourceLabel(
+  source: string,
+  baseUrl: string,
+): string {
+  if (!source.trim()) return "Ellipsoid only";
+  try {
+    const url = new URL(source, baseUrl);
+    return `${url.hostname}${url.pathname}`;
+  } catch {
+    return "Invalid Terrain URL";
+  }
 }
 
 /** Return a safe source label for the UI; credentials and URL query values are omitted. */

@@ -49,6 +49,17 @@ test("compact pick identity maps to position, source XYZ, and attributes", () =>
   });
 });
 
+test("picked inspection preserves the owning layer identity", () => {
+  const inspection = inspectCopcPoint(
+    { nodeKey: "4-12-7-3", pointIndex: 0, ownerId: "layer-7" },
+    { level: 4 },
+    createPoints(),
+    "copc-js",
+  );
+  assert.equal(inspection.ownerId, "layer-7");
+  assert.deepEqual(inspection.source, { x: 100, y: 200, z: 300 });
+});
+
 test("unrequested fields remain unavailable and unknown classifications stay numeric", () => {
   const points = createPoints({ includeAttributes: false });
   points.attributes = { classification: new Uint8Array([250, 250]) };

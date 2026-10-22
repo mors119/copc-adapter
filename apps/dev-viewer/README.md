@@ -59,6 +59,54 @@ the Inspector reports the actual probe validation level and warnings. HEAD
 metadata is not cryptographic integrity verification. `strict` requires a
 readable matching `Content-Range` and does not fall back to HEAD.
 
+## Explicit Terrain alignment workflow
+
+The dev-viewer starts with the WGS 84 ellipsoid and imagery only. The ellipsoid
+is not measured local ground, and imagery has no elevation samples. To use
+Terrain, enter an explicitly configured Cesium quantized-mesh `layer.json` URL
+in **Terrain and height alignment** and press **Apply Settings**. A local
+unauthenticated source is supported. The viewer does not request Cesium ion
+credentials; Terrain endpoints containing URL credentials, query parameters,
+or fragments are rejected. If the source cannot load, the viewer remains usable
+over the ellipsoid and reports that Terrain is unavailable.
+
+With a Cesium session active:
+
+1. Pick a point rendered by the current COPC layer.
+2. Verify that it represents ground. LAS class 2 is accepted as classified
+   ground; for another or missing classification, check **I confirm the
+   selected point is ground** only after independent confirmation.
+3. Press **Estimate residual**. This samples one location through Cesium's
+   `sampleTerrainMostDetailed` API and does not change geometry.
+4. Review the displayed COPC height, sampled Terrain height, proposed delta,
+   current `heightOffsetMeters`, effective total offset, vertical-reference
+   status, Terrain source label, latency and warnings.
+5. Press **Apply proposed correction** only when the estimate is current and
+   actionable. The viewer rebuilds the layer with the approved total
+   `heightOffsetMeters`, from original COPC source coordinates.
+
+For a non-class-2 ground anchor, confirmation is an explicit caller judgment,
+not independent classification evidence. If the source height is NAVD88 or
+another orthometric datum without an active compatible #244 transformation,
+the preview is uncertain and Apply stays disabled. The default Autzen sample's source
+metadata is EPSG:2992 horizontal and EPSG:6360 NAVD88 height in US survey feet;
+the Dev Viewer does not configure a vertical grid and its initial manual offset
+is zero. Therefore unit conversion alone does not make Autzen actionable, and
+the apparent gap above imagery is not a measured Terrain residual.
+
+The height chain is source Z and units → validated `verticalTransform` if
+configured → manual `heightOffsetMeters` → a separately estimated and approved
+Terrain residual → displayed ECEF. Imagery and 3D Tiles are never used as
+Terrain samples. A Terrain estimate is a placement diagnostic, not a geoid
+correction or survey-grade position. Rebuilding stages a second Viewer and
+COPC layer until ready; expect new metadata/hierarchy/point Range reads, LAZ
+decode, worker preparation when Rust is selected, point rendering work, and
+temporary old/new session resource overlap. No Terrain request is made per
+point. The sampler has a 30-second default wait deadline (maximum 60 seconds);
+Cesium does not accept an AbortSignal for the underlying tile request, so a
+cancelled/timed-out request may finish in the background and blocks another
+estimate for that Viewer until it settles.
+
 ## Development and browser tests
 
 From the repository root:

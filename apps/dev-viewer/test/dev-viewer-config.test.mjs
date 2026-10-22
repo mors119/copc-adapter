@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   getSafeSourceLabel,
+  getSafeTerrainSourceLabel,
   hasUnappliedSettings,
   isRangeValidationPolicy,
   isRefinementAlgorithm,
@@ -20,6 +21,8 @@ function createConfig(overrides = {}) {
     motionLookahead: true,
     rangeValidation: "head-fallback",
     source: "https://example.test/autzen.copc.laz?token=secret",
+    heightOffsetMeters: 0,
+    terrainUrl: "",
     colorMode: "rgb",
     pointSize: 3,
     maxNodes: 24,
@@ -143,5 +146,43 @@ test("redacts credentials and signed query values from source labels", () => {
       "https://viewer.test/",
     ),
     "local.copc.laz",
+  );
+});
+
+test("validates an explicit public Terrain endpoint and keeps its label safe", () => {
+  assert.equal(
+    validateDevViewerConfig(
+      createConfig({ terrainUrl: "http://localhost:8080/terrain/layer.json" }),
+    ),
+    undefined,
+  );
+  assert.match(
+    validateDevViewerConfig(
+      createConfig({ terrainUrl: "https://terrain.example/layer.json?token=secret" }),
+    ),
+    /without credentials, query parameters/,
+  );
+  assert.equal(
+    getSafeTerrainSourceLabel(
+      "https://terrain.example/tiles/layer.json?token=secret",
+      "https://viewer.example/",
+    ),
+    "terrain.example/tiles/layer.json",
+  );
+  assert.equal(
+    hasUnappliedSettings(
+      createConfig(),
+      createConfig({ heightOffsetMeters: 12 }),
+    ),
+    true,
+  );
+  assert.equal(
+    needsSessionRecreation(
+      createConfig(),
+      createConfig({ heightOffsetMeters: 12 }),
+      true,
+      true,
+    ),
+    true,
   );
 });

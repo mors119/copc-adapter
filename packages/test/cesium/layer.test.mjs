@@ -38,6 +38,8 @@ async function createSyntheticVerticalGrid() {
 
 const WGS84_ORTHOMETRIC_WKT =
   'COMPD_CS["WGS 84 + Local orthometric height",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],VERT_CS["Local orthometric height",VERT_DATUM["Local vertical datum",2005],UNIT["metre",1],AXIS["Gravity-related height",UP]]]';
+const WGS84_ELLIPSOIDAL_WKT =
+  'COMPD_CS["WGS 84 + ellipsoidal height",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],VERT_CS["WGS 84 ellipsoidal height",VERT_DATUM["WGS_1984",2005],UNIT["metre",1],AXIS["Ellipsoidal height",UP],AUTHORITY["EPSG","4979"]]]';
 
 function createEvent() {
   const listeners = new Set();
@@ -114,6 +116,25 @@ function createFakeViewer() {
     },
     destroy() {
       this.destroyed = true;
+    },
+  };
+}
+
+function createTerrainSamplingProvider(heightMeters) {
+  const tilingScheme = new Cesium.GeographicTilingScheme();
+  return {
+    tilingScheme,
+    availability: {
+      computeMaximumLevelAtPosition() {
+        return 1;
+      },
+    },
+    requestTileGeometry() {
+      return Promise.resolve({
+        interpolateHeight() {
+          return heightMeters;
+        },
+      });
     },
   };
 }
@@ -1597,6 +1618,218 @@ test("CesiumPointPicker delegates node-level hits to the injected renderer and i
   });
   assert.equal(picked.at(-1).pointIndex, 1);
   layer.destroy();
+});
+
+test("terrain alignment estimates use the selected layer-owned point and invalidate on provider replacement", async () => {
+  const source = createBackend({
+    metadata: {
+      pointCount: 2,
+      bounds: {
+        minX: -123,
+        minY: 44,
+        minZ: 10,
+        maxX: -122,
+        maxY: 45,
+        maxZ: 20,
+      },
+      cube: {
+        minX: -123,
+        minY: 44,
+        minZ: 10,
+        maxX: -122,
+        maxY: 45,
+        maxZ: 20,
+      },
+      wkt: WGS84_ELLIPSOIDAL_WKT,
+    },
+  });
+  const layer = new CopcCesiumLayer({
+    url: "memory://terrain-estimate.copc.laz",
+    backend: source.backend,
+    decoder: source.decoder,
+    heightOffsetMeters: 5,
+  });
+  const viewer = createFakeViewer();
+  const provider = createTerrainSamplingProvider(40);
+  viewer.terrainProvider = provider;
+
+  await layer.load();
+  layer.attachTo(viewer);
+  await waitFor(() => layer.getSnapshot().renderedPointCount === 2);
+  const controller = layer.controller;
+  viewer.scene.pick = () => ({
+    id: { nodeKey: "0-0-0-0", pointIndex: 0, ownerId: controller.pointPicker.ownerId },
+  });
+  controller.pointPicker.pick(viewer, new Cesium.Cartesian2(10, 10));
+  const pickedBefore = layer.getSelectedPoint();
+  const boundsBefore = layer.boundingSphere;
+
+  const firstEstimate = await layer.estimateTerrainHeightAlignment(pickedBefore);
+  assert.equal(firstEstimate.status, "ready");
+  assert.equal(firstEstimate.actionable, true);
+  assert.equal(firstEstimate.anchor.displayedHeightMeters, 17);
+  assert.equal(firstEstimate.terrainHeightMeters, 40);
+  assert.equal(firstEstimate.proposedOffsetMeters, 23);
+  assert.equal(firstEstimate.existingHeightOffsetMeters, 5);
+  assert.equal(firstEstimate.effectiveProposedHeightOffsetMeters, 28);
+  assert.equal(firstEstimate.anchor.source.z, 12);
+  assert.equal(layer.isTerrainHeightAlignmentEstimateCurrent(firstEstimate), true);
+  assert.equal(layer.getSelectedPoint().height, 17);
+  assert.equal(layer.getSelectedPoint().source.z, 12);
+  assert.deepEqual(layer.boundingSphere, boundsBefore);
+
+  viewer.terrainProvider = createTerrainSamplingProvider(41);
+  assert.equal(layer.isTerrainHeightAlignmentEstimateCurrent(firstEstimate), false);
+  const secondEstimate = await layer.estimateTerrainHeightAlignment(
+    layer.getSelectedPoint(),
+  );
+  assert.equal(secondEstimate.terrainHeightMeters, 41);
+  assert.equal(layer.isTerrainHeightAlignmentEstimateCurrent(firstEstimate), false);
+  assert.equal(layer.isTerrainHeightAlignmentEstimateCurrent(secondEstimate), true);
+
+  layer.destroy();
+
+  // Applying is an explicit caller action: rebuild from the same source with
+  // the proposed total offset rather than modifying the old layer in place.
+  const approvedOffset = secondEstimate.effectiveProposedHeightOffsetMeters;
+  const appliedLayer = new CopcCesiumLayer({
+    url: "memory://terrain-estimate.copc.laz",
+    backend: source.backend,
+    decoder: source.decoder,
+    heightOffsetMeters: approvedOffset,
+  });
+  const appliedViewer = createFakeViewer();
+  appliedViewer.terrainProvider = createTerrainSamplingProvider(41);
+  await appliedLayer.load();
+  appliedLayer.attachTo(appliedViewer);
+  await waitFor(() => appliedLayer.getSnapshot().renderedPointCount === 2);
+  const appliedBounds = appliedLayer.boundingSphere;
+  assert.ok(appliedBounds);
+  assert.notDeepEqual(appliedBounds.center, boundsBefore.center);
+
+  const appliedController = appliedLayer.controller;
+  appliedViewer.scene.pick = () => ({
+    id: {
+      nodeKey: "0-0-0-0",
+      pointIndex: 0,
+      ownerId: appliedController.pointPicker.ownerId,
+    },
+  });
+  appliedController.pointPicker.pick(
+    appliedViewer,
+    new Cesium.Cartesian2(10, 10),
+  );
+  const appliedPoint = appliedLayer.getSelectedPoint();
+  assert.equal(appliedPoint.source.z, 12);
+  assert.equal(appliedPoint.height, 41);
+
+  const zoomed = appliedLayer.zoomTo();
+  assert.ok(appliedViewer.camera.lastBoundingSphereFlight);
+  appliedViewer.camera.completeBoundingSphereFlight();
+  assert.equal(await zoomed, true);
+  appliedLayer.destroy();
+});
+
+test("terrain estimates stay independent for multiple layers on one Viewer", async () => {
+  const firstSource = createBackend({
+    metadata: {
+      pointCount: 2,
+      bounds: {
+        minX: -123,
+        minY: 44,
+        minZ: 10,
+        maxX: -122,
+        maxY: 45,
+        maxZ: 20,
+      },
+      cube: {
+        minX: -123,
+        minY: 44,
+        minZ: 10,
+        maxX: -122,
+        maxY: 45,
+        maxZ: 20,
+      },
+      wkt: WGS84_ELLIPSOIDAL_WKT,
+    },
+  });
+  const secondSource = createBackend({
+    metadata: {
+      pointCount: 2,
+      bounds: {
+        minX: -123,
+        minY: 44,
+        minZ: 10,
+        maxX: -122,
+        maxY: 45,
+        maxZ: 20,
+      },
+      cube: {
+        minX: -123,
+        minY: 44,
+        minZ: 10,
+        maxX: -122,
+        maxY: 45,
+        maxZ: 20,
+      },
+      wkt: WGS84_ELLIPSOIDAL_WKT,
+    },
+  });
+  const firstLayer = new CopcCesiumLayer({
+    url: "memory://terrain-first-layer.copc.laz",
+    backend: firstSource.backend,
+    decoder: firstSource.decoder,
+    heightOffsetMeters: 2,
+  });
+  const secondLayer = new CopcCesiumLayer({
+    url: "memory://terrain-second-layer.copc.laz",
+    backend: secondSource.backend,
+    decoder: secondSource.decoder,
+    heightOffsetMeters: -3,
+  });
+  const viewer = createFakeViewer();
+  viewer.terrainProvider = createTerrainSamplingProvider(40);
+
+  await Promise.all([firstLayer.load(), secondLayer.load()]);
+  firstLayer.attachTo(viewer);
+  secondLayer.attachTo(viewer);
+  await Promise.all([
+    waitFor(() => firstLayer.getSnapshot().renderedPointCount === 2),
+    waitFor(() => secondLayer.getSnapshot().renderedPointCount === 2),
+  ]);
+
+  const pickFirstLayer = (layer) => {
+    const controller = layer.controller;
+    viewer.scene.pick = () => ({
+      id: {
+        nodeKey: "0-0-0-0",
+        pointIndex: 0,
+        ownerId: controller.pointPicker.ownerId,
+      },
+    });
+    controller.pointPicker.pick(viewer, new Cesium.Cartesian2(10, 10));
+    return layer.getSelectedPoint();
+  };
+  const firstAnchor = pickFirstLayer(firstLayer);
+  const secondAnchor = pickFirstLayer(secondLayer);
+  assert.notEqual(firstAnchor.ownerId, secondAnchor.ownerId);
+  assert.equal(firstAnchor.height, 14);
+  assert.equal(secondAnchor.height, 9);
+
+  const firstEstimate = await firstLayer.estimateTerrainHeightAlignment(firstAnchor);
+  const secondEstimate = await secondLayer.estimateTerrainHeightAlignment(secondAnchor);
+  assert.equal(firstEstimate.existingHeightOffsetMeters, 2);
+  assert.equal(secondEstimate.existingHeightOffsetMeters, -3);
+  assert.equal(firstEstimate.effectiveProposedHeightOffsetMeters, 28);
+  assert.equal(secondEstimate.effectiveProposedHeightOffsetMeters, 28);
+  assert.equal(firstLayer.isTerrainHeightAlignmentEstimateCurrent(firstEstimate), true);
+  assert.equal(secondLayer.isTerrainHeightAlignmentEstimateCurrent(secondEstimate), true);
+
+  firstLayer.destroy();
+  assert.equal(firstLayer.isTerrainHeightAlignmentEstimateCurrent(firstEstimate), false);
+  assert.equal(secondLayer.isTerrainHeightAlignmentEstimateCurrent(secondEstimate), true);
+  secondLayer.destroy();
+  assert.equal(viewer.destroyed, false);
 });
 
 test("batched renderer follows layer style, unload, reload, and reattach lifecycle", async () => {

@@ -5,6 +5,7 @@ export function createCesiumViewer(
   options: {
     scene3DOnly?: boolean;
     useBrowserRecommendedResolution?: boolean;
+    terrainProvider?: Cesium.TerrainProvider;
   } = {},
 ): Cesium.Viewer {
   return new Cesium.Viewer(container, {
@@ -17,6 +18,9 @@ export function createCesiumViewer(
     navigationHelpButton: false,
     fullscreenButton: false,
     scene3DOnly: options.scene3DOnly ?? false,
+    ...(options.terrainProvider === undefined
+      ? {}
+      : { terrainProvider: options.terrainProvider }),
     ...(options.useBrowserRecommendedResolution === undefined
       ? {}
       : {

@@ -713,6 +713,110 @@ manual offset at `0` when no independent residual is known. Terrain alignment
 from issue #305 remains separate; the adapter does not sample terrain or
 imagery to derive either correction.
 
+## Explicit Cesium Terrain residual estimate
+
+Cesium Terrain alignment is an opt-in placement diagnostic for one selected
+ground point. It does not read elevation from imagery, sample arbitrary 3D
+Tiles, modify point positions, or change the Viewer’s `TerrainProvider`.
+`CopcCesiumLayer.estimateTerrainHeightAlignment()` reads the Terrain provider
+already attached to the application-owned Viewer and calls Cesium’s public
+`sampleTerrainMostDetailed(provider, [position], true)` API. This API requires
+provider tile availability and returns heights relative to the ellipsoid.
+Providers without availability, ellipsoid-only providers, unavailable
+coverage, sampling failures, and timeouts produce a non-actionable result.
+The consumer chooses a provider when it creates its Viewer; for example:
+
+```ts
+const terrainProvider = await Cesium.CesiumTerrainProvider.fromUrl(
+  '/terrain/layer.json',
+);
+const viewer = new Cesium.Viewer('cesium-container', { terrainProvider });
+```
+
+The URL must be an explicitly configured source that the application is
+authorized to use. This library does not configure Cesium ion, add credentials,
+or replace/destroy a provider on a consumer-owned Viewer.
+
+```ts
+const anchor = layer.getSelectedPoint();
+if (!anchor) throw new Error('Pick a rendered point from this layer first');
+
+const estimate = await layer.estimateTerrainHeightAlignment(anchor, {
+  // Use only after independently confirming this selected point is ground.
+  groundConfirmed: true,
+  signal: estimateAbortController.signal,
+});
+
+if (estimate.status === 'ready' && estimate.actionable) {
+  // Show estimate.anchor.displayedHeightMeters, estimate.terrainHeightMeters,
+  // estimate.proposedOffsetMeters and warnings in an application preview.
+  // Apply only after a separate user action and a current-result check.
+  const stillCurrent = layer.isTerrainHeightAlignmentEstimateCurrent(estimate);
+  if (stillCurrent) {
+    const approvedHeightOffsetMeters =
+      estimate.effectiveProposedHeightOffsetMeters;
+    // Rebuild/reload the layer with this approved value in its existing
+    // heightOffsetMeters option. The adapter does not apply it automatically.
+  }
+}
+```
+
+An anchor must be the selected rendered point owned by this layer, include
+finite source XYZ and displayed coordinates, and be classified LAS/ASPRS class
+2 or explicitly confirmed by the caller. The estimate becomes stale when the
+selection, layer source generation, Viewer, or TerrainProvider changes. Keep
+`source` XYZ unchanged; `height` is the current displayed numeric height.
+
+The result compares
+`terrainHeightMeters - anchor.displayedHeightMeters`. Both values must have a
+verified WGS 84 ellipsoidal-height interpretation. A configured
+`verticalTransform` must pass its source-WKT compatibility check; otherwise
+the source must explicitly identify supported WGS 84 ellipsoidal height. A
+NAVD88/orthometric Z converted from US survey feet to metres is still
+orthometric. A numeric unit conversion alone does not make it compatible with
+Terrain’s ellipsoidal height. Missing or incompatible vertical metadata returns
+`uncertain` and never an actionable proposal. Do not use Terrain alignment to
+hide a missing #244 geoid conversion.
+
+The returned effective offset is `existing heightOffsetMeters + proposed
+offset`. Recreating from the original COPC applies the validated vertical grid
+first, then this single total additive offset. Estimating again after approval
+does not add the same residual twice. A rebuild uses the existing coordinate
+preparation path so displayed points, bounds, camera navigation and picking
+share one transform; it can repeat source Range reads, LAZ decoding, worker
+work, and renderer uploads. The dev-viewer stages a replacement session and
+keeps the previous one until the candidate is ready.
+
+One estimate samples at most one anchor. Only one in-flight estimate per
+Viewer is accepted, and the default caller wait deadline is 30 seconds (bounded
+to 60 seconds). Cesium’s sampler has no `AbortSignal`: cancelling or timing out
+discards the result but cannot abort an already-issued Terrain request. The
+per-Viewer request lock remains until that request settles. Terrain LOD,
+coverage, source provenance and anchor quality limit confidence; this is not
+survey-grade positioning.
+
+For the Autzen development sample, WKT identifies horizontal EPSG:2992 and
+vertical EPSG:6360 NAVD88 height in US survey feet. The dev-viewer does not
+configure a `verticalTransform` and starts with `heightOffsetMeters: 0`; its
+default Cesium globe is ellipsoid-only. Thus the current numeric display
+heights are not verified ellipsoidal heights and no Terrain residual is
+available or implied. A verified #244 transformation is required before an
+estimate can be actionable. The #244 grid implementation currently accepts
+only its documented compatible WGS 84 horizontal CRS path, so a grid that
+does not validate against a projected source remains unavailable.
+
+### Terrain, imagery, ellipsoid and 3D Tiles
+
+| Surface or correction | Provides height samples? | Role in this workflow |
+| --- | --- | --- |
+| WGS 84 ellipsoid | Defines a mathematical reference surface; height zero is not measured local ground | Default Cesium globe only; estimator returns unavailable |
+| Imagery | No; supplies color/texture | Can show roads, vegetation, or shadows over either globe surface, but cannot establish elevation |
+| Cesium TerrainProvider | Yes; exposes terrain tiles and ellipsoidal samples where available | The only sampled surface in this feature |
+| 3D Tiles | May contain roofs, walls, vegetation, bridges or other surfaces | Not sampled; a separate explicit-surface workflow would be required |
+| #244 vertical transform | Converts a validated source vertical datum with a geoid/grid operation | Coordinate correction before the independent Terrain residual |
+| #237 `heightOffsetMeters` | Adds a caller-chosen uniform metre value | Manual correction reused to apply an approved Terrain residual |
+| #305 residual | Compares one verified ground anchor with Terrain | Explicit estimate, preview and user-approved placement correction |
+
 ## Explicit vertical CRS grid conversion
 
 Vertical conversion is opt-in. The default is unchanged and no model is

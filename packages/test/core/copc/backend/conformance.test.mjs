@@ -15,6 +15,7 @@ import { HierarchyLoader } from "../../../../core/copc/hierarchy/HierarchyLoader
 import {
   createPointTransformer,
   transformPointBuffer,
+  transformPointBufferToPreparedPointData,
 } from "../../../../core/coordinates/transform/createPointTransformer.ts";
 import { extractHorizontalUnitScale } from "../../../../core/coordinates/crs/parseCopcWkt.ts";
 import { inspectCopcPoint } from "../../../../core/copc/points/pointInspection.ts";
@@ -690,5 +691,62 @@ test(
     assert.ok(Math.abs(geographic.latitude - 44.051092079742745) < 1e-9);
     assert.ok(Math.abs(geographic.height - 129.58902717805427) < 1e-9);
     assert.equal(extractHorizontalUnitScale(metadata.wkt), 0.3048);
+
+    // Model a caller-approved #305 residual through the existing #237 offset
+    // path. Rust applies it during fused preparation; JavaScript applies the
+    // same total once while preparing the decoded source buffer.
+    const approvedOffsetMeters = 2.5;
+    const fields = new Set(["position"]);
+    const rustApproved = await new RustCopcBackend({
+      createByteSource: (requestedSource) =>
+        new InMemoryByteSource(bytes, requestedSource),
+    }).open(samplePath, { heightOffsetMeters: approvedOffsetMeters });
+    const rustApprovedNode = (
+      await rustApproved.loadHierarchyPage(rustApproved.getRootHierarchyPage())
+    ).nodes.find((entry) => entry.key === node.key);
+    const rustPrepared = await rustApproved.loadPreparedPointData(
+      rustApprovedNode,
+      fields,
+    );
+    const jsBuffer = await copcJs.loadPointDataBuffer(node, fields);
+    const jsPrepared = transformPointBufferToPreparedPointData(
+      metadata,
+      jsBuffer,
+      approvedOffsetMeters,
+    );
+    assert.deepEqual(
+      [...rustPrepared.source.coordinates],
+      [...jsPrepared.source.coordinates],
+      "approved placement must preserve the same original source XYZ",
+    );
+    for (const sampleIndex of pointSampleIndices(node.pointCount)) {
+      const coordinateOffset = sampleIndex * 3;
+      assert.ok(
+        Math.abs(
+          rustPrepared.geographic.coordinates[coordinateOffset + 2] -
+            jsPrepared.geographic.coordinates[coordinateOffset + 2],
+        ) <= 1e-6,
+        `approved height differs for point ${sampleIndex}`,
+      );
+      assert.ok(
+        Math.abs(
+          rustPrepared.world.coordinates[coordinateOffset] -
+            jsPrepared.world.coordinates[coordinateOffset],
+        ) <= 1e-3,
+        `approved ECEF X differs for point ${sampleIndex}`,
+      );
+      assert.ok(
+        Math.abs(
+          rustPrepared.geographic.coordinates[coordinateOffset + 2] -
+            transform({
+              x: copcJsView.getter("x")(sampleIndex),
+              y: copcJsView.getter("y")(sampleIndex),
+              z: copcJsView.getter("z")(sampleIndex),
+            }).height -
+            approvedOffsetMeters,
+        ) <= 1e-6,
+        `approved offset was not applied exactly once for point ${sampleIndex}`,
+      );
+    }
   },
 );
