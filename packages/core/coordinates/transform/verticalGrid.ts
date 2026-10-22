@@ -438,7 +438,13 @@ export class GtxGeoidGrid {
       : periodic
         ? "periodic"
         : "none";
-    const values = bytesPerValue === 4 ? new Float32Array(count) : new Float64Array(count);
+    // `readGridBytes` always gives the loader owned storage (Blob bytes are
+    // newly allocated; mutable views are copied). Reuse its sample region as
+    // the native-endian decoded values after integrity verification instead
+    // of retaining a second grid-sized allocation.
+    const values = bytesPerValue === 4
+      ? new Float32Array(bytes.buffer, bytes.byteOffset + GTX_HEADER_BYTES, count)
+      : new Float64Array(bytes.buffer, bytes.byteOffset + GTX_HEADER_BYTES, count);
     const noDataValue = options.noDataValue === null
       ? undefined
       : bytesPerValue === 4
@@ -450,6 +456,8 @@ export class GtxGeoidGrid {
       const value = bytesPerValue === 4
         ? header.getFloat32(GTX_HEADER_BYTES + index * 4, false)
         : header.getFloat64(GTX_HEADER_BYTES + index * 8, false);
+      // Writing through the typed view decodes big-endian GTX samples into
+      // the host's native typed-array representation in the same buffer.
       values[index] = value;
       if (!Number.isFinite(value)) {
         fail("grid-format", `GTX sample ${index} is non-finite; use a documented finite NoData sentinel`, gridId);

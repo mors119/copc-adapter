@@ -1,6 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
+import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import { promisify } from "node:util";
+import { performance as nodePerformance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
+
+const execFileAsync = promisify(execFile);
 
 type Point = {
   nodeKey: string;
@@ -14,7 +19,12 @@ type Point = {
 };
 
 type GridWorkerTracker = {
-  snapshot(): { created: number; terminated: number; active: number };
+  snapshot(): {
+    created: number;
+    terminated: number;
+    active: number;
+    readyDurationsMs: number[];
+  };
 };
 
 type VerticalGridIntegration = {
@@ -22,7 +32,16 @@ type VerticalGridIntegration = {
     metres: number,
     outsideCoverage?: boolean,
     sourceVerticalCrs?: string,
+    shape?: { width: number; height: number },
   ): Promise<string>;
+  getGridInfo(id: string): {
+    width: number;
+    height: number;
+    encodedByteLength: number;
+    decodedByteLength: number;
+    loadDurationMs: number;
+  };
+  releaseGrid(id: string): void;
   createLayer(options: {
     id: string;
     source: string;
@@ -50,12 +69,23 @@ type VerticalGridIntegration = {
         peakQueuedCount: number;
       };
       transition: { activeReplacementGroupCount: number };
-      performance?: { candidatesBeforeCulling: number; frustumCulledCount: number };
+      performance?: {
+        candidatesBeforeCulling: number;
+        frustumCulledCount: number;
+        loadedNodeCount?: number;
+        loadedPointCount?: number;
+        pointPreparationDurationMs?: number;
+        crsTransformDurationMs?: number;
+        rendererPreparationDurationMs?: number;
+        updateDurationMs?: number;
+        longestMainThreadBlockingSectionMs?: number;
+      };
     };
     selectedPoint?: Point;
     boundingSphere?: { x: number; y: number; z: number; radius: number };
     errors: string[];
     ownerIds: string[];
+    timings?: { firstVisibleMs?: number; elapsedMs: number };
   };
   getScreenPoint(id: string): { x: number; y: number } | undefined;
   setRefinementFocus(id: string, enabled: boolean): void;
@@ -98,6 +128,9 @@ declare global {
   interface Window {
     __VERTICAL_GRID_INTEGRATION__?: VerticalGridIntegration;
     __VERTICAL_GRID_WORKERS__?: GridWorkerTracker;
+    __VERTICAL_GRID_BENCHMARK_METRICS__?: {
+      snapshot(): { longTaskCount: number; longTaskDurationMs: number; maxFrameGapMs: number };
+    };
   }
 }
 
@@ -210,11 +243,23 @@ async function gotoFixture(page: Page): Promise<void> {
   await page.addInitScript(() => {
     const NativeWorker = window.Worker;
     const active = new Set<Worker>();
+    const readyDurationsMs: number[] = [];
     let created = 0;
     let terminated = 0;
     window.Worker = new Proxy(NativeWorker, {
       construct(target, argumentsList, newTarget) {
         const worker = Reflect.construct(target, argumentsList, newTarget);
+        const startedAt = performance.now();
+        worker.addEventListener("message", (event: MessageEvent) => {
+          if (
+            event.data !== null &&
+            typeof event.data === "object" &&
+            "type" in event.data &&
+            event.data.type === "ready"
+          ) {
+            readyDurationsMs.push(performance.now() - startedAt);
+          }
+        });
         const nativeTerminate = worker.terminate.bind(worker);
         let didTerminate = false;
         Object.defineProperty(worker, "terminate", {
@@ -234,7 +279,12 @@ async function gotoFixture(page: Page): Promise<void> {
       },
     });
     window.__VERTICAL_GRID_WORKERS__ = {
-      snapshot: () => ({ created, terminated, active: active.size }),
+      snapshot: () => ({
+        created,
+        terminated,
+        active: active.size,
+        readyDurationsMs: [...readyDurationsMs],
+      }),
     };
   });
   await installSyntheticCopcRoute(page);
@@ -253,17 +303,24 @@ async function layerState(page: Page, id: string) {
   }, id);
 }
 
-async function grid(page: Page, value: number, outside = false, crs?: string) {
+async function grid(
+  page: Page,
+  value: number,
+  outside = false,
+  crs?: string,
+  shape?: { width: number; height: number },
+) {
   return page.evaluate(
-    ({ metres, outsideCoverage, sourceVerticalCrs }) => {
+    ({ metres, outsideCoverage, sourceVerticalCrs, gridShape }) => {
       if (!window.__VERTICAL_GRID_INTEGRATION__) throw new Error("Fixture missing");
       return window.__VERTICAL_GRID_INTEGRATION__.createGrid(
         metres,
         outsideCoverage,
         sourceVerticalCrs,
+        gridShape,
       );
     },
-    { metres: value, outsideCoverage: outside, sourceVerticalCrs: crs },
+    { metres: value, outsideCoverage: outside, sourceVerticalCrs: crs, gridShape: shape },
   );
 }
 
@@ -398,6 +455,450 @@ function expectNear(actual: number, expected: number, tolerance: number): void {
 function sourceUrl(name: string): string {
   return `/e2e/vertical-grid-source.copc.laz?fixture=${encodeURIComponent(name)}`;
 }
+
+function summarizeDurations(values: number[]) {
+  const sorted = [...values].sort((left, right) => left - right);
+  const mean = values.reduce((total, value) => total + value, 0) / values.length;
+  const variance =
+    values.reduce((total, value) => total + (value - mean) ** 2, 0) /
+    Math.max(1, values.length - 1);
+  return {
+    samples: values.length,
+    median: sorted[Math.floor(sorted.length / 2)] ?? 0,
+    p95NearestRank: sorted[Math.ceil(sorted.length * 0.95) - 1] ?? 0,
+    min: sorted[0] ?? 0,
+    max: sorted.at(-1) ?? 0,
+    standardDeviation: Math.sqrt(variance),
+  };
+}
+
+function summarizeNumbers(values: number[]) {
+  return summarizeDurations(values.filter(Number.isFinite));
+}
+
+async function readRuntimeHeapUsage(
+  cdp: Awaited<ReturnType<import("@playwright/test").BrowserContext["newCDPSession"]>>,
+): Promise<{
+  usedSizeBytes?: number;
+  backingStorageBytes?: number;
+  totalSizeBytes?: number;
+}> {
+  try {
+    const result = (await cdp.send("Runtime.getHeapUsage")) as {
+      usedSize?: number;
+      backingStorageSize?: number;
+      totalSize?: number;
+    };
+    return {
+      ...(typeof result.usedSize === "number"
+        ? { usedSizeBytes: result.usedSize }
+        : {}),
+      ...(typeof result.backingStorageSize === "number"
+        ? { backingStorageBytes: result.backingStorageSize }
+        : {}),
+      ...(typeof result.totalSize === "number"
+        ? { totalSizeBytes: result.totalSize }
+        : {}),
+    };
+  } catch {
+    return {};
+  }
+}
+
+async function waitForLayerIdle(page: Page, id: string) {
+  let previousKey = "";
+  let stableSamples = 0;
+  let lastState: Awaited<ReturnType<typeof layerState>> | undefined;
+  await expect
+    .poll(
+      async () => {
+        const state = await layerState(page, id);
+        lastState = state;
+        const snapshot = state.snapshot;
+        const idle =
+          snapshot.renderedPointCount > 0 &&
+          snapshot.rangeRequests.active === 0 &&
+          snapshot.transition.activeReplacementGroupCount === 0 &&
+          (!snapshot.worker ||
+            (snapshot.worker.activeCount === 0 && snapshot.worker.queuedCount === 0));
+        const key = `${snapshot.streamingUpdateCount}:${snapshot.renderedPointCount}:${snapshot.renderedNodeKeys.join(",")}`;
+        stableSamples = idle && key === previousKey ? stableSamples + 1 : 0;
+        previousKey = key;
+        return stableSamples >= 3;
+      },
+      { timeout: 60_000, intervals: [100, 200, 500] },
+    )
+    .toBe(true);
+  return lastState!;
+}
+
+test("measures Cesium vertical-grid streaming costs", async ({ browser }) => {
+  test.skip(
+    process.env.COPC_VERTICAL_GRID_BENCHMARK !== "1",
+    "Run explicitly with COPC_VERTICAL_GRID_BENCHMARK=1",
+  );
+  test.setTimeout(600_000);
+
+  const repetitions = Number(process.env.COPC_VERTICAL_GRID_BROWSER_SAMPLES ?? 3);
+  expect(Number.isSafeInteger(repetitions) && repetitions >= 3).toBe(true);
+  const browserCdp = await browser.newBrowserCDPSession();
+  const results: Record<string, unknown>[] = [];
+  const scenarios = [false, true] as const;
+
+  for (let repetition = 0; repetition < repetitions; repetition += 1) {
+    const order = repetition % 2 === 0 ? scenarios : [...scenarios].reverse();
+    for (const withGrid of order) {
+      const context = await browser.newContext();
+      const page = await context.newPage();
+      let gridId: string | undefined;
+      let cdp: Awaited<ReturnType<typeof context.newCDPSession>> | undefined;
+      let rssTimer: ReturnType<typeof setInterval> | undefined;
+      await page.addInitScript(() => {
+        const longTasks: number[] = [];
+        let maxFrameGapMs = 0;
+        let previousFrame: number | undefined;
+        try {
+          const observer = new PerformanceObserver((entries) => {
+            for (const entry of entries.getEntries()) longTasks.push(entry.duration);
+          });
+          observer.observe({ entryTypes: ["longtask"] });
+        } catch {
+          // Long Task timing is optional in Chromium builds without the API.
+        }
+        const sampleFrame = (now: number): void => {
+          if (previousFrame !== undefined) {
+            maxFrameGapMs = Math.max(maxFrameGapMs, now - previousFrame);
+          }
+          previousFrame = now;
+          requestAnimationFrame(sampleFrame);
+        };
+        requestAnimationFrame(sampleFrame);
+        (window as Window & {
+          __VERTICAL_GRID_BENCHMARK_METRICS__?: {
+            snapshot(): { longTaskCount: number; longTaskDurationMs: number; maxFrameGapMs: number };
+          };
+        }).__VERTICAL_GRID_BENCHMARK_METRICS__ = {
+          snapshot: () => ({
+            longTaskCount: longTasks.length,
+            longTaskDurationMs: longTasks.reduce((total, value) => total + value, 0),
+            maxFrameGapMs,
+          }),
+        };
+      });
+
+      try {
+        await gotoFixture(page);
+        cdp = await context.newCDPSession(page);
+        await cdp.send("Runtime.enable");
+        await cdp.send("HeapProfiler.enable");
+        const heapBefore = await readRuntimeHeapUsage(cdp);
+        const trackerBefore = await page.evaluate(() =>
+          window.__VERTICAL_GRID_WORKERS__!.snapshot(),
+        );
+        const browserRss = { baselineBytes: 0, peakBytes: 0 };
+        const sampleBrowserRss = async (): Promise<void> => {
+          try {
+            const { processInfo } = await browserCdp.send("SystemInfo.getProcessInfo");
+            const processIds = processInfo.map((process) => process.id);
+            if (processIds.length === 0) return;
+            const { stdout } = await execFileAsync("ps", [
+              "-o",
+              "rss=",
+              "-p",
+              processIds.join(","),
+            ]);
+            const current = stdout
+              .trim()
+              .split(/\s+/u)
+              .map(Number)
+              .filter(Number.isFinite)
+              .reduce((total, kilobytes) => total + kilobytes * 1024, 0);
+            if (browserRss.baselineBytes === 0) browserRss.baselineBytes = current;
+            browserRss.peakBytes = Math.max(browserRss.peakBytes, current);
+          } catch {
+            // Process RSS is supplemental and may be unavailable outside macOS/Linux.
+          }
+        };
+        await sampleBrowserRss();
+        let rssSampleInFlight = false;
+        rssTimer = setInterval(() => {
+          if (rssSampleInFlight) return;
+          rssSampleInFlight = true;
+          void sampleBrowserRss().finally(() => {
+            rssSampleInFlight = false;
+          });
+        }, 200);
+
+        let gridInfo:
+          | {
+              width: number;
+              height: number;
+              encodedByteLength: number;
+              decodedByteLength: number;
+              loadDurationMs: number;
+            }
+          | undefined;
+        if (withGrid) {
+          gridId = await grid(page, 25, false, undefined, {
+            width: 2048,
+            height: 1024,
+          });
+          gridInfo = await page.evaluate((id) =>
+            window.__VERTICAL_GRID_INTEGRATION__!.getGridInfo(id), gridId!,
+          );
+        }
+        const heapAfterGrid = await readRuntimeHeapUsage(cdp);
+        await cdp.send("HeapProfiler.collectGarbage").catch(() => undefined);
+        const heapAfterGridRetained = await readRuntimeHeapUsage(cdp);
+        await sampleBrowserRss();
+        const startedAt = nodePerformance.now();
+        const layerId = `benchmark-${withGrid ? "grid" : "baseline"}-${repetition}`;
+        const loaded = await createLayer(page, layerId, sourceUrl(layerId), {
+          backend: "rust",
+          ...(gridId ? { gridId } : {}),
+          workers: true,
+        });
+        expect(loaded.error).toBeUndefined();
+        const initialState = await waitForLayerIdle(page, layerId);
+        const settledWallMs = nodePerformance.now() - startedAt;
+        const heapAfterLoad = await readRuntimeHeapUsage(cdp);
+        const browserMetrics = await page.evaluate(() =>
+          window.__VERTICAL_GRID_BENCHMARK_METRICS__!.snapshot(),
+        );
+
+        const cameraStartedAt = nodePerformance.now();
+        await page.evaluate(() =>
+          window.__VERTICAL_GRID_INTEGRATION__!.setCamera(
+            -123.06875,
+            44.04034,
+            800,
+            -Math.PI / 3,
+          ),
+        );
+        await page.waitForTimeout(1_500);
+        const afterCamera = await layerState(page, layerId);
+        const cameraWallMs = nodePerformance.now() - cameraStartedAt;
+
+        const cacheBeforeReload = afterCamera.snapshot.pointCache;
+        const rangesBeforeReload = afterCamera.snapshot.rangeRequests;
+        const reloadStartedAt = nodePerformance.now();
+        await page.evaluate((id) =>
+          window.__VERTICAL_GRID_INTEGRATION__!.reload(id), layerId,
+        );
+        const reloadedState = await waitForLayerIdle(page, layerId);
+        const reloadWallMs = nodePerformance.now() - reloadStartedAt;
+        const heapAfterReload = await readRuntimeHeapUsage(cdp);
+
+        await sampleBrowserRss();
+        const workers = await page.evaluate(() =>
+          window.__VERTICAL_GRID_WORKERS__!.snapshot(),
+        );
+        const stateAfterReload = reloadedState.snapshot;
+        const stageMetrics = initialState.snapshot.performance;
+        const workerReadyDurations = workers.readyDurationsMs.slice(
+          trackerBefore.readyDurationsMs.length,
+        );
+        results.push({
+          repetition,
+          correction: withGrid ? "synthetic-grid-25m" : "disabled",
+          grid: gridInfo
+            ? {
+                ...gridInfo,
+                source: "generated 2048x1024 constant 25 m GTX; not authoritative",
+              }
+            : null,
+          firstVisibleMs: initialState.timings?.firstVisibleMs ?? null,
+          layerLoadAndSettleWallMs: settledWallMs,
+          cameraMoveObservationMs: cameraWallMs,
+          reloadAndSettleWallMs: reloadWallMs,
+          coldGridOnlyDecodeAndIntegrityMs: gridInfo?.loadDurationMs ?? null,
+          streamed: {
+            renderedPointCount: initialState.snapshot.renderedPointCount,
+            loadedNodeCount: stageMetrics?.loadedNodeCount,
+            loadedPointCount: stageMetrics?.loadedPointCount,
+            pointPreparationDurationMs: stageMetrics?.pointPreparationDurationMs,
+            crsTransformDurationMs: stageMetrics?.crsTransformDurationMs,
+            rendererPreparationDurationMs: stageMetrics?.rendererPreparationDurationMs,
+            updateDurationMs: stageMetrics?.updateDurationMs,
+            rangeRequests: initialState.snapshot.rangeRequests,
+            pointCacheAtLoad: initialState.snapshot.pointCache,
+            pointCacheBeforeReload: cacheBeforeReload,
+            pointCacheAfterReload: stateAfterReload.pointCache,
+            rangeRequestsBeforeReload: rangesBeforeReload,
+            rangeRequestsAfterReload: stateAfterReload.rangeRequests,
+          },
+          workers: {
+            created: workers.created - trackerBefore.created,
+            terminated: workers.terminated - trackerBefore.terminated,
+            activeAfterReload: workers.active,
+            readyDurationsMs: workerReadyDurations,
+          },
+          pageHeap: {
+            beforeGrid: heapBefore,
+            afterGridImmediate: heapAfterGrid,
+            afterGridRetained: heapAfterGridRetained,
+            afterLoad: heapAfterLoad,
+            afterReload: heapAfterReload,
+            afterDestroy: null,
+          },
+          browserProcessRss: {
+            baselineBytes: browserRss.baselineBytes || null,
+            sampledPeakBytes: browserRss.peakBytes || null,
+            sampledIncreaseBytes:
+              browserRss.baselineBytes > 0
+                ? Math.max(0, browserRss.peakBytes - browserRss.baselineBytes)
+                : null,
+            samplingIntervalMs: 200,
+          },
+          mainThread: browserMetrics,
+        });
+
+        await page.evaluate((id) => {
+          window.__VERTICAL_GRID_INTEGRATION__!.destroyLayer(id);
+        }, layerId);
+        if (gridId) {
+          await page.evaluate((id) =>
+            window.__VERTICAL_GRID_INTEGRATION__!.releaseGrid(id), gridId,
+          );
+        }
+        await cdp.send("HeapProfiler.collectGarbage").catch(() => undefined);
+        await page.waitForTimeout(100);
+        const heapAfterDestroy = await readRuntimeHeapUsage(cdp);
+        results.at(-1)!.pageHeap = {
+          ...(results.at(-1)!.pageHeap as object),
+          afterDestroy: heapAfterDestroy,
+        };
+      } finally {
+        if (rssTimer) clearInterval(rssTimer);
+        await cdp?.detach().catch(() => undefined);
+        await context.close();
+      }
+    }
+  }
+  await browserCdp.detach();
+
+  const byScenario = Object.fromEntries(
+    scenarios.map((withGrid) => {
+      const selected = results.filter(
+        (result) => result.correction === (withGrid ? "synthetic-grid-25m" : "disabled"),
+      );
+      const metric = (key: string) =>
+        summarizeDurations(selected.map((result) => Number(result[key] ?? 0)));
+      const nestedNumber = (
+        result: Record<string, unknown>,
+        ...path: string[]
+      ): number => {
+        let value: unknown = result;
+        for (const key of path) {
+          value = (value as Record<string, unknown> | undefined)?.[key];
+        }
+        return typeof value === "number" && Number.isFinite(value) ? value : NaN;
+      };
+      const gridUsageDelta = selected
+        .map((result) => {
+          const before = nestedNumber(
+            result,
+            "pageHeap",
+            "beforeGrid",
+            "backingStorageBytes",
+          );
+          const retained = nestedNumber(
+            result,
+            "pageHeap",
+            "afterGridRetained",
+            "backingStorageBytes",
+          );
+          return Number.isFinite(before) && Number.isFinite(retained)
+            ? retained - before
+            : NaN;
+        });
+      const workerReady = selected.flatMap((result) => {
+        const worker = result.workers as { readyDurationsMs?: number[] } | undefined;
+        return worker?.readyDurationsMs ?? [];
+      });
+      const streamMetric = (key: string): number[] =>
+        selected.map((result) => {
+          const streamed = result.streamed as Record<string, unknown> | undefined;
+          const value = streamed?.[key];
+          return typeof value === "number" ? value : NaN;
+        });
+      const rssIncreases = selected.map((result) =>
+        nestedNumber(result, "browserProcessRss", "sampledIncreaseBytes"),
+      );
+      const mainThreadMetric = (key: string): number[] =>
+        selected.map((result) => {
+          const mainThread = result.mainThread as Record<string, unknown> | undefined;
+          const value = mainThread?.[key];
+          return typeof value === "number" ? value : NaN;
+        });
+      return [
+        withGrid ? "syntheticGrid" : "disabled",
+        {
+          firstVisibleMs: metric("firstVisibleMs"),
+          layerLoadAndSettleWallMs: metric("layerLoadAndSettleWallMs"),
+          cameraMoveObservationMs: metric("cameraMoveObservationMs"),
+          reloadAndSettleWallMs: metric("reloadAndSettleWallMs"),
+          coldGridOnlyDecodeAndIntegrityMs: withGrid
+            ? metric("coldGridOnlyDecodeAndIntegrityMs")
+            : null,
+          streamingPreparationMs: {
+            pointPreparation: summarizeNumbers(streamMetric("pointPreparationDurationMs")),
+            verticalCrs: summarizeNumbers(streamMetric("crsTransformDurationMs")),
+            rendererPreparation: summarizeNumbers(streamMetric("rendererPreparationDurationMs")),
+          },
+          workerReadyMs: summarizeNumbers(workerReady),
+          v8BackingStorageIncreaseAfterGridBytes: withGrid
+            ? summarizeNumbers(gridUsageDelta)
+            : null,
+          sampledBrowserProcessRssIncreaseBytes: summarizeNumbers(rssIncreases),
+          mainThread: {
+            observedLongTaskCount: summarizeNumbers(mainThreadMetric("longTaskCount")),
+            longTaskDurationMs: summarizeNumbers(mainThreadMetric("longTaskDurationMs")),
+            maximumFrameGapMs: summarizeNumbers(mainThreadMetric("maxFrameGapMs")),
+          },
+        },
+      ];
+    }),
+  );
+  console.log(
+    "VERTICAL_GRID_BROWSER_BENCHMARK " +
+      JSON.stringify(
+        {
+          environment: {
+            userAgent: await browser.newPage().then(async (page) => {
+              const userAgent = await page.evaluate(() => navigator.userAgent);
+              await page.close();
+              return userAgent;
+            }),
+            browserName: browser.browserType().name(),
+            repetitions,
+            dataset: "Autzen local COPC served through a deterministic HTTP Range route",
+            grid: "synthetic global constant 25 m GTX, 2048x1024, 8 MiB decoded",
+            workers: "Rust/WASM decode worker enabled; geoid sampling runs in shared TypeScript preparation path",
+            timing: "Playwright host wall clock plus in-page first-visible; p95 nearest-rank",
+            memory: "CDP page V8 heap/backing storage and sampled aggregate Chromium process RSS; worker-specific memory is not exposed by this harness",
+          },
+          summary: byScenario,
+          runs: results.map((result) => ({
+            repetition: result.repetition,
+            correction: result.correction,
+            grid: result.grid,
+            firstVisibleMs: result.firstVisibleMs,
+            layerLoadAndSettleWallMs: result.layerLoadAndSettleWallMs,
+            cameraMoveObservationMs: result.cameraMoveObservationMs,
+            reloadAndSettleWallMs: result.reloadAndSettleWallMs,
+            streamed: result.streamed,
+            workers: result.workers,
+            browserProcessRss: result.browserProcessRss,
+            pageHeap: result.pageHeap,
+            mainThread: result.mainThread,
+          })),
+        },
+        null,
+        2,
+      ),
+  );
+});
 
 test("Cesium applies opt-in GTX correction once through streaming, reload, bounds and picking", async ({ page }) => {
   test.setTimeout(240_000);

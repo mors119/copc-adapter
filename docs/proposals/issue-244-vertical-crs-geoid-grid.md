@@ -182,13 +182,14 @@ treated as permission for COPC Adapter to bundle or redistribute it.
 ### Coverage and memory estimates
 
 The inspected EGM2008 file is 149,368,328 bytes (142.45 MiB) including Fortran
-record markers. The decoded float32 values occupy 149,333,760 bytes
-(142.42 MiB). Loading from a local `File`/`Blob` holds approximately 284.86
-MiB of encoded plus decoded grid data, before runtime overhead. The grid fits
-the existing 256 MiB per-representation default cap. No converted GTX or
-cropped derivative is written by the loader. Mutable `ArrayBuffer` and
-typed-array sources are copied for integrity-safe decoding; when the caller
-retains that source buffer, peak memory includes a third grid-sized array.
+record markers. Its float32 samples occupy 149,333,760 bytes (142.42 MiB).
+That is the model's sample-storage size, not a measured peak for its separate
+NGA-format decoder. The generic GTX loader now creates its decoded typed-array
+view over its owned input buffer after checksum verification, so it does not
+allocate a second sample-sized array. A mutable `ArrayBuffer` or typed-array
+input is still copied before verification; if the caller retains that source,
+the caller-owned buffer remains an additional allocation. See the measured
+GTX loader results below. The NGA-format loader was not benchmarked here.
 
 The MOLIT release gives KNGeoid18 a coverage of 33°N–39°N, 124°E–132°E, and
 approximately 1.8 km resolution. At that scale, a regular regional array is
@@ -414,11 +415,129 @@ include network, COPC decoding, renderer/GPU work, loader peak memory, or a
 variable real model. The timing difference is within this run's variation and
 is not evidence of a general performance gain or loss.
 
-The measured NGA file is float32. Its raw record file and decoded sample array
-are each below the default 256 MiB cap; together they use about 284.86 MiB
-during loading, before runtime overhead. A hypothetical float64 copy would
-exceed the default per-representation cap and is not accepted by the
-model-specific loader.
+The measured NGA file is float32. Its encoded record file and decoded sample
+array are each below the default 256 MiB cap. The NGA-specific loader's actual
+peak and retention were not measured in this benchmark. A hypothetical
+float64 sample array would exceed the default per-representation cap and is
+not accepted by the model-specific loader.
+
+### GTX memory and browser streaming measurements (2026-10-22)
+
+Reproduce the Node measurements with:
+
+```sh
+npm --prefix packages run benchmark:vertical-grid
+```
+
+The script generated constant 25 m GTX files under the OS temporary directory
+and removed them after each run. They are synthetic workload fixtures, not
+geoid models or geodetic validation. Cold loads used a fresh Node child process
+and a file-backed `Blob`; warm point batches were prepared with and without a
+loaded grid. There were seven repetitions for the 361 × 181 and 2048 × 1024
+grids, three for the 8640 × 4321 grid, two warmups, and 250,000 points for the
+interpolation-only measurement. p95 uses nearest rank, so for three samples it
+is the maximum observed value.
+
+Environment: Node v26.7.0, macOS 26.6.2 (Darwin 25.6.0, build 25G83), Apple M2
+arm64, 8 logical CPUs, 8 GiB RAM. Timing uses `performance.now()`. Memory uses
+`process.memoryUsage().arrayBuffers` and `process.resourceUsage().maxRSS`; the
+latter is reported by this Node/macOS build in KiB and is converted to bytes.
+Its unit was cross-checked against `ps -o rss=`. Peak RSS is a process
+high-water mark; array-buffer values are process deltas at the listed sample
+point.
+
+| Synthetic GTX | Encoded / decoded bytes | Cold load median (p95) | Peak RSS increase median | ArrayBuffers delta at loader return | Warm 250k transform without / with grid | Interpolation-only 250k |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 361 × 181 | 261,404 / 261,364 | 3.73 ms (4.39 ms) | 1,114,112 B | 522,824 B | 69.49 / 80.63 ms | 11.99 ms |
+| 2048 × 1024 | 8,388,648 / 8,388,608 | 30.11 ms (38.12 ms) | 24,051,712 B | 16,777,312 B | 67.17 / 78.99 ms | 11.21 ms |
+| 8640 × 4321, EGM-shaped synthetic | 149,333,800 / 149,333,760 | 430.63 ms (504.15 ms) | 447,791,104 B | 298,667,616 B | 69.40 / 78.81 ms | 10.88 ms |
+
+The large GTX case is close to the NGA sample count, but it is a different,
+constant-valued file and does not exercise the NGA Fortran-record decoder. Its
+measured loader-return `arrayBuffers` delta and peak RSS increase are each
+about 142 MiB lower than the pre-optimization run. Before the change, the
+loader-return delta was 448,001,376 B and median peak RSS increase was
+583,184 KiB (597,180,416 B after unit conversion); after the change these were
+298,667,616 B and 447,791,104 B. This is one grid-sized allocation removed.
+Cold-load medians were 444.15 ms before and 430.63 ms after (three samples per
+run); this difference is not presented as a speed improvement. After dropping
+the grid reference and collecting garbage, the final process ArrayBuffers
+delta was 16 B. A 250,000-point batch increased ArrayBuffers by about 3.43 MiB
+in the earlier measurement; the benchmark continues to include output-buffer
+allocations in preparation timings.
+
+The warm point-preparation median difference at 250,000 points was 9.41 ms
+(78.81 ms with grid versus 69.40 ms without, about 13.6%). The isolated
+interpolation median was 10.88 ms for 250,000 samples. A candidate that removed
+temporary interpolation objects was measured but reverted because repeated
+Node runs did not show a reproducible improvement. No streaming, cache, or
+shared-memory architecture was added.
+
+The browser workload uses the local Autzen sample; download it once if it is
+absent:
+
+```sh
+npm run download-samples -- autzen
+```
+
+Then run the benchmark:
+
+```sh
+npm --prefix apps/dev-viewer run benchmark:vertical-grid
+```
+
+This opt-in Playwright benchmark used three repetitions per scenario, in
+alternating order, each in a new browser context. It served the local Autzen
+COPC (81,123,042 bytes) through a deterministic HTTP Range route, enabled the
+Rust/WASM backend and four decode Workers, and compared correction disabled
+with a synthetic 2048 × 1024 constant 25 m GTX. It captured time to first
+visible points, initial range-stream settle, camera-motion observation,
+same-layer reload, worker `ready` messages, preparation stages, CDP V8 heap
+and backing storage, sampled aggregate Chromium process RSS, long tasks, and
+frame gaps. Browser: HeadlessChrome 155.0.8059.85, Playwright's configured
+Chromium build, on the same Apple M2/macOS environment. With three samples,
+reported p95 is the maximum observed value.
+
+| Browser metric | Correction disabled | Synthetic grid enabled |
+| --- | ---: | ---: |
+| First visible median (p95) | 1,857 ms (2,389 ms) | 2,248 ms (2,483 ms) |
+| Load and initial settle median (p95) | 7,945 ms (10,095 ms) | 8,441 ms (8,504 ms) |
+| Same-layer reload settle median (p95) | 5,391 ms (6,150 ms) | 5,474 ms (6,239 ms) |
+| Vertical CRS stage median (p95) | 0 ms | 31.7 ms (32.8 ms) |
+| Grid checksum/decode median (p95) | n/a | 16.7 ms (17.9 ms) |
+| Worker ready median (24 observations) | 333.6 ms (435.7 ms) | 378.5 ms (497.0 ms) |
+| Rendered points / nodes after initial settle | 233,383 / 8 | 233,383 / 8 |
+
+The browser's wall-clock and first-visible distributions overlap and vary
+substantially; these three repetitions do not establish a reliable end-to-end
+slowdown. The geoid stage was measured separately at 30.0–32.8 ms for the
+streamed point set, while the same requests, rendered-point count, and node
+count were observed in both scenarios. Reload added nine range requests in
+this setup, reused cached points, and created four replacement Workers after
+terminating the original four; this is an observation of the existing reload
+path, not a proposed optimization. The Worker pool does not receive or copy the
+grid; geoid sampling follows the Rust prepared-point path in shared TypeScript.
+The grid checksum/decode row was remeasured after moving benchmark-only
+expected-checksum generation outside the timed loader call; its three samples
+were 16.0, 16.7, and 17.9 ms. Other rows retain the original run's samples.
+
+Browser memory must be interpreted cautiously. Immediately after the
+8 MiB-grid load, CDP backing-storage accounting increased by about 16 MiB
+before collection, consistent with temporary source/snapshot storage. After
+explicit garbage collection the observed delta varied as other viewer
+buffers were collected; after layer destruction, grid release, and another
+collection, page backing storage was within roughly 6 MiB of the pre-grid
+snapshot. Sampled aggregate Chromium RSS varied by 134–431 MB even without
+correction and cannot be attributed to the grid. This harness does not expose
+Worker-specific memory; no Worker memory figure is claimed. Main-thread Long
+Task/frame observations span the whole Cesium/SwiftShader scenario and are not
+attributed to geoid work.
+
+The EGM2008 grid's 142.42 MiB decoded sample size is a known data-size fact.
+The large synthetic GTX run provides a sizing measurement for this GTX path,
+not an observed EGM2008 load or a peak-memory prediction for the separate NGA
+decoder. No real geoid model or authoritative geodetic sample was used in
+these performance runs.
 
 The GTX interpretation follows GDAL's implementation: a big-endian 40-byte
 header with latitude/longitude origin and spacing, int32 row/column counts, and

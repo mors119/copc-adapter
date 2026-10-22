@@ -406,7 +406,9 @@ npm run test:functional
 npm --prefix packages run typecheck
 npm --prefix apps/dev-viewer run test:e2e
 npm --prefix packages run benchmark:renderer
+npm --prefix packages run benchmark:vertical-grid
 npm --prefix apps/dev-viewer run benchmark:streaming
+npm --prefix apps/dev-viewer run benchmark:vertical-grid
 npm --prefix apps/dev-viewer run test:e2e -- e2e/renderer-performance.spec.ts
 npm run test:pack
 cargo test --workspace
