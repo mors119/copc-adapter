@@ -17,12 +17,11 @@ approval to remove source coordinates from the public API or to adopt C/D.
 
 ## Reproducibility
 
-The corrected per-run Node results are in the single
-[machine-readable JSON](https://github.com/mors119/copc-adapter/blob/mors119/perf-p2-4-ecef/docs/benchmarks/issue-324-node-m2-2026-10-23.json)
-required for the A/B/C/D measurements. It preserves all measured raw runs and
-recomputes only the source re-read stage summaries from the 15 measured runs,
-excluding the five warm-ups. Its `postProcessingCorrection` records the method
-and runner hash.
+The report summarizes five warm-up and 15 measured runs. Source re-read stage
+summaries use only the 15 measured runs, excluding warm-ups; the corrected
+stage-reporting code is identified by its SHA-256 below. Per-run machine-readable
+Node samples are not included in this PR; the report presents aggregate timing
+statistics and selected accuracy results.
 
 | Setting | Value |
 | --- | --- |
@@ -30,7 +29,7 @@ and runner hash.
 | Node command | `COPC_CACHE_BENCHMARK_SOFI=1 npm run benchmark:cache-representations --prefix packages` |
 | Node script SHA-256 | `1c4f8a781e2cede2667e36b12b59bf6d72bfb8f8a615e1cbfb18ab3b92e87870` for the measured run; `d00be7472ec7831e95bfc199d842d0187d77e1bafc50370b592f1728e2ffec07` for the corrected stage-reporting code |
 | Runtime / machine | Node 26.7.0, V8 14.6, macOS 25.6 arm64, Apple M2, 8 logical CPUs, 8 GiB RAM |
-| Repetitions | 5 warm-ups and 15 measured samples; summaries include p50, nearest-rank p95, min/max, mean, variance, standard deviation, coefficient of variation, and raw samples |
+| Repetitions | 5 warm-ups and 15 measured samples; summaries include p50, nearest-rank p95, min/max, mean, variance, standard deviation, and coefficient of variation |
 | Synthetic counts | 10k, 100k, 250k, 1M; 1M is benchmark-only and exceeds typical production point budgets |
 | Requested attributes | Position, intensity, classification, RGB; SoFi has no RGB dimension |
 | Real source mode | Local file-backed Blob; one root node per source; no HTTP or browser Worker timings in the Node run |
@@ -49,7 +48,7 @@ the selected buffers; it does not repeat CRS transforms. Memory figures count
 retained ArrayBuffer backing stores and deduplicate aliases/shared stores.
 JavaScript object overhead is engine-specific. Transient allocation peak,
 isolated Worker memory, and WASM linear memory are not measurable by this Node
-harness and are reported as unavailable in the raw result.
+harness and are reported as unavailable in this measurement.
 
 ## Node measurements
 
@@ -144,8 +143,8 @@ Actual Autzen and SoFi height ranges produced no 8-bit channel mismatches in
 the measured palette comparison. An engineered palette-boundary stress test
 did produce mismatches: up to 40,750 of 100,000 samples at the 75% palette
 boundary with a 10 m range span. That scenario is a sensitivity test, not an
-assertion about a particular production style. Full error distributions and
-all palette scenarios are in the raw JSON.
+assertion about a particular production style. Full per-run error distributions
+are not included in this PR.
 
 ## Browser baseline and remaining evidence
 
