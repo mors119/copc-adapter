@@ -174,7 +174,7 @@ test("ECEF inverse treats exact-pole longitude as non-unique", () => {
   assert.ok(Math.abs(restoredSouth.height + 20) <= 1e-6);
 });
 
-test("ECEF inverse rejects non-finite, unrepresentable, and undefined inputs", () => {
+test("ECEF inverse preserves the legacy origin result and rejects invalid inputs", () => {
   for (const point of [
     { x: Number.NaN, y: 0, z: 0 },
     { x: 0, y: Number.POSITIVE_INFINITY, z: 0 },
@@ -183,10 +183,11 @@ test("ECEF inverse rejects non-finite, unrepresentable, and undefined inputs", (
     assert.throws(() => ecefToGeographic(point), /finite coordinates/);
   }
 
-  assert.throws(
-    () => ecefToGeographic({ x: 0, y: 0, z: 0 }),
-    /no unique geographic position/,
-  );
+  assert.deepEqual(ecefToGeographic({ x: 0, y: 0, z: 0 }), {
+    longitude: 0,
+    latitude: 90,
+    height: -6_356_752.314245179,
+  });
   assert.throws(
     () =>
       ecefToGeographic({

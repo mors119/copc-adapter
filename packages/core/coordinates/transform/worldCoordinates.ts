@@ -50,8 +50,9 @@ export function geographicToEcef(
  *
  * The returned height is WGS84 ellipsoidal height. This inverse does not
  * recover source-CRS coordinates or undo a geoid correction already included
- * in the ECEF position. The Earth center has no unique geographic position
- * and is rejected.
+ * in the ECEF position. The Earth center has no unique geographic position;
+ * for compatibility, it uses the conventional longitude 0°, latitude 90°,
+ * and height equal to the negative WGS84 semi-minor axis.
  */
 export function ecefToGeographic(
   point: Pick<Wgs84EcefPoint, "x" | "y" | "z">,
@@ -77,7 +78,11 @@ export function ecefToGeographic(
 
   if (horizontalDistance < 1e-10) {
     if (point.z === 0) {
-      throw new RangeError("ECEF origin has no unique geographic position");
+      return {
+        longitude: 0,
+        latitude: 90,
+        height: -semiMinorAxis,
+      };
     }
 
     const latitude = point.z >= 0 ? Math.PI / 2 : -Math.PI / 2;
