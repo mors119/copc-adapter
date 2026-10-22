@@ -24,12 +24,15 @@ is retained as a historical record; its source re-read stage summaries
 included warm-ups and should not be used for those stage percentiles. The passing
 first-visible browser baseline, including raw per-run frame and Long Task
 samples, is in [browser JSON](https://github.com/mors119/copc-adapter/blob/mors119/perf-p2-4-ecef/docs/benchmarks/issue-324-browser-first-visible-m2-2026-10-23.json).
+The corrected JSON preserves all measured raw runs and recomputes only the
+source re-read stage summaries from the 15 measured runs, excluding the five
+warm-ups. Its `postProcessingCorrection` records the method and runner hash.
 
 | Setting | Value |
 | --- | --- |
 | Source revision | `a212486ccd7df4f275fb95539f6514d5dcb0b800`; branch `mors119/perf-p2-4-ecef`; worktree dirty during measurement |
 | Node command | `COPC_CACHE_BENCHMARK_SOFI=1 npm run benchmark:cache-representations --prefix packages` |
-| Node script SHA-256 | `1c4f8a781e2cede2667e36b12b59bf6d72bfb8f8a615e1cbfb18ab3b92e87870` |
+| Node script SHA-256 | `1c4f8a781e2cede2667e36b12b59bf6d72bfb8f8a615e1cbfb18ab3b92e87870` for the measured run; `d00be7472ec7831e95bfc199d842d0187d77e1bafc50370b592f1728e2ffec07` for the corrected stage-reporting code |
 | Runtime / machine | Node 26.7.0, V8 14.6, macOS 25.6 arm64, Apple M2, 8 logical CPUs, 8 GiB RAM |
 | Repetitions | 5 warm-ups and 15 measured samples; summaries include p50, nearest-rank p95, min/max, mean, variance, standard deviation, coefficient of variation, and raw samples |
 | Synthetic counts | 10k, 100k, 250k, 1M; 1M is benchmark-only and exceeds typical production point budgets |
@@ -113,6 +116,16 @@ and 0.064 / 0.073 ms for D (`p50 / p95`, n=15). Re-reading exact source XYZ for
 B/C/D required a whole-root local decode: 43.415 / 47.167 ms for Autzen and
 40.385 / 51.445 ms for SoFi (`p50 / p95`, n=15). This does not measure remote
 HTTP, file replacement, access failure, or offline behavior.
+
+The corrected source re-read stage timings below are `p50 / p95` milliseconds,
+n=15 measured events per backend and stage. Warm-up events are excluded.
+
+| Source / backend | Range fetch | Decode |
+| --- | ---: | ---: |
+| Autzen / copc-js + TypeScript | 0.944 / 2.035 | 38.582 / 41.968 |
+| Autzen / Rust/WASM | 0.873 / 1.904 | 14.945 / 15.330 |
+| SoFi / copc-js + TypeScript | 0.886 / 2.876 | 33.693 / 45.174 |
+| SoFi / Rust/WASM | 0.888 / 2.575 | 13.331 / 17.383 |
 
 ## Accuracy and semantics
 
