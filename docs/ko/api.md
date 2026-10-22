@@ -112,7 +112,8 @@ if (sphere) {
 CRS 경로로 WGS84 ECEF 미터 단위로 변환합니다. `heightOffsetMeters`는 한 번 적용되며
 getter는 내부 값을 보호하는 clone을 반환합니다. 잘못된 bounds, 지원되지 않는 CRS,
 제한 범위를 벗어난 projection은 `undefined`입니다. 현재 제한은 지원되는 WKT1
-geographic/projected 변환, projected 축마다 최대 2,000 km, 수직 범위 최대 1,000 km입니다.
+geographic/projected 변환과 root WKT2 `GEOGCRS` 변환, projected 축마다 최대 2,000 km,
+수직 범위 최대 1,000 km입니다.
 grid sampling과 padding을 사용하지만 임의 projection singularity에 대한 보편적인
 수학적 보장을 뜻하지는 않습니다.
 
@@ -172,6 +173,11 @@ NAVD88 높이는 단위를 미터로 바꾸어도 orthometric height이므로 �
 유효한 #244 `verticalTransform`이 현재 source WKT와 일치하거나 source가 지원되는
 ellipsoidal vertical reference를 명시해야 합니다. 불확실하면 결과는 `uncertain`이며
 Apply할 수 없습니다. Terrain 잔차로 geoid 변환 누락을 숨기면 안 됩니다.
+
+source가 ellipsoidal height를 직접 선언한 경우에는 root WKT2 `GEOGCRS`가 EPSG:4979이고,
+직접 좌표계가 `ellipsoidal`, 3차원이며 `UP` 축을 포함할 때만 인식합니다. EPSG:4979는
+독립 vertical CRS가 아니라 3D geographic CRS이므로 WKT1 `VERT_CS`에 이 코드를 붙인
+선언은 신뢰하지 않습니다.
 
 TerrainProvider의 tile availability가 없거나 coverage가 없고, 요청이 실패하거나 시간
 제한을 넘으면 추정은 적용 불가입니다. Cesium sampler 자체는 AbortSignal을 받지 않으므로

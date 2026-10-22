@@ -55,9 +55,9 @@ path to WGS84 ECEF metres, and includes `heightOffsetMeters` once. It is not
 derived from the nodes currently selected or rendered. The getter returns a
 clone, so mutating it does not change the cached value.
 
-The implementation supports inferred geographic bounds without WKT and the
-WKT1 geographic/projected coordinate systems supported by the existing
-`proj4` transformation. Projected bounds are accepted up to 2,000 km on each
+The implementation supports inferred geographic bounds without WKT, WKT1
+geographic/projected coordinate systems, and root WKT2 `GEOGCRS` definitions
+through the existing `proj4` transformation. Projected bounds are accepted up to 2,000 km on each
 horizontal axis, with up to 1,000 km vertical span. The bounds algorithm
 samples grid edges and cell interiors and pads the sampled sphere by cell
 spacing and observed curvature residual. It rejects invalid values, sampled
@@ -778,6 +778,12 @@ orthometric. A numeric unit conversion alone does not make it compatible with
 Terrain’s ellipsoidal height. Missing or incompatible vertical metadata returns
 `uncertain` and never an actionable proposal. Do not use Terrain alignment to
 hide a missing #244 geoid conversion.
+
+A source-declared ellipsoidal height is recognized from a WKT2 root
+`GEOGCRS` identified as EPSG:4979 when its direct coordinate system is
+ellipsoidal, three-dimensional, and has an `UP` axis. A WKT1 `VERT_CS` section
+carrying EPSG:4979 is not accepted because EPSG:4979 identifies a 3D geographic
+CRS, not a standalone vertical CRS.
 
 The returned effective offset is `existing heightOffsetMeters + proposed
 offset`. Recreating from the original COPC applies the validated vertical grid

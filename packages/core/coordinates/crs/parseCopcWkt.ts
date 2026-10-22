@@ -8,9 +8,12 @@ export function extractHorizontalWkt(wkt: string): string {
 
 /** Extract the horizontal WKT1 CRS, whether geographic or projected. */
 export function extractHorizontalCrsWkt(wkt: string): string {
+  const rootStart = wkt.search(/\S/);
+  const rootGeographic3d = findWktSectionWithOffset(wkt, "GEOGCRS[");
   const horizontal = [
     findWktSectionWithOffset(wkt, "PROJCS["),
     findWktSectionWithOffset(wkt, "GEOGCS["),
+    rootGeographic3d?.start === rootStart ? rootGeographic3d : undefined,
   ]
     .filter((match): match is WktSectionMatch => match !== undefined)
     .sort((left, right) => left.start - right.start)[0];
@@ -24,7 +27,7 @@ export function extractHorizontalUnitScale(wkt: string): number {
   const horizontalWkt = findWktSectionWithOffset(wkt, "PROJCS[")
     ? extractHorizontalWkt(wkt)
     : extractHorizontalCrsWkt(wkt);
-  const geographic = /^GEOGCS\s*\[/i.test(horizontalWkt);
+  const geographic = /^(?:GEOGCS|GEOGCRS)\s*\[/i.test(horizontalWkt);
 
   let depth = 0;
   let inString = false;
@@ -83,6 +86,18 @@ export function extractHorizontalUnitScale(wkt: string): number {
       // as metres. This is intentionally an estimate, not a local projection.
       return geographic ? unitScale * 6_400_000 : unitScale;
     }
+  }
+
+  if (/^GEOGCRS\s*\[/i.test(horizontalWkt)) {
+    const angleUnit = findWktSection(horizontalWkt, "ANGLEUNIT[");
+    const match = angleUnit?.match(
+      /^ANGLEUNIT\s*\[\s*"[^"]+"\s*,\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)/i,
+    );
+    const unitScale = Number(match?.[1]);
+    if (!Number.isFinite(unitScale) || unitScale <= 0) {
+      throw new Error("COPC geographic WKT has an invalid angular unit");
+    }
+    return unitScale * 6_400_000;
   }
 
   if (geographic) {

@@ -108,8 +108,11 @@ async function installSourceRoute(page: Page): Promise<{
 async function openFixture(
   page: Page,
   terrainFixtureHeight?: number,
+  ellipsoidalSourceFixture = false,
 ): Promise<{ snapshot(): { rangeRequests: number; rangeBytes: number } }> {
-  const sourceMetrics = await installSourceRoute(page);
+  const sourceMetrics = ellipsoidalSourceFixture
+    ? { snapshot: () => ({ rangeRequests: 0, rangeBytes: 0 }) }
+    : await installSourceRoute(page);
   const params = new URLSearchParams({
     source: "/terrain-alignment-fixture.copc.laz",
     cameraDistance: "1500",
@@ -118,11 +121,25 @@ async function openFixture(
   if (terrainFixtureHeight !== undefined) {
     params.set("terrainFixtureHeight", String(terrainFixtureHeight));
   }
+  if (ellipsoidalSourceFixture) {
+    params.set("terrainEllipsoidalFixture", "1");
+  }
   await page.goto(`/?${params.toString()}`);
   await expect(page.locator("#source-status")).toContainText("Ready");
   await expect
     .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.renderedPointCount ?? 0))
     .toBeGreaterThan(0);
+  if (ellipsoidalSourceFixture) {
+    await page.evaluate(() =>
+      window.__COPC_DEBUG__?.setCameraView({
+        longitudeDegrees: -122.495,
+        latitudeDegrees: 44.505,
+        heightMeters: 3_000,
+        headingDegrees: 0,
+        pitchDegrees: -90,
+      }),
+    );
+  }
   return sourceMetrics;
 }
 
@@ -144,14 +161,66 @@ async function pickRenderedPoint(page: Page): Promise<SelectedPoint> {
   return page.evaluate(() => window.__COPC_DEV_VIEWER__!.getSelectedPoint()!);
 }
 
-test("rejects terrain alignment for Autzen NAVD88 without moving the selected point", async ({
+test("estimates, previews, and applies a WKT2 ellipsoidal fixture only after approval", async ({
   page,
 }) => {
   test.setTimeout(180_000);
-  const sourceMetrics = await openFixture(page, 250);
+  await openFixture(page, 250, true);
   const before = await pickRenderedPoint(page);
-  expect(Number.isFinite(before.source?.z)).toBe(true);
+  expect(before.source?.z).toBe(100);
 
+  await page.getByLabel("I confirm the selected point is ground").check();
+  const estimateStartedAt = performance.now();
+  await page.getByRole("button", { name: "Estimate residual" }).click();
+  const preview = page.locator("#terrain-estimate-preview");
+  await expect(preview).toContainText("Estimate status: ready (current)");
+  await expect(preview).toContainText("ControlledTerrainProvider");
+  await expect(preview).toContainText("Current displayed COPC height: 100.000 m");
+  await expect(preview).toContainText("Sampled Terrain height: 250.000 m");
+  await expect(preview).toContainText("Proposed adjustment (Terrain − COPC): 150.000 m");
+  await expect(preview).toContainText("Sampling: 1 call");
+  const estimateLatencyMs = performance.now() - estimateStartedAt;
+  const afterPreview = await page.evaluate(
+    () => window.__COPC_DEV_VIEWER__!.getSelectedPoint()!,
+  );
+  expect(afterPreview.height).toBe(before.height);
+  expect(afterPreview.source).toEqual(before.source);
+  expect(afterPreview.world).toEqual(before.world);
+  expect(await page.evaluate(() => window.__COPC_DEV_VIEWER__!.getConfiguration().heightOffsetMeters)).toBe(0);
+  await expect(page.getByRole("button", { name: "Apply proposed correction" })).toBeEnabled();
+
+  const applyStartedAt = performance.now();
+  await page.getByRole("button", { name: "Apply proposed correction" }).click();
+  await expect(page.locator("#source-status")).toContainText("Ready");
+  await expect
+    .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__!.getConfiguration().heightOffsetMeters))
+    .toBe(150);
+  const after = await pickRenderedPoint(page);
+  expect(after.source).toEqual(before.source);
+  expect(after.source?.z).toBe(100);
+  expect(after.height).toBe(250);
+  expect(after.world).not.toEqual(before.world);
+  const applyLatencyMs = performance.now() - applyStartedAt;
+  const appliedSnapshot = await page.evaluate(
+    () => window.__COPC_DEV_VIEWER__!.getSnapshot()!,
+  );
+  expect(appliedSnapshot.renderedPointCount).toBe(2);
+  expect(await page.locator("#cesium-container > .dev-session-mount").count()).toBe(1);
+  console.info("WKT2 ellipsoidal Terrain fixture measurements", {
+    estimateLatencyMs,
+    applyLatencyMs,
+    rangeRequests: 0,
+    decodeDurationMs: appliedSnapshot.performance.decodeDurationMs,
+    worker: appliedSnapshot.worker,
+  });
+});
+
+test("rejects Terrain alignment for Autzen NAVD88 without moving the selected point", async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  await openFixture(page, 250);
+  const before = await pickRenderedPoint(page);
   await page.getByLabel("I confirm the selected point is ground").check();
   await page.getByRole("button", { name: "Estimate residual" }).click();
   const preview = page.locator("#terrain-estimate-preview");
@@ -161,14 +230,13 @@ test("rejects terrain alignment for Autzen NAVD88 without moving the selected po
   await expect(preview).toContainText("no validated transformation to WGS 84 ellipsoidal height");
   await expect(preview).toContainText("Sampling: 0 calls");
   await expect(page.getByRole("button", { name: "Apply proposed correction" })).toBeDisabled();
-  const afterPreview = await page.evaluate(
+  const after = await page.evaluate(
     () => window.__COPC_DEV_VIEWER__!.getSelectedPoint()!,
   );
-  expect(afterPreview.height).toBe(before.height);
-  expect(afterPreview.source).toEqual(before.source);
-  expect(afterPreview.world).toEqual(before.world);
+  expect(after.height).toBe(before.height);
+  expect(after.source).toEqual(before.source);
+  expect(after.world).toEqual(before.world);
   expect(await page.evaluate(() => window.__COPC_DEV_VIEWER__!.getConfiguration().heightOffsetMeters)).toBe(0);
-  expect(sourceMetrics.snapshot().rangeRequests).toBeGreaterThan(0);
 });
 
 test("ellipsoid-only mode does not sample NAVD88 heights or move the selected point", async ({

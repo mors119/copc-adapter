@@ -18,6 +18,10 @@ import {
 } from "@frillab/copc-adapter";
 import type { CopcCesiumLayerSnapshot } from "@frillab/copc-adapter";
 import type { CopcThreeLayerSnapshot } from "@frillab/copc-adapter/three";
+import type {
+  CopcBackendSelection,
+  CopcPointDecoder,
+} from "@frillab/copc-adapter/cesium";
 import {
   BatchedGeometryPointRenderer,
   PointPrimitiveRenderer,
@@ -761,6 +765,18 @@ async function createCesiumSession(
   const params = new URLSearchParams(window.location.search);
   const usePublicBatchedRenderer = config.cesiumRenderer === "batched-geometry";
   const testHighDpiRendering = params.get("testDpr") === "1";
+  let ellipsoidalTerrainFixture:
+    | { backend: CopcBackendSelection; decoder: CopcPointDecoder }
+    | undefined;
+  if (
+    import.meta.env.DEV &&
+    params.get("terrainEllipsoidalFixture") === "1"
+  ) {
+    const { createDevEllipsoidalTerrainFixture } = await import(
+      "./devEllipsoidalTerrainFixture"
+    );
+    ellipsoidalTerrainFixture = createDevEllipsoidalTerrainFixture();
+  }
   let terrainProvider: Cesium.TerrainProvider | undefined;
   let terrainSourceStatus =
     "WGS84 ellipsoid only · imagery may still be shown; no terrain elevations are available.";
@@ -797,6 +813,12 @@ async function createCesiumSession(
     ...getLayerOptions(config.source, config),
     renderer: researchRenderer ?? new PointPrimitiveRenderer(),
     onPointPicked,
+    ...(ellipsoidalTerrainFixture
+      ? {
+          backend: ellipsoidalTerrainFixture.backend,
+          decoder: ellipsoidalTerrainFixture.decoder,
+        }
+      : {}),
   });
   const debugAdapter = installDebugAdapter(
     viewer,
@@ -1047,6 +1069,12 @@ async function main(): Promise<void> {
       : /chicago/i.test(getSafeSourceLabel(initialSource, window.location.href))
         ? 14_000
         : 5_000;
+  const useEllipsoidalTerrainSourceFixture =
+    import.meta.env.DEV &&
+    params.get("terrainEllipsoidalFixture") === "1";
+  const configuredSource = useEllipsoidalTerrainSourceFixture
+    ? new File(["test fixture"], "ellipsoidal-terrain-fixture.copc.laz")
+    : initialSource;
   const cameraDistanceParam = params.get("cameraDistance");
   const requestedCameraDistance =
     cameraDistanceParam === null ? undefined : Number(cameraDistanceParam);
@@ -1071,7 +1099,7 @@ async function main(): Promise<void> {
       initialOptions.streaming?.refinementAlgorithm ?? "foveated",
     motionLookahead: initialOptions.streaming?.motionLookahead ?? true,
     rangeValidation: initialOptions.rangeValidation ?? "head-fallback",
-    source: initialSource,
+    source: configuredSource,
     colorMode: initialOptions.colorMode ?? "rgb",
     pointSize: initialOptions.pointSize ?? 3,
     maxNodes: initialStreaming?.maxNodes ?? 24,
