@@ -41,7 +41,7 @@ this PR, so the report carries the aggregate evidence and its limitations.
 | Source revision | `a212486ccd7df4f275fb95539f6514d5dcb0b800`; branch `mors119/perf-p2-4-ecef`; worktree dirty during measurement |
 | Node command | `COPC_CACHE_BENCHMARK_SOFI=1 npm run benchmark:cache-representations --prefix packages` |
 | Benchmark harness minimum | Node.js 22+; requires `fs.openAsBlob` to avoid buffering the full COPC input |
-| Node script SHA-256 | `1c4f8a781e2cede2667e36b12b59bf6d72bfb8f8a615e1cbfb18ab3b92e87870` for the measured run; `d00be7472ec7831e95bfc199d842d0187d77e1bafc50370b592f1728e2ffec07` for the corrected stage-reporting code |
+| Node script SHA-256 | `1c4f8a781e2cede2667e36b12b59bf6d72bfb8f8a615e1cbfb18ab3b92e87870` for the measured run at `4e80198`; `d00be7472ec7831e95bfc199d842d0187d77e1bafc50370b592f1728e2ffec07` for corrected stage reporting at `64c5341`; `17a2205fa24e7c894b0220f4b6d824746d99fd64cc0bf81379bec058e816e194` for the current file-backed benchmark at `8b8321e` |
 | Runtime / machine | Node 26.7.0, V8 14.6, macOS 25.6 arm64, Apple M2, 8 logical CPUs, 8 GiB RAM |
 | Rust / WASM | rustc 1.92.0; copc-adapter WASM 850,535 bytes (SHA-256 `4122c633138bc5907da054f43482d1ed2277b2035de7c37337ca23b5b3c44251`); laz-perf WASM 214,351 bytes (SHA-256 `9c1802bc31b567dd4aa1ce9ab010e7e51e095dc42af8379b474ae6f221a9327f`) |
 | Runtime packages | copc 0.0.9; proj4 2.22.0; TypeScript 7.0.2; tsx 4.23.15; laz-perf 0.0.7 |
