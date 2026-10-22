@@ -95,13 +95,14 @@ export function ecefToGeographic(
   );
   const sinTheta = Math.sin(theta);
   const cosTheta = Math.cos(theta);
-  let latitude = Math.atan2(
+  const initialLatitude = Math.atan2(
     point.z + secondEccentricitySquared * semiMinorAxis * sinTheta ** 3,
     horizontalDistance -
       WGS84_FIRST_ECCENTRICITY_SQUARED *
         WGS84_SEMI_MAJOR_AXIS_METERS *
         cosTheta ** 3,
   );
+  let latitude = initialLatitude;
   let height = 0;
   let converged = false;
 
@@ -124,10 +125,14 @@ export function ecefToGeographic(
         (1 - WGS84_FIRST_ECCENTRICITY_SQUARED * sinLatitude ** 2);
     const radiusPlusHeight = radiusOfCurvature + height;
 
-    if (!Number.isFinite(height) || radiusPlusHeight === 0) {
+    if (!Number.isFinite(height)) {
       throw new RangeError(
         "ECEF point cannot be represented as WGS84 geographic coordinates",
       );
+    }
+
+    if (radiusPlusHeight === 0) {
+      break;
     }
 
     const nextLatitude = Math.atan2(
@@ -157,9 +162,10 @@ export function ecefToGeographic(
   }
 
   if (!converged) {
-    throw new RangeError(
-      "ECEF point cannot be represented as WGS84 geographic coordinates",
-    );
+    // Interior ECEF points can have multiple geographic solutions and make
+    // this iteration oscillate. Keep the finite Bowring estimate so callers
+    // converting frustum AABB corners can still construct view bounds.
+    latitude = initialLatitude;
   }
 
   const sinLatitude = Math.sin(latitude);

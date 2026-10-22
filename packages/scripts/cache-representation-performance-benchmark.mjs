@@ -1413,12 +1413,12 @@ async function benchmarkSourceReRead(source, node, prepared, { warmups, repetiti
       performanceObserver: (event) => events.push(event),
     });
     const durationMs = performance.now() - startedAt;
-    for (const event of events) {
-      const values = stageSamples.get(event.stage) ?? [];
-      values.push(event.durationMs);
-      stageSamples.set(event.stage, values);
-    }
     if (run >= warmups) {
+      for (const event of events) {
+        const values = stageSamples.get(event.stage) ?? [];
+        values.push(event.durationMs);
+        stageSamples.set(event.stage, values);
+      }
       for (let offset = 0; offset < raw.coordinates.length; offset += 1) {
         assert.equal(
           raw.coordinates[offset],

@@ -17,10 +17,13 @@ approval to remove source coordinates from the public API or to adopt C/D.
 
 ## Reproducibility
 
-The complete per-run Node output is checked in as
-[machine-readable JSON](issue-324-node-m2-2026-10-22.json). The passing
+The complete corrected per-run Node output is checked in as
+[machine-readable JSON](https://github.com/mors119/copc-adapter/blob/mors119/perf-p2-4-ecef/docs/benchmarks/issue-324-node-m2-2026-10-23.json). The
+initial [2026-10-22 JSON](https://github.com/mors119/copc-adapter/blob/mors119/perf-p2-4-ecef/docs/benchmarks/issue-324-node-m2-2026-10-22-initial.json)
+is retained as a historical record; its source re-read stage summaries
+included warm-ups and should not be used for those stage percentiles. The passing
 first-visible browser baseline, including raw per-run frame and Long Task
-samples, is in [browser JSON](issue-324-browser-first-visible-m2-2026-10-23.json).
+samples, is in [browser JSON](https://github.com/mors119/copc-adapter/blob/mors119/perf-p2-4-ecef/docs/benchmarks/issue-324-browser-first-visible-m2-2026-10-23.json).
 
 | Setting | Value |
 | --- | --- |

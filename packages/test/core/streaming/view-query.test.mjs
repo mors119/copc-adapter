@@ -198,6 +198,35 @@ test("ECEF inverse rejects non-finite, unrepresentable, and undefined inputs", (
   );
 });
 
+test("interior ECEF frustum corners retain finite geographic bounds", () => {
+  const interiorPosition = { x: -34_066, y: 21_591, z: 5_463 };
+  const geographic = ecefToGeographic(interiorPosition);
+
+  assertFiniteBounds(geographic);
+
+  const result = createStreamingViewBounds({
+    camera: { longitude: 0, latitude: 0, height: 0 },
+    viewDistanceMeters: 1000,
+    maxRenderDistanceMeters: 1000,
+    viewFrustum: {
+      coordinateSystem: "wgs84-ecef-meters",
+      position: interiorPosition,
+      direction: { x: 0, y: 1, z: 0 },
+      up: { x: 0, y: 0, z: 1 },
+      right: { x: 1, y: 0, z: 0 },
+      planes: [],
+      verticalFovRadians: Math.PI / 6,
+      viewportHeightPixels: 1080,
+      aspectRatio: 1,
+      nearMeters: 1,
+      farMeters: 1000,
+    },
+  });
+
+  assert.equal(result.mode, "frustum");
+  assertFiniteBounds(result.bounds);
+});
+
 test("same camera position with different directions changes the query region", () => {
   const down = createViewBounds({
     viewFrustum: createFrustum({ direction: { x: -1, y: 0, z: 0 } }),
