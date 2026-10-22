@@ -39,6 +39,29 @@ test("does not count aliased typed-array references twice", () => {
   );
 });
 
+test("counts shared typed-array backing stores once at their retained byte length", () => {
+  const backingStore = new ArrayBuffer(64);
+  const firstView = new Float64Array(backingStore, 0, 4);
+  const secondView = new Uint8Array(backingStore, 24, 8);
+
+  assert.equal(
+    estimateDecodedCpuPointBufferBytes({
+      firstView,
+      secondView,
+      backingStore,
+    }),
+    backingStore.byteLength,
+  );
+
+  assert.equal(
+    estimateDecodedCpuPointBufferBytes({
+      first: new Uint8Array(new ArrayBuffer(8)),
+      second: new Uint8Array(new ArrayBuffer(8)),
+    }),
+    16,
+  );
+});
+
 test("accounts for every retained prepared coordinate and attribute buffer once", () => {
   const sourceCoordinates = new Float64Array(4 * 3);
   const geographicCoordinates = new Float64Array(4 * 3);
@@ -66,6 +89,45 @@ test("accounts for every retained prepared coordinate and attribute buffer once"
       intensity.byteLength +
       classification.byteLength,
   );
+});
+
+test("compares A/B/C/D coordinate cache storage while keeping attributes shared", () => {
+  const pointCount = 4;
+  const sourceCoordinates = new Float64Array(pointCount * 3);
+  const geographicCoordinates = new Float64Array(pointCount * 3);
+  const worldCoordinates = new Float64Array(pointCount * 3);
+  const heights = new Float32Array(pointCount);
+  const attributes = {
+    intensity: new Uint16Array(pointCount),
+    classification: new Uint8Array(pointCount),
+    red: new Uint16Array(pointCount),
+    green: new Uint16Array(pointCount),
+    blue: new Uint16Array(pointCount),
+  };
+  const candidates = [
+    {
+      sourceCoordinates,
+      geographicCoordinates,
+      worldCoordinates,
+      attributes,
+    },
+    { geographicCoordinates, worldCoordinates, attributes },
+    { worldCoordinates, attributes },
+    { worldCoordinates, heights, attributes },
+  ];
+  const attributeBytes = Object.values(attributes).reduce(
+    (total, values) => total + values.byteLength,
+    0,
+  );
+  const expectedCoordinateBytesPerPoint = [72, 48, 24, 28];
+
+  for (const [index, candidate] of candidates.entries()) {
+    assert.equal(candidate.attributes, attributes);
+    assert.equal(
+      estimateDecodedCpuPointBufferBytes(candidate),
+      expectedCoordinateBytesPerPoint[index] * pointCount + attributeBytes,
+    );
+  }
 });
 
 test("accounts for RGB, intensity, classification, and nested typed arrays", () => {

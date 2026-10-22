@@ -6,6 +6,8 @@ import type {
 
 const WGS84_SEMI_MAJOR_AXIS_METERS = 6378137;
 const WGS84_FIRST_ECCENTRICITY_SQUARED = 6.6943799901413165e-3;
+const ECEF_TO_GEOGRAPHIC_MAX_ITERATIONS = 12;
+const ECEF_TO_GEOGRAPHIC_LATITUDE_TOLERANCE_RADIANS = 1e-15;
 
 function assertFinitePoint(
   point: { x: number; y: number; z: number },
@@ -43,7 +45,14 @@ export function geographicToEcef(
   };
 }
 
-/** Convert WGS84 Earth-centered, Earth-fixed metres to geographic coordinates. */
+/**
+ * Convert WGS84 Earth-centered, Earth-fixed metres to geographic coordinates.
+ *
+ * The returned height is WGS84 ellipsoidal height. This inverse does not
+ * recover source-CRS coordinates or undo a geoid correction already included
+ * in the ECEF position. The Earth center has no unique geographic position
+ * and is rejected.
+ */
 export function ecefToGeographic(
   point: Pick<Wgs84EcefPoint, "x" | "y" | "z">,
 ): {
@@ -62,7 +71,15 @@ export function ecefToGeographic(
   const horizontalDistance = Math.hypot(point.x, point.y);
   const longitude = Math.atan2(point.y, point.x);
 
+  if (!Number.isFinite(horizontalDistance)) {
+    throw new RangeError("ECEF point magnitude is outside the supported range");
+  }
+
   if (horizontalDistance < 1e-10) {
+    if (point.z === 0) {
+      throw new RangeError("ECEF origin has no unique geographic position");
+    }
+
     const latitude = point.z >= 0 ? Math.PI / 2 : -Math.PI / 2;
     const height = Math.abs(point.z) - semiMinorAxis;
     return {
@@ -78,18 +95,89 @@ export function ecefToGeographic(
   );
   const sinTheta = Math.sin(theta);
   const cosTheta = Math.cos(theta);
-  const latitude = Math.atan2(
+  let latitude = Math.atan2(
     point.z + secondEccentricitySquared * semiMinorAxis * sinTheta ** 3,
     horizontalDistance -
       WGS84_FIRST_ECCENTRICITY_SQUARED *
         WGS84_SEMI_MAJOR_AXIS_METERS *
         cosTheta ** 3,
   );
+  let height = 0;
+  let converged = false;
+
+  for (
+    let iteration = 0;
+    iteration < ECEF_TO_GEOGRAPHIC_MAX_ITERATIONS;
+    iteration += 1
+  ) {
+    const sinLatitude = Math.sin(latitude);
+    const cosLatitude = Math.cos(latitude);
+    const radiusOfCurvature =
+      WGS84_SEMI_MAJOR_AXIS_METERS /
+      Math.sqrt(
+        1 - WGS84_FIRST_ECCENTRICITY_SQUARED * sinLatitude ** 2,
+      );
+    height =
+      horizontalDistance * cosLatitude +
+      point.z * sinLatitude -
+      radiusOfCurvature *
+        (1 - WGS84_FIRST_ECCENTRICITY_SQUARED * sinLatitude ** 2);
+    const radiusPlusHeight = radiusOfCurvature + height;
+
+    if (!Number.isFinite(height) || radiusPlusHeight === 0) {
+      throw new RangeError(
+        "ECEF point cannot be represented as WGS84 geographic coordinates",
+      );
+    }
+
+    const nextLatitude = Math.atan2(
+      point.z,
+      horizontalDistance *
+        (1 -
+          (WGS84_FIRST_ECCENTRICITY_SQUARED * radiusOfCurvature) /
+            radiusPlusHeight),
+    );
+
+    if (!Number.isFinite(nextLatitude)) {
+      throw new RangeError(
+        "ECEF point cannot be represented as WGS84 geographic coordinates",
+      );
+    }
+
+    if (
+      Math.abs(nextLatitude - latitude) <=
+      ECEF_TO_GEOGRAPHIC_LATITUDE_TOLERANCE_RADIANS
+    ) {
+      latitude = nextLatitude;
+      converged = true;
+      break;
+    }
+
+    latitude = nextLatitude;
+  }
+
+  if (!converged) {
+    throw new RangeError(
+      "ECEF point cannot be represented as WGS84 geographic coordinates",
+    );
+  }
+
   const sinLatitude = Math.sin(latitude);
+  const cosLatitude = Math.cos(latitude);
   const radiusOfCurvature =
     WGS84_SEMI_MAJOR_AXIS_METERS /
     Math.sqrt(1 - WGS84_FIRST_ECCENTRICITY_SQUARED * sinLatitude ** 2);
-  const height = horizontalDistance / Math.cos(latitude) - radiusOfCurvature;
+  height =
+    horizontalDistance * cosLatitude +
+    point.z * sinLatitude -
+    radiusOfCurvature *
+      (1 - WGS84_FIRST_ECCENTRICITY_SQUARED * sinLatitude ** 2);
+
+  if (!Number.isFinite(height)) {
+    throw new RangeError(
+      "ECEF point cannot be represented as WGS84 geographic coordinates",
+    );
+  }
 
   return {
     longitude: (longitude * 180) / Math.PI,

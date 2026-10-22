@@ -56,6 +56,11 @@ function assertFiniteBounds(bounds) {
   }
 }
 
+function wrappedLongitudeDifferenceDegrees(actual, expected) {
+  const difference = (((actual - expected + 180) % 360) + 360) % 360 - 180;
+  return Math.abs(difference);
+}
+
 test("ECEF/geographic conversion is deterministic and round-trips a camera position", () => {
   const geographic = {
     longitude: 12.5,
@@ -67,6 +72,130 @@ test("ECEF/geographic conversion is deterministic and round-trips a camera posit
   assert.ok(Math.abs(result.longitude - geographic.longitude) < 1e-10);
   assert.ok(Math.abs(result.latitude - geographic.latitude) < 1e-10);
   assert.ok(Math.abs(result.height - geographic.height) < 1e-6);
+});
+
+test("WGS84 ECEF inverse round-trips representative geographic positions", () => {
+  const positions = [
+    { name: "equator", longitude: 0, latitude: 0, height: 0 },
+    { name: "Korea", longitude: 127.0276, latitude: 37.4979, height: 32 },
+    { name: "Oregon", longitude: -123.1, latitude: 44.05, height: 125 },
+    {
+      name: "southern hemisphere",
+      longitude: 151.2,
+      latitude: -33.9,
+      height: 250,
+    },
+    {
+      name: "near north pole",
+      longitude: 170,
+      latitude: 89.999999,
+      height: 400,
+    },
+    {
+      name: "near south pole",
+      longitude: -170,
+      latitude: -89.999999,
+      height: -100,
+    },
+    {
+      name: "positive 180-degree meridian",
+      longitude: 180,
+      latitude: 15,
+      height: 0,
+    },
+    {
+      name: "negative 180-degree meridian",
+      longitude: -180,
+      latitude: -15,
+      height: 0,
+    },
+    {
+      name: "east of the date line",
+      longitude: 179.999999,
+      latitude: 15,
+      height: -250,
+    },
+    {
+      name: "west of the date line",
+      longitude: -179.999999,
+      latitude: -15,
+      height: 1_000_000,
+    },
+    { name: "negative ellipsoidal height", longitude: 10, latitude: 20, height: -500 },
+    { name: "geostationary orbit", longitude: -45, latitude: 70, height: 42_000_000 },
+  ];
+
+  for (const position of positions) {
+    const originalEcef = geographicToEcef(position);
+    const restored = ecefToGeographic(originalEcef);
+    const restoredEcef = geographicToEcef(restored);
+    const ecefRoundTripErrorMeters = Math.hypot(
+      originalEcef.x - restoredEcef.x,
+      originalEcef.y - restoredEcef.y,
+      originalEcef.z - restoredEcef.z,
+    );
+
+    // These are double-precision conversion regression bounds, not survey
+    // accuracy or vertical-datum guarantees.
+    const longitudeError = wrappedLongitudeDifferenceDegrees(
+      restored.longitude,
+      position.longitude,
+    );
+    assert.ok(
+      longitudeError <= 1e-10,
+      `${position.name} longitude error was ${longitudeError} degrees`,
+    );
+    assert.ok(
+      Math.abs(restored.latitude - position.latitude) <= 1e-10,
+      `${position.name} latitude error was ${Math.abs(restored.latitude - position.latitude)} degrees`,
+    );
+    assert.ok(
+      Math.abs(restored.height - position.height) <= 1e-6,
+      `${position.name} ellipsoidal-height error was ${Math.abs(restored.height - position.height)} metres`,
+    );
+    assert.ok(
+      ecefRoundTripErrorMeters <= 1e-6,
+      `${position.name} ECEF round-trip error was ${ecefRoundTripErrorMeters} metres`,
+    );
+  }
+});
+
+test("ECEF inverse treats exact-pole longitude as non-unique", () => {
+  const north = geographicToEcef({ longitude: 75, latitude: 90, height: 12 });
+  const south = geographicToEcef({ longitude: -130, latitude: -90, height: -20 });
+  const restoredNorth = ecefToGeographic({ x: 0, y: 0, z: north.z });
+  const restoredSouth = ecefToGeographic({ x: 0, y: 0, z: south.z });
+
+  assert.equal(restoredNorth.longitude, 0);
+  assert.equal(restoredSouth.longitude, 0);
+  assert.equal(restoredNorth.latitude, 90);
+  assert.equal(restoredSouth.latitude, -90);
+  assert.ok(Math.abs(restoredNorth.height - 12) <= 1e-6);
+  assert.ok(Math.abs(restoredSouth.height + 20) <= 1e-6);
+});
+
+test("ECEF inverse rejects non-finite, unrepresentable, and undefined inputs", () => {
+  for (const point of [
+    { x: Number.NaN, y: 0, z: 0 },
+    { x: 0, y: Number.POSITIVE_INFINITY, z: 0 },
+    { x: 0, y: 0, z: Number.NEGATIVE_INFINITY },
+  ]) {
+    assert.throws(() => ecefToGeographic(point), /finite coordinates/);
+  }
+
+  assert.throws(
+    () => ecefToGeographic({ x: 0, y: 0, z: 0 }),
+    /no unique geographic position/,
+  );
+  assert.throws(
+    () =>
+      ecefToGeographic({
+        x: Number.MAX_VALUE,
+        y: Number.MAX_VALUE,
+        z: 0,
+      }),
+    /outside the supported range/,
+  );
 });
 
 test("same camera position with different directions changes the query region", () => {

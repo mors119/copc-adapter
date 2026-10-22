@@ -47,6 +47,7 @@
     "prepack": "npm run build:library",
     "typecheck": "tsc --noEmit",
     "benchmark:renderer": "node --import tsx scripts/renderer-performance-benchmark.mjs",
+    "benchmark:cache-representations": "node --expose-gc --import tsx scripts/cache-representation-performance-benchmark.mjs",
     "benchmark:vertical-grid": "node --expose-gc --import tsx scripts/vertical-grid-performance-benchmark.mjs",
     "benchmark:three-renderer": "node --import tsx scripts/three-renderer-performance-benchmark.mjs",
     "test": "npm run prepare-copc-adapter-wasm && node scripts/run-tests.mjs",

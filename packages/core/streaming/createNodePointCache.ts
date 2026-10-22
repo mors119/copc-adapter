@@ -140,6 +140,15 @@ function touchEntry<TValue>(
  */
 export function estimateDecodedCpuPointBufferBytes(value: unknown): number {
   const visited = new Set<object>();
+  const visitedBackingStores = new Set<object>();
+
+  const visitBackingStore = (backingStore: ArrayBufferLike): number => {
+    if (visitedBackingStores.has(backingStore)) {
+      return 0;
+    }
+    visitedBackingStores.add(backingStore);
+    return normalizeByteCount(backingStore.byteLength);
+  };
 
   const visit = (candidate: unknown): number => {
     if (candidate === null || typeof candidate !== "object") {
@@ -152,10 +161,15 @@ export function estimateDecodedCpuPointBufferBytes(value: unknown): number {
     visited.add(candidate);
 
     if (ArrayBuffer.isView(candidate)) {
-      const byteLength = (candidate as { byteLength?: unknown }).byteLength;
-      return typeof byteLength === "number"
-        ? normalizeByteCount(byteLength)
-        : 0;
+      return visitBackingStore((candidate as ArrayBufferView).buffer);
+    }
+
+    if (
+      candidate instanceof ArrayBuffer ||
+      (typeof SharedArrayBuffer !== "undefined" &&
+        candidate instanceof SharedArrayBuffer)
+    ) {
+      return visitBackingStore(candidate);
     }
 
     let total = 0;
