@@ -141,6 +141,9 @@ type StartupProfile = {
     activeCount: number;
     workerCount: number;
   }>;
+  longTaskSamples: Array<{ at: number; durationMs: number }>;
+  longTaskObserver?: PerformanceObserver;
+  longTaskObserverAvailable: boolean;
   rangeSamples: Array<{ at: number; activeCount: number }>;
   rangeBytesAtFirstDraw?: number;
   rangeBytesAtQuality?: number;
@@ -219,11 +222,26 @@ function installStartupInstrumentation(): void {
     copcWasmInstantiations: [],
     workerInitializations: [],
     workerSamples: [],
+    longTaskSamples: [],
+    longTaskObserverAvailable: false,
     rangeSamples: [],
     gpuUploads: [],
     peakHeapBytes: 0,
   };
   window.__COPC_STARTUP_PROFILE__ = profile;
+  if (PerformanceObserver.supportedEntryTypes?.includes("longtask")) {
+    const observer = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        profile.longTaskSamples.push({
+          at: entry.startTime,
+          durationMs: entry.duration,
+        });
+      }
+    });
+    observer.observe({ type: "longtask", buffered: true });
+    profile.longTaskObserver = observer;
+    profile.longTaskObserverAvailable = true;
+  }
   window.addEventListener(
     "pointerdown",
     (event) => {
@@ -681,17 +699,18 @@ async function sampleFrames(
   durationMs = 1200,
 ): Promise<{
   frameCount: number;
+  intervalsMs: number[];
   medianFrameMs: number;
   p95FrameMs: number;
   maxFrameMs: number;
 }> {
   const intervals = await page.evaluate(async (duration) => {
     const values: number[] = [];
-    let previous = performance.now();
-    const end = previous + duration;
+    let previous: number | undefined;
+    const end = performance.now() + duration;
     await new Promise<void>((resolve) => {
       const tick = (now: number): void => {
-        values.push(now - previous);
+        if (previous !== undefined) values.push(now - previous);
         previous = now;
         if (now >= end) resolve();
         else requestAnimationFrame(tick);
@@ -700,15 +719,19 @@ async function sampleFrames(
     });
     return values;
   }, durationMs);
-  const sorted = intervals.slice(5).sort((left, right) => left - right);
-  const at = (fraction: number): number =>
-    sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * fraction))] ??
-    0;
+  const sorted = [...intervals].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  const medianFrameMs =
+    sorted.length % 2 === 0
+      ? ((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2
+      : sorted[middle] ?? 0;
   return {
     frameCount: intervals.length,
-    medianFrameMs: at(0.5),
-    p95FrameMs: at(0.95),
-    maxFrameMs: at(1),
+    intervalsMs: intervals,
+    medianFrameMs,
+    p95FrameMs:
+      sorted[Math.max(0, Math.ceil(sorted.length * 0.95) - 1)] ?? 0,
+    maxFrameMs: sorted.at(-1) ?? 0,
   };
 }
 
@@ -766,7 +789,7 @@ test("records first-visible startup latency on Autzen", async ({ browser }) => {
     process.env.COPC_FIRST_VISIBLE_BENCHMARK !== "1",
     "Run explicitly with COPC_FIRST_VISIBLE_BENCHMARK=1",
   );
-  test.setTimeout(360_000);
+  test.setTimeout(600_000);
 
   const repetitions = 5;
   const browserCdp = await browser.newBrowserCDPSession();
@@ -918,6 +941,12 @@ test("records first-visible startup latency on Autzen", async ({ browser }) => {
       const workerSamples = profile.workerSamples.filter(
         (sample) => sample.at >= firstRangeAt && sample.at <= qualityAt,
       );
+      const longTaskDurationsMs = profile.longTaskSamples
+        .filter((sample) => sample.at >= firstRangeAt && sample.at <= qualityAt)
+        .map((sample) => sample.durationMs)
+        .sort((left, right) => left - right);
+      const percentile = (values: number[], fraction: number): number =>
+        values[Math.max(0, Math.ceil(values.length * fraction) - 1)] ?? 0;
       const workerUtilizationPercent =
         workerSamples.length === 0
           ? 0
@@ -999,6 +1028,12 @@ test("records first-visible startup latency on Autzen", async ({ browser }) => {
             ? 0
             : profile.interactionResponseAt - profile.interactionStartedAt,
         targetQualityMs: qualityAt - firstRangeAt,
+        longTaskObserverAvailable: profile.longTaskObserverAvailable,
+        mainThreadLongTaskDurationsMs: longTaskDurationsMs,
+        mainThreadLongTaskCount: longTaskDurationsMs.length,
+        mainThreadLongTaskP50Ms: percentile(longTaskDurationsMs, 0.5),
+        mainThreadLongTaskP95Ms: percentile(longTaskDurationsMs, 0.95),
+        mainThreadLongTaskMaxMs: longTaskDurationsMs.at(-1) ?? 0,
         firstPointCount: firstPointState.renderedPointCount,
         targetPointCount: qualityState.renderedPointCount,
         selectedNodeCount: qualityState.selectedNodeKeys.length,
@@ -1127,6 +1162,8 @@ test("records first-visible startup latency on Autzen", async ({ browser }) => {
       };
     });
 
+    result.steadyFrameTiming = await sampleFrames(page);
+
     clearInterval(memorySampler);
     await sampleChromiumProcessRss();
     result.peakChromiumProcessRssBytes = peakChromiumProcessRssBytes;
@@ -1177,6 +1214,26 @@ test("records first-visible startup latency on Autzen", async ({ browser }) => {
           headerVlrAcquisitionMs: Number(run.headerVlrAcquisitionMs ?? 0),
           firstPointDrawMs: Number(run.firstPointDrawMs ?? 0),
           firstPointFrameMs: Number(run.firstPointFrameMs ?? 0),
+          steadyFrameMedianMs: Number(
+            (run.steadyFrameTiming as { medianFrameMs?: number } | undefined)
+              ?.medianFrameMs ?? 0,
+          ),
+          steadyFrameP95Ms: Number(
+            (run.steadyFrameTiming as { p95FrameMs?: number } | undefined)
+              ?.p95FrameMs ?? 0,
+          ),
+          steadyFrameMaxMs: Number(
+            (run.steadyFrameTiming as { maxFrameMs?: number } | undefined)
+              ?.maxFrameMs ?? 0,
+          ),
+          steadyFrameCount: Number(
+            (run.steadyFrameTiming as { frameCount?: number } | undefined)
+              ?.frameCount ?? 0,
+          ),
+          mainThreadLongTaskCount: Number(run.mainThreadLongTaskCount ?? 0),
+          mainThreadLongTaskP50Ms: Number(run.mainThreadLongTaskP50Ms ?? 0),
+          mainThreadLongTaskP95Ms: Number(run.mainThreadLongTaskP95Ms ?? 0),
+          mainThreadLongTaskMaxMs: Number(run.mainThreadLongTaskMaxMs ?? 0),
           cameraUsableMs: Number(run.cameraUsableMs ?? 0),
           cameraInputResponseMs: Number(run.cameraInputResponseMs ?? 0),
           targetQualityMs: Number(run.targetQualityMs ?? 0),
@@ -1246,6 +1303,14 @@ test("records first-visible startup latency on Autzen", async ({ browser }) => {
       return {
         pageToFirstPointDrawMs: run.pageToFirstPointDrawMs,
         firstPointDrawMs: run.firstPointDrawMs,
+        firstPointFrameMs: run.firstPointFrameMs,
+        steadyFrameTiming: run.steadyFrameTiming,
+        longTaskObserverAvailable: run.longTaskObserverAvailable,
+        mainThreadLongTaskDurationsMs: run.mainThreadLongTaskDurationsMs,
+        mainThreadLongTaskCount: run.mainThreadLongTaskCount,
+        mainThreadLongTaskP50Ms: run.mainThreadLongTaskP50Ms,
+        mainThreadLongTaskP95Ms: run.mainThreadLongTaskP95Ms,
+        mainThreadLongTaskMaxMs: run.mainThreadLongTaskMaxMs,
         cameraUsableMs: run.cameraUsableMs,
         targetQualityMs: run.targetQualityMs,
         rangeBytesToFirstPoint: run.rangeBytesToFirstPoint,
