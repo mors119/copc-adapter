@@ -504,7 +504,7 @@ reported p95 is the maximum observed value.
 | Load and initial settle median (p95) | 7,945 ms (10,095 ms) | 8,441 ms (8,504 ms) |
 | Same-layer reload settle median (p95) | 5,391 ms (6,150 ms) | 5,474 ms (6,239 ms) |
 | Vertical CRS stage median (p95) | 0 ms | 31.7 ms (32.8 ms) |
-| Grid checksum/decode median (p95) | n/a | 20.5 ms (23.1 ms) |
+| Grid checksum/decode median (p95) | n/a | 16.7 ms (17.9 ms) |
 | Worker ready median (24 observations) | 333.6 ms (435.7 ms) | 378.5 ms (497.0 ms) |
 | Rendered points / nodes after initial settle | 233,383 / 8 | 233,383 / 8 |
 
@@ -517,6 +517,9 @@ this setup, reused cached points, and created four replacement Workers after
 terminating the original four; this is an observation of the existing reload
 path, not a proposed optimization. The Worker pool does not receive or copy the
 grid; geoid sampling follows the Rust prepared-point path in shared TypeScript.
+The grid checksum/decode row was remeasured after moving benchmark-only
+expected-checksum generation outside the timed loader call; its three samples
+were 16.0, 16.7, and 17.9 ms. Other rows retain the original run's samples.
 
 Browser memory must be interpreted cautiously. Immediately after the
 8 MiB-grid load, CDP backing-storage accounting increased by about 16 MiB

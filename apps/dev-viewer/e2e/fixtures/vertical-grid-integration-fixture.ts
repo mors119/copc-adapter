@@ -314,6 +314,7 @@ integrationWindow.__VERTICAL_GRID_INTEGRATION__ = {
     shape,
   ) {
     const bytes = encodeGtx(metres, outsideCoverage, shape);
+    const expectedSha256 = await sha256(bytes);
     const loadStartedAt = performance.now();
     const grid = await loadGtxGeoidGrid(bytes, {
       gridId: `browser-synthetic-${metres}-${outsideCoverage ? "outside" : "covered"}`,
@@ -321,7 +322,7 @@ integrationWindow.__VERTICAL_GRID_INTEGRATION__ = {
       targetVerticalCrs: "EPSG:4979",
       horizontalCrs: "EPSG:4326",
       referenceEllipsoid: "WGS84",
-      sha256: await sha256(bytes),
+      sha256: expectedSha256,
       valueUnit: "metre",
       valueConvention: "ellipsoidal-minus-orthometric",
       noDataValue: null,
