@@ -284,9 +284,18 @@ Real-root 100-pick timings are also `p50 / p95` milliseconds (`n=15`):
 
 The SoFi/Rust/D p95 includes a 4.482 ms outlier (median 0.040 ms); it is not
 treated as a typical per-pick cost. Re-reading exact source XYZ for B/C/D
-required a whole-root local decode: 43.415 / 47.167 ms for Autzen and 40.385 /
-51.445 ms for SoFi (`p50 / p95`, n=15). This does not measure remote HTTP,
-file replacement, access failure, or offline behavior.
+required a whole-root local decode. Operation totals are `p50 / p95` ms
+(`n=15`) and are shown for both backends:
+
+| Source / backend | Whole-root re-read |
+| --- | ---: |
+| Autzen / copc-js + TypeScript | 43.415 / 47.167 |
+| Autzen / Rust/WASM | 16.264 / 16.954 |
+| SoFi / copc-js + TypeScript | 40.385 / 51.445 |
+| SoFi / Rust/WASM | 14.832 / 18.915 |
+
+These are local Blob timings; they do not measure remote HTTP, file
+replacement, access failure, or offline behavior.
 
 The batch ECEF-to-geographic inverse (`p50 / p95`, milliseconds, n=15) was:
 
