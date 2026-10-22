@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { createReadStream, openAsBlob } from "node:fs";
+import * as nodeFs from "node:fs";
+import { createReadStream } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import os from "node:os";
@@ -26,6 +27,7 @@ import {
 import { estimateDecodedCpuPointBufferBytes } from "../core/streaming/createNodePointCache.ts";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
+const openAsBlob = nodeFs.openAsBlob;
 const packageDirectory = path.resolve(scriptDirectory, "..");
 const repositoryDirectory = path.resolve(packageDirectory, "..");
 const sampleDirectory = path.join(repositoryDirectory, "samples", "local");
@@ -70,6 +72,11 @@ if (typeof globalThis.gc !== "function") {
   throw new Error(
     "Run with npm run benchmark:cache-representations so GC can be controlled between samples",
   );
+}
+
+async function openBenchmarkBlob(filePath) {
+  if (typeof openAsBlob === "function") return openAsBlob(filePath);
+  return new Blob([await readFile(filePath)]);
 }
 
 function readPositiveInteger(rawValue, fallback, name, allowZero = false) {
@@ -1309,7 +1316,7 @@ async function benchmarkBackendPreparation(
 }
 
 async function openBackendAtRoot(filePath, backend) {
-  const blob = await openAsBlob(filePath);
+  const blob = await openBenchmarkBlob(filePath);
   const source =
     backend === "rust-wasm"
       ? await new RustCopcBackend().open(blob)
@@ -1479,7 +1486,7 @@ async function loadDatasetBackends(datasetId) {
     throw new Error(`${dataset.name} SHA-256 does not match samples/datasets.json`);
   }
 
-  const blob = await openAsBlob(filePath);
+  const blob = await openBenchmarkBlob(filePath);
   const rust = await new RustCopcBackend().open(blob);
   const copcJs = await new CopcJsBackend().open(blob);
 
@@ -1819,7 +1826,10 @@ console.log(
           geoidGrid: "none",
           verticalDatum: "as declared by the dataset WKT and current forward path; no geoid correction added by the benchmark",
         },
-        datasetReadMode: "local file-backed Blob; no network timing or HTTP request data",
+        datasetReadMode:
+          typeof openAsBlob === "function"
+            ? "local file-backed Blob via fs.openAsBlob; no network timing or HTTP request data"
+            : "local in-memory Blob via readFile fallback; buffers the full source file and affects process-memory measurements; no network timing or HTTP request data",
         crsAuditCommand: "cargo run -q -p crs-audit",
         crsAuditFailure,
         crsAuditFixtureSha256: crsFixtureSha256,
