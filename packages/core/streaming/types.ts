@@ -2,8 +2,8 @@ import type {
   CopcHierarchyNode,
   GeographicCamera,
   GeographicPoint,
-  PreparedPointData,
 } from "../copc/types/copc";
+import type { RenderablePointData } from "../point/compactEPointCache";
 import type {
   AdaptiveViewDistanceDiagnostics,
   BoundingSphere,
@@ -341,8 +341,8 @@ export type StreamingUpdateResult = {
   selectedNodeKeys: string[];
   /** Previously rendered node keys no longer selected by this update. */
   removedNodeKeys: string[];
-  /** Prepared values loaded for this update; renderer commitment is adapter-owned. */
-  loadedNodePoints: Map<string, PreparedPointData>;
+  /** Renderer-ready A or internal compact E values loaded for this update. */
+  loadedNodePoints: Map<string, RenderablePointData>;
   /** Coverage groups that adapters should commit atomically when possible. */
   replacementGroups: StreamingReplacementGroup[];
   /** Generation token used to reject stale asynchronous work. */
@@ -355,8 +355,8 @@ export type StreamingProgress = {
   selectedNodeKeys: string[];
   /** Previously rendered nodes no longer needed by the view. */
   removedNodeKeys: string[];
-  /** Prepared point data available in this progress emission. */
-  loadedNodePoints: Map<string, PreparedPointData>;
+  /** Renderer-ready A or internal compact E data available in this emission. */
+  loadedNodePoints: Map<string, RenderablePointData>;
   /** Point count in the node work completed for this emission. */
   completedBatchPointCount: number;
   /** Coverage groups associated with the current transition. */

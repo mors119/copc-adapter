@@ -62,7 +62,7 @@ function createPreparedAndCompactPoints() {
       verticalDatum: { status: "no-validated-grid-correction" },
     },
   });
-  return { prepared, compact, compactView: compact.preparedCompatibility };
+  return { prepared, compact };
 }
 
 function createCesiumViewer() {
@@ -90,8 +90,8 @@ function colorTuple(color) {
   return [color.red, color.green, color.blue, color.alpha];
 }
 
-test("Cesium renders E with A-equivalent positions, colors, filtering, bounds, and cleanup", () => {
-  const { prepared, compactView } = createPreparedAndCompactPoints();
+test("Cesium renders E-only cache nodes with A-equivalent positions, colors, filtering, bounds, and cleanup", () => {
+  const { prepared, compact } = createPreparedAndCompactPoints();
   const viewer = createCesiumViewer();
   const renderer = new PointPrimitiveRenderer();
   renderer.attachTo(viewer);
@@ -103,7 +103,7 @@ test("Cesium renders E with A-equivalent positions, colors, filtering, bounds, a
     elevationRange: { min: -25, max: 1200 },
     pointId,
   });
-  renderer.addOrUpdateNode("E", compactView, {
+  renderer.addOrUpdateNode("E", compact, {
     pointSize: 3,
     colorMode: "elevation",
     elevationRange: { min: -25, max: 1200 },
@@ -144,7 +144,7 @@ test("Cesium renders E with A-equivalent positions, colors, filtering, bounds, a
   ];
   for (const style of modes) {
     renderer.updateNodeStyle("A", prepared, { pointSize: 3, ...style });
-    renderer.updateNodeStyle("E", compactView, { pointSize: 3, ...style });
+    renderer.updateNodeStyle("E", compact, { pointSize: 3, ...style });
     for (let index = 0; index < prepared.pointCount; index += 1) {
       assert.deepEqual(
         colorTuple(collectionE.get(index).color),
@@ -155,13 +155,13 @@ test("Cesium renders E with A-equivalent positions, colors, filtering, bounds, a
   }
 
   const classificationFilter = (index) =>
-    compactView.attributes.classification[index] === 6;
+    compact.attributes.classification[index] === 6;
   renderer.updateNodeStyle("A", prepared, {
     pointSize: 3,
     colorMode: "classification",
     pointFilter: (index) => prepared.attributes.classification[index] === 6,
   });
-  renderer.updateNodeStyle("E", compactView, {
+  renderer.updateNodeStyle("E", compact, {
     pointSize: 3,
     colorMode: "classification",
     pointFilter: classificationFilter,
@@ -181,8 +181,8 @@ test("Cesium renders E with A-equivalent positions, colors, filtering, bounds, a
   assert.ok(viewer.removed[0] instanceof Cesium.PrimitiveCollection);
 });
 
-test("Three renders E with A-equivalent local positions, colors, bounds, and cleanup", () => {
-  const { prepared, compactView } = createPreparedAndCompactPoints();
+test("Three renders E-only cache nodes with A-equivalent local positions, colors, bounds, and cleanup", () => {
+  const { prepared, compact } = createPreparedAndCompactPoints();
   const sceneA = new THREE.Scene();
   const sceneE = new THREE.Scene();
   const rendererA = new ThreePointRenderer({ localOrigin: ORIGIN });
@@ -206,7 +206,7 @@ test("Three renders E with A-equivalent local positions, colors, bounds, and cle
   ];
   for (const style of modes) {
     rendererA.addOrUpdateNode("node", prepared, { pointSize: 3, ...style });
-    rendererE.addOrUpdateNode("node", compactView, { pointSize: 3, ...style });
+    rendererE.addOrUpdateNode("node", compact, { pointSize: 3, ...style });
     const pointsA = rendererA.getRoot().children[0];
     const pointsE = rendererE.getRoot().children[0];
     assert.equal(rendererE.getRenderedPointCount(), prepared.pointCount);

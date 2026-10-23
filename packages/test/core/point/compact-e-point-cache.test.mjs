@@ -2,9 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  cachedPointDataToPreparedPointData,
-  compactEPointCacheNodeToPreparedPointData,
+  assertLegacyCoordinatesAvailable,
+  cachedPointDataToRenderablePointData,
   createCompactEPointCacheNode,
+  getPreparedHeightBuffer,
+  getPreparedPointHeight,
+  isCompactEPointCacheNode,
 } from "../../../core/point/compactEPointCache.ts";
 import { createPreparedPointData } from "../../../core/point/preparedPoint.ts";
 import {
@@ -13,7 +16,6 @@ import {
 } from "../../../core/streaming/createNodePointCache.ts";
 import { geographicToEcef } from "../../../core/coordinates/transform/worldCoordinates.ts";
 import { transformPointBufferToPreparedPointData } from "../../../core/coordinates/transform/createPointTransformer.ts";
-import { getCompactEPreparedHeightBuffer } from "../../../core/point/compactEPointCache.ts";
 import { prepareCopcPointColorBuffer } from "../../../core/point/style/pointStyle.ts";
 
 function preparedFixture() {
@@ -65,7 +67,7 @@ function provenance(overrides = {}) {
   };
 }
 
-test("E stores 3 ECEF F64 values and one prepared-height F64 value per point", () => {
+test("E retains only interleaved ECEF F64 and prepared-height F64 coordinates", () => {
   const prepared = preparedFixture();
   const compact = createCompactEPointCacheNode(prepared, {
     nodeKey: "2-1-0-3",
@@ -79,86 +81,41 @@ test("E stores 3 ECEF F64 values and one prepared-height F64 value per point", (
   assert.equal(compact.ecef.length, compact.pointCount * 3);
   assert.ok(compact.height instanceof Float64Array);
   assert.equal(compact.height.length, compact.pointCount);
-  assert.deepEqual(
-    [...compact.height],
-    [0, 240.0000000003, -120.125],
-  );
+  assert.deepEqual([...compact.height], [0, 240.0000000003, -120.125]);
   assert.equal(compact.ecef.byteLength / compact.pointCount, 24);
   assert.equal(compact.height.byteLength / compact.pointCount, 8);
   assert.equal(
-    (compact.ecef.byteLength + compact.height.byteLength) /
-      compact.pointCount,
+    (compact.ecef.byteLength + compact.height.byteLength) / compact.pointCount,
     32,
   );
+  assert.equal("source" in compact, false);
+  assert.equal("geographic" in compact, false);
+  assert.equal("coordinates" in compact, false);
+  assert.equal("sourceCoordinates" in compact, false);
   assert.equal(compact.attributes, prepared.attributes);
   assert.equal(compact.statistics, prepared.statistics);
-  assert.equal(compact.preparedCompatibility.source, prepared.source);
-  assert.equal(compact.preparedCompatibility.geographic, prepared.geographic);
-  assert.equal(compact.preparedCompatibility.world, prepared.world);
   assert.equal(compact.provenance.sourceIdentity, "memory://compact-e.copc.laz");
   assert.equal(compact.provenance.transformGeneration, 7);
+  assert.equal(compact.provenance.sourceCrsWkt, "source WKT retained as provenance");
   assert.deepEqual(compact.provenance.verticalDatum, {
     status: "no-validated-grid-correction",
   });
-});
-
-test("legacy reads preserve exact Source, Geographic, ECEF, height, and aliases", () => {
-  const prepared = preparedFixture();
-  const compact = createCompactEPointCacheNode(prepared, {
-    nodeKey: "2-1-0-3",
-    provenance: provenance({
-      verticalDatum: {
-        status: "validated-grid-applied",
-        gridId: "test-grid",
-        sha256: "a".repeat(64),
-        sourceVerticalCrs: "EPSG:5773",
-        targetVerticalCrs: "EPSG:4979",
-        valueUnit: "metre",
-      },
-    }),
-  });
-
-  const restored = compactEPointCacheNodeToPreparedPointData(compact);
-  assert.equal(restored, compact.preparedCompatibility);
-  assert.deepEqual(
-    [...restored.source.coordinates],
-    [...prepared.source.coordinates],
+  assert.throws(
+    () => assertLegacyCoordinatesAvailable(compact),
+    /unavailable for experimental E cache entries/,
   );
-  assert.equal(restored.source.coordinates, prepared.source.coordinates);
-  assert.equal(restored.geographic.coordinates, prepared.geographic.coordinates);
-  assert.equal(restored.world.coordinates, compact.ecef);
-  assert.equal(restored.coordinates, restored.geographic.coordinates);
-  assert.equal(restored.sourceCoordinates, restored.source.coordinates);
-  assert.equal(restored.worldCoordinates, restored.world.coordinates);
-  assert.equal(restored.attributes, prepared.attributes);
-  assert.equal(restored.statistics, prepared.statistics);
-
-  for (let pointIndex = 0; pointIndex < compact.pointCount; pointIndex += 1) {
-    const offset = pointIndex * 3;
-    assert.equal(
-      restored.geographic.coordinates[offset + 2],
-      prepared.geographic.coordinates[offset + 2],
-    );
-    assert.equal(
-      restored.geographic.coordinates[offset],
-      prepared.geographic.coordinates[offset],
-    );
-    assert.equal(
-      restored.geographic.coordinates[offset + 1],
-      prepared.geographic.coordinates[offset + 1],
-    );
-  }
-  assert.deepEqual(compact.provenance.verticalDatum, {
-    status: "validated-grid-applied",
-    gridId: "test-grid",
-    sha256: "a".repeat(64),
-    sourceVerticalCrs: "EPSG:5773",
-    targetVerticalCrs: "EPSG:4979",
-    valueUnit: "metre",
-  });
 });
 
-test("E preserves exact coordinates for negative, high, polar, date-line, and extreme finite points", () => {
+test("A keeps the exact synchronous Source, Geographic, ECEF, and alias contract", () => {
+  const prepared = preparedFixture();
+  assertLegacyCoordinatesAvailable(prepared);
+  assert.equal(cachedPointDataToRenderablePointData(prepared), prepared);
+  assert.equal(prepared.source.coordinates, prepared.sourceCoordinates);
+  assert.equal(prepared.geographic.coordinates, prepared.coordinates);
+  assert.equal(prepared.world.coordinates, prepared.worldCoordinates);
+});
+
+test("E matches prepared coordinates for negative, high, polar, date-line, and finite extreme points", () => {
   const sourceCoordinates = new Float64Array([
     137, 90, -550,
     -180, -89.999999, 100000,
@@ -183,11 +140,9 @@ test("E preserves exact coordinates for negative, high, polar, date-line, and ex
     nodeKey: "pole-dateline-precision",
     provenance: provenance(),
   });
-  const restored = compactEPointCacheNodeToPreparedPointData(compact);
 
   assert.ok(compact.ecef instanceof Float64Array);
   assert.ok(compact.height instanceof Float64Array);
-  assert.deepEqual([...restored.source.coordinates], [...prepared.source.coordinates]);
   for (let pointIndex = 0; pointIndex < prepared.pointCount; pointIndex += 1) {
     const offset = pointIndex * 3;
     assert.deepEqual(
@@ -198,36 +153,109 @@ test("E preserves exact coordinates for negative, high, polar, date-line, and ex
       compact.height[pointIndex],
       prepared.geographic.coordinates[offset + 2],
     );
-    assert.deepEqual(
-      [...restored.geographic.coordinates.slice(offset, offset + 3)],
-      [...prepared.geographic.coordinates.slice(offset, offset + 3)],
-    );
   }
   assert.equal(compact.provenance.sourceIdentity, "memory://compact-e.copc.laz");
 });
 
-test("E byte accounting counts compatibility coordinates and shared aliases once", () => {
+test("E byte accounting counts its coordinate pair and shared attribute stores once", () => {
   const prepared = preparedFixture();
   const compact = createCompactEPointCacheNode(prepared, {
     nodeKey: "2-1-0-3",
     provenance: provenance(),
   });
-  const attributeBytes = Object.values(prepared.attributes)
-    .filter((value) => ArrayBuffer.isView(value))
-    .reduce((total, value) => total + value.byteLength, 0) +
+  const attributeBytes =
+    prepared.attributes.intensity.byteLength +
+    prepared.attributes.classification.byteLength +
+    prepared.attributes.red.byteLength +
+    prepared.attributes.green.byteLength +
+    prepared.attributes.blue.byteLength +
     prepared.attributes.extraDimensions.returnNumber.byteLength;
 
   assert.equal(
     estimateDecodedCpuPointBufferBytes(compact),
-    compact.pointCount * 80 + attributeBytes,
+    compact.pointCount * 32 + attributeBytes,
   );
   assert.equal(
     estimateDecodedCpuPointBufferBytes({ compact, ecefAlias: compact.ecef }),
-    compact.pointCount * 80 + attributeBytes,
+    compact.pointCount * 32 + attributeBytes,
   );
 });
 
-test("E elevation colors match A across repeated narrow and palette-boundary ranges", () => {
+test("E coordinate retention is independently opt-in and reuses exact buffers", async () => {
+  const prepared = preparedFixture();
+  const attributeBytes = estimateDecodedCpuPointBufferBytes({
+    attributes: prepared.attributes,
+  });
+  const variants = [
+    { retain: {}, bytesPerPoint: 32, source: false, geographic: false },
+    {
+      retain: { sourceCoordinates: true },
+      bytesPerPoint: 56,
+      source: true,
+      geographic: false,
+    },
+    {
+      retain: { geographicCoordinates: true },
+      bytesPerPoint: 56,
+      source: false,
+      geographic: true,
+    },
+    {
+      retain: { sourceCoordinates: true, geographicCoordinates: true },
+      bytesPerPoint: 80,
+      source: true,
+      geographic: true,
+    },
+  ];
+
+  for (const variant of variants) {
+    const compact = createCompactEPointCacheNode(prepared, {
+      nodeKey: "retained-coordinate-variant",
+      provenance: provenance(),
+      retain: variant.retain,
+    });
+    assert.equal(compact.ecef, prepared.world.coordinates);
+    assert.equal(
+      compact.sourceCoordinates,
+      variant.source ? prepared.source.coordinates : undefined,
+    );
+    assert.equal(
+      compact.geographicCoordinates,
+      variant.geographic ? prepared.geographic.coordinates : undefined,
+    );
+    assert.equal("sourceCoordinates" in compact, variant.source);
+    assert.equal("geographicCoordinates" in compact, variant.geographic);
+    assert.equal(
+      (estimateDecodedCpuPointBufferBytes(compact) - attributeBytes) /
+        compact.pointCount,
+      variant.bytesPerPoint,
+    );
+    assert.equal(
+      (estimateDecodedCpuPointBufferBytes({ prepared, compact }) -
+        attributeBytes) /
+        compact.pointCount,
+      80,
+      "the live preparation boundary should contain only the original A buffers plus E height",
+    );
+    assert.throws(
+      () => assertLegacyCoordinatesAvailable(compact),
+      /unavailable for experimental E cache entries/,
+    );
+
+    const cache = createNodePointCache(async () => compact, {
+      maxEntries: 1,
+    });
+    await cache.load(compact.nodeKey);
+    assert.equal(
+      cache.getDiagnostics().currentCacheBytes,
+      estimateDecodedCpuPointBufferBytes(compact),
+    );
+    assert.equal(cache.get(compact.nodeKey), compact);
+    cache.clear();
+  }
+});
+
+test("E elevation colors match A at repeated narrow and palette-boundary ranges", () => {
   const spans = [10, 100, 1000];
   const heights = spans.flatMap((span) => {
     const values = [0, span];
@@ -267,11 +295,11 @@ test("E elevation colors match A across repeated narrow and palette-boundary ran
     nodeKey: "elevation-boundaries",
     provenance: provenance(),
   });
-  const compactView = compactEPointCacheNodeToPreparedPointData(compact);
-  const compactHeights = getCompactEPreparedHeightBuffer(compactView);
+  const compactHeights = getPreparedHeightBuffer(compact);
 
   assert.ok(compactHeights instanceof Float64Array);
   for (let pointIndex = 0; pointIndex < compact.pointCount; pointIndex += 1) {
+    assert.equal(getPreparedPointHeight(compact, pointIndex), compact.height[pointIndex]);
     assert.equal(compactHeights[pointIndex], compact.height[pointIndex]);
   }
 
@@ -289,15 +317,15 @@ test("E elevation colors match A across repeated narrow and palette-boundary ran
   ];
   for (const style of styles) {
     const colorsA = prepareCopcPointColorBuffer(prepared, style);
-    const colorsE = prepareCopcPointColorBuffer(compactView, style);
+    const colorsE = prepareCopcPointColorBuffer(compact, style);
     assert.deepEqual([...colorsE], [...colorsA], style.colorMode);
   }
 
   const filteredIndicesA = [...prepared.attributes.classification.keys()].filter(
     (index) => prepared.attributes.classification[index] === 2,
   );
-  const filteredIndicesE = [...compactView.attributes.classification.keys()].filter(
-    (index) => compactView.attributes.classification[index] === 2,
+  const filteredIndicesE = [...compact.attributes.classification.keys()].filter(
+    (index) => compact.attributes.classification[index] === 2,
   );
   assert.deepEqual(filteredIndicesE, filteredIndicesA);
 });
@@ -329,7 +357,14 @@ test("compact E values follow the existing node-cache delete and clear lifecycle
   assert.equal(cache.getDiagnostics().currentCacheBytes, 0);
 });
 
-test("cache layout adapter passes production A entries through unchanged", () => {
+test("the renderable cache adapter passes production A and compact E through unchanged", () => {
   const prepared = preparedFixture();
-  assert.equal(cachedPointDataToPreparedPointData(prepared), prepared);
+  const compact = createCompactEPointCacheNode(prepared, {
+    nodeKey: "2-1-0-3",
+    provenance: provenance(),
+  });
+  assert.equal(cachedPointDataToRenderablePointData(prepared), prepared);
+  assert.equal(cachedPointDataToRenderablePointData(compact), compact);
+  assert.equal(isCompactEPointCacheNode(compact), true);
+  assert.equal(isCompactEPointCacheNode(prepared), false);
 });

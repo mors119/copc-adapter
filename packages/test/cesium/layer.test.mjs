@@ -9,7 +9,7 @@ import { BatchedGeometryPointRenderer } from "../../cesium/render/BatchedGeometr
 import { createCesiumStreamingView } from "../../cesium/view/CesiumViewAdapter.ts";
 import { loadGtxGeoidGrid } from "../../core/coordinates/transform/verticalGrid.ts";
 import { createExperimentalCompactEStreamingCore } from "../../core/streaming/CopcStreamingCore.ts";
-import { getCompactEPreparedHeightBuffer } from "../../core/point/compactEPointCache.ts";
+import { isCompactEPointCacheNode } from "../../core/point/compactEPointCache.ts";
 
 async function createSyntheticVerticalGrid() {
   const bytes = new ArrayBuffer(40 + 3 * 3 * 4);
@@ -1754,14 +1754,15 @@ test("terrain alignment estimates use the selected layer-owned point and invalid
     viewDistanceMeters: 12_000,
   });
   assert.ok(eUpdate?.loadedNodePoints.has("0-0-0-0"));
-  const ePrepared = experimentalCore.getCachedPreparedPointData("0-0-0-0");
-  const eHeight = getCompactEPreparedHeightBuffer(ePrepared);
-  assert.deepEqual([...eHeight], [66, 72]);
-  assert.deepEqual([...ePrepared.source.coordinates], [
-    -122.6, 44.4, 12,
-    -122.4, 44.6, 18,
-  ]);
-  assert.equal(ePrepared.geographic.coordinates[2], eHeight[0]);
+  const ePointData = eUpdate.loadedNodePoints.get("0-0-0-0");
+  assert.ok(isCompactEPointCacheNode(ePointData));
+  assert.deepEqual([...ePointData.height], [66, 72]);
+  assert.equal("sourceCoordinates" in ePointData, false);
+  assert.equal("geographic" in ePointData, false);
+  assert.throws(
+    () => experimentalCore.getCachedPreparedPointData("0-0-0-0"),
+    /unavailable for experimental E/,
+  );
   experimentalCore.destroy();
 });
 

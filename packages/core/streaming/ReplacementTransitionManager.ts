@@ -1,4 +1,4 @@
-import type { PreparedPointData } from "../copc/types/copc";
+import type { RenderablePointData } from "../point/compactEPointCache";
 import type { CopcPointRenderer } from "./renderer";
 import type {
   StreamingReplacementGroup,
@@ -219,7 +219,7 @@ export class ReplacementTransitionManager {
   /** Check whether one view's selected nodes have all been committed. */
   isViewRendererCommitted(
     selectedNodeKeys: readonly string[],
-    readyPointBuffers: ReadonlyMap<string, PreparedPointData>,
+    readyPointBuffers: ReadonlyMap<string, RenderablePointData>,
     viewGeneration: number,
   ): boolean {
     if (

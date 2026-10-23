@@ -21,7 +21,6 @@ import { extractHorizontalUnitScale } from "../../../../core/coordinates/crs/par
 import { inspectCopcPoint } from "../../../../core/copc/points/pointInspection.ts";
 import {
   createCompactEPointCacheNode,
-  getCompactEPreparedHeightBuffer,
 } from "../../../../core/point/compactEPointCache.ts";
 import { createExperimentalCompactEStreamingCore } from "../../../../core/streaming/CopcStreamingCore.ts";
 import {
@@ -583,15 +582,16 @@ test(
       };
 
       const first = await core.updateView(view);
-      const points = core.getCachedPreparedPointData("0-0-0-0");
+      const points = first.loadedNodePoints.get("0-0-0-0");
       assert.ok(first?.loadedNodePoints.has("0-0-0-0"));
       assert.ok(points);
+      assert.equal(points.layout, "E");
       assert.ok(points.pointCount > 0);
       assert.equal(
-        points.world.coordinates.length,
+        points.ecef.length,
         points.pointCount * 3,
       );
-      const compactHeight = getCompactEPreparedHeightBuffer(points);
+      const compactHeight = points.height;
       assert.ok(compactHeight instanceof Float64Array);
       assert.equal(compactHeight.length, points.pointCount);
       const cacheBefore = core.getSnapshot().pointCache;
@@ -602,6 +602,7 @@ test(
       const rangesAfter = core.getSnapshot().rangeRequests;
       const decodeAfter = core.getSnapshot().performance.decodeDurationMs;
       assert.ok(second?.loadedNodePoints.has("0-0-0-0"));
+      assert.equal(second.loadedNodePoints.get("0-0-0-0"), points);
       assert.ok(cacheAfter.hits > cacheBefore.hits);
       assert.deepEqual(rangesAfter, rangesBefore);
       assert.equal(decodeAfter, 0);
@@ -611,7 +612,7 @@ test(
         const offset = pointIndex * 3;
         assert.equal(
           compactHeight[pointIndex],
-          points.geographic.coordinates[offset + 2],
+          second.loadedNodePoints.get("0-0-0-0").height[pointIndex],
         );
       }
     } finally {

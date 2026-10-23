@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import * as Cesium from "cesium";
 import { prepareCopcPointColorBuffer } from "../../../core/point/style/pointStyle.ts";
+import { createPreparedPointData } from "../../../core/point/preparedPoint.ts";
+import { createCompactEPointCacheNode } from "../../../core/point/compactEPointCache.ts";
 import { packRelativeEcef } from "../../../cesium/render/relativeEcef.ts";
 
 import { BatchedGeometryPointRenderer } from "../../../cesium/render/BatchedGeometryPointRenderer.ts";
@@ -399,6 +401,55 @@ test("BatchedGeometryPointRenderer preserves shared color modes and point filter
     ),
     [-4, 4, 4],
   );
+  renderer.destroy();
+  scenePrimitives.destroy();
+});
+
+test("BatchedGeometryPointRenderer consumes compact E buffers without geographic triples", () => {
+  const scenePrimitives = new Cesium.PrimitiveCollection();
+  const renderer = new BatchedGeometryPointRenderer();
+  renderer.attachTo({ scene: { primitives: scenePrimitives } });
+  const prepared = createPreparedPointData({
+    pointCount: 2,
+    sourceCoordinates: new Float64Array([500, 600, 7, 501, 601, 8]),
+    geographicCoordinates: new Float64Array([0, 0, 5, 0, 0, 10]),
+    worldCoordinates: new Float64Array([6_378_142, 0, 0, 6_378_147, 0, 0]),
+    attributes: {
+      classification: new Uint8Array([2, 6]),
+      intensity: new Uint16Array([10, 200]),
+    },
+  });
+  const compact = createCompactEPointCacheNode(prepared, {
+    nodeKey: "compact-batched",
+    provenance: {
+      sourceIdentity: "memory://compact-batched.copc.laz",
+      transformGeneration: 1,
+      heightOffsetMeters: 0,
+      verticalDatum: { status: "no-validated-grid-correction" },
+    },
+  });
+  const options = {
+    pointSize: 4,
+    colorMode: "elevation",
+    elevationRange: { min: 0, max: 10 },
+  };
+
+  assert.equal("coordinates" in compact, false);
+  assert.equal("sourceCoordinates" in compact, false);
+  renderer.addOrUpdateNode("compact-batched", compact, options);
+  assert.equal(renderer.getRenderedPointCount(), compact.pointCount);
+  const geometry = scenePrimitives.get(0).get(0).geometryInstances.geometry;
+  assert.deepEqual(
+    Array.from(geometry.attributes.a_color.values),
+    Array.from(prepareCopcPointColorBuffer(compact, options)),
+  );
+  assert.ok(renderer.getSelectionBoundingSphere());
+  renderer.updateNodeStyle("compact-batched", compact, {
+    ...options,
+    colorMode: "classification",
+    pointFilter: (pointIndex) => compact.attributes.classification[pointIndex] === 6,
+  });
+  assert.equal(renderer.getRenderedNodePointCount("compact-batched"), 1);
   renderer.destroy();
   scenePrimitives.destroy();
 });

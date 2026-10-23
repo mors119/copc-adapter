@@ -40,9 +40,11 @@ import {
   preparedPointDataToGeographicBuffer,
 } from "../point/preparedPoint";
 import {
-  cachedPointDataToPreparedPointData,
+  assertLegacyCoordinatesAvailable,
+  cachedPointDataToRenderablePointData,
   createCompactEPointCacheNode,
   type CachedPointData,
+  type CompactECoordinateRetention,
   type CompactEPointProvenance,
 } from "../point/compactEPointCache";
 import type { CopcPerformanceObserver } from "../copc/performance";
@@ -311,7 +313,10 @@ type StreamingState = {
 
 const EXPERIMENTAL_CACHE_LAYOUT = Symbol("experimentalPointCacheLayout");
 type InternalStreamingOptions = CopcStreamingControllerOptions & {
-  [EXPERIMENTAL_CACHE_LAYOUT]?: "E";
+  [EXPERIMENTAL_CACHE_LAYOUT]?: {
+    layout: "E";
+    retain: CompactECoordinateRetention;
+  };
 };
 
 const DEFAULT_STREAMING_OPTIONS: StreamingSelectionOptions = {
@@ -503,6 +508,7 @@ export class CopcStreamingCore {
     new RangeRequestDiagnosticsRecorder();
   private readonly initialCache: NodePointCache<CachedPointData>;
   private readonly cacheLayout: "A" | "E";
+  private readonly compactECoordinateRetention: CompactECoordinateRetention;
   private readonly pointFields: CopcPointFieldSelection;
   private streamingState?: StreamingState;
   private loadGeneration = 0;
@@ -538,8 +544,16 @@ export class CopcStreamingCore {
   private predictivePrefetchHierarchyPageCacheHitCount = 0;
 
   constructor(options: CopcStreamingControllerOptions) {
-    this.cacheLayout =
-      (options as InternalStreamingOptions)[EXPERIMENTAL_CACHE_LAYOUT] ?? "A";
+    const experimentalCache = (options as InternalStreamingOptions)[
+      EXPERIMENTAL_CACHE_LAYOUT
+    ];
+    this.cacheLayout = experimentalCache?.layout ?? "A";
+    this.compactECoordinateRetention = {
+      sourceCoordinates:
+        experimentalCache?.retain.sourceCoordinates === true,
+      geographicCoordinates:
+        experimentalCache?.retain.geographicCoordinates === true,
+    };
     this.heightOffsetMeters = resolveHeightOffsetMeters(
       options.heightOffsetMeters,
     );
@@ -686,7 +700,7 @@ export class CopcStreamingCore {
         cache,
         this.performanceRecorder,
         context.cancelPendingPointJobs?.bind(context),
-        cachedPointDataToPreparedPointData,
+        cachedPointDataToRenderablePointData,
       );
       manager.setRefinementFocus(this.refinementFocus);
       manager.setMotionPrediction(
@@ -1125,13 +1139,26 @@ export class CopcStreamingCore {
     return cloneTransitionState(this.transition);
   }
 
-  /** Return the synchronous prepared view for a node retained by the decoded cache. */
+  /**
+   * Return the exact synchronous prepared view retained by production layout A.
+   *
+   * @throws If this internal experimental core retains layout E. E is a
+   * renderer-neutral cache view, not the complete synchronous PreparedPointData
+   * contract, even when an internal policy retains optional coordinate arrays.
+   */
   getCachedPreparedPointData(nodeKey: string): PreparedPointData | undefined {
     const cached = this.streamingState?.cache.get(nodeKey);
-    return cached ? cachedPointDataToPreparedPointData(cached) : undefined;
+    if (!cached) return undefined;
+    assertLegacyCoordinatesAvailable(cached);
+    return cached;
   }
 
-  /** Return the legacy flat view over the prepared result for a cached node. */
+  /**
+   * Return the legacy flat view over a layout A prepared result.
+   *
+   * @throws If this internal experimental core retains layout E, which does
+   * not expose the complete synchronous geographic/source compatibility view.
+   */
   getCachedPointBuffer(nodeKey: string): GeographicPointBuffer | undefined {
     const prepared = this.getCachedPreparedPointData(nodeKey);
     return prepared ? preparedPointDataToGeographicBuffer(prepared) : undefined;
@@ -1603,7 +1630,11 @@ export class CopcStreamingCore {
           }
         : { status: "no-validated-grid-correction" },
     };
-    return createCompactEPointCacheNode(prepared, { nodeKey, provenance });
+    return createCompactEPointCacheNode(prepared, {
+      nodeKey,
+      provenance,
+      retain: this.compactECoordinateRetention,
+    });
   }
 
   private createPerformanceObserver(
@@ -1951,15 +1982,18 @@ export { CopcStreamingCore as CopcStreamingController };
 
 /**
  * Internal rollout seam for exercising E in focused tests and experiments.
- * This function is not re-exported by any package entry point; normal core and
- * renderer construction continues to use production layout A.
+ * Exact Source and Geographic buffers are omitted unless an internal consumer
+ * policy explicitly requests either or both. This function is not re-exported
+ * by any package entry point; normal core and renderer construction continues
+ * to use production layout A.
  */
 export function createExperimentalCompactEStreamingCore(
   options: CopcStreamingControllerOptions,
+  retain: CompactECoordinateRetention = {},
 ): CopcStreamingCore {
   const internalOptions: InternalStreamingOptions = {
     ...options,
-    [EXPERIMENTAL_CACHE_LAYOUT]: "E",
+    [EXPERIMENTAL_CACHE_LAYOUT]: { layout: "E", retain },
   };
   return new CopcStreamingCore(internalOptions);
 }

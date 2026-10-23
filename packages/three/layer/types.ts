@@ -10,6 +10,7 @@ import type {
   GeographicPointBuffer,
   PreparedPointData,
 } from "../../core/copc/types/copc";
+import type { RenderablePointData } from "../../core/point/compactEPointCache";
 import type {
   CopcStreamingPerformanceSnapshot,
   PredictivePrefetchDiagnostics,
@@ -180,7 +181,7 @@ export interface CopcThreePointRenderer extends CopcPointRenderer {
   /** Prepare or replace one node's renderable points using the layer's fixed local frame. */
   addOrUpdateNode(
     nodeKey: string,
-    points: GeographicPointBuffer | PreparedPointData,
+    points: GeographicPointBuffer | PreparedPointData | RenderablePointData,
     options: ThreePointRendererOptions,
   ): void;
   /** Install the dataset frame before adding local point geometry, when supported. */

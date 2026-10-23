@@ -6,8 +6,8 @@ import {
 } from "../../core/copc/points/pointInspection";
 import type {
   CopcMetadata,
-  PreparedPointData,
 } from "../../core/copc/types/copc";
+import type { RenderablePointData } from "../../core/point/compactEPointCache";
 import { createDatasetLocalFrame } from "../../core/coordinates/transform/datasetLocalFrame";
 import type { DatasetLocalFrame } from "../../core/coordinates/types";
 import {
@@ -806,7 +806,7 @@ export class ThreeLayerController {
     this.replacementTransitions.updateDiagnostics();
   }
 
-  private addRenderedNode(nodeKey: string, points: PreparedPointData): void {
+  private addRenderedNode(nodeKey: string, points: RenderablePointData): void {
     this.pointRenderer.addOrUpdateNode(nodeKey, points, {
       pointSize: this.options.pointSize ?? 3,
       colorMode: this.options.colorMode ?? "fixed",

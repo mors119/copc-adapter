@@ -8,12 +8,14 @@ import {
   createExperimentalCompactEStreamingCore,
 } from "../../../core/streaming/CopcStreamingCore.ts";
 import { inspectCopcPoint } from "../../../core/copc/points/pointInspection.ts";
+import { PointPrimitiveRenderer } from "../../../cesium/render/CopcPointRenderer.ts";
+import { getPointColor } from "../../../cesium/style/pointStyle.ts";
 import {
   createPerspectiveViewFrustum,
   geographicToEcef,
 } from "../../../core/streaming/view.ts";
 import { createPreparedPointData } from "../../../core/point/preparedPoint.ts";
-import { getCompactEPreparedHeightBuffer } from "../../../core/point/compactEPointCache.ts";
+import { isCompactEPointCacheNode } from "../../../core/point/compactEPointCache.ts";
 import { createPredictedStreamingView } from "../../../core/streaming/predictivePrefetch.ts";
 import { loadGtxGeoidGrid } from "../../../core/coordinates/transform/verticalGrid.ts";
 
@@ -386,7 +388,7 @@ test("shared streaming core applies a grid once after prepared Rust-style output
   core.destroy();
 });
 
-test("internal E streaming path preserves exact coordinates and reuses prepared height without re-decoding", async () => {
+test("internal E streaming path emits compact render data and reuses it without re-decoding", async () => {
   const geographicCoordinates = new Float64Array([10.005, 20.005, 150.125]);
   const world = geographicToEcef({
     longitude: geographicCoordinates[0],
@@ -394,6 +396,7 @@ test("internal E streaming path preserves exact coordinates and reuses prepared 
     height: geographicCoordinates[2],
   });
   const sourceCoordinates = new Float64Array([500.25, 600.5, 7.75]);
+  const expectedWorldCoordinates = new Float64Array([world.x, world.y, world.z]);
   let preparedPointLoadCount = 0;
   const source = createSourceFactory({
     prepared: true,
@@ -403,7 +406,7 @@ test("internal E streaming path preserves exact coordinates and reuses prepared 
         pointCount: 1,
         sourceCoordinates: sourceCoordinates.slice(),
         geographicCoordinates,
-        worldCoordinates: new Float64Array([world.x, world.y, world.z]),
+        worldCoordinates: expectedWorldCoordinates,
       });
     },
   });
@@ -422,39 +425,116 @@ test("internal E streaming path preserves exact coordinates and reuses prepared 
   await core.load();
   const update = await core.updateView(createView());
   assert.ok(update?.loadedNodePoints.has(ROOT_KEY));
-  const cachedPrepared = core.getCachedPreparedPointData(ROOT_KEY);
-  const cachedPointBuffer = core.getCachedPointBuffer(ROOT_KEY);
-  assert.ok(cachedPrepared);
-  assert.ok(cachedPointBuffer);
-  assert.deepEqual([...cachedPrepared.source.coordinates], [500.25, 600.5, 7.75]);
-  assert.equal(cachedPrepared.geographic.coordinates[2], 150.125);
-  assert.deepEqual([...cachedPrepared.world.coordinates], [world.x, world.y, world.z]);
-  assert.equal(cachedPrepared.coordinates, cachedPrepared.geographic.coordinates);
-  assert.equal(cachedPrepared.sourceCoordinates, cachedPrepared.source.coordinates);
-  assert.equal(cachedPrepared.worldCoordinates, cachedPrepared.world.coordinates);
-  assert.deepEqual(
-    [...update.loadedNodePoints.get(ROOT_KEY).geographic.coordinates],
-    [...cachedPrepared.geographic.coordinates],
-  );
+  const compact = update.loadedNodePoints.get(ROOT_KEY);
+  assert.ok(isCompactEPointCacheNode(compact));
+  assert.equal(compact.pointCount, 1);
+  assert.equal(compact.ecef, expectedWorldCoordinates);
+  assert.deepEqual([...compact.ecef], [world.x, world.y, world.z]);
+  assert.equal(compact.height[0], 150.125);
+  assert.equal("source" in compact, false);
+  assert.equal("geographic" in compact, false);
+  assert.equal("sourceCoordinates" in compact, false);
+  assert.throws(() => core.getCachedPreparedPointData(ROOT_KEY), /unavailable for experimental E/);
+  assert.throws(() => core.getCachedPointBuffer(ROOT_KEY), /unavailable for experimental E/);
+  assert.equal(core.getSnapshot().pointCache.currentCacheBytes, 32);
 
-  const inspection = inspectCopcPoint(
-    { nodeKey: ROOT_KEY, pointIndex: 0 },
-    core.getHierarchyNode(ROOT_KEY).node,
-    cachedPointBuffer,
-    "custom",
+  const addedCollections = [];
+  const viewer = {
+    scene: {
+      primitives: {
+        add(collection) {
+          addedCollections.push(collection);
+          return collection;
+        },
+        remove() {
+          return true;
+        },
+      },
+    },
+  };
+  const renderer = new PointPrimitiveRenderer();
+  renderer.attachTo(viewer);
+  renderer.addOrUpdateNode("compact-e", compact, {
+    pointSize: 3,
+    colorMode: "elevation",
+    elevationRange: { min: 100, max: 200 },
+    pointId: (pointIndex) => ({ nodeKey: ROOT_KEY, pointIndex }),
+  });
+  const renderedPoint = addedCollections[0].get(0).get(0);
+  assert.deepEqual(
+    [renderedPoint.position.x, renderedPoint.position.y, renderedPoint.position.z],
+    [world.x, world.y, world.z],
   );
-  assert.deepEqual(inspection.source, { x: 500.25, y: 600.5, z: 7.75 });
-  assert.equal(inspection.height, 150.125);
-  assert.equal(core.getSnapshot().pointCache.currentCacheBytes, 80);
+  assert.deepEqual(renderedPoint.id, { nodeKey: ROOT_KEY, pointIndex: 0 });
+  const expectedColor = getPointColor(150.125, {
+    colorMode: "elevation",
+    elevationRange: { min: 100, max: 200 },
+  });
+  assert.deepEqual(
+    [renderedPoint.color.red, renderedPoint.color.green, renderedPoint.color.blue],
+    [expectedColor.red, expectedColor.green, expectedColor.blue],
+  );
+  assert.ok(renderer.getSelectionBoundingSphere());
+  renderer.destroy();
   assert.equal(preparedPointLoadCount, 1);
 
   const cacheHitsBefore = core.getSnapshot().pointCache.hits;
-  await core.updateView(createView({ longitude: 10.006 }));
+  const revisited = await core.updateView(createView({ longitude: 10.006 }));
   assert.equal(preparedPointLoadCount, 1);
   assert.ok(core.getSnapshot().pointCache.hits > cacheHitsBefore);
-  assert.deepEqual(
-    [...core.getCachedPreparedPointData(ROOT_KEY).geographic.coordinates],
-    [...geographicCoordinates],
+  const reused = revisited.loadedNodePoints.get(ROOT_KEY);
+  assert.equal(reused, compact);
+  core.destroy();
+});
+
+test("internal E preparation retains exact Source only for its explicit policy", async () => {
+  const sourceCoordinates = new Float64Array([500.25, 600.5, 7.75]);
+  const geographicCoordinates = new Float64Array([10.005, 20.005, 150.125]);
+  const world = geographicToEcef({
+    longitude: geographicCoordinates[0],
+    latitude: geographicCoordinates[1],
+    height: geographicCoordinates[2],
+  });
+  const preparedWorldCoordinates = new Float64Array([world.x, world.y, world.z]);
+  let prepared;
+  const source = createSourceFactory({
+    prepared: true,
+    onPreparedPointLoad: () => {
+      prepared = createPreparedPointData({
+        pointCount: 1,
+        sourceCoordinates,
+        geographicCoordinates,
+        worldCoordinates: preparedWorldCoordinates,
+      });
+      return prepared;
+    },
+  });
+  const core = createExperimentalCompactEStreamingCore(
+    {
+      url: "memory://compact-e-source-policy.copc.laz",
+      backend: source.backend,
+      streaming: {
+        maxNodes: 8,
+        maxDepth: 0,
+        maxRenderDistanceMeters: 12_000,
+        maxScreenSpaceError: 8,
+        maxPointsPerBatch: 1,
+      },
+    },
+    { sourceCoordinates: true },
+  );
+
+  await core.load();
+  const update = await core.updateView(createView());
+  const compact = update.loadedNodePoints.get(ROOT_KEY);
+  assert.ok(isCompactEPointCacheNode(compact));
+  assert.equal(compact.sourceCoordinates, prepared.source.coordinates);
+  assert.equal(compact.sourceCoordinates, sourceCoordinates);
+  assert.equal("geographicCoordinates" in compact, false);
+  assert.equal(core.getSnapshot().pointCache.currentCacheBytes, 56);
+  assert.throws(
+    () => core.getCachedPreparedPointData(ROOT_KEY),
+    /unavailable for experimental E/,
   );
   core.destroy();
 });
@@ -477,9 +557,8 @@ test("experimental E keeps height and ECEF synchronized across positive and nega
     });
 
     await core.load();
-    await core.updateView(createView());
-    const prepared = core.getCachedPreparedPointData(ROOT_KEY);
-    const compactHeight = getCompactEPreparedHeightBuffer(prepared);
+    const update = await core.updateView(createView());
+    const compact = update.loadedNodePoints.get(ROOT_KEY);
     const expectedHeight = 150 + heightOffsetMeters;
     const expectedWorld = geographicToEcef({
       longitude: 10.005,
@@ -487,14 +566,10 @@ test("experimental E keeps height and ECEF synchronized across positive and nega
       height: expectedHeight,
     });
 
-    assert.ok(compactHeight instanceof Float64Array);
-    assert.equal(compactHeight[0], expectedHeight);
-    assert.equal(prepared.geographic.coordinates[2], compactHeight[0]);
-    assert.deepEqual(
-      [...prepared.world.coordinates],
-      [expectedWorld.x, expectedWorld.y, expectedWorld.z],
-    );
-    assert.deepEqual([...prepared.source.coordinates], [10.005, 20.005, 150]);
+    assert.ok(compact.height instanceof Float64Array);
+    assert.equal(compact.height[0], expectedHeight);
+    assert.deepEqual([...compact.ecef], [expectedWorld.x, expectedWorld.y, expectedWorld.z]);
+    assert.throws(() => core.getCachedPreparedPointData(ROOT_KEY), /unavailable for experimental E/);
     core.destroy();
     assert.equal(core.getCachedPreparedPointData(ROOT_KEY), undefined);
   }
@@ -542,21 +617,16 @@ test("experimental E applies an opt-in geoid correction once after backend heigh
   });
 
   await core.load();
-  await core.updateView(createView());
-  const prepared = core.getCachedPreparedPointData(ROOT_KEY);
-  const compactHeight = getCompactEPreparedHeightBuffer(prepared);
+  const update = await core.updateView(createView());
+  const compact = update.loadedNodePoints.get(ROOT_KEY);
   const expectedWorld = geographicToEcef({
     longitude: 10.005,
     latitude: 20.005,
     height: 180,
   });
-  assert.equal(compactHeight[0], 180);
-  assert.equal(prepared.geographic.coordinates[2], compactHeight[0]);
-  assert.deepEqual(
-    [...prepared.world.coordinates],
-    [expectedWorld.x, expectedWorld.y, expectedWorld.z],
-  );
-  assert.deepEqual([...prepared.source.coordinates], [10.005, 20.005, 150]);
+  assert.equal(compact.height[0], 180);
+  assert.deepEqual([...compact.ecef], [expectedWorld.x, expectedWorld.y, expectedWorld.z]);
+  assert.throws(() => core.getCachedPreparedPointData(ROOT_KEY), /unavailable for experimental E/);
   core.destroy();
 });
 
@@ -608,18 +678,29 @@ test("experimental E preserves A selection, replacement, and cache reuse across 
   assert.ok(coreE.getSnapshot().pointCache.hits > 0);
   for (const nodeKey of coreE.getCurrentSelection()) {
     const pointsA = coreA.getCachedPreparedPointData(nodeKey);
-    const pointsE = coreE.getCachedPreparedPointData(nodeKey);
+    const pointsE =
+      secondE.loadedNodePoints.get(nodeKey) ??
+      firstE.loadedNodePoints.get(nodeKey);
     assert.ok(pointsA);
     assert.ok(pointsE);
+    assert.equal(pointsE.layout, "E");
+    assert.equal(pointsE.pointCount, pointsA.pointCount);
     assert.deepEqual(
-      [...pointsE.source.coordinates],
-      [...pointsA.source.coordinates],
-    );
-    assert.deepEqual(
-      [...pointsE.world.coordinates],
+      [...pointsE.ecef],
       [...pointsA.world.coordinates],
     );
+    assert.deepEqual(
+      [...pointsE.height],
+      Array.from(
+        { length: pointsA.pointCount },
+        (_, index) => pointsA.geographic.coordinates[index * 3 + 2],
+      ),
+    );
   }
+  assert.throws(
+    () => coreE.getCachedPreparedPointData(coreE.getCurrentSelection()[0]),
+    /unavailable for experimental E/,
+  );
   coreA.destroy();
   coreE.destroy();
 });
@@ -1330,17 +1411,15 @@ test("experimental E does not retain points prepared for a stale view generation
   const [stale, current] = await Promise.all([staleUpdate, currentUpdate]);
   assert.equal(stale, undefined);
   assert.deepEqual(current.selectedNodeKeys, [ROOT_KEY]);
-  const prepared = core.getCachedPreparedPointData(ROOT_KEY);
-  const compactHeight = getCompactEPreparedHeightBuffer(prepared);
-  assert.equal(prepared.geographic.coordinates[2], 250);
-  assert.equal(compactHeight[0], 250);
+  const compact = current.loadedNodePoints.get(ROOT_KEY);
+  assert.equal(compact.height[0], 250);
   const expectedWorld = geographicToEcef({
     longitude: 10.005,
     latitude: 20.005,
     height: 250,
   });
   assert.deepEqual(
-    [...prepared.world.coordinates],
+    [...compact.ecef],
     [expectedWorld.x, expectedWorld.y, expectedWorld.z],
   );
   assert.equal(core.getSnapshot().streamingUpdateCount, 1);

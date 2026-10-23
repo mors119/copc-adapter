@@ -4,7 +4,8 @@ import type {
   CopcPointAttributes,
   GeographicPointBuffer,
 } from "../../copc/types/copc";
-import { getCompactEPreparedHeightBuffer } from "../compactEPointCache";
+import type { RenderablePointData } from "../compactEPointCache";
+import { getPreparedHeightBuffer, getPreparedPointHeight } from "../compactEPointCache";
 import { extractVerticalUnitScale } from "../../coordinates/crs/parseCopcWkt";
 import { resolveHeightOffsetMeters } from "../../coordinates/transform/heightOffset";
 import type { GtxGeoidGrid } from "../../coordinates/transform/verticalGrid";
@@ -80,10 +81,12 @@ export type CopcPointStyleOptions = {
 /** Partial style overrides; omitted values are inferred from the point buffer. */
 export type CopcPointStyleInput = Partial<CopcPointStyleOptions>;
 
+type PointStyleData = GeographicPointBuffer | RenderablePointData;
+
 /** Per-layer state that keeps source-derived RGB scale consistent across nodes. */
 export type CopcPointStyleState = {
   /** Resolve the RGB display scale once for the owning dataset/layer. */
-  getRgbMax(points: GeographicPointBuffer): 255 | 65535 | undefined;
+  getRgbMax(points: PointStyleData): 255 | 65535 | undefined;
   /** Reset source-derived state before loading a different dataset. */
   reset(): void;
 };
@@ -171,7 +174,7 @@ export function normalizeIntensity(
 
 /** Return the prepared or measured WGS84 ellipsoidal-height range in metres. */
 export function getPointBufferElevationRange(
-  points: GeographicPointBuffer,
+  points: PointStyleData,
 ): CopcElevationRange {
   if (points.statistics?.elevation) {
     return { ...points.statistics.elevation };
@@ -179,12 +182,8 @@ export function getPointBufferElevationRange(
 
   let min = Number.POSITIVE_INFINITY;
   let max = Number.NEGATIVE_INFINITY;
-  const compactHeights = getCompactEPreparedHeightBuffer(points);
-
   for (let index = 0; index < points.pointCount; index += 1) {
-    const height = compactHeights
-      ? compactHeights[index]
-      : points.coordinates[index * 3 + 2];
+    const height = getPreparedPointHeight(points, index);
 
     if (Number.isFinite(height)) {
       min = Math.min(min, height);
@@ -199,7 +198,7 @@ export function getPointBufferElevationRange(
 
 /** Return the prepared or measured intensity range, or `undefined` when absent. */
 export function getPointBufferIntensityRange(
-  points: GeographicPointBuffer,
+  points: PointStyleData,
 ): CopcValueRange | undefined {
   if (points.statistics?.intensity) {
     return { ...points.statistics.intensity };
@@ -234,7 +233,7 @@ export function getPointBufferIntensityRange(
 
 /** Infer the source RGB display maximum (255 or 65,535), when RGB is present. */
 export function getPointBufferRgbMax(
-  points: GeographicPointBuffer,
+  points: PointStyleData,
 ): 255 | 65535 | undefined {
   if (points.statistics?.rgbMax !== undefined) {
     return points.statistics.rgbMax;
@@ -276,7 +275,7 @@ export function createCopcPointStyleState(
   let rgbMax = initialRgbMax;
 
   return {
-    getRgbMax(points: GeographicPointBuffer): 255 | 65535 | undefined {
+    getRgbMax(points: PointStyleData): 255 | 65535 | undefined {
       if (rgbMax !== undefined) {
         return rgbMax;
       }
@@ -413,7 +412,7 @@ export function getCopcPointColor(
 
 /** Resolve omitted ranges and RGB scale from one decoded point buffer. */
 export function resolveCopcPointStyleOptions(
-  points: GeographicPointBuffer,
+  points: PointStyleData,
   options: CopcPointStyleInput = {},
   state?: CopcPointStyleState,
 ): CopcPointStyleOptions {
@@ -435,19 +434,19 @@ export function resolveCopcPointStyleOptions(
  * The returned array contains exactly three finite floats per point.
  */
 export function prepareCopcPointColorBuffer(
-  points: GeographicPointBuffer,
+  points: PointStyleData,
   options: CopcPointStyleInput = {},
   state?: CopcPointStyleState,
 ): Float32Array {
   const styleOptions = resolveCopcPointStyleOptions(points, options, state);
   const colors = new Float32Array(points.pointCount * 3);
-  const compactHeights = getCompactEPreparedHeightBuffer(points);
+  const compactHeights = getPreparedHeightBuffer(points);
 
   for (let index = 0; index < points.pointCount; index += 1) {
     const color = getCopcPointColor(
       compactHeights
         ? compactHeights[index]
-        : points.coordinates[index * 3 + 2],
+        : getPreparedPointHeight(points, index),
       styleOptions,
       points.attributes,
       index,

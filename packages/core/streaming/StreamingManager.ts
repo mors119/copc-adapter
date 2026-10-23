@@ -1,7 +1,7 @@
-import type { PreparedPointData } from "../copc/types/copc";
+import type { RenderablePointData } from "../point/compactEPointCache";
 import type { NodePointCache } from "./createNodePointCache";
 import {
-  cachedPointDataToPreparedPointData,
+  cachedPointDataToRenderablePointData,
   type CachedPointData,
 } from "../point/compactEPointCache";
 import { NodeSelector } from "./NodeSelector";
@@ -25,10 +25,10 @@ import {
   StreamingWorkConcurrencyLimiter,
 } from "./scheduler";
 
-/** Loads renderer-neutral prepared points for one selected COPC hierarchy key. */
+/** Loads renderer-ready point data for one selected COPC hierarchy key. */
 export type StreamingNodePointLoader = (
   nodeKey: string,
-) => Promise<PreparedPointData>;
+) => Promise<RenderablePointData>;
 
 /** Optional timing and scheduler callbacks for one current-view update. */
 export type StreamingManagerUpdateOptions = {
@@ -164,9 +164,9 @@ export class StreamingManager {
   private hierarchy: StreamingHierarchy;
   private readonly selector: NodeSelector;
   private readonly cache: NodePointCache<CachedPointData>;
-  private readonly toPreparedPointData: (
+  private readonly toRenderablePointData: (
     value: CachedPointData,
-  ) => PreparedPointData;
+  ) => RenderablePointData;
   private readonly performanceRecorder: StreamingPerformanceRecorder;
   private readonly maxConcurrentNodeLoads: number;
   private readonly workLimiter: StreamingWorkConcurrencyLimiter;
@@ -181,13 +181,13 @@ export class StreamingManager {
     cache: NodePointCache<CachedPointData>,
     performanceRecorder = new StreamingPerformanceRecorder(),
     onInvalidate?: () => void,
-    toPreparedPointData: (value: CachedPointData) => PreparedPointData =
-      cachedPointDataToPreparedPointData,
+    toRenderablePointData: (value: CachedPointData) => RenderablePointData =
+      cachedPointDataToRenderablePointData,
   ) {
     this.hierarchy = hierarchy;
     this.selector = new NodeSelector(options);
     this.cache = cache;
-    this.toPreparedPointData = toPreparedPointData;
+    this.toRenderablePointData = toRenderablePointData;
     this.performanceRecorder = performanceRecorder;
     this.performanceRecorder.setConfiguredPointBudget(
       this.selector.getSelectionMetrics().maxRenderedPoints,
@@ -318,7 +318,7 @@ export class StreamingManager {
       generation: updateGeneration,
     });
 
-    const loadedNodePoints = new Map<string, PreparedPointData>();
+    const loadedNodePoints = new Map<string, RenderablePointData>();
 
     const loadNode = async (node: StreamingSelectedNode) => {
       if (updateGeneration !== this.updateGeneration) {
@@ -326,9 +326,9 @@ export class StreamingManager {
       }
 
       const nodeKey = node.node.key;
-      let points: PreparedPointData;
+      let points: RenderablePointData;
       try {
-        points = this.toPreparedPointData(await this.cache.load(nodeKey));
+        points = this.toRenderablePointData(await this.cache.load(nodeKey));
       } catch (error: unknown) {
         // A view change intentionally cancels queued decode work. The
         // superseded update must finish quietly so its stale results cannot
@@ -342,7 +342,7 @@ export class StreamingManager {
           // current generation rather than exposing cancellation as a
           // user-visible decode failure.
           this.cache.delete(nodeKey);
-          points = this.toPreparedPointData(await this.cache.load(nodeKey));
+          points = this.toRenderablePointData(await this.cache.load(nodeKey));
         } else {
           throw error;
         }
@@ -403,7 +403,7 @@ export class StreamingManager {
           onProgress?.({
             selectedNodeKeys: [...nextSelectedNodeKeys].sort(),
             removedNodeKeys,
-            loadedNodePoints: new Map<string, PreparedPointData>([
+            loadedNodePoints: new Map<string, RenderablePointData>([
               [loaded.nodeKey, loaded.points],
             ]),
             completedBatchPointCount: loaded.points.pointCount,

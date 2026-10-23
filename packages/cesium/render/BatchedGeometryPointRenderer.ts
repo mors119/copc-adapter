@@ -3,6 +3,11 @@ import type {
   GeographicPointBuffer,
   PreparedPointData,
 } from "../../core/copc/types/copc";
+import {
+  getPreparedWorldCoordinateBuffer,
+  isCompactEPointCacheNode,
+  type RenderablePointData,
+} from "../../core/point/compactEPointCache";
 import { performanceNow } from "../../core/copc/performance";
 import { prepareCopcPointColorBuffer } from "../../core/point/style/pointStyle";
 import type { CopcPointPickId } from "../../core/copc/points/pointInspection";
@@ -18,7 +23,7 @@ import {
   computeProjectedPointSizeCssPixels,
 } from "./projectedPointSize";
 
-type PointData = GeographicPointBuffer | PreparedPointData;
+type PointData = GeographicPointBuffer | PreparedPointData | RenderablePointData;
 
 const FIXED_VERTEX_SHADER = `
 in vec3 position3DHigh;
@@ -273,7 +278,8 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
     }
     const previous = this.nodes.get(nodeKey);
     const startedAt = performanceNow();
-    const ecef = points.worldCoordinates;
+    const ecef = getPreparedWorldCoordinateBuffer(points);
+    const compactE = isCompactEPointCacheNode(points);
     if (!Number.isSafeInteger(points.pointCount) || points.pointCount <= 0) {
       throw new Error(
         "Batched Geometry renderer requires a nonempty point buffer",
@@ -306,14 +312,14 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
         `minPointSize and maxPointSize must satisfy 0 < minPointSize <= maxPointSize <= ${MAX_ATTENUATED_POINT_SIZE_CSS_PIXELS}`,
       );
     }
-    if (points.coordinates.length !== points.pointCount * 3) {
+    if (!compactE && points.coordinates.length !== points.pointCount * 3) {
       throw new Error(
         "Batched Geometry renderer requires XYZ coordinates for every point",
       );
     }
     if (
       !ecef ||
-      points.worldCoordinateSystem !== "wgs84-ecef-meters" ||
+      (!compactE && points.worldCoordinateSystem !== "wgs84-ecef-meters") ||
       ecef.length !== points.pointCount * 3
     ) {
       throw new Error(

@@ -38,6 +38,7 @@ import type {
   CopcMetadata,
   PreparedPointData,
 } from "../../core/copc/types/copc";
+import type { RenderablePointData } from "../../core/point/compactEPointCache";
 import type { GtxGeoidGrid } from "../../core/coordinates/transform/verticalGrid";
 import {
   createUnavailableTerrainHeightAlignmentEstimate,
@@ -273,7 +274,7 @@ function cloneClassificationFilter(
 }
 
 function isPointVisibleForStyle(
-  points: PreparedPointData,
+  points: RenderablePointData,
   pointIndex: number,
   style: CopcCesiumPointStyle,
 ): boolean {
@@ -1344,7 +1345,7 @@ export class CesiumLayerController {
     this.replacementTransitions.updateDiagnostics();
   }
 
-  private addPointCollection(nodeKey: string, points: PreparedPointData): void {
+  private addPointCollection(nodeKey: string, points: RenderablePointData): void {
     this.pointRenderer.addOrUpdateNode(
       nodeKey,
       points,
@@ -1371,7 +1372,7 @@ export class CesiumLayerController {
 
   private createPointRendererOptions(
     nodeKey: string,
-    points: PreparedPointData,
+    points: RenderablePointData,
     style: CopcCesiumPointStyle,
   ): CopcCesiumPointRendererOptions {
     const metadata = this.core.getMetadata();
