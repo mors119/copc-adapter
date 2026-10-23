@@ -156,6 +156,63 @@ test("legacy materialization preserves exact Source, ECEF, height, aliases, and 
   });
 });
 
+test("legacy geographic materialization is approximate at poles and retains exact height", () => {
+  const geographicCoordinates = new Float64Array([
+    137, 90, 123.123456789123,
+    180, 0, 1.234567890123,
+    179.999999999, 0.000001, 0.123456789123,
+  ]);
+  const worldCoordinates = new Float64Array(geographicCoordinates.length);
+  for (let pointIndex = 0; pointIndex < geographicCoordinates.length / 3; pointIndex += 1) {
+    const offset = pointIndex * 3;
+    const world = geographicToEcef({
+      longitude: pointIndex === 0 ? 0 : geographicCoordinates[offset],
+      latitude: geographicCoordinates[offset + 1],
+      height: geographicCoordinates[offset + 2],
+    });
+    worldCoordinates.set(
+      [pointIndex === 0 ? 0 : world.x, pointIndex === 0 ? 0 : world.y, world.z],
+      offset,
+    );
+  }
+  const prepared = createPreparedPointData({
+    pointCount: 3,
+    sourceCoordinates: new Float64Array(9),
+    geographicCoordinates,
+    worldCoordinates,
+  });
+  const compact = createCompactEPointCacheNode(prepared, {
+    nodeKey: "pole-dateline-precision",
+    provenance: provenance(),
+  });
+  const restored = compactEPointCacheNodeToPreparedPointData(compact);
+
+  // Pole longitude has no unique inverse; the conversion utility chooses zero.
+  assert.equal(restored.geographic.coordinates[0], 0);
+  assert.equal(restored.geographic.coordinates[1], 90);
+  // Dateline values stay near their source representation, including the sign.
+  assert.equal(restored.geographic.coordinates[3], 180);
+  // The explicit F64 height buffer avoids inverse-height roundoff.
+  for (let pointIndex = 0; pointIndex < prepared.pointCount; pointIndex += 1) {
+    const offset = pointIndex * 3;
+    assert.equal(
+      restored.geographic.coordinates[offset + 2],
+      prepared.geographic.coordinates[offset + 2],
+    );
+  }
+  // Away from the pole, longitude/latitude reconstruction is close but not an
+  // exact substitute for the original geographic transform result.
+  assert.notEqual(
+    restored.geographic.coordinates[6],
+    prepared.geographic.coordinates[6],
+  );
+  assert.ok(
+    Math.abs(
+      restored.geographic.coordinates[6] - prepared.geographic.coordinates[6],
+    ) < 1e-10,
+  );
+});
+
 test("E byte accounting counts the compatibility Source sidecar once and attributes separately", () => {
   const prepared = preparedFixture();
   const compact = createCompactEPointCacheNode(prepared, {

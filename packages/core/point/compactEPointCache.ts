@@ -34,10 +34,13 @@ export type CompactEPointProvenance = {
 };
 
 /**
- * Experimental internal E cache value. `ecef` and `height` are the compact
- * 32-byte-per-point coordinate/height representation. Exact Source XYZ stays
- * in a separate compatibility sidecar because synchronous public inspection
- * getters require it; ECEF cannot recover the source CRS values.
+ * Experimental internal E cache value. `ecef` and `height` are 32 bytes per
+ * point, but the current compatibility sidecar raises the retained coordinate
+ * footprint to 56 bytes per point before attributes. This is an explicitly
+ * documented compatibility path, not a 32-byte retained-cache result.
+ * Synchronous public inspection getters require exact Source XYZ, which ECEF
+ * cannot recover. Keep production A as the default until a source-access
+ * migration allows E to omit that sidecar.
  *
  * Point identity is `(nodeKey, zero-based point index)`. `ecef` aliases the
  * prepared ECEF backing store, while `height` is copied from the same prepared
@@ -53,7 +56,7 @@ export type CompactEPointCacheNode = {
   height: Float64Array;
   attributes?: CopcPointAttributes;
   statistics: PreparedPointStatistics;
-  /** Compatibility-only exact source values, stored outside E's 32 B/point. */
+  /** Exact source values retained by the legacy synchronous inspection path. */
   sourceCompatibility: Float64Array;
   provenance: CompactEPointProvenance;
 };
@@ -100,10 +103,12 @@ export function isCompactEPointCacheNode(
 }
 
 /**
- * Materialize the synchronous legacy contract without fabricating Source XYZ.
- * Geographic longitude and latitude come from inverse ECEF and can differ by
- * floating-point roundoff; longitude is inherently unrecoverable at a pole.
- * The original prepared height and exact Source values remain available.
+ * Materialize the legacy renderer/inspection shape without fabricating Source
+ * XYZ. Each call allocates 24 B per point for geographic triples and performs
+ * one ECEF inverse per point. Longitude and latitude may differ by floating-
+ * point roundoff; longitude is inherently unrecoverable at a pole. The
+ * prepared height and compatibility Source values remain exact. This eager
+ * adapter is a blocking limitation for promoting E to normal streaming.
  */
 export function compactEPointCacheNodeToPreparedPointData(
   value: CompactEPointCacheNode,
