@@ -49,6 +49,8 @@ export type RendererPerformanceBenchmarkRow = {
 export type RendererPerformanceBenchmarkOptions = {
   viewer?: Cesium.Viewer;
   pointCounts?: readonly number[];
+  /** Reused by paired cache-layout runs so A and E see the same input buffers. */
+  pointBuffer?: CopcPointBuffer;
   repetitions?: number;
   warmups?: number;
   colorMode?: CopcCesiumPointRendererOptions["colorMode"];
@@ -178,7 +180,8 @@ export function runSyntheticRendererPerformanceBenchmark(
   const rows: RendererPerformanceBenchmarkRow[] = [];
 
   for (const pointCount of pointCounts) {
-    const points = createDeterministicPointBuffer(pointCount);
+    const points =
+      options.pointBuffer ?? createDeterministicPointBuffer(pointCount);
     const crsValues: number[] = [];
     const materializationValues: number[] = [];
     const styleUpdateValues: number[] = [];
@@ -285,6 +288,87 @@ export function runSyntheticRendererPerformanceBenchmark(
   }
 
   return rows;
+}
+
+export type RendererLayoutComparisonRow = RendererPerformanceBenchmarkRow & {
+  comparisonOrder: Array<"A>E" | "E>A">;
+};
+
+/**
+ * Compare A and E in alternating paired runs to reduce execution-order bias.
+ * Each pair reuses the same deterministic point buffer for both layouts.
+ */
+export function runSyntheticRendererLayoutComparisonBenchmark(options: {
+  viewer?: Cesium.Viewer;
+  renderer?: RendererBenchmarkKind;
+  pointCount?: number;
+  repetitions?: number;
+  warmups?: number;
+  colorMode?: CopcCesiumPointRendererOptions["colorMode"];
+} = {}): RendererLayoutComparisonRow[] {
+  const viewer = options.viewer ?? createHeadlessViewer();
+  const pointCount = options.pointCount ?? 100_000;
+  const repetitions = Math.max(1, Math.floor(options.repetitions ?? 5));
+  const warmups = Math.max(0, Math.floor(options.warmups ?? 2));
+  const renderer = options.renderer ?? "point-primitive";
+  const comparisonOrder: Array<"A>E" | "E>A"> = [];
+  const samples: Record<"A" | "E", RendererPerformanceBenchmarkRow[]> = {
+    A: [],
+    E: [],
+  };
+
+  for (let repetition = 0; repetition < warmups + repetitions; repetition += 1) {
+    const layoutOrder: readonly ("A" | "E")[] =
+      repetition % 2 === 0 ? ["A", "E"] : ["E", "A"];
+    comparisonOrder.push(layoutOrder.join(">") as "A>E" | "E>A");
+    const pointBuffer = createDeterministicPointBuffer(pointCount);
+    for (const cacheLayout of layoutOrder) {
+      const row = runSyntheticRendererPerformanceBenchmark({
+        viewer,
+        pointBuffer,
+        pointCounts: [pointCount],
+        repetitions: 1,
+        warmups: 0,
+        renderer,
+        cacheLayout,
+        colorMode: options.colorMode,
+      })[0];
+      if (!row) throw new Error("Renderer benchmark did not return a row");
+      if (repetition >= warmups) samples[cacheLayout].push(row);
+    }
+  }
+
+  const summarizeField = (
+    rows: RendererPerformanceBenchmarkRow[],
+    field: Exclude<keyof RendererPerformanceBenchmarkRow, "renderer" | "cacheLayout" | "pointCount">,
+  ): BenchmarkRange =>
+    summarize(rows.map((row) => row[field].medianMs));
+
+  return (["A", "E"] as const).map((cacheLayout) => {
+    const rows = samples[cacheLayout];
+    const first = rows[0];
+    if (!first) throw new Error(`No measured ${cacheLayout} renderer samples`);
+    return {
+      renderer,
+      cacheLayout,
+      pointCount,
+      crsTransform: summarizeField(rows, "crsTransform"),
+      representationMaterialization: summarizeField(
+        rows,
+        "representationMaterialization",
+      ),
+      geographicToCartesian: summarizeField(rows, "geographicToCartesian"),
+      worldToCartesian: summarizeField(rows, "worldToCartesian"),
+      pointStylePreparation: summarizeField(rows, "pointStylePreparation"),
+      pointCollectionCreation: summarizeField(rows, "pointCollectionCreation"),
+      pointAdd: summarizeField(rows, "pointAdd"),
+      rendererPreparation: summarizeField(rows, "rendererPreparation"),
+      nodeReplacement: summarizeField(rows, "nodeReplacement"),
+      styleUpdate: summarizeField(rows, "styleUpdate"),
+      nodeRemoval: summarizeField(rows, "nodeRemoval"),
+      comparisonOrder,
+    };
+  });
 }
 
 /**

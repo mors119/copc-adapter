@@ -29,6 +29,7 @@ import {
 import { createCesiumViewer } from "./createViewer";
 import { createCopcDebugPanel } from "./debug/CopcDebugPanel";
 import {
+  runSyntheticRendererLayoutComparisonBenchmark,
   runSyntheticRendererPerformanceBenchmark,
   runSyntheticThreeCacheLayoutBenchmark,
   type RendererBenchmarkKind,
@@ -174,6 +175,10 @@ type CopcDebugAdapter = {
     cacheLayout?: "A" | "E",
     pointCounts?: readonly number[],
   ): ReturnType<typeof runSyntheticRendererPerformanceBenchmark>;
+  runSyntheticRendererLayoutComparisonBenchmark(
+    renderer?: RendererBenchmarkKind,
+    pointCount?: number,
+  ): ReturnType<typeof runSyntheticRendererLayoutComparisonBenchmark>;
   runSyntheticThreeCacheLayoutBenchmark(): ReturnType<
     typeof runSyntheticThreeCacheLayoutBenchmark
   >;
@@ -489,6 +494,17 @@ function installDebugAdapter(
         repetitions: 5,
         warmups: 2,
         renderer,
+      }),
+    runSyntheticRendererLayoutComparisonBenchmark: (
+      renderer = "point-primitive",
+      pointCount = 100_000,
+    ) =>
+      runSyntheticRendererLayoutComparisonBenchmark({
+        viewer,
+        renderer,
+        pointCount,
+        repetitions: 5,
+        warmups: 2,
       }),
     runSyntheticThreeCacheLayoutBenchmark: () =>
       runSyntheticThreeCacheLayoutBenchmark(),

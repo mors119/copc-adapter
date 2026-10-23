@@ -27,6 +27,10 @@ type BenchmarkDebugAdapter = {
     cacheLayout?: "A" | "E",
     pointCounts?: readonly number[],
   ): Array<Record<string, unknown>>;
+  runSyntheticRendererLayoutComparisonBenchmark(
+    renderer?: "point-primitive" | "batched-geometry",
+    pointCount?: number,
+  ): Array<Record<string, unknown>>;
   runSyntheticThreeCacheLayoutBenchmark(): Array<Record<string, unknown>>;
   setStyle(update: {
     colorMode?: "fixed" | "rgb" | "elevation" | "intensity" | "classification";
@@ -200,6 +204,20 @@ test("prints repeatable synthetic and Autzen renderer performance evidence", asy
   expect(environment.cesiumVersion).toBe(
     process.env.COPC_EXPECT_CESIUM_VERSION ?? "1.146.0",
   );
+  const pointPrimitiveLayouts = await page.evaluate(
+    () =>
+      window.__COPC_DEBUG__?.runSyntheticRendererLayoutComparisonBenchmark(
+        "point-primitive",
+        100_000,
+      ) ?? [],
+  );
+  const batchedGeometryLayouts = await page.evaluate(
+    () =>
+      window.__COPC_DEBUG__?.runSyntheticRendererLayoutComparisonBenchmark(
+        "batched-geometry",
+        100_000,
+      ) ?? [],
+  );
   const synthetic = await page.evaluate(
     () =>
       window.__COPC_DEBUG__?.runSyntheticRendererPerformanceBenchmark() ?? [],
@@ -208,22 +226,6 @@ test("prints repeatable synthetic and Autzen renderer performance evidence", asy
     () =>
       window.__COPC_DEBUG__?.runSyntheticRendererPerformanceBenchmark(
         "batched-geometry",
-      ) ?? [],
-  );
-  const compactEPointPrimitive = await page.evaluate(
-    () =>
-      window.__COPC_DEBUG__?.runSyntheticRendererPerformanceBenchmark(
-        "point-primitive",
-        "E",
-        [100_000],
-      ) ?? [],
-  );
-  const compactEBatchedGeometry = await page.evaluate(
-    () =>
-      window.__COPC_DEBUG__?.runSyntheticRendererPerformanceBenchmark(
-        "batched-geometry",
-        "E",
-        [100_000],
       ) ?? [],
   );
   const threeCacheLayouts = await page.evaluate(
@@ -291,18 +293,25 @@ test("prints repeatable synthetic and Autzen renderer performance evidence", asy
           result: synthetic.find((row) => row.pointCount === 100_000),
         },
         syntheticComparison: {
-          pointPrimitive: synthetic.find((row) => row.pointCount === 100_000),
-          pointPrimitiveCompactE: compactEPointPrimitive[0],
-          batchedGeometry: batchedSynthetic.find(
-            (row) => row.pointCount === 100_000,
+          pointPrimitiveA: pointPrimitiveLayouts.find(
+            (row) => row.cacheLayout === "A",
           ),
-          batchedGeometryCompactE: compactEBatchedGeometry[0],
+          pointPrimitiveE: pointPrimitiveLayouts.find(
+            (row) => row.cacheLayout === "E",
+          ),
+          batchedGeometryA: batchedGeometryLayouts.find(
+            (row) => row.cacheLayout === "A",
+          ),
+          batchedGeometryE: batchedGeometryLayouts.find(
+            (row) => row.cacheLayout === "E",
+          ),
           three: threeCacheLayouts,
           conditions: {
             repetitions: 5,
             warmups: 2,
             pointCount: 100_000,
-            sourceBuffer: "identical deterministic synthetic buffer per run",
+            sourceBuffer: "same deterministic synthetic buffer reused per A/E pair",
+            order: "paired A>E then E>A, alternating across all pairs",
             measures:
               "synchronous renderer preparation only; no GPU execution time",
           },
@@ -485,16 +494,51 @@ test("prints repeatable synthetic and Autzen renderer performance evidence", asy
   expect(batchedSynthetic).toHaveLength(3);
   expect(batchedSynthetic[2].pointCount).toBe(100_000);
   expect(batchedSynthetic[2].renderer).toBe("batched-geometry");
-  expect(compactEPointPrimitive[0]).toMatchObject({
+  expect(pointPrimitiveLayouts.map((row) => row.cacheLayout)).toEqual([
+    "A",
+    "E",
+  ]);
+  expect(batchedGeometryLayouts.map((row) => row.cacheLayout)).toEqual([
+    "A",
+    "E",
+  ]);
+  expect(pointPrimitiveLayouts[0]).toMatchObject({
+    cacheLayout: "A",
+    pointCount: 100_000,
+    renderer: "point-primitive",
+  });
+  expect(pointPrimitiveLayouts[1]).toMatchObject({
     cacheLayout: "E",
     pointCount: 100_000,
     renderer: "point-primitive",
   });
-  expect(compactEBatchedGeometry[0]).toMatchObject({
+  expect(batchedGeometryLayouts[0]).toMatchObject({
+    cacheLayout: "A",
+    pointCount: 100_000,
+    renderer: "batched-geometry",
+  });
+  expect(batchedGeometryLayouts[1]).toMatchObject({
     cacheLayout: "E",
     pointCount: 100_000,
     renderer: "batched-geometry",
   });
+  const expectedCesiumOrder = [
+    "A>E",
+    "E>A",
+    "A>E",
+    "E>A",
+    "A>E",
+    "E>A",
+    "A>E",
+  ];
+  expect(pointPrimitiveLayouts[0].comparisonOrder).toEqual(expectedCesiumOrder);
+  expect(pointPrimitiveLayouts[1].comparisonOrder).toEqual(expectedCesiumOrder);
+  expect(batchedGeometryLayouts[0].comparisonOrder).toEqual(
+    expectedCesiumOrder,
+  );
+  expect(batchedGeometryLayouts[1].comparisonOrder).toEqual(
+    expectedCesiumOrder,
+  );
   expect(threeCacheLayouts).toHaveLength(2);
   expect(threeCacheLayouts.map((row) => row.cacheLayout)).toEqual(["A", "E"]);
   expect(threeCacheLayouts[0].comparisonOrder).toEqual([

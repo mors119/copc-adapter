@@ -432,8 +432,21 @@ function installStartupInstrumentation(): void {
         get(targetWorker, property) {
           if (property === "postMessage") {
             return (message: unknown, transfer?: Transferable[]) => {
-              const startedAt = performance.now();
               const bytes = uniqueTransferBytes(transfer);
+              const type =
+                typeof message === "object" &&
+                message !== null &&
+                "type" in message &&
+                typeof message.type === "string"
+                  ? message.type
+                  : "unknown";
+              const id =
+                typeof message === "object" &&
+                message !== null &&
+                "id" in message &&
+                typeof message.id === "number"
+                  ? message.id
+                  : undefined;
               if (
                 typeof message === "object" &&
                 message !== null &&
@@ -447,27 +460,17 @@ function installStartupInstrumentation(): void {
                 );
                 profile.workerInitializations.push(initialization);
               }
+              const startedAt = performance.now();
               const result = targetWorker.postMessage(message, transfer ?? []);
+              const endedAt = performance.now();
               if (bytes > 0) {
                 profile.workerTransferEvents.push({
                   direction: "toWorker",
-                  type:
-                    typeof message === "object" &&
-                    message !== null &&
-                    "type" in message &&
-                    typeof message.type === "string"
-                      ? message.type
-                      : "unknown",
-                  id:
-                    typeof message === "object" &&
-                    message !== null &&
-                    "id" in message &&
-                    typeof message.id === "number"
-                      ? message.id
-                      : undefined,
+                  type,
+                  id,
                   at: startedAt,
                   bytes,
-                  postMessageDurationMs: performance.now() - startedAt,
+                  postMessageDurationMs: endedAt - startedAt,
                 });
               }
               return result;

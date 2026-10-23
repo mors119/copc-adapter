@@ -26,7 +26,10 @@ transient preparation memory for E. Those gaps prevent a safe default decision.
 | Full measurement source revision | `e832bb653866964fac2984ece59d506893f5dd7c` (5 warm-ups, 15 samples) |
 | Node benchmark harness SHA-256 (full measurement) | `cd38ce8add88b55c57f57c749ca0614f87826dc94a2beee082f8a48426a3d5f8` (`packages/scripts/cache-representation-performance-benchmark.mjs`) |
 | Node harness SHA-256 (layout-specific metadata) | `7117b43670a93dbc7498153ebcc7e8be5bcb76e91cb82d7eade86eb853a63358` at `0c232496ab03689a6163d52608d5b95d84c2f502`; metadata smoke check used 0 warm-ups and 1 sample |
-| Browser benchmark harness SHA-256 | `d85362ae194068d603ea29faeebfbd91d1a0ae456d0e05cfcb9ddd671e0585f0` (`apps/dev-viewer/src/rendererPerformanceBenchmark.ts`) |
+| Browser benchmark harness SHA-256 (original run) | `d85362ae194068d603ea29faeebfbd91d1a0ae456d0e05cfcb9ddd671e0585f0` (`apps/dev-viewer/src/rendererPerformanceBenchmark.ts`) |
+| Review follow-up Cesium harness SHA-256 | `e647deec480f7cbcc59b573d196cc1085cbb01c084bf9d4c2e907a2c114a6dda` (`apps/dev-viewer/src/rendererPerformanceBenchmark.ts`); `f01b5aa73eb4c1802f00a0502ac7303413211fadef06a1239f75287baa1e3071` (`apps/dev-viewer/e2e/renderer-performance.spec.ts`) |
+| Review follow-up Worker instrumentation SHA-256 | `a06fc5de333557cc07be592fa56e8bfd210cc633a7c4666dee88096700c9d9b7` (`apps/dev-viewer/e2e/streaming-performance.spec.ts`) |
+| Review follow-up debug wiring SHA-256 | `91a99dd1391ec849a295dc51f6d5496980a930dcb3d8e14229c03facf1d607ed` (`apps/dev-viewer/src/main.ts`) |
 | Node runtime | Node.js `v26.12.1`, V8 `14.6.202.34-node.40`, macOS `25.6.0`, arm64 |
 | Machine | Apple M2, 8 logical CPUs, 8 GiB RAM |
 | Rust/WASM | rustc `1.92.0`; COPC adapter WASM 850,535 bytes; laz-perf WASM 214,351 bytes |
@@ -36,7 +39,13 @@ transient preparation memory for E. Those gaps prevent a safe default decision.
 | Transform | Same forward transform result per comparison; no height offset or geoid grid |
 | Samples | Autzen: 81,123,042 bytes, SHA-256 `db2d56cdfa058bffccdc5d6019dae2fc9c6a551df10a5523c06c76a3e25a27fa`; SoFi: 2,029,696,615 bytes, SHA-256 `fd6848a0eaee3e21f7ce3a91af44ed3ae06ae8439b7f65828b4a5d956685f699` |
 | Browser | Playwright Headless Chrome 155, DPR 1, 1280×720, 8 reported logical CPUs; Apple M2 host; hardware-GL mode requested; WebGL renderer query unavailable |
-| Browser repetitions | Synthetic renderer comparison: 2 warm-ups and 5 measured runs; first-visible: 5 cold and 5 warm measured runs after one unreported warm-up |
+| Review follow-up browser | Playwright Headless Chrome 155.0.8059.85, DPR 1, 1280×720, Apple M2; SwiftShader used by the synthetic renderer test; worker timing test used the same Playwright default |
+| Browser repetitions | Synthetic renderer comparison: 2 paired warm-ups and 5 paired measured runs; first-visible: 5 cold and 5 warm measured runs after one unreported warm-up |
+
+The 2026-10-24 browser follow-up ran from `apps/dev-viewer` with
+`npx playwright test e2e/renderer-performance.spec.ts --grep 'prints repeatable synthetic and Autzen renderer performance evidence' --reporter=line`
+and
+`COPC_FIRST_VISIBLE_BENCHMARK=1 npx playwright test e2e/streaming-performance.spec.ts --grep 'records first-visible startup latency on Autzen' --workers=1 --reporter=line`.
 
 The Node benchmark reuses PR #329's runner and report. A/B/D/E candidates use
 the same transformed positions and requested attributes. D is only a research
@@ -204,18 +213,19 @@ hierarchy bins rather than production camera/NodeSelector behavior.
 
 ### Browser measurements
 
-The browser synthetic comparison used five measured runs after two warm-ups;
-`median` is p50 and `max` is the empirical nearest-rank p95 for n=5. These are
-synchronous CPU preparation timings. The renderer creates objects and buffers
-but does not keep them alive for a GPU draw, so this comparison has no frame,
-upload, or GPU-memory result.
+The browser synthetic comparison used five measured runs after two paired
+warm-ups; `median` is p50 and `max` is the empirical nearest-rank p95 for n=5.
+Cesium A/E pairs shared the same deterministic point buffer, and layout order
+alternated on every pair. These are synchronous CPU preparation timings. The
+renderer creates objects and buffers but does not keep them alive for a GPU
+draw, so this comparison has no frame, upload, or GPU-memory result.
 
 | Renderer, 100k points | Layout | Representation materialization p50 / max | Renderer preparation p50 / max | Main conversion or style p50 / max |
 | --- | --- | ---: | ---: | ---: |
-| Cesium point primitive | A | 0 / 0 ms | 25.2 / 28.1 ms | ECEF-to-Cartesian 2.4 / 3.6 ms; style 4.4 / 6.5 ms |
-| Cesium point primitive | E | 0.3 / 0.6 ms | 22.5 / 26.1 ms | ECEF-to-Cartesian 2.0 / 2.7 ms; style 4.3 / 6.6 ms |
-| Cesium batched geometry | A | 0 / 0 ms | 3.1 / 3.6 ms | ECEF-to-Cartesian 0.9 / 1.0 ms; style 2.0 / 2.4 ms |
-| Cesium batched geometry | E | 0.1 / 0.3 ms | 3.4 / 3.9 ms | ECEF-to-Cartesian 0.9 / 0.9 ms; style 2.3 / 2.7 ms |
+| Cesium point primitive | A | 0 / 0 ms | 24.1 / 38.0 ms | ECEF-to-Cartesian 1.1 / 1.1 ms; style 4.9 / 5.8 ms |
+| Cesium point primitive | E | 0.4 / 0.5 ms | 24.5 / 30.1 ms | ECEF-to-Cartesian 1.4 / 3.6 ms; style 3.3 / 8.5 ms |
+| Cesium batched geometry | A | 0 / 0 ms | 3.8 / 4.1 ms | ECEF-to-Cartesian 1.2 / 1.3 ms; style 2.3 / 2.6 ms |
+| Cesium batched geometry | E | 0.1 / 0.2 ms | 4.4 / 4.4 ms | ECEF-to-Cartesian 1.3 / 1.7 ms; style 2.5 / 2.9 ms |
 | Three.js geometry preparation | A | 0 / 0 ms | 6.9 / 7.0 ms | World-to-local 1.0 / 1.0 ms; geometry 3.5 / 3.7 ms |
 | Three.js geometry preparation | E | 0.1 / 0.3 ms | 6.8 / 7.3 ms | World-to-local 0.9 / 1.0 ms; geometry 3.6 / 3.9 ms |
 
@@ -225,9 +235,11 @@ conditions were 40 ms RTT, 50 Mbit/s download, 10 Mbit/s upload, local HTTP 206
 Range responses, five cold runs, and five warm reloads after one unreported
 warm-up.
 
-The Three.js A/E sample order was counterbalanced per repetition as A→E, E→A,
-then alternating for all seven warm-up and measured pairs. Its updated results
-are effectively tied; the earlier all-A-then-all-E timing order is superseded.
+Both Cesium and Three.js A/E sample orders were counterbalanced per repetition
+as A→E, E→A, then alternating for all seven warm-up and measured pairs. Each
+Cesium pair reused the same deterministic point buffer. The reported Cesium
+values above replace the earlier fixed-order samples. Three.js results are
+effectively tied; the earlier all-A-then-all-E timing order is superseded.
 
 | A browser first-visible metric | Cold p50 / p95 | Warm p50 / p95 |
 | --- | ---: | ---: |
@@ -243,15 +255,17 @@ are effectively tied; the earlier all-A-then-all-E timing order is superseded.
 | GL upload bytes before first draw p50 / p95 | 5,956,948 / 5,956,996 B | 5,956,276 / 6,051,288 B |
 | GL upload API time p50 / p95 | 1.0 / 1.4 ms | 0.9 / 1.6 ms |
 
-Across five measured runs in each group, worker transfer instrumentation
-observed the following total unique buffer bytes. `postMessage` timing is the
-synchronous call only; it excludes worker execution and response delivery.
+The initial Task 3 run started its `postMessage` timer before transfer-byte
+accounting and therefore overstated the synchronous call duration. The
+2026-10-24 review follow-up reran the five cold and five warm Autzen samples
+with the timer immediately around the native call. Transfer totals below are
+from that rerun; timings exclude worker execution and response delivery.
 
 | Direction / message | Cold events / bytes | Warm events / bytes | postMessage p95, cold / warm |
 | --- | ---: | ---: | ---: |
-| Main → worker initialization | 20 / 17,045,420 B | 20 / 17,045,420 B | 0.1 / 0.2 ms |
-| Main → worker prepare | 35 / 12,193,170 B | 40 / 13,646,190 B | 0.1 / 0.1 ms |
-| Worker → main result | 35 / 89,987,517 B | 40 / 100,782,144 B | n/a |
+| Main → worker initialization | 20 / 17,045,420 B | 20 / 17,045,420 B | 0.1 / 0 ms |
+| Main → worker prepare | 55 / 18,005,250 B | 55 / 18,005,250 B | 0.2 / 0.1 ms |
+| Worker → main result | 55 / 133,166,025 B | 55 / 133,166,025 B | n/a |
 
 These A-path result transfers carry Source, Geographic, ECEF, and requested
 attribute buffers. No browser E worker transfer, E first-visible timing,
@@ -289,6 +303,7 @@ transfer accounting before considering any default switch.
 - Focused Rust/JavaScript backend conformance test: 10 passed, 0 failed.
 - Dev-viewer production build and production-mode benchmark build passed.
 - Synthetic Cesium/Three A/E renderer benchmark: 1 browser test passed with counterbalanced Three A/E order; A-only first-visible benchmark: 1 browser test passed (5 cold + 5 warm measured runs).
+- Review follow-up: counterbalanced Cesium A/E renderer benchmark passed (two paired warm-ups and five measured pairs per renderer); corrected Worker call timing benchmark passed (5 cold + 5 warm Autzen runs).
 - Final Node benchmark rerun passed with sequential cache-timing samples and the added byte-bound sensitivity replay.
 - `npm run test:pack` passed its packed root and Cesium consumer suites; `npm run test:pack:three` passed the packed Three consumer build.
 - Rust/WASM release builds completed through the package build and packed-consumer workflows.
