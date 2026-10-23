@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { findUnexpectedAdapterModules } from "../scripts/bundle-provenance.mjs";
 import {
   ADAPTER_PACKAGE_NAME,
   assertRegistryReleaseMatchesLock,
@@ -82,5 +83,49 @@ test("labels workspace and candidate installs by their actual lockfile origin", 
       "0.6.0",
     ),
     "Workspace/local",
+  );
+});
+
+test("rejects mixed local and packed-candidate adapter modules but allows shared UI", () => {
+  const appDirectory = "/repo/apps/playground";
+  const installedPackage = `${appDirectory}/node_modules/@frillab/copc-adapter`;
+  const localAdapterSource = "/repo/packages/core/streaming/CopcStreamingCore.ts";
+  const packedCandidate =
+    "/tmp/copc-adapter-packed-consumer-123/node_modules/@frillab/copc-adapter/dist/cesium.js";
+  const extractedCandidate =
+    "/tmp/copc-adapter-pack-123/package/dist/three.js";
+  const unexpected = findUnexpectedAdapterModules(
+    [
+      `${installedPackage}/dist/cesium.js`,
+      `${installedPackage}/dist/three.js`,
+      "/repo/apps/shared/src/ViewerControls.tsx",
+      localAdapterSource,
+      packedCandidate,
+      extractedCandidate,
+    ],
+    {
+      adapterPackageRoot: installedPackage,
+      repositoryPackageRoot: "/repo/packages",
+      candidateArtifactsRoot: "/repo/.ci-artifacts",
+    },
+  );
+
+  assert.deepEqual(unexpected, [
+    localAdapterSource,
+    packedCandidate,
+    extractedCandidate,
+  ]);
+});
+
+test("rejects adapter code loaded from candidate artifacts", () => {
+  const candidateModule = "/repo/.ci-artifacts/candidate/dist/core/streaming.js";
+  assert.deepEqual(
+    findUnexpectedAdapterModules([candidateModule], {
+      adapterPackageRoot:
+        "/repo/apps/playground/node_modules/@frillab/copc-adapter",
+      repositoryPackageRoot: "/repo/packages",
+      candidateArtifactsRoot: "/repo/.ci-artifacts",
+    }),
+    [candidateModule],
   );
 });

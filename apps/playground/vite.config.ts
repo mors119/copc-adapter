@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import cesium from "vite-plugin-cesium";
+import { findUnexpectedAdapterModules } from "./scripts/bundle-provenance.mjs";
 import { classifyAdapterSource } from "./scripts/package-provenance.mjs";
 
 export const PLAYGROUND_BASE = "/copc-adapter/playground/";
@@ -42,6 +43,20 @@ function assertAdapterBundleResolution() {
       const packageRoot = pathForPackage(
         "./node_modules/@frillab/copc-adapter",
       );
+      const unexpectedModules = findUnexpectedAdapterModules(
+        this.getModuleIds(),
+        {
+          adapterPackageRoot: packageRoot,
+          repositoryPackageRoot: pathForPackage("../../packages"),
+          candidateArtifactsRoot: pathForPackage("../../.ci-artifacts"),
+        },
+      );
+      if (unexpectedModules.length > 0) {
+        this.error(
+          `Playground bundle includes adapter implementation outside the installed npm release: ${unexpectedModules.slice(0, 5).join(", ")}`,
+        );
+      }
+
       const packagePrefix = `${packageRoot}/`;
       const adapterModules = [...this.getModuleIds()].filter((moduleId) =>
         moduleId.replaceAll("\\", "/").startsWith(packagePrefix),
