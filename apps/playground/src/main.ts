@@ -584,8 +584,9 @@ const colorControl = mountSegmentedControl<PlaygroundColorMode>(
 );
 
 const updateColorChoices = (pointFormat?: number): void => {
+  const formatKnown = pointFormat !== undefined;
   const rgbSupported =
-    pointFormat !== undefined && knownRgbFormats.has(pointFormat & 0x3f);
+    formatKnown && knownRgbFormats.has(pointFormat & 0x3f);
   const choices: readonly UiSegmentOption<PlaygroundColorMode>[] = [
     { value: "fixed", label: "Fixed" },
     { value: "elevation", label: "Elevation" },
@@ -594,14 +595,16 @@ const updateColorChoices = (pointFormat?: number): void => {
     {
       value: "rgb",
       label: "RGB",
-      disabled: !rgbSupported,
+      disabled: formatKnown && !rgbSupported,
       title: rgbSupported
         ? undefined
-        : "This dataset format does not advertise RGB channels.",
+        : formatKnown
+          ? "This dataset format does not advertise RGB channels."
+          : undefined,
     },
   ];
   colorControl.setOptions(choices);
-  if (colorMode === "rgb" && !rgbSupported) {
+  if (formatKnown && colorMode === "rgb" && !rgbSupported) {
     colorMode = "elevation";
     colorControl.setValue(colorMode);
   }
@@ -849,7 +852,7 @@ async function copyWithFeedback(
 }
 
 function createShareUrl(): string {
-  const config = appliedConfig ?? defaultIntegrationConfig;
+  const config = appliedConfig ?? captureWorkbenchConfig();
   const sourceUrl =
     shareSourceInput.checked && typeof appliedSource === "string"
       ? appliedSource

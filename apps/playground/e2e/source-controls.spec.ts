@@ -467,7 +467,7 @@ test("renderer, backend, and color controls stay keyboard-accessible without cha
   );
 
   const colors = page.getByRole("radiogroup", { name: "Color mode" });
-  await expect(colors.getByRole("radio", { name: "RGB" })).toBeDisabled();
+  await expect(colors.getByRole("radio", { name: "RGB" })).toBeEnabled();
   await expect(page.getByRole("slider", { name: "Point size" })).toHaveValue(
     "3",
   );

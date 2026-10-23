@@ -1,4 +1,10 @@
 import { expect, test } from "@playwright/test";
+import { execFileSync } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const playgroundDir = fileURLToPath(new URL("..", import.meta.url));
 
 type RefinementConfig = {
   algorithm: "foveated" | "screen-projection";
@@ -88,6 +94,7 @@ test("generates deterministic public Cesium and Three.js snippets with defaults 
   expect(threeCode).toContain("@frillab/copc-adapter/three");
   expect(threeCode).toContain("OrbitControls");
   expect(threeCode).toContain("await layer.update()");
+  expect(threeCode).toContain("window.addEventListener('resize', resize)");
   expect(threeCode).toContain("maxDepth: 7");
   expect(threeCode).toContain("maxScreenSpaceError: 6");
   expect(threeCode).toContain("maxRenderDistanceMeters: 20000");
@@ -112,6 +119,224 @@ test("generates deterministic public Cesium and Three.js snippets with defaults 
     expect(code).toContain(`colorMode: '${colorMode}'`);
   }
 });
+
+test(
+  "generated Cesium and Three.js snippets compile against the installed package",
+  async ({ page }) => {
+    test.setTimeout(60_000);
+    await page.goto("./");
+    const snippets = await page.evaluate(() => {
+      const hooks = (
+        window as Window & {
+          __COPC_PLAYGROUND_TEST__?: {
+            generateIntegrationCode(options: Record<string, unknown>): string;
+          };
+        }
+      ).__COPC_PLAYGROUND_TEST__;
+      if (!hooks) throw new Error("Playground test hooks are unavailable");
+      const refinementConfig = {
+        algorithm: "foveated",
+        focusMode: "pinned",
+        focusEnabled: true,
+        showGuide: true,
+        center: { x: 0.4, y: 0.6 },
+        radius: 0.2,
+        detailBias: 1.5,
+      };
+      const make = (
+        renderer: "cesium" | "three",
+        mode: "minimal" | "explicit",
+        localFile: boolean,
+      ) => ({
+        config: {
+          renderer,
+          backend: "rust",
+          colorMode: "elevation",
+          pointSize: 7,
+          maxNodes: 32,
+          maxRenderedPoints: 500_000,
+          refinementAlgorithm: "foveated",
+          refinementConfig,
+        },
+        source: localFile
+          ? new File(["local bytes"], "area.copc.laz")
+          : "https://example.com/area.copc.laz",
+        adapterVersion: "0.6.0",
+        mode,
+      });
+      return [
+        {
+          name: "cesium-minimal-url",
+          code: hooks.generateIntegrationCode(
+            make("cesium", "minimal", false),
+          ),
+        },
+        {
+          name: "cesium-explicit-url",
+          code: hooks.generateIntegrationCode(
+            make("cesium", "explicit", false),
+          ),
+        },
+        {
+          name: "three-minimal-url",
+          code: hooks.generateIntegrationCode(make("three", "minimal", false)),
+        },
+        {
+          name: "three-explicit-url",
+          code: hooks.generateIntegrationCode(
+            make("three", "explicit", false),
+          ),
+        },
+        {
+          name: "cesium-file",
+          code: hooks.generateIntegrationCode(make("cesium", "explicit", true)),
+        },
+        {
+          name: "three-file",
+          code: hooks.generateIntegrationCode(make("three", "minimal", true)),
+        },
+      ];
+    });
+    const fixtureDir = await mkdtemp(
+      join(playgroundDir, "node_modules", ".copc-generated-code-"),
+    );
+    try {
+      const files = await Promise.all(
+        snippets.map(async ({ name, code }) => {
+          const file = join(fixtureDir, `${name}.ts`);
+          await writeFile(file, code, "utf8");
+          return file;
+        }),
+      );
+      execFileSync(
+        process.execPath,
+        [
+          join(playgroundDir, "node_modules/typescript/bin/tsc"),
+          "--ignoreConfig",
+          "--noEmit",
+          "--target", "ES2022",
+          "--module", "ESNext",
+          "--moduleResolution", "Bundler",
+          "--lib", "ES2022,DOM,DOM.Iterable",
+          "--skipLibCheck",
+          "--strict",
+          "--types", "vite/client",
+          ...files,
+        ],
+        { cwd: playgroundDir, encoding: "utf8", stdio: "pipe" },
+      );
+    } catch (error) {
+      const diagnostics =
+        error instanceof Error && "stderr" in error
+          ? `stdout:\n${String("stdout" in error ? error.stdout : "")}\nstderr:\n${String(error.stderr)}`
+          : String(error);
+      throw new Error(
+        `Generated TypeScript snippets failed to compile:\n${diagnostics}`,
+        { cause: error },
+      );
+    } finally {
+      await rm(fixtureDir, { recursive: true, force: true });
+    }
+  },
+);
+
+test("keeps a shared RGB mode until source metadata is available", async ({ page }) => {
+  await page.goto("./?renderer=cesium&colorMode=rgb");
+  const rgbChoice = page.getByRole("radio", { name: "RGB" });
+  await expect(rgbChoice).toHaveAttribute("aria-checked", "true");
+  await expect(rgbChoice).toBeEnabled();
+
+  await page.evaluate(() => {
+    const hooks = (
+      window as Window & {
+        __COPC_PLAYGROUND_TEST__?: { useCameraResetLayerMock(): void };
+      }
+    ).__COPC_PLAYGROUND_TEST__;
+    hooks?.useCameraResetLayerMock();
+  });
+  const rgbCopcFile = Buffer.alloc(256);
+  rgbCopcFile.writeUInt8(2, 104);
+  await page.locator("#copc-file").setInputFiles({
+    name: "rgb-format.copc.laz",
+    mimeType: "application/octet-stream",
+    buffer: rgbCopcFile,
+  });
+  await expect(page.locator("#source-status")).toHaveText("Loaded rgb-format.copc.laz");
+  await expect(rgbChoice).toHaveAttribute("aria-checked", "true");
+  await expect(rgbChoice).toBeEnabled();
+
+  const nonRgbCopcFile = Buffer.alloc(256);
+  nonRgbCopcFile.writeUInt8(0, 104);
+  await page.locator("#copc-file").setInputFiles({
+    name: "non-rgb-format.copc.laz",
+    mimeType: "application/octet-stream",
+    buffer: nonRgbCopcFile,
+  });
+  await expect(page.locator("#source-status")).toHaveText(
+    "Loaded non-rgb-format.copc.laz",
+  );
+  await expect(page.getByRole("radio", { name: "Elevation" })).toHaveAttribute(
+    "aria-checked",
+    "true",
+  );
+  await expect(rgbChoice).toBeDisabled();
+});
+
+test(
+  "re-shares restored settings when no source has been applied",
+  async ({ page }) => {
+    await page.addInitScript(() => {
+      let copied = "";
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: {
+          writeText: async (value: string) => {
+            copied = value;
+          },
+        },
+      });
+      (window as Window & { __getCopiedText?: () => string }).__getCopiedText =
+        () => copied;
+    });
+    await page.goto(
+      "./?renderer=three&backend=rust&colorMode=intensity&pointSize=7&maxNodes=32&maxRenderedPoints=500000",
+    );
+    await page.getByRole("button", { name: "Copy share link" }).click();
+    await expect(page.locator("#copy-share-link")).toHaveText("Copied");
+    const copiedUrl = await page.evaluate(() =>
+      (window as Window & { __getCopiedText?: () => string })
+        .__getCopiedText?.(),
+    );
+    expect(copiedUrl).toBeTruthy();
+    const copiedParams = new URL(copiedUrl!).searchParams;
+    expect(copiedParams.get("renderer")).toBe("three");
+    expect(copiedParams.get("backend")).toBe("rust");
+    expect(copiedParams.get("colorMode")).toBe("intensity");
+    expect(copiedParams.get("pointSize")).toBe("7");
+    expect(copiedParams.get("maxNodes")).toBe("32");
+    expect(copiedParams.get("maxRenderedPoints")).toBe("500000");
+
+    await page.goto(copiedUrl!);
+    await expect(
+      page
+        .getByRole("radiogroup", { name: "Renderer" })
+        .getByRole("radio", { name: "Three.js" }),
+    ).toHaveAttribute("aria-checked", "true");
+    await expect(
+      page
+        .getByRole("radiogroup", { name: "COPC backend" })
+        .getByRole("radio", { name: "Rust / WASM" }),
+    ).toHaveAttribute("aria-checked", "true");
+    await expect(page.getByRole("slider", { name: "Point size" })).toHaveValue(
+      "7",
+    );
+    await expect(
+      page
+        .getByRole("radiogroup", { name: "Color mode" })
+        .getByRole("radio", { name: "Intensity" }),
+    ).toHaveAttribute("aria-checked", "true");
+  },
+);
 
 test("generates Cesium classification include, exclude, and clear calls after attachment", async ({ page }) => {
   await page.goto("./");
