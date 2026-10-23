@@ -4,6 +4,7 @@ import type {
   GeographicPointBuffer,
 } from "../../core/copc/types/copc";
 import type { CopcElevationRange } from "../../core/point/style/pointStyle";
+import { getCompactEPreparedHeightBuffer } from "../../core/point/compactEPointCache";
 import {
   getPointColor,
   type CopcColorMode,
@@ -184,9 +185,12 @@ export function renderCopcPoints(
     );
 
     const styleStartedAt = performanceNow();
+    const compactHeights = getCompactEPreparedHeightBuffer(points);
     const colors = positions.map((_, index) =>
       getPointColor(
-        points.coordinates[index * 3 + 2],
+        compactHeights
+          ? compactHeights[index]
+          : points.coordinates[index * 3 + 2],
         styleOptions,
         points.attributes,
         index,

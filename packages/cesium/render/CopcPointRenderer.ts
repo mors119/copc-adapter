@@ -4,6 +4,7 @@ import type {
   PreparedPointData,
 } from "../../core/copc/types/copc";
 import type { CopcPointPickId } from "../../core/copc/points/pointInspection";
+import { getCompactEPreparedHeightBuffer } from "../../core/point/compactEPointCache";
 import { performanceNow } from "../../core/copc/performance";
 import type {
   CopcPointRenderer,
@@ -204,13 +205,16 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
       elevationRange: options.elevationRange,
       rgbMax: options.rgbMax,
     });
+    const compactHeights = getCompactEPreparedHeightBuffer(points);
     let visiblePointCount = 0;
     for (let index = 0; index < points.pointCount; index += 1) {
       const primitive = collection.get(index);
       const visible = options.pointFilter?.(index) ?? true;
       primitive.show = visible;
       primitive.color = getPointColor(
-        points.coordinates[index * 3 + 2],
+        compactHeights
+          ? compactHeights[index]
+          : points.coordinates[index * 3 + 2],
         styleOptions,
         points.attributes,
         index,

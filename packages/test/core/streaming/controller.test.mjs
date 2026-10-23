@@ -13,6 +13,7 @@ import {
   geographicToEcef,
 } from "../../../core/streaming/view.ts";
 import { createPreparedPointData } from "../../../core/point/preparedPoint.ts";
+import { getCompactEPreparedHeightBuffer } from "../../../core/point/compactEPointCache.ts";
 import { createPredictedStreamingView } from "../../../core/streaming/predictivePrefetch.ts";
 import { loadGtxGeoidGrid } from "../../../core/coordinates/transform/verticalGrid.ts";
 
@@ -385,7 +386,7 @@ test("shared streaming core applies a grid once after prepared Rust-style output
   core.destroy();
 });
 
-test("internal E streaming path keeps exact Source inspection and 32-byte E buffers", async () => {
+test("internal E streaming path preserves exact coordinates and reuses prepared height without re-decoding", async () => {
   const geographicCoordinates = new Float64Array([10.005, 20.005, 150.125]);
   const world = geographicToEcef({
     longitude: geographicCoordinates[0],
@@ -393,15 +394,18 @@ test("internal E streaming path keeps exact Source inspection and 32-byte E buff
     height: geographicCoordinates[2],
   });
   const sourceCoordinates = new Float64Array([500.25, 600.5, 7.75]);
+  let preparedPointLoadCount = 0;
   const source = createSourceFactory({
     prepared: true,
-    onPreparedPointLoad: () =>
-      createPreparedPointData({
+    onPreparedPointLoad: () => {
+      preparedPointLoadCount += 1;
+      return createPreparedPointData({
         pointCount: 1,
         sourceCoordinates: sourceCoordinates.slice(),
         geographicCoordinates,
         worldCoordinates: new Float64Array([world.x, world.y, world.z]),
-      }),
+      });
+    },
   });
   const core = createExperimentalCompactEStreamingCore({
     url: "memory://compact-e.copc.laz",
@@ -428,6 +432,10 @@ test("internal E streaming path keeps exact Source inspection and 32-byte E buff
   assert.equal(cachedPrepared.coordinates, cachedPrepared.geographic.coordinates);
   assert.equal(cachedPrepared.sourceCoordinates, cachedPrepared.source.coordinates);
   assert.equal(cachedPrepared.worldCoordinates, cachedPrepared.world.coordinates);
+  assert.deepEqual(
+    [...update.loadedNodePoints.get(ROOT_KEY).geographic.coordinates],
+    [...cachedPrepared.geographic.coordinates],
+  );
 
   const inspection = inspectCopcPoint(
     { nodeKey: ROOT_KEY, pointIndex: 0 },
@@ -437,8 +445,183 @@ test("internal E streaming path keeps exact Source inspection and 32-byte E buff
   );
   assert.deepEqual(inspection.source, { x: 500.25, y: 600.5, z: 7.75 });
   assert.equal(inspection.height, 150.125);
-  assert.equal(core.getSnapshot().pointCache.currentCacheBytes, 56);
+  assert.equal(core.getSnapshot().pointCache.currentCacheBytes, 80);
+  assert.equal(preparedPointLoadCount, 1);
+
+  const cacheHitsBefore = core.getSnapshot().pointCache.hits;
+  await core.updateView(createView({ longitude: 10.006 }));
+  assert.equal(preparedPointLoadCount, 1);
+  assert.ok(core.getSnapshot().pointCache.hits > cacheHitsBefore);
+  assert.deepEqual(
+    [...core.getCachedPreparedPointData(ROOT_KEY).geographic.coordinates],
+    [...geographicCoordinates],
+  );
   core.destroy();
+});
+
+test("experimental E keeps height and ECEF synchronized across positive and negative offsets", async () => {
+  for (const heightOffsetMeters of [25, -13.75]) {
+    const source = createSourceFactory({ prepared: true });
+    const core = createExperimentalCompactEStreamingCore({
+      url: `memory://compact-e-offset-${heightOffsetMeters}.copc.laz`,
+      backend: source.backend,
+      decoder: undefined,
+      heightOffsetMeters,
+      streaming: {
+        maxNodes: 8,
+        maxDepth: 0,
+        maxRenderDistanceMeters: 12_000,
+        maxScreenSpaceError: 8,
+        maxPointsPerBatch: 1,
+      },
+    });
+
+    await core.load();
+    await core.updateView(createView());
+    const prepared = core.getCachedPreparedPointData(ROOT_KEY);
+    const compactHeight = getCompactEPreparedHeightBuffer(prepared);
+    const expectedHeight = 150 + heightOffsetMeters;
+    const expectedWorld = geographicToEcef({
+      longitude: 10.005,
+      latitude: 20.005,
+      height: expectedHeight,
+    });
+
+    assert.ok(compactHeight instanceof Float64Array);
+    assert.equal(compactHeight[0], expectedHeight);
+    assert.equal(prepared.geographic.coordinates[2], compactHeight[0]);
+    assert.deepEqual(
+      [...prepared.world.coordinates],
+      [expectedWorld.x, expectedWorld.y, expectedWorld.z],
+    );
+    assert.deepEqual([...prepared.source.coordinates], [10.005, 20.005, 150]);
+    core.destroy();
+    assert.equal(core.getCachedPreparedPointData(ROOT_KEY), undefined);
+  }
+});
+
+test("experimental E applies an opt-in geoid correction once after backend height offset", async () => {
+  const wkt =
+    'COMPD_CS["WGS 84 + Local orthometric height",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],VERT_CS["Local orthometric height",VERT_DATUM["Local vertical datum",2005],UNIT["metre",1],AXIS["Gravity-related height",UP]]]';
+  const geographicCoordinates = new Float64Array([10.005, 20.005, 155]);
+  const backendWorld = geographicToEcef({
+    longitude: geographicCoordinates[0],
+    latitude: geographicCoordinates[1],
+    height: geographicCoordinates[2],
+  });
+  const source = createSourceFactory({
+    metadata: createMetadata(wkt),
+    prepared: true,
+    preparedHeightOffsetMeters: 5,
+    onPreparedPointLoad: () =>
+      createPreparedPointData({
+        pointCount: 1,
+        sourceCoordinates: new Float64Array([10.005, 20.005, 150]),
+        geographicCoordinates,
+        worldCoordinates: new Float64Array([
+          backendWorld.x,
+          backendWorld.y,
+          backendWorld.z,
+        ]),
+      }),
+  });
+  const verticalGrid = await createSyntheticVerticalGrid();
+  const core = createExperimentalCompactEStreamingCore({
+    url: "memory://compact-e-geoid.copc.laz",
+    backend: source.backend,
+    decoder: undefined,
+    heightOffsetMeters: 5,
+    verticalTransform: verticalGrid,
+    streaming: {
+      maxNodes: 8,
+      maxDepth: 0,
+      maxRenderDistanceMeters: 12_000,
+      maxScreenSpaceError: 8,
+      maxPointsPerBatch: 1,
+    },
+  });
+
+  await core.load();
+  await core.updateView(createView());
+  const prepared = core.getCachedPreparedPointData(ROOT_KEY);
+  const compactHeight = getCompactEPreparedHeightBuffer(prepared);
+  const expectedWorld = geographicToEcef({
+    longitude: 10.005,
+    latitude: 20.005,
+    height: 180,
+  });
+  assert.equal(compactHeight[0], 180);
+  assert.equal(prepared.geographic.coordinates[2], compactHeight[0]);
+  assert.deepEqual(
+    [...prepared.world.coordinates],
+    [expectedWorld.x, expectedWorld.y, expectedWorld.z],
+  );
+  assert.deepEqual([...prepared.source.coordinates], [10.005, 20.005, 150]);
+  core.destroy();
+});
+
+test("experimental E preserves A selection, replacement, and cache reuse across LoD updates", async () => {
+  const createPair = () => {
+    const sourceA = createSourceFactory({ paged: true, prepared: true });
+    const sourceE = createSourceFactory({ paged: true, prepared: true });
+    const streaming = {
+      maxNodes: 8,
+      maxDepth: 1,
+      maxRenderDistanceMeters: 12_000,
+      maxScreenSpaceError: 8,
+      maxPointsPerBatch: 2,
+    };
+    return [
+      new CopcStreamingCore({
+        url: "memory://layout-a-lod.copc.laz",
+        backend: sourceA.backend,
+        decoder: undefined,
+        streaming,
+      }),
+      createExperimentalCompactEStreamingCore({
+        url: "memory://layout-e-lod.copc.laz",
+        backend: sourceE.backend,
+        decoder: undefined,
+        streaming,
+      }),
+    ];
+  };
+  const [coreA, coreE] = createPair();
+  await Promise.all([coreA.load(), coreE.load()]);
+  const nearView = createView({ viewDistanceMeters: 500 });
+  const firstA = await coreA.updateView(nearView);
+  const firstE = await coreE.updateView(nearView);
+  const fartherView = createView({ viewDistanceMeters: 600 });
+  const secondA = await coreA.updateView(fartherView);
+  const secondE = await coreE.updateView(fartherView);
+
+  assert.deepEqual(firstE.selectedNodeKeys, firstA.selectedNodeKeys);
+  assert.deepEqual(firstE.replacementGroups, firstA.replacementGroups);
+  assert.deepEqual(secondE.selectedNodeKeys, secondA.selectedNodeKeys);
+  assert.deepEqual(secondE.replacementGroups, secondA.replacementGroups);
+  assert.deepEqual(coreE.getCurrentSelection(), coreA.getCurrentSelection());
+  assert.ok(
+    secondE.selectedNodeKeys.some((nodeKey) => nodeKey.startsWith("1-")) ||
+      firstE.selectedNodeKeys.some((nodeKey) => nodeKey.startsWith("1-")),
+    "near-view selection should exercise child LoD nodes",
+  );
+  assert.ok(coreE.getSnapshot().pointCache.hits > 0);
+  for (const nodeKey of coreE.getCurrentSelection()) {
+    const pointsA = coreA.getCachedPreparedPointData(nodeKey);
+    const pointsE = coreE.getCachedPreparedPointData(nodeKey);
+    assert.ok(pointsA);
+    assert.ok(pointsE);
+    assert.deepEqual(
+      [...pointsE.source.coordinates],
+      [...pointsA.source.coordinates],
+    );
+    assert.deepEqual(
+      [...pointsE.world.coordinates],
+      [...pointsA.world.coordinates],
+    );
+  }
+  coreA.destroy();
+  coreE.destroy();
 });
 
 test("public core construction keeps production A as the default cache layout", async () => {
@@ -1109,6 +1292,59 @@ test("a changed view invalidates stale streaming generations", async () => {
   const { viewDistanceDiagnostics, ...plainCurrentView } = currentView;
   assert.deepEqual(plainCurrentView, createView({ height: 250 }));
   assert.equal(viewDistanceDiagnostics.transition, "fallback");
+});
+
+test("experimental E does not retain points prepared for a stale view generation", async () => {
+  let resolvePoints;
+  let resolveDecodeStarted;
+  const decodeStarted = new Promise((resolve) => {
+    resolveDecodeStarted = resolve;
+  });
+  const source = createSourceFactory();
+  const core = createExperimentalCompactEStreamingCore({
+    url: "memory://compact-e-stale-generation.copc.laz",
+    backend: source.backend,
+    decoder: {
+      async decode() {
+        resolveDecodeStarted();
+        return new Promise((resolve) => {
+          resolvePoints = resolve;
+        });
+      },
+    },
+    streaming: {
+      maxNodes: 8,
+      maxDepth: 0,
+      maxRenderDistanceMeters: 12_000,
+      maxScreenSpaceError: 8,
+      maxPointsPerBatch: 1,
+    },
+  });
+
+  await core.load();
+  const staleUpdate = core.updateView(createView({ height: 150 }));
+  await decodeStarted;
+  const currentUpdate = core.updateView(createView({ height: 250 }));
+  resolvePoints(createPointBuffer(250));
+
+  const [stale, current] = await Promise.all([staleUpdate, currentUpdate]);
+  assert.equal(stale, undefined);
+  assert.deepEqual(current.selectedNodeKeys, [ROOT_KEY]);
+  const prepared = core.getCachedPreparedPointData(ROOT_KEY);
+  const compactHeight = getCompactEPreparedHeightBuffer(prepared);
+  assert.equal(prepared.geographic.coordinates[2], 250);
+  assert.equal(compactHeight[0], 250);
+  const expectedWorld = geographicToEcef({
+    longitude: 10.005,
+    latitude: 20.005,
+    height: 250,
+  });
+  assert.deepEqual(
+    [...prepared.world.coordinates],
+    [expectedWorld.x, expectedWorld.y, expectedWorld.z],
+  );
+  assert.equal(core.getSnapshot().streamingUpdateCount, 1);
+  core.destroy();
 });
 
 test("invalidating with a superseding view aborts obsolete point work immediately", async () => {

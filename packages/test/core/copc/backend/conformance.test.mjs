@@ -20,6 +20,11 @@ import {
 import { extractHorizontalUnitScale } from "../../../../core/coordinates/crs/parseCopcWkt.ts";
 import { inspectCopcPoint } from "../../../../core/copc/points/pointInspection.ts";
 import {
+  createCompactEPointCacheNode,
+  getCompactEPreparedHeightBuffer,
+} from "../../../../core/point/compactEPointCache.ts";
+import { createExperimentalCompactEStreamingCore } from "../../../../core/streaming/CopcStreamingCore.ts";
+import {
   assertHierarchyParity,
   assertMetadataParity,
   assertPointParity,
@@ -543,6 +548,79 @@ test(
 );
 
 test(
+  "experimental E reuses the real COPC point range and decode on a cache hit",
+  {
+    skip: skipIntegration || !existsSync(samplePath),
+  },
+  async () => {
+    const core = createExperimentalCompactEStreamingCore({
+      url: samplePath,
+      backend: "copc-js",
+      maxRenderedPoints: 100_000,
+      maxPointCacheBytes: 8 * 1024 * 1024,
+      streaming: {
+        maxNodes: 8,
+        maxDepth: 0,
+        maxRenderDistanceMeters: 100_000,
+        maxScreenSpaceError: 8,
+        maxPointsPerBatch: 100_000,
+      },
+    });
+    try {
+      await core.load();
+      const metadata = core.getMetadata();
+      const transformPoint = createPointTransformer(metadata);
+      const center = transformPoint({
+        x: (metadata.cube.minX + metadata.cube.maxX) / 2,
+        y: (metadata.cube.minY + metadata.cube.maxY) / 2,
+        z: (metadata.cube.minZ + metadata.cube.maxZ) / 2,
+      });
+      const view = {
+        longitude: center.longitude,
+        latitude: center.latitude,
+        height: center.height + 2_000,
+        viewDistanceMeters: 10_000,
+      };
+
+      const first = await core.updateView(view);
+      const points = core.getCachedPreparedPointData("0-0-0-0");
+      assert.ok(first?.loadedNodePoints.has("0-0-0-0"));
+      assert.ok(points);
+      assert.ok(points.pointCount > 0);
+      assert.equal(
+        points.world.coordinates.length,
+        points.pointCount * 3,
+      );
+      const compactHeight = getCompactEPreparedHeightBuffer(points);
+      assert.ok(compactHeight instanceof Float64Array);
+      assert.equal(compactHeight.length, points.pointCount);
+      const cacheBefore = core.getSnapshot().pointCache;
+      const rangesBefore = core.getSnapshot().rangeRequests;
+
+      const second = await core.updateView(view);
+      const cacheAfter = core.getSnapshot().pointCache;
+      const rangesAfter = core.getSnapshot().rangeRequests;
+      const decodeAfter = core.getSnapshot().performance.decodeDurationMs;
+      assert.ok(second?.loadedNodePoints.has("0-0-0-0"));
+      assert.ok(cacheAfter.hits > cacheBefore.hits);
+      assert.deepEqual(rangesAfter, rangesBefore);
+      assert.equal(decodeAfter, 0);
+
+      const sampleIndices = pointSampleIndices(points.pointCount);
+      for (const pointIndex of sampleIndices) {
+        const offset = pointIndex * 3;
+        assert.equal(
+          compactHeight[pointIndex],
+          points.geographic.coordinates[offset + 2],
+        );
+      }
+    } finally {
+      core.destroy();
+    }
+  },
+);
+
+test(
   "Autzen range instrumentation proves the selected node uses its exact chunk range",
   {
     skip: skipIntegration || !existsSync(samplePath),
@@ -714,6 +792,28 @@ test(
       jsBuffer,
       approvedOffsetMeters,
     );
+    const preparedProvenance = {
+      sourceIdentity: samplePath,
+      sourceCrsWkt: metadata.wkt,
+      transformGeneration: 3,
+      heightOffsetMeters: approvedOffsetMeters,
+      verticalDatum: { status: "no-validated-grid-correction" },
+    };
+    const rustE = createCompactEPointCacheNode(rustPrepared, {
+      nodeKey: node.key,
+      provenance: preparedProvenance,
+    });
+    const jsE = createCompactEPointCacheNode(jsPrepared, {
+      nodeKey: node.key,
+      provenance: preparedProvenance,
+    });
+    assert.equal(rustE.nodeKey, jsE.nodeKey);
+    assert.equal(rustE.pointCount, jsE.pointCount);
+    assert.equal(rustE.provenance.sourceIdentity, jsE.provenance.sourceIdentity);
+    assert.equal(rustE.ecef.length, rustE.pointCount * 3);
+    assert.equal(rustE.height.length, rustE.pointCount);
+    assert.equal(rustE.ecef.BYTES_PER_ELEMENT, Float64Array.BYTES_PER_ELEMENT);
+    assert.equal(rustE.height.BYTES_PER_ELEMENT, Float64Array.BYTES_PER_ELEMENT);
     assert.deepEqual(
       [...rustPrepared.source.coordinates],
       [...jsPrepared.source.coordinates],
@@ -728,13 +828,38 @@ test(
         ) <= 1e-6,
         `approved height differs for point ${sampleIndex}`,
       );
+      assert.equal(
+        rustE.height[sampleIndex],
+        rustPrepared.geographic.coordinates[coordinateOffset + 2],
+        `Rust E height must preserve prepared point ${sampleIndex}`,
+      );
+      assert.equal(
+        jsE.height[sampleIndex],
+        jsPrepared.geographic.coordinates[coordinateOffset + 2],
+        `JavaScript E height must preserve prepared point ${sampleIndex}`,
+      );
+      assert.ok(
+        Math.abs(rustE.height[sampleIndex] - jsE.height[sampleIndex]) <= 1e-6,
+        `Rust/JS E height differs for point ${sampleIndex}`,
+      );
       assert.ok(
         Math.abs(
-          rustPrepared.world.coordinates[coordinateOffset] -
-            jsPrepared.world.coordinates[coordinateOffset],
+          rustE.ecef[coordinateOffset] - jsE.ecef[coordinateOffset],
         ) <= 1e-3,
         `approved ECEF X differs for point ${sampleIndex}`,
       );
+      for (let axis = 0; axis < 3; axis += 1) {
+        assert.equal(
+          rustE.ecef[coordinateOffset + axis],
+          rustPrepared.world.coordinates[coordinateOffset + axis],
+          `Rust E ECEF axis ${axis} must preserve prepared point ${sampleIndex}`,
+        );
+        assert.equal(
+          jsE.ecef[coordinateOffset + axis],
+          jsPrepared.world.coordinates[coordinateOffset + axis],
+          `JavaScript E ECEF axis ${axis} must preserve prepared point ${sampleIndex}`,
+        );
+      }
       assert.ok(
         Math.abs(
           rustPrepared.geographic.coordinates[coordinateOffset + 2] -

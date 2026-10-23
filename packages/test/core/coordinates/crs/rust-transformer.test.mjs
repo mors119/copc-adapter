@@ -8,6 +8,7 @@ import { geographicToEcef } from "../../../../core/coordinates/transform/worldCo
 import { getCopcWasmBinary } from "../../../../core/wasm/copcWasm.ts";
 import { loadCopcWasmWorker } from "../../../../core/wasm/copcWasmWorker.ts";
 import { createPreparedPointData } from "../../../../core/point/preparedPoint.ts";
+import { createCompactEPointCacheNode } from "../../../../core/point/compactEPointCache.ts";
 import {
   applyPreparedPointVerticalGrid,
   transformPointBufferToPreparedPointData,
@@ -189,6 +190,43 @@ test("Rust/WASM and JavaScript agree on foot units after one shared synthetic ge
       );
     }
     assert.deepEqual([...rustCorrected.source.coordinates], [...sourceCoordinates]);
+
+    const provenance = {
+      sourceIdentity: "memory://rust-js-e-cache-parity.copc.laz",
+      sourceCrsWkt: compoundWkt,
+      transformGeneration: 12,
+      heightOffsetMeters: offset,
+      verticalDatum: {
+        status: "validated-grid-applied",
+        gridId: grid.gridId,
+        sha256: grid.sha256,
+        sourceVerticalCrs: grid.sourceVerticalCrs,
+        targetVerticalCrs: "EPSG:4979",
+        valueUnit: grid.valueUnit,
+      },
+    };
+    const rustE = createCompactEPointCacheNode(rustCorrected, {
+      nodeKey: "0-0-0-0",
+      provenance,
+    });
+    const javascriptE = createCompactEPointCacheNode(javascript, {
+      nodeKey: "0-0-0-0",
+      provenance,
+    });
+    assert.ok(rustE.ecef instanceof Float64Array);
+    assert.ok(javascriptE.ecef instanceof Float64Array);
+    assert.ok(rustE.height instanceof Float64Array);
+    assert.ok(javascriptE.height instanceof Float64Array);
+    assert.equal(rustE.nodeKey, javascriptE.nodeKey);
+    assert.equal(rustE.pointCount, javascriptE.pointCount);
+    assert.deepEqual([...rustE.height], [...javascriptE.height]);
+    assert.deepEqual([...rustE.height], [rustCorrected.geographic.coordinates[2]]);
+    for (let axis = 0; axis < rustE.ecef.length; axis += 1) {
+      assert.ok(
+        Math.abs(rustE.ecef[axis] - javascriptE.ecef[axis]) < 1e-6,
+        `Rust/JS E cache ECEF axis ${axis} should match`,
+      );
+    }
   } finally {
     rustTransformer.dispose();
   }

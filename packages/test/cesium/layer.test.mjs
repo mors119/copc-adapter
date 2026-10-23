@@ -8,6 +8,8 @@ import { PointPrimitiveRenderer } from "../../cesium/render/CopcPointRenderer.ts
 import { BatchedGeometryPointRenderer } from "../../cesium/render/BatchedGeometryPointRenderer.ts";
 import { createCesiumStreamingView } from "../../cesium/view/CesiumViewAdapter.ts";
 import { loadGtxGeoidGrid } from "../../core/coordinates/transform/verticalGrid.ts";
+import { createExperimentalCompactEStreamingCore } from "../../core/streaming/CopcStreamingCore.ts";
+import { getCompactEPreparedHeightBuffer } from "../../core/point/compactEPointCache.ts";
 
 async function createSyntheticVerticalGrid() {
   const bytes = new ArrayBuffer(40 + 3 * 3 * 4);
@@ -1729,6 +1731,38 @@ test("terrain alignment estimates use the selected layer-owned point and invalid
   appliedViewer.camera.completeBoundingSphereFlight();
   assert.equal(await zoomed, true);
   appliedLayer.destroy();
+
+  const experimentalCore = createExperimentalCompactEStreamingCore({
+    url: "memory://terrain-estimate.copc.laz",
+    backend: source.backend,
+    decoder: source.decoder,
+    heightOffsetMeters: approvedOffset,
+    verticalTransform,
+    streaming: {
+      maxNodes: 8,
+      maxDepth: 0,
+      maxRenderDistanceMeters: 100_000,
+      maxScreenSpaceError: 8,
+      maxPointsPerBatch: 2,
+    },
+  });
+  await experimentalCore.load();
+  const eUpdate = await experimentalCore.updateView({
+    longitude: -122.5,
+    latitude: 44.5,
+    height: 1_066,
+    viewDistanceMeters: 12_000,
+  });
+  assert.ok(eUpdate?.loadedNodePoints.has("0-0-0-0"));
+  const ePrepared = experimentalCore.getCachedPreparedPointData("0-0-0-0");
+  const eHeight = getCompactEPreparedHeightBuffer(ePrepared);
+  assert.deepEqual([...eHeight], [66, 72]);
+  assert.deepEqual([...ePrepared.source.coordinates], [
+    -122.6, 44.4, 12,
+    -122.4, 44.6, 18,
+  ]);
+  assert.equal(ePrepared.geographic.coordinates[2], eHeight[0]);
+  experimentalCore.destroy();
 });
 
 test("terrain estimates stay independent for multiple layers on one Viewer", async () => {

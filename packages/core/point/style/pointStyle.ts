@@ -4,6 +4,7 @@ import type {
   CopcPointAttributes,
   GeographicPointBuffer,
 } from "../../copc/types/copc";
+import { getCompactEPreparedHeightBuffer } from "../compactEPointCache";
 import { extractVerticalUnitScale } from "../../coordinates/crs/parseCopcWkt";
 import { resolveHeightOffsetMeters } from "../../coordinates/transform/heightOffset";
 import type { GtxGeoidGrid } from "../../coordinates/transform/verticalGrid";
@@ -178,9 +179,12 @@ export function getPointBufferElevationRange(
 
   let min = Number.POSITIVE_INFINITY;
   let max = Number.NEGATIVE_INFINITY;
+  const compactHeights = getCompactEPreparedHeightBuffer(points);
 
   for (let index = 0; index < points.pointCount; index += 1) {
-    const height = points.coordinates[index * 3 + 2];
+    const height = compactHeights
+      ? compactHeights[index]
+      : points.coordinates[index * 3 + 2];
 
     if (Number.isFinite(height)) {
       min = Math.min(min, height);
@@ -437,10 +441,13 @@ export function prepareCopcPointColorBuffer(
 ): Float32Array {
   const styleOptions = resolveCopcPointStyleOptions(points, options, state);
   const colors = new Float32Array(points.pointCount * 3);
+  const compactHeights = getCompactEPreparedHeightBuffer(points);
 
   for (let index = 0; index < points.pointCount; index += 1) {
     const color = getCopcPointColor(
-      points.coordinates[index * 3 + 2],
+      compactHeights
+        ? compactHeights[index]
+        : points.coordinates[index * 3 + 2],
       styleOptions,
       points.attributes,
       index,
