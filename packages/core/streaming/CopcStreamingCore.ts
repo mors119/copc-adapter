@@ -39,6 +39,12 @@ import {
   assertPreparedPointData,
   preparedPointDataToGeographicBuffer,
 } from "../point/preparedPoint";
+import {
+  cachedPointDataToPreparedPointData,
+  createCompactEPointCacheNode,
+  type CachedPointData,
+  type CompactEPointProvenance,
+} from "../point/compactEPointCache";
 import type { CopcPerformanceObserver } from "../copc/performance";
 import { performanceNow } from "../copc/performance";
 import { buildStreamingHierarchy } from "./buildStreamingHierarchy";
@@ -299,8 +305,13 @@ type StreamingState = {
   hierarchyLoader: HierarchyLoader;
   nodes: StreamingHierarchy;
   nodesRef: { current: StreamingHierarchy };
-  cache: NodePointCache<PreparedPointData>;
+  cache: NodePointCache<CachedPointData>;
   manager: StreamingManager;
+};
+
+const EXPERIMENTAL_CACHE_LAYOUT = Symbol("experimentalPointCacheLayout");
+type InternalStreamingOptions = CopcStreamingControllerOptions & {
+  [EXPERIMENTAL_CACHE_LAYOUT]?: "E";
 };
 
 const DEFAULT_STREAMING_OPTIONS: StreamingSelectionOptions = {
@@ -490,7 +501,8 @@ export class CopcStreamingCore {
   private performanceRecorder: StreamingPerformanceRecorder;
   private readonly rangeRequestDiagnostics =
     new RangeRequestDiagnosticsRecorder();
-  private readonly initialCache: NodePointCache<PreparedPointData>;
+  private readonly initialCache: NodePointCache<CachedPointData>;
+  private readonly cacheLayout: "A" | "E";
   private readonly pointFields: CopcPointFieldSelection;
   private streamingState?: StreamingState;
   private loadGeneration = 0;
@@ -526,6 +538,8 @@ export class CopcStreamingCore {
   private predictivePrefetchHierarchyPageCacheHitCount = 0;
 
   constructor(options: CopcStreamingControllerOptions) {
+    this.cacheLayout =
+      (options as InternalStreamingOptions)[EXPERIMENTAL_CACHE_LAYOUT] ?? "A";
     this.heightOffsetMeters = resolveHeightOffsetMeters(
       options.heightOffsetMeters,
     );
@@ -658,6 +672,7 @@ export class CopcStreamingCore {
         metadata,
         nodesRef,
         performanceRecorder,
+        loadGeneration,
       );
       const manager = new StreamingManager(
         nodes,
@@ -671,6 +686,7 @@ export class CopcStreamingCore {
         cache,
         this.performanceRecorder,
         context.cancelPendingPointJobs?.bind(context),
+        cachedPointDataToPreparedPointData,
       );
       manager.setRefinementFocus(this.refinementFocus);
       manager.setMotionPrediction(
@@ -1109,12 +1125,13 @@ export class CopcStreamingCore {
     return cloneTransitionState(this.transition);
   }
 
-  /** Return a resolved prepared result retained by the current decoded cache. */
+  /** Return the synchronous prepared view for a node retained by the decoded cache. */
   getCachedPreparedPointData(nodeKey: string): PreparedPointData | undefined {
-    return this.streamingState?.cache.get(nodeKey);
+    const cached = this.streamingState?.cache.get(nodeKey);
+    return cached ? cachedPointDataToPreparedPointData(cached) : undefined;
   }
 
-  /** Return the legacy flat view over a prepared result without copying arrays. */
+  /** Return the legacy flat view over the prepared result for a cached node. */
   getCachedPointBuffer(nodeKey: string): GeographicPointBuffer | undefined {
     const prepared = this.getCachedPreparedPointData(nodeKey);
     return prepared ? preparedPointDataToGeographicBuffer(prepared) : undefined;
@@ -1413,7 +1430,7 @@ export class CopcStreamingCore {
     onProgress?.(progress);
   }
 
-  private createEmptyCache(): NodePointCache<PreparedPointData> {
+  private createEmptyCache(): NodePointCache<CachedPointData> {
     return createNodePointCache(
       async () => {
         throw new Error("COPC streaming controller is not loaded");
@@ -1430,7 +1447,8 @@ export class CopcStreamingCore {
     metadata: CopcMetadata,
     nodesRef: { current: StreamingHierarchy },
     performanceRecorder: StreamingPerformanceRecorder,
-  ): NodePointCache<PreparedPointData> {
+    loadGeneration: number,
+  ): NodePointCache<CachedPointData> {
     return createNodePointCache(
       (nodeKey, signal, purpose) =>
         this.loadRenderableNodePoints(
@@ -1440,6 +1458,7 @@ export class CopcStreamingCore {
           performanceRecorder,
           nodeKey,
           signal,
+          loadGeneration,
           purpose,
         ),
       {
@@ -1456,8 +1475,9 @@ export class CopcStreamingCore {
     performanceRecorder: StreamingPerformanceRecorder,
     nodeKey: string,
     signal: AbortSignal,
+    loadGeneration: number,
     purpose: NodePointLoadPurpose = "current",
-  ): Promise<PreparedPointData> {
+  ): Promise<CachedPointData> {
     const streamingNode = nodesRef.current.get(nodeKey);
     if (!streamingNode) {
       throw new Error(`Unknown COPC hierarchy node: ${nodeKey}`);
@@ -1490,7 +1510,13 @@ export class CopcStreamingCore {
         this.heightOffsetMeters - alreadyAppliedOffset,
       );
       if (!this.verticalGrid) {
-        return offsetPrepared;
+        return this.toCacheRepresentation(
+          offsetPrepared,
+          nodeKey,
+          context,
+          metadata,
+          loadGeneration,
+        );
       }
 
       const gridTransformStartedAt =
@@ -1506,7 +1532,13 @@ export class CopcStreamingCore {
           true,
         );
       }
-      return gridCorrected;
+      return this.toCacheRepresentation(
+        gridCorrected,
+        nodeKey,
+        context,
+        metadata,
+        loadGeneration,
+      );
     }
 
     const points = await loadCopcPointBuffer(
@@ -1537,7 +1569,41 @@ export class CopcStreamingCore {
         true,
       );
     }
-    return transformed;
+    return this.toCacheRepresentation(
+      transformed,
+      nodeKey,
+      context,
+      metadata,
+      loadGeneration,
+    );
+  }
+
+  private toCacheRepresentation(
+    prepared: PreparedPointData,
+    nodeKey: string,
+    context: CopcSource,
+    metadata: CopcMetadata,
+    loadGeneration: number,
+  ): CachedPointData {
+    if (this.cacheLayout === "A") return prepared;
+
+    const provenance: CompactEPointProvenance = {
+      sourceIdentity: context.source,
+      ...(metadata.wkt ? { sourceCrsWkt: metadata.wkt } : {}),
+      transformGeneration: loadGeneration,
+      heightOffsetMeters: this.heightOffsetMeters,
+      verticalDatum: this.verticalGrid
+        ? {
+            status: "validated-grid-applied",
+            gridId: this.verticalGrid.gridId,
+            sha256: this.verticalGrid.sha256,
+            sourceVerticalCrs: this.verticalGrid.sourceVerticalCrs,
+            targetVerticalCrs: this.verticalGrid.targetVerticalCrs,
+            valueUnit: this.verticalGrid.valueUnit,
+          }
+        : { status: "no-validated-grid-correction" },
+    };
+    return createCompactEPointCacheNode(prepared, { nodeKey, provenance });
   }
 
   private createPerformanceObserver(
@@ -1882,3 +1948,18 @@ export class CopcStreamingCore {
 
 /** Descriptive controller alias retained for callers that prefer the API name. */
 export { CopcStreamingCore as CopcStreamingController };
+
+/**
+ * Internal rollout seam for exercising E in focused tests and experiments.
+ * This function is not re-exported by any package entry point; normal core and
+ * renderer construction continues to use production layout A.
+ */
+export function createExperimentalCompactEStreamingCore(
+  options: CopcStreamingControllerOptions,
+): CopcStreamingCore {
+  const internalOptions: InternalStreamingOptions = {
+    ...options,
+    [EXPERIMENTAL_CACHE_LAYOUT]: "E",
+  };
+  return new CopcStreamingCore(internalOptions);
+}

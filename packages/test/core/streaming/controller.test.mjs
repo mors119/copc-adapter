@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 
 import { CopcStreamingController } from "../../../core/streaming/CopcStreamingController.ts";
-import { CopcStreamingCore } from "../../../core/streaming/CopcStreamingCore.ts";
+import {
+  CopcStreamingCore,
+  createExperimentalCompactEStreamingCore,
+} from "../../../core/streaming/CopcStreamingCore.ts";
+import { inspectCopcPoint } from "../../../core/copc/points/pointInspection.ts";
 import {
   createPerspectiveViewFrustum,
   geographicToEcef,
@@ -378,6 +382,100 @@ test("shared streaming core applies a grid once after prepared Rust-style output
   prepared = core.getCachedPreparedPointData(ROOT_KEY);
   assert.equal(prepared.geographic.coordinates[2], 180);
   assert.deepEqual([...prepared.source.coordinates], [10.005, 20.005, 150]);
+  core.destroy();
+});
+
+test("internal E streaming path keeps exact Source inspection and 32-byte E buffers", async () => {
+  const geographicCoordinates = new Float64Array([10.005, 20.005, 150.125]);
+  const world = geographicToEcef({
+    longitude: geographicCoordinates[0],
+    latitude: geographicCoordinates[1],
+    height: geographicCoordinates[2],
+  });
+  const sourceCoordinates = new Float64Array([500.25, 600.5, 7.75]);
+  const source = createSourceFactory({
+    prepared: true,
+    onPreparedPointLoad: () =>
+      createPreparedPointData({
+        pointCount: 1,
+        sourceCoordinates: sourceCoordinates.slice(),
+        geographicCoordinates,
+        worldCoordinates: new Float64Array([world.x, world.y, world.z]),
+      }),
+  });
+  const core = createExperimentalCompactEStreamingCore({
+    url: "memory://compact-e.copc.laz",
+    backend: source.backend,
+    streaming: {
+      maxNodes: 8,
+      maxDepth: 0,
+      maxRenderDistanceMeters: 12_000,
+      maxScreenSpaceError: 8,
+      maxPointsPerBatch: 1,
+    },
+  });
+
+  await core.load();
+  const update = await core.updateView(createView());
+  assert.ok(update?.loadedNodePoints.has(ROOT_KEY));
+  const cachedPrepared = core.getCachedPreparedPointData(ROOT_KEY);
+  const cachedPointBuffer = core.getCachedPointBuffer(ROOT_KEY);
+  assert.ok(cachedPrepared);
+  assert.ok(cachedPointBuffer);
+  assert.deepEqual([...cachedPrepared.source.coordinates], [500.25, 600.5, 7.75]);
+  assert.equal(cachedPrepared.geographic.coordinates[2], 150.125);
+  assert.deepEqual([...cachedPrepared.world.coordinates], [world.x, world.y, world.z]);
+  assert.equal(cachedPrepared.coordinates, cachedPrepared.geographic.coordinates);
+  assert.equal(cachedPrepared.sourceCoordinates, cachedPrepared.source.coordinates);
+  assert.equal(cachedPrepared.worldCoordinates, cachedPrepared.world.coordinates);
+
+  const inspection = inspectCopcPoint(
+    { nodeKey: ROOT_KEY, pointIndex: 0 },
+    core.getHierarchyNode(ROOT_KEY).node,
+    cachedPointBuffer,
+    "custom",
+  );
+  assert.deepEqual(inspection.source, { x: 500.25, y: 600.5, z: 7.75 });
+  assert.equal(inspection.height, 150.125);
+  assert.equal(core.getSnapshot().pointCache.currentCacheBytes, 56);
+  core.destroy();
+});
+
+test("public core construction keeps production A as the default cache layout", async () => {
+  let preparedInput;
+  const source = createSourceFactory({
+    prepared: true,
+    onPreparedPointLoad: () => {
+      const world = geographicToEcef({
+        longitude: 10.005,
+        latitude: 20.005,
+        height: 150,
+      });
+      preparedInput = createPreparedPointData({
+        pointCount: 1,
+        sourceCoordinates: new Float64Array([500.25, 600.5, 7.75]),
+        geographicCoordinates: new Float64Array([10.005, 20.005, 150]),
+        worldCoordinates: new Float64Array([world.x, world.y, world.z]),
+      });
+      return preparedInput;
+    },
+  });
+  const core = new CopcStreamingCore({
+    url: "memory://production-a.copc.laz",
+    backend: source.backend,
+    streaming: {
+      maxNodes: 8,
+      maxDepth: 0,
+      maxRenderDistanceMeters: 12_000,
+      maxScreenSpaceError: 8,
+      maxPointsPerBatch: 1,
+    },
+  });
+
+  await core.load();
+  await core.updateView(createView());
+  assert.equal(core.getSnapshot().pointCache.currentCacheBytes, 72);
+  assert.equal(core.getCachedPreparedPointData(ROOT_KEY), preparedInput);
   core.destroy();
 });
 

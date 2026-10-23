@@ -1,5 +1,9 @@
 import type { PreparedPointData } from "../copc/types/copc";
 import type { NodePointCache } from "./createNodePointCache";
+import {
+  cachedPointDataToPreparedPointData,
+  type CachedPointData,
+} from "../point/compactEPointCache";
 import { NodeSelector } from "./NodeSelector";
 import type { RefinementFocus } from "./refinementStrategies";
 import type { CameraMotionPrediction } from "./motionLookahead";
@@ -159,7 +163,10 @@ function createReplacementGroups(
 export class StreamingManager {
   private hierarchy: StreamingHierarchy;
   private readonly selector: NodeSelector;
-  private readonly cache: NodePointCache<PreparedPointData>;
+  private readonly cache: NodePointCache<CachedPointData>;
+  private readonly toPreparedPointData: (
+    value: CachedPointData,
+  ) => PreparedPointData;
   private readonly performanceRecorder: StreamingPerformanceRecorder;
   private readonly maxConcurrentNodeLoads: number;
   private readonly workLimiter: StreamingWorkConcurrencyLimiter;
@@ -171,13 +178,16 @@ export class StreamingManager {
   constructor(
     hierarchy: StreamingHierarchy,
     options: StreamingSelectionOptions,
-    cache: NodePointCache<PreparedPointData>,
+    cache: NodePointCache<CachedPointData>,
     performanceRecorder = new StreamingPerformanceRecorder(),
     onInvalidate?: () => void,
+    toPreparedPointData: (value: CachedPointData) => PreparedPointData =
+      cachedPointDataToPreparedPointData,
   ) {
     this.hierarchy = hierarchy;
     this.selector = new NodeSelector(options);
     this.cache = cache;
+    this.toPreparedPointData = toPreparedPointData;
     this.performanceRecorder = performanceRecorder;
     this.performanceRecorder.setConfiguredPointBudget(
       this.selector.getSelectionMetrics().maxRenderedPoints,
@@ -318,7 +328,7 @@ export class StreamingManager {
       const nodeKey = node.node.key;
       let points: PreparedPointData;
       try {
-        points = await this.cache.load(nodeKey);
+        points = this.toPreparedPointData(await this.cache.load(nodeKey));
       } catch (error: unknown) {
         // A view change intentionally cancels queued decode work. The
         // superseded update must finish quietly so its stale results cannot
@@ -332,7 +342,7 @@ export class StreamingManager {
           // current generation rather than exposing cancellation as a
           // user-visible decode failure.
           this.cache.delete(nodeKey);
-          points = await this.cache.load(nodeKey);
+          points = this.toPreparedPointData(await this.cache.load(nodeKey));
         } else {
           throw error;
         }
