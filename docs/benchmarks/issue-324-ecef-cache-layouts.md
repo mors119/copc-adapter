@@ -26,6 +26,7 @@ transient preparation memory for E. Those gaps prevent a safe default decision.
 | Full measurement source revision | `e832bb653866964fac2984ece59d506893f5dd7c` (5 warm-ups, 15 samples) |
 | Node benchmark harness SHA-256 (full measurement) | `cd38ce8add88b55c57f57c749ca0614f87826dc94a2beee082f8a48426a3d5f8` (`packages/scripts/cache-representation-performance-benchmark.mjs`) |
 | Node harness SHA-256 (layout-specific metadata) | `7117b43670a93dbc7498153ebcc7e8be5bcb76e91cb82d7eade86eb853a63358` at `0c232496ab03689a6163d52608d5b95d84c2f502`; metadata smoke check used 0 warm-ups and 1 sample |
+| Review follow-up cache budget metadata harness SHA-256 | `ad025c67aa3ee5cd330ab7de6fcb521755bd2d1acca74220c4e7b1db264a9030` (`packages/scripts/cache-representation-performance-benchmark.mjs`); Autzen smoke run used 0 warm-ups and 1 sample |
 | Browser benchmark harness SHA-256 (original run) | `d85362ae194068d603ea29faeebfbd91d1a0ae456d0e05cfcb9ddd671e0585f0` (`apps/dev-viewer/src/rendererPerformanceBenchmark.ts`) |
 | Review follow-up Cesium harness SHA-256 | `e647deec480f7cbcc59b573d196cc1085cbb01c084bf9d4c2e907a2c114a6dda` (`apps/dev-viewer/src/rendererPerformanceBenchmark.ts`); `fede41d5f383f744931dae5636da84cb45b11d9b5a6992a24eb05bfe92a43611` (`apps/dev-viewer/e2e/renderer-performance.spec.ts`) |
 | Review follow-up Worker instrumentation SHA-256 | `a06fc5de333557cc07be592fa56e8bfd210cc633a7c4666dee88096700c9d9b7` (`apps/dev-viewer/e2e/streaming-performance.spec.ts`) |

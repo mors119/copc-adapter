@@ -77,6 +77,8 @@ const styleModes = ["fixed", "elevation", "rgb", "intensity", "classification"];
 const paletteBoundaries = [0.25, 0.5, 0.75];
 const colorRangeSpansMeters = [10, 100, 1_000];
 const maxBoundaryColorSamples = 100_000;
+const cacheInsertionMaxEntries = 1;
+const cacheInsertionMaxBytes = 256 * 1024 * 1024;
 
 if (typeof globalThis.gc !== "function") {
   throw new Error(
@@ -1042,8 +1044,8 @@ async function benchmarkCacheInsertion(candidate, { warmups, repetitions }) {
   for (let run = 0; run < warmups + repetitions; run += 1) {
     globalThis.gc();
     const cache = createNodePointCache(async () => candidate, {
-      maxEntries: 1,
-      maxBytes: 256 * 1024 * 1024,
+      maxEntries: cacheInsertionMaxEntries,
+      maxBytes: cacheInsertionMaxBytes,
       estimateBytes: byteLength,
     });
     const startedAt = performance.now();
@@ -1093,8 +1095,14 @@ async function benchmarkCacheRepresentations(prepared, { warmups, repetitions })
     pointIdentity: "same stable point index under the enclosing root nodeKey for every candidate",
     requestedAttributes: backendFieldNames,
     cacheBudgets: {
-      cacheByteBudget: "N/A: one-node representation microbenchmark does not instantiate the streaming LRU",
-      maxNodes: "N/A: one node per comparison",
+      representationMaterialization: {
+        cacheByteBudget: "N/A: this phase does not instantiate a cache",
+        maxEntries: "N/A: this phase does not instantiate a cache",
+      },
+      cacheInsertion: {
+        cacheByteBudgetBytes: cacheInsertionMaxBytes,
+        maxEntries: cacheInsertionMaxEntries,
+      },
       workerCount: "N/A: Node backend benchmark has no browser Worker pool",
     },
     storage,
