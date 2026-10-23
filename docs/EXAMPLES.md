@@ -20,7 +20,48 @@
 <script type="module" src="/src/main.ts"></script>
 ```
 
-## Manual Integration Example
+## Minimal Cesium Example
+
+```ts
+import * as Cesium from 'cesium';
+import { CopcCesiumLayer } from '@frillab/copc-adapter/cesium';
+
+const viewer = new Cesium.Viewer('cesium-container');
+const layer = new CopcCesiumLayer({ url: '/samples/autzen.copc.laz' });
+
+await layer.load();
+layer.attachTo(viewer);
+```
+
+The same `url` field accepts an HTTP(S) URL or a browser `File`/`Blob`.
+Omitting appearance options uses fixed cyan points at 3 pixels.
+
+## Minimal Three.js Example
+
+```ts
+import * as THREE from 'three';
+import { CopcThreeLayer } from '@frillab/copc-adapter/three';
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 20_000);
+const renderer = new THREE.WebGLRenderer();
+const layer = new CopcThreeLayer({ url: '/samples/autzen.copc.laz' });
+
+await layer.load();
+layer.attachTo({ scene, camera, renderer });
+
+function animate() {
+  requestAnimationFrame(animate);
+  void layer.update();
+  renderer.render(scene, camera);
+}
+animate();
+```
+
+The Three.js adapter uses the same default appearance and accepts a `File` or
+`Blob` source. The application owns the scene, camera, renderer, and loop.
+
+## Advanced Cesium Integration Example
 
 ```ts
 import * as Cesium from 'cesium';
@@ -41,6 +82,43 @@ console.log(layer.getSelectedPoint()); // undefined until a rendered point is pi
 
 layer.detachFrom();
 layer.destroy();
+```
+
+For explicit appearance and workload control, use the top-level point budget.
+It takes precedence over the compatibility field
+`streaming.maxRenderedPoints`:
+
+```ts
+const layer = new CopcCesiumLayer({
+  url: '/samples/autzen.copc.laz',
+  backend: 'rust',
+  colorMode: 'rgb',
+  maxRenderedPoints: 200_000,
+  streaming: {
+    maxNodes: 24,
+    maxDepth: 6,
+    refinementAlgorithm: 'foveated',
+  },
+});
+```
+
+Three.js accepts the same shared backend, styling, point-budget, and streaming
+controls:
+
+```ts
+import { CopcThreeLayer } from '@frillab/copc-adapter/three';
+
+const layer = new CopcThreeLayer({
+  url: '/samples/autzen.copc.laz',
+  backend: 'rust',
+  colorMode: 'rgb',
+  maxRenderedPoints: 200_000,
+  streaming: {
+    maxNodes: 24,
+    maxDepth: 6,
+    refinementAlgorithm: 'foveated',
+  },
+});
 ```
 
 기존 cyan rendering을 유지하려면 `colorMode: 'fixed'`를 지정하거나

@@ -39,9 +39,9 @@ export type CopcThreeLayerOptions = {
   heightOffsetMeters?: number;
   /** Explicit user-loaded GTX grid; absent means no vertical datum conversion. */
   verticalTransform?: GtxGeoidGrid;
-  /** Maximum estimated points in the active current-view workload; defaults to 250,000. */
+  /** Maximum estimated points in the active current-view workload; defaults to 250,000. Takes precedence over streaming.maxRenderedPoints. */
   maxRenderedPoints?: number;
-  /** Overrides for the shared streaming limits; unspecified values use core defaults. */
+  /** Overrides for shared streaming limits; top-level maxRenderedPoints takes precedence over this compatibility field. */
   streaming?: Partial<StreamingSelectionOptions>;
   /** Defaults to stable `copc-js`; `rust` is explicit opt-in. */
   backend?: CopcBackendSelection;

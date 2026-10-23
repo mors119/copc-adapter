@@ -60,26 +60,27 @@ export type CopcViewState = StreamingView;
 
 /** Limits and thresholds used by the shared hierarchy node selector. */
 export type StreamingSelectionOptions = {
-  /** Upper bound for selected hierarchy nodes in the active view. */
+  /** Upper bound for selected hierarchy nodes in the active view; defaults to 24. */
   maxNodes: number;
-  /** Deepest hierarchy level eligible for selection. */
+  /** Deepest hierarchy level eligible for selection; defaults to 6. */
   maxDepth: number;
-  /** Refine while the estimated replacement error is greater than this. */
+  /** Refine above this estimated replacement error in pixels; defaults to 8. */
   maxScreenSpaceError?: number;
   /**
    * Half-width of the state-aware SSE hold band, in pixels. When omitted,
-   * the selector derives a conservative band from maxScreenSpaceError.
+   * the selector derives a conservative band equal to 12.5% of
+   * maxScreenSpaceError (1 pixel at its default value).
    */
   screenSpaceErrorHysteresis?: number;
-  /** @deprecated Planned for removal in v0.9, after v0.8; SSE no longer uses it. */
+  /** @deprecated Planned for removal in v0.9, after v0.8; has no effect. */
   refineDistanceMultiplier?: number;
-  /** Maximum view distance from which nodes may be selected, in metres. */
+  /** Maximum view distance from which nodes may be selected, in metres; defaults to 12,000. */
   maxRenderDistanceMeters: number;
-  /** Maximum estimated points allowed in the active current-view workload. */
+  /** Maximum estimated points allowed in the active current-view workload; defaults to 250,000. */
   maxRenderedPoints?: number;
   /**
-   * Maximum number of range/decode/preparation loads active at once. This is
-   * independent of the rendered-point budget.
+   * Maximum number of range/decode/preparation loads active at once; defaults
+   * to 4. This is independent of the rendered-point budget.
    */
   maxConcurrentNodeLoads?: number;
   /**
@@ -91,7 +92,7 @@ export type StreamingSelectionOptions = {
   motionLookahead?: boolean;
   /** Prepare a small bounded set of likely next-view nodes in the shared cache; defaults to `false`. */
   predictivePrefetch?: boolean;
-  /** @deprecated Planned for removal in v0.9, after v0.8; use maxConcurrentNodeLoads. */
+  /** @deprecated Planned for removal in v0.9, after v0.8; has no effect. Use maxConcurrentNodeLoads. */
   maxPointsPerBatch?: number;
 };
 

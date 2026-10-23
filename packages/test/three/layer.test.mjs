@@ -174,6 +174,35 @@ test("Three entrypoint exports the explicit EGM2008 grid loader", () => {
   assert.equal(typeof loadNgaEgm2008Grid, "function");
 });
 
+test("Three layer point-budget defaults and top-level precedence match Core", () => {
+  const omitted = new CopcThreeLayer({
+    url: "memory://public-defaults.copc.laz",
+  });
+  const explicit = new CopcThreeLayer({
+    url: "memory://public-defaults.copc.laz",
+    maxRenderedPoints: 250_000,
+  });
+  const overridden = new CopcThreeLayer({
+    url: "memory://public-defaults.copc.laz",
+    maxRenderedPoints: 120_000,
+    streaming: { maxRenderedPoints: 80_000, maxConcurrentNodeLoads: 2 },
+  });
+
+  const effectiveSettings = (layer) => {
+    const snapshot = layer.getSnapshot();
+    return {
+      backend: snapshot.backend,
+      configuredPointBudget: snapshot.performance.configuredPointBudget,
+      refinementAlgorithm: snapshot.performance.refinementAlgorithm,
+      motionLookaheadEnabled: snapshot.performance.motionLookaheadEnabled,
+    };
+  };
+
+  assert.deepEqual(effectiveSettings(omitted), effectiveSettings(explicit));
+  assert.equal(effectiveSettings(omitted).configuredPointBudget, 250_000);
+  assert.equal(effectiveSettings(overridden).configuredPointBudget, 120_000);
+});
+
 test("default Three local rendering needs no vertical CRS metadata or geoid grid", async () => {
   const { layer, source, scene, applicationMesh, attachment } =
     await createLoadedLayer();

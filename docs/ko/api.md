@@ -15,21 +15,17 @@ import { CopcCesiumLayer } from '@frillab/copc-adapter/cesium';
 ```ts
 const layer = new CopcCesiumLayer({
   url,
-  pointSize: 3,
-  colorMode: 'rgb',
-  rangeValidation: 'head-fallback',
-  maxRenderedPoints: 250_000,
-  maxPointCacheBytes: 256 * 1024 * 1024,
-  streaming: {
-    maxNodes: 24,
-    maxDepth: 6,
-    maxScreenSpaceError: 8,
-    maxRenderDistanceMeters: 12_000,
-  },
 });
 ```
 
-기본값은 버전에 따라 바뀔 수 있으므로 정확한 값이 중요할 때는 [Public API](../API)를 확인하세요.
+표시 옵션을 생략하면 3픽셀 고정 cyan, `copc-js` backend와 현재 streaming 기본값을
+사용합니다. `url`에는 HTTP(S) URL 외에 브라우저 `File` 또는 `Blob`도 전달할 수
+있으며, 필요한 구간만 브라우저 안에서 읽습니다. 자세한 기본값과 precedence는
+[Public API](../API)의 defaults matrix를 참고하세요.
+
+`maxRenderedPoints`는 새 코드에서 top-level 위치를 권장합니다. 기존
+`streaming.maxRenderedPoints`도 사용할 수 있지만 top-level 값이 함께 지정되면 top-level
+값이 우선합니다.
 
 `rangeValidation`은 HTTP source의 `'strict' | 'head-fallback'` 정책이며
 기본값은 `'head-fallback'`입니다. 두 모드 모두 `206`, 정확한 body 길이,
@@ -233,6 +229,34 @@ Three.js layer는 `show`, `zoomTo()`, `flyTo()`를 추가하지 않습니다. vi
 `layer.getRoot().visible`로 제어하고 앱은 기존 render loop에서 `layer.update()`를
 호출합니다. 이벤트는 `progress`, `metadataready`, `firstvisible`, `viewsettled`,
 `viewcancelled`, `error`를 지원합니다.
+
+최소 생성과 연결 코드는 다음과 같습니다. 애플리케이션이 scene, camera, renderer 및
+렌더 루프를 소유합니다.
+
+```ts
+import * as THREE from 'three';
+import { CopcThreeLayer } from '@frillab/copc-adapter/three';
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 20_000);
+const renderer = new THREE.WebGLRenderer();
+const layer = new CopcThreeLayer({ url });
+
+await layer.load();
+layer.attachTo({ scene, camera, renderer });
+
+function animate() {
+  requestAnimationFrame(animate);
+  void layer.update();
+  renderer.render(scene, camera);
+}
+animate();
+```
+
+Three.js도 3픽셀 고정 cyan을 기본으로 사용하며 `url`에 로컬 `File`/`Blob`을 받을 수
+있습니다. layer 생성 옵션의 `renderer`는 사용자 정의 point renderer이고,
+`attachTo({ ..., renderer })`의 `renderer`는 viewport 크기를 읽기 위한
+application-owned WebGL renderer입니다.
 
 ```ts
 import * as THREE from 'three';

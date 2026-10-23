@@ -314,10 +314,11 @@ try {
   );
   if (
     !cesiumDeclaration.includes("CopcStreamingOptions") ||
-    !cesiumOptionsDeclaration.includes("motionLookahead?: boolean")
+    !cesiumOptionsDeclaration.includes("motionLookahead?: boolean") ||
+    !cesiumOptionsDeclaration.includes("maxConcurrentNodeLoads?: number")
   ) {
     throw new Error(
-      "Cesium declarations do not expose streaming.motionLookahead",
+      "Cesium declarations do not expose the shared streaming controls",
     );
   }
   if (/(?:from|import)\s+['"][^'"]*three/u.test(cesiumDeclaration)) {

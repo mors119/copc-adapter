@@ -82,7 +82,6 @@ import { CopcCesiumLayer } from '@frillab/copc-adapter/cesium';
 const viewer = new Cesium.Viewer('cesium-container');
 const layer = new CopcCesiumLayer({
   url: 'https://example.com/data.copc.laz',
-  colorMode: 'elevation',
 });
 
 await layer.load();
@@ -93,6 +92,7 @@ The caller owns the Cesium `Viewer` and is responsible for destroying it.
 For local COPC, pass a browser `File` or `Blob` as `url`; the adapter reads
 only requested byte slices and does not upload the file. Ordinary LAS/LAZ
 without COPC hierarchy metadata is unsupported.
+With no appearance options, points use the fixed cyan color and 3-pixel size.
 
 The historical root import remains supported for existing Cesium consumers:
 
@@ -144,7 +144,6 @@ const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 20_000);
 const renderer = new THREE.WebGLRenderer();
 const layer = new CopcThreeLayer({
   url: 'https://example.com/data.copc.laz',
-  colorMode: 'elevation',
 });
 
 await layer.load();
@@ -157,6 +156,9 @@ function animate() {
 }
 animate();
 ```
+
+Three.js uses the same fixed cyan color and 3-pixel size by default. Its
+`url` option also accepts a browser `File` or `Blob`.
 
 `layer.pick({ x, y })` accepts normalized device coordinates and resolves the
 hit through the live decoded buffer. `pickingThreshold` is in scene units and
