@@ -1,4 +1,5 @@
 import type { GeographicPointBuffer } from "../../core/copc/types/copc";
+import type { RenderablePointData } from "../../core/point/compactEPointCache";
 import {
   prepareCopcPointColorBuffer,
   type CopcPointStyleInput,
@@ -35,7 +36,7 @@ export type CopcThreePointsMaterialOptions = {
  * every node so streamed nodes share one RGB display scale.
  */
 export function prepareThreePointColorBuffer(
-  points: GeographicPointBuffer,
+  points: GeographicPointBuffer | RenderablePointData,
   options: CopcPointStyleInput = {},
   state?: CopcPointStyleState,
 ): Float32Array {

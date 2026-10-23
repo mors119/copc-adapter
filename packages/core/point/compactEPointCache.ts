@@ -1,14 +1,11 @@
 import type {
   CopcPointAttributes,
+  GeographicPointBuffer,
   PreparedPointData,
   PreparedPointStatistics,
 } from "../copc/types/copc";
-import { ecefToGeographic } from "../coordinates/transform/worldCoordinates";
 import type { VerticalGridValueUnit } from "../coordinates/transform/verticalGrid";
-import {
-  assertPreparedPointData,
-  createPreparedPointData,
-} from "./preparedPoint";
+import { assertPreparedPointData } from "./preparedPoint";
 
 /** Provenance retained with one experimental E cache entry. */
 export type CompactEPointProvenance = {
@@ -33,18 +30,20 @@ export type CompactEPointProvenance = {
     | { status: "no-validated-grid-correction" };
 };
 
+/** Internal E-cache policy for exact coordinate spaces needed by a consumer. */
+export type CompactECoordinateRetention = Readonly<{
+  /** Retain the exact original source-CRS XYZ buffer. Defaults to false. */
+  sourceCoordinates?: boolean;
+  /** Retain the exact prepared WGS84 longitude/latitude/height buffer. Defaults to false. */
+  geographicCoordinates?: boolean;
+}>;
+
 /**
- * Experimental internal E cache value. `ecef` and `height` are 32 bytes per
- * point, but the current compatibility sidecar raises the retained coordinate
- * footprint to 56 bytes per point before attributes. This is an explicitly
- * documented compatibility path, not a 32-byte retained-cache result.
- * Synchronous public inspection getters require exact Source XYZ, which ECEF
- * cannot recover. Keep production A as the default until a source-access
- * migration allows E to omit that sidecar.
- *
- * Point identity is `(nodeKey, zero-based point index)`. `ecef` aliases the
- * prepared ECEF backing store, while `height` is copied from the same prepared
- * transform result without changing Float64 precision.
+ * Experimental internal E cache value. Its base coordinate/height buffers are
+ * ECEF XYZ and prepared display height, totaling 32 bytes per point. Exact
+ * Source and Geographic arrays are retained independently only when explicitly
+ * requested by an internal consumer policy. Point identity is
+ * `(nodeKey, zero-based array index)`.
  */
 export type CompactEPointCacheNode = {
   layout: "E";
@@ -54,15 +53,20 @@ export type CompactEPointCacheNode = {
   ecef: Float64Array;
   /** Prepared display/ellipsoidal height in metres; one Float64 per point. */
   height: Float64Array;
+  /** Exact source XYZ, retained only when explicitly requested. */
+  sourceCoordinates?: Float64Array;
+  /** Exact prepared geographic triples, retained only when explicitly requested. */
+  geographicCoordinates?: Float64Array;
   attributes?: CopcPointAttributes;
   statistics: PreparedPointStatistics;
-  /** Exact source values retained by the legacy synchronous inspection path. */
-  sourceCompatibility: Float64Array;
   provenance: CompactEPointProvenance;
 };
 
+/** Data accepted by the renderer boundary; E is selected only internally. */
+export type RenderablePointData = PreparedPointData | CompactEPointCacheNode;
+
 /** Values accepted by the internal point cache during experimental rollout. */
-export type CachedPointData = PreparedPointData | CompactEPointCacheNode;
+export type CachedPointData = RenderablePointData;
 
 /** Build compact E buffers from a validated result of one transform execution. */
 export function createCompactEPointCacheNode(
@@ -70,6 +74,8 @@ export function createCompactEPointCacheNode(
   input: {
     nodeKey: string;
     provenance: CompactEPointProvenance;
+    /** Optional exact coordinate buffers required by a selected consumer policy. */
+    retain?: CompactECoordinateRetention;
   },
 ): CompactEPointCacheNode {
   assertPreparedPointData(prepared);
@@ -88,61 +94,65 @@ export function createCompactEPointCacheNode(
     pointCount: prepared.pointCount,
     ecef: prepared.world.coordinates,
     height,
+    ...(input.retain?.sourceCoordinates
+      ? { sourceCoordinates: prepared.source.coordinates }
+      : {}),
+    ...(input.retain?.geographicCoordinates
+      ? { geographicCoordinates: prepared.geographic.coordinates }
+      : {}),
     attributes: prepared.attributes,
     statistics: prepared.statistics,
-    sourceCompatibility: prepared.source.coordinates,
     provenance: input.provenance,
   };
 }
 
 /** Return true for the internal compact E representation. */
 export function isCompactEPointCacheNode(
-  value: CachedPointData,
+  value: RenderablePointData | GeographicPointBuffer,
 ): value is CompactEPointCacheNode {
   return "layout" in value && value.layout === "E";
 }
 
-/**
- * Materialize the legacy renderer/inspection shape without fabricating Source
- * XYZ. Each call allocates 24 B per point for geographic triples and performs
- * one ECEF inverse per point. Longitude and latitude may differ by floating-
- * point roundoff; longitude is inherently unrecoverable at a pole. The
- * prepared height and compatibility Source values remain exact. This eager
- * adapter is a blocking limitation for promoting E to normal streaming.
- */
-export function compactEPointCacheNodeToPreparedPointData(
-  value: CompactEPointCacheNode,
-): PreparedPointData {
-  const geographicCoordinates = new Float64Array(value.pointCount * 3);
-  for (let pointIndex = 0; pointIndex < value.pointCount; pointIndex += 1) {
-    const offset = pointIndex * 3;
-    const geographic = ecefToGeographic({
-      x: value.ecef[offset],
-      y: value.ecef[offset + 1],
-      z: value.ecef[offset + 2],
-    });
-    geographicCoordinates[offset] = geographic.longitude;
-    geographicCoordinates[offset + 1] = geographic.latitude;
-    // Use the retained F64 transform result so styles and thresholds preserve
-    // their prepared-height values even if the inverse ECEF calculation rounds.
-    geographicCoordinates[offset + 2] = value.height[pointIndex];
-  }
-
-  return createPreparedPointData({
-    pointCount: value.pointCount,
-    sourceCoordinates: value.sourceCompatibility,
-    geographicCoordinates,
-    worldCoordinates: value.ecef,
-    attributes: value.attributes,
-    statistics: value.statistics,
-  });
+/** Return the E height buffer when present; A continues to use geographic Z. */
+export function getPreparedHeightBuffer(
+  points: RenderablePointData | GeographicPointBuffer,
+): Float64Array | undefined {
+  return isCompactEPointCacheNode(points) ? points.height : undefined;
 }
 
-/** Adapt either cache layout to the existing renderer and public contract. */
-export function cachedPointDataToPreparedPointData(
+/** Return one point's prepared height from either internal cache layout. */
+export function getPreparedPointHeight(
+  points: RenderablePointData | GeographicPointBuffer,
+  pointIndex: number,
+): number {
+  if (isCompactEPointCacheNode(points)) {
+    return points.height[pointIndex];
+  }
+  return points.coordinates[pointIndex * 3 + 2];
+}
+
+/** Return the ECEF buffer for either cache layout without creating an alias. */
+export function getPreparedWorldCoordinateBuffer(
+  points: RenderablePointData | GeographicPointBuffer,
+): Float64Array | undefined {
+  if (isCompactEPointCacheNode(points)) return points.ecef;
+  return points.worldCoordinates;
+}
+
+/** Pass the cache-owned E or A representation directly to renderer consumers. */
+export function cachedPointDataToRenderablePointData(
   value: CachedPointData,
-): PreparedPointData {
-  return isCompactEPointCacheNode(value)
-    ? compactEPointCacheNodeToPreparedPointData(value)
-    : value;
+): RenderablePointData {
+  return value;
+}
+
+/** Guard synchronous legacy coordinate APIs against incomplete E data. */
+export function assertLegacyCoordinatesAvailable(
+  value: RenderablePointData,
+): asserts value is PreparedPointData {
+  if (isCompactEPointCacheNode(value)) {
+    throw new Error(
+      "The complete synchronous PreparedPointData contract is unavailable for experimental E cache entries; use the default A cache for legacy coordinate APIs.",
+    );
+  }
 }

@@ -4,6 +4,12 @@ import type {
   GeographicPointBuffer,
 } from "../../core/copc/types/copc";
 import type { CopcElevationRange } from "../../core/point/style/pointStyle";
+import type { RenderablePointData } from "../../core/point/compactEPointCache";
+import {
+  isCompactEPointCacheNode,
+  getPreparedPointHeight,
+  getPreparedWorldCoordinateBuffer,
+} from "../../core/point/compactEPointCache";
 import {
   getPointColor,
   type CopcColorMode,
@@ -78,8 +84,11 @@ export function toCartesian3Array(
  * system, or contains non-finite values.
  */
 export function toCartesian3ArrayFromBuffer(
-  points: GeographicPointBuffer,
+  points: GeographicPointBuffer | RenderablePointData,
 ): Cesium.Cartesian3[] {
+  if (isCompactEPointCacheNode(points)) {
+    return toCartesian3ArrayFromWorldBuffer(points);
+  }
   if (points.worldCoordinates !== undefined) {
     return toCartesian3ArrayFromWorldBuffer(points);
   }
@@ -93,7 +102,7 @@ export function toCartesian3ArrayFromBuffer(
       Cesium.Cartesian3.fromDegrees(
         points.coordinates[offset],
         points.coordinates[offset + 1],
-        points.coordinates[offset + 2],
+        getPreparedPointHeight(points, index),
       ),
     );
   }
@@ -108,13 +117,14 @@ export function toCartesian3ArrayFromBuffer(
  * preparation paths already produced the authoritative ECEF render buffer.
  */
 export function toCartesian3ArrayFromWorldBuffer(
-  points: GeographicPointBuffer,
+  points: GeographicPointBuffer | RenderablePointData,
 ): Cesium.Cartesian3[] {
-  const worldCoordinates = points.worldCoordinates;
+  const compactE = isCompactEPointCacheNode(points);
+  const worldCoordinates = compactE ? points.ecef : points.worldCoordinates;
   if (!worldCoordinates) {
     throw new Error("Prepared point data is missing world coordinates");
   }
-  if (points.worldCoordinateSystem !== "wgs84-ecef-meters") {
+  if (!compactE && points.worldCoordinateSystem !== "wgs84-ecef-meters") {
     throw new Error("Prepared world coordinates must use wgs84-ecef-meters");
   }
   if (worldCoordinates.length !== points.pointCount * 3) {
@@ -154,7 +164,7 @@ export function toCartesian3ArrayFromWorldBuffer(
  */
 export function renderCopcPoints(
   viewer: Cesium.Viewer,
-  points: GeographicPointBuffer,
+  points: GeographicPointBuffer | RenderablePointData,
   options: CopcPointRenderOptions,
   primitiveCollection: Cesium.PrimitiveCollection = viewer.scene.primitives,
 ): Cesium.PointPrimitiveCollection {
@@ -169,7 +179,7 @@ export function renderCopcPoints(
     const positionsStartedAt = performanceNow();
     const positions = toCartesian3ArrayFromBuffer(points);
     options.onPerformance?.(
-      points.worldCoordinates === undefined
+      getPreparedWorldCoordinateBuffer(points) === undefined
         ? "geographicToCartesian"
         : "worldToCartesian",
       performanceNow() - positionsStartedAt,
@@ -186,7 +196,7 @@ export function renderCopcPoints(
     const styleStartedAt = performanceNow();
     const colors = positions.map((_, index) =>
       getPointColor(
-        points.coordinates[index * 3 + 2],
+        getPreparedPointHeight(points, index),
         styleOptions,
         points.attributes,
         index,

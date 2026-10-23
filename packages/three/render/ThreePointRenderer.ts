@@ -4,6 +4,10 @@ import type {
   GeographicPointBuffer,
   PreparedPointData,
 } from "../../core/copc/types/copc";
+import {
+  isCompactEPointCacheNode,
+  type RenderablePointData,
+} from "../../core/point/compactEPointCache";
 import { performanceNow } from "../../core/copc/performance";
 import { createPointTransformer } from "../../core/coordinates/transform/createPointTransformer";
 import type { GtxGeoidGrid } from "../../core/coordinates/transform/verticalGrid";
@@ -85,11 +89,25 @@ export function createThreeLocalOrigin(
   return geographicToEcef(center);
 }
 
-function assertPointCount(points: GeographicPointBuffer): void {
+function assertPointCount(
+  points: GeographicPointBuffer | RenderablePointData,
+): void {
   if (!Number.isSafeInteger(points.pointCount) || points.pointCount < 0) {
     throw new Error(
       "Three.js point buffers must have a non-negative safe point count",
     );
+  }
+
+  if (isCompactEPointCacheNode(points)) {
+    if (
+      !(points.ecef instanceof Float64Array) ||
+      points.ecef.length !== points.pointCount * 3 ||
+      !(points.height instanceof Float64Array) ||
+      points.height.length !== points.pointCount
+    ) {
+      throw new Error("Three.js compact E buffers must match point count");
+    }
+    return;
   }
 
   if (points.coordinates.length !== points.pointCount * 3) {
@@ -128,7 +146,13 @@ function assertFiniteCoordinates(
   }
 }
 
-function toWorldCoordinates(points: GeographicPointBuffer): Float64Array {
+function toWorldCoordinates(
+  points: GeographicPointBuffer | RenderablePointData,
+): Float64Array {
+  if (isCompactEPointCacheNode(points)) {
+    assertFiniteCoordinates(points.ecef, "world");
+    return points.ecef;
+  }
   if (points.worldCoordinates) {
     assertFiniteCoordinates(points.worldCoordinates, "world");
     return points.worldCoordinates;
@@ -294,7 +318,7 @@ export class ThreePointRenderer implements CopcPointRenderer {
    */
   addOrUpdateNode(
     nodeKey: string,
-    points: GeographicPointBuffer | PreparedPointData,
+    points: GeographicPointBuffer | PreparedPointData | RenderablePointData,
     options: ThreePointRendererOptions,
   ): void {
     if (this.destroyed) {

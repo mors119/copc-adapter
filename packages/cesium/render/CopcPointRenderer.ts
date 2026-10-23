@@ -4,6 +4,8 @@ import type {
   PreparedPointData,
 } from "../../core/copc/types/copc";
 import type { CopcPointPickId } from "../../core/copc/points/pointInspection";
+import type { RenderablePointData } from "../../core/point/compactEPointCache";
+import { getPreparedPointHeight } from "../../core/point/compactEPointCache";
 import { performanceNow } from "../../core/copc/performance";
 import type {
   CopcPointRenderer,
@@ -59,7 +61,7 @@ export type CopcCesiumPointRendererOptions = NeutralCopcPointRendererOptions & {
 export type CopcPointRendererPerformanceStage =
   CopcCesiumPointRendererPerformanceStage;
 
-type CesiumPointData = GeographicPointBuffer | PreparedPointData;
+type CesiumPointData = GeographicPointBuffer | PreparedPointData | RenderablePointData;
 
 /** @deprecated Planned for removal in v0.9, after v0.8; use `CopcCesiumPointRendererOptions`. */
 export type { CopcPointRendererOptions } from "../../core/streaming/renderer";
@@ -210,7 +212,7 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
       const visible = options.pointFilter?.(index) ?? true;
       primitive.show = visible;
       primitive.color = getPointColor(
-        points.coordinates[index * 3 + 2],
+        getPreparedPointHeight(points, index),
         styleOptions,
         points.attributes,
         index,

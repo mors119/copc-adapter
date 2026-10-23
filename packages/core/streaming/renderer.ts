@@ -1,5 +1,5 @@
 import type { CopcColorMode } from "../copc/points/fieldSelection";
-import type { PreparedPointData } from "../copc/types/copc";
+import type { RenderablePointData } from "../point/compactEPointCache";
 
 /** A project-owned numeric range used by renderer-independent styling. */
 export type CopcValueRange = {
@@ -35,15 +35,15 @@ export type CopcPointRendererOptions = {
  * The smallest renderer contract required by shared streaming transitions.
  *
  * A renderer is attached by its engine adapter before this contract is used.
- * The shared contract consumes `PreparedPointData`, never a viewer/scene/camera,
- * and never returns engine geometry objects. Concrete compatibility renderers
- * may continue to accept the legacy flat geographic view when used directly.
+ * The shared contract consumes renderer-neutral prepared data, never a
+ * viewer/scene/camera, and never returns engine geometry objects. Production
+ * uses `PreparedPointData`; the internal experiment can pass compact E values.
  */
 export interface CopcPointRenderer {
-  /** Create or replace a renderable node from shared prepared point data. */
+  /** Create or replace a node from shared A or internal compact E point data. */
   addOrUpdateNode(
     nodeKey: string,
-    points: PreparedPointData,
+    points: RenderablePointData,
     options: CopcPointRendererOptions,
   ): void;
   /** Remove one node and release its renderer-owned resources. */
