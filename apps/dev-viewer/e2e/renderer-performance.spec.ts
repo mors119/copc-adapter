@@ -497,6 +497,18 @@ test("prints repeatable synthetic and Autzen renderer performance evidence", asy
   });
   expect(threeCacheLayouts).toHaveLength(2);
   expect(threeCacheLayouts.map((row) => row.cacheLayout)).toEqual(["A", "E"]);
+  expect(threeCacheLayouts[0].comparisonOrder).toEqual([
+    "A>E",
+    "E>A",
+    "A>E",
+    "E>A",
+    "A>E",
+    "E>A",
+    "A>E",
+  ]);
+  expect(threeCacheLayouts[1].comparisonOrder).toEqual(
+    threeCacheLayouts[0].comparisonOrder,
+  );
   expect(scenarios.every((scenario) => scenario.state)).toBe(true);
 });
 

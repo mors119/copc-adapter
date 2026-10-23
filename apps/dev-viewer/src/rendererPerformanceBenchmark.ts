@@ -306,14 +306,13 @@ export function runSyntheticThreeCacheLayoutBenchmark(options: {
   geometryCreation: BenchmarkRange;
   materialCreation: BenchmarkRange;
   nodeRemoval: BenchmarkRange;
+  comparisonOrder: Array<"A>E" | "E>A">;
 }> {
   const pointCount = options.pointCount ?? 100_000;
   const repetitions = Math.max(1, Math.floor(options.repetitions ?? 5));
   const warmups = Math.max(0, Math.floor(options.warmups ?? 2));
-  const results = [];
-
-  for (const cacheLayout of ["A", "E"] as const) {
-    const samples = {
+  const samplesByLayout = {
+    A: {
       crsTransform: [] as number[],
       representationMaterialization: [] as number[],
       rendererPreparation: [] as number[],
@@ -321,9 +320,25 @@ export function runSyntheticThreeCacheLayoutBenchmark(options: {
       geometryCreation: [] as number[],
       materialCreation: [] as number[],
       nodeRemoval: [] as number[],
-    };
+    },
+    E: {
+      crsTransform: [] as number[],
+      representationMaterialization: [] as number[],
+      rendererPreparation: [] as number[],
+      worldToLocal: [] as number[],
+      geometryCreation: [] as number[],
+      materialCreation: [] as number[],
+      nodeRemoval: [] as number[],
+    },
+  };
+  const comparisonOrder: Array<"A>E" | "E>A"> = [];
 
-    for (let repetition = 0; repetition < warmups + repetitions; repetition += 1) {
+  for (let repetition = 0; repetition < warmups + repetitions; repetition += 1) {
+    const layoutOrder: readonly ("A" | "E")[] =
+      repetition % 2 === 0 ? ["A", "E"] : ["E", "A"];
+    comparisonOrder.push(layoutOrder.join(">") as "A>E" | "E>A");
+    for (const cacheLayout of layoutOrder) {
+      const samples = samplesByLayout[cacheLayout];
       const pointBuffer = createDeterministicPointBuffer(pointCount);
       const crsStartedAt = performanceNow();
       const prepared = transformPointBufferToPreparedPointData(
@@ -388,8 +403,11 @@ export function runSyntheticThreeCacheLayoutBenchmark(options: {
         }
       }
     }
+  }
 
-    results.push({
+  return (["A", "E"] as const).map((cacheLayout) => {
+    const samples = samplesByLayout[cacheLayout];
+    return {
       cacheLayout,
       pointCount,
       crsTransform: summarize(samples.crsTransform),
@@ -401,8 +419,7 @@ export function runSyntheticThreeCacheLayoutBenchmark(options: {
       geometryCreation: summarize(samples.geometryCreation),
       materialCreation: summarize(samples.materialCreation),
       nodeRemoval: summarize(samples.nodeRemoval),
-    });
-  }
-
-  return results;
+      comparisonOrder,
+    };
+  });
 }

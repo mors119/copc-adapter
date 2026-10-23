@@ -1080,6 +1080,13 @@ async function benchmarkCacheRepresentations(prepared, { warmups, repetitions })
     ]),
   );
   const memoryAfterGc = memorySnapshot();
+  const cacheInsertion = {};
+  for (const [name, candidate] of Object.entries(candidates)) {
+    cacheInsertion[name] = await benchmarkCacheInsertion(candidate, {
+      warmups,
+      repetitions,
+    });
+  }
 
   return {
     pointCount: prepared.pointCount,
@@ -1098,14 +1105,7 @@ async function benchmarkCacheRepresentations(prepared, { warmups, repetitions })
       ]),
     ),
     materialization: representation.materialization,
-    cacheInsertion: Object.fromEntries(
-      await Promise.all(
-        Object.entries(candidates).map(async ([name, candidate]) => [
-          name,
-          await benchmarkCacheInsertion(candidate, { warmups, repetitions }),
-        ]),
-      ),
-    ),
+    cacheInsertion,
     processMemory: {
       beforeRepresentations: memoryBefore,
       afterAllCandidatesAndGc: memoryAfterGc,
@@ -1498,8 +1498,6 @@ async function benchmarkCacheBudgetSensitivity(
   attributes,
   pointCount,
 ) {
-  const byteBudget = 256 * 1024 * 1024;
-  const maxEntries = 48;
   const regions = cacheRegionsFromHierarchy(hierarchyNodes);
   const cameraPathIndices = [0, 1, 2, 3, 4, 5].filter(
     (index) => index < regions.regions.length,
@@ -1507,48 +1505,92 @@ async function benchmarkCacheBudgetSensitivity(
   if (cameraPathIndices.length >= 3) cameraPathIndices.push(0);
   const attributeBytesPerPoint = byteLength(attributes) / pointCount;
   const bytesPerCoordinatePoint = { A: 72, B: 48, C: 24, D: 28, E: 32 };
-  const layouts = {};
-
-  for (const [name, coordinateBytesPerPoint] of Object.entries(
-    bytesPerCoordinatePoint,
-  )) {
-    const bytesPerPoint = coordinateBytesPerPoint + attributeBytesPerPoint;
-    const nodeByKey = new Map(hierarchyNodes.map((node) => [node.key, node]));
-    const cache = createNodePointCache(
-      async (nodeKey) => nodeByKey.get(nodeKey),
-      {
-        maxEntries,
-        maxBytes: byteBudget,
-        estimateBytes: (node) => node.pointCount * bytesPerPoint,
-      },
-    );
-    const cameraViews = [];
-    for (const regionIndex of cameraPathIndices) {
-      const region = regions.regions[regionIndex];
-      const nodeKeys = region.nodes.map((node) => node.key);
-      cache.setRequiredNodeKeys(nodeKeys);
-      for (const nodeKey of nodeKeys) await cache.load(nodeKey);
-      cameraViews.push({
-        regionKey: region.regionKey,
-        selectedNodeCount: region.nodes.length,
-        selectedPointCount: region.selectedPointCount,
-        diagnostics: cache.getDiagnostics(),
-      });
+  const nodeByKey = new Map(hierarchyNodes.map((node) => [node.key, node]));
+  const runLayoutReplay = async ({
+    byteBudget,
+    maxEntries,
+    replayPathIndices = cameraPathIndices,
+  }) => {
+    const layouts = {};
+    for (const [name, coordinateBytesPerPoint] of Object.entries(
+      bytesPerCoordinatePoint,
+    )) {
+      const bytesPerPoint = coordinateBytesPerPoint + attributeBytesPerPoint;
+      const cache = createNodePointCache(
+        async (nodeKey) => nodeByKey.get(nodeKey),
+        {
+          maxEntries,
+          maxBytes: byteBudget,
+          estimateBytes: (node) => node.pointCount * bytesPerPoint,
+        },
+      );
+      const cameraViews = [];
+      const regionVisits = new Map();
+      let revisitHitCount = 0;
+      for (const regionIndex of replayPathIndices) {
+        const region = regions.regions[regionIndex];
+        const nodeKeys = region.nodes.map((node) => node.key);
+        const visitCount = regionVisits.get(regionIndex) ?? 0;
+        cache.setRequiredNodeKeys(nodeKeys);
+        const hitsBeforeViewLoads = cache.getDiagnostics().hits;
+        for (const nodeKey of nodeKeys) await cache.load(nodeKey);
+        const diagnostics = cache.getDiagnostics();
+        if (visitCount > 0) {
+          revisitHitCount += diagnostics.hits - hitsBeforeViewLoads;
+        }
+        regionVisits.set(regionIndex, visitCount + 1);
+        cameraViews.push({
+          regionKey: region.regionKey,
+          selectedNodeCount: region.nodes.length,
+          selectedPointCount: region.selectedPointCount,
+          diagnostics,
+        });
+      }
+      const finalDiagnostics = cache.getDiagnostics();
+      layouts[name] = {
+        bytesPerPoint,
+        cameraViews,
+        finalDiagnostics,
+        revisitHitCount,
+        countLimitBoundBeforeByteBudget:
+          finalDiagnostics.cachedNodeCount === maxEntries &&
+          finalDiagnostics.currentCacheBytes < byteBudget,
+        byteBudgetEvictedBeforeCountLimit:
+          maxEntries > 48 && finalDiagnostics.evictionCount > 0,
+      };
+      cache.clear();
     }
-    const finalDiagnostics = cache.getDiagnostics();
-    layouts[name] = {
-      bytesPerPoint,
-      cameraViews,
-      finalDiagnostics,
-      countLimitBoundBeforeByteBudget:
-        finalDiagnostics.cachedNodeCount === maxEntries &&
-        finalDiagnostics.currentCacheBytes < byteBudget,
-    };
-    cache.clear();
-  }
+    return { budgets: { byteBudget, maxEntries }, layouts };
+  };
+
+  const productionBudgetAndCountLimit = await runLayoutReplay({
+    byteBudget: 256 * 1024 * 1024,
+    maxEntries: 48,
+  });
+  const byteBoundPathIndices =
+    regions.regions.length >= 2 ? [0, 1, 0] : cameraPathIndices;
+  const revisitedRegionPointCount = byteBoundPathIndices
+    .slice(0, -1)
+    .reduce(
+      (total, regionIndex) =>
+        total + regions.regions[regionIndex].selectedPointCount,
+      0,
+    );
+  const bytesForFirstTwoRegions = {
+    A: Math.ceil(revisitedRegionPointCount * (72 + attributeBytesPerPoint)),
+    E: Math.ceil(revisitedRegionPointCount * (32 + attributeBytesPerPoint)),
+  };
+  const byteBoundBudget = Math.floor(
+    (bytesForFirstTwoRegions.A + bytesForFirstTwoRegions.E) / 2,
+  );
+  const byteBoundSensitivity = await runLayoutReplay({
+    byteBudget: byteBoundBudget,
+    maxEntries: 256,
+    replayPathIndices: byteBoundPathIndices,
+  });
 
   return {
-    budgets: { byteBudget, maxEntries },
+    budgets: productionBudgetAndCountLimit.budgets,
     attributeBytesPerPoint,
     selectionPolicyProxy: {
       maxNodesPerView: regions.maxSelectedNodes,
@@ -1562,7 +1604,14 @@ async function benchmarkCacheBudgetSensitivity(
       cameraPathRegionIndices: cameraPathIndices,
       note: "Deterministic hierarchy-bin trace using actual node keys/point counts; this is an LRU policy simulation, not a live NodeSelector/browser camera run.",
     },
-    layouts,
+    layouts: productionBudgetAndCountLimit.layouts,
+    byteBoundSensitivity: {
+      ...byteBoundSensitivity,
+      estimatedABytesForTwoRevisitedRegions: bytesForFirstTwoRegions.A,
+      estimatedEBytesForTwoRevisitedRegions: bytesForFirstTwoRegions.E,
+      replayPathRegionIndices: byteBoundPathIndices,
+      note: "Sensitivity-only replay: the byte budget is set midway between A and E's estimated retained bytes for the first two regions, the path revisits region 0 after region 1, and the node cap is raised to 256 to isolate byte pressure.",
+    },
   };
 }
 
