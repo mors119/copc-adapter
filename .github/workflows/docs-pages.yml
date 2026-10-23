@@ -6,22 +6,10 @@ on:
       - 'docs/**'
       - 'apps/playground/**'
       - 'apps/shared/**'
-      - 'packages/**'
-      - 'packages/scripts/build-copc-adapter-wasm.mjs'
-      - 'packages/scripts/finalize-library-assets.mjs'
-      - 'packages/package.json'
-      - 'packages/package-lock.json'
-      - 'packages/vite.lib.config.ts'
-      - 'packages/tsconfig*.json'
-      - 'crates/**'
-      - '.cargo/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'rust-toolchain*'
       - 'scripts/assemble-pages.mjs'
       - 'scripts/assert-pages-layout.mjs'
+      - 'scripts/assert-playground-release.mjs'
       - 'scripts/build-pages.mjs'
-      - 'scripts/package-playground-adapter.mjs'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/docs-pages.yml'
@@ -32,22 +20,10 @@ on:
       - 'docs/**'
       - 'apps/playground/**'
       - 'apps/shared/**'
-      - 'packages/**'
-      - 'packages/scripts/build-copc-adapter-wasm.mjs'
-      - 'packages/scripts/finalize-library-assets.mjs'
-      - 'packages/package.json'
-      - 'packages/package-lock.json'
-      - 'packages/vite.lib.config.ts'
-      - 'packages/tsconfig*.json'
-      - 'crates/**'
-      - '.cargo/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'rust-toolchain*'
       - 'scripts/assemble-pages.mjs'
       - 'scripts/assert-pages-layout.mjs'
+      - 'scripts/assert-playground-release.mjs'
       - 'scripts/build-pages.mjs'
-      - 'scripts/package-playground-adapter.mjs'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/docs-pages.yml'
@@ -80,30 +56,25 @@ jobs:
           cache: npm
           cache-dependency-path: |
             package-lock.json
-            packages/package-lock.json
             apps/playground/package-lock.json
-
-      - name: Setup Rust WASM target
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
 
       - name: Install root dependencies
         run: npm ci
 
-      - name: Install adapter build dependencies
-        run: npm ci --prefix packages
-
       - name: Install Playground build dependencies
         run: npm ci --prefix apps/playground
+
+      - name: Test released package provenance gate
+        run: npm --prefix apps/playground run test:provenance
+
+      - name: Verify exact published npm Playground dependency
+        run: npm run playground:verify-release
 
       - name: Install Chromium for Playground browser tests
         run: npx --prefix apps/playground playwright install --with-deps chromium
 
       - name: Test Playground browser interactions
-        run: |
-          npm run playground:package
-          npm --prefix apps/playground run test:e2e
+        run: npm --prefix apps/playground run test:e2e
 
       - name: Build and validate complete site
         run: npm run pages:build

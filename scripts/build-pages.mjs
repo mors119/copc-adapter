@@ -26,8 +26,8 @@ function run(command, args) {
   });
 }
 
+await run("npm", ["run", "playground:verify-release"]);
 await run("npm", ["run", "docs:build"]);
-await run("node", ["scripts/package-playground-adapter.mjs"]);
 await run("npm", ["--prefix", "apps/playground", "run", "typecheck"]);
 await run("npm", ["--prefix", "apps/playground", "run", "build"]);
 await run("node", ["scripts/assemble-pages.mjs"]);

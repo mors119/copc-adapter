@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { assertPackedCandidateInstall } from "./lib/packed-candidate-provenance.mjs";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryDirectory = path.resolve(scriptDirectory, "..");
@@ -164,6 +165,25 @@ try {
       path.resolve(installedPackageDirectory, "package.json"),
       "utf8",
     ),
+  );
+  const candidateManifest = JSON.parse(
+    (
+      await run("tar", ["-xOzf", packagePath, "package/package.json"])
+    ).stdout,
+  );
+  const installedLock = JSON.parse(
+    await readFile(
+      path.resolve(consumerDirectory, "node_modules/.package-lock.json"),
+      "utf8",
+    ),
+  );
+  console.log(
+    `${assertPackedCandidateInstall({
+      candidatePath: packagePath,
+      candidateManifest,
+      installedManifest: installedPackage,
+      installedLock,
+    })} verified in the isolated Three.js consumer.`,
   );
   if (!installedPackage.exports?.["."]) {
     throw new Error("Clean consumer package is missing the root export");

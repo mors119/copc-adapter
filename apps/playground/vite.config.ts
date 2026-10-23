@@ -1,8 +1,12 @@
 import { defineConfig } from "vite";
 import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import cesium from "vite-plugin-cesium";
+import { classifyAdapterSource } from "./scripts/package-provenance.mjs";
 
 export const PLAYGROUND_BASE = "/copc-adapter/playground/";
+const appDirectory = path.dirname(fileURLToPath(import.meta.url));
 
 const installedAdapter = JSON.parse(
   readFileSync(
@@ -13,7 +17,7 @@ const installedAdapter = JSON.parse(
     "utf8",
   ),
 ) as { name?: string; version?: string };
-let adapterSource = "Installed package";
+let adapterSource = "Unknown package origin";
 try {
   const lock = JSON.parse(
     readFileSync(
@@ -23,18 +27,53 @@ try {
   ) as {
     packages?: Record<string, { resolved?: string }>;
   };
-  const resolved =
-    lock.packages?.["node_modules/@frillab/copc-adapter"]?.resolved;
-  if (resolved?.startsWith("file:")) adapterSource = "Local package tarball";
-  else if (resolved?.includes("registry.npmjs.org"))
-    adapterSource = "npm Registry";
+  const installedEntry =
+    lock.packages?.["node_modules/@frillab/copc-adapter"];
+  adapterSource = classifyAdapterSource(installedEntry, installedAdapter.version);
 } catch {
-  // An incomplete install still reports its actual package version above.
+  // Leave the origin unknown so the public build check can fail closed.
+}
+
+function assertAdapterBundleResolution() {
+  return {
+    name: "assert-installed-adapter-package-resolution",
+    apply: "build" as const,
+    generateBundle(this: { getModuleIds(): IterableIterator<string> }) {
+      const packageRoot = pathForPackage(
+        "./node_modules/@frillab/copc-adapter",
+      );
+      const packagePrefix = `${packageRoot}/`;
+      const adapterModules = [...this.getModuleIds()].filter((moduleId) =>
+        moduleId.replaceAll("\\", "/").startsWith(packagePrefix),
+      );
+      const adapterEntrypoints = new Set(
+        adapterModules.map((moduleId) =>
+          moduleId.replaceAll("\\", "/").slice(packagePrefix.length),
+        ),
+      );
+      for (const entrypoint of ["dist/cesium.js", "dist/three.js"]) {
+        if (!adapterEntrypoints.has(entrypoint)) {
+          this.error(
+            `Playground bundle did not resolve ${entrypoint} from the installed npm adapter package.`,
+          );
+        }
+      }
+      if (adapterSource !== "npm release") {
+        this.error(
+          `Public Playground build requires an npm release; found ${adapterSource}.`,
+        );
+      }
+    },
+  };
+}
+
+function pathForPackage(relativePath: string): string {
+  return path.resolve(appDirectory, relativePath).replaceAll("\\", "/");
 }
 
 export default defineConfig({
   base: PLAYGROUND_BASE,
-  plugins: [cesium({ rebuildCesium: true })],
+  plugins: [cesium({ rebuildCesium: true }), assertAdapterBundleResolution()],
   define: {
     __ADAPTER_VERSION__: JSON.stringify(installedAdapter.version ?? "unknown"),
     __ADAPTER_SOURCE__: JSON.stringify(adapterSource),

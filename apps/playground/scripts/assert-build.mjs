@@ -1,6 +1,7 @@
 import { access, readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { assertKnownAdapterInstall } from "./package-provenance.mjs";
 
 const appDirectory = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -87,13 +88,12 @@ const installLock = JSON.parse(
     "utf8",
   ),
 );
-const adapterResolved =
-  installLock.packages?.["node_modules/@frillab/copc-adapter"]?.resolved;
-const packageSourceLabel = adapterResolved?.startsWith("file:")
-  ? "Local package tarball"
-  : adapterResolved?.includes("registry.npmjs.org")
-    ? "npm Registry"
-    : "Installed package";
+const adapterInstallEntry =
+  installLock.packages?.["node_modules/@frillab/copc-adapter"];
+const packageSourceLabel = assertKnownAdapterInstall(
+  packageJson,
+  adapterInstallEntry,
+);
 if (
   packageJson.name !== "@frillab/copc-adapter" ||
   !packageJson.exports?.["./cesium"] ||
