@@ -9,7 +9,8 @@ of the published package.
 The Dev Viewer reuses the Playground's public control widgets and normalized
 layer-option mapping from `apps/shared`. It keeps the workspace-source aliases,
 local sample middleware, fixtures, and developer instrumentation in its own
-build; the public Playground continues to exercise the packed consumer package.
+build; the public Playground consumes an exact published npm release, while CI
+tests packed candidates in isolated consumers.
 
 ## Workbench
 

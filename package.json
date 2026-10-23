@@ -13,7 +13,7 @@
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs",
-    "playground:package": "node scripts/package-playground-adapter.mjs",
+    "playground:verify-release": "node scripts/assert-playground-release.mjs",
     "playground:dev": "npm --prefix apps/playground run dev",
     "playground:typecheck": "npm --prefix apps/playground run typecheck",
     "playground:build": "npm --prefix apps/playground run build",
