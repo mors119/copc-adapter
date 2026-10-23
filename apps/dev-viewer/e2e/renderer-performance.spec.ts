@@ -307,13 +307,26 @@ test("prints repeatable synthetic and Autzen renderer performance evidence", asy
           ),
           three: threeCacheLayouts,
           conditions: {
-            repetitions: 5,
-            warmups: 2,
-            pointCount: 100_000,
-            sourceBuffer: "same deterministic synthetic buffer reused per A/E pair",
-            order: "paired A>E then E>A, alternating across all pairs",
-            measures:
-              "synchronous renderer preparation only; no GPU execution time",
+            cesium: {
+              repetitions: 5,
+              warmups: 2,
+              pointCount: 100_000,
+              sourceBuffer:
+                "same deterministic synthetic buffer reused per A/E pair",
+              order: "paired A>E then E>A, alternating across all pairs",
+              measures:
+                "synchronous renderer preparation only; no GPU execution time",
+            },
+            three: {
+              repetitions: 5,
+              warmups: 2,
+              pointCount: 100_000,
+              sourceBuffer:
+                "deterministic values regenerated for each layout sample",
+              order: "paired A>E then E>A, alternating across all pairs",
+              measures:
+                "synchronous CPU geometry preparation only; no GPU execution time",
+            },
           },
         },
         initialFrames,
