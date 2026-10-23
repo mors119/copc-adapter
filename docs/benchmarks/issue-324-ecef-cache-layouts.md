@@ -23,8 +23,9 @@ transient preparation memory for E. Those gaps prevent a safe default decision.
 
 | Setting | Value |
 | --- | --- |
-| Benchmark source revision | `e832bb653866964fac2984ece59d506893f5dd7c` (exact committed tree used for the final rerun) |
-| Node benchmark harness SHA-256 | `cd38ce8add88b55c57f57c749ca0614f87826dc94a2beee082f8a48426a3d5f8` (`packages/scripts/cache-representation-performance-benchmark.mjs`) |
+| Full measurement source revision | `e832bb653866964fac2984ece59d506893f5dd7c` (5 warm-ups, 15 samples) |
+| Node benchmark harness SHA-256 (full measurement) | `cd38ce8add88b55c57f57c749ca0614f87826dc94a2beee082f8a48426a3d5f8` (`packages/scripts/cache-representation-performance-benchmark.mjs`) |
+| Node harness SHA-256 (corrected layout metadata) | `78c93edd05398dc43520f89223b26963fb6661ecf4a8bcec1fd9b5bf85aca53c` at `e2c152668d8be3a13f96d900b66edc32399821ae`; metadata smoke check used 0 warm-ups and 1 sample |
 | Browser benchmark harness SHA-256 | `d85362ae194068d603ea29faeebfbd91d1a0ae456d0e05cfcb9ddd671e0585f0` (`apps/dev-viewer/src/rendererPerformanceBenchmark.ts`) |
 | Node runtime | Node.js `v26.12.1`, V8 `14.6.202.34-node.40`, macOS `25.6.0`, arm64 |
 | Machine | Apple M2, 8 logical CPUs, 8 GiB RAM |
@@ -47,6 +48,13 @@ the browser with synthetic 100k-point data. First-visible streaming is an A
 baseline because no browser layer currently selects E. One-node cache timing
 samples execute candidate layouts sequentially so their forced-GC and timing
 windows do not overlap.
+
+The full numeric measurements above used the `e832bb6` harness revision. A
+follow-up metadata-only correction makes the JSON method description
+layout-specific: E records zero copied coordinate buffers, a Float64 height
+allocation derived from Geographic Z, and aliases to the prepared ECEF buffer.
+That output was smoke-checked at `e2c1526`; the change does not alter the
+measured operations or the reported full-run values.
 
 For the cache-policy replay, the benchmark traverses each real hierarchy and
 uses deterministic hierarchy-bin regions with a 24-node / 250k-point selection
