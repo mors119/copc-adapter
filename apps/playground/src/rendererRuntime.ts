@@ -4,10 +4,14 @@ import type {
   CopcCesiumLayer,
   CopcCesiumLayerOptions,
   CopcPointInspection,
-  RefinementAlgorithm,
   RefinementFocus,
 } from "@frillab/copc-adapter/cesium";
 import type { CopcThreeLayer } from "@frillab/copc-adapter/three";
+import type {
+  PlaygroundLayerDiagnostics,
+  PlaygroundPerformanceDiagnostics,
+  PlaygroundSnapshot,
+} from "./diagnostics";
 import {
   toWorkbenchLayerOptions,
   type WorkbenchCameraPreset,
@@ -30,25 +34,14 @@ export type PlaygroundCameraState = {
   readonly roll: number;
 };
 
-export type PlaygroundSnapshot = {
-  readonly lifecycle: string;
-  readonly renderedPoints: number;
-  readonly renderedNodes: number;
-  readonly selectedNodes: number;
-  readonly selectedNodeKeys?: readonly string[];
-  readonly visibleLevelRange?: { readonly min: number; readonly max: number };
-  readonly refinementAlgorithm?: RefinementAlgorithm;
-  readonly refinementFocusEnabled?: boolean;
-  readonly focusCandidateCount?: number;
-  readonly focusWeightMin?: number;
-  readonly focusWeightMax?: number;
-  readonly focusInfluencedRefinementCount?: number;
-};
+export type { PlaygroundSnapshot } from "./diagnostics";
 
 export type PlaygroundRuntime = {
   readonly renderer: PlaygroundRenderer;
   readonly ready: Promise<void>;
   getSnapshot(): PlaygroundSnapshot;
+  getDiagnostics(): PlaygroundLayerDiagnostics;
+  getLatestFrameDurationMs(): number | undefined;
   getSelectedPoint(): CopcPointInspection | undefined;
   setCameraView(view: PlaygroundCameraView): Promise<void>;
   getCameraState(): PlaygroundCameraState;
@@ -71,6 +64,9 @@ export type PlaygroundRuntimeOptions = WorkbenchLayerConfig & {
   readonly isCurrent: () => boolean;
   /** Allow callers to keep camera input made while the source was loading. */
   readonly canAutoZoom?: () => boolean;
+  /** App-owned observation hooks around the public layer.load() call. */
+  readonly onLayerLoadStart?: () => void;
+  readonly onLayerLoadComplete?: () => void;
 };
 
 type CesiumLayer = Pick<
@@ -80,6 +76,9 @@ type CesiumLayer = Pick<
   | "destroy"
   | "getSnapshot"
   | "getSelectedPoint"
+  | "getMetadata"
+  | "getHierarchyDiagnostics"
+  | "getPointCacheDiagnostics"
   | "zoomTo"
   | "boundingSphere"
   | "setRefinementFocus"
@@ -108,14 +107,19 @@ function normalizeLod(
     : undefined;
 }
 
-function snapshotFromCesium(layer: CesiumLayer): PlaygroundSnapshot {
-  const snapshot = layer.getSnapshot();
+function snapshotFromCesium(
+  layer: CesiumLayer,
+  snapshot = layer.getSnapshot(),
+): PlaygroundSnapshot {
   return {
     lifecycle: snapshot.lifecycle,
     renderedPoints: snapshot.renderedPointCount,
     renderedNodes: snapshot.renderedNodeKeys.length,
     selectedNodes: snapshot.selectedNodeKeys.length,
     selectedNodeKeys: snapshot.selectedNodeKeys,
+    streamingUpdateCount: snapshot.streamingUpdateCount,
+    backend: snapshot.backend,
+    performance: snapshot.performance as PlaygroundPerformanceDiagnostics,
     ...(normalizeLod(snapshot.performance.visibleLevelRange)
       ? {
           visibleLevelRange: normalizeLod(
@@ -133,14 +137,23 @@ function snapshotFromCesium(layer: CesiumLayer): PlaygroundSnapshot {
   };
 }
 
-function snapshotFromThree(layer: CopcThreeLayer): PlaygroundSnapshot {
-  const snapshot = layer.getSnapshot();
+function snapshotFromThree(
+  layer: CopcThreeLayer,
+  snapshot = layer.getSnapshot(),
+): PlaygroundSnapshot {
   return {
     lifecycle: snapshot.lifecycle,
     renderedPoints: snapshot.renderedPointCount,
     renderedNodes: snapshot.renderedNodeKeys.length,
     selectedNodes: snapshot.selectedNodeKeys.length,
     selectedNodeKeys: snapshot.selectedNodeKeys,
+    streamingUpdateCount: snapshot.streamingUpdateCount,
+    backend: snapshot.backend,
+    performance: {
+      ...snapshot.performance,
+      rendererPreparationDurationMs:
+        snapshot.renderer.rendererPreparationDurationMs,
+    } as PlaygroundPerformanceDiagnostics,
     ...(normalizeLod(snapshot.performance.visibleLevelRange)
       ? {
           visibleLevelRange: normalizeLod(
@@ -282,6 +295,14 @@ export async function createPlaygroundRuntime(
       : new adapter.CopcCesiumLayer(layerOptions);
     layer.attachTo(viewer);
     let destroyed = false;
+    let lastRenderAt: number | undefined;
+    let latestFrameDurationMs: number | undefined;
+    const onPostRender = (): void => {
+      const now = performance.now();
+      if (lastRenderAt !== undefined) latestFrameDurationMs = now - lastRenderAt;
+      lastRenderAt = now;
+    };
+    viewer.scene.postRender.addEventListener(onPostRender);
     let previousCameraInputs: boolean | undefined;
     const setFocusDragging = (dragging: boolean): void => {
       const cameraController = viewer.scene.screenSpaceCameraController;
@@ -295,14 +316,35 @@ export async function createPlaygroundRuntime(
         previousCameraInputs = undefined;
       }
     };
+    options.onLayerLoadStart?.();
     const ready = layer.load().then(async () => {
+      options.onLayerLoadComplete?.();
       if (!destroyed && (options.canAutoZoom?.() ?? true)) await layer.zoomTo();
     });
+
+    const getDiagnostics = (): PlaygroundLayerDiagnostics => {
+      const layerSnapshot = layer.getSnapshot();
+      const metadata = layer.getMetadata();
+      const hierarchy = layer.getHierarchyDiagnostics();
+      return {
+        snapshot: snapshotFromCesium(layer, layerSnapshot),
+        ...(metadata ? { metadataPointCount: metadata.pointCount } : {}),
+        transition: layerSnapshot.transition,
+        ...(hierarchy ? { hierarchy } : {}),
+        pointCache: layer.getPointCacheDiagnostics(),
+        rangeRequests: layerSnapshot.rangeRequests,
+        ...(layerSnapshot.worker
+          ? { worker: layerSnapshot.worker }
+          : {}),
+      };
+    };
 
     return {
       renderer: "cesium",
       ready,
-      getSnapshot: () => snapshotFromCesium(layer),
+      getSnapshot: () => getDiagnostics().snapshot,
+      getDiagnostics,
+      getLatestFrameDurationMs: () => latestFrameDurationMs,
       getSelectedPoint: () => layer.getSelectedPoint(),
       async setCameraView(view) {
         if (destroyed) return;
@@ -355,6 +397,7 @@ export async function createPlaygroundRuntime(
       destroy() {
         if (destroyed) return;
         destroyed = true;
+        viewer.scene.postRender.removeEventListener(onPostRender);
         setFocusDragging(false);
         layer.destroy();
         if (!viewer.isDestroyed()) viewer.destroy();
@@ -427,9 +470,14 @@ export async function createPlaygroundRuntime(
   );
   let destroyed = false;
   let animationFrame = 0;
+  let lastRenderAt: number | undefined;
+  let latestFrameDurationMs: number | undefined;
   const draw = (): void => {
     if (destroyed) return;
     animationFrame = requestAnimationFrame(draw);
+    const now = performance.now();
+    if (lastRenderAt !== undefined) latestFrameDurationMs = now - lastRenderAt;
+    lastRenderAt = now;
     controls.update();
     renderer.render(scene, camera);
   };
@@ -482,7 +530,9 @@ export async function createPlaygroundRuntime(
   renderer.domElement.addEventListener("pointerdown", onPointerDown);
   renderer.domElement.addEventListener("pointerup", onPointerUp);
 
+  options.onLayerLoadStart?.();
   const ready = layer.load().then(async () => {
+    options.onLayerLoadComplete?.();
     await layer.update();
     if (destroyed || userInteracted) return;
 
@@ -501,10 +551,27 @@ export async function createPlaygroundRuntime(
     synchronizingCamera = false;
     await layer.update();
   });
+  const getDiagnostics = (): PlaygroundLayerDiagnostics => {
+    const layerSnapshot = layer.getSnapshot();
+    const metadata = layer.getMetadata();
+    const hierarchy = layer.getHierarchyDiagnostics();
+    return {
+      snapshot: snapshotFromThree(layer, layerSnapshot),
+      ...(metadata ? { metadataPointCount: metadata.pointCount } : {}),
+      transition: layerSnapshot.transition,
+      ...(hierarchy ? { hierarchy } : {}),
+      pointCache: layer.getPointCacheDiagnostics(),
+      ...(layerSnapshot.worker
+        ? { worker: layerSnapshot.worker }
+        : {}),
+    };
+  };
   return {
     renderer: "three",
     ready,
-    getSnapshot: () => snapshotFromThree(layer),
+    getSnapshot: () => getDiagnostics().snapshot,
+    getDiagnostics,
+    getLatestFrameDurationMs: () => latestFrameDurationMs,
     getSelectedPoint: () => layer.getSelectedPoint(),
     async setCameraView(view) {
       if (destroyed) return;

@@ -649,10 +649,7 @@ button {
 
 .below-viewer {
   display: grid;
-  grid-template-columns: minmax(280px, 1.1fr) minmax(220px, 0.8fr) minmax(
-      220px,
-      0.8fr
-    );
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1px;
   background: var(--ui-border);
 }
@@ -672,6 +669,86 @@ button {
   font-size: 11px;
   font-weight: 650;
   list-style: none;
+}
+.diagnostics-dashboard {
+  grid-column: 1 / -1;
+}
+.diagnostics-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.diagnostics-title-row h2 {
+  margin: 3px 0 0;
+  font-size: 15px;
+  font-weight: 620;
+}
+.diagnostic-context {
+  margin: 10px 0 0;
+  color: var(--ui-muted);
+  font-family: var(--mono);
+  font-size: 9px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.diagnostic-note {
+  margin: 9px 0 0;
+  color: var(--ui-subtle);
+  font-size: 8px;
+  line-height: 1.5;
+}
+.diagnostic-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 13px;
+}
+.diagnostic-tile {
+  min-width: 0;
+  min-height: 62px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 9px 10px;
+  border: 1px solid #203448;
+  border-radius: 5px;
+  background: #0e1b29;
+}
+.diagnostic-tile > span {
+  color: var(--ui-subtle);
+  font-size: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.diagnostic-tile strong {
+  color: #e2effb;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.diagnostic-tile small {
+  color: var(--ui-muted);
+  font-family: var(--mono);
+  font-size: 8px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.diagnostic-details {
+  margin-top: 13px;
+  border-top: 1px solid var(--ui-border);
+}
+.diagnostic-details > summary {
+  padding-top: 10px;
+  color: #c5d8e9;
+  cursor: pointer;
+  font-size: 9px;
+  font-weight: 600;
+  list-style: none;
+}
+.diagnostic-details > summary::-webkit-details-marker {
+  display: none;
 }
 .diagnostics-card > summary::-webkit-details-marker,
 .code-card > summary::-webkit-details-marker {
@@ -744,6 +821,26 @@ button {
   color: #c4d8eb;
   background: #070d15;
   white-space: pre-wrap;
+}
+
+@media (max-width: 900px) {
+  .diagnostic-summary-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+@media (max-width: 640px) {
+  .below-viewer {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .diagnostics-dashboard {
+    grid-column: auto;
+  }
+  .diagnostic-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .diagnostics-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .code-card code {
   font-family: var(--mono);

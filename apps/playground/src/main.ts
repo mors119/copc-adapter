@@ -12,6 +12,15 @@ import {
   type UiSegmentOption,
 } from "../../shared/ui-controls";
 import {
+  createDiagnosticsRefreshLoop,
+  createDiagnosticsViewModel,
+  displaySourceLabel,
+  supportsLongTaskObservation,
+  type PlaygroundBrowserMeasurements,
+  type PlaygroundDiagnosticsContext,
+  type PlaygroundLayerDiagnostics,
+} from "./diagnostics";
+import {
   workbenchBackendOptions,
   workbenchRendererOptions,
   type WorkbenchLayerConfig,
@@ -155,24 +164,68 @@ app.innerHTML = `
     </main>
 
     <section class="below-viewer" aria-label="Source and point details">
-      <details class="diagnostics-card" open>
-        <summary><span>Diagnostics</span><span class="summary-state" id="diagnostic-summary">Waiting for a source</span></summary>
-        <dl class="diagnostics-list">
-          <div><dt>Status</dt><dd id="diagnostic-status">Waiting</dd></div>
-          <div><dt>HTTP Range</dt><dd id="diagnostic-range">Not checked</dd></div>
-          <div><dt>COPC metadata</dt><dd id="diagnostic-copc">Not checked</dd></div>
-          <div><dt>Rendered points</dt><dd id="diagnostic-points">0</dd></div>
-          <div><dt>Rendered nodes</dt><dd id="diagnostic-nodes">0</dd></div>
-          <div><dt>Selected nodes</dt><dd id="diagnostic-selected">0</dd></div>
-          <div><dt>Visible LoD</dt><dd id="diagnostic-lod">—</dd></div>
-          <div><dt>Refinement algorithm</dt><dd id="diagnostic-algorithm">Foveated</dd></div>
-          <div><dt>Focus lens</dt><dd id="diagnostic-focus">Inactive</dd></div>
-          <div><dt>Focus candidates</dt><dd id="diagnostic-focus-candidates">0</dd></div>
-          <div><dt>Focus-influenced refinements</dt><dd id="diagnostic-focus-refinements">0</dd></div>
-          <div><dt>Validation</dt><dd id="diagnostic-validation">Unknown</dd></div>
-        </dl>
+      <section class="diagnostics-card diagnostics-dashboard" aria-labelledby="diagnostics-heading">
+        <div class="diagnostics-title-row">
+          <div><span class="eyebrow">LIVE</span><h2 id="diagnostics-heading">Streaming diagnostics</h2></div>
+          <span class="summary-state" id="diagnostic-summary">Waiting for a source</span>
+        </div>
+        <p class="diagnostic-context" id="diagnostic-context">Load a source to see active configuration and measurements.</p>
+        <div class="diagnostic-summary-grid" aria-label="Live diagnostic summary">
+          <div class="diagnostic-tile"><span>Rendered</span><strong id="diagnostic-points">Not available</strong><small>points</small></div>
+          <div class="diagnostic-tile"><span>Nodes</span><strong id="diagnostic-nodes">Not available</strong><small><span id="diagnostic-selected">Not available</span> selected</small></div>
+          <div class="diagnostic-tile"><span>Range</span><strong id="diagnostic-range-bytes">Not available</strong><small id="diagnostic-range-requests">Not available</small></div>
+          <div class="diagnostic-tile"><span>Decode</span><strong id="diagnostic-decode">Not available</strong><small>latest update</small></div>
+          <div class="diagnostic-tile"><span>CPU cache</span><strong id="diagnostic-cache-bytes">Not available</strong><small id="diagnostic-cache-entries">Not available entries</small></div>
+          <div class="diagnostic-tile"><span>Worker</span><strong id="diagnostic-worker">Not available</strong><small id="diagnostic-worker-note">Rust / WASM</small></div>
+          <div class="diagnostic-tile"><span>Frame (browser observed)</span><strong id="diagnostic-frame">Not available</strong><small id="diagnostic-fps">Not available</small></div>
+        </div>
+        <p class="diagnostic-note">Refreshes every 500 ms. Adapter timings and Range bytes describe the latest view update; frame, FPS, load, and Long Task values are Playground browser observations.</p>
+        <details class="diagnostic-details">
+          <summary>Detailed counters and measurements</summary>
+          <dl class="diagnostics-list">
+            <div><dt>Layer status</dt><dd id="diagnostic-status">Not available</dd></div>
+            <div><dt>Source host and resource size</dt><dd id="diagnostic-source">Not available</dd></div>
+            <div><dt>HTTP Range probe</dt><dd id="diagnostic-range">Not available</dd></div>
+            <div><dt>COPC metadata probe</dt><dd id="diagnostic-copc">Not available</dd></div>
+            <div><dt>Dataset point count</dt><dd id="diagnostic-metadata-points">Not available</dd></div>
+            <div><dt>Selected point estimate</dt><dd id="diagnostic-selected-point-cost">Not available</dd></div>
+            <div><dt>Rendered nodes</dt><dd id="diagnostic-rendered-nodes">Not available</dd></div>
+            <div><dt>Selected nodes</dt><dd id="diagnostic-selected-nodes">Not available</dd></div>
+            <div><dt>Visible levels</dt><dd id="diagnostic-lod">Not available</dd></div>
+            <div><dt>Streaming updates</dt><dd id="diagnostic-update-count">Not available</dd></div>
+            <div><dt>Range request count</dt><dd id="diagnostic-range-requests-details">Not available</dd></div>
+            <div><dt>Hierarchy requests</dt><dd id="diagnostic-hierarchy-requests">Not available</dd></div>
+            <div><dt>Hierarchy bytes</dt><dd id="diagnostic-hierarchy-bytes">Not available</dd></div>
+            <div><dt>Hierarchy page cache</dt><dd id="diagnostic-hierarchy-cache">Not available</dd></div>
+            <div><dt>Coverage transitions</dt><dd id="diagnostic-transition">Not available</dd></div>
+            <div><dt>Source probe status</dt><dd id="diagnostic-source-status">Not available</dd></div>
+            <div><dt>Update duration (latest update)</dt><dd id="diagnostic-update-duration">Not available</dd></div>
+            <div><dt>Node selection (latest update)</dt><dd id="diagnostic-selection-duration">Not available</dd></div>
+            <div><dt>Range duration (latest update)</dt><dd id="diagnostic-range-duration">Not available</dd></div>
+            <div><dt>Decode duration (latest update)</dt><dd id="diagnostic-decode-duration">Not available</dd></div>
+            <div><dt>Point preparation (latest update)</dt><dd id="diagnostic-preparation-duration">Not available</dd></div>
+            <div><dt>CRS transform (latest update)</dt><dd id="diagnostic-crs-duration">Not available</dd></div>
+            <div><dt>Renderer preparation (latest update)</dt><dd id="diagnostic-renderer-duration">Not available</dd></div>
+            <div><dt>Configured point budget</dt><dd id="diagnostic-budget">Not available</dd></div>
+            <div><dt>Active max SSE</dt><dd id="diagnostic-sse">Not available</dd></div>
+            <div><dt>Accepted / rejected refinements</dt><dd id="diagnostic-refinements">Not available</dd></div>
+            <div><dt>Cache budget</dt><dd id="diagnostic-cache-budget">Not available</dd></div>
+            <div><dt>Cache hits / misses</dt><dd id="diagnostic-cache-hits">Not available</dd></div>
+            <div><dt>Cache evictions / bytes evicted</dt><dd id="diagnostic-cache-evictions">Not available</dd></div>
+            <div><dt>Worker jobs</dt><dd id="diagnostic-worker-details">Not available</dd></div>
+            <div><dt>Refinement algorithm</dt><dd id="diagnostic-algorithm">Not available</dd></div>
+            <div><dt>Focus lens</dt><dd id="diagnostic-focus">Not available</dd></div>
+            <div><dt>Focus candidates</dt><dd id="diagnostic-focus-candidates">Not available</dd></div>
+            <div><dt>Focus-influenced refinements</dt><dd id="diagnostic-focus-refinements">Not available</dd></div>
+            <div><dt>Approximate FPS</dt><dd id="diagnostic-detailed-fps">Not available</dd></div>
+            <div><dt>Load initiated → adapter load complete</dt><dd id="diagnostic-load-time">Not available</dd></div>
+            <div><dt>First points observed</dt><dd id="diagnostic-first-visible">Not available</dd></div>
+            <div><dt>Longest observed browser Long Task</dt><dd id="diagnostic-long-task">Not available</dd></div>
+            <div><dt>HTTP validation</dt><dd id="diagnostic-validation">Unknown</dd></div>
+          </dl>
+        </details>
         <p class="diagnostic-warning" id="diagnostic-warning" hidden></p>
-      </details>
+      </section>
       <section class="point-card" aria-labelledby="point-heading">
         <div class="section-heading"><div><span class="eyebrow">INSPECT</span><h2 id="point-heading">Selected point</h2></div></div>
         <p id="point-empty">Click a point in the viewport to inspect its available attributes.</p>
@@ -223,6 +276,8 @@ let backend: PlaygroundBackend = "copc-js";
 let colorMode: PlaygroundColorMode = "elevation";
 let pointSize = 3;
 let maxNodes = 24;
+const maxDepth = 6;
+const maxScreenSpaceError = 8;
 let maxRenderedPoints = 250_000;
 const parsedRefinementConfig = readPlaygroundRefinementConfig(
   new URLSearchParams(window.location.search),
@@ -249,6 +304,11 @@ let activeSource: PlaygroundSource | undefined;
 let activeSourceName = "";
 let activeRuntime: PlaygroundRuntime | undefined;
 let activeRuntimeReady = false;
+let activeDiagnosticsContext: PlaygroundDiagnosticsContext | undefined;
+let browserMeasurements: PlaygroundBrowserMeasurements = {};
+let loadInitiatedAt: number | undefined;
+let diagnosticsRefreshCleanup: (() => void) | undefined;
+let longTaskObserver: PerformanceObserver | undefined;
 type AppliedPlaygroundConfig = WorkbenchLayerConfig & {
   readonly renderer: PlaygroundRenderer;
   readonly refinementConfig: PlaygroundRefinementConfig;
@@ -259,6 +319,8 @@ const defaultIntegrationConfig: AppliedPlaygroundConfig = {
   colorMode: "elevation",
   pointSize: 3,
   maxNodes: 24,
+  maxDepth,
+  maxScreenSpaceError,
   maxRenderedPoints: 250_000,
   refinementAlgorithm: "foveated",
   refinementConfig: {
@@ -270,7 +332,6 @@ let appliedConfig: AppliedPlaygroundConfig | undefined;
 let activeProbeResult: CopcSourceProbeResult | undefined;
 let cameraInteractionVersion = 0;
 let layerFactory: CesiumLayerFactory | undefined;
-let refreshTimer: number | undefined;
 
 function captureWorkbenchConfig(): AppliedPlaygroundConfig {
   return {
@@ -279,6 +340,8 @@ function captureWorkbenchConfig(): AppliedPlaygroundConfig {
     colorMode,
     pointSize,
     maxNodes,
+    maxDepth,
+    maxScreenSpaceError,
     maxRenderedPoints,
     refinementAlgorithm: refinementConfig.algorithm,
     refinementConfig: {
@@ -419,6 +482,26 @@ if (import.meta.env.DEV) {
                 focusInfluencedRefinementCount: mockRefinementFocus ? 1 : 0,
               },
             } as unknown as ReturnType<CopcCesiumLayer["getSnapshot"]>;
+          },
+          getMetadata(): undefined {
+            return undefined;
+          },
+          getHierarchyDiagnostics(): undefined {
+            return undefined;
+          },
+          getPointCacheDiagnostics() {
+            return {
+              cacheByteBudget: 0,
+              currentCacheBytes: 0,
+              cachedNodeCount: 0,
+              hits: 0,
+              misses: 0,
+              evictionCount: 0,
+              bytesEvicted: 0,
+              largestCachedEntryBytes: 0,
+              prefetchUsefulHitCount: 0,
+              prefetchEvictedUnusedCount: 0,
+            };
           },
           get boundingSphere(): undefined {
             return undefined;
@@ -1113,44 +1196,204 @@ const renderPoint = (point: CopcPointInspection | undefined): void => {
 };
 
 const updateSnapshot = (snapshot: PlaygroundSnapshot | undefined): void => {
-  const points = snapshot?.renderedPoints ?? 0;
-  const nodes = snapshot?.renderedNodes ?? 0;
-  const selected = snapshot?.selectedNodes ?? 0;
-  byId("hud-points").textContent = formatUiNumber(points);
-  byId("hud-nodes").textContent = formatUiNumber(nodes);
-  byId("diagnostic-points").textContent = formatUiNumber(points);
-  byId("diagnostic-nodes").textContent = formatUiNumber(nodes);
-  byId("diagnostic-selected").textContent = formatUiNumber(selected);
-  const range = snapshot?.visibleLevelRange;
-  byId("diagnostic-lod").textContent = range
-    ? `${range.min}–${range.max}`
-    : "—";
-  const selectedAlgorithm =
-    snapshot?.refinementAlgorithm ?? refinementConfig.algorithm;
-  byId("diagnostic-algorithm").textContent =
-    selectedAlgorithm === "screen-projection"
-      ? "Screen projection (legacy)"
-      : "Foveated";
-  byId("diagnostic-focus").textContent = snapshot?.refinementFocusEnabled
-    ? "Active"
-    : "Inactive";
-  byId("diagnostic-focus-candidates").textContent = formatUiNumber(
-    snapshot?.focusCandidateCount ?? 0,
+  byId("hud-points").textContent = formatUiNumber(
+    snapshot?.renderedPoints ?? 0,
   );
-  byId("diagnostic-focus-refinements").textContent = formatUiNumber(
-    snapshot?.focusInfluencedRefinementCount ?? 0,
+  byId("hud-nodes").textContent = formatUiNumber(
+    snapshot?.renderedNodes ?? 0,
   );
+};
+
+const renderDiagnosticsDashboard = (
+  diagnostics: PlaygroundLayerDiagnostics | undefined,
+): void => {
+  const context = activeDiagnosticsContext;
+  if (!context) {
+    byId("diagnostic-context").textContent =
+      "Load a source to see active configuration and measurements.";
+    byId("diagnostic-summary").textContent = "Waiting for a source";
+    const unavailableIds = [
+      "diagnostic-status",
+      "diagnostic-source",
+      "diagnostic-range",
+      "diagnostic-copc",
+      "diagnostic-validation",
+      "diagnostic-source-status",
+      "diagnostic-metadata-points",
+      "diagnostic-points",
+      "diagnostic-nodes",
+      "diagnostic-selected",
+      "diagnostic-selected-point-cost",
+      "diagnostic-rendered-nodes",
+      "diagnostic-selected-nodes",
+      "diagnostic-lod",
+      "diagnostic-update-count",
+      "diagnostic-range-bytes",
+      "diagnostic-range-requests",
+      "diagnostic-range-requests-details",
+      "diagnostic-hierarchy-requests",
+      "diagnostic-hierarchy-bytes",
+      "diagnostic-hierarchy-cache",
+      "diagnostic-transition",
+      "diagnostic-decode",
+      "diagnostic-update-duration",
+      "diagnostic-selection-duration",
+      "diagnostic-range-duration",
+      "diagnostic-decode-duration",
+      "diagnostic-preparation-duration",
+      "diagnostic-crs-duration",
+      "diagnostic-renderer-duration",
+      "diagnostic-budget",
+      "diagnostic-sse",
+      "diagnostic-refinements",
+      "diagnostic-cache-bytes",
+      "diagnostic-cache-entries",
+      "diagnostic-cache-budget",
+      "diagnostic-cache-hits",
+      "diagnostic-cache-evictions",
+      "diagnostic-worker",
+      "diagnostic-worker-note",
+      "diagnostic-worker-details",
+      "diagnostic-frame",
+      "diagnostic-fps",
+      "diagnostic-detailed-fps",
+      "diagnostic-load-time",
+      "diagnostic-first-visible",
+      "diagnostic-long-task",
+      "diagnostic-algorithm",
+      "diagnostic-focus",
+      "diagnostic-focus-candidates",
+      "diagnostic-focus-refinements",
+    ];
+    for (const id of unavailableIds) byId(id).textContent = "Not available";
+    return;
+  }
+  const model = createDiagnosticsViewModel(
+    diagnostics,
+    context,
+    browserMeasurements,
+  );
+  const values: Record<string, string> = {
+    "diagnostic-context": model.context,
+    "diagnostic-status": model.lifecycle,
+    "diagnostic-source": `${model.sourceLabel} · ${model.sourceSize}`,
+    "diagnostic-source-status": model.sourceStatus,
+    "diagnostic-metadata-points": model.metadataPointCount,
+    "diagnostic-points": model.renderedPoints,
+    "diagnostic-nodes": model.renderedNodes,
+    "diagnostic-selected": model.selectedNodes,
+    "diagnostic-selected-point-cost": model.selectedPointCost,
+    "diagnostic-rendered-nodes": model.renderedNodes,
+    "diagnostic-selected-nodes": model.selectedNodes,
+    "diagnostic-lod": model.visibleLevels,
+    "diagnostic-update-count": model.updateCount,
+    "diagnostic-range-bytes": model.rangeBytesLatestUpdate,
+    "diagnostic-range-requests": model.rangeRequests,
+    "diagnostic-range-requests-details": model.rangeRequests,
+    "diagnostic-hierarchy-requests": model.hierarchyRequests,
+    "diagnostic-hierarchy-bytes": model.hierarchyBytes,
+    "diagnostic-hierarchy-cache": model.hierarchyCache,
+    "diagnostic-transition": model.transitionSummary,
+    "diagnostic-decode": model.decodeDuration,
+    "diagnostic-update-duration": model.updateDuration,
+    "diagnostic-selection-duration": model.selectionDuration,
+    "diagnostic-range-duration": model.rangeDuration,
+    "diagnostic-decode-duration": model.decodeDuration,
+    "diagnostic-preparation-duration": model.preparationDuration,
+    "diagnostic-crs-duration": model.crsDuration,
+    "diagnostic-renderer-duration": model.rendererDuration,
+    "diagnostic-budget": model.configuredBudget,
+    "diagnostic-sse": model.maxScreenSpaceError,
+    "diagnostic-refinements": `${model.acceptedRefinements} accepted · ${model.rejectedRefinements} rejected`,
+    "diagnostic-cache-bytes": model.cacheBytes,
+    "diagnostic-cache-entries": `${model.cacheEntries} entries`,
+    "diagnostic-cache-budget": model.cacheBudget,
+    "diagnostic-cache-hits": `${model.cacheHits} hits · ${model.cacheMisses} misses`,
+    "diagnostic-cache-evictions": `${model.cacheEvictions} · ${model.cacheBytesEvicted}`,
+    "diagnostic-worker": model.workerSummary,
+    "diagnostic-worker-note":
+      context.config.backend === "rust"
+        ? "worker pool diagnostics"
+        : "copc-js backend",
+    "diagnostic-worker-details": model.workerDetails,
+    "diagnostic-frame": model.frameDuration,
+    "diagnostic-fps": model.approximateFps,
+    "diagnostic-detailed-fps": model.approximateFps,
+    "diagnostic-load-time": model.loadElapsed,
+    "diagnostic-first-visible": model.firstVisiblePoints,
+    "diagnostic-long-task": model.longestLongTask,
+    "diagnostic-algorithm": model.refinementAlgorithm,
+    "diagnostic-focus": model.focusState,
+    "diagnostic-focus-candidates": model.focusCandidates,
+    "diagnostic-focus-refinements": model.focusRefinements,
+  };
+  for (const [id, value] of Object.entries(values))
+    byId(id).textContent = value;
 };
 
 const refreshSnapshot = (): void => {
   if (!activeRuntime) {
     updateSnapshot(undefined);
+    renderDiagnosticsDashboard(undefined);
     return;
   }
   try {
-    updateSnapshot(activeRuntime.getSnapshot());
+    const runtime = activeRuntime;
+    const diagnostics = runtime.getDiagnostics();
+    updateSnapshot(diagnostics.snapshot);
+    browserMeasurements = {
+      ...browserMeasurements,
+      frameDurationMs: runtime.getLatestFrameDurationMs(),
+      ...(browserMeasurements.firstVisiblePointsMs === undefined &&
+      diagnostics.snapshot.renderedPoints > 0 &&
+      loadInitiatedAt !== undefined
+        ? { firstVisiblePointsMs: performance.now() - loadInitiatedAt }
+        : {}),
+    };
+    renderDiagnosticsDashboard(diagnostics);
   } catch {
     updateSnapshot(undefined);
+    renderDiagnosticsDashboard(undefined);
+  }
+};
+
+const observeBrowserLongTasks = (
+  runtime: PlaygroundRuntime,
+  generation: number,
+): void => {
+  longTaskObserver?.disconnect();
+  longTaskObserver = undefined;
+  browserMeasurements = {
+    ...browserMeasurements,
+    longestLongTaskMs: undefined,
+  };
+  const observerConstructor =
+    typeof PerformanceObserver === "undefined" ? undefined : PerformanceObserver;
+  if (!supportsLongTaskObservation(observerConstructor))
+    return;
+  let observer: PerformanceObserver | undefined;
+  try {
+    observer = new PerformanceObserver((list) => {
+      if (activeRuntime !== runtime || generation !== sourceGeneration) return;
+      const longest = list
+        .getEntries()
+        .reduce((maximum, entry) => Math.max(maximum, entry.duration), 0);
+      if (longest > 0) {
+        browserMeasurements = {
+          ...browserMeasurements,
+          longestLongTaskMs: Math.max(
+            browserMeasurements.longestLongTaskMs ?? 0,
+            longest,
+          ),
+        };
+        renderDiagnosticsDashboard(runtime.getDiagnostics());
+      }
+    });
+    observer.observe({ type: "longtask", buffered: false });
+    longTaskObserver = observer;
+  } catch {
+    observer?.disconnect();
+    longTaskObserver = undefined;
   }
 };
 
@@ -1266,12 +1509,18 @@ const destroyRuntime = (): void => {
   if (focusConfigSyncTimer !== undefined)
     window.clearTimeout(focusConfigSyncTimer);
   focusConfigSyncTimer = undefined;
-  if (refreshTimer !== undefined) window.clearInterval(refreshTimer);
-  refreshTimer = undefined;
+  diagnosticsRefreshCleanup?.();
+  diagnosticsRefreshCleanup = undefined;
+  longTaskObserver?.disconnect();
+  longTaskObserver = undefined;
   activeRuntime?.destroy();
   activeRuntime = undefined;
+  activeDiagnosticsContext = undefined;
+  browserMeasurements = {};
+  loadInitiatedAt = undefined;
   viewport.replaceChildren();
   updateSnapshot(undefined);
+  renderDiagnosticsDashboard(undefined);
   updateFocusGuidePosition();
 };
 
@@ -1282,6 +1531,7 @@ const loadSource = async (
     preserveCamera?: boolean;
     generation?: number;
     probeResult?: CopcSourceProbeResult;
+    initiatedAt?: number;
   } = {},
 ): Promise<void> => {
   const generation = options.generation ?? ++sourceGeneration;
@@ -1298,9 +1548,13 @@ const loadSource = async (
   else if (options.probeResult) activeProbeResult = options.probeResult;
   const probeResult = options.probeResult ?? activeProbeResult;
   destroyRuntime();
+  loadInitiatedAt = options.initiatedAt ?? performance.now();
   renderPoint(undefined);
   activeLoadPending = true;
   setStatus(`Loading ${sourceName}…`, "loading");
+  const diagnosticWarning = byId<HTMLElement>("diagnostic-warning");
+  diagnosticWarning.textContent = probeResult?.warnings.join(" ") ?? "";
+  diagnosticWarning.hidden = !probeResult || probeResult.warnings.length === 0;
   if (probeResult) {
     byId("diagnostic-range").textContent =
       probeResult.rangeSupported === true
@@ -1344,6 +1598,8 @@ const loadSource = async (
         colorMode: loadConfig.colorMode,
         pointSize: loadConfig.pointSize,
         maxNodes: loadConfig.maxNodes,
+        maxDepth: loadConfig.maxDepth,
+        maxScreenSpaceError: loadConfig.maxScreenSpaceError,
         maxRenderedPoints: loadConfig.maxRenderedPoints,
         refinementAlgorithm: loadConfig.refinementAlgorithm,
         container: viewport,
@@ -1351,6 +1607,21 @@ const loadSource = async (
         isCurrent: () => generation === sourceGeneration,
         canAutoZoom: () =>
           capturedInteractionVersion === cameraInteractionVersion,
+        onLayerLoadStart: () => {
+          if (generation !== sourceGeneration) return;
+          loadInitiatedAt ??= performance.now();
+        },
+        onLayerLoadComplete: () => {
+          if (generation !== sourceGeneration) return;
+          browserMeasurements = {
+            ...browserMeasurements,
+            loadElapsedMs:
+              loadInitiatedAt === undefined
+                ? undefined
+                : performance.now() - loadInitiatedAt,
+          };
+          refreshSnapshot();
+        },
         onError: (message) => {
           if (runtime && activeRuntime === runtime)
             setStatus(safeErrorText(message), "error");
@@ -1361,12 +1632,52 @@ const loadSource = async (
     if (!createdRuntime) return;
     runtime = createdRuntime;
     activeRuntime = createdRuntime;
+    activeDiagnosticsContext = {
+      sourceLabel: displaySourceLabel(
+        sourceName,
+        typeof source === "string" ? source : undefined,
+      ),
+      renderer: loadConfig.renderer,
+      config: loadConfig,
+      sourceKind: source instanceof File ? "local" : "http",
+      ...(source instanceof File
+        ? { sourceSizeBytes: source.size }
+        : probeResult?.contentLength === undefined
+          ? {}
+          : { sourceSizeBytes: probeResult.contentLength }),
+      ...(probeResult?.status === undefined
+        ? {}
+        : { sourceHttpStatus: probeResult.status }),
+      ...(probeResult?.partialStatus === undefined
+        ? {}
+        : { sourcePartialHttpStatus: probeResult.partialStatus }),
+      ...(probeResult?.corsReadable === undefined
+        ? {}
+        : { corsReadable: probeResult.corsReadable }),
+      ...(probeResult?.rangeSupported === undefined
+        ? {}
+        : { rangeSupported: probeResult.rangeSupported }),
+      ...(probeResult?.copcDetected === undefined
+        ? {}
+        : { copcDetected: probeResult.copcDetected }),
+    };
+    observeBrowserLongTasks(createdRuntime, generation);
     bindPointerFocus(createdRuntime);
     const initialFocus = effectiveRefinementFocus();
     createdRuntime.setRefinementFocus(initialFocus);
     lastAppliedFocusCenter = initialFocus?.center;
     updateFocusControls();
-    refreshTimer = window.setInterval(refreshSnapshot, 500);
+    diagnosticsRefreshCleanup = createDiagnosticsRefreshLoop(
+      () => activeRuntime,
+      (currentRuntime) => {
+        if (currentRuntime) refreshSnapshot();
+        else {
+          updateSnapshot(undefined);
+          renderDiagnosticsDashboard(undefined);
+        }
+      },
+    );
+    refreshSnapshot();
     await createdRuntime.ready;
     if (generation !== sourceGeneration || activeRuntime !== createdRuntime) {
       if (activeRuntime === createdRuntime) {
@@ -1423,7 +1734,10 @@ const loadSource = async (
 
 function reloadActiveSource(): void {
   if (activeSource !== undefined) {
-    void loadSource(activeSource, activeSourceName, { preserveCamera: true });
+    void loadSource(activeSource, activeSourceName, {
+      preserveCamera: true,
+      initiatedAt: performance.now(),
+    });
   }
 }
 
@@ -1467,7 +1781,10 @@ fileInput.addEventListener("change", async () => {
   sourceProbe.textContent =
     "Local files are read directly by the browser; HTTP CORS and Range checks do not apply.";
   const generation = invalidateSourceRequest();
-  await loadSource(file, file.name, { generation });
+  await loadSource(file, file.name, {
+    generation,
+    initiatedAt: performance.now(),
+  });
 });
 
 remoteLoadButton.addEventListener("click", async () => {
@@ -1493,6 +1810,7 @@ remoteLoadButton.addEventListener("click", async () => {
     sourceUrl = "https://data.pointcloud.org/autzen/autzen-classified.copc.laz";
     sourceName = "Autzen Stadium";
   }
+  const initiatedAt = performance.now();
 
   remoteLoadButton.disabled = true;
   remoteLoadButton.textContent = "Checking source…";
@@ -1523,7 +1841,11 @@ remoteLoadButton.addEventListener("click", async () => {
       );
       return;
     }
-    await loadSource(sourceUrl, sourceName, { generation, probeResult: probe });
+    await loadSource(sourceUrl, sourceName, {
+      generation,
+      probeResult: probe,
+      initiatedAt,
+    });
   } catch (error) {
     if (generation === sourceGeneration) {
       const message = safeErrorText(error);

@@ -1,0 +1,50 @@
+import { expect, test } from "@playwright/test";
+
+test("diagnostics show unavailable values honestly and follow the replacement layer", async ({
+  page,
+}) => {
+  await page.goto("./");
+  await expect(page.locator("#diagnostic-points")).toHaveText("Not available");
+  await expect(page.locator("#diagnostic-frame")).toHaveText("Not available");
+
+  await page.evaluate(() => {
+    (
+      window as Window & {
+        __COPC_PLAYGROUND_TEST__?: {
+          useCameraResetLayerMock(): void;
+        };
+      }
+    ).__COPC_PLAYGROUND_TEST__?.useCameraResetLayerMock();
+  });
+  await page.locator("#copc-file").setInputFiles({
+    name: "first-diagnostics.copc.laz",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("mock source"),
+  });
+  await expect(page.locator("#source-status")).toContainText(
+    "Loaded first-diagnostics.copc.laz",
+  );
+  await expect(page.locator("#diagnostic-context")).toContainText(
+    "first-diagnostics.copc.laz",
+  );
+  await expect(page.locator("#diagnostic-points")).toHaveText("0");
+  await expect(page.locator("#diagnostic-worker")).toHaveText(
+    "Not applicable for this backend",
+  );
+  await expect(page.locator("#diagnostic-cache-bytes")).toHaveText("0 B");
+
+  await page.locator("#copc-file").setInputFiles({
+    name: "replacement-diagnostics.copc.laz",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("replacement source"),
+  });
+  await expect(page.locator("#source-status")).toContainText(
+    "Loaded replacement-diagnostics.copc.laz",
+  );
+  await expect(page.locator("#diagnostic-context")).toContainText(
+    "replacement-diagnostics.copc.laz",
+  );
+  await expect(page.locator("#diagnostic-context")).not.toContainText(
+    "first-diagnostics.copc.laz",
+  );
+});
