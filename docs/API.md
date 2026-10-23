@@ -44,7 +44,7 @@ compact URL examples below omit options that already have a usable default.
 | `rangeValidation` | `RangeValidationPolicy`, optional | `head-fallback` for HTTP sources | Yes | Yes | Yes | `strict` remains fail-closed and requires readable, valid, matching `Content-Range`; it does not use `HEAD` fallback. This policy does not apply to local `File`/`Blob` or custom random-access sources. Keep the current security default. |
 | `maxRangeBytes` | `number`, optional | `64 MiB` per read | Yes | Yes | Yes | Positive safe integer overrides are accepted. Larger ranges can increase memory use; the Rust/WASM decoder also has a 32-bit range-length limit. Keep. |
 | `maxConcurrentRangeRequests` | `number`, optional | `4` per source | Yes | Yes | Yes | Positive safe integer overrides are accepted. Together with the per-range ceiling, this bounds active HTTP response buffers. Keep. |
-| `debug` | `boolean`, optional | `false` | Yes | Yes | Yes | Enables lifecycle messages through `console.debug`; no logging is emitted by default. Keep. |
+| `debug` | `boolean`, optional | `false` | Yes | Yes | Yes | Enables optional lifecycle `console.debug` messages; normal safety warnings and listener-error reporting may still be emitted. Keep. |
 | `onPointPicked` | `(point: CopcPointInspection \| undefined) => void`, optional | No callback | No | Yes | Yes | Called for a selection or when selection clears. Keep optional. |
 
 `CopcStreamingCoreOptions`, `CopcCesiumLayerOptions`, and
