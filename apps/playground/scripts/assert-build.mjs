@@ -135,6 +135,22 @@ const bundledJavaScript = (
   )
 ).join("\n");
 
+const devOnlyModuleMarkers = [
+  "devTerrainFixture",
+  "devEllipsoidalTerrainFixture",
+  "rendererPerformanceBenchmark",
+  "cpuBatchedPickingProbe",
+  "serveLocalSampleRange",
+];
+const leakedDevModule = devOnlyModuleMarkers.find((marker) =>
+  bundledJavaScript.includes(marker),
+);
+if (leakedDevModule) {
+  throw new Error(
+    `Playground production bundle contains Dev Viewer module marker ${leakedDevModule}.`,
+  );
+}
+
 if (cssFiles.length === 0 || javascriptFiles.length === 0) {
   throw new Error(
     "Playground production output is missing CSS or JavaScript bundles.",

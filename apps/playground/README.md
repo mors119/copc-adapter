@@ -6,6 +6,12 @@ the JavaScript and Rust/WASM backends, point styling, basic streaming limits,
 and point inspection. Internal diagnostics, benchmark controls, fixtures, and
 test harnesses remain in `apps/dev-viewer`.
 
+The two apps reuse the public control widgets and normalized layer-option
+mapping under `apps/shared`. Their package inputs stay separate: the Playground
+resolves the installed, packed consumer package, while the Dev Viewer aliases
+the workspace package source and keeps its fixture middleware and developer
+modules in its own entrypoint.
+
 Refinement can use the public `foveated` strategy (the default) or the legacy
 `screen-projection` strategy. In Cesium, Focus Lens modes can prioritize the
 center, follow the pointer, or keep a pinned screen-space circle. Lens movement,
@@ -14,6 +20,8 @@ reapplies the layer because the strategy is a constructor option. The guide is
 visual only, and focus prioritizes detail without clipping the point cloud.
 Algorithm and focus settings are stored in the URL and reflected in the public
 API example.
+The API example reflects the last successfully loaded layer; constructor
+settings that trigger a reload are shown after that reload completes.
 
 HTTP sources are requested directly by the browser. A source must provide
 browser-readable CORS and HTTP Range responses. The Playground does not rewrite

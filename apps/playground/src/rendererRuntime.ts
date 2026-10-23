@@ -8,16 +8,18 @@ import type {
   RefinementFocus,
 } from "@frillab/copc-adapter/cesium";
 import type { CopcThreeLayer } from "@frillab/copc-adapter/three";
+import {
+  toWorkbenchLayerOptions,
+  type WorkbenchCameraPreset,
+  type WorkbenchLayerConfig,
+  type WorkbenchRenderer,
+} from "../../shared/workbench-config";
 
-export type PlaygroundRenderer = "cesium" | "three";
-export type PlaygroundBackend = "copc-js" | "rust";
+export type PlaygroundRenderer = WorkbenchRenderer;
+export type PlaygroundBackend = WorkbenchLayerConfig["backend"];
 export type PlaygroundSource = string | File;
-export type PlaygroundColorMode =
-  | "rgb"
-  | "elevation"
-  | "intensity"
-  | "classification";
-export type PlaygroundCameraView = "overview" | "near" | "far";
+export type PlaygroundColorMode = WorkbenchLayerConfig["colorMode"];
+export type PlaygroundCameraView = WorkbenchCameraPreset;
 
 export type PlaygroundCameraState = {
   readonly longitude: number;
@@ -59,16 +61,10 @@ export type PlaygroundRuntime = {
   destroy(): void;
 };
 
-export type PlaygroundRuntimeOptions = {
+export type PlaygroundRuntimeOptions = WorkbenchLayerConfig & {
   readonly renderer: PlaygroundRenderer;
-  readonly backend: PlaygroundBackend;
   readonly source: PlaygroundSource;
   readonly sourceName: string;
-  readonly colorMode: PlaygroundColorMode;
-  readonly pointSize: number;
-  readonly maxNodes: number;
-  readonly maxRenderedPoints: number;
-  readonly refinementAlgorithm: RefinementAlgorithm;
   readonly container: HTMLElement;
   readonly onPointPicked: (point: CopcPointInspection | undefined) => void;
   readonly onError: (message: string) => void;
@@ -278,14 +274,7 @@ export async function createPlaygroundRuntime(
 
     const layerOptions: CopcCesiumLayerOptions = {
       url: options.source,
-      backend: options.backend,
-      colorMode: options.colorMode,
-      pointSize: options.pointSize,
-      maxRenderedPoints: options.maxRenderedPoints,
-      streaming: {
-        maxNodes: options.maxNodes,
-        refinementAlgorithm: options.refinementAlgorithm,
-      },
+      ...toWorkbenchLayerOptions(options),
       onPointPicked: options.onPointPicked,
     };
     const layer = layerFactory
@@ -422,14 +411,7 @@ export async function createPlaygroundRuntime(
 
   const layerOptions = {
     url: options.source,
-    backend: options.backend,
-    colorMode: options.colorMode,
-    pointSize: options.pointSize,
-    maxRenderedPoints: options.maxRenderedPoints,
-    streaming: {
-      maxNodes: options.maxNodes,
-      refinementAlgorithm: options.refinementAlgorithm,
-    },
+    ...toWorkbenchLayerOptions(options),
     onPointPicked: options.onPointPicked,
   };
   const layer = new adapter.CopcThreeLayer(layerOptions);

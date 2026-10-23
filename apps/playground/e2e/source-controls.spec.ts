@@ -437,7 +437,7 @@ test("camera movement during a layer reload is preserved", async ({ page }) => {
   expect(actual?.pitch).toBeCloseTo(userCamera.pitch, 5);
 });
 
-test("renderer, backend, and color controls expose keyboard-accessible applied choices", async ({
+test("renderer, backend, and color controls stay keyboard-accessible without changing the applied example", async ({
   page,
 }) => {
   await page.goto("./");
@@ -450,7 +450,7 @@ test("renderer, backend, and color controls expose keyboard-accessible applied c
   await expect(three).toHaveAttribute("aria-checked", "true");
   await expect(page.locator("#viewer-heading")).toHaveText("Three.js");
   await expect(page.locator("#integration-example")).toContainText(
-    "CopcThreeLayer",
+    "CopcCesiumLayer",
   );
 
   const backend = page.getByRole("radiogroup", { name: "COPC backend" });
@@ -462,7 +462,7 @@ test("renderer, backend, and color controls expose keyboard-accessible applied c
     backend.getByRole("radio", { name: "Rust / WASM" }),
   ).toHaveAttribute("aria-checked", "true");
   await expect(page.locator("#integration-example")).toContainText(
-    "backend: 'rust'",
+    "backend: 'copc-js'",
   );
 
   const colors = page.getByRole("radiogroup", { name: "Color mode" });
