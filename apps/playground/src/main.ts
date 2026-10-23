@@ -1360,7 +1360,6 @@ const refreshSnapshot = (): void => {
 
 const observeBrowserLongTasks = (
   runtime: PlaygroundRuntime,
-  generation: number,
 ): void => {
   longTaskObserver?.disconnect();
   longTaskObserver = undefined;
@@ -1375,7 +1374,7 @@ const observeBrowserLongTasks = (
   let observer: PerformanceObserver | undefined;
   try {
     observer = new PerformanceObserver((list) => {
-      if (activeRuntime !== runtime || generation !== sourceGeneration) return;
+      if (activeRuntime !== runtime) return;
       const longest = list
         .getEntries()
         .reduce((maximum, entry) => Math.max(maximum, entry.duration), 0);
@@ -1662,7 +1661,7 @@ const loadSource = async (
         ? {}
         : { copcDetected: probeResult.copcDetected }),
     };
-    observeBrowserLongTasks(createdRuntime, generation);
+    observeBrowserLongTasks(createdRuntime);
     bindPointerFocus(createdRuntime);
     const initialFocus = effectiveRefinementFocus();
     createdRuntime.setRefinementFocus(initialFocus);

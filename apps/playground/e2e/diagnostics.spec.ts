@@ -53,3 +53,45 @@ test("diagnostics show unavailable values honestly and follow the replacement la
     "first-diagnostics.copc.laz",
   );
 });
+
+test("keeps Long Task observation active when source selection changes", async ({
+  page,
+}) => {
+  await page.goto("./");
+  const supportsLongTasks = await page.evaluate(() =>
+    PerformanceObserver.supportedEntryTypes.includes("longtask"),
+  );
+  test.skip(!supportsLongTasks, "Long Task API is not available in this browser");
+
+  await page.evaluate(() => {
+    (
+      window as Window & {
+        __COPC_PLAYGROUND_TEST__?: {
+          useCameraResetLayerMock(): void;
+        };
+      }
+    ).__COPC_PLAYGROUND_TEST__?.useCameraResetLayerMock();
+  });
+  await page.locator("#copc-file").setInputFiles({
+    name: "long-task-observer.copc.laz",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("mock source"),
+  });
+  await expect(page.locator("#source-status")).toContainText(
+    "Loaded long-task-observer.copc.laz",
+  );
+
+  await page.locator("#remote-source").selectOption("chicago");
+  await page.evaluate(() => {
+    const startedAt = performance.now();
+    while (performance.now() - startedAt < 120) {
+      // Deliberately produce a browser-observed Long Task for this lifecycle test.
+    }
+  });
+
+  await page.locator(".diagnostic-details summary").click();
+  await expect(page.locator("#diagnostic-long-task")).not.toHaveText(
+    "Not available",
+    { timeout: 3_000 },
+  );
+});
