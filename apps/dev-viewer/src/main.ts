@@ -30,6 +30,7 @@ import { createCesiumViewer } from "./createViewer";
 import { createCopcDebugPanel } from "./debug/CopcDebugPanel";
 import {
   runSyntheticRendererPerformanceBenchmark,
+  runSyntheticThreeCacheLayoutBenchmark,
   type RendererBenchmarkKind,
 } from "./rendererPerformanceBenchmark";
 import type { CpuPointPickProbe } from "../../../packages/cesium/render/BatchedGeometryPointRenderer";
@@ -170,7 +171,12 @@ type CopcDebugAdapter = {
   probeSource(source: string): Promise<CopcSourceProbeResult>;
   runSyntheticRendererPerformanceBenchmark(
     renderer?: RendererBenchmarkKind,
+    cacheLayout?: "A" | "E",
+    pointCounts?: readonly number[],
   ): ReturnType<typeof runSyntheticRendererPerformanceBenchmark>;
+  runSyntheticThreeCacheLayoutBenchmark(): ReturnType<
+    typeof runSyntheticThreeCacheLayoutBenchmark
+  >;
   probePublicBatchPick(): {
     picked: boolean;
     pickedNodeKey?: string;
@@ -471,14 +477,21 @@ function installDebugAdapter(
     },
     recordError,
     probeSource: (source) => probeCopcSource(source, { rangeValidation }),
-    runSyntheticRendererPerformanceBenchmark: (renderer = "point-primitive") =>
+    runSyntheticRendererPerformanceBenchmark: (
+      renderer = "point-primitive",
+      cacheLayout = "A",
+      pointCounts,
+    ) =>
       runSyntheticRendererPerformanceBenchmark({
         viewer,
-        pointCounts: [10_000, 50_000, 100_000],
+        cacheLayout,
+        pointCounts: pointCounts ?? [10_000, 50_000, 100_000],
         repetitions: 5,
         warmups: 2,
         renderer,
       }),
+    runSyntheticThreeCacheLayoutBenchmark: () =>
+      runSyntheticThreeCacheLayoutBenchmark(),
     probePublicBatchPick: () => {
       const nodeKey = researchRenderer?.getRenderedNodeKeys()[0];
       return nodeKey && researchRenderer

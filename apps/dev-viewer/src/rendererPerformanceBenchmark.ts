@@ -1,10 +1,16 @@
 import * as Cesium from "cesium";
+import * as THREE from "three";
 import type {
   CopcMetadata,
   CopcPointBuffer,
 } from "../../../packages/core/copc/types/copc";
 import { performanceNow } from "../../../packages/core/copc/performance";
 import { transformPointBufferToPreparedPointData } from "../../../packages/core/coordinates/transform/createPointTransformer";
+import { createCompactEPointCacheNode } from "../../../packages/core/point/compactEPointCache";
+import {
+  ThreePointRenderer,
+  type ThreePointRendererPerformanceStage,
+} from "../../../packages/three/render/ThreePointRenderer";
 import {
   PointPrimitiveRenderer,
   type CesiumPointRenderer,
@@ -25,8 +31,10 @@ export type BenchmarkRange = {
 
 export type RendererPerformanceBenchmarkRow = {
   renderer: RendererBenchmarkKind;
+  cacheLayout: "A" | "E";
   pointCount: number;
   crsTransform: BenchmarkRange;
+  representationMaterialization: BenchmarkRange;
   geographicToCartesian: BenchmarkRange;
   worldToCartesian: BenchmarkRange;
   pointStylePreparation: BenchmarkRange;
@@ -45,6 +53,8 @@ export type RendererPerformanceBenchmarkOptions = {
   warmups?: number;
   colorMode?: CopcCesiumPointRendererOptions["colorMode"];
   renderer?: RendererBenchmarkKind;
+  /** Internal cache-layout comparison; A remains the default benchmark path. */
+  cacheLayout?: "A" | "E";
 };
 
 const SYNTHETIC_METADATA: CopcMetadata = {
@@ -164,11 +174,13 @@ export function runSyntheticRendererPerformanceBenchmark(
   const pointCounts = options.pointCounts ?? DEFAULT_POINT_COUNTS;
   const colorMode = options.colorMode ?? "rgb";
   const rendererKind = options.renderer ?? "point-primitive";
+  const cacheLayout = options.cacheLayout ?? "A";
   const rows: RendererPerformanceBenchmarkRow[] = [];
 
   for (const pointCount of pointCounts) {
     const points = createDeterministicPointBuffer(pointCount);
     const crsValues: number[] = [];
+    const materializationValues: number[] = [];
     const styleUpdateValues: number[] = [];
     const stages: Partial<Record<BenchmarkStage, number[]>> = {};
 
@@ -183,6 +195,22 @@ export function runSyntheticRendererPerformanceBenchmark(
         points,
       );
       const crsDuration = performanceNow() - crsStartedAt;
+      const materializationStartedAt = performanceNow();
+      const rendererPoints =
+        cacheLayout === "E"
+          ? createCompactEPointCacheNode(preparedPoints, {
+              nodeKey: "synthetic-node",
+              provenance: {
+                sourceIdentity: "deterministic renderer benchmark input",
+                sourceCrsWkt: SYNTHETIC_METADATA.wkt,
+                transformGeneration: 0,
+                heightOffsetMeters: 0,
+                verticalDatum: { status: "no-validated-grid-correction" },
+              },
+            })
+          : preparedPoints;
+      const materializationDuration =
+        performanceNow() - materializationStartedAt;
       const firstStages: Partial<Record<BenchmarkStage, number[]>> = {};
       const renderer: CesiumPointRenderer =
         rendererKind === "batched-geometry"
@@ -192,7 +220,7 @@ export function runSyntheticRendererPerformanceBenchmark(
 
       renderer.addOrUpdateNode(
         "synthetic-node",
-        preparedPoints,
+        rendererPoints,
         rendererOptions(colorMode, firstStages),
       );
 
@@ -200,7 +228,7 @@ export function runSyntheticRendererPerformanceBenchmark(
       const replacementStages: Partial<Record<BenchmarkStage, number[]>> = {};
       renderer.addOrUpdateNode(
         "synthetic-node",
-        preparedPoints,
+        rendererPoints,
         rendererOptions(colorMode, replacementStages),
       );
       const replacementDuration = performanceNow() - replacementStartedAt;
@@ -208,7 +236,7 @@ export function runSyntheticRendererPerformanceBenchmark(
       const styleUpdateStartedAt = performanceNow();
       renderer.updateNodeStyle?.(
         "synthetic-node",
-        preparedPoints,
+        rendererPoints,
         rendererOptions(colorMode === "fixed" ? "rgb" : "fixed", {}),
       );
       const styleUpdateDuration = performanceNow() - styleUpdateStartedAt;
@@ -221,6 +249,7 @@ export function runSyntheticRendererPerformanceBenchmark(
       }
 
       crsValues.push(crsDuration);
+      materializationValues.push(materializationDuration);
       styleUpdateValues.push(styleUpdateDuration);
       for (const [stage, values] of Object.entries(firstStages)) {
         const duration = values?.[0];
@@ -239,8 +268,10 @@ export function runSyntheticRendererPerformanceBenchmark(
       summarize(stages[stage] ?? []);
     rows.push({
       renderer: rendererKind,
+      cacheLayout,
       pointCount,
       crsTransform: summarize(crsValues),
+      representationMaterialization: summarize(materializationValues),
       geographicToCartesian: range("geographicToCartesian"),
       worldToCartesian: range("worldToCartesian"),
       pointStylePreparation: range("pointStylePreparation"),
@@ -254,4 +285,124 @@ export function runSyntheticRendererPerformanceBenchmark(
   }
 
   return rows;
+}
+
+/**
+ * Run the Three.js renderer preparation path in the browser without requiring
+ * a mounted COPC layer. This measures CPU-side geometry/color preparation;
+ * actual GPU upload and frame timing require a rendered streaming scenario.
+ */
+export function runSyntheticThreeCacheLayoutBenchmark(options: {
+  pointCount?: number;
+  repetitions?: number;
+  warmups?: number;
+} = {}): Array<{
+  cacheLayout: "A" | "E";
+  pointCount: number;
+  crsTransform: BenchmarkRange;
+  representationMaterialization: BenchmarkRange;
+  rendererPreparation: BenchmarkRange;
+  worldToLocal: BenchmarkRange;
+  geometryCreation: BenchmarkRange;
+  materialCreation: BenchmarkRange;
+  nodeRemoval: BenchmarkRange;
+}> {
+  const pointCount = options.pointCount ?? 100_000;
+  const repetitions = Math.max(1, Math.floor(options.repetitions ?? 5));
+  const warmups = Math.max(0, Math.floor(options.warmups ?? 2));
+  const results = [];
+
+  for (const cacheLayout of ["A", "E"] as const) {
+    const samples = {
+      crsTransform: [] as number[],
+      representationMaterialization: [] as number[],
+      rendererPreparation: [] as number[],
+      worldToLocal: [] as number[],
+      geometryCreation: [] as number[],
+      materialCreation: [] as number[],
+      nodeRemoval: [] as number[],
+    };
+
+    for (let repetition = 0; repetition < warmups + repetitions; repetition += 1) {
+      const pointBuffer = createDeterministicPointBuffer(pointCount);
+      const crsStartedAt = performanceNow();
+      const prepared = transformPointBufferToPreparedPointData(
+        SYNTHETIC_METADATA,
+        pointBuffer,
+      );
+      const crsDuration = performanceNow() - crsStartedAt;
+      const materializationStartedAt = performanceNow();
+      const rendererPoints =
+        cacheLayout === "E"
+          ? createCompactEPointCacheNode(prepared, {
+              nodeKey: "synthetic-three-node",
+              provenance: {
+                sourceIdentity: "deterministic renderer benchmark input",
+                sourceCrsWkt: SYNTHETIC_METADATA.wkt,
+                transformGeneration: 0,
+                heightOffsetMeters: 0,
+                verticalDatum: { status: "no-validated-grid-correction" },
+              },
+            })
+          : prepared;
+      const materializationDuration =
+        performanceNow() - materializationStartedAt;
+      const stages: Partial<
+        Record<ThreePointRendererPerformanceStage, number[]>
+      > = {};
+      const renderer = new ThreePointRenderer({
+        localOrigin: {
+          coordinateSystem: "wgs84-ecef-meters",
+          x: prepared.world.coordinates[0],
+          y: prepared.world.coordinates[1],
+          z: prepared.world.coordinates[2],
+        },
+      });
+      renderer.attachTo(new THREE.Scene());
+      const onPerformance = (
+        stage: ThreePointRendererPerformanceStage,
+        durationMs: number,
+      ): void => {
+        (stages[stage] ??= []).push(durationMs);
+      };
+      renderer.addOrUpdateNode("synthetic-three-node", rendererPoints, {
+        pointSize: 2,
+        colorMode: "rgb",
+        onPerformance,
+      });
+      renderer.removeNode("synthetic-three-node");
+      renderer.destroy();
+
+      if (repetition >= warmups) {
+        samples.crsTransform.push(crsDuration);
+        samples.representationMaterialization.push(materializationDuration);
+        for (const name of [
+          "rendererPreparation",
+          "worldToLocal",
+          "geometryCreation",
+          "materialCreation",
+          "nodeRemoval",
+        ] as const) {
+          const value = stages[name]?.[0];
+          if (value !== undefined) samples[name].push(value);
+        }
+      }
+    }
+
+    results.push({
+      cacheLayout,
+      pointCount,
+      crsTransform: summarize(samples.crsTransform),
+      representationMaterialization: summarize(
+        samples.representationMaterialization,
+      ),
+      rendererPreparation: summarize(samples.rendererPreparation),
+      worldToLocal: summarize(samples.worldToLocal),
+      geometryCreation: summarize(samples.geometryCreation),
+      materialCreation: summarize(samples.materialCreation),
+      nodeRemoval: summarize(samples.nodeRemoval),
+    });
+  }
+
+  return results;
 }

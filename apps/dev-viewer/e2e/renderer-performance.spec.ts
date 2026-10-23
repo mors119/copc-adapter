@@ -24,7 +24,10 @@ type BenchmarkDebugAdapter = {
   setCameraHeading(headingDegrees: number): void;
   runSyntheticRendererPerformanceBenchmark(
     renderer?: "point-primitive" | "batched-geometry",
+    cacheLayout?: "A" | "E",
+    pointCounts?: readonly number[],
   ): Array<Record<string, unknown>>;
+  runSyntheticThreeCacheLayoutBenchmark(): Array<Record<string, unknown>>;
   setStyle(update: {
     colorMode?: "fixed" | "rgb" | "elevation" | "intensity" | "classification";
     classificationFilter?: { include?: number[] } | null;
@@ -207,6 +210,25 @@ test("prints repeatable synthetic and Autzen renderer performance evidence", asy
         "batched-geometry",
       ) ?? [],
   );
+  const compactEPointPrimitive = await page.evaluate(
+    () =>
+      window.__COPC_DEBUG__?.runSyntheticRendererPerformanceBenchmark(
+        "point-primitive",
+        "E",
+        [100_000],
+      ) ?? [],
+  );
+  const compactEBatchedGeometry = await page.evaluate(
+    () =>
+      window.__COPC_DEBUG__?.runSyntheticRendererPerformanceBenchmark(
+        "batched-geometry",
+        "E",
+        [100_000],
+      ) ?? [],
+  );
+  const threeCacheLayouts = await page.evaluate(
+    () => window.__COPC_DEBUG__?.runSyntheticThreeCacheLayoutBenchmark() ?? [],
+  );
   const initialFrames = await sampleFrames(page);
   const scenarios: Array<Record<string, unknown>> = [];
 
@@ -270,9 +292,12 @@ test("prints repeatable synthetic and Autzen renderer performance evidence", asy
         },
         syntheticComparison: {
           pointPrimitive: synthetic.find((row) => row.pointCount === 100_000),
+          pointPrimitiveCompactE: compactEPointPrimitive[0],
           batchedGeometry: batchedSynthetic.find(
             (row) => row.pointCount === 100_000,
           ),
+          batchedGeometryCompactE: compactEBatchedGeometry[0],
+          three: threeCacheLayouts,
           conditions: {
             repetitions: 5,
             warmups: 2,
@@ -460,6 +485,18 @@ test("prints repeatable synthetic and Autzen renderer performance evidence", asy
   expect(batchedSynthetic).toHaveLength(3);
   expect(batchedSynthetic[2].pointCount).toBe(100_000);
   expect(batchedSynthetic[2].renderer).toBe("batched-geometry");
+  expect(compactEPointPrimitive[0]).toMatchObject({
+    cacheLayout: "E",
+    pointCount: 100_000,
+    renderer: "point-primitive",
+  });
+  expect(compactEBatchedGeometry[0]).toMatchObject({
+    cacheLayout: "E",
+    pointCount: 100_000,
+    renderer: "batched-geometry",
+  });
+  expect(threeCacheLayouts).toHaveLength(2);
+  expect(threeCacheLayouts.map((row) => row.cacheLayout)).toEqual(["A", "E"]);
   expect(scenarios.every((scenario) => scenario.state)).toBe(true);
 });
 

@@ -136,6 +136,14 @@ type StartupProfile = {
   copcWasmCompilations: Array<{ startAt: number; durationMs: number }>;
   copcWasmInstantiations: Array<{ startAt: number; durationMs: number }>;
   workerInitializations: Array<{ startAt: number; readyAt?: number }>;
+  workerTransferEvents: Array<{
+    direction: "toWorker" | "fromWorker";
+    type: string;
+    id?: number;
+    at: number;
+    bytes: number;
+    postMessageDurationMs?: number;
+  }>;
   workerSamples: Array<{
     at: number;
     activeCount: number;
@@ -221,6 +229,7 @@ function installStartupInstrumentation(): void {
     copcWasmCompilations: [],
     copcWasmInstantiations: [],
     workerInitializations: [],
+    workerTransferEvents: [],
     workerSamples: [],
     longTaskSamples: [],
     longTaskObserverAvailable: false,
@@ -397,6 +406,23 @@ function installStartupInstrumentation(): void {
     Worker,
     StartupProfile["workerInitializations"][number]
   >();
+  const uniqueTransferBytes = (transfer: Transferable[] | undefined): number => {
+    const buffers = new Set<ArrayBuffer>();
+    for (const value of transfer ?? []) {
+      if (value instanceof ArrayBuffer) buffers.add(value);
+      else if (ArrayBuffer.isView(value)) buffers.add(value.buffer as ArrayBuffer);
+    }
+    return [...buffers].reduce((total, buffer) => total + buffer.byteLength, 0);
+  };
+  const responseArrayBufferBytes = (message: unknown): number => {
+    if (typeof message !== "object" || message === null) return 0;
+    const buffers = new Set<ArrayBuffer>();
+    for (const value of Object.values(message)) {
+      if (value instanceof ArrayBuffer) buffers.add(value);
+      else if (ArrayBuffer.isView(value)) buffers.add(value.buffer as ArrayBuffer);
+    }
+    return [...buffers].reduce((total, buffer) => total + buffer.byteLength, 0);
+  };
   const OriginalWorker = window.Worker;
   window.Worker = new Proxy(OriginalWorker, {
     construct(target, args, newTarget) {
@@ -406,6 +432,8 @@ function installStartupInstrumentation(): void {
         get(targetWorker, property) {
           if (property === "postMessage") {
             return (message: unknown, transfer?: Transferable[]) => {
+              const startedAt = performance.now();
+              const bytes = uniqueTransferBytes(transfer);
               if (
                 typeof message === "object" &&
                 message !== null &&
@@ -419,7 +447,30 @@ function installStartupInstrumentation(): void {
                 );
                 profile.workerInitializations.push(initialization);
               }
-              return targetWorker.postMessage(message, transfer ?? []);
+              const result = targetWorker.postMessage(message, transfer ?? []);
+              if (bytes > 0) {
+                profile.workerTransferEvents.push({
+                  direction: "toWorker",
+                  type:
+                    typeof message === "object" &&
+                    message !== null &&
+                    "type" in message &&
+                    typeof message.type === "string"
+                      ? message.type
+                      : "unknown",
+                  id:
+                    typeof message === "object" &&
+                    message !== null &&
+                    "id" in message &&
+                    typeof message.id === "number"
+                      ? message.id
+                      : undefined,
+                  at: startedAt,
+                  bytes,
+                  postMessageDurationMs: performance.now() - startedAt,
+                });
+              }
+              return result;
             };
           }
           if (property === "onmessage") return messageHandler;
@@ -430,6 +481,18 @@ function installStartupInstrumentation(): void {
           if (property === "onmessage") {
             const handler = value as Worker["onmessage"];
             messageHandler = (event) => {
+              if (event.data?.type === "result") {
+                profile.workerTransferEvents.push({
+                  direction: "fromWorker",
+                  type: "result",
+                  id:
+                    typeof event.data.id === "number"
+                      ? event.data.id
+                      : undefined,
+                  at: performance.now(),
+                  bytes: responseArrayBufferBytes(event.data),
+                });
+              }
               if (event.data?.type === "ready") {
                 const initialization =
                   workerInitializationByInstance.get(targetWorker);
@@ -1149,6 +1212,7 @@ test("records first-visible startup latency on Autzen", async ({ browser }) => {
           longestMainThreadTaskMs: qualityState.longestMainThreadTaskMs,
         },
         rangeRequestCount: profile.ranges.length,
+        workerTransferEvents: profile.workerTransferEvents,
         failedRangeCount: profile.ranges.filter(
           (range) => range.status !== undefined && range.status !== 206,
         ).length,
@@ -1297,6 +1361,52 @@ test("records first-visible startup latency on Autzen", async ({ browser }) => {
     );
   const coldSummary = summaryFor(coldRuns);
   const warmSummary = summaryFor(warmRuns);
+  const summarizeWorkerTransfers = (runs: Record<string, unknown>[]) => {
+    const grouped = new Map<
+      string,
+      { direction: string; type: string; count: number; bytes: number; postMs: number[] }
+    >();
+    for (const run of runs) {
+      const events = run.workerTransferEvents as
+        | StartupProfile["workerTransferEvents"]
+        | undefined;
+      for (const event of events ?? []) {
+        const key = `${event.direction}:${event.type}`;
+        const summary = grouped.get(key) ?? {
+          direction: event.direction,
+          type: event.type,
+          count: 0,
+          bytes: 0,
+          postMs: [],
+        };
+        summary.count += 1;
+        summary.bytes += event.bytes;
+        if (event.postMessageDurationMs !== undefined) {
+          summary.postMs.push(event.postMessageDurationMs);
+        }
+        grouped.set(key, summary);
+      }
+    }
+    return [...grouped.values()].map((summary) => {
+      const sorted = [...summary.postMs].sort((left, right) => left - right);
+      const percentile = (fraction: number): number =>
+        sorted[Math.max(0, Math.ceil(sorted.length * fraction) - 1)] ?? 0;
+      return {
+        direction: summary.direction,
+        type: summary.type,
+        eventCount: summary.count,
+        totalUniqueTransferredBytes: summary.bytes,
+        ...(sorted.length === 0
+          ? {}
+          : {
+              postMessageDurationP50Ms:
+                sorted[Math.floor(sorted.length * 0.5)],
+              postMessageDurationP95Ms: percentile(0.95),
+              postMessageDurationMaxMs: sorted.at(-1),
+            }),
+      };
+    });
+  };
   const runRowsFor = (runs: Record<string, unknown>[]) =>
     runs.map((run) => {
       const stages = run.stages as Record<string, unknown>;
@@ -1324,6 +1434,7 @@ test("records first-visible startup latency on Autzen", async ({ browser }) => {
         peakActiveRangeRequests: stages.peakActiveRangeRequests,
         peakJsHeapBytes: stages.peakJsHeapBytes,
         peakChromiumProcessRssBytes: run.peakChromiumProcessRssBytes,
+        workerTransferEvents: run.workerTransferEvents,
       };
     });
 
@@ -1342,6 +1453,12 @@ test("records first-visible startup latency on Autzen", async ({ browser }) => {
         "peak Chromium process RSS summed across browser-reported process IDs (shared pages may be counted more than once), page JS heap, and decoded point-cache bytes",
       cold: { summary: coldSummary, runs: runRowsFor(coldRuns) },
       warm: { summary: warmSummary, runs: runRowsFor(warmRuns) },
+      workerTransfers: {
+        cold: summarizeWorkerTransfers(coldRuns),
+        warm: summarizeWorkerTransfers(warmRuns),
+        timingDefinition:
+          "postMessageDuration is synchronous API-call time only; it excludes worker execution and asynchronous response delivery",
+      },
     })}`,
   );
 
