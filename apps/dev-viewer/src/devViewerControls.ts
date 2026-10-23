@@ -5,6 +5,10 @@ import type {
   RefinementAlgorithm,
 } from "@frillab/copc-adapter";
 import { mountSegmentedControl, mountSlider } from "../../shared/ui-controls";
+import {
+  workbenchBackendOptions,
+  workbenchRendererOptions,
+} from "../../shared/workbench-config";
 import type {
   CameraPreset,
   CesiumPointRendererVariant,
@@ -93,10 +97,7 @@ export function mountDevViewerControls(
     {
       label: "Rendering engine",
       value: controls.renderer,
-      choices: [
-        { value: "cesium", label: "Cesium" },
-        { value: "three", label: "Three.js" },
-      ],
+      choices: workbenchRendererOptions,
       onChange(value) {
         advancedInputs.cameraRenderDistance.value = String(
           options.onEngineSelected(value),
@@ -126,10 +127,7 @@ export function mountDevViewerControls(
     {
       label: "Backend",
       value: controls.backend,
-      choices: [
-        { value: "copc-js", label: "JavaScript" },
-        { value: "rust", label: "Rust / WASM" },
-      ],
+      choices: workbenchBackendOptions,
       onChange: options.onBackendSelected,
     },
   );

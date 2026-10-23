@@ -1,19 +1,29 @@
 import type {
-  CopcBackendName,
-  CopcColorMode,
   RangeValidationPolicy,
   RefinementAlgorithm,
 } from "@frillab/copc-adapter";
 
-export type RenderingEngine = "cesium" | "three";
-export type CesiumPointRendererVariant = "point-primitive" | "batched-geometry";
-export type CameraPreset = "overview" | "far" | "near";
+import type {
+  WorkbenchCameraPreset,
+  WorkbenchLayerConfig,
+  WorkbenchRenderer,
+} from "../../shared/workbench-config";
 
-/** Complete Dev Viewer configuration, including the source currently in use. */
-export type DevViewerConfig = {
+export type RenderingEngine = WorkbenchRenderer;
+export type CesiumPointRendererVariant = "point-primitive" | "batched-geometry";
+export type CameraPreset = WorkbenchCameraPreset;
+
+/** Complete Dev Viewer configuration, including developer-only settings. */
+export type DevViewerConfig = Omit<
+  WorkbenchLayerConfig,
+  | "maxDepth"
+  | "maxScreenSpaceError"
+  | "maxRenderDistanceMeters"
+  | "motionLookahead"
+  | "rangeValidation"
+> & {
   renderer: RenderingEngine;
   cesiumRenderer: CesiumPointRendererVariant;
-  backend: CopcBackendName;
   refinementAlgorithm: RefinementAlgorithm;
   motionLookahead: boolean;
   rangeValidation: RangeValidationPolicy;
@@ -22,10 +32,6 @@ export type DevViewerConfig = {
   heightOffsetMeters: number;
   /** Optional public or local Cesium quantized-mesh Terrain service root URL. */
   terrainUrl: string;
-  colorMode: CopcColorMode;
-  pointSize: number;
-  maxNodes: number;
-  maxRenderedPoints: number;
   maxDepth: number;
   maxScreenSpaceError: number;
   cameraPreset: CameraPreset;

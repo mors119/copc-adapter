@@ -46,6 +46,7 @@ import {
 } from "./threeViewer";
 import { mountWorkbenchPanels } from "./workbenchPanels";
 import { mountDevViewerControls } from "./devViewerControls";
+import { toWorkbenchLayerOptions } from "../../shared/workbench-config";
 import {
   getCesiumTerrainProviderUrl,
   getSafeSourceLabel,
@@ -705,37 +706,43 @@ function getLayerOptions(
   const rangeValidation = isRangeValidationPolicy(requestedRangeValidation)
     ? requestedRangeValidation
     : "head-fallback";
+  const workbenchOptions = config
+    ? toWorkbenchLayerOptions({
+        ...config,
+        maxRenderDistanceMeters: config.maxRenderDistance,
+      })
+    : undefined;
+  const streamingOptions =
+    workbenchOptions?.streaming ?? {
+      maxNodes: issueScenario ? (issue128 ? 16 : 32) : 24,
+      maxDepth: issueScenario ? (issue128 ? 4 : 6) : 6,
+      maxScreenSpaceError: 8,
+      maxRenderDistanceMeters: issueScenario ? scenarioMaxDistance : 12_000,
+      refinementAlgorithm,
+      ...(motionLookahead === undefined ? {} : { motionLookahead }),
+    };
   return {
     url: source,
-    colorMode: config?.colorMode ?? (issueScenario ? "elevation" : "rgb"),
-    backend:
-      config?.backend ??
-      (issueScenario
+    ...(workbenchOptions ?? {
+      colorMode: issueScenario ? "elevation" : "rgb",
+      backend: issueScenario
         ? params.get("backend") === "copc-js"
           ? "copc-js"
           : "rust"
-        : getSelectedBackend()),
-    pointSize: config?.pointSize ?? (issueScenario ? 2 : 3),
-    rangeValidation: config?.rangeValidation ?? rangeValidation,
-    debug: true,
-    ...(config
-      ? { maxRenderedPoints: config.maxRenderedPoints }
-      : issueScenario && maxRenderedPoints !== undefined
+        : getSelectedBackend(),
+      pointSize: issueScenario ? 2 : 3,
+      rangeValidation,
+      ...(issueScenario && maxRenderedPoints !== undefined
         ? { maxRenderedPoints }
         : {}),
+    }),
+    debug: true,
     ...(issueScenario && maxPointCacheBytes !== undefined
       ? { maxPointCacheBytes }
       : {}),
     ...(heightOffsetMeters === undefined ? {} : { heightOffsetMeters }),
     streaming: {
-      maxNodes: config?.maxNodes ?? (issueScenario ? (issue128 ? 16 : 32) : 24),
-      maxDepth: config?.maxDepth ?? (issueScenario ? (issue128 ? 4 : 6) : 6),
-      maxScreenSpaceError: config?.maxScreenSpaceError ?? 8,
-      maxRenderDistanceMeters:
-        config?.maxRenderDistance ??
-        (issueScenario ? scenarioMaxDistance : 12_000),
-      refinementAlgorithm: config?.refinementAlgorithm ?? refinementAlgorithm,
-      ...(motionLookahead === undefined ? {} : { motionLookahead }),
+      ...streamingOptions,
       ...(predictivePrefetch ? { predictivePrefetch: true } : {}),
     },
   };
@@ -936,24 +943,17 @@ function createThreeSession(
   config: DevViewerConfig,
   onError: (error: unknown) => void,
 ): ViewerSession {
+  const workbenchOptions = toWorkbenchLayerOptions({
+    ...config,
+    maxRenderDistanceMeters: config.maxRenderDistance,
+  });
   const viewer: DevThreeViewer = createDevThreeViewer({
     container,
     source: config.source,
     sourceName: getSafeSourceLabel(config.source, window.location.href),
-    backend: config.backend,
-    colorMode: config.colorMode,
-    pointSize: config.pointSize,
-    maxRenderedPoints: config.maxRenderedPoints,
+    ...workbenchOptions,
     cameraRenderDistance: config.cameraRenderDistance,
     rangeValidation: config.rangeValidation,
-    streaming: {
-      maxNodes: config.maxNodes,
-      maxDepth: config.maxDepth,
-      maxScreenSpaceError: config.maxScreenSpaceError,
-      maxRenderDistanceMeters: config.maxRenderDistance,
-      refinementAlgorithm: config.refinementAlgorithm,
-      motionLookahead: config.motionLookahead,
-    },
     onPointPicked: () => undefined,
     onError,
   });

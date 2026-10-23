@@ -2,6 +2,9 @@ import { expect, test } from "@playwright/test";
 
 type PlaygroundTestHooks = {
   useCameraResetLayerMock(): void;
+  delayNextLoad(): void;
+  failNextLoad(): void;
+  releaseDelayedLoad(): void;
   getMockLoadCount(): number;
   getMockLayerCreateCount(): number;
   getMockRefinementAlgorithm(): string | undefined;
@@ -117,6 +120,68 @@ test("algorithm selection applies the actual constructor option and survives URL
     )
     .toBe("foveated");
   await expect(page).toHaveURL(/refinementAlgorithm=foveated/);
+});
+
+test("failed constructor changes keep the last successfully applied API example", async ({
+  page,
+}) => {
+  await page.goto("./");
+  await useMockLayer(page);
+  await loadFile(page, "failed-apply.copc.laz");
+
+  const appliedExample = await page.locator("#integration-example").textContent();
+  expect(appliedExample).toContain("refinementAlgorithm: 'foveated'");
+
+  await page.evaluate(() => {
+    const hooks = (
+      window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }
+    ).__COPC_PLAYGROUND_TEST__;
+    if (!hooks) throw new Error("Playground test hooks are unavailable");
+    hooks.failNextLoad();
+  });
+  await page.locator("#refinement-algorithm").selectOption("screen-projection");
+  await expect(page.locator("#source-status")).toHaveAttribute(
+    "data-status",
+    "error",
+  );
+  await expect(page.locator("#integration-example")).toHaveText(appliedExample!);
+  await expect(page).toHaveURL(/refinementAlgorithm=screen-projection/);
+});
+
+test("superseded constructor reloads cannot replace the applied API example", async ({
+  page,
+}) => {
+  await page.goto("./");
+  await useMockLayer(page);
+  await loadFile(page, "superseded-apply.copc.laz");
+
+  await page.evaluate(() => {
+    const hooks = (
+      window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }
+    ).__COPC_PLAYGROUND_TEST__;
+    if (!hooks) throw new Error("Playground test hooks are unavailable");
+    hooks.delayNextLoad();
+  });
+  await page.locator("#refinement-algorithm").selectOption("screen-projection");
+  await expect(page.locator("#source-status")).toContainText("Loading");
+
+  await page.locator("#refinement-algorithm").selectOption("foveated");
+  await expect(page.locator("#source-status")).toHaveText(
+    "Loaded superseded-apply.copc.laz",
+  );
+  await expect(page.locator("#integration-example")).toContainText(
+    "refinementAlgorithm: 'foveated'",
+  );
+
+  await page.evaluate(() => {
+    const hooks = (
+      window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }
+    ).__COPC_PLAYGROUND_TEST__;
+    hooks?.releaseDelayedLoad();
+  });
+  await expect(page.locator("#integration-example")).toContainText(
+    "refinementAlgorithm: 'foveated'",
+  );
 });
 
 test("focus modes update the active Cesium layer without recreating it", async ({

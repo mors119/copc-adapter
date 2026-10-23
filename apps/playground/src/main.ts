@@ -12,6 +12,11 @@ import {
   type UiSegmentOption,
 } from "../../shared/ui-controls";
 import {
+  workbenchBackendOptions,
+  workbenchRendererOptions,
+  type WorkbenchLayerConfig,
+} from "../../shared/workbench-config";
+import {
   createPlaygroundRuntime,
   type CesiumLayerFactory,
   type PlaygroundBackend,
@@ -24,6 +29,7 @@ import {
   type PlaygroundSource,
 } from "./rendererRuntime";
 import {
+  defaultPlaygroundRefinementConfig,
   readPlaygroundRefinementConfig,
   refinementAlgorithmOptions,
   writePlaygroundRefinementConfig,
@@ -242,10 +248,45 @@ let activeLoadPending = false;
 let activeSource: PlaygroundSource | undefined;
 let activeSourceName = "";
 let activeRuntime: PlaygroundRuntime | undefined;
+let activeRuntimeReady = false;
+type AppliedPlaygroundConfig = WorkbenchLayerConfig & {
+  readonly renderer: PlaygroundRenderer;
+  readonly refinementConfig: PlaygroundRefinementConfig;
+};
+const defaultIntegrationConfig: AppliedPlaygroundConfig = {
+  renderer: "cesium",
+  backend: "copc-js",
+  colorMode: "elevation",
+  pointSize: 3,
+  maxNodes: 24,
+  maxRenderedPoints: 250_000,
+  refinementAlgorithm: "foveated",
+  refinementConfig: {
+    ...defaultPlaygroundRefinementConfig,
+    center: { ...defaultPlaygroundRefinementConfig.center },
+  },
+};
+let appliedConfig: AppliedPlaygroundConfig | undefined;
 let activeProbeResult: CopcSourceProbeResult | undefined;
 let cameraInteractionVersion = 0;
 let layerFactory: CesiumLayerFactory | undefined;
 let refreshTimer: number | undefined;
+
+function captureWorkbenchConfig(): AppliedPlaygroundConfig {
+  return {
+    renderer,
+    backend,
+    colorMode,
+    pointSize,
+    maxNodes,
+    maxRenderedPoints,
+    refinementAlgorithm: refinementConfig.algorithm,
+    refinementConfig: {
+      ...refinementConfig,
+      center: { ...refinementConfig.center },
+    },
+  };
+}
 
 for (const option of refinementAlgorithmOptions) {
   algorithmSelect.add(new Option(option.label, option.value));
@@ -278,6 +319,7 @@ declare global {
     __COPC_PLAYGROUND_TEST__?: {
       useCameraResetLayerMock(): void;
       delayNextLoad(): void;
+      failNextLoad(): void;
       releaseDelayedLoad(): void;
       getMockDestroyCount(): number;
       getMockZoomCount(): number;
@@ -304,6 +346,7 @@ if (import.meta.env.DEV) {
   let mockFocusUpdateCount = 0;
   let mockRefinementFocus: RefinementFocus | undefined;
   let delayNextMockLoad = false;
+  let failNextMockLoad = false;
   let releaseMockLoad: (() => void) | undefined;
   window.__COPC_PLAYGROUND_TEST__ = {
     useCameraResetLayerMock(): void {
@@ -329,6 +372,10 @@ if (import.meta.env.DEV) {
               await new Promise<void>((resolve) => {
                 releaseMockLoad = resolve;
               });
+            }
+            if (failNextMockLoad) {
+              failNextMockLoad = false;
+              throw new Error("Injected mock load failure");
             }
           },
           destroy(): void {
@@ -381,6 +428,9 @@ if (import.meta.env.DEV) {
     },
     delayNextLoad(): void {
       delayNextMockLoad = true;
+    },
+    failNextLoad(): void {
+      failNextMockLoad = true;
     },
     releaseDelayedLoad(): void {
       releaseMockLoad?.();
@@ -506,10 +556,7 @@ const rendererControl = mountSegmentedControl<PlaygroundRenderer>(
   {
     label: "Renderer",
     value: renderer,
-    choices: [
-      { value: "cesium", label: "Cesium" },
-      { value: "three", label: "Three.js" },
-    ],
+    choices: workbenchRendererOptions,
     onChange: (value) => {
       renderer = value;
       syncRendererLabels();
@@ -523,10 +570,7 @@ const backendControl = mountSegmentedControl<PlaygroundBackend>(
   {
     label: "COPC backend",
     value: backend,
-    choices: [
-      { value: "copc-js", label: "JavaScript" },
-      { value: "rust", label: "Rust / WASM" },
-    ],
+    choices: workbenchBackendOptions,
     onChange: (value) => {
       backend = value;
       syncRendererLabels();
@@ -626,39 +670,47 @@ function effectiveRefinementFocus(
   center = refinementConfig.focusMode === "follow-pointer"
     ? followPointerCenter
     : refinementConfig.center,
+  activeRenderer = renderer,
+  config = refinementConfig,
 ): RefinementFocus | undefined {
   if (
-    renderer !== "cesium" ||
-    !refinementConfig.focusEnabled ||
-    refinementConfig.focusMode === "auto-center"
+    activeRenderer !== "cesium" ||
+    !config.focusEnabled ||
+    config.focusMode === "auto-center"
   )
     return undefined;
   return {
     type: "screen-circle",
     center: { x: center.x, y: center.y },
-    radius: refinementConfig.radius,
-    detailBias: refinementConfig.detailBias,
+    radius: config.radius,
+    detailBias: config.detailBias,
   };
 }
 
 function updateIntegrationExample(): void {
-  const algorithmLine = `streaming: { maxNodes: ${maxNodes}, refinementAlgorithm: '${refinementConfig.algorithm}' },`;
-  const focus = effectiveRefinementFocus(refinementConfig.center);
+  const config = appliedConfig ?? defaultIntegrationConfig;
+  const focusConfig = config.refinementConfig;
+  const algorithmLine = `streaming: { maxNodes: ${config.maxNodes}, refinementAlgorithm: '${config.refinementAlgorithm}' },`;
+  const focus = effectiveRefinementFocus(
+    focusConfig.center,
+    config.renderer,
+    focusConfig,
+  );
   const modeComment =
-    refinementConfig.focusMode === "follow-pointer"
+    focusConfig.focusMode === "follow-pointer"
       ? "// Playground focus mode: follow-pointer. Update center from this canvas’s normalized pointer coordinates."
-      : refinementConfig.focusMode === "pinned"
+      : focusConfig.focusMode === "pinned"
         ? "// Playground focus mode: pinned."
-        : refinementConfig.focusMode === "center-boost"
+        : focusConfig.focusMode === "center-boost"
           ? "// Playground focus mode: center-boost."
           : "// Playground focus mode: auto-center; no manual focus is active.";
   const focusLine = focus
     ? `${modeComment}\nlayer.setRefinementFocus({ type: 'screen-circle', center: { x: ${focus.center.x.toFixed(4)}, y: ${focus.center.y.toFixed(4)} }, radius: ${focus.radius.toFixed(4)}, detailBias: ${focus.detailBias.toFixed(2)} });`
     : `${modeComment}\n// Focus Lens is disabled in the Playground.`;
   byId<HTMLElement>("integration-example").textContent =
-    renderer === "cesium"
-      ? `const layer = new CopcCesiumLayer({ url: copcUrl, backend: '${backend}',\n  ${algorithmLine}\n});\nawait layer.load();\nlayer.attachTo(viewer);\n${focusLine}`
-      : `const layer = new CopcThreeLayer({ url: copcUrl, backend: '${backend}',\n  ${algorithmLine}\n});\nlayer.attachTo({ scene, camera, renderer });\nawait layer.load();\n${modeComment}`;
+    config.renderer === "cesium"
+      ? `const layer = new CopcCesiumLayer({ url: copcUrl, backend: '${config.backend}',\n  ${algorithmLine}\n});\nawait layer.load();\nlayer.attachTo(viewer);\n${focusLine}`
+      : `const layer = new CopcThreeLayer({ url: copcUrl, backend: '${config.backend}',\n  ${algorithmLine}\n});\nlayer.attachTo({ scene, camera, renderer });\nawait layer.load();\n${modeComment}`;
 }
 
 function updateFocusControls(): void {
@@ -727,8 +779,18 @@ function writeRefinementUrl(): void {
 
 function applyFocusSettings(syncUrl = true): void {
   updateFocusControls();
-  activeRuntime?.setRefinementFocus(effectiveRefinementFocus());
-  lastAppliedFocusCenter = effectiveRefinementFocus()?.center;
+  const focus = effectiveRefinementFocus();
+  activeRuntime?.setRefinementFocus(focus);
+  lastAppliedFocusCenter = focus?.center;
+  if (activeRuntime && activeRuntimeReady && appliedConfig) {
+    appliedConfig = {
+      ...appliedConfig,
+      refinementConfig: {
+        ...refinementConfig,
+        center: { ...refinementConfig.center },
+      },
+    };
+  }
   if (syncUrl) writeRefinementUrl();
   updateIntegrationExample();
   refreshSnapshot();
@@ -1187,6 +1249,7 @@ const getFilePointFormat = async (file: File): Promise<number | undefined> => {
 };
 
 const destroyRuntime = (): void => {
+  activeRuntimeReady = false;
   unbindPointerFocus();
   if (focusDragPointerId !== undefined) {
     const pointerId = focusDragPointerId;
@@ -1271,17 +1334,18 @@ const loadSource = async (
       updateColorChoices(await getFilePointFormat(source));
     }
     if (generation !== sourceGeneration) return;
+    const loadConfig = captureWorkbenchConfig();
     const createdRuntime = await createPlaygroundRuntime(
       {
-        renderer,
-        backend,
+        renderer: loadConfig.renderer,
+        backend: loadConfig.backend,
         source,
         sourceName,
-        colorMode,
-        pointSize,
-        maxNodes,
-        maxRenderedPoints,
-        refinementAlgorithm: refinementConfig.algorithm,
+        colorMode: loadConfig.colorMode,
+        pointSize: loadConfig.pointSize,
+        maxNodes: loadConfig.maxNodes,
+        maxRenderedPoints: loadConfig.maxRenderedPoints,
+        refinementAlgorithm: loadConfig.refinementAlgorithm,
         container: viewport,
         onPointPicked: renderPoint,
         isCurrent: () => generation === sourceGeneration,
@@ -1324,6 +1388,15 @@ const loadSource = async (
     ) {
       createdRuntime.setCameraState(priorCamera);
     }
+    appliedConfig = {
+      ...loadConfig,
+      refinementConfig: {
+        ...refinementConfig,
+        center: { ...refinementConfig.center },
+      },
+    };
+    activeRuntimeReady = true;
+    updateIntegrationExample();
     setStatus(`Loaded ${sourceName}`, "ready");
     viewerCaption.textContent = `${renderer === "cesium" ? "Cesium" : "Three.js"} streams visible COPC nodes as the camera moves.`;
     refreshSnapshot();

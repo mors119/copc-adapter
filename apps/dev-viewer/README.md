@@ -6,6 +6,11 @@ Playground and is not a production consumer interface. It imports the workspace
 package source and keeps development diagnostics and local Range middleware out
 of the published package.
 
+The Dev Viewer reuses the Playground's public control widgets and normalized
+layer-option mapping from `apps/shared`. It keeps the workspace-source aliases,
+local sample middleware, fixtures, and developer instrumentation in its own
+build; the public Playground continues to exercise the packed consumer package.
+
 ## Workbench
 
 The full-window Cesium or Three.js canvas sits behind two independently
