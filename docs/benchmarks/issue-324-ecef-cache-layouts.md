@@ -1,6 +1,319 @@
-# Issue #324: ECEF cache layout measurement report
+# Issues #324 and #326: ECEF cache layout measurement report
 
-## Recommendation
+## Task 3 measurement run — 2026-10-23
+
+### Recommendation
+
+**DEFER default adoption; keep A as the production default.** E retains 32
+coordinate bytes per point instead of A's 72, and the measured outputs preserve
+height and color values. On one million synthetic points, that saves 55.6% of
+coordinate storage and 49.4% of retained typed-array bytes after the same
+attributes are included. Warm elevation styling is effectively tied with A.
+
+Under the production 256 MiB / 48-entry replay, A and E had the same hits,
+misses, and evictions because the entry limit bound first. A separate
+byte-budget sensitivity trace shows E can retain more selected nodes and hit
+more points on a revisit under a shared budget, but this remains a deterministic
+hierarchy-bin proxy. The browser streaming run still uses A. The Rust/WASM
+worker currently returns the full A coordinate result before the core
+constructs E, so this run does not demonstrate lower worker transfer or
+transient preparation memory for E. Those gaps prevent a safe default decision.
+
+### Environment and method
+
+| Setting | Value |
+| --- | --- |
+| Full measurement source revision | `e832bb653866964fac2984ece59d506893f5dd7c` (5 warm-ups, 15 samples) |
+| Node benchmark harness SHA-256 (full measurement) | `cd38ce8add88b55c57f57c749ca0614f87826dc94a2beee082f8a48426a3d5f8` (`packages/scripts/cache-representation-performance-benchmark.mjs`) |
+| Node harness SHA-256 (layout-specific metadata) | `7117b43670a93dbc7498153ebcc7e8be5bcb76e91cb82d7eade86eb853a63358` at `0c232496ab03689a6163d52608d5b95d84c2f502`; metadata smoke check used 0 warm-ups and 1 sample |
+| Review follow-up cache budget metadata harness SHA-256 | `ad025c67aa3ee5cd330ab7de6fcb521755bd2d1acca74220c4e7b1db264a9030` (`packages/scripts/cache-representation-performance-benchmark.mjs`); Autzen smoke run used 0 warm-ups and 1 sample |
+| Browser benchmark harness SHA-256 (original run) | `d85362ae194068d603ea29faeebfbd91d1a0ae456d0e05cfcb9ddd671e0585f0` (`apps/dev-viewer/src/rendererPerformanceBenchmark.ts`) |
+| Review follow-up Cesium harness SHA-256 | `e647deec480f7cbcc59b573d196cc1085cbb01c084bf9d4c2e907a2c114a6dda` (`apps/dev-viewer/src/rendererPerformanceBenchmark.ts`); `fede41d5f383f744931dae5636da84cb45b11d9b5a6992a24eb05bfe92a43611` (`apps/dev-viewer/e2e/renderer-performance.spec.ts`) |
+| Review follow-up Worker instrumentation SHA-256 | `a06fc5de333557cc07be592fa56e8bfd210cc633a7c4666dee88096700c9d9b7` (`apps/dev-viewer/e2e/streaming-performance.spec.ts`) |
+| Review follow-up debug wiring SHA-256 | `91a99dd1391ec849a295dc51f6d5496980a930dcb3d8e14229c03facf1d607ed` (`apps/dev-viewer/src/main.ts`) |
+| Node runtime | Node.js `v26.12.1`, V8 `14.6.202.34-node.40`, macOS `25.6.0`, arm64 |
+| Machine | Apple M2, 8 logical CPUs, 8 GiB RAM |
+| Rust/WASM | rustc `1.92.0`; COPC adapter WASM 850,535 bytes; laz-perf WASM 214,351 bytes |
+| Node command | `COPC_CACHE_BENCHMARK_SOFI=1 npm --prefix packages run benchmark:cache-representations` |
+| Node repetitions | 5 warm-ups, then 15 measured samples; p95 is nearest-rank; tables include SD and CV where useful |
+| Requested data | Position, intensity, classification, RGB; SoFi has no RGB field |
+| Transform | Same forward transform result per comparison; no height offset or geoid grid |
+| Samples | Autzen: 81,123,042 bytes, SHA-256 `db2d56cdfa058bffccdc5d6019dae2fc9c6a551df10a5523c06c76a3e25a27fa`; SoFi: 2,029,696,615 bytes, SHA-256 `fd6848a0eaee3e21f7ce3a91af44ed3ae06ae8439b7f65828b4a5d956685f699` |
+| Browser | Playwright Headless Chrome 155, DPR 1, 1280×720, 8 reported logical CPUs; Apple M2 host; hardware-GL mode requested; WebGL renderer query unavailable |
+| Review follow-up browser | Playwright Headless Chrome 155.0.8059.85, DPR 1, 1280×720, Apple M2; SwiftShader used by the synthetic renderer test; worker timing test used the same Playwright default |
+| Browser repetitions | Synthetic renderer comparison: 2 paired warm-ups and 5 paired measured runs; first-visible: 5 cold and 5 warm measured runs after one unreported warm-up |
+
+The 2026-10-24 browser follow-up ran from `apps/dev-viewer` with
+`npx playwright test e2e/renderer-performance.spec.ts --grep 'prints repeatable synthetic and Autzen renderer performance evidence' --reporter=line`
+and
+`COPC_FIRST_VISIBLE_BENCHMARK=1 npx playwright test e2e/streaming-performance.spec.ts --grep 'records first-visible startup latency on Autzen' --workers=1 --reporter=line`.
+
+The Node benchmark reuses PR #329's runner and report. A/B/D/E candidates use
+the same transformed positions and requested attributes. D is only a research
+baseline. Candidate materialization measures the copies or buffers retained
+after transformation; it does not repeat the CRS transform. E is made by the
+existing compact-E builder: its ECEF buffer aliases the transformed result and
+it allocates one Float64 height per point. The CPU renderer benchmark is run in
+the browser with synthetic 100k-point data. First-visible streaming is an A
+baseline because no browser layer currently selects E. One-node cache timing
+samples execute candidate layouts sequentially so their forced-GC and timing
+windows do not overlap.
+
+The full numeric measurements above used the `e832bb6` harness revision. A
+follow-up metadata-only correction makes the JSON materialization and point
+inspection method descriptions layout-specific. E records zero copied
+coordinate buffers, a Float64 height allocation derived from Geographic Z,
+aliases to the prepared ECEF buffer, and scalar ECEF inversion for
+longitude/latitude with cached height. That output was smoke-checked at
+`0c23249`; the change does not alter measured operations or the reported
+full-run values.
+
+For the cache-policy replay, the benchmark traverses each real hierarchy and
+uses deterministic hierarchy-bin regions with a 24-node / 250k-point selection
+proxy. The production-budget trace uses the 256 MiB budget and 48-entry limit.
+A second trace visits regions 0 and 1, then revisits region 0; its per-dataset
+byte budget is midway between the estimated A and E footprints for those two
+regions, and its entry limit is raised to 256 to isolate byte pressure. Both
+are policy simulations, not live camera/NodeSelector traces. Timing percentiles
+with 15 samples are descriptive, not confidence intervals. Process snapshots
+do not isolate allocation-time peaks, worker residency, or WASM linear memory.
+
+### A/B/D/E storage comparison
+
+Coordinate storage excludes requested attributes. Synthetic fixtures add 9
+attribute bytes per point, shared across candidates and counted once.
+
+| Layout | Coordinate bytes/point | Coordinate buffers |
+| --- | ---: | --- |
+| A | 72 | Source F64 + Geographic F64 + ECEF F64 |
+| B | 48 | Geographic F64 + ECEF F64 |
+| D | 28 | ECEF F64 + Height F32; research only |
+| E | 32 | ECEF F64 + Height F64 |
+
+| Synthetic points | A retained total | B retained total | D retained total | E retained total |
+| ---: | ---: | ---: | ---: | ---: |
+| 10,000 | 810,000 B | 570,000 B | 370,000 B | 410,000 B |
+| 100,000 | 8,100,000 B | 5,700,000 B | 3,700,000 B | 4,100,000 B |
+| 250,000 | 20,250,000 B | 14,250,000 B | 9,250,000 B | 10,250,000 B |
+| 1,000,000 | 81,000,000 B | 57,000,000 B | 37,000,000 B | 41,000,000 B |
+
+| Real root node | Points | A retained | B retained | D retained | E retained | E saving vs A |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Autzen | 61,201 | 4,957,281 B | 3,488,457 B | 2,264,437 B | 2,509,241 B | 49.4% |
+| SoFi | 52,296 | 3,922,200 B | 2,667,096 B | 1,621,176 B | 1,830,360 B | 53.3% |
+
+Totals count each retained ArrayBuffer backing store once, including the shared
+attributes. A aliases such as `coordinates` to `geographic` add no bytes. E's
+`ecef` aliases the transformed world buffer; E's Float64 height is a separate
+8-byte-per-point allocation.
+
+### Node timing measurements
+
+The following one-million-point CPU RGBA pass timings are milliseconds. Each
+row is `p50 / p95 / SD / CV`, with 15 measured samples. p95 uses nearest rank.
+
+| Layout | Warm elevation styling | Five-mode style toggle cycle |
+| --- | ---: | ---: |
+| A | 41.042 / 42.625 / 0.776 / 0.019 | 157.774 / 166.976 / 3.471 / 0.022 |
+| B | 41.885 / 60.554 / 5.256 / 0.120 | 163.290 / 270.963 / 28.632 / 0.166 |
+| D | 38.973 / 41.498 / 0.735 / 0.019 | 153.712 / 164.284 / 3.264 / 0.021 |
+| E | 39.465 / 41.382 / 0.741 / 0.019 | 154.466 / 159.402 / 2.311 / 0.015 |
+
+E is 3.8% faster than A at warm elevation p50 in this run; p95 was 41.382 ms
+for E and 42.625 ms for A. The five-mode cycle p50 differs by 2.1%. These
+CPU-only differences do not establish a material end-to-end speedup.
+
+| Operation, 1M points | A p50 / p95 | E p50 / p95 | Notes |
+| --- | ---: | ---: | --- |
+| Representation materialization | 3.740 / 4.889 ms | 1.107 / 1.465 ms | A copies three coordinate arrays; E aliases ECEF and copies height |
+| Production LRU one-node load + accounting | 0.063 / 0.128 ms | 0.052 / 0.138 ms | Already-materialized node; includes byte estimation and diagnostics, excludes decode/transform/allocation |
+
+The one-node cache insertion values are milliseconds, p50 / p95, n=15. Their
+standard deviation / CV were A 0.021 / 0.297 and E 0.026 / 0.420; this very
+short operation is noisy and shows no reliable insertion-time advantage. The
+1M materialization standard deviation / CV were A 0.429 ms / 0.109 and E
+0.102 ms / 0.088.
+
+Root materialization timings vary by backend; values below are p50 / p95 ms,
+n=15. They do not support a stable cross-dataset speed claim:
+
+| Dataset / backend | A | E |
+| --- | ---: | ---: |
+| Autzen / copc-js + TypeScript | 0.248 / 0.515 | 1.879 / 2.372 |
+| Autzen / Rust/WASM | 0.252 / 1.576 | 0.131 / 2.210 |
+| SoFi / copc-js + TypeScript | 0.210 / 0.657 | 0.096 / 0.198 |
+| SoFi / Rust/WASM | 0.211 / 0.506 | 0.085 / 0.097 |
+
+The existing direct-backend warm preparation measurement, which includes
+opening/reusing the source node and producing the A-shaped prepared result, was:
+
+| Dataset / backend | Total load + prepare p50 / p95 | Point preparation p50 / p95 |
+| --- | ---: | ---: |
+| Autzen / copc-js + TypeScript | 97.137 / 104.586 ms | 49.283 / 52.846 ms |
+| Autzen / Rust/WASM | 81.700 / 100.571 ms | 50.600 / 60.625 ms |
+| SoFi / copc-js + TypeScript | 71.343 / 78.910 ms | 32.338 / 39.077 ms |
+| SoFi / Rust/WASM | 33.800 / 35.164 ms | 14.462 / 15.566 ms |
+
+Those transformation timings are shared inputs, not E-only worker preparation
+timings. E's measured height allocation adds 8,000,000 ArrayBuffer bytes per
+one-million-point materialization; the source and Geographic buffers from the
+input PreparedPointData are present until the compact entry is built and the
+input becomes collectible. The benchmark records stage-boundary memory
+snapshots, not a per-layout allocation-time peak. Forced GC runs before timed
+operations, so GC pause cost is excluded from the operation timing.
+
+### Accuracy, color, and backend parity
+
+Across all candidates, the requested attribute arrays are shared unchanged.
+E height equalled prepared Geographic height exactly for both backends, both
+real root nodes, all four synthetic sizes, and all six coordinate fixtures.
+The 11-point geographic fixture includes negative heights, near-pole points,
+the international date line, and heights through 42,000,001.25 m. E's maximum
+ECEF round-trip error in that fixture was 0.93 nm; its root-node maximum was
+3.42 nm for SoFi. These are software consistency checks, not surveyed accuracy.
+
+E matched A's Float32 RGBA output exactly for fixed, elevation, RGB, intensity,
+and classification styling: zero float-channel delta and zero 8-bit color
+mismatches on both real roots and all synthetic sizes. Engineered palette
+checks at normalized boundaries 0.25, 0.50, and 0.75 across 10 m, 100 m, and
+1000 m spans also had zero E mismatches. D had 40,000–40,750 8-bit channel
+mismatches in the 100k-point samples exactly at the 0.75 boundary; D remains a
+research baseline and is not proposed for production.
+
+Rust/WASM and JavaScript preparation had identical requested attributes. The
+largest ECEF component difference between backends was 4.66 nm on both files;
+the largest geographic component difference was below `3.6e-14` degrees. E
+does not change this backend parity result because it carries the buffers from
+the same prepared transform result.
+
+### Cache budget and reuse
+
+| Dataset / layout | Current bytes after replay | Cached nodes | Hits / misses / evictions | Bound by 48-node limit? |
+| --- | ---: | ---: | ---: | --- |
+| Autzen A | 108,612,738 | 48 | 8 / 54 / 6 | Yes |
+| Autzen E | 54,976,818 | 48 | 8 / 54 / 6 | Yes |
+| SoFi A | 28,503,900 | 48 | 0 / 160 / 112 | Yes |
+| SoFi E | 13,301,820 | 48 | 0 / 160 / 112 | Yes |
+
+All layouts stayed below the 256 MiB byte budget. In this production-policy
+trace, the 48-entry cap bound first and A/E had identical reuse. The separate
+byte-bound sensitivity trace used a shared budget between the estimated A and
+E size for two visited regions, then revisited the first region:
+
+| Dataset | Shared byte budget | Layout | Revisit hits | Final nodes | Final retained bytes | Total hits / misses / evictions |
+| --- | ---: | --- | ---: | ---: | ---: | ---: |
+| Autzen | 30,336,520 B | A | 5 | 20 | 30,097,899 B | 5 / 30 / 10 |
+| Autzen | 30,336,520 B | E | 11 | 24 | 20,390,120 B | 11 / 24 / 0 |
+| SoFi | 20,302,865 B | A | 2 | 36 | 18,230,850 B | 2 / 70 / 34 |
+| SoFi | 20,302,865 B | E | 24 | 48 | 12,920,005 B | 24 / 48 / 0 |
+
+This sensitivity case demonstrates that E's smaller buffers can increase
+revisit hits under a byte-bound policy trace. It is not evidence of universal
+camera-cache improvement because the trace is synthetic and uses selected
+hierarchy bins rather than production camera/NodeSelector behavior.
+
+### Browser measurements
+
+The browser synthetic comparison used five measured runs after two paired
+warm-ups; `median` is p50 and `max` is the empirical nearest-rank p95 for n=5.
+Cesium A/E pairs shared the same deterministic point buffer, and layout order
+alternated on every pair. These are synchronous CPU preparation timings. The
+renderer creates objects and buffers but does not keep them alive for a GPU
+draw, so this comparison has no frame, upload, or GPU-memory result.
+
+| Renderer, 100k points | Layout | Representation materialization p50 / max | Renderer preparation p50 / max | Main conversion or style p50 / max |
+| --- | --- | ---: | ---: | ---: |
+| Cesium point primitive | A | 0 / 0 ms | 24.1 / 38.0 ms | ECEF-to-Cartesian 1.1 / 1.1 ms; style 4.9 / 5.8 ms |
+| Cesium point primitive | E | 0.4 / 0.5 ms | 24.5 / 30.1 ms | ECEF-to-Cartesian 1.4 / 3.6 ms; style 3.3 / 8.5 ms |
+| Cesium batched geometry | A | 0 / 0 ms | 3.8 / 4.1 ms | ECEF-to-Cartesian 1.2 / 1.3 ms; style 2.3 / 2.6 ms |
+| Cesium batched geometry | E | 0.1 / 0.2 ms | 4.4 / 4.4 ms | ECEF-to-Cartesian 1.3 / 1.7 ms; style 2.5 / 2.9 ms |
+| Three.js geometry preparation | A | 0 / 0 ms | 6.9 / 7.0 ms | World-to-local 1.0 / 1.0 ms; geometry 3.5 / 3.7 ms |
+| Three.js geometry preparation | E | 0.1 / 0.3 ms | 6.8 / 7.3 ms | World-to-local 0.9 / 1.0 ms; geometry 3.6 / 3.9 ms |
+
+The independent first-visible hardware run uses the existing A streaming layer,
+Rust/WASM workers, and Autzen. It is a baseline, not an A/E comparison. Browser
+conditions were 40 ms RTT, 50 Mbit/s download, 10 Mbit/s upload, local HTTP 206
+Range responses, five cold runs, and five warm reloads after one unreported
+warm-up.
+
+Both Cesium and Three.js A/E sample orders were counterbalanced per repetition
+as A→E, E→A, then alternating for all seven warm-up and measured pairs. Each
+Cesium pair reused the same deterministic point buffer. The reported Cesium
+values above replace the earlier fixed-order samples. Three.js results are
+effectively tied; the earlier all-A-then-all-E timing order is superseded.
+
+| A browser first-visible metric | Cold p50 / p95 | Warm p50 / p95 |
+| --- | ---: | ---: |
+| First point draw from first Range | 943.5 / 981.3 ms | 703.7 / 719.8 ms |
+| Target quality | 1,657.2 / 2,172.7 ms | 1,464.3 / 1,938.3 ms |
+| Range bytes to first point | 1,349,753 / 1,349,753 B | 1,349,753 / 1,349,753 B |
+| Range bytes / requests to target quality (p50 / p95) | 2,160,773 / 3,613,793 B; 11 / 16 | 2,160,773 / 3,613,793 B; 11 / 16 |
+| Sampled steady-frame p95 | 16.7 / 16.7 ms | 16.7 / 16.8 ms |
+| Long-task count p50 / p95; duration-p95 p50 / p95 across runs | 0 / 1; 0 / 55 ms | 0 / 0; 0 / 0 ms |
+| Peak page JS heap p50 / p95 | 213,736,925 / 339,993,440 B | 216,506,357 / 337,990,840 B |
+| Peak Chromium process RSS p50 / p95 | 1,301,561,344 / 1,363,410,944 B | 1,266,728,960 / 1,350,025,216 B |
+| Decoded point-cache bytes p50 / p95 | 15,838,578 / 26,633,205 B | 15,838,578 / 26,633,205 B |
+| GL upload bytes before first draw p50 / p95 | 5,956,948 / 5,956,996 B | 5,956,276 / 6,051,288 B |
+| GL upload API time p50 / p95 | 1.0 / 1.4 ms | 0.9 / 1.6 ms |
+
+The initial Task 3 run started its `postMessage` timer before transfer-byte
+accounting and therefore overstated the synchronous call duration. The
+2026-10-24 review follow-up reran the five cold and five warm Autzen samples
+with the timer immediately around the native call. Transfer totals below are
+from that rerun; timings exclude worker execution and response delivery.
+
+| Direction / message | Cold events / bytes | Warm events / bytes | postMessage p95, cold / warm |
+| --- | ---: | ---: | ---: |
+| Main → worker initialization | 20 / 17,045,420 B | 20 / 17,045,420 B | 0.1 / 0 ms |
+| Main → worker prepare | 55 / 18,005,250 B | 55 / 18,005,250 B | 0.2 / 0.1 ms |
+| Worker → main result | 55 / 133,166,025 B | 55 / 133,166,025 B | n/a |
+
+These A-path result transfers carry Source, Geographic, ECEF, and requested
+attribute buffers. No browser E worker transfer, E first-visible timing,
+streaming revisit, LAZ re-decode count, or E GPU upload measurement is
+available from this run.
+
+### Compatibility risks and remaining evidence
+
+- The production default remains A and public synchronous
+  `PreparedPointData`, Source, and Geographic getters remain unchanged.
+- E has no complete synchronous Source-coordinate contract unless Source is
+  explicitly retained; this benchmark did not inverse-transform ECEF to invent
+  Source coordinates.
+- Current Rust/WASM worker results are A-shaped. Compacting in the core can
+  lower retained LRU bytes, but does not lower the existing worker response
+  transfer. A future performance decision needs E emitted from preparation and
+  a matched A/E browser streaming run.
+- Browser E results cover synthetic renderer preparation only. Real camera
+  paths, cache residency/reuse, browser heap, GPU upload, and renderer cleanup
+  have not been measured for E.
+- Node memory sampling does not isolate transient peaks or GC pauses; no
+  remote Range latency was measured. The LRU camera-region sequence is a
+  deterministic policy proxy, not actual view selection.
+
+The smallest safe next performance step is to preserve A as the default and
+add a browser-only internal selection that exercises E from the worker result
+through streaming, picking, and renderer lifecycle while retaining A for exact
+synchronous legacy coordinate getters. Re-run cold/warm camera paths and
+transfer accounting before considering any default switch.
+
+### Task 3 validation
+
+- `npm --prefix packages run typecheck` and `npm --prefix apps/dev-viewer run typecheck` passed.
+- `npm --prefix packages run test:raw -- --skip-integration`: 532 passed, 0 failed, 5 skipped.
+- Focused Rust/JavaScript backend conformance test: 10 passed, 0 failed.
+- Dev-viewer production build and production-mode benchmark build passed.
+- Synthetic Cesium/Three A/E renderer benchmark: 1 browser test passed with counterbalanced Three A/E order; A-only first-visible benchmark: 1 browser test passed (5 cold + 5 warm measured runs).
+- Review follow-up: counterbalanced Cesium A/E renderer benchmark passed (two paired warm-ups and five measured pairs per renderer); corrected Worker call timing benchmark passed (5 cold + 5 warm Autzen runs).
+- Final Node benchmark rerun passed with sequential cache-timing samples and the added byte-bound sensitivity replay.
+- `npm run test:pack` passed its packed root and Cesium consumer suites; `npm run test:pack:three` passed the packed Three consumer build.
+- Rust/WASM release builds completed through the package build and packed-consumer workflows.
+- Raw benchmark JSON was captured in temporary local output and is not added as a new artifact. The committed existing report records the environment, sample counts, p50/p95 and variability; rerunning the existing script prints the machine-readable samples.
+- `git diff --check` passed.
+
+## PR #329 historical comparison recommendation
+
+### Historical recommendation
 
 **Keep layout A as the default and defer a default cache change.** The local
 Node results show a real memory reduction for every alternative, but the
@@ -26,7 +339,7 @@ approval to remove source coordinates from the public API or to adopt C/D.
 | C | 24 MB | 33 MB | 279.013 / 319.553 ms | Defer; inverse styling cost is too high |
 | D | 28 MB | 37 MB | 41.828 / 46.312 ms | Defer until height and palette accuracy has an approved threshold |
 
-## Reproducibility
+## PR #329 historical reproducibility
 
 The benchmark used five warm-ups followed by 15 measured runs per operation.
 All reported p95 values use nearest-rank percentiles; timing tables show the
@@ -76,7 +389,7 @@ listed benchmark implementation, production inverse/cache accounting changes,
 and regression tests. The Stage summaries were corrected to exclude the five
 warm-ups; every listed stage sample count below is 15.
 
-## Node measurements
+## PR #329 historical Node measurements
 
 ### Synthetic sizes and timings
 

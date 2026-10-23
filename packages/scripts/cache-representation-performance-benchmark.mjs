@@ -24,7 +24,11 @@ import {
   getPointBufferIntensityRange,
   getPointBufferRgbMax,
 } from "../core/point/style/pointStyle.ts";
-import { estimateDecodedCpuPointBufferBytes } from "../core/streaming/createNodePointCache.ts";
+import { createCompactEPointCacheNode } from "../core/point/compactEPointCache.ts";
+import {
+  createNodePointCache,
+  estimateDecodedCpuPointBufferBytes,
+} from "../core/streaming/createNodePointCache.ts";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const openAsBlob = nodeFs.openAsBlob;
@@ -68,10 +72,13 @@ const backendFields = new Set([
 ]);
 const backendFieldNames = [...backendFields];
 const syntheticPointCounts = [10_000, 100_000, 250_000, 1_000_000];
+const candidateLayouts = ["A", "B", "C", "D", "E"];
 const styleModes = ["fixed", "elevation", "rgb", "intensity", "classification"];
 const paletteBoundaries = [0.25, 0.5, 0.75];
 const colorRangeSpansMeters = [10, 100, 1_000];
 const maxBoundaryColorSamples = 100_000;
+const cacheInsertionMaxEntries = 1;
+const cacheInsertionMaxBytes = 256 * 1024 * 1024;
 
 if (typeof globalThis.gc !== "function") {
   throw new Error(
@@ -175,6 +182,19 @@ function materializeCandidate(prepared, name) {
       attributes: prepared.attributes,
       statistics: prepared.statistics,
     };
+  }
+
+  if (name === "E") {
+    const compact = createCompactEPointCacheNode(prepared, {
+      nodeKey: "benchmark-node",
+      provenance: {
+        sourceIdentity: "local benchmark input",
+        transformGeneration: 0,
+        heightOffsetMeters: 0,
+        verticalDatum: { status: "no-validated-grid-correction" },
+      },
+    });
+    return { ...compact, world: prepared.world };
   }
 
   const world = copyCoordinateBuffer(prepared.world);
@@ -344,7 +364,11 @@ function compareCandidateAccuracy(prepared, name, candidate) {
             z: world[offset + 2],
           });
     const displayHeight =
-      name === "D" ? candidate.heights32[index] : recovered.height;
+      name === "D"
+        ? candidate.heights32[index]
+        : name === "E"
+          ? candidate.height[index]
+          : recovered.height;
     const restoredEcef = geographicToEcef({
       longitude: recovered.longitude,
       latitude: recovered.latitude,
@@ -385,6 +409,12 @@ function compareCandidateAccuracy(prepared, name, candidate) {
     ecefEuclideanErrorMeters: finishErrorAccumulator(errors.ecefEuclideanMeters),
     float32HeightQuantizationMeters:
       name === "D" ? finishErrorAccumulator(float32Height) : null,
+    heightMatchesPreparedGeographicExactly:
+      name === "E"
+        ? candidate.height.every(
+            (height, index) => height === reference[index * 3 + 2],
+          )
+        : null,
   };
 }
 
@@ -471,7 +501,7 @@ function benchmarkManualOffsetSemantics(prepared, { warmups, repetitions }) {
   };
 }
 
-function benchmarkBoundaryColors(prepared, candidate) {
+function benchmarkHeightColorSensitivity(prepared, candidateHeights, layout) {
   const originalHeights = prepared.geographic.coordinates;
   const range = getPointBufferElevationRange(prepared.geographic);
   const fullRangeDelta = { maxChannelDelta: 0, eightBitChannelMismatches: 0 };
@@ -484,7 +514,7 @@ function benchmarkBoundaryColors(prepared, candidate) {
       index,
     );
     const quantized = getCopcPointColor(
-      candidate.heights32[index],
+      candidateHeights[index],
       { colorMode: "elevation", elevationRange: range },
       prepared.attributes,
       index,
@@ -530,7 +560,7 @@ function benchmarkBoundaryColors(prepared, candidate) {
           index,
         );
         const quantized = getCopcPointColor(
-          candidate.heights32[index],
+          candidateHeights[index],
           options,
           prepared.attributes,
           index,
@@ -560,6 +590,7 @@ function benchmarkBoundaryColors(prepared, candidate) {
   }
 
   return {
+    candidateLayout: layout,
     fullDatasetRange: {
       sampleCount: prepared.pointCount,
       ...fullRangeDelta,
@@ -569,7 +600,7 @@ function benchmarkBoundaryColors(prepared, candidate) {
       sampleStride: stride,
       rangeSpanMeters: colorRangeSpansMeters,
       normalizedBoundaries: paletteBoundaries,
-      note: "Sensitivity check: each sampled source height is placed exactly at a palette boundary; these are not dataset-specific display ranges.",
+      note: "Sensitivity check: each sampled prepared height is placed exactly at a palette boundary; these are not dataset-specific display ranges.",
     },
   };
 }
@@ -586,7 +617,7 @@ function benchmarkPointInspection(candidates, warmupCount, sampleCount) {
       (_, index) => (index * 97) % pointCount,
     );
 
-    for (const name of ["A", "B", "C", "D"]) {
+    for (const name of candidateLayouts) {
       const samples = [];
       for (let run = 0; run < warmupCount + sampleCount; run += 1) {
         globalThis.gc();
@@ -610,7 +641,11 @@ function benchmarkPointInspection(candidates, warmupCount, sampleCount) {
           checksum +=
             inverse.longitude +
             inverse.latitude +
-            (name === "D" ? candidates.D.heights32[index] : inverse.height);
+            (name === "D"
+              ? candidates.D.heights32[index]
+              : name === "E"
+                ? candidates.E.height[index]
+                : inverse.height);
         }
         const durationMs = performance.now() - startedAt;
         assert.ok(Number.isFinite(checksum));
@@ -673,6 +708,7 @@ function candidateBufferInventory(name, candidate) {
   } else {
     coordinateBuffers.ecefFloat64 = candidate.world.coordinates;
     if (name === "D") coordinateBuffers.heightFloat32 = candidate.heights32;
+    if (name === "E") coordinateBuffers.heightFloat64 = candidate.height;
   }
 
   const attributeArrays = Object.fromEntries(
@@ -717,7 +753,16 @@ function candidateBufferInventory(name, candidate) {
       objectAndscalarOverhead: "N/A: JavaScript object/string/number heap sizes are engine-specific",
     },
     aliases: {
-      present: name === "A" ? ["coordinates -> geographic", "sourceCoordinates -> source", "worldCoordinates -> world"] : [],
+      present:
+        name === "A"
+          ? [
+              "coordinates -> geographic",
+              "sourceCoordinates -> source",
+              "worldCoordinates -> world",
+            ]
+          : name === "E"
+            ? ["ecef -> world"]
+            : [],
       duplicateBackingStoreBytes: 0,
     },
     retainedArrayBufferBytes: withUnits(retainedBytes),
@@ -750,7 +795,9 @@ function writeStyleBuffer(candidate, name, mode, styleOptions, output) {
           ? candidate.geographic.coordinates[index * 3 + 2]
           : name === "D"
             ? candidate.heights32[index]
-            : ecefToGeographic({
+            : name === "E"
+              ? candidate.height[index]
+              : ecefToGeographic({
                 x: candidate.world.coordinates[index * 3],
                 y: candidate.world.coordinates[index * 3 + 1],
                 z: candidate.world.coordinates[index * 3 + 2],
@@ -791,7 +838,7 @@ function compareColorBuffers(reference, candidate, pointCount) {
 }
 
 function benchmarkStyleModes(candidates, styleOptions, { warmups, repetitions }) {
-  const candidateNames = ["A", "B", "C", "D"];
+  const candidateNames = candidateLayouts;
   const pointCount = candidates.A.pointCount;
   const coldSamples = Object.fromEntries(
     candidateNames.map((name) => [
@@ -895,6 +942,7 @@ function benchmarkStyleModes(candidates, styleOptions, { warmups, repetitions })
         B: 0,
         C: pointCount,
         D: 0,
+        E: 0,
       },
       inverseCallsForOtherStyleModesPerFullChange: 0,
     },
@@ -935,7 +983,7 @@ function benchmarkBatchInverse(candidate, { warmups, repetitions }) {
 }
 
 function benchmarkRepresentationMaterialization(prepared, { warmups, repetitions }) {
-  const candidateNames = ["A", "B", "C", "D"];
+  const candidateNames = candidateLayouts;
   const results = {};
   const candidates = {};
   for (const name of candidateNames) {
@@ -990,7 +1038,33 @@ function benchmarkRepresentationMaterialization(prepared, { warmups, repetitions
   };
 }
 
-function benchmarkCacheRepresentations(prepared, { warmups, repetitions }) {
+async function benchmarkCacheInsertion(candidate, { warmups, repetitions }) {
+  const samples = [];
+  const diagnostics = [];
+  for (let run = 0; run < warmups + repetitions; run += 1) {
+    globalThis.gc();
+    const cache = createNodePointCache(async () => candidate, {
+      maxEntries: cacheInsertionMaxEntries,
+      maxBytes: cacheInsertionMaxBytes,
+      estimateBytes: byteLength,
+    });
+    const startedAt = performance.now();
+    await cache.load("benchmark-node");
+    const durationMs = performance.now() - startedAt;
+    if (run >= warmups) {
+      samples.push(durationMs);
+      diagnostics.push(cache.getDiagnostics());
+    }
+    cache.clear();
+  }
+  return {
+    timing: summarize(samples),
+    diagnostics: diagnostics.at(-1),
+    method: "NodePointCache load and retained-byte accounting for one already-materialized node; excludes decode, transform, and coordinate-array allocation",
+  };
+}
+
+async function benchmarkCacheRepresentations(prepared, { warmups, repetitions }) {
   if (prepared.pointCount === 0) {
     throw new RangeError("Cache benchmark input must contain at least one point");
   }
@@ -1008,14 +1082,27 @@ function benchmarkCacheRepresentations(prepared, { warmups, repetitions }) {
     ]),
   );
   const memoryAfterGc = memorySnapshot();
+  const cacheInsertion = {};
+  for (const [name, candidate] of Object.entries(candidates)) {
+    cacheInsertion[name] = await benchmarkCacheInsertion(candidate, {
+      warmups,
+      repetitions,
+    });
+  }
 
   return {
     pointCount: prepared.pointCount,
     pointIdentity: "same stable point index under the enclosing root nodeKey for every candidate",
     requestedAttributes: backendFieldNames,
     cacheBudgets: {
-      cacheByteBudget: "N/A: one-node representation microbenchmark does not instantiate the streaming LRU",
-      maxNodes: "N/A: one node per comparison",
+      representationMaterialization: {
+        cacheByteBudget: "N/A: this phase does not instantiate a cache",
+        maxEntries: "N/A: this phase does not instantiate a cache",
+      },
+      cacheInsertion: {
+        cacheByteBudgetBytes: cacheInsertionMaxBytes,
+        maxEntries: cacheInsertionMaxEntries,
+      },
       workerCount: "N/A: Node backend benchmark has no browser Worker pool",
     },
     storage,
@@ -1026,6 +1113,7 @@ function benchmarkCacheRepresentations(prepared, { warmups, repetitions }) {
       ]),
     ),
     materialization: representation.materialization,
+    cacheInsertion,
     processMemory: {
       beforeRepresentations: memoryBefore,
       afterAllCandidatesAndGc: memoryAfterGc,
@@ -1048,10 +1136,18 @@ function benchmarkCacheRepresentations(prepared, { warmups, repetitions }) {
         compareCandidateAccuracy(prepared, name, candidate),
       ]),
     ),
-    float32ElevationColorSensitivity: benchmarkBoundaryColors(
-      prepared,
-      candidates.D,
-    ),
+    heightColorSensitivity: {
+      float32ResearchBaseline: benchmarkHeightColorSensitivity(
+        prepared,
+        candidates.D.heights32,
+        "D",
+      ),
+      float64ImplementationCandidate: benchmarkHeightColorSensitivity(
+        prepared,
+        candidates.E.height,
+        "E",
+      ),
+    },
     pointInspection: benchmarkPointInspection(candidates, warmups, repetitions),
   };
 }
@@ -1108,8 +1204,11 @@ function createSyntheticPreparedData(pointCount) {
       coordinates: worldCoordinates,
     },
     coordinates: geographicCoordinates,
+    coordinateSystem: "wgs84-geographic",
     sourceCoordinates,
+    sourceCoordinateSystem: "copc-source",
     worldCoordinates,
+    worldCoordinateSystem: "wgs84-ecef-meters",
     attributes: { intensity, classification, red, green, blue },
     statistics: {},
   };
@@ -1136,7 +1235,7 @@ function createPreparedFromGeographicPositions(positions) {
 
 function accuracyForAllLayouts(prepared) {
   const results = {};
-  for (const name of ["A", "B", "C", "D"]) {
+  for (const name of candidateLayouts) {
     const candidate = materializeCandidate(prepared, name);
     results[name] = compareCandidateAccuracy(prepared, name, candidate);
   }
@@ -1327,6 +1426,203 @@ async function openBackendAtRoot(filePath, backend) {
   return { source, node };
 }
 
+async function loadCompleteHierarchyNodeInventory(source) {
+  const pendingPages = [source.getRootHierarchyPage()];
+  const visitedPages = new Set();
+  const nodes = [];
+  let hierarchyPageReadCount = 0;
+  while (pendingPages.length > 0) {
+    const page = pendingPages.shift();
+    const pageKey = String(page.pageOffset) + ":" + String(page.pageLength);
+    if (visitedPages.has(pageKey)) continue;
+    visitedPages.add(pageKey);
+    const subtree = await source.loadHierarchyPage(page);
+    hierarchyPageReadCount += 1;
+    nodes.push(...subtree.nodes.filter((entry) => entry.pointCount > 0));
+    pendingPages.push(...subtree.pages);
+  }
+  return { nodes, hierarchyPageReadCount };
+}
+
+function cacheRegionsFromHierarchy(nodes) {
+  const withinSelectionDepth = nodes.filter((node) => node.level <= 6);
+  const keySet = new Set(withinSelectionDepth.map((node) => node.key));
+  const parentKeys = new Set();
+  for (const node of withinSelectionDepth) {
+    if (node.level === 0) continue;
+    const parentKey = [
+      node.level - 1,
+      Math.floor(node.x / 2),
+      Math.floor(node.y / 2),
+      Math.floor(node.z / 2),
+    ].join("-");
+    if (keySet.has(parentKey)) parentKeys.add(parentKey);
+  }
+  const leafNodes = withinSelectionDepth.filter(
+    (node) => !parentKeys.has(node.key),
+  );
+  const selectionLevel = Math.max(0, ...leafNodes.map((node) => node.level));
+  const regionBuckets = new Map();
+  for (const node of leafNodes) {
+    const divisor = 2 ** node.level;
+    const regionX = Math.min(3, Math.floor(((node.x + 0.5) / divisor) * 4));
+    const regionY = Math.min(3, Math.floor(((node.y + 0.5) / divisor) * 4));
+    const regionKey = String(regionX) + "," + String(regionY);
+    const bucket = regionBuckets.get(regionKey) ?? [];
+    bucket.push(node);
+    regionBuckets.set(regionKey, bucket);
+  }
+
+  const selectionBudgetPoints = 250_000;
+  const maxSelectedNodes = 24;
+  const regions = [...regionBuckets.entries()]
+    .sort(
+      ([leftKey, left], [rightKey, right]) =>
+        right.length - left.length || leftKey.localeCompare(rightKey),
+    )
+    .map(([regionKey, bucket]) => {
+      const selected = [];
+      let selectedPointCount = 0;
+      for (const node of bucket.sort((left, right) => left.key.localeCompare(right.key))) {
+        if (selected.length >= maxSelectedNodes) break;
+        if (selectedPointCount + node.pointCount > selectionBudgetPoints) continue;
+        selected.push(node);
+        selectedPointCount += node.pointCount;
+      }
+      return { regionKey, nodes: selected, selectedPointCount };
+    })
+    .filter(({ nodes: selected }) => selected.length > 0);
+
+  return {
+    selectionLevel,
+    selectionBudgetPoints,
+    maxSelectedNodes,
+    regions,
+  };
+}
+
+async function benchmarkCacheBudgetSensitivity(
+  hierarchyNodes,
+  attributes,
+  pointCount,
+) {
+  const regions = cacheRegionsFromHierarchy(hierarchyNodes);
+  const cameraPathIndices = [0, 1, 2, 3, 4, 5].filter(
+    (index) => index < regions.regions.length,
+  );
+  if (cameraPathIndices.length >= 3) cameraPathIndices.push(0);
+  const attributeBytesPerPoint = byteLength(attributes) / pointCount;
+  const bytesPerCoordinatePoint = { A: 72, B: 48, C: 24, D: 28, E: 32 };
+  const nodeByKey = new Map(hierarchyNodes.map((node) => [node.key, node]));
+  const runLayoutReplay = async ({
+    byteBudget,
+    maxEntries,
+    replayPathIndices = cameraPathIndices,
+  }) => {
+    const layouts = {};
+    for (const [name, coordinateBytesPerPoint] of Object.entries(
+      bytesPerCoordinatePoint,
+    )) {
+      const bytesPerPoint = coordinateBytesPerPoint + attributeBytesPerPoint;
+      const cache = createNodePointCache(
+        async (nodeKey) => nodeByKey.get(nodeKey),
+        {
+          maxEntries,
+          maxBytes: byteBudget,
+          estimateBytes: (node) => node.pointCount * bytesPerPoint,
+        },
+      );
+      const cameraViews = [];
+      const regionVisits = new Map();
+      let revisitHitCount = 0;
+      for (const regionIndex of replayPathIndices) {
+        const region = regions.regions[regionIndex];
+        const nodeKeys = region.nodes.map((node) => node.key);
+        const visitCount = regionVisits.get(regionIndex) ?? 0;
+        cache.setRequiredNodeKeys(nodeKeys);
+        const hitsBeforeViewLoads = cache.getDiagnostics().hits;
+        for (const nodeKey of nodeKeys) await cache.load(nodeKey);
+        const diagnostics = cache.getDiagnostics();
+        if (visitCount > 0) {
+          revisitHitCount += diagnostics.hits - hitsBeforeViewLoads;
+        }
+        regionVisits.set(regionIndex, visitCount + 1);
+        cameraViews.push({
+          regionKey: region.regionKey,
+          selectedNodeCount: region.nodes.length,
+          selectedPointCount: region.selectedPointCount,
+          diagnostics,
+        });
+      }
+      const finalDiagnostics = cache.getDiagnostics();
+      layouts[name] = {
+        bytesPerPoint,
+        cameraViews,
+        finalDiagnostics,
+        revisitHitCount,
+        countLimitBoundBeforeByteBudget:
+          finalDiagnostics.cachedNodeCount === maxEntries &&
+          finalDiagnostics.currentCacheBytes < byteBudget,
+        byteBudgetEvictedBeforeCountLimit:
+          maxEntries > 48 && finalDiagnostics.evictionCount > 0,
+      };
+      cache.clear();
+    }
+    return { budgets: { byteBudget, maxEntries }, layouts };
+  };
+
+  const productionBudgetAndCountLimit = await runLayoutReplay({
+    byteBudget: 256 * 1024 * 1024,
+    maxEntries: 48,
+  });
+  const byteBoundPathIndices =
+    regions.regions.length >= 2 ? [0, 1, 0] : cameraPathIndices;
+  const revisitedRegionPointCount = byteBoundPathIndices
+    .slice(0, -1)
+    .reduce(
+      (total, regionIndex) =>
+        total + regions.regions[regionIndex].selectedPointCount,
+      0,
+    );
+  const bytesForFirstTwoRegions = {
+    A: Math.ceil(revisitedRegionPointCount * (72 + attributeBytesPerPoint)),
+    E: Math.ceil(revisitedRegionPointCount * (32 + attributeBytesPerPoint)),
+  };
+  const byteBoundBudget = Math.floor(
+    (bytesForFirstTwoRegions.A + bytesForFirstTwoRegions.E) / 2,
+  );
+  const byteBoundSensitivity = await runLayoutReplay({
+    byteBudget: byteBoundBudget,
+    maxEntries: 256,
+    replayPathIndices: byteBoundPathIndices,
+  });
+
+  return {
+    budgets: productionBudgetAndCountLimit.budgets,
+    attributeBytesPerPoint,
+    selectionPolicyProxy: {
+      maxNodesPerView: regions.maxSelectedNodes,
+      maxEstimatedPointsPerView: regions.selectionBudgetPoints,
+      level: regions.selectionLevel,
+      regions: regions.regions.map(({ regionKey, nodes: selected, selectedPointCount }) => ({
+        regionKey,
+        nodeCount: selected.length,
+        pointCount: selectedPointCount,
+      })),
+      cameraPathRegionIndices: cameraPathIndices,
+      note: "Deterministic hierarchy-bin trace using actual node keys/point counts; this is an LRU policy simulation, not a live NodeSelector/browser camera run.",
+    },
+    layouts: productionBudgetAndCountLimit.layouts,
+    byteBoundSensitivity: {
+      ...byteBoundSensitivity,
+      estimatedABytesForTwoRevisitedRegions: bytesForFirstTwoRegions.A,
+      estimatedEBytesForTwoRevisitedRegions: bytesForFirstTwoRegions.E,
+      replayPathRegionIndices: byteBoundPathIndices,
+      note: "Sensitivity-only replay: the byte budget is set midway between A and E's estimated retained bytes for the first two regions, the path revisits region 0 after region 1, and the node cap is raised to 256 to isolate byte pressure.",
+    },
+  };
+}
+
 async function benchmarkFreshBackendPreparation(
   filePath,
   backend,
@@ -1497,6 +1793,7 @@ async function loadDatasetBackends(datasetId) {
     ]);
     const rustNode = rustRoot.nodes.find((node) => node.pointCount > 0);
     assert.ok(rustNode, `${datasetId} root hierarchy must contain points`);
+    const hierarchyInventory = await loadCompleteHierarchyNodeInventory(rust);
     const jsNode = jsRoot.nodes.find(({ key }) => key === rustNode.key);
     assert.ok(jsNode, `${datasetId} JavaScript backend must expose ${rustNode.key}`);
     assert.equal(jsNode.pointCount, rustNode.pointCount);
@@ -1652,6 +1949,19 @@ async function loadDatasetBackends(datasetId) {
           changedRemoteFileOrOffline: "N/A: local file did not change and network was not used",
         },
       },
+      hierarchyCachePolicySensitivity: {
+        hierarchyPageReadCount: hierarchyInventory.hierarchyPageReadCount,
+        nonEmptyNodeCount: hierarchyInventory.nodes.length,
+        totalHierarchyPointCount: hierarchyInventory.nodes.reduce(
+          (total, entry) => total + entry.pointCount,
+          0,
+        ),
+        simulation: await benchmarkCacheBudgetSensitivity(
+          hierarchyInventory.nodes,
+          rustPrepared.attributes,
+          rustPrepared.pointCount,
+        ),
+      },
       manualHeightOffsetChanges: {
         copcJsPlusTypeScript: benchmarkManualOffsetSemantics(jsPrepared, {
           warmups,
@@ -1662,11 +1972,11 @@ async function loadDatasetBackends(datasetId) {
           repetitions,
         }),
       },
-      copcJsTypeScriptPreparation: benchmarkCacheRepresentations(jsPrepared, {
-        warmups,
-        repetitions,
-      }),
-      rustWasmPreparation: benchmarkCacheRepresentations(rustPrepared, {
+      copcJsTypeScriptPreparation: await benchmarkCacheRepresentations(
+        jsPrepared,
+        { warmups, repetitions },
+      ),
+      rustWasmPreparation: await benchmarkCacheRepresentations(rustPrepared, {
         warmups,
         repetitions,
       }),
@@ -1762,10 +2072,10 @@ for (const pointCount of syntheticPointCounts) {
   synthetic.push({
     dataset: "deterministic WGS84 output around Autzen; no source file or geoid",
     benchmarkPointCountOnly: pointCount > 250_000,
-    ...benchmarkCacheRepresentations(
+    ...(await benchmarkCacheRepresentations(
       createSyntheticPreparedData(pointCount),
       { warmups, repetitions },
-    ),
+    )),
   });
   globalThis.gc();
 }
@@ -1837,11 +2147,62 @@ console.log(
         repetitions,
         coldBackend: "fresh backend instance and freshly loaded hierarchy per sample; operating-system/file page cache is not flushed",
         warmBackend: "same opened backend instance reused across point-node samples",
-        candidateMaterialization: "each candidate copies the same completed transformation outputs into fresh retained typed arrays; requested attributes and statistics are shared unchanged; this measures materialization/allocation, not a second CRS transform",
+        candidateMaterialization: {
+          A: {
+            coordinateBuffersCopied: ["source", "geographic", "world"],
+            derivedBuffersAllocated: [],
+          },
+          B: {
+            coordinateBuffersCopied: ["geographic", "world"],
+            derivedBuffersAllocated: [],
+          },
+          C: {
+            coordinateBuffersCopied: ["world"],
+            derivedBuffersAllocated: [],
+          },
+          D: {
+            coordinateBuffersCopied: ["world"],
+            derivedBuffersAllocated: [
+              {
+                name: "height",
+                type: "Float32Array",
+                valuesFrom: "geographic Z",
+              },
+            ],
+          },
+          E: {
+            coordinateBuffersCopied: [],
+            derivedBuffersAllocated: [
+              {
+                name: "height",
+                type: "Float64Array",
+                valuesFrom: "geographic Z",
+              },
+            ],
+            aliases: [
+              "ecef -> prepared.world.coordinates",
+              "world -> prepared.world",
+            ],
+          },
+        },
+        candidateMaterializationCommon: {
+          requestedAttributesAndStatistics: "shared unchanged",
+          repeatedCoordinateTransform: false,
+        },
         inverseBatchHelper: "benchmark-only wrapper reuses ecefToGeographic; interleaved Float64 XYZ input, exact pointCount*3 validation, finite-value validation, optional distinct exact-length Float64 output, and degree/degree/metre output semantics",
         color: "full Float32 RGBA CPU buffer construction using getCopcPointColor for fixed/elevation/RGB/intensity/classification; cold samples allocate a new buffer and warm samples reuse one while toggling every mode",
         colorBoundary: "D is compared to A across the observed height range and engineered normalized palette boundaries at multiple height spans; boundary sensitivity ranges are synthetic checks, not actual display settings",
-        picking: "one and one hundred deterministic point inspections; A/B read cached Geographic triples; C/D use scalar ecefToGeographic; D uses cached Float32 display height",
+        picking: {
+          pointCounts: [1, 100],
+          geographicDisplayPositionByLayout: {
+            A: "read cached Geographic XYZ directly",
+            B: "read cached Geographic XYZ directly",
+            C: "scalar ecefToGeographic for longitude, latitude, and height",
+            D: "scalar ecefToGeographic for longitude/latitude; use cached Float32 height",
+            E: "scalar ecefToGeographic for longitude/latitude; use cached Float64 height",
+          },
+          cachedSourceXYZ: "A only: read the retained original Source XYZ directly",
+        },
         backends: "default copc-js plus TypeScript and explicitly selected Rust/WASM, measured separately on the same local file, root node, and requested fields; this runner does not exercise browser Workers",
         synthetic: "10k/100k/250k/1M deterministic WGS84 positions; counts above 250k are benchmark-only and exceed typical production point budgets",
         data: "Autzen is required; SoFi runs only when COPC_CACHE_BENCHMARK_SOFI=1; each local file size and registered SHA-256 are reported",

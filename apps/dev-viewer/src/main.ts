@@ -29,7 +29,9 @@ import {
 import { createCesiumViewer } from "./createViewer";
 import { createCopcDebugPanel } from "./debug/CopcDebugPanel";
 import {
+  runSyntheticRendererLayoutComparisonBenchmark,
   runSyntheticRendererPerformanceBenchmark,
+  runSyntheticThreeCacheLayoutBenchmark,
   type RendererBenchmarkKind,
 } from "./rendererPerformanceBenchmark";
 import type { CpuPointPickProbe } from "../../../packages/cesium/render/BatchedGeometryPointRenderer";
@@ -170,7 +172,16 @@ type CopcDebugAdapter = {
   probeSource(source: string): Promise<CopcSourceProbeResult>;
   runSyntheticRendererPerformanceBenchmark(
     renderer?: RendererBenchmarkKind,
+    cacheLayout?: "A" | "E",
+    pointCounts?: readonly number[],
   ): ReturnType<typeof runSyntheticRendererPerformanceBenchmark>;
+  runSyntheticRendererLayoutComparisonBenchmark(
+    renderer?: RendererBenchmarkKind,
+    pointCount?: number,
+  ): ReturnType<typeof runSyntheticRendererLayoutComparisonBenchmark>;
+  runSyntheticThreeCacheLayoutBenchmark(): ReturnType<
+    typeof runSyntheticThreeCacheLayoutBenchmark
+  >;
   probePublicBatchPick(): {
     picked: boolean;
     pickedNodeKey?: string;
@@ -471,14 +482,32 @@ function installDebugAdapter(
     },
     recordError,
     probeSource: (source) => probeCopcSource(source, { rangeValidation }),
-    runSyntheticRendererPerformanceBenchmark: (renderer = "point-primitive") =>
+    runSyntheticRendererPerformanceBenchmark: (
+      renderer = "point-primitive",
+      cacheLayout = "A",
+      pointCounts,
+    ) =>
       runSyntheticRendererPerformanceBenchmark({
         viewer,
-        pointCounts: [10_000, 50_000, 100_000],
+        cacheLayout,
+        pointCounts: pointCounts ?? [10_000, 50_000, 100_000],
         repetitions: 5,
         warmups: 2,
         renderer,
       }),
+    runSyntheticRendererLayoutComparisonBenchmark: (
+      renderer = "point-primitive",
+      pointCount = 100_000,
+    ) =>
+      runSyntheticRendererLayoutComparisonBenchmark({
+        viewer,
+        renderer,
+        pointCount,
+        repetitions: 5,
+        warmups: 2,
+      }),
+    runSyntheticThreeCacheLayoutBenchmark: () =>
+      runSyntheticThreeCacheLayoutBenchmark(),
     probePublicBatchPick: () => {
       const nodeKey = researchRenderer?.getRenderedNodeKeys()[0];
       return nodeKey && researchRenderer
