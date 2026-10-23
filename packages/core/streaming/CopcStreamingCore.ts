@@ -501,7 +501,7 @@ function getMinimumDatasetHeightMeters(
  * render loop, or a scene. Engine adapters provide a `StreamingView`, consume
  * progress/update results, and decide when view updates should be scheduled.
  */
-export class CopcStreamingCore<TPointData = PreparedPointData> {
+class CopcStreamingCoreImplementation<TPointData> {
   private readonly options: CopcStreamingControllerOptions;
   private readonly heightOffsetMeters: number;
   private readonly verticalGrid?: GtxGeoidGrid;
@@ -1981,6 +1981,13 @@ export class CopcStreamingCore<TPointData = PreparedPointData> {
   }
 }
 
+/**
+ * Public streaming controller bound to the production A cache contract.
+ * Experimental cache layouts are created only through internal factories.
+ */
+export class CopcStreamingCore
+  extends CopcStreamingCoreImplementation<PreparedPointData> {}
+
 /** Descriptive controller alias retained for callers that prefer the API name. */
 export { CopcStreamingCore as CopcStreamingController };
 
@@ -1994,10 +2001,10 @@ export { CopcStreamingCore as CopcStreamingController };
 export function createExperimentalCompactEStreamingCore(
   options: CopcStreamingControllerOptions,
   retain: CompactECoordinateRetention = {},
-): CopcStreamingCore<CompactEPointCacheNode> {
+): CopcStreamingCoreImplementation<CompactEPointCacheNode> {
   const internalOptions: InternalStreamingOptions = {
     ...options,
     [EXPERIMENTAL_CACHE_LAYOUT]: { layout: "E", retain },
   };
-  return new CopcStreamingCore(internalOptions);
+  return new CopcStreamingCoreImplementation(internalOptions);
 }

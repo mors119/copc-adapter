@@ -4,11 +4,19 @@ import type {
   StreamingProgress,
   StreamingUpdateResult,
   StreamingView,
+  PreparedPointData,
+  CopcStreamingControllerOptions,
 } from "@frillab/copc-adapter/cesium";
-import type { PreparedPointData } from "@frillab/copc-adapter/cesium";
 
 declare const core: CopcStreamingCore;
 declare const view: StreamingView;
+declare const options: CopcStreamingControllerOptions;
+
+// The public constructor is bound to A; E selection stays on its internal
+// factory.
+// @ts-expect-error The production controller cannot claim an arbitrary point layout.
+const forgedLayoutCore = new CopcStreamingCore<{ invented: true }>(options);
+void forgedLayoutCore;
 
 const oldCallbackShape: CopcStreamingProgressHandler = (
   progress: StreamingProgress,
