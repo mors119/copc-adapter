@@ -45,7 +45,9 @@ import {
   createCompactEPointCacheNode,
   type CachedPointData,
   type CompactECoordinateRetention,
+  type CompactEPointCacheNode,
   type CompactEPointProvenance,
+  type RenderablePointData,
 } from "../point/compactEPointCache";
 import type { CopcPerformanceObserver } from "../copc/performance";
 import { performanceNow } from "../copc/performance";
@@ -154,8 +156,8 @@ export type CopcStreamingControllerOptions = {
 export type CopcStreamingCoreOptions = CopcStreamingControllerOptions;
 
 /** Receives incremental prepared-node data while the current view is loading. */
-export type CopcStreamingProgressHandler = (
-  progress: StreamingProgress,
+export type CopcStreamingProgressHandler<TPointData = PreparedPointData> = (
+  progress: StreamingProgress<TPointData>,
 ) => void;
 export type CopcStreamingWorkProgressHandler = (
   progress: StreamingWorkProgress,
@@ -499,7 +501,7 @@ function getMinimumDatasetHeightMeters(
  * render loop, or a scene. Engine adapters provide a `StreamingView`, consume
  * progress/update results, and decide when view updates should be scheduled.
  */
-export class CopcStreamingCore {
+export class CopcStreamingCore<TPointData = PreparedPointData> {
   private readonly options: CopcStreamingControllerOptions;
   private readonly heightOffsetMeters: number;
   private readonly verticalGrid?: GtxGeoidGrid;
@@ -753,9 +755,9 @@ export class CopcStreamingCore {
    */
   async updateView(
     view: StreamingView,
-    onProgress?: CopcStreamingProgressHandler,
+    onProgress?: CopcStreamingProgressHandler<TPointData>,
     onWorkProgress?: CopcStreamingWorkProgressHandler,
-  ): Promise<StreamingUpdateResult | undefined> {
+  ): Promise<StreamingUpdateResult<TPointData> | undefined> {
     if (this.lifecycle === "destroyed") {
       throw new Error("CopcStreamingController has been destroyed");
     }
@@ -833,7 +835,9 @@ export class CopcStreamingCore {
         : undefined;
 
     let progressApplied = false;
-    const applyProgress = (progress: StreamingProgress): void => {
+    const applyProgress = (
+      progress: StreamingProgress<RenderablePointData>,
+    ): void => {
       if (!this.isCurrentView(viewGeneration, streamingState)) {
         return;
       }
@@ -887,7 +891,7 @@ export class CopcStreamingCore {
     this.currentView = adaptiveView;
     this.streamingUpdateCount += 1;
     this.debug(`streaming view updated (${this.streamingUpdateCount})`);
-    return update;
+    return update as unknown as StreamingUpdateResult<TPointData>;
   }
 
   /**
@@ -1445,8 +1449,8 @@ export class CopcStreamingCore {
   }
 
   private applyProgress(
-    progress: StreamingProgress,
-    onProgress: CopcStreamingProgressHandler | undefined,
+    progress: StreamingProgress<RenderablePointData>,
+    onProgress: CopcStreamingProgressHandler<TPointData> | undefined,
     viewGeneration: number,
   ): void {
     this.selectedNodeKeys = new Set(progress.selectedNodeKeys);
@@ -1454,7 +1458,7 @@ export class CopcStreamingCore {
       generation: viewGeneration,
       replacementGroups: progress.replacementGroups ?? [],
     };
-    onProgress?.(progress);
+    onProgress?.(progress as unknown as StreamingProgress<TPointData>);
   }
 
   private createEmptyCache(): NodePointCache<CachedPointData> {
@@ -1990,7 +1994,7 @@ export { CopcStreamingCore as CopcStreamingController };
 export function createExperimentalCompactEStreamingCore(
   options: CopcStreamingControllerOptions,
   retain: CompactECoordinateRetention = {},
-): CopcStreamingCore {
+): CopcStreamingCore<CompactEPointCacheNode> {
   const internalOptions: InternalStreamingOptions = {
     ...options,
     [EXPERIMENTAL_CACHE_LAYOUT]: { layout: "E", retain },

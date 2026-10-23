@@ -2,8 +2,8 @@ import type {
   CopcHierarchyNode,
   GeographicCamera,
   GeographicPoint,
+  PreparedPointData,
 } from "../copc/types/copc";
-import type { RenderablePointData } from "../point/compactEPointCache";
 import type {
   AdaptiveViewDistanceDiagnostics,
   BoundingSphere,
@@ -336,13 +336,13 @@ export type StreamingReplacementGroup = {
 };
 
 /** Result of one renderer-neutral streaming update after node loading completes. */
-export type StreamingUpdateResult = {
+export type StreamingUpdateResult<TPointData = PreparedPointData> = {
   /** Node keys selected for the view represented by this update. */
   selectedNodeKeys: string[];
   /** Previously rendered node keys no longer selected by this update. */
   removedNodeKeys: string[];
-  /** Renderer-ready A or internal compact E values loaded for this update. */
-  loadedNodePoints: Map<string, RenderablePointData>;
+  /** Prepared point values loaded for this update. Defaults to production A. */
+  loadedNodePoints: Map<string, TPointData>;
   /** Coverage groups that adapters should commit atomically when possible. */
   replacementGroups: StreamingReplacementGroup[];
   /** Generation token used to reject stale asynchronous work. */
@@ -350,13 +350,13 @@ export type StreamingUpdateResult = {
 };
 
 /** Incremental data emitted while a view's selected nodes are being prepared. */
-export type StreamingProgress = {
+export type StreamingProgress<TPointData = PreparedPointData> = {
   /** Node keys selected by the view update. */
   selectedNodeKeys: string[];
   /** Previously rendered nodes no longer needed by the view. */
   removedNodeKeys: string[];
-  /** Renderer-ready A or internal compact E data available in this emission. */
-  loadedNodePoints: Map<string, RenderablePointData>;
+  /** Prepared point values available in this emission. Defaults to production A. */
+  loadedNodePoints: Map<string, TPointData>;
   /** Point count in the node work completed for this emission. */
   completedBatchPointCount: number;
   /** Coverage groups associated with the current transition. */

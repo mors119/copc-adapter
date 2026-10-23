@@ -243,9 +243,11 @@ export class StreamingManager {
    */
   async update(
     camera: StreamingCameraState,
-    onProgress?: (progress: import("./types").StreamingProgress) => void,
+    onProgress?: (
+      progress: import("./types").StreamingProgress<RenderablePointData>,
+    ) => void,
     options: StreamingManagerUpdateOptions = {},
-  ): Promise<StreamingUpdateResult> {
+  ): Promise<StreamingUpdateResult<RenderablePointData>> {
     const updateGeneration = ++this.updateGeneration;
     this.onInvalidate?.();
     this.workLimiter.notifyWaiters();

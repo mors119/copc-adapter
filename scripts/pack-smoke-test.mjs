@@ -243,6 +243,14 @@ try {
     consumerInstallStartedAt,
   );
 
+  console.log(
+    "Typechecking the packed consumer's legacy A streaming result and callback contract...",
+  );
+  await run(npmCommand(), ["run", "typecheck"], {
+    cwd: consumerDirectory,
+    stdio: "inherit",
+  });
+
   const installedPackageDirectory = path.resolve(
     consumerDirectory,
     "node_modules/@frillab/copc-adapter",
