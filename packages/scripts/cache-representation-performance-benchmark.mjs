@@ -2184,7 +2184,17 @@ console.log(
         inverseBatchHelper: "benchmark-only wrapper reuses ecefToGeographic; interleaved Float64 XYZ input, exact pointCount*3 validation, finite-value validation, optional distinct exact-length Float64 output, and degree/degree/metre output semantics",
         color: "full Float32 RGBA CPU buffer construction using getCopcPointColor for fixed/elevation/RGB/intensity/classification; cold samples allocate a new buffer and warm samples reuse one while toggling every mode",
         colorBoundary: "D is compared to A across the observed height range and engineered normalized palette boundaries at multiple height spans; boundary sensitivity ranges are synthetic checks, not actual display settings",
-        picking: "one and one hundred deterministic point inspections; A/B read cached Geographic triples; C/D use scalar ecefToGeographic; D uses cached Float32 display height",
+        picking: {
+          pointCounts: [1, 100],
+          geographicDisplayPositionByLayout: {
+            A: "read cached Geographic XYZ directly",
+            B: "read cached Geographic XYZ directly",
+            C: "scalar ecefToGeographic for longitude, latitude, and height",
+            D: "scalar ecefToGeographic for longitude/latitude; use cached Float32 height",
+            E: "scalar ecefToGeographic for longitude/latitude; use cached Float64 height",
+          },
+          cachedSourceXYZ: "A only: read the retained original Source XYZ directly",
+        },
         backends: "default copc-js plus TypeScript and explicitly selected Rust/WASM, measured separately on the same local file, root node, and requested fields; this runner does not exercise browser Workers",
         synthetic: "10k/100k/250k/1M deterministic WGS84 positions; counts above 250k are benchmark-only and exceed typical production point budgets",
         data: "Autzen is required; SoFi runs only when COPC_CACHE_BENCHMARK_SOFI=1; each local file size and registered SHA-256 are reported",
