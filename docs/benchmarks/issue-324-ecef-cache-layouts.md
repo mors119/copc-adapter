@@ -23,7 +23,9 @@ transient preparation memory for E. Those gaps prevent a safe default decision.
 
 | Setting | Value |
 | --- | --- |
-| Source revision | `c1281a77592a4af6ff608a939f3b8fcf61b567b3`; final rerun included sequential cache timing, byte-bound replay, and counterbalanced browser-harness changes |
+| Benchmark source revision | `e832bb653866964fac2984ece59d506893f5dd7c` (exact committed tree used for the final rerun) |
+| Node benchmark harness SHA-256 | `cd38ce8add88b55c57f57c749ca0614f87826dc94a2beee082f8a48426a3d5f8` (`packages/scripts/cache-representation-performance-benchmark.mjs`) |
+| Browser benchmark harness SHA-256 | `d85362ae194068d603ea29faeebfbd91d1a0ae456d0e05cfcb9ddd671e0585f0` (`apps/dev-viewer/src/rendererPerformanceBenchmark.ts`) |
 | Node runtime | Node.js `v26.12.1`, V8 `14.6.202.34-node.40`, macOS `25.6.0`, arm64 |
 | Machine | Apple M2, 8 logical CPUs, 8 GiB RAM |
 | Rust/WASM | rustc `1.92.0`; COPC adapter WASM 850,535 bytes; laz-perf WASM 214,351 bytes |
