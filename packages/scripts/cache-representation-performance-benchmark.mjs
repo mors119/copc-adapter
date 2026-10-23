@@ -2139,7 +2139,48 @@ console.log(
         repetitions,
         coldBackend: "fresh backend instance and freshly loaded hierarchy per sample; operating-system/file page cache is not flushed",
         warmBackend: "same opened backend instance reused across point-node samples",
-        candidateMaterialization: "each candidate copies the same completed transformation outputs into fresh retained typed arrays; requested attributes and statistics are shared unchanged; this measures materialization/allocation, not a second CRS transform",
+        candidateMaterialization: {
+          A: {
+            coordinateBuffersCopied: ["source", "geographic", "world"],
+            derivedBuffersAllocated: [],
+          },
+          B: {
+            coordinateBuffersCopied: ["geographic", "world"],
+            derivedBuffersAllocated: [],
+          },
+          C: {
+            coordinateBuffersCopied: ["world"],
+            derivedBuffersAllocated: [],
+          },
+          D: {
+            coordinateBuffersCopied: ["world"],
+            derivedBuffersAllocated: [
+              {
+                name: "height",
+                type: "Float32Array",
+                valuesFrom: "geographic Z",
+              },
+            ],
+          },
+          E: {
+            coordinateBuffersCopied: [],
+            derivedBuffersAllocated: [
+              {
+                name: "height",
+                type: "Float64Array",
+                valuesFrom: "geographic Z",
+              },
+            ],
+            aliases: [
+              "ecef -> prepared.world.coordinates",
+              "world -> prepared.world",
+            ],
+          },
+        },
+        candidateMaterializationCommon: {
+          requestedAttributesAndStatistics: "shared unchanged",
+          repeatedCoordinateTransform: false,
+        },
         inverseBatchHelper: "benchmark-only wrapper reuses ecefToGeographic; interleaved Float64 XYZ input, exact pointCount*3 validation, finite-value validation, optional distinct exact-length Float64 output, and degree/degree/metre output semantics",
         color: "full Float32 RGBA CPU buffer construction using getCopcPointColor for fixed/elevation/RGB/intensity/classification; cold samples allocate a new buffer and warm samples reuse one while toggling every mode",
         colorBoundary: "D is compared to A across the observed height range and engineered normalized palette boundaries at multiple height spans; boundary sensitivity ranges are synthetic checks, not actual display settings",
