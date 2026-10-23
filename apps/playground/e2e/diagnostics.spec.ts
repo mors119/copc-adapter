@@ -5,7 +5,12 @@ test("diagnostics show unavailable values honestly and follow the replacement la
 }) => {
   await page.goto("./");
   await expect(page.locator("#diagnostic-points")).toHaveText("Not available");
-  await expect(page.locator("#diagnostic-frame")).toHaveText("Not available");
+  await expect(page.locator("#diagnostic-render-interval")).toHaveText(
+    "Not available",
+  );
+  await expect(
+    page.getByText("Observed render interval", { exact: true }),
+  ).toBeVisible();
 
   await page.evaluate(() => {
     (

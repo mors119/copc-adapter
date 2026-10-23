@@ -14,6 +14,7 @@ import {
 import {
   createDiagnosticsRefreshLoop,
   createDiagnosticsViewModel,
+  DEFAULT_WORKBENCH_MAX_DEPTH,
   displaySourceLabel,
   supportsLongTaskObservation,
   type PlaygroundBrowserMeasurements,
@@ -177,9 +178,9 @@ app.innerHTML = `
           <div class="diagnostic-tile"><span>Decode</span><strong id="diagnostic-decode">Not available</strong><small>latest update</small></div>
           <div class="diagnostic-tile"><span>CPU cache</span><strong id="diagnostic-cache-bytes">Not available</strong><small id="diagnostic-cache-entries">Not available entries</small></div>
           <div class="diagnostic-tile"><span>Worker</span><strong id="diagnostic-worker">Not available</strong><small id="diagnostic-worker-note">Rust / WASM</small></div>
-          <div class="diagnostic-tile"><span>Frame (browser observed)</span><strong id="diagnostic-frame">Not available</strong><small id="diagnostic-fps">Not available</small></div>
+          <div class="diagnostic-tile"><span>Observed render interval</span><strong id="diagnostic-render-interval">Not available</strong><small id="diagnostic-render-cadence">Not available</small></div>
         </div>
-        <p class="diagnostic-note">Refreshes every 500 ms. Adapter timings and Range bytes describe the latest view update; frame, FPS, load, and Long Task values are Playground browser observations.</p>
+        <p class="diagnostic-note">Refreshes every 500 ms. Adapter timings and Range bytes describe the latest view update. Render interval is the time between renders, not render cost; Cesium on-demand rendering and browser throttling can increase it. Load and Long Task values are Playground browser observations.</p>
         <details class="diagnostic-details">
           <summary>Detailed counters and measurements</summary>
           <dl class="diagnostics-list">
@@ -217,7 +218,7 @@ app.innerHTML = `
             <div><dt>Focus lens</dt><dd id="diagnostic-focus">Not available</dd></div>
             <div><dt>Focus candidates</dt><dd id="diagnostic-focus-candidates">Not available</dd></div>
             <div><dt>Focus-influenced refinements</dt><dd id="diagnostic-focus-refinements">Not available</dd></div>
-            <div><dt>Approximate FPS</dt><dd id="diagnostic-detailed-fps">Not available</dd></div>
+            <div><dt>Approximate observed render cadence</dt><dd id="diagnostic-detailed-cadence">Not available</dd></div>
             <div><dt>Load initiated → adapter load complete</dt><dd id="diagnostic-load-time">Not available</dd></div>
             <div><dt>First points observed</dt><dd id="diagnostic-first-visible">Not available</dd></div>
             <div><dt>Longest observed browser Long Task</dt><dd id="diagnostic-long-task">Not available</dd></div>
@@ -276,7 +277,7 @@ let backend: PlaygroundBackend = "copc-js";
 let colorMode: PlaygroundColorMode = "elevation";
 let pointSize = 3;
 let maxNodes = 24;
-const maxDepth = 6;
+const maxDepth = DEFAULT_WORKBENCH_MAX_DEPTH;
 const maxScreenSpaceError = 8;
 let maxRenderedPoints = 250_000;
 const parsedRefinementConfig = readPlaygroundRefinementConfig(
@@ -1254,9 +1255,9 @@ const renderDiagnosticsDashboard = (
       "diagnostic-worker",
       "diagnostic-worker-note",
       "diagnostic-worker-details",
-      "diagnostic-frame",
-      "diagnostic-fps",
-      "diagnostic-detailed-fps",
+      "diagnostic-render-interval",
+      "diagnostic-render-cadence",
+      "diagnostic-detailed-cadence",
       "diagnostic-load-time",
       "diagnostic-first-visible",
       "diagnostic-long-task",
@@ -1316,9 +1317,9 @@ const renderDiagnosticsDashboard = (
         ? "worker pool diagnostics"
         : "copc-js backend",
     "diagnostic-worker-details": model.workerDetails,
-    "diagnostic-frame": model.frameDuration,
-    "diagnostic-fps": model.approximateFps,
-    "diagnostic-detailed-fps": model.approximateFps,
+    "diagnostic-render-interval": model.renderInterval,
+    "diagnostic-render-cadence": model.approximateRenderCadence,
+    "diagnostic-detailed-cadence": model.approximateRenderCadence,
     "diagnostic-load-time": model.loadElapsed,
     "diagnostic-first-visible": model.firstVisiblePoints,
     "diagnostic-long-task": model.longestLongTask,
@@ -1343,7 +1344,7 @@ const refreshSnapshot = (): void => {
     updateSnapshot(diagnostics.snapshot);
     browserMeasurements = {
       ...browserMeasurements,
-      frameDurationMs: runtime.getLatestFrameDurationMs(),
+      renderIntervalMs: runtime.getLatestRenderIntervalMs(),
       ...(browserMeasurements.firstVisiblePointsMs === undefined &&
       diagnostics.snapshot.renderedPoints > 0 &&
       loadInitiatedAt !== undefined

@@ -1,5 +1,8 @@
 import type { WorkbenchLayerConfig, WorkbenchRenderer } from "../../shared/workbench-config";
 
+/** Public adapter default from docs/API.md; keep aligned with the package contract. */
+export const DEFAULT_WORKBENCH_MAX_DEPTH = 6;
+
 export type PlaygroundPerformanceDiagnostics = {
   readonly updateDurationMs?: number;
   readonly nodeSelectionMs?: number;
@@ -96,7 +99,7 @@ export type PlaygroundLayerDiagnostics = {
 export type PlaygroundBrowserMeasurements = {
   readonly loadElapsedMs?: number;
   readonly firstVisiblePointsMs?: number;
-  readonly frameDurationMs?: number;
+  readonly renderIntervalMs?: number;
   readonly longestLongTaskMs?: number;
 };
 
@@ -152,8 +155,8 @@ export type DiagnosticsViewModel = {
   readonly cacheBytesEvicted: string;
   readonly workerSummary: string;
   readonly workerDetails: string;
-  readonly frameDuration: string;
-  readonly approximateFps: string;
+  readonly renderInterval: string;
+  readonly approximateRenderCadence: string;
   readonly loadElapsed: string;
   readonly firstVisiblePoints: string;
   readonly longestLongTask: string;
@@ -227,6 +230,19 @@ function formattedOptionalCount(value: number | undefined): string {
   return formatDiagnosticCount(value);
 }
 
+function formatApproximateRenderCadence(intervalMs: number | undefined): string {
+  const interval = finiteNumber(intervalMs);
+  if (interval === undefined || interval === 0) return UNAVAILABLE;
+  const framesPerSecond = 1000 / interval;
+  const displayRate =
+    framesPerSecond >= 10
+      ? formatDiagnosticCount(framesPerSecond)
+      : framesPerSecond >= 0.1
+        ? framesPerSecond.toFixed(1)
+        : "<0.1";
+  return `~${displayRate} FPS`;
+}
+
 export function createDiagnosticsViewModel(
   diagnostics: PlaygroundLayerDiagnostics | undefined,
   context: PlaygroundDiagnosticsContext,
@@ -247,7 +263,9 @@ export function createDiagnosticsViewModel(
   const transition = diagnostics?.transition;
   const cache = diagnostics?.pointCache;
   const levels = snapshot?.visibleLevelRange;
-  const frameDuration = finiteNumber(browser.frameDurationMs);
+  const renderInterval = finiteNumber(browser.renderIntervalMs);
+  const effectiveMaxDepth =
+    context.config.maxDepth ?? DEFAULT_WORKBENCH_MAX_DEPTH;
   const rejectedRefinements =
     finiteNumber(performance?.refinementRejectedByNodeBudgetCount) === undefined &&
     finiteNumber(performance?.refinementRejectedByPointBudgetCount) === undefined
@@ -283,7 +301,7 @@ export function createDiagnosticsViewModel(
 
   return {
     sourceLabel: context.sourceLabel,
-    context: `${context.sourceLabel} · ${context.renderer === "cesium" ? "Cesium" : "Three.js"} · ${context.config.backend === "rust" ? "Rust / WASM" : "copc-js"} · ${context.config.colorMode} · budget ${formattedOptionalCount(context.config.maxRenderedPoints)} points · maxNodes ${formattedOptionalCount(context.config.maxNodes)} · maxDepth ${formattedOptionalCount(context.config.maxDepth)} · SSE ${sse === undefined ? UNAVAILABLE : `${formatDiagnosticCount(sse)} px`}`,
+    context: `${context.sourceLabel} · ${context.renderer === "cesium" ? "Cesium" : "Three.js"} · ${context.config.backend === "rust" ? "Rust / WASM" : "copc-js"} · ${context.config.colorMode} · budget ${formattedOptionalCount(context.config.maxRenderedPoints)} points · maxNodes ${formattedOptionalCount(context.config.maxNodes)} · maxDepth ${formatDiagnosticCount(effectiveMaxDepth)} · SSE ${sse === undefined ? UNAVAILABLE : `${formatDiagnosticCount(sse)} px`}`,
     lifecycle: snapshot?.lifecycle ?? UNAVAILABLE,
     renderedPoints: formatDiagnosticCount(snapshot?.renderedPoints),
     renderedNodes: formatDiagnosticCount(snapshot?.renderedNodes),
@@ -339,11 +357,8 @@ export function createDiagnosticsViewModel(
     cacheBytesEvicted: formatDiagnosticBytes(cache?.bytesEvicted),
     workerSummary,
     workerDetails,
-    frameDuration: formatDiagnosticDuration(frameDuration),
-    approximateFps:
-      frameDuration !== undefined && frameDuration > 0
-        ? `~${formatDiagnosticCount(1000 / frameDuration)} FPS`
-        : UNAVAILABLE,
+    renderInterval: formatDiagnosticDuration(renderInterval),
+    approximateRenderCadence: formatApproximateRenderCadence(renderInterval),
     loadElapsed: formatDiagnosticDuration(browser.loadElapsedMs),
     firstVisiblePoints: formatDiagnosticDuration(browser.firstVisiblePointsMs),
     longestLongTask: formatDiagnosticDuration(browser.longestLongTaskMs),

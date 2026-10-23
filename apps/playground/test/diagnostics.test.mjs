@@ -64,7 +64,7 @@ test("maps missing Worker data as unavailable and never fabricates numeric zeros
   assert.equal(rustModel.workerSummary, "Unavailable in this environment");
   assert.equal(rustModel.renderedPoints, "Not available");
   assert.equal(rustModel.cacheBytes, "Not available");
-  assert.equal(rustModel.frameDuration, "Not available");
+  assert.equal(rustModel.renderInterval, "Not available");
   assert.equal(rustModel.metadataPointCount, "Not available");
   assert.equal(
     rustModel.sourceStatus,
@@ -77,6 +77,34 @@ test("maps missing Worker data as unavailable and never fabricates numeric zeros
     config: { ...config, backend: "copc-js" },
   }, {});
   assert.equal(jsModel.workerSummary, "Not applicable for this backend");
+});
+
+test("uses the public maxDepth default when omitted and honors an explicit value", () => {
+  const { maxDepth: _maxDepth, ...configWithoutMaxDepth } = config;
+  const defaultModel = createDiagnosticsViewModel(
+    undefined,
+    { ...context, config: configWithoutMaxDepth },
+    {},
+  );
+  const explicitModel = createDiagnosticsViewModel(
+    undefined,
+    { ...context, config: { ...configWithoutMaxDepth, maxDepth: 3 } },
+    {},
+  );
+
+  assert.match(defaultModel.context, /maxDepth 6/);
+  assert.match(explicitModel.context, /maxDepth 3/);
+});
+
+test("shows a long on-demand render gap as cadence interval, not render cost", () => {
+  const model = createDiagnosticsViewModel(
+    undefined,
+    context,
+    { renderIntervalMs: 5_000 },
+  );
+
+  assert.equal(model.renderInterval, "5.00 s");
+  assert.equal(model.approximateRenderCadence, "~0.2 FPS");
 });
 
 test("recognizes absent or unsupported Long Task APIs without throwing", () => {

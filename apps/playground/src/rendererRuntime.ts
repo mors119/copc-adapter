@@ -41,7 +41,7 @@ export type PlaygroundRuntime = {
   readonly ready: Promise<void>;
   getSnapshot(): PlaygroundSnapshot;
   getDiagnostics(): PlaygroundLayerDiagnostics;
-  getLatestFrameDurationMs(): number | undefined;
+  getLatestRenderIntervalMs(): number | undefined;
   getSelectedPoint(): CopcPointInspection | undefined;
   setCameraView(view: PlaygroundCameraView): Promise<void>;
   getCameraState(): PlaygroundCameraState;
@@ -295,12 +295,13 @@ export async function createPlaygroundRuntime(
       : new adapter.CopcCesiumLayer(layerOptions);
     layer.attachTo(viewer);
     let destroyed = false;
-    let lastRenderAt: number | undefined;
-    let latestFrameDurationMs: number | undefined;
+    let lastPostRenderAt: number | undefined;
+    let latestRenderIntervalMs: number | undefined;
     const onPostRender = (): void => {
       const now = performance.now();
-      if (lastRenderAt !== undefined) latestFrameDurationMs = now - lastRenderAt;
-      lastRenderAt = now;
+      if (lastPostRenderAt !== undefined)
+        latestRenderIntervalMs = now - lastPostRenderAt;
+      lastPostRenderAt = now;
     };
     viewer.scene.postRender.addEventListener(onPostRender);
     let previousCameraInputs: boolean | undefined;
@@ -344,7 +345,7 @@ export async function createPlaygroundRuntime(
       ready,
       getSnapshot: () => getDiagnostics().snapshot,
       getDiagnostics,
-      getLatestFrameDurationMs: () => latestFrameDurationMs,
+      getLatestRenderIntervalMs: () => latestRenderIntervalMs,
       getSelectedPoint: () => layer.getSelectedPoint(),
       async setCameraView(view) {
         if (destroyed) return;
@@ -470,14 +471,15 @@ export async function createPlaygroundRuntime(
   );
   let destroyed = false;
   let animationFrame = 0;
-  let lastRenderAt: number | undefined;
-  let latestFrameDurationMs: number | undefined;
+  let lastRenderCallbackAt: number | undefined;
+  let latestRenderIntervalMs: number | undefined;
   const draw = (): void => {
     if (destroyed) return;
     animationFrame = requestAnimationFrame(draw);
     const now = performance.now();
-    if (lastRenderAt !== undefined) latestFrameDurationMs = now - lastRenderAt;
-    lastRenderAt = now;
+    if (lastRenderCallbackAt !== undefined)
+      latestRenderIntervalMs = now - lastRenderCallbackAt;
+    lastRenderCallbackAt = now;
     controls.update();
     renderer.render(scene, camera);
   };
@@ -571,7 +573,7 @@ export async function createPlaygroundRuntime(
     ready,
     getSnapshot: () => getDiagnostics().snapshot,
     getDiagnostics,
-    getLatestFrameDurationMs: () => latestFrameDurationMs,
+    getLatestRenderIntervalMs: () => latestRenderIntervalMs,
     getSelectedPoint: () => layer.getSelectedPoint(),
     async setCameraView(view) {
       if (destroyed) return;
