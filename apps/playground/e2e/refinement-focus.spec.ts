@@ -128,6 +128,7 @@ test("failed constructor changes keep the last successfully applied API example"
   await page.goto("./");
   await useMockLayer(page);
   await loadFile(page, "failed-apply.copc.laz");
+  await page.getByRole("button", { name: "Explicit" }).click();
 
   const appliedExample = await page.locator("#integration-example").textContent();
   expect(appliedExample).toContain("refinementAlgorithm: 'foveated'");
@@ -154,6 +155,7 @@ test("superseded constructor reloads cannot replace the applied API example", as
   await page.goto("./");
   await useMockLayer(page);
   await loadFile(page, "superseded-apply.copc.laz");
+  await page.getByRole("button", { name: "Explicit" }).click();
 
   await page.evaluate(() => {
     const hooks = (

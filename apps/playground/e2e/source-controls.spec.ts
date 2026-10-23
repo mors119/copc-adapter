@@ -441,6 +441,7 @@ test("renderer, backend, and color controls stay keyboard-accessible without cha
   page,
 }) => {
   await page.goto("./");
+  await page.getByRole("button", { name: "Explicit" }).click();
   const renderer = page.getByRole("radiogroup", { name: "Renderer" });
   const cesium = renderer.getByRole("radio", { name: "Cesium" });
   const three = renderer.getByRole("radio", { name: "Three.js" });

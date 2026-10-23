@@ -19,10 +19,24 @@ center, follow the pointer, or keep a pinned screen-space circle. Lens movement,
 radius, and detail-bias changes update the active layer; changing algorithms
 reapplies the layer because the strategy is a constructor option. The guide is
 visual only, and focus prioritizes detail without clipping the point cloud.
-Algorithm and focus settings are stored in the URL and reflected in the public
-API example.
-The API example reflects the last successfully loaded layer; constructor
-settings that trigger a reload are shown after that reload completes.
+The Generated code panel provides Minimal and Explicit TypeScript examples for
+the selected Cesium or Three.js renderer. It reads the last successfully
+applied settings; constructor settings waiting for Apply are not shown. The
+options object is checked against the public entrypoint types from the exact
+installed npm release. Three.js output includes an app-owned render loop and
+camera updates; Cesium classification filters use the public `setStyle()` API.
+Code and install commands can be copied, and copy feedback follows the
+clipboard result.
+
+Renderer, backend, color, point-size, streaming, and focus settings are
+normalized in share URLs. A copied share link excludes the source by default;
+the source checkbox explicitly includes a query-free HTTP URL. URLs with
+credentials, query parameters, or fragments are treated as potentially
+sensitive: generated code shows a placeholder until the exact-source option is
+enabled, and copying that URL requires confirmation. Local files are emitted
+as a file-input example and are never placed in a URL. Refreshing a share link
+restores those settings to the controls, then loads a shared source when one
+was explicitly included.
 
 HTTP sources are requested directly by the browser. A source must provide
 browser-readable CORS and HTTP Range responses. The Playground does not rewrite
