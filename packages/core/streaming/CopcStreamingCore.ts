@@ -126,9 +126,9 @@ export type CopcStreamingTransitionState = {
 export type CopcStreamingControllerOptions = {
   /** Source URL or source identity used by the selected backend. */
   url: CopcInputSource;
-  /** Overrides for the shared selection and streaming limits. */
+  /** Overrides for shared selection and streaming limits; top-level maxRenderedPoints takes precedence over this compatibility field. */
   streaming?: Partial<StreamingSelectionOptions>;
-  /** Convenience override for the shared rendered-point workload budget. */
+  /** Canonical rendered-point workload budget; overrides streaming.maxRenderedPoints. Defaults to 250,000. */
   maxRenderedPoints?: number;
   /** Stable `copc-js` by default, Rust or a test backend by explicit choice. */
   backend?: CopcBackendSelection;

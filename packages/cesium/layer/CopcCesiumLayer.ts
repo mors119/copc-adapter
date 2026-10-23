@@ -56,12 +56,14 @@ export type CopcStreamingOptions = {
   maxScreenSpaceError?: number;
   /** Half-width of the state-aware SSE hold band in pixels; defaults to 12.5% of the error threshold. */
   screenSpaceErrorHysteresis?: number;
-  /** @deprecated Planned for removal in v0.9, after v0.8. Retained for compatibility; use maxScreenSpaceError. */
+  /** @deprecated Planned for removal in v0.9, after v0.8; has no effect. Use maxScreenSpaceError. */
   refineDistanceMultiplier?: number;
   /** Maximum camera-to-node selection distance in metres; defaults to 12,000. */
   maxRenderDistanceMeters?: number;
-  /** Maximum estimated points in the active current-view workload; defaults to 250,000. */
+  /** Compatibility location for the 250,000-point default budget; the top-level value takes precedence. */
   maxRenderedPoints?: number;
+  /** Maximum concurrent range/decode/preparation node loads; defaults to 4. */
+  maxConcurrentNodeLoads?: number;
   /**
    * Refinement relevance policy. Defaults to `foveated`; use
    * `screen-projection` to retain the v0.5 passive gaze scoring.
@@ -101,7 +103,7 @@ export type CopcCesiumLayerOptions = {
   verticalTransform?: GtxGeoidGrid;
   /** Emits COPC layer lifecycle messages through console.debug. */
   debug?: boolean;
-  /** Maximum estimated points in the active current-view workload; defaults to 250,000. */
+  /** Maximum estimated points in the active current-view workload; defaults to 250,000. Takes precedence over streaming.maxRenderedPoints. */
   maxRenderedPoints?: number;
   /** Overrides for the default streaming selection limits and refinement strategy. */
   streaming?: CopcStreamingOptions;

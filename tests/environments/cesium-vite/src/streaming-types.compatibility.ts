@@ -1,5 +1,9 @@
-import { CopcStreamingCore } from "@frillab/copc-adapter/cesium";
+import {
+  CopcCesiumLayer,
+  CopcStreamingCore,
+} from "@frillab/copc-adapter/cesium";
 import type {
+  CopcCesiumLayerOptions,
   CopcStreamingProgressHandler,
   StreamingProgress,
   StreamingUpdateResult,
@@ -11,6 +15,24 @@ import type {
 declare const core: CopcStreamingCore;
 declare const view: StreamingView;
 declare const options: CopcStreamingControllerOptions;
+declare const viewer: import("cesium").Viewer;
+
+const layerOptions: CopcCesiumLayerOptions = {
+  url: "https://example.com/data.copc.laz",
+  maxRenderedPoints: 200_000,
+  streaming: {
+    maxRenderedPoints: 100_000,
+    maxConcurrentNodeLoads: 2,
+  },
+};
+void layerOptions;
+
+const minimalLayer = new CopcCesiumLayer({
+  url: "https://example.com/data.copc.laz",
+});
+await minimalLayer.load();
+minimalLayer.attachTo(viewer);
+minimalLayer.destroy();
 
 // The public constructor is bound to A; E selection stays on its internal
 // factory.

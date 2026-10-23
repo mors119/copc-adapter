@@ -28,7 +28,6 @@ const viewer = new Cesium.Viewer('cesium-container');
 
 const layer = new CopcCesiumLayer({
   url: 'https://example.com/data.copc.laz',
-  colorMode: 'rgb',
 });
 
 await layer.load();
@@ -43,6 +42,41 @@ layer.attachTo(viewer);
 | `new CopcCesiumLayer(...)` | COPC source와 표시 옵션 구성 |
 | `layer.load()` | 메타데이터와 초기 hierarchy 준비 |
 | `layer.attachTo(viewer)` | 카메라 기반 streaming과 렌더링 시작 |
+
+표시 옵션을 생략하면 3픽셀 크기의 고정 cyan 점을 사용합니다. `url`에는
+브라우저 `File` 또는 `Blob`을 전달할 수도 있습니다. 파일은 필요한 구간만
+브라우저 안에서 읽으며 업로드하지 않습니다.
+
+## Three.js 빠른 시작
+
+Three.js에서는 애플리케이션이 scene, camera, renderer와 렌더 루프를 관리합니다.
+
+```ts
+import * as THREE from 'three';
+import { CopcThreeLayer } from '@frillab/copc-adapter/three';
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 20_000);
+const renderer = new THREE.WebGLRenderer();
+const layer = new CopcThreeLayer({
+  url: 'https://example.com/data.copc.laz',
+});
+
+await layer.load();
+layer.attachTo({ scene, camera, renderer });
+
+function animate() {
+  requestAnimationFrame(animate);
+  void layer.update();
+  renderer.render(scene, camera);
+}
+animate();
+```
+
+Three.js도 같은 기본 표시와 로컬 `File`/`Blob` 입력을 지원합니다. 표시 예제에서
+`renderer`는 layer가 참조하는 application-owned WebGLRenderer이고, 선택적 layer
+renderer 구현은 `new CopcThreeLayer({ url, renderer: customPointRenderer })`로
+전달합니다.
 
 ## 3. 종료할 때
 

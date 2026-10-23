@@ -334,6 +334,37 @@ test("CopcCesiumLayer delegates source and streaming work to the shared core", a
   assert.equal(viewer.destroyed, false);
 });
 
+test("Cesium layer point-budget defaults and top-level precedence match Core", () => {
+  const omitted = new CopcCesiumLayer({
+    url: "memory://public-defaults.copc.laz",
+  });
+  const explicit = new CopcCesiumLayer({
+    url: "memory://public-defaults.copc.laz",
+    maxRenderedPoints: 250_000,
+  });
+  const overridden = new CopcCesiumLayer({
+    url: "memory://public-defaults.copc.laz",
+    maxRenderedPoints: 120_000,
+    streaming: { maxRenderedPoints: 80_000 },
+  });
+
+  const effectiveSettings = (layer) => {
+    const snapshot = layer.getSnapshot();
+    return {
+      backend: snapshot.backend,
+      configuredPointBudget: snapshot.performance.configuredPointBudget,
+      refinementAlgorithm: snapshot.performance.refinementAlgorithm,
+      motionLookaheadEnabled: snapshot.performance.motionLookaheadEnabled,
+      colorMode: layer.getStyle().colorMode,
+    };
+  };
+
+  assert.deepEqual(effectiveSettings(omitted), effectiveSettings(explicit));
+  assert.equal(effectiveSettings(omitted).configuredPointBudget, 250_000);
+  assert.equal(effectiveSettings(omitted).colorMode, "fixed");
+  assert.equal(effectiveSettings(overridden).configuredPointBudget, 120_000);
+});
+
 test("CopcCesiumLayer validates refinement options and focus values", () => {
   assert.throws(
     () =>

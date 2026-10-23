@@ -18,6 +18,139 @@ Rust/WASM while these interfaces remain compatible.
 The issue #239 API and event semantics are summarized in the
 [layer API semantics matrix](proposals/issue-239-layer-api.md).
 
+## Checked-in defaults and option precedence
+
+This matrix records the current workspace contracts for package version
+`0.6.0`, checked against `packages/{index,cesium,three}.ts`, the Core, Cesium,
+and Three implementations, and packed declarations for the root, `/cesium`,
+and `/three` entrypoints. A published version can have different defaults;
+check the declarations for the version installed by your application. The
+compact URL examples below omit options that already have a usable default.
+
+### Layer and Core options
+
+| Setting | Public type and requiredness | Effective default | Core | Cesium | Three | Resolution, impact, and disposition |
+| --- | --- | --- | --- | --- | --- | --- |
+| `url` | `CopcInputSource`, required | Required | Yes | Yes | Yes | Accepts a URL, browser `Blob`/`File`, or `RandomAccessByteSource`. A local source must still contain COPC hierarchy metadata; ordinary LAS/LAZ is unsupported. Keep. |
+| `backend` | `CopcBackendSelection`, optional | `copc-js` | Yes | Yes | Yes | `rust` is explicit opt-in; a selected backend failure is surfaced without silent fallback. Custom backends remain supported. Keep and document. |
+| `decoder` | `CopcPointDecoder`, optional | Built-in WASM decoder only when a source returns point views instead of direct buffers | Yes | Yes | Yes | Direct-buffer backends can bypass the decoder. An injected decoder is used for view-backed sources. Keep advanced. |
+| `pointFields` | `CopcPointFieldSelection`, optional | `position` | Yes | No | No | Core callers can request optional `rgb`, `intensity`, and `classification`. Cesium layers retain all supported fields for restyling and picking; Three requests fields required by `colorMode`. Keep. |
+| `colorMode` | `CopcColorMode`, optional | `fixed` (cyan fallback) | No | Yes | Yes | Other modes are `elevation`, `rgb`, `intensity`, and `classification`. A missing source attribute falls back to fixed cyan. Keep. |
+| `pointSize` | `number`, optional | `3` pixels | No | Yes | Yes | Cesium uses CSS-pixel diameter; Three uses screen-facing pixel size. Keep. |
+| `heightOffsetMeters` | `number`, optional | `0` | Yes | Yes | Yes | Manual additive correction to ellipsoidal height after source unit conversion; no automatic datum correction. Keep. |
+| `verticalTransform` | `GtxGeoidGrid`, optional | Omitted; no vertical datum conversion | Yes | Yes | Yes | Requires a caller-loaded and verified grid; no grid is selected or bundled automatically. Keep opt-in. |
+| `maxRenderedPoints` | `number`, optional | `250,000` estimated points | Yes | Yes | Yes | **Canonical location for new code is top-level.** `streaming.maxRenderedPoints` remains compatible; top-level wins when both are set. Must be a positive safe integer and is a workload guard, not a GPU-memory cap. Keep both locations and precedence. |
+| `maxPointCacheBytes` | `number`, optional | `256 MiB` | Yes | Yes | Yes | Caps retained decoded CPU point buffers; the cache also has a 48-node cap. This is not a browser or GPU memory limit. Keep. |
+| `rangeValidation` | `RangeValidationPolicy`, optional | `head-fallback` for HTTP sources | Yes | Yes | Yes | `strict` remains fail-closed and requires readable, valid, matching `Content-Range`; it does not use `HEAD` fallback. This policy does not apply to local `File`/`Blob` or custom random-access sources. Keep the current security default. |
+| `maxRangeBytes` | `number`, optional | `64 MiB` per read | Yes | Yes | Yes | Positive safe integer overrides are accepted. Larger ranges can increase memory use; the Rust/WASM decoder also has a 32-bit range-length limit. Keep. |
+| `maxConcurrentRangeRequests` | `number`, optional | `4` per source | Yes | Yes | Yes | Positive safe integer overrides are accepted. Together with the per-range ceiling, this bounds active HTTP response buffers. Keep. |
+| `debug` | `boolean`, optional | `false` | Yes | Yes | Yes | Enables optional lifecycle `console.debug` messages; normal safety warnings and listener-error reporting may still be emitted. Keep. |
+| `onPointPicked` | `(point: CopcPointInspection \| undefined) => void`, optional | No callback | No | Yes | Yes | Called for a selection or when selection clears. Keep optional. |
+
+`CopcStreamingCoreOptions`, `CopcCesiumLayerOptions`, and
+`CopcThreeLayerOptions` each require `url`; the other settings in this table
+are optional. `streaming` is also optional and accepts a partial selection
+object at each of those entrypoints. The concrete `NodeSelector` constructor
+uses `StreamingSelectionOptions` directly and requires `maxNodes`, `maxDepth`,
+and `maxRenderDistanceMeters`.
+
+`decoder`, `pointFields`, range limits, height offsets, and validation policy
+are passed through the layer adapters to the shared core. `colorMode: 'rgb'`,
+`'intensity'`, or `'classification'` also controls which point attributes the
+Three adapter requests; Cesium keeps all supported fields so later style
+changes can reuse cached point data.
+
+### Streaming selection options
+
+The `streaming` object is partial. Omitted fields resolve to these current
+shared defaults for Core and both layer adapters:
+
+| Setting | Public type and requiredness | Default | Core | Cesium | Three | Meaning and impact | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `maxNodes` | `number`, optional through `streaming?: Partial<StreamingSelectionOptions>` | `24` | Yes | Yes | Yes | Upper bound for selected hierarchy nodes in the active view. | Keep. |
+| `maxDepth` | `number`, optional through the partial `streaming` object | `6` | Yes | Yes | Yes | Deepest hierarchy level eligible for selection. | Keep. |
+| `maxScreenSpaceError` | `number`, optional through the partial `streaming` object | `8` pixels | Yes | Yes | Yes | Refinement threshold. | Keep. |
+| `screenSpaceErrorHysteresis` | `number`, optional through the partial `streaming` object | `12.5%` of the threshold (`1` pixel at the default threshold) | Yes | Yes | Yes | Hold band that reduces LoD churn. | Keep. |
+| `maxRenderDistanceMeters` | `number`, optional through the partial `streaming` object | `12,000` m | Yes | Yes | Yes | Distance limit used during selection. | Keep. |
+| `maxRenderedPoints` | `number`, optional through the partial `streaming` object | `250,000` estimated points | Yes | Yes | Yes | Compatibility duplicate of the top-level option; top-level takes precedence. | Keep for compatibility; use top-level in new code. |
+| `maxConcurrentNodeLoads` | `number`, optional through the partial `streaming` object | `4` | Yes | Yes | Yes | Active range/decode/preparation node loads, independent of the point budget. It is shared across overlapping view generations. | Keep. |
+| `refinementAlgorithm` | `RefinementAlgorithm`, optional through the partial `streaming` object | `foveated` | Yes | Yes | Yes | `screen-projection` restores the older passive gaze scoring policy. | Keep. |
+| `motionLookahead` | `boolean`, optional through the partial `streaming` object | `true` | Yes | Yes | Yes | Uses recent camera rotation to prioritize work within the current visible view. | Keep. |
+| `predictivePrefetch` | `boolean`, optional through the partial `streaming` object | `false` | Yes | Yes | Yes | Opt-in, bounded preparation of likely next-view nodes; uses extra network and decode work. | Keep opt-in. |
+| `refineDistanceMultiplier` | `number`, optional through the partial `streaming` object | No effective behavior | Yes | Yes | Yes | Deprecated compatibility field; screen-space error controls refinement. | Retain through v0.8; planned removal in v0.9. |
+| `maxPointsPerBatch` | `number`, optional through the partial `streaming` object | No effective behavior | Yes | No | Yes | Deprecated compatibility field; it no longer controls a completion barrier. Use `maxConcurrentNodeLoads` to bound active work. | Retain through v0.8; planned removal in v0.9. |
+
+The Cesium `CopcStreamingOptions` type now exposes the same active shared
+`maxConcurrentNodeLoads` control as Core and Three. Existing defaults and
+selection behavior are unchanged. Explicit invalid point budgets still fail
+with `RangeError`; invalid refinement algorithm names still fail with
+`TypeError`.
+
+### Renderer-specific options and similarly named renderer values
+
+| Setting | Public type and requiredness | Default | Applicability and distinction | Status |
+| --- | --- | --- | --- | --- |
+| Cesium `pointSizeMode` | `CopcCesiumPointSizeMode`, optional | `fixed` | `attenuated` projects COPC spacing and requires a renderer that advertises shader support. The built-in batched renderer supports it; point diameter bounds default to `1`–`12` CSS pixels, with a maximum accepted bound of `64`. | Keep opt-in. |
+| Cesium `minPointSize` / `maxPointSize` | `number`, optional | `1` / `12` CSS pixels | Used only for attenuated sizing; accepted maximum is `64`, and `0 < minPointSize <= maxPointSize`. | Keep. |
+| Cesium `renderer` | `CesiumPointRenderer`, optional | `PointPrimitiveRenderer` | Layer constructor's point renderer. `BatchedGeometryPointRenderer` is opt-in. | Keep. |
+| Three layer `renderer` | `CopcThreePointRenderer`, optional | `ThreePointRenderer` | Layer constructor's custom point-renderer seam. | Keep. |
+| Three attachment `renderer` | `ThreeViewportSource`, optional | Omitted | `attachTo({ scene, camera, renderer })` accepts the application-owned WebGL renderer only as a viewport-size source. It is separate from the layer constructor's custom point renderer of the same property name. If omitted, the view adapter uses its canvas/viewport fallback. | Keep both contracts; document their different objects. |
+| Three `pickingThreshold` | `number`, optional | `1` scene unit | Used by the default point raycaster. A per-call `CopcThreeLayerPickOptions.threshold` overrides the layer value. | Keep. |
+
+### Direct source utilities
+
+These lower-level exported constructors use the same current range defaults.
+The layer options pass them through for supported URL and local-file sources.
+
+| Public API | Public type and requiredness | Default | Scope and impact | Status |
+| --- | --- | --- | --- | --- |
+| `HttpRangeByteSource(source, options?)` | Required `source: string`; optional `options: HttpRangeByteSourceOptions` | Constructor options omitted | HTTP URL source; construction performs no network request. | Keep. |
+| `HttpRangeByteSource` | Optional `fetch?: RangeFetch`, `headers?: HeadersInit`, `size?: number` | global `fetch`; no extra headers; size discovered when needed | An explicitly known `size` avoids needing a `HEAD` size lookup. | Keep. |
+| `HttpRangeByteSource` | Optional `rangeValidation?: RangeValidationPolicy` | `head-fallback` | HTTP only; use `strict` to reject when the browser cannot read a matching `Content-Range`. | Keep current security default. |
+| `HttpRangeByteSource`, `BlobByteSource` | Optional `maxRangeBytes?: number` | `64 MiB` | Per returned slice; increasing it can increase active response memory. | Keep. |
+| `HttpRangeByteSource`, `BlobByteSource` | Optional `maxConcurrentRangeRequests?: number` | `4` | Per-source active reads; Blob reads are local and do not make HTTP requests. | Keep. |
+| `BlobByteSource(blob, identity?, options?)` | Required `blob: Blob`; optional `identity?: string` and `options: BlobByteSourceOptions` | Identity inferred from File name or `blob://local-copc`; default limits above | Browser File/Blob source. Slice reads check cancellation before and after each non-cancellable read. | Keep. |
+| `probeCopcSource(source, options?)` | Required `source: string`; optional `options: CopcSourceProbeOptions` | Options omitted | HTTP source diagnostic only. The first request covers bytes `0–1023`; metadata follow-up reads are bounded. | Keep. |
+| `probeCopcSource` | Optional `fetch?: RangeFetch`, `headers?: HeadersInit`, `signal?: AbortSignal`, `rangeValidation?: RangeValidationPolicy` | global `fetch`; no extra headers or signal; `head-fallback` | Accepts strict validation as an explicit override; probe result distinguishes false from unknown when browser access is limited. | Keep current security default. |
+
+### Other exported configuration types
+
+These option objects are also exported by the package entrypoints and packed
+declarations. They are specialized controls rather than additional layer
+defaults; references point to their detailed contract and example below.
+
+| Public type / entrypoint | Required fields and optional defaults | Core / Cesium / Three applicability | Impact and reference | Status |
+| --- | --- | --- | --- | --- |
+| `CopcBackendOpenOptions` (root, `/cesium`, `/three`) | Optional `signal?: AbortSignal`, `rangeRequestDiagnostics?: RangeRequestDiagnosticsRecorder`, `rangeValidation?: RangeValidationPolicy`, `maxRangeBytes?: number`, `maxConcurrentRangeRequests?: number`, `heightOffsetMeters?: number`. Defaults for range policy/limits/offset are in the layer table; omitted signal/diagnostics add no caller override. | Core backend boundary; forwarded by all layers | Source lifetime, HTTP security, range memory/concurrency, and height preparation. See [Backend and point contracts](#backend-and-point-contracts). | Keep. |
+| `CopcPointLoadOptions` (root, `/cesium`, `/three`) | Optional `signal?: AbortSignal`, `performanceObserver?: CopcPerformanceObserver \| null`. `undefined` inherits the source observer; `null` suppresses it. | Core backend boundary; adapters use these internally | Cancellation and diagnostic routing only. See [Backend and point contracts](#backend-and-point-contracts). | Keep. |
+| `CopcHierarchyPageLoadOptions` (root, `/cesium`) | Optional `performanceObserver?: CopcPerformanceObserver \| null`; `undefined` inherits the source observer and `null` suppresses it. | Core hierarchy boundary; Three consumers can use source-wide diagnostics | Per-page diagnostic routing only. See [Backend and point contracts](#backend-and-point-contracts). | Keep. |
+| `RangeReadOptions` (root, `/cesium`, `/three`) | Optional `signal?: AbortSignal`; omitted means no per-read cancellation override. | Shared source boundary | Cancels only that read; shared cached source work can remain reusable. See [Direct source utilities](#direct-source-utilities). | Keep. |
+| `CopcJsBackendOptions` (root, `/cesium`, `/three`) | Optional `extraDimensions?: CopcExtraDimensionSelection`; omitted means no nonstandard dimensions are read. | All entrypoints; only `copc-js` | Extra decoded dimensions increase retained point-cache memory. See [Extra schema dimensions](#extra-schema-dimensions). | Keep opt-in. |
+| `RustCopcBackendOptions` (root, `/cesium`, `/three`) | Optional `createByteSource?: RustByteSourceFactory`; omitted uses the backend's built-in source handling. | All entrypoints; only explicit `rust` | Advanced host/test source bridge. There is no silent backend fallback. See [Backend and point contracts](#backend-and-point-contracts). | Keep opt-in. |
+| `GtxGeoidGridOptions` (root, `/cesium`, `/three`) | Required `gridId: string`, `sourceVerticalCrs: string`, `targetVerticalCrs: 'EPSG:4979'`, `horizontalCrs: 'EPSG:4326'`, `referenceEllipsoid: 'WGS84'`, `sha256: string`, `valueUnit: VerticalGridValueUnit`, `valueConvention: 'ellipsoidal-minus-orthometric'`, and `noDataValue: number \| null`. Optional `interpolation?: 'bilinear'` defaults to `bilinear`; `maxGridBytes?: number` defaults to `256 MiB` with `512 MiB` hard limit; `requiresMatchedEpoch?: boolean` defaults false; `sourceCoordinateEpoch?: number` and `gridReferenceEpoch?: number` are omitted unless applicable. | Shared coordinate pipeline | Caller assertions are verified against grid bytes and COPC WKT where possible; bad metadata or uncovered samples fail preparation. See [Explicit vertical CRS grid conversion](#explicit-vertical-crs-grid-conversion). | Keep opt-in. |
+| `NgaEgm2008GridOptions` (root, `/cesium`, `/three`) | Optional `maxGridBytes?: number`, default `256 MiB`, hard limit `512 MiB`. | Shared coordinate pipeline | Resource bound for the pinned NGA grid loader. See [NGA EGM2008 2.5-minute grid](#nga-egm2008-25-minute-grid). | Keep opt-in. |
+| `TerrainHeightAlignmentOptions` (root, `/cesium`) | Optional `groundConfirmed?: boolean` (defaults false), `terrainSourceId?: string`, `timeoutMs?: number` (defaults to 30 seconds, cap 60 seconds), and `signal?: AbortSignal`. | Cesium only | One-point opt-in diagnostic; no point correction is applied automatically. See [Explicit Cesium Terrain residual estimate](#explicit-cesium-terrain-residual-estimate). | Keep opt-in. |
+| `CopcPointRendererOptions` (root, `/cesium`, `/three`) | Required `pointSize: number`; optional `colorMode?: CopcColorMode`, `elevationRange?: CopcValueRange`, `rgbMax?: 255 \| 65535`, `pointId?: (pointIndex: number) => unknown`, and `pointFilter?: (pointIndex: number) => boolean`. | Shared renderer seam | Renderer call contract, not another layer configuration location. See [Three.js API](#copcthreelayer). | Keep. |
+| `CopcCesiumPointRendererOptions` (root, `/cesium`) | Extends shared per-node options; optional `pointSizeMode?: CopcCesiumPointSizeMode` defaults to `fixed`, `minPointSize?: number` / `maxPointSize?: number` default to `1` / `12` CSS pixels and cap at `64`, `pointSpacingMeters?: number`, `onPerformance?: callback`. | Cesium renderer extension | Renderer call contract, not another layer configuration location. See [CopcCesiumLayerOptions](#copccesiumlayeroptions). | Keep. |
+| `ThreePointRendererOptions` (`/three`) | Extends shared per-node options; optional `onPerformance?: callback`. | Three renderer extension | Renderer call contract, not another layer configuration location. See [Three.js API](#copcthreelayer). | Keep. |
+| `ThreePointRendererConstructorOptions` (`/three`) | Optional `localOrigin?: Wgs84EcefPoint` and `localFrame?: DatasetLocalFrame`; omitted direct-constructor origin is derived from the first nonempty node. | Three only | `CopcThreeLayer` supplies its dataset-local frame after metadata; see [Three.js API](#copcthreelayer). | Keep. |
+| `CopcThreeLayerPickOptions` (`/three`) | Optional `raycaster?: THREE.Raycaster`; optional `threshold?: number` defaults to layer `pickingThreshold`, then `1` scene unit. | Three only | Per-call pick control; see [Three.js API](#copcthreelayer). | Keep. |
+| `CopcPointStyleInput` / `CopcPointStyleOptions` (root, `/cesium`) | Input `colorMode?: CopcColorMode`, `elevationRange?: CopcElevationRange`, `intensityRange?: CopcValueRange`, and `rgbMax?: 255 \| 65535` are optional and infer from point buffers; resolved `CopcPointStyleOptions` fields are required. | Core styling helpers; not layer constructor options | Omitted color mode resolves to fixed cyan. See [Runtime styling](#runtime-styling). | Keep. |
+| `CopcThreePointStyleOptions`, `CopcThreePointsMaterialOptions` (root) | `CopcThreePointStyleOptions` requires `pointSize: number`; the material helper requires `pointSize: number` and returns opacity `0.9`, transparent vertex colors, and disabled size attenuation. | Root compatibility helpers only | No hidden layer override or precedence relationship. See [Runtime styling](#runtime-styling). | Keep. |
+| `ThreeStreamingViewOptions` (`/three`) | Required `camera: THREE.Camera` and `frame: DatasetLocalFrame`; optional `renderer?: ThreeViewportSource` and `maxRenderDistanceMeters?: number`. A finite positive camera far plane wins; otherwise the option or `12,000` m is used. | Three view helper only | Here `renderer` is only a viewport-size source, as distinguished in the renderer table above. | Keep. |
+
+The packed consumers typecheck the minimal public `/cesium` and `/three`
+layer options. Other specialized option contracts remain advanced API; they
+are listed here to make their required inputs and defaults discoverable without
+adding them to minimal examples.
+
+The minimal Cesium and Three examples in this API, the [repository README](https://github.com/mors119/copc-adapter/blob/main/README.md),
+the [package README](https://github.com/mors119/copc-adapter/blob/main/packages/README.md),
+[Examples](EXAMPLES.md), [Korean getting-started guide](ko/getting-started.md),
+and [Korean API guide](ko/api.md) omit default-valued options. The full
+advanced option combinations remain in [Examples](EXAMPLES.md) and the later
+API sections.
+
 ## `CopcCesiumLayer`
 
 `CopcCesiumLayer` connects a streamed COPC resource to a caller-owned Cesium
@@ -30,7 +163,6 @@ import { CopcCesiumLayer } from '@frillab/copc-adapter/cesium';
 const viewer = new Cesium.Viewer('cesium-container');
 const layer = new CopcCesiumLayer({
   url: 'https://example.com/data.copc.laz',
-  colorMode: 'elevation',
 });
 
 await layer.load();
@@ -38,6 +170,10 @@ layer.attachTo(viewer);
 layer.show = false; // hide this layer's primitives only
 layer.show = true;
 ```
+
+This uses the current defaults: fixed cyan points at 3 pixels, the `copc-js`
+backend, and the shared streaming limits. `url` also accepts a browser `File`
+or `Blob`; local sources are read in slices and are not uploaded.
 
 `show` defaults to `true`. The built-in renderer owns one
 `Cesium.PrimitiveCollection` per attached layer, with its node point
@@ -129,8 +265,8 @@ a separately defined and tested contract.
 
 ### `CopcCesiumLayerOptions`
 
-- `url`: browser-readable COPC URL. The source must support HTTP Range
-  requests and appropriate CORS headers.
+- `url`: COPC URL, browser `Blob`/`File`, or `RandomAccessByteSource`.
+  HTTP URLs need byte Range support and appropriate CORS headers.
 - `pointSize`: Cesium point size in pixels. Default: `3`.
 - `pointSizeMode`: `'fixed' | 'attenuated'`. Default: `'fixed'`. Attenuation
   requires a renderer that advertises shader support, such as the opt-in
@@ -148,13 +284,18 @@ a separately defined and tested contract.
   grid operation before `heightOffsetMeters`. Omitted by default.
 - `debug`: enable lifecycle messages through `console.debug`.
 - `maxRenderedPoints`: maximum estimated point workload in the active view.
-  Default: `250000`.
+  Default: `250000`. This top-level option wins if
+  `streaming.maxRenderedPoints` is also supplied.
 - `streaming`: overrides for `maxNodes` (default `24`), `maxDepth` (default
   `6`), `maxScreenSpaceError` in pixels (default `8`),
-  `screenSpaceErrorHysteresis` in pixels, `maxRenderDistanceMeters` (default
-  `12000`), `maxRenderedPoints`, and `refinementAlgorithm` (default
-  `'foveated'`; `'screen-projection'` selects the v0.5 passive gaze behavior),
-  and `motionLookahead` (default `true`).
+  `screenSpaceErrorHysteresis` (defaults to 12.5% of the threshold, or `1`
+  pixel at the default threshold), `maxRenderDistanceMeters` (default
+  `12000`), `maxConcurrentNodeLoads` (default `4`), the compatibility
+  `maxRenderedPoints` field, `refinementAlgorithm` (default `'foveated'`;
+  `'screen-projection'` selects the v0.5 passive gaze behavior),
+  `motionLookahead` (default `true`), and `predictivePrefetch` (default
+  `false`). Top-level `maxRenderedPoints` takes precedence over the nested
+  field.
 - `refineDistanceMultiplier`: accepted for source compatibility but deprecated
   and planned for removal in v0.9, after v0.8; the current selector uses
 screen-space error instead.
@@ -409,22 +550,14 @@ loop.
 
 ```ts
 import * as THREE from 'three';
-import {
-  CopcThreeLayer,
-  type CopcThreeLayerViewSettledEvent,
-} from '@frillab/copc-adapter/three';
+import { CopcThreeLayer } from '@frillab/copc-adapter/three';
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 20_000);
 const renderer = new THREE.WebGLRenderer();
 const layer = new CopcThreeLayer({
   url: 'https://example.com/data.copc.laz',
-  colorMode: 'rgb',
 });
-const onSettled = (event: CopcThreeLayerViewSettledEvent) => {
-  console.log(event.viewGeneration, event.selectedNodeKeys);
-};
-layer.addEventListener('viewsettled', onSettled);
 
 await layer.load();
 layer.attachTo({ scene, camera, renderer });
@@ -435,12 +568,11 @@ function animate() {
   renderer.render(scene, camera);
 }
 animate();
-
-function disposeLayer() {
-  layer.removeEventListener('viewsettled', onSettled);
-  layer.destroy();
-}
 ```
+
+This uses fixed cyan points at 3 pixels by default. `url` also accepts a
+browser `File` or `Blob`. The application owns the scene, camera, renderer, and
+render loop.
 
 Current options include `url`, `pointSize` (default `3`), `colorMode`,
 `heightOffsetMeters` (default `0`), `verticalTransform` (omitted by default),

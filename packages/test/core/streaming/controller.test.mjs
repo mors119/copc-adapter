@@ -301,6 +301,35 @@ function createController(backend, options = {}) {
   });
 }
 
+test("shared core uses the current point-budget default and top-level precedence", () => {
+  const omitted = new CopcStreamingController({
+    url: "memory://public-defaults.copc.laz",
+  });
+  const explicit = new CopcStreamingController({
+    url: "memory://public-defaults.copc.laz",
+    maxRenderedPoints: 250_000,
+  });
+  const overridden = new CopcStreamingController({
+    url: "memory://public-defaults.copc.laz",
+    maxRenderedPoints: 120_000,
+    streaming: { maxRenderedPoints: 80_000 },
+  });
+
+  const effectiveSettings = (core) => {
+    const snapshot = core.getSnapshot();
+    return {
+      backend: snapshot.backend,
+      configuredPointBudget: snapshot.performance.configuredPointBudget,
+      refinementAlgorithm: snapshot.performance.refinementAlgorithm,
+      motionLookaheadEnabled: snapshot.performance.motionLookaheadEnabled,
+    };
+  };
+
+  assert.deepEqual(effectiveSettings(omitted), effectiveSettings(explicit));
+  assert.equal(effectiveSettings(omitted).configuredPointBudget, 250_000);
+  assert.equal(effectiveSettings(overridden).configuredPointBudget, 120_000);
+});
+
 test("renderer-neutral core loads metadata and hierarchy without Cesium", async () => {
   const source = createSourceFactory();
   const controller = createController(source.backend);

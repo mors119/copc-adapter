@@ -23,12 +23,42 @@ import { CopcCesiumLayer } from '@frillab/copc-adapter/cesium';
 const viewer = new Cesium.Viewer('cesium-container');
 const layer = new CopcCesiumLayer({
   url: 'https://example.com/data.copc.laz',
-  colorMode: 'rgb',
 });
 
 await layer.load();
 layer.attachTo(viewer);
 ```
+
+The default appearance is fixed cyan at 3 pixels. `url` also accepts a local
+browser `File` or `Blob`; the adapter reads requested slices without uploading
+the file.
+
+Three.js minimal usage:
+
+```ts
+import * as THREE from 'three';
+import { CopcThreeLayer } from '@frillab/copc-adapter/three';
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 20_000);
+const renderer = new THREE.WebGLRenderer();
+const layer = new CopcThreeLayer({
+  url: 'https://example.com/data.copc.laz',
+});
+
+await layer.load();
+layer.attachTo({ scene, camera, renderer });
+
+function animate() {
+  requestAnimationFrame(animate);
+  void layer.update();
+  renderer.render(scene, camera);
+}
+animate();
+```
+
+Three.js `url` accepts the same local `File` and `Blob` inputs. The
+application owns and renders the scene, camera, and WebGL renderer.
 
 An opt-in batched renderer is available through the Cesium entrypoint. The
 default remains `PointPrimitiveRenderer`:

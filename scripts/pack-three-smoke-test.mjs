@@ -193,6 +193,11 @@ try {
     cwd: consumerDirectory,
     stdio: "inherit",
   });
+  console.log("Typechecking the packed Three.js consumer API examples...");
+  await run(npmCommand(), ["run", "typecheck"], {
+    cwd: consumerDirectory,
+    stdio: "inherit",
+  });
   const consumerAssetEntries = await readdir(
     path.resolve(consumerDirectory, "dist/assets"),
   );
