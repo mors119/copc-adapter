@@ -48,6 +48,7 @@ type DebugState = {
     configuredPointBudget: number;
     activeRenderedPointCount: number;
     activeNodeCount: number;
+    queuedNodeCount: number;
     deferredNodeCount: number;
     deferredPointCount: number;
     refinementAlgorithm?: string;
@@ -78,7 +79,7 @@ type DebugState = {
     abortedSuperseded: number;
     abortedLifecycle: number;
   };
-  hierarchy: Record<string, unknown>;
+  hierarchy: Record<string, unknown> & { activePageLoads: number };
   worker?: {
     workerCount: number;
     activeCount: number;
@@ -183,18 +184,25 @@ async function getState(
 async function waitForIdle(
   page: import("@playwright/test").Page,
 ): Promise<DebugState> {
+  // Worker and Range counters can be idle while the core still has node loads
+  // queued.
   let stableSamples = 0;
   let previous = await getState(page);
 
-  for (let attempt = 0; attempt < 120; attempt += 1) {
+  for (let attempt = 0; attempt < 240; attempt += 1) {
     await page.waitForTimeout(250);
     const current = await getState(page);
     const workerIdle =
       !current.worker ||
       (current.worker.activeCount === 0 && current.worker.queuedCount === 0);
+    const nodeLoadsIdle =
+      current.performance.activeNodeCount === 0 &&
+      current.performance.queuedNodeCount === 0;
     if (
       workerIdle &&
+      nodeLoadsIdle &&
       current.rangeRequests.active === 0 &&
+      current.hierarchy.activePageLoads === 0 &&
       current.streamingUpdateCount === previous.streamingUpdateCount
     ) {
       stableSamples += 1;
@@ -205,7 +213,17 @@ async function waitForIdle(
     previous = current;
   }
 
-  return previous;
+  throw new Error(
+    `Streaming did not become idle within 60s: ${JSON.stringify({
+      streamingUpdateCount: previous.streamingUpdateCount,
+      activeNodeCount: previous.performance.activeNodeCount,
+      queuedNodeCount: previous.performance.queuedNodeCount,
+      activePageLoads: previous.hierarchy.activePageLoads,
+      activeRangeRequests: previous.rangeRequests.active,
+      activeWorkers: previous.worker?.activeCount ?? 0,
+      queuedWorkers: previous.worker?.queuedCount ?? 0,
+    })}`,
+  );
 }
 
 async function sampleFrames(
