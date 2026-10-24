@@ -4,19 +4,80 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: npm
     directory: "/packages"
     schedule:
       interval: weekly
+    open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "three"
+        update-types: ["version-update:semver-minor"]
+      - dependency-name: "@types/three"
+        update-types: ["version-update:semver-minor"]
+      - dependency-name: "copc"
+        update-types: ["version-update:semver-minor"]
   - package-ecosystem: npm
     directory: "/apps/dev-viewer"
     schedule:
       interval: weekly
+    open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "three"
+        update-types: ["version-update:semver-minor"]
+      - dependency-name: "@types/three"
+        update-types: ["version-update:semver-minor"]
+      - dependency-name: "copc"
+        update-types: ["version-update:semver-minor"]
+  - package-ecosystem: npm
+    directory: "/apps/playground"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "three"
+        update-types: ["version-update:semver-minor"]
+      - dependency-name: "@types/three"
+        update-types: ["version-update:semver-minor"]
+      - dependency-name: "@frillab/copc-adapter"
+        update-types:
+          - "version-update:semver-patch"
+          - "version-update:semver-minor"
+          - "version-update:semver-major"
   - package-ecosystem: cargo
     directory: "/"
     schedule:
       interval: weekly
+    open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "laz"
+        update-types: ["version-update:semver-minor"]
+      - dependency-name: "proj4rs"
+        update-types: ["version-update:semver-minor"]
+      - dependency-name: "proj4wkt"
+        update-types: ["version-update:semver-minor"]
+      - dependency-name: "js-sys"
+        update-types: ["version-update:semver-minor"]
+      - dependency-name: "web-sys"
+        update-types: ["version-update:semver-minor"]
+      - dependency-name: "wasm-bindgen*"
+        update-types: ["version-update:semver-minor"]
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: weekly
+    open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
