@@ -24,8 +24,14 @@ import {
 import {
   workbenchBackendOptions,
   workbenchRendererOptions,
-  type WorkbenchLayerConfig,
 } from "../../shared/workbench-config";
+import {
+  generateIntegrationCode,
+  isPotentiallySensitiveSource,
+  PLAYGROUND_INSTALL_COMMANDS,
+  type IntegrationCodeConfig,
+  type IntegrationCodeOptions,
+} from "./integrationCode";
 import {
   createPlaygroundRuntime,
   type CesiumLayerFactory,
@@ -40,12 +46,16 @@ import {
 } from "./rendererRuntime";
 import {
   defaultPlaygroundRefinementConfig,
-  readPlaygroundRefinementConfig,
   refinementAlgorithmOptions,
-  writePlaygroundRefinementConfig,
   type PlaygroundFocusMode,
   type PlaygroundRefinementConfig,
 } from "./refinementConfig";
+import {
+  defaultPlaygroundUrlConfig,
+  readPlaygroundUrlConfig,
+  writePlaygroundUrlConfig,
+  type PlaygroundUrlConfig,
+} from "./playgroundUrlConfig";
 import "./style.css";
 
 const app = document.querySelector<HTMLDivElement>("#app");
@@ -232,11 +242,36 @@ app.innerHTML = `
         <p id="point-empty">Click a point in the viewport to inspect its available attributes.</p>
         <dl id="point-attributes" class="point-attributes" hidden></dl>
       </section>
-      <details class="code-card">
-        <summary>Use the public API</summary>
-        <pre><code id="integration-example">const layer = new CopcCesiumLayer({ url: copcUrl });
-await layer.load();
-layer.attachTo(viewer);</code></pre>
+      <details class="code-card generated-code-card" open>
+        <summary><span>Generated code</span><span class="summary-state">Public API · v${__ADAPTER_VERSION__}</span></summary>
+        <p class="generated-code-intro">Copy a runnable starting point for the last successfully applied Playground settings.</p>
+        <div class="generated-code-toolbar">
+          <div class="code-mode-control" role="group" aria-label="Code detail">
+            <button id="code-mode-minimal" type="button" aria-pressed="true">Minimal</button>
+            <button id="code-mode-explicit" type="button" aria-pressed="false">Explicit</button>
+          </div>
+          <button id="copy-code" type="button">Copy code</button>
+        </div>
+        <label class="share-option" id="exact-source-option" for="include-exact-source">
+          <input id="include-exact-source" type="checkbox" checked>
+          Include the active source URL in code
+        </label>
+        <p class="source-privacy-warning" id="source-code-warning" role="status" aria-live="polite" hidden></p>
+        <pre><code id="integration-example"></code></pre>
+        <div class="install-guidance">
+          <span>Install for this renderer</span>
+          <code id="install-command"></code>
+          <button id="copy-install" type="button">Copy install command</button>
+        </div>
+        <div class="share-toolbar">
+          <label class="share-option" id="share-source-option" for="include-share-source">
+            <input id="include-share-source" type="checkbox">
+            Include source URL in share link
+          </label>
+          <button id="copy-share-link" type="button">Copy share link</button>
+        </div>
+        <p class="source-privacy-warning" id="source-share-warning" role="status" aria-live="polite" hidden></p>
+        <p class="share-status" id="share-status" role="status" aria-live="polite"></p>
       </details>
     </section>
     <footer class="statusbar"><span id="footer-status">Ready · No source loaded</span><span>Client-side · No upload</span></footer>
@@ -271,20 +306,35 @@ const focusXInput = byId<HTMLInputElement>("focus-x");
 const focusYInput = byId<HTMLInputElement>("focus-y");
 const focusPositionControls = byId<HTMLDivElement>("focus-position-controls");
 const focusConfigWarning = byId<HTMLElement>("focus-config-warning");
-
-let renderer: PlaygroundRenderer = "cesium";
-let backend: PlaygroundBackend = "copc-js";
-let colorMode: PlaygroundColorMode = "elevation";
-let pointSize = 3;
-let maxNodes = 24;
+const codeElement = byId<HTMLElement>("integration-example");
+const codeModeMinimalButton = byId<HTMLButtonElement>("code-mode-minimal");
+const codeModeExplicitButton = byId<HTMLButtonElement>("code-mode-explicit");
+const exactSourceOption = byId<HTMLLabelElement>("exact-source-option");
+const exactSourceInput = byId<HTMLInputElement>("include-exact-source");
+const sourceCodeWarning = byId<HTMLElement>("source-code-warning");
+const shareSourceInput = byId<HTMLInputElement>("include-share-source");
+const shareSourceOption = byId<HTMLLabelElement>("share-source-option");
+const sourceShareWarning = byId<HTMLElement>("source-share-warning");
+const shareStatus = byId<HTMLElement>("share-status");
+const copyCodeButton = byId<HTMLButtonElement>("copy-code");
+const copyInstallButton = byId<HTMLButtonElement>("copy-install");
+const copyShareButton = byId<HTMLButtonElement>("copy-share-link");
+const installCommand = byId<HTMLElement>("install-command");
 const maxDepth = DEFAULT_WORKBENCH_MAX_DEPTH;
 const maxScreenSpaceError = 8;
-let maxRenderedPoints = 250_000;
-const parsedRefinementConfig = readPlaygroundRefinementConfig(
+const parsedUrlConfig = readPlaygroundUrlConfig(
   new URLSearchParams(window.location.search),
 );
-let refinementConfig: PlaygroundRefinementConfig =
-  parsedRefinementConfig.config;
+const shareSourceFromUrl = parsedUrlConfig.sourceUrl;
+if (parsedUrlConfig.warning) shareStatus.textContent = parsedUrlConfig.warning;
+let renderer: PlaygroundRenderer = parsedUrlConfig.config.renderer;
+let backend: PlaygroundBackend = parsedUrlConfig.config.backend;
+let colorMode: PlaygroundColorMode = parsedUrlConfig.config.colorMode;
+let pointSize = parsedUrlConfig.config.pointSize;
+let maxNodes = parsedUrlConfig.config.maxNodes;
+let maxRenderedPoints = parsedUrlConfig.config.maxRenderedPoints;
+let codeMode: "minimal" | "explicit" = "minimal";
+let refinementConfig: PlaygroundRefinementConfig = parsedUrlConfig.refinementConfig;
 let followPointerCenter = { ...refinementConfig.center };
 let focusDragPointerId: number | undefined;
 let focusDragOffset = { x: 0, y: 0 };
@@ -302,6 +352,7 @@ let focusConfigSyncTimer: number | undefined;
 let sourceGeneration = 0;
 let activeLoadPending = false;
 let activeSource: PlaygroundSource | undefined;
+let appliedSource: PlaygroundSource | undefined;
 let activeSourceName = "";
 let activeRuntime: PlaygroundRuntime | undefined;
 let activeRuntimeReady = false;
@@ -310,31 +361,21 @@ let browserMeasurements: PlaygroundBrowserMeasurements = {};
 let loadInitiatedAt: number | undefined;
 let diagnosticsRefreshCleanup: (() => void) | undefined;
 let longTaskObserver: PerformanceObserver | undefined;
-type AppliedPlaygroundConfig = WorkbenchLayerConfig & {
-  readonly renderer: PlaygroundRenderer;
-  readonly refinementConfig: PlaygroundRefinementConfig;
-};
-const defaultIntegrationConfig: AppliedPlaygroundConfig = {
-  renderer: "cesium",
-  backend: "copc-js",
-  colorMode: "elevation",
-  pointSize: 3,
-  maxNodes: 24,
+const defaultIntegrationConfig: IntegrationCodeConfig = {
+  ...defaultPlaygroundUrlConfig,
   maxDepth,
   maxScreenSpaceError,
-  maxRenderedPoints: 250_000,
-  refinementAlgorithm: "foveated",
   refinementConfig: {
     ...defaultPlaygroundRefinementConfig,
     center: { ...defaultPlaygroundRefinementConfig.center },
   },
 };
-let appliedConfig: AppliedPlaygroundConfig | undefined;
+let appliedConfig: IntegrationCodeConfig | undefined;
 let activeProbeResult: CopcSourceProbeResult | undefined;
 let cameraInteractionVersion = 0;
 let layerFactory: CesiumLayerFactory | undefined;
 
-function captureWorkbenchConfig(): AppliedPlaygroundConfig {
+function captureWorkbenchConfig(): IntegrationCodeConfig {
   return {
     renderer,
     backend,
@@ -361,8 +402,8 @@ focusEnabledInput.checked = refinementConfig.focusEnabled;
 focusShowGuideInput.checked = refinementConfig.showGuide;
 focusXInput.value = String(refinementConfig.center.x);
 focusYInput.value = String(refinementConfig.center.y);
-if (parsedRefinementConfig.warning) {
-  focusConfigWarning.textContent = parsedRefinementConfig.warning;
+if (parsedUrlConfig.warning) {
+  focusConfigWarning.textContent = parsedUrlConfig.warning;
   focusConfigWarning.hidden = false;
 }
 
@@ -397,6 +438,13 @@ declare global {
       getMockRefinementFocus(): RefinementFocus | undefined;
       getSnapshot(): PlaygroundSnapshot | undefined;
       getCameraInputsEnabled(): boolean | undefined;
+      generateIntegrationCode(options: IntegrationCodeOptions): string;
+      readUrlConfig(query: string): ReturnType<typeof readPlaygroundUrlConfig>;
+      writeUrlConfig(
+        config: PlaygroundUrlConfig,
+        refinement: PlaygroundRefinementConfig,
+        sourceUrl?: string,
+      ): string;
     };
   }
 }
@@ -551,6 +599,13 @@ if (import.meta.env.DEV) {
     getCameraInputsEnabled(): boolean | undefined {
       return activeRuntime?.getCameraInputsEnabled();
     },
+    generateIntegrationCode,
+    readUrlConfig(query) {
+      return readPlaygroundUrlConfig(new URLSearchParams(query));
+    },
+    writeUrlConfig(config, refinement, sourceUrl) {
+      return writePlaygroundUrlConfig(config, refinement, sourceUrl).toString();
+    },
   };
 }
 
@@ -604,6 +659,7 @@ const colorControl = mountSegmentedControl<PlaygroundColorMode>(
     choices: [],
     onChange: (value) => {
       colorMode = value;
+      writePendingUrlConfig();
       byId("point-empty").textContent =
         "Click a point in the viewport to inspect its available attributes.";
       reloadActiveSource();
@@ -612,23 +668,27 @@ const colorControl = mountSegmentedControl<PlaygroundColorMode>(
 );
 
 const updateColorChoices = (pointFormat?: number): void => {
+  const formatKnown = pointFormat !== undefined;
   const rgbSupported =
-    pointFormat !== undefined && knownRgbFormats.has(pointFormat & 0x3f);
+    formatKnown && knownRgbFormats.has(pointFormat & 0x3f);
   const choices: readonly UiSegmentOption<PlaygroundColorMode>[] = [
+    { value: "fixed", label: "Fixed" },
     { value: "elevation", label: "Elevation" },
     { value: "intensity", label: "Intensity" },
     { value: "classification", label: "Classification" },
     {
       value: "rgb",
       label: "RGB",
-      disabled: !rgbSupported,
+      disabled: formatKnown && !rgbSupported,
       title: rgbSupported
         ? undefined
-        : "This dataset format does not advertise RGB channels.",
+        : formatKnown
+          ? "This dataset format does not advertise RGB channels."
+          : undefined,
     },
   ];
   colorControl.setOptions(choices);
-  if (colorMode === "rgb" && !rgbSupported) {
+  if (formatKnown && colorMode === "rgb" && !rgbSupported) {
     colorMode = "elevation";
     colorControl.setValue(colorMode);
   }
@@ -643,6 +703,7 @@ const rendererControl = mountSegmentedControl<PlaygroundRenderer>(
     choices: workbenchRendererOptions,
     onChange: (value) => {
       renderer = value;
+      writePendingUrlConfig();
       syncRendererLabels();
       reloadActiveSource();
     },
@@ -657,6 +718,7 @@ const backendControl = mountSegmentedControl<PlaygroundBackend>(
     choices: workbenchBackendOptions,
     onChange: (value) => {
       backend = value;
+      writePendingUrlConfig();
       syncRendererLabels();
       reloadActiveSource();
     },
@@ -690,6 +752,7 @@ const sliders = [
     formatValue: (value) => `${formatUiNumber(value)} px`,
     onCommit(value) {
       pointSize = value;
+      writePendingUrlConfig();
       reloadActiveSource();
     },
   }),
@@ -703,6 +766,7 @@ const sliders = [
     formatValue: formatUiNumber,
     onCommit(value) {
       maxNodes = value;
+      writePendingUrlConfig();
       reloadActiveSource();
     },
   }),
@@ -716,6 +780,7 @@ const sliders = [
     formatValue: (value) => formatUiNumber(value),
     onCommit(value) {
       maxRenderedPoints = value;
+      writePendingUrlConfig();
       reloadActiveSource();
     },
   }),
@@ -771,30 +836,120 @@ function effectiveRefinementFocus(
   };
 }
 
+function syncSourcePrivacyControls(): void {
+  const source = appliedSource;
+  const hasSource = source !== undefined;
+  const isLocalFile =
+    typeof File !== "undefined" && source instanceof File;
+  const sensitive =
+    typeof source === "string" && isPotentiallySensitiveSource(source);
+
+  exactSourceOption.hidden = !hasSource || isLocalFile;
+  exactSourceInput.disabled = !hasSource || isLocalFile;
+  if (!hasSource || isLocalFile) exactSourceInput.checked = false;
+  sourceCodeWarning.hidden = !sensitive;
+  sourceCodeWarning.textContent = sensitive
+    ? exactSourceInput.checked
+      ? "This URL contains credentials, query parameters, or a fragment. The visible snippet includes it; copying requires confirmation."
+      : "This URL may contain credentials or tokens. The snippet uses a placeholder; enable the checkbox above to reveal and copy the exact URL."
+    : "";
+
+  shareSourceOption.hidden = !hasSource;
+  shareSourceInput.disabled = !hasSource || isLocalFile || sensitive;
+  if (shareSourceInput.disabled) shareSourceInput.checked = false;
+  sourceShareWarning.hidden = !hasSource || (!isLocalFile && !sensitive);
+  sourceShareWarning.textContent = isLocalFile
+    ? "A local File cannot be serialized into a share link; the link will contain settings only."
+    : sensitive
+      ? "This URL may contain credentials or tokens, so it cannot be included in a share link."
+      : "";
+}
+
 function updateIntegrationExample(): void {
   const config = appliedConfig ?? defaultIntegrationConfig;
   const focusConfig = config.refinementConfig;
-  const algorithmLine = `streaming: { maxNodes: ${config.maxNodes}, refinementAlgorithm: '${config.refinementAlgorithm}' },`;
   const focus = effectiveRefinementFocus(
     focusConfig.center,
     config.renderer,
     focusConfig,
   );
-  const modeComment =
-    focusConfig.focusMode === "follow-pointer"
-      ? "// Playground focus mode: follow-pointer. Update center from this canvas’s normalized pointer coordinates."
-      : focusConfig.focusMode === "pinned"
-        ? "// Playground focus mode: pinned."
-        : focusConfig.focusMode === "center-boost"
-          ? "// Playground focus mode: center-boost."
-          : "// Playground focus mode: auto-center; no manual focus is active.";
-  const focusLine = focus
-    ? `${modeComment}\nlayer.setRefinementFocus({ type: 'screen-circle', center: { x: ${focus.center.x.toFixed(4)}, y: ${focus.center.y.toFixed(4)} }, radius: ${focus.radius.toFixed(4)}, detailBias: ${focus.detailBias.toFixed(2)} });`
-    : `${modeComment}\n// Focus Lens is disabled in the Playground.`;
-  byId<HTMLElement>("integration-example").textContent =
-    config.renderer === "cesium"
-      ? `const layer = new CopcCesiumLayer({ url: copcUrl, backend: '${config.backend}',\n  ${algorithmLine}\n});\nawait layer.load();\nlayer.attachTo(viewer);\n${focusLine}`
-      : `const layer = new CopcThreeLayer({ url: copcUrl, backend: '${config.backend}',\n  ${algorithmLine}\n});\nlayer.attachTo({ scene, camera, renderer });\nawait layer.load();\n${modeComment}`;
+  codeElement.textContent = generateIntegrationCode({
+    config,
+    source: appliedSource,
+    includeExactSource: exactSourceInput.checked,
+    mode: codeMode,
+    adapterVersion: __ADAPTER_VERSION__,
+    ...(focus ? { refinementFocus: focus } : {}),
+  });
+  installCommand.textContent = PLAYGROUND_INSTALL_COMMANDS[config.renderer];
+  codeModeMinimalButton.setAttribute(
+    "aria-pressed",
+    String(codeMode === "minimal"),
+  );
+  codeModeExplicitButton.setAttribute(
+    "aria-pressed",
+    String(codeMode === "explicit"),
+  );
+  syncSourcePrivacyControls();
+}
+
+function copyTextToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
+  const field = document.createElement("textarea");
+  field.value = text;
+  field.setAttribute("readonly", "");
+  field.style.position = "fixed";
+  field.style.opacity = "0";
+  document.body.append(field);
+  field.select();
+  const copied = document.execCommand("copy");
+  field.remove();
+  return copied
+    ? Promise.resolve()
+    : Promise.reject(new Error("Clipboard access is unavailable."));
+}
+
+async function copyWithFeedback(
+  button: HTMLButtonElement,
+  content: string,
+  successMessage: string,
+): Promise<void> {
+  try {
+    await copyTextToClipboard(content);
+    button.textContent = "Copied";
+    shareStatus.textContent = successMessage;
+  } catch {
+    button.textContent = "Copy failed";
+    shareStatus.textContent =
+      "Copy failed. Select the visible text and copy it manually.";
+  }
+  window.setTimeout(() => {
+    if (!disposed) {
+      button.textContent =
+        button === copyCodeButton
+          ? "Copy code"
+          : button === copyInstallButton
+            ? "Copy install command"
+            : "Copy share link";
+    }
+  }, 1800);
+}
+
+function createShareUrl(): string {
+  const config = appliedConfig ?? captureWorkbenchConfig();
+  const sourceUrl =
+    shareSourceInput.checked && typeof appliedSource === "string"
+      ? appliedSource
+      : undefined;
+  const params = writePlaygroundUrlConfig(
+    config,
+    config.refinementConfig,
+    sourceUrl,
+  );
+  const url = new URL(window.location.href);
+  url.search = params.toString();
+  url.hash = "";
+  return url.toString();
 }
 
 function updateFocusControls(): void {
@@ -850,15 +1005,31 @@ function updateFocusControls(): void {
   updateFocusGuidePosition();
 }
 
-function writeRefinementUrl(): void {
-  const params = writePlaygroundRefinementConfig(
-    new URLSearchParams(window.location.search),
+function writePendingUrlConfig(): void {
+  const currentParams = new URLSearchParams(window.location.search);
+  const currentSourceUrl = currentParams.get("sourceUrl");
+  const sharedSource =
+    currentSourceUrl && !isPotentiallySensitiveSource(currentSourceUrl)
+      ? currentSourceUrl
+      : undefined;
+  const params = writePlaygroundUrlConfig(
+    captureWorkbenchConfig(),
     refinementConfig,
+    sharedSource,
   );
   const query = params.toString();
   const nextUrl = `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`;
   window.history.replaceState(window.history.state, "", nextUrl);
   focusConfigWarning.hidden = true;
+}
+
+function removeSharedSourceParam(): void {
+  const params = new URLSearchParams(window.location.search);
+  if (!params.has("sourceUrl")) return;
+  params.delete("sourceUrl");
+  const query = params.toString();
+  const nextUrl = `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`;
+  window.history.replaceState(window.history.state, "", nextUrl);
 }
 
 function applyFocusSettings(syncUrl = true): void {
@@ -875,7 +1046,7 @@ function applyFocusSettings(syncUrl = true): void {
       },
     };
   }
-  if (syncUrl) writeRefinementUrl();
+  if (syncUrl) writePendingUrlConfig();
   updateIntegrationExample();
   refreshSnapshot();
 }
@@ -1030,7 +1201,7 @@ function finishFocusDrag(): void {
   if (focusConfigSyncTimer !== undefined)
     window.clearTimeout(focusConfigSyncTimer);
   focusConfigSyncTimer = undefined;
-  writeRefinementUrl();
+  writePendingUrlConfig();
 }
 
 function onFocusGuidePointerDown(event: PointerEvent): void {
@@ -1114,7 +1285,7 @@ function flushDragFocusUpdate(force = false): void {
     window.clearTimeout(focusConfigSyncTimer);
   focusConfigSyncTimer = window.setTimeout(() => {
     focusConfigSyncTimer = undefined;
-    writeRefinementUrl();
+    writePendingUrlConfig();
   }, 300);
 }
 
@@ -1404,7 +1575,7 @@ algorithmSelect.addEventListener("change", () => {
   if (!selected) return;
   refinementConfig = { ...refinementConfig, algorithm: selected.value };
   updateFocusControls();
-  writeRefinementUrl();
+  writePendingUrlConfig();
   updateIntegrationExample();
   refreshSnapshot();
   reloadActiveSource();
@@ -1426,7 +1597,7 @@ focusShowGuideInput.addEventListener("change", () => {
     showGuide: focusShowGuideInput.checked,
   };
   updateFocusControls();
-  writeRefinementUrl();
+  writePendingUrlConfig();
 });
 focusXInput.addEventListener("change", () => {
   const x = Number(focusXInput.value);
@@ -1699,6 +1870,7 @@ const loadSource = async (
     ) {
       createdRuntime.setCameraState(priorCamera);
     }
+    const sourceChanged = appliedSource !== source;
     appliedConfig = {
       ...loadConfig,
       refinementConfig: {
@@ -1706,6 +1878,12 @@ const loadSource = async (
         center: { ...refinementConfig.center },
       },
     };
+    appliedSource = source;
+    if (sourceChanged) {
+      exactSourceInput.checked =
+        typeof source === "string" && !isPotentiallySensitiveSource(source);
+      shareSourceInput.checked = false;
+    }
     activeRuntimeReady = true;
     updateIntegrationExample();
     setStatus(`Loaded ${sourceName}`, "ready");
@@ -1768,10 +1946,15 @@ const invalidateSourceRequest = (): number => {
 remoteSelect.addEventListener("change", () => {
   invalidateSourceRequest();
   customUrlInput.disabled = remoteSelect.value !== "custom";
+  removeSharedSourceParam();
 });
-customUrlInput.disabled = true;
+customUrlInput.disabled = remoteSelect.value !== "custom";
+if (shareSourceFromUrl) customUrlInput.value = shareSourceFromUrl;
 customUrlInput.addEventListener("input", () => {
-  if (remoteSelect.value === "custom") invalidateSourceRequest();
+  if (remoteSelect.value === "custom") {
+    invalidateSourceRequest();
+    removeSharedSourceParam();
+  }
 });
 
 fileInput.addEventListener("change", async () => {
@@ -1780,6 +1963,7 @@ fileInput.addEventListener("change", async () => {
   fileInput.value = "";
   sourceProbe.textContent =
     "Local files are read directly by the browser; HTTP CORS and Range checks do not apply.";
+  removeSharedSourceParam();
   const generation = invalidateSourceRequest();
   await loadSource(file, file.name, {
     generation,
@@ -1862,6 +2046,62 @@ remoteLoadButton.addEventListener("click", async () => {
     }
   }
 });
+
+codeModeMinimalButton.addEventListener("click", () => {
+  codeMode = "minimal";
+  updateIntegrationExample();
+});
+codeModeExplicitButton.addEventListener("click", () => {
+  codeMode = "explicit";
+  updateIntegrationExample();
+});
+exactSourceInput.addEventListener("change", updateIntegrationExample);
+shareSourceInput.addEventListener("change", () => {
+  shareStatus.textContent = shareSourceInput.checked
+    ? "The active source URL will be included in the copied share link."
+    : "The copied share link will contain settings only.";
+});
+copyCodeButton.addEventListener("click", async () => {
+  const sensitiveSource =
+    typeof appliedSource === "string" &&
+    isPotentiallySensitiveSource(appliedSource) &&
+    exactSourceInput.checked;
+  if (
+    sensitiveSource &&
+    !window.confirm(
+      "The visible code contains a URL that may include credentials or tokens. Copy it anyway?",
+    )
+  ) {
+    shareStatus.textContent =
+      "Copy cancelled. Switch to the placeholder source to copy without the exact URL.";
+    return;
+  }
+  await copyWithFeedback(
+    copyCodeButton,
+    codeElement.textContent ?? "",
+    "Generated code copied.",
+  );
+});
+copyInstallButton.addEventListener("click", async () => {
+  await copyWithFeedback(
+    copyInstallButton,
+    installCommand.textContent ?? "",
+    "Install command copied.",
+  );
+});
+copyShareButton.addEventListener("click", async () => {
+  await copyWithFeedback(
+    copyShareButton,
+    createShareUrl(),
+    "Share link copied.",
+  );
+});
+
+if (shareSourceFromUrl) {
+  remoteSelect.value = "custom";
+  customUrlInput.disabled = false;
+  queueMicrotask(() => remoteLoadButton.click());
+}
 
 let disposed = false;
 const destroyPlayground = (): void => {

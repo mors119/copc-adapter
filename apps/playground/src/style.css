@@ -847,6 +847,104 @@ button {
   font-size: 8px;
   line-height: 1.55;
 }
+.generated-code-card {
+  grid-column: 1 / -1;
+}
+.generated-code-intro,
+.source-privacy-warning,
+.share-status {
+  color: var(--ui-muted);
+  font-size: 9px;
+  line-height: 1.5;
+}
+.source-privacy-warning {
+  color: var(--ui-warning);
+}
+.generated-code-toolbar,
+.share-toolbar,
+.code-mode-control {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.generated-code-toolbar,
+.share-toolbar {
+  justify-content: space-between;
+  margin-top: 9px;
+}
+.code-mode-control button,
+.generated-code-toolbar > button,
+.install-guidance button,
+.share-toolbar > button {
+  min-height: 28px;
+  padding: 5px 9px;
+  border: 1px solid #344a5e;
+  border-radius: 5px;
+  color: #d5e7f7;
+  background: #112235;
+  font-size: 9px;
+  cursor: pointer;
+}
+.code-mode-control button[aria-pressed="true"] {
+  border-color: #6da9d5;
+  color: #f2f9ff;
+  background: #1b3851;
+}
+.code-mode-control button:focus-visible,
+.generated-code-toolbar button:focus-visible,
+.install-guidance button:focus-visible,
+.share-toolbar button:focus-visible {
+  outline: 2px solid #c4e4ff;
+  outline-offset: 2px;
+}
+.share-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #c3d4e4;
+  font-size: 9px;
+  line-height: 1.4;
+}
+.share-option input {
+  accent-color: #8fc9ff;
+}
+.share-option input:disabled {
+  cursor: not-allowed;
+}
+.code-card pre {
+  max-height: 420px;
+  white-space: pre;
+}
+.code-card code {
+  display: block;
+  min-width: max-content;
+  font-size: 9px;
+}
+.install-guidance {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  color: var(--ui-muted);
+  font-size: 9px;
+}
+.install-guidance code {
+  min-width: 0;
+  overflow-x: auto;
+  color: #c4d8eb;
+  font-family: var(--mono);
+}
+.share-toolbar {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--ui-border);
+}
+.share-status {
+  min-height: 14px;
+  margin: 8px 0 0;
+}
 .statusbar {
   min-height: 26px;
   display: flex;
@@ -966,5 +1064,11 @@ button {
     align-items: flex-start;
     flex-direction: column;
     gap: 2px;
+  }
+  .install-guidance {
+    grid-template-columns: 1fr auto;
+  }
+  .install-guidance > span {
+    grid-column: 1 / -1;
   }
 }
