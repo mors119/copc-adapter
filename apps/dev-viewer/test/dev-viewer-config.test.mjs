@@ -10,6 +10,7 @@ import {
   isRefinementAlgorithm,
   needsSessionRecreation,
   sourceSupportsHttpRange,
+  toWorkbenchOptionValues,
   validateDevViewerConfig,
 } from "../src/devViewerConfig.ts";
 
@@ -132,6 +133,17 @@ test("only recreates a local File session for applicable constructor changes", (
     ),
     false,
   );
+});
+
+test("normalizes active renderer settings without applying inactive Cesium renderer choices", () => {
+  const cesium = toWorkbenchOptionValues(createConfig());
+  assert.equal(cesium["rendering.cesiumPointRenderer"], "point-primitive");
+  assert.equal(cesium["streaming.maxRenderDistanceMeters"], 12_000);
+
+  const three = toWorkbenchOptionValues(createConfig({ renderer: "three" }));
+  assert.equal(Object.hasOwn(three, "rendering.cesiumPointRenderer"), false);
+  assert.equal(Object.hasOwn(three, "coordinates.heightOffsetMeters"), false);
+  assert.equal(three["streaming.maxRenderDistanceMeters"], 12_000);
 });
 
 test("redacts credentials and signed query values from source labels", () => {

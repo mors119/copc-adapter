@@ -46,7 +46,14 @@ import {
 } from "./threeViewer";
 import { mountWorkbenchPanels } from "./workbenchPanels";
 import { mountDevViewerControls } from "./devViewerControls";
-import { toWorkbenchLayerOptions } from "../../shared/workbench-config";
+import {
+  applySchemaRuntimeOperations,
+  buildSchemaApplicationPlan,
+} from "../../shared/config/index.ts";
+import {
+  WORKSPACE_CURRENT_CAPABILITIES,
+  WORKSPACE_CURRENT_MANIFEST,
+} from "../../shared/schema/index.ts";
 import {
   getCesiumTerrainProviderUrl,
   getSafeSourceLabel,
@@ -56,6 +63,7 @@ import {
   isRefinementAlgorithm,
   needsSessionRecreation,
   sourceSupportsHttpRange,
+  toWorkbenchOptionValues,
   validateDevViewerConfig,
   type CameraPreset,
   type CesiumPointRendererVariant,
@@ -659,6 +667,7 @@ function getSelectedBackend(): CopcBackendName {
 function getLayerOptions(
   source: string | File = getCopcUrl(),
   config?: DevViewerConfig,
+  applicationPlan?: ReturnType<typeof buildSchemaApplicationPlan>,
 ): ConstructorParameters<typeof CopcCesiumLayer>[0] {
   const params = new URLSearchParams(window.location.search);
   const heightOffsetParam = params.get("heightOffsetMeters");
@@ -706,12 +715,23 @@ function getLayerOptions(
   const rangeValidation = isRangeValidationPolicy(requestedRangeValidation)
     ? requestedRangeValidation
     : "head-fallback";
-  const workbenchOptions = config
-    ? toWorkbenchLayerOptions({
-        ...config,
-        maxRenderDistanceMeters: config.maxRenderDistance,
-      })
+  const plan = config
+    ? applicationPlan ?? buildSchemaApplicationPlan(
+        {
+          ...toWorkbenchOptionValues(config),
+          "source.url": source,
+          "renderer.engine": "cesium",
+        },
+        {
+          manifest: WORKSPACE_CURRENT_MANIFEST,
+          renderer: "cesium",
+          runtimeCapabilities: WORKSPACE_CURRENT_CAPABILITIES,
+        },
+      )
     : undefined;
+  const workbenchOptions = plan?.constructorOptions as
+    | Partial<ConstructorParameters<typeof CopcCesiumLayer>[0]>
+    | undefined;
   const streamingOptions =
     workbenchOptions?.streaming ?? {
       maxNodes: issueScenario ? (issue128 ? 16 : 32) : 24,
@@ -798,6 +818,18 @@ async function createCesiumSession(
   onError: (error: unknown) => void,
   onPointPicked: (point: CopcPointInspection | undefined) => void,
 ): Promise<ViewerSession> {
+  const applicationPlan = buildSchemaApplicationPlan(
+    {
+      ...toWorkbenchOptionValues(config),
+      "source.url": config.source,
+      "renderer.engine": "cesium",
+    },
+    {
+      manifest: WORKSPACE_CURRENT_MANIFEST,
+      renderer: "cesium",
+      runtimeCapabilities: WORKSPACE_CURRENT_CAPABILITIES,
+    },
+  );
   const params = new URLSearchParams(window.location.search);
   const usePublicBatchedRenderer = config.cesiumRenderer === "batched-geometry";
   const testHighDpiRendering = params.get("testDpr") === "1";
@@ -846,7 +878,7 @@ async function createCesiumSession(
     ? new BatchedGeometryPointRenderer()
     : undefined;
   const layer = new CopcCesiumLayer({
-    ...getLayerOptions(config.source, config),
+    ...getLayerOptions(config.source, config, applicationPlan),
     renderer: researchRenderer ?? new PointPrimitiveRenderer(),
     onPointPicked,
     ...(ellipsoidalTerrainFixture
@@ -856,6 +888,7 @@ async function createCesiumSession(
         }
       : {}),
   });
+  await applySchemaRuntimeOperations(layer, applicationPlan.runtimeOperations);
   const debugAdapter = installDebugAdapter(
     viewer,
     layer,
@@ -943,17 +976,25 @@ function createThreeSession(
   config: DevViewerConfig,
   onError: (error: unknown) => void,
 ): ViewerSession {
-  const workbenchOptions = toWorkbenchLayerOptions({
-    ...config,
-    maxRenderDistanceMeters: config.maxRenderDistance,
-  });
+  const applicationPlan = buildSchemaApplicationPlan(
+    {
+      ...toWorkbenchOptionValues(config),
+      "source.url": config.source,
+      "renderer.engine": "three",
+    },
+    {
+      manifest: WORKSPACE_CURRENT_MANIFEST,
+      renderer: "three",
+      runtimeCapabilities: WORKSPACE_CURRENT_CAPABILITIES,
+    },
+  );
+  const layerOptions = applicationPlan.constructorOptions as unknown as
+    import("@frillab/copc-adapter/three").CopcThreeLayerOptions;
   const viewer: DevThreeViewer = createDevThreeViewer({
     container,
-    source: config.source,
     sourceName: getSafeSourceLabel(config.source, window.location.href),
-    ...workbenchOptions,
+    layerOptions,
     cameraRenderDistance: config.cameraRenderDistance,
-    rangeValidation: config.rangeValidation,
     onPointPicked: () => undefined,
     onError,
   });

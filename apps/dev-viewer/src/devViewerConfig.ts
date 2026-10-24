@@ -8,6 +8,15 @@ import type {
   WorkbenchLayerConfig,
   WorkbenchRenderer,
 } from "../../shared/workbench-config";
+import {
+  buildSchemaApplicationPlan,
+  getChangedWorkbenchOptionIds,
+  normalizeWorkbenchOptionValues,
+} from "../../shared/config/index.ts";
+import {
+  WORKSPACE_CURRENT_CAPABILITIES,
+  WORKSPACE_CURRENT_MANIFEST,
+} from "../../shared/schema/index.ts";
 
 export type RenderingEngine = WorkbenchRenderer;
 export type CesiumPointRendererVariant = "point-primitive" | "batched-geometry";
@@ -173,23 +182,13 @@ export function hasUnappliedSettings(
   pending: DevViewerConfig,
 ): boolean {
   return (
-    applied.renderer !== pending.renderer ||
-    applied.cesiumRenderer !== pending.cesiumRenderer ||
-    applied.backend !== pending.backend ||
-    applied.refinementAlgorithm !== pending.refinementAlgorithm ||
-    applied.motionLookahead !== pending.motionLookahead ||
-    applied.rangeValidation !== pending.rangeValidation ||
-    applied.heightOffsetMeters !== pending.heightOffsetMeters ||
+    getChangedWorkbenchOptionIds(
+      toWorkbenchOptionValues(applied),
+      toWorkbenchOptionValues(pending),
+    ).length > 0 ||
     applied.terrainUrl !== pending.terrainUrl ||
-    applied.colorMode !== pending.colorMode ||
-    applied.pointSize !== pending.pointSize ||
-    applied.maxNodes !== pending.maxNodes ||
-    applied.maxRenderedPoints !== pending.maxRenderedPoints ||
-    applied.maxDepth !== pending.maxDepth ||
-    applied.maxScreenSpaceError !== pending.maxScreenSpaceError ||
     applied.cameraPreset !== pending.cameraPreset ||
-    applied.cameraRenderDistance !== pending.cameraRenderDistance ||
-    applied.maxRenderDistance !== pending.maxRenderDistance
+    applied.cameraRenderDistance !== pending.cameraRenderDistance
   );
 }
 
@@ -199,27 +198,48 @@ export function needsSessionRecreation(
   hasActiveSession: boolean,
   currentSourceUsesHttp: boolean,
 ): boolean {
-  return (
-    !hasActiveSession ||
-    applied.renderer !== next.renderer ||
-    applied.backend !== next.backend ||
-    applied.refinementAlgorithm !== next.refinementAlgorithm ||
-    applied.motionLookahead !== next.motionLookahead ||
-    applied.pointSize !== next.pointSize ||
-    applied.maxNodes !== next.maxNodes ||
-    applied.maxRenderedPoints !== next.maxRenderedPoints ||
-    applied.maxDepth !== next.maxDepth ||
-    applied.maxScreenSpaceError !== next.maxScreenSpaceError ||
-    applied.maxRenderDistance !== next.maxRenderDistance ||
-    (next.renderer === "cesium" &&
-      (applied.heightOffsetMeters !== next.heightOffsetMeters ||
-        applied.terrainUrl !== next.terrainUrl)) ||
-    (currentSourceUsesHttp &&
-      applied.rangeValidation !== next.rangeValidation) ||
-    (next.renderer === "three" && applied.colorMode !== next.colorMode) ||
-    (next.renderer === "cesium" &&
-      applied.cesiumRenderer !== next.cesiumRenderer)
+  if (!hasActiveSession) return true;
+  const appliedValues = toWorkbenchOptionValues(applied);
+  const nextValues = toWorkbenchOptionValues(next);
+  if (!currentSourceUsesHttp) {
+    delete appliedValues["source.rangeValidation"];
+    delete nextValues["source.rangeValidation"];
+  }
+  if (next.renderer !== "cesium") {
+    delete appliedValues["coordinates.heightOffsetMeters"];
+    delete nextValues["coordinates.heightOffsetMeters"];
+  }
+  try {
+    const plan = buildSchemaApplicationPlan(
+      nextValues,
+      {
+        manifest: WORKSPACE_CURRENT_MANIFEST,
+        renderer: applied.renderer,
+        runtimeCapabilities: WORKSPACE_CURRENT_CAPABILITIES,
+      },
+      appliedValues,
+    );
+    return plan.requiresLayerReplacement ||
+      (next.renderer === "cesium" && applied.terrainUrl !== next.terrainUrl);
+  } catch {
+    // Unsupported or invalid pending state must be applied through a new checked plan.
+    return true;
+  }
+}
+
+/** Map the existing host config to stable schema IDs during Phase 2 migration. */
+export function toWorkbenchOptionValues(
+  config: DevViewerConfig,
+): Record<string, unknown> {
+  const values = normalizeWorkbenchOptionValues(
+    config as unknown as Readonly<Record<string, unknown>>,
   );
+  if (config.renderer !== "cesium") {
+    delete values["rendering.cesiumPointRenderer"];
+    delete values["coordinates.heightOffsetMeters"];
+  }
+  values["streaming.maxRenderDistanceMeters"] = config.maxRenderDistance;
+  return values;
 }
 
 /** Display a configured Terrain URL without credentials or query data. */

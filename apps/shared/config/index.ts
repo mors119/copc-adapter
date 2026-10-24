@@ -1,0 +1,26 @@
+export {
+  applySchemaRuntimeOperations,
+  applyWorkbenchConfiguration,
+  buildSchemaApplicationPlan,
+  createWorkbenchConfigurationState,
+  discardWorkbenchPending,
+  getChangedWorkbenchOptionIds,
+  isWorkbenchConfigurationDirty,
+  normalizeWorkbenchOptionValues,
+  replaceWorkbenchConfiguration,
+  restoreWorkbenchConfiguration,
+  serializeWorkbenchConfiguration,
+  updateWorkbenchConfiguration,
+  validateWorkbenchConfiguration,
+} from "./workbenchConfiguration.ts";
+export type {
+  SchemaApplicationPlan,
+  SchemaRuntimeOperation,
+  SchemaSpecializedOption,
+  WorkbenchApplyResult,
+  WorkbenchConfigurationContext,
+  WorkbenchConfigurationHost,
+  WorkbenchConfigurationState,
+  WorkbenchConfigurationUpdate,
+  WorkbenchOptionValues,
+} from "./workbenchConfiguration.ts";

@@ -13,6 +13,16 @@ that one definition instead of maintaining separate Playground and Dev Viewer
 lists. Phase 1 establishes the executable contract; it does not yet generate
 real UI controls or integration code.
 
+`apps/shared/config/` owns normalized pending/applied option maps and derives
+constructor options and runtime method calls from this registry. It validates
+before edits and again before application, uses a candidate for constructor or
+host changes, and commits the applied snapshot only after activation succeeds.
+Runtime-only updates reuse the active runtime and attempt to restore prior
+values if a setter fails. Host adapters provide runtime creation, activation,
+and disposal; the shared layer does not import Cesium, Three.js, or either app.
+Safe share-state serialization goes through the same schema functions and only
+serializes the requested pending or applied snapshot.
+
 `manifests.ts` resolves only audited package profiles. The Playground's npm
 profile is an explicit allowlist for the exact published release. The workspace
 profile follows the current audited schema so new local options do not need a

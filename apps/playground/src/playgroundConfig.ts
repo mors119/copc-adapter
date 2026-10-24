@@ -3,6 +3,15 @@ import type {
   WorkbenchLayerConfig,
   WorkbenchRenderer,
 } from "../../shared/workbench-config";
+import {
+  buildSchemaApplicationPlan,
+  normalizeWorkbenchOptionValues,
+  validateWorkbenchConfiguration,
+} from "../../shared/config/index.ts";
+import {
+  NPM_0_6_CAPABILITIES,
+  NPM_0_6_MANIFEST,
+} from "../../shared/schema/index.ts";
 
 const MIB = 1024 * 1024;
 
@@ -87,47 +96,19 @@ export function normalizeClassificationFilter(
 
 /** Validate values against the supported package contract before construction. */
 export function validatePlaygroundConfig(config: PlaygroundConfig): string[] {
-  const errors: string[] = [];
-  const positiveSafeInteger = (value: number, label: string): void => {
-    if (!Number.isSafeInteger(value) || value < 1) {
-      errors.push(`${label} must be a positive safe integer.`);
-    }
-  };
-  positiveSafeInteger(config.maxRenderedPoints, "Max rendered points");
-  positiveSafeInteger(config.maxNodes, "Max nodes");
-  if (!Number.isFinite(config.pointSize) || config.pointSize <= 0) {
-    errors.push("Point size must be a positive finite number.");
-  }
-  if (
-    !Number.isSafeInteger(config.maxPointCacheBytes) ||
-    config.maxPointCacheBytes < 0
-  ) {
-    errors.push("Cache budget must be a non-negative safe integer byte count.");
-  }
-  if (!Number.isSafeInteger(config.maxDepth) || config.maxDepth < 0) {
-    errors.push("Max depth must be a non-negative safe integer.");
-  }
-  if (
-    !Number.isFinite(config.maxScreenSpaceError) ||
-    config.maxScreenSpaceError <= 0
-  ) {
-    errors.push("Screen-space error must be a positive finite number.");
-  }
-  if (
-    !Number.isFinite(config.maxRenderDistanceMeters) ||
-    config.maxRenderDistanceMeters <= 0
-  ) {
-    errors.push("Render distance must be a positive finite number of metres.");
-  }
+  const values = normalizeWorkbenchOptionValues(
+    config as unknown as Readonly<Record<string, unknown>>,
+  );
+  const validation = validateWorkbenchConfiguration(values, {
+    manifest: NPM_0_6_MANIFEST,
+    renderer: config.renderer,
+    runtimeCapabilities: NPM_0_6_CAPABILITIES,
+  });
+  const errors = [...validation.errors];
   if (config.renderer === "three" && config.classificationFilter !== undefined) {
     errors.push(
       "Clear the Cesium classification filter before applying the Three.js renderer; Three.js has no public runtime style setter.",
     );
-  }
-  try {
-    normalizeClassificationFilter(config.classificationFilter);
-  } catch (error) {
-    errors.push(error instanceof Error ? error.message : String(error));
   }
   return errors;
 }
@@ -137,19 +118,26 @@ export function hasConstructorChanges(
   pending: PlaygroundConfig,
   active: PlaygroundConfig,
 ): boolean {
-  return (
-    pending.renderer !== active.renderer ||
-    pending.backend !== active.backend ||
-    pending.pointSize !== active.pointSize ||
-    pending.maxRenderedPoints !== active.maxRenderedPoints ||
-    pending.maxPointCacheBytes !== active.maxPointCacheBytes ||
-    pending.maxNodes !== active.maxNodes ||
-    pending.maxDepth !== active.maxDepth ||
-    pending.maxScreenSpaceError !== active.maxScreenSpaceError ||
-    pending.maxRenderDistanceMeters !== active.maxRenderDistanceMeters ||
-    pending.refinementAlgorithm !== active.refinementAlgorithm ||
-    (pending.renderer === "three" && pending.colorMode !== active.colorMode)
-  );
+  try {
+    const pendingValues = normalizeWorkbenchOptionValues(
+      pending as unknown as Readonly<Record<string, unknown>>,
+    );
+    const activeValues = normalizeWorkbenchOptionValues(
+      active as unknown as Readonly<Record<string, unknown>>,
+    );
+    return buildSchemaApplicationPlan(
+      pendingValues,
+      {
+        manifest: NPM_0_6_MANIFEST,
+        renderer: active.renderer,
+        runtimeCapabilities: NPM_0_6_CAPABILITIES,
+      },
+      activeValues,
+    ).requiresLayerReplacement;
+  } catch {
+    // Invalid or newly unsupported state cannot be considered a live-only edit.
+    return true;
+  }
 }
 
 /** Return a detached configuration snapshot for the canonical pending/active state. */
