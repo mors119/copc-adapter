@@ -17,7 +17,7 @@ improvements, tests, and focused code changes are welcome.
 
 Requirements:
 
-- Node.js 18 or later
+- Node.js 20.19 or later in the 20.x line, or 22.12 or later (Vite 8 requirement)
 - Rust and the `wasm32-unknown-unknown` target
 
 ```bash
@@ -51,6 +51,23 @@ Keep changes aligned with the layered architecture described in
 - Add or update tests for behavior changes.
 - Update the relevant documentation when public behavior, limitations, or
   commands change.
+
+### Dependency maintenance
+
+- Prefer the latest stable security, patch, and compatible minor releases.
+  Review major upgrades separately; treat minor updates to `0.x` packages as
+  possible breaking changes.
+- Preserve exact pins that define a tested runtime or package contract. The
+  public Playground stays on its exact published adapter release; candidate
+  packages are validated through the isolated pack consumers.
+- Exact pins under `tests/environments` are compatibility baselines; change
+  them only as a reviewed compatibility or security update, then run the
+  corresponding packed-consumer checks.
+- Keep each npm installation's lockfile reproducible with `npm ci`. Review
+  resolved versions and compatibility evidence before accepting an update.
+- Dependabot runs weekly. Its SemVer update-type exclusions defer routine
+  major changes and selected `0.x` minor changes; GitHub still creates security
+  update pull requests regardless of those update-type exclusions.
 
 ## Validation
 
