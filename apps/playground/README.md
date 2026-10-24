@@ -68,8 +68,10 @@ Runtime-compatible Cesium styles are reset immediately; constructor changes rema
 
 During replacement, a hidden candidate runtime loads while the current runtime
 stays visible. The Playground swaps to the candidate after success and then
-disposes the previous runtime. Failed or superseded candidates are disposed;
-Cesium replacements may briefly use two viewer instances.
+disposes the previous runtime. Cesium becomes ready after `layer.load()`;
+automatic camera zoom starts after the candidate is visible so a camera flight
+cannot keep the hidden runtime in Loading. Failed or superseded candidates are
+disposed; Cesium replacements may briefly use two viewer instances.
 
 The Generated code panel provides Minimal and Explicit TypeScript examples for
 the selected Cesium or Three.js renderer. It reads only the last successfully
@@ -138,13 +140,9 @@ The development server uses the same base path as production:
 http://localhost:5173/copc-adapter/playground/
 ```
 
-Playground E2E tests use local-file and intercepted HTTP fixtures by default.
-Three real-streaming Autzen smoke tests are opt-in because their result also
-depends on the public host's current CORS and Range availability:
-
-```bash
-PLAYGROUND_LIVE_SMOKE=1 npm --prefix apps/playground run test:e2e -- --grep "public Autzen COPC"
-```
+Playground E2E tests include three real-streaming Autzen smoke tests alongside
+local-file and intercepted HTTP fixtures. Those smoke tests exercise the
+public host's current CORS, Range, and point-streaming behavior.
 
 ## Production build
 

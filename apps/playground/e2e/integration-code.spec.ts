@@ -346,6 +346,54 @@ test(
   },
 );
 
+test(
+  "share links use the last applied configuration while constructor edits are pending",
+  async ({ page }) => {
+    await page.addInitScript(() => {
+      let copied = "";
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: { writeText: async (value: string) => { copied = value; } },
+      });
+      (window as Window & { __getCopiedText?: () => string }).__getCopiedText = () => copied;
+    });
+    await page.goto("./?backend=rust&pointSize=5");
+    await page.evaluate(() => {
+      const hooks = (window as Window & {
+        __COPC_PLAYGROUND_TEST__?: { useCameraResetLayerMock(): void };
+      }).__COPC_PLAYGROUND_TEST__;
+      if (!hooks) throw new Error("Playground test hooks are unavailable");
+      hooks.useCameraResetLayerMock();
+    });
+    await page.locator("#copc-file").setInputFiles({
+      name: "share-applied-state.copc.laz",
+      mimeType: "application/octet-stream",
+      buffer: Buffer.from("local test source"),
+    });
+    await expect(page.locator("#source-status")).toHaveText(
+      "Loaded share-applied-state.copc.laz",
+    );
+    await page.getByRole("radio", { name: "Three.js" }).click();
+    await page.getByRole("radio", { name: /JavaScript|copc-js/i }).click();
+    await page.locator("#point-size-value").fill("8");
+    await page.locator("#point-size-value").dispatchEvent("change");
+    await expect(page.getByRole("button", { name: "Apply changes" })).toBeEnabled();
+    await page.getByRole("button", { name: "Copy share link" }).click();
+
+    const copiedUrl = await page.evaluate(() =>
+      (window as Window & { __getCopiedText?: () => string }).__getCopiedText?.(),
+    );
+    expect(copiedUrl).toBeTruthy();
+    const params = new URL(copiedUrl!).searchParams;
+    expect(params.get("renderer")).toBe("cesium");
+    expect(params.get("backend")).toBe("rust");
+    expect(params.get("pointSize")).toBe("5");
+    expect(params.has("sourceUrl")).toBe(false);
+    await expect(page.locator("#point-size-value")).toHaveValue("8");
+    await expect(page.locator("#config-state")).toContainText("Pending settings differ");
+  },
+);
+
 test("generates Cesium classification include, exclude, and clear calls after attachment", async ({ page }) => {
   await page.goto("./");
   for (const [filter, expected] of [

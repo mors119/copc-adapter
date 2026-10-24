@@ -14,7 +14,7 @@ Cesium의 색상과 classification 변경은 활성 layer의 공개 `getStyle()`
 
 **Reset to defaults**는 Playground 기본 설정으로 되돌리지만 source 선택이나 선택된 로컬 파일을 지우지 않습니다. Cesium runtime 스타일은 공개 setter로 즉시 초기화하고, 생성자 설정 변경은 Pending으로 남겨 Apply를 기다립니다. 생성 코드는 마지막으로 성공적으로 적용한 설정과 스타일만 표시하며, pinned npm package의 public API를 사용합니다. 공유 링크에는 정규화된 설정을 저장하고 source는 기본적으로 제외합니다. 선택적으로 query 없는 HTTP(S) 주소만 포함할 수 있습니다. 자격 정보, query, fragment, 로컬 경로, File 내용은 링크에 기록하지 않습니다. 링크를 열면 설정을 복원하지만, 포함된 안전한 주소도 다시 Probe하고 직접 Load해야 합니다. source가 없는 링크는 layer가 로드됐다고 표시하지 않습니다.
 
-교체 중에는 현재 runtime을 표시한 채 숨겨진 후보 runtime을 로드합니다. 후보가 성공하면 교체하고 이전 runtime을 정리하며, 실패하거나 취소된 후보도 정리합니다. Cesium 교체 중에는 viewer 두 개가 잠시 함께 존재할 수 있습니다.
+교체 중에는 현재 runtime을 표시한 채 숨겨진 후보 runtime을 로드합니다. 후보가 성공하면 교체하고 이전 runtime을 정리하며, 실패하거나 취소된 후보도 정리합니다. Cesium은 `layer.load()`가 끝나면 준비된 것으로 전환하고 자동 camera zoom은 후보가 표시된 뒤 시작하므로 숨겨진 camera flight가 Loading을 붙잡지 않습니다. Cesium 교체 중에는 viewer 두 개가 잠시 함께 존재할 수 있습니다.
 
 화면의 패키지 표시는 실제 설치된 Adapter 버전과 출처를 읽습니다. 공개 Pages는 lockfile의 정확한 npm 배포 버전과 무결성을 확인합니다. 로컬 workspace와 `.tgz` 후보 패키지는 별도 출처로 표시합니다.
 

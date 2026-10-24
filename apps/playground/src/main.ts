@@ -564,9 +564,11 @@ declare global {
     __COPC_PLAYGROUND_TEST__?: {
       useCameraResetLayerMock(): void;
       delayNextLoad(): void;
+      delayNextZoom(): void;
       failNextLoad(): void;
       failNextStyle(): void;
       releaseDelayedLoad(): void;
+      releaseDelayedZoom(): void;
       getMockDestroyCount(): number;
       getMockZoomCount(): number;
       setCameraView(view: PlaygroundTestCameraView): void;
@@ -602,10 +604,12 @@ if (import.meta.env.DEV) {
   let mockFocusUpdateCount = 0;
   let mockRefinementFocus: RefinementFocus | undefined;
   let delayNextMockLoad = false;
+  let delayNextMockZoom = false;
   let failNextMockLoad = false;
   let failNextMockStyle = false;
   let mockStyleUpdateCount = 0;
   let releaseMockLoad: (() => void) | undefined;
+  let releaseMockZoom: (() => void) | undefined;
   window.__COPC_PLAYGROUND_TEST__ = {
     useCameraResetLayerMock(): void {
       layerFactory = (options) => {
@@ -651,7 +655,7 @@ if (import.meta.env.DEV) {
                 }
               : undefined;
           },
-          zoomTo(): Promise<boolean> {
+          async zoomTo(): Promise<boolean> {
             mockZoomCount += 1;
             activeRuntime?.setCameraState({
               longitude: -12,
@@ -661,7 +665,13 @@ if (import.meta.env.DEV) {
               pitch: -90,
               roll: 0,
             });
-            return Promise.resolve(true);
+            if (delayNextMockZoom) {
+              delayNextMockZoom = false;
+              await new Promise<void>((resolve) => {
+                releaseMockZoom = resolve;
+              });
+            }
+            return true;
           },
           getSelectedPoint(): undefined {
             return undefined;
@@ -730,6 +740,9 @@ if (import.meta.env.DEV) {
     delayNextLoad(): void {
       delayNextMockLoad = true;
     },
+    delayNextZoom(): void {
+      delayNextMockZoom = true;
+    },
     failNextLoad(): void {
       failNextMockLoad = true;
     },
@@ -739,6 +752,10 @@ if (import.meta.env.DEV) {
     releaseDelayedLoad(): void {
       releaseMockLoad?.();
       releaseMockLoad = undefined;
+    },
+    releaseDelayedZoom(): void {
+      releaseMockZoom?.();
+      releaseMockZoom = undefined;
     },
     getMockLoadCount: () => mockLoadCount,
     getMockStyleUpdateCount: () => mockStyleUpdateCount,
@@ -1020,6 +1037,10 @@ function syncPendingControls(): void {
   streamingSliderHelp.textContent = outOfRangeSettings.length > 0
     ? `${outOfRangeSettings.join(" and ")} is outside the quick-slider range. Adjust it with the numeric field. Constructor settings stay pending until applied.`
     : "Sliders are quick adjustments; numeric fields accept any valid package value. Constructor settings stay pending until applied.";
+  for (const id of ["point-size-value", "max-nodes-value", "max-points-value", "cache-budget-mib", "max-depth-value", "max-sse-value", "max-distance-value"]) {
+    invalidNumericInputs.delete(id);
+    byId<HTMLInputElement>(id).removeAttribute("aria-invalid");
+  }
   byId<HTMLInputElement>("point-size-value").value = String(pendingConfig.pointSize);
   byId<HTMLInputElement>("max-nodes-value").value = String(pendingConfig.maxNodes);
   byId<HTMLInputElement>("max-points-value").value = String(pendingConfig.maxRenderedPoints);
@@ -1454,7 +1475,15 @@ async function copyWithFeedback(
 }
 
 function createShareUrl(): string {
-  const config = captureWorkbenchConfig();
+  const config = appliedConfig
+    ? {
+        ...clonePlaygroundConfig(appliedConfig),
+        refinementConfig: {
+          ...appliedConfig.refinementConfig,
+          center: { ...appliedConfig.refinementConfig.center },
+        },
+      }
+    : captureWorkbenchConfig();
   const sourceUrl =
     shareSourceInput.checked && typeof appliedSource === "string"
       ? appliedSource
@@ -1554,8 +1583,8 @@ function removeSharedSourceParam(): void {
   window.history.replaceState(window.history.state, "", nextUrl);
 }
 
-function applyFocusSettings(syncUrl = true): void {
-  cancelPendingApplyForEdit();
+function applyFocusSettings(syncUrl = true, cancelReplacement = true): void {
+  if (cancelReplacement) cancelPendingApplyForEdit();
   pendingConfig = {
     ...pendingConfig,
     refinementConfig: {
@@ -1703,7 +1732,7 @@ function flushFollowPointerUpdate(): void {
     return;
   followPointerCenter = center;
   lastPointerFocusUpdateAt = now;
-  applyFocusSettings(false);
+  applyFocusSettings(false, false);
 }
 
 function onFocusCanvasPointerMove(event: PointerEvent): void {
@@ -2396,7 +2425,6 @@ const loadSource = async (
         container: host,
         onPointPicked: (point) => { if (activeRuntime === candidate) renderPoint(point); },
         isCurrent: current,
-        canAutoZoom: () => capturedInteractionVersion === cameraInteractionVersion,
         onLayerLoadStart: () => {},
         onLayerLoadComplete: () => {},
         onError: (message) => { if (candidate && activeRuntime === candidate) setStatus(safeErrorText(message), "error"); },
@@ -2419,6 +2447,7 @@ const loadSource = async (
       loadConfig.renderer,
       loadConfig.refinementConfig,
     );
+    let committedFocus = focus;
     candidate.setRefinementFocus(focus);
     await candidate.ready;
     if (!current()) {
@@ -2447,13 +2476,20 @@ const loadSource = async (
           classificationFilter: normalizeClassificationFilter(actualStyle.classificationFilter),
         };
       }
-      if (JSON.stringify(pendingConfig.refinementConfig) !== JSON.stringify(loadConfig.refinementConfig)) {
-        const pendingFocus = effectiveRefinementFocus(
-          pendingConfig.refinementConfig.focusMode === "follow-pointer" ? followPointerCenter : pendingConfig.refinementConfig.center,
+      const pendingFocusCenter = pendingConfig.refinementConfig.focusMode === "follow-pointer"
+        ? followPointerCenter
+        : pendingConfig.refinementConfig.center;
+      const pendingFocus = effectiveRefinementFocus(
+          pendingFocusCenter,
           "cesium",
           pendingConfig.refinementConfig,
         );
+      if (
+        JSON.stringify(pendingConfig.refinementConfig) !== JSON.stringify(loadConfig.refinementConfig) ||
+        JSON.stringify(pendingFocusCenter) !== JSON.stringify(loadConfig.refinementConfig.center)
+      ) {
         candidate.setRefinementFocus(pendingFocus);
+        committedFocus = pendingFocus;
         committedConfig = {
           ...committedConfig,
           refinementConfig: {
@@ -2470,6 +2506,9 @@ const loadSource = async (
         ? priorCamera
         : priorRuntime.getCameraState()
       : undefined;
+    const shouldAutoZoom =
+      cameraToRestore === undefined &&
+      capturedInteractionVersion === cameraInteractionVersion;
     destroyActiveRuntime(true);
     host.style.visibility = "visible";
     host.removeAttribute("aria-hidden");
@@ -2523,7 +2562,7 @@ const loadSource = async (
     updateColorChoices(activePointFormat);
     observeBrowserLongTasks(candidate);
     bindPointerFocus(candidate);
-    lastAppliedFocusCenter = focus?.center;
+    lastAppliedFocusCenter = committedFocus?.center;
     diagnosticsRefreshCleanup = createDiagnosticsRefreshLoop(
       () => activeRuntime,
       (currentRuntime) => {
@@ -2541,6 +2580,15 @@ const loadSource = async (
     setStatus(`Loaded ${sourceName}`, "ready");
     viewerCaption.textContent = `${loadConfig.renderer === "cesium" ? "Cesium" : "Three.js"} streams visible COPC nodes as the camera moves.`;
     refreshSnapshot();
+    if (shouldAutoZoom && candidate.renderer === "cesium" && candidate.zoomTo) {
+      void candidate.zoomTo().catch((error: unknown) => {
+        if (activeRuntime !== candidate) return;
+        setStatus(
+          `Loaded ${sourceName}, but camera positioning failed: ${safeErrorText(error)}`,
+          "error",
+        );
+      });
+    }
   } catch (error) {
     disposeLocalCandidate();
     if (!current()) return;
@@ -2710,6 +2758,7 @@ applyChangesButton.addEventListener("click", () => {
 byId<HTMLButtonElement>("reset-defaults").addEventListener("click", () => {
   const resetConfig: IntegrationCodeConfig = {
     ...defaultIntegrationConfig,
+    classificationFilter: undefined,
     refinementConfig: { ...defaultIntegrationConfig.refinementConfig, center: { ...defaultIntegrationConfig.refinementConfig.center } },
   };
   invalidNumericInputs.clear();

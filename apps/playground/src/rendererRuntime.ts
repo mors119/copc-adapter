@@ -43,6 +43,8 @@ export type { PlaygroundSnapshot } from "./diagnostics";
 export type PlaygroundRuntime = {
   readonly renderer: PlaygroundRenderer;
   readonly ready: Promise<void>;
+  /** Present only for a loaded public Cesium layer. */
+  zoomTo?(): Promise<boolean>;
   getSnapshot(): PlaygroundSnapshot;
   getDiagnostics(): PlaygroundLayerDiagnostics;
   getLatestRenderIntervalMs(): number | undefined;
@@ -72,8 +74,6 @@ export type PlaygroundRuntimeOptions = WorkbenchLayerConfig & {
   readonly onPointPicked: (point: CopcPointInspection | undefined) => void;
   readonly onError: (message: string) => void;
   readonly isCurrent: () => boolean;
-  /** Allow callers to keep camera input made while the source was loading. */
-  readonly canAutoZoom?: () => boolean;
   /** App-owned observation hooks around the public layer.load() call. */
   readonly onLayerLoadStart?: () => void;
   readonly onLayerLoadComplete?: () => void;
@@ -333,9 +333,8 @@ export async function createPlaygroundRuntime(
       }
     };
     options.onLayerLoadStart?.();
-    const ready = layer.load().then(async () => {
+    const ready = layer.load().then(() => {
       options.onLayerLoadComplete?.();
-      if (!destroyed && (options.canAutoZoom?.() ?? true)) await layer.zoomTo();
     });
 
     const getDiagnostics = (): PlaygroundLayerDiagnostics => {
@@ -358,6 +357,7 @@ export async function createPlaygroundRuntime(
     return {
       renderer: "cesium",
       ready,
+      zoomTo: () => destroyed ? Promise.resolve(false) : layer.zoomTo(),
       getSnapshot: () => getDiagnostics().snapshot,
       getDiagnostics,
       getLatestRenderIntervalMs: () => latestRenderIntervalMs,

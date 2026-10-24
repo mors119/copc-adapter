@@ -7,6 +7,7 @@ type PlaygroundTestHooks = {
   releaseDelayedLoad(): void;
   getMockLoadCount(): number;
   getMockLayerCreateCount(): number;
+  getAppliedConfig(): { maxDepth?: number } | undefined;
   getMockRefinementAlgorithm(): string | undefined;
   getMockFocusUpdateCount(): number;
   getMockRefinementFocus():
@@ -189,6 +190,57 @@ test("superseded constructor reloads cannot replace the applied API example", as
   await expect(page.locator("#integration-example")).toContainText(
     "refinementAlgorithm: 'foveated'",
   );
+});
+
+test("follow-pointer movement does not cancel a pending constructor replacement", async ({ page }) => {
+  await page.goto("./");
+  await useMockLayer(page);
+  await loadFile(page, "follow-pointer-replacement.copc.laz");
+  await page.locator("#focus-mode").selectOption("follow-pointer");
+  await page.evaluate(() => {
+    const hooks = (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__;
+    if (!hooks) throw new Error("Playground test hooks are unavailable");
+    hooks.delayNextLoad();
+  });
+  await page.locator("#max-depth-value").fill("7");
+  await page.locator("#max-depth-value").dispatchEvent("change");
+  await page.getByRole("button", { name: "Apply changes" }).click();
+  await expect(page.locator("#source-status")).toContainText("Loading");
+
+  const pointer = await page.evaluate(async () => {
+    const host = [...document.querySelectorAll<HTMLElement>(".runtime-host")]
+      .find((item) => getComputedStyle(item).visibility === "visible");
+    const canvas = host?.querySelector("canvas");
+    if (!canvas) throw new Error("Visible Cesium canvas is unavailable");
+    const rect = canvas.getBoundingClientRect();
+    const x = rect.left + rect.width * 0.65;
+    const y = rect.top + rect.height * 0.35;
+    canvas.dispatchEvent(new PointerEvent("pointermove", {
+      bubbles: true,
+      clientX: x,
+      clientY: y,
+    }));
+    await new Promise<void>((resolve) => setTimeout(resolve, 80));
+    return { x: (x - rect.left) / rect.width, y: (y - rect.top) / rect.height };
+  });
+  await expect(page.locator("#source-status")).toContainText("Loading");
+  await page.evaluate(() => {
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.releaseDelayedLoad();
+  });
+  await expect(page.locator("#source-status")).toHaveText("Loaded follow-pointer-replacement.copc.laz");
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getAppliedConfig()?.maxDepth,
+  )).toBe(7);
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getMockRefinementFocus()?.center.x,
+  )).toBeCloseTo(pointer.x, 1);
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getMockRefinementFocus()?.center.y,
+  )).toBeCloseTo(pointer.y, 1);
 });
 
 test("focus modes update the active Cesium layer without recreating it", async ({

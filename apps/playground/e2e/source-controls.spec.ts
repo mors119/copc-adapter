@@ -2,7 +2,6 @@ import { expect, test } from "@playwright/test";
 
 const sourceUrl =
   "https://data.pointcloud.org/autzen/autzen-classified.copc.laz";
-const runLiveDatasetSmoke = process.env.PLAYGROUND_LIVE_SMOKE === "1";
 
 function makeCopcProbeBody(): Buffer {
   const bytes = Buffer.alloc(1024);
@@ -25,12 +24,18 @@ const corsHeaders = {
 
 type PlaygroundTestHooks = {
   useCameraResetLayerMock(): void;
+  delayNextZoom(): void;
+  releaseDelayedZoom(): void;
   failNextLoad(): void;
   failNextStyle(): void;
+  getMockZoomCount(): number;
   getMockLoadCount(): number;
   getMockDestroyCount(): number;
   getMockStyleUpdateCount(): number;
   getAppliedConfig(): { pointSize: number; colorMode: string } | undefined;
+  getPendingConfig(): {
+    classificationFilter?: { include?: readonly number[]; exclude?: readonly number[] };
+  };
 };
 
 test("a local source selected during a remote probe supersedes the pending probe", async ({
@@ -516,7 +521,10 @@ test("Cesium color and classification styles use setStyle without replacing the 
   await page.locator("#classification-include").fill("");
   await page.locator("#classification-include").dispatchEvent("change");
   await expect(page.getByRole("button", { name: "Apply filter" })).toBeEnabled();
-  await page.getByRole("button", { name: "Apply filter" }).click();
+  const applyFilter = page.locator("#apply-classification");
+  await applyFilter.scrollIntoViewIfNeeded();
+  await applyFilter.focus();
+  await applyFilter.press("Enter");
   await expect(page.locator("#classification-active")).toHaveText("Include [] · Exclude [7, 18]");
   await expect(page.locator("#integration-example")).toContainText('classificationFilter: {"include":[],"exclude":[7,18]}');
   await page.getByRole("button", { name: "Clear filter" }).click();
@@ -604,6 +612,84 @@ test("Reset to defaults keeps the loaded local source and restores active style"
   await expect(page.locator("#source-status")).toHaveText("Loaded reset-source.copc.laz");
   await expect(page.getByRole("button", { name: "Apply changes" })).toBeDisabled();
   await expect(page.locator("#integration-example")).not.toContainText("pointSize: 4");
+});
+
+test("Reset to defaults clears a restored classification filter before loading", async ({ page }) => {
+  await page.goto("./?classificationInclude=");
+  await page.evaluate(() => {
+    const hooks = (window as Window & {
+      __COPC_PLAYGROUND_TEST__?: { useCameraResetLayerMock(): void };
+    }).__COPC_PLAYGROUND_TEST__;
+    if (!hooks) throw new Error("Playground test hooks are unavailable");
+    hooks.useCameraResetLayerMock();
+  });
+  await expect(page.locator("#classification-active")).toHaveText("No filter");
+  await page.getByRole("button", { name: "Reset to defaults" }).click();
+  const resetFilter = await page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getPendingConfig().classificationFilter,
+  );
+  expect(resetFilter).toBeUndefined();
+  await expect(page).not.toHaveURL(/classificationInclude=/);
+
+  await page.locator("#copc-file").setInputFiles({
+    name: "reset-unloaded-filter.copc.laz",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("local test source"),
+  });
+  await expect(page.locator("#source-status")).toHaveText("Loaded reset-unloaded-filter.copc.laz");
+  await expect(page.locator("#classification-active")).toHaveText("No filter");
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getAppliedConfig()?.colorMode,
+  )).toBe("elevation");
+});
+
+test("synchronizing valid controls clears stale numeric validation", async ({ page }) => {
+  await page.goto("./");
+  await page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.useCameraResetLayerMock());
+  await page.locator("#copc-file").setInputFiles({
+    name: "numeric-validation.copc.laz",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("local test source"),
+  });
+  await expect(page.locator("#source-status")).toHaveText("Loaded numeric-validation.copc.laz");
+  const maxNodes = page.locator("#max-nodes-value");
+  await maxNodes.fill("0");
+  await maxNodes.dispatchEvent("change");
+  await expect(maxNodes).toHaveAttribute("aria-invalid", "true");
+  await page.locator("#point-size-value").fill("4");
+  await page.locator("#point-size-value").dispatchEvent("change");
+  await expect(maxNodes).toHaveValue("24");
+  await expect(maxNodes).not.toHaveAttribute("aria-invalid", "true");
+  await expect(page.locator("#config-validation")).toBeHidden();
+  await expect(page.getByRole("button", { name: "Apply changes" })).toBeEnabled();
+});
+
+test("Cesium load becomes active before its camera zoom finishes", async ({ page }) => {
+  await page.goto("./");
+  await page.evaluate(() => {
+    const hooks = (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__;
+    if (!hooks) throw new Error("Playground test hooks are unavailable");
+    hooks.useCameraResetLayerMock();
+    hooks.delayNextZoom();
+  });
+  await page.locator("#copc-file").setInputFiles({
+    name: "delayed-zoom.copc.laz",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("local test source"),
+  });
+  await expect(page.locator("#source-status")).toHaveText("Loaded delayed-zoom.copc.laz");
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getMockZoomCount(),
+  )).toBe(1);
+  await expect(page.locator(".runtime-host")).toHaveCount(1);
+  await expect.poll(() => page.locator(".runtime-host").evaluate((host) => getComputedStyle(host).visibility)).toBe("visible");
+  await page.evaluate(() => {
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.releaseDelayedZoom();
+  });
 });
 
 test("camera movement during a layer reload is preserved", async ({ page }) => {
@@ -794,10 +880,6 @@ for (const renderer of ["Cesium", "Three.js"] as const) {
   test(`${renderer} streams and inspects points from the public Autzen COPC`, async ({
     page,
   }) => {
-    test.skip(
-      !runLiveDatasetSmoke,
-      "Set PLAYGROUND_LIVE_SMOKE=1 to run the external Autzen streaming smoke test.",
-    );
     test.setTimeout(150_000);
     await page.goto("./");
     if (renderer === "Three.js") {
@@ -1034,13 +1116,9 @@ for (const renderer of ["Cesium", "Three.js"] as const) {
   });
 }
 
-test("the optional Rust/WASM backend streams the public Autzen COPC", async ({
+test("the Rust/WASM backend streams the public Autzen COPC", async ({
   page,
 }) => {
-  test.skip(
-    !runLiveDatasetSmoke,
-    "Set PLAYGROUND_LIVE_SMOKE=1 to run the external Autzen streaming smoke test.",
-  );
   test.setTimeout(150_000);
   await page.goto("./");
   let probeFixtureUsed = false;
