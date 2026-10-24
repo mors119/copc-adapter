@@ -8,18 +8,18 @@ const NPM_0_6 = "npm@0.6.0";
 const WORKSPACE_0_6 = "workspace@0.6.0";
 const BOTH_RENDERERS: readonly SchemaRenderer[] = ["cesium", "three"];
 
-function valueDefault(value: unknown): Readonly<Record<string, SchemaDefault>> {
+function valueDefault<const Value>(value: Value) {
   return {
     [NPM_0_6]: { kind: "value", value },
     [WORKSPACE_0_6]: { kind: "value", value },
-  };
+  } as const satisfies Readonly<Record<string, SchemaDefault>>;
 }
 
-function omittedDefault(): Readonly<Record<string, SchemaDefault>> {
+function omittedDefault() {
   return {
     [NPM_0_6]: { kind: "omitted" },
     [WORKSPACE_0_6]: { kind: "omitted" },
-  };
+  } as const satisfies Readonly<Record<string, SchemaDefault>>;
 }
 
 /**
@@ -309,6 +309,7 @@ export const OPTION_SCHEMA = [
       kind: "classification-filter",
       includeKey: "classificationInclude",
       excludeKey: "classificationExclude",
+      clearKey: "classificationClear",
     },
     defaults: omittedDefault(),
   },
@@ -486,20 +487,9 @@ export const OPTION_SCHEMA = [
       kind: "scalar",
       key: "screenSpaceErrorHysteresis",
     },
-    defaults: {
-      [NPM_0_6]: {
-        kind: "derived",
-        from: "streaming.maxScreenSpaceError",
-        operation: "multiply",
-        factor: 0.125,
-      },
-      [WORKSPACE_0_6]: {
-        kind: "derived",
-        from: "streaming.maxScreenSpaceError",
-        operation: "multiply",
-        factor: 0.125,
-      },
-    },
+    // Omission delegates the 12.5% derivation to the adapter using the
+    // effective threshold, including caller and shared-link overrides.
+    defaults: omittedDefault(),
   },
   {
     id: "streaming.maxRenderDistanceMeters",
@@ -643,6 +633,7 @@ export const OPTION_SCHEMA = [
         radius: "focusRadius",
         detailBias: "focusBias",
       },
+      clearKey: "focusClear",
     },
     defaults: omittedDefault(),
   },
@@ -753,7 +744,13 @@ export function getOptionDefinition(id: string): SchemaOption | undefined {
 export function isOptionConditionMet(
   option: SchemaOption,
   values: Readonly<Record<string, unknown>> = {},
+  resolveUnsetValue: (optionId: string) => unknown = () => undefined,
 ): boolean {
   if (!option.condition) return true;
-  return values[option.condition.optionId] === option.condition.equals;
+  const value = values[option.condition.optionId];
+  return (
+    (value === undefined
+      ? resolveUnsetValue(option.condition.optionId)
+      : value) === option.condition.equals
+  );
 }

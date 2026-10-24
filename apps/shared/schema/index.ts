@@ -2,6 +2,7 @@ export {
   getAvailableOptions,
   getAvailableChoices,
   getAvailableActions,
+  isOptionAvailable,
   getOptionApplyMode,
   getOptionDefault,
   getSupportedOptions,
@@ -10,10 +11,11 @@ export {
 } from "./capabilities.ts";
 export { ACTION_SCHEMA } from "./actions.ts";
 export {
-  ADAPTER_0_6_CAPABILITIES,
   NPM_0_6_MANIFEST,
+  NPM_0_6_CAPABILITIES,
   NPM_0_6_SUPPORTED_OPTION_IDS,
   WORKSPACE_CURRENT_MANIFEST,
+  WORKSPACE_CURRENT_CAPABILITIES,
   getAdapterManifest,
 } from "./manifests.ts";
 export {
@@ -24,14 +26,26 @@ export {
 } from "./options.ts";
 export {
   deserializeSchemaValues,
+  MAX_SCHEMA_SHARE_PARAMETER_LENGTH,
+  MAX_SCHEMA_SHARE_QUERY_LENGTH,
   serializeSchemaValues,
 } from "./serialization.ts";
 export type { SchemaDeserializationResult } from "./serialization.ts";
-export { validateOptionValue, validateSchemaValues } from "./validation.ts";
+export {
+  getSchemaConstraintViolations,
+  validateOptionValue,
+  validateSchemaValues,
+} from "./validation.ts";
+export type {
+  SchemaConstraintViolation,
+  SchemaValidationOptions,
+} from "./validation.ts";
 export type {
   AdapterManifest,
   CapabilityContext,
   PackageOrigin,
+  SchemaClassificationFilter,
+  SchemaFocusLens,
   SchemaApplyMode,
   SchemaActionDefinition,
   SchemaCodeGeneration,
@@ -40,6 +54,7 @@ export type {
   SchemaCrossFieldConstraint,
   SchemaDefault,
   SchemaOption,
+  SchemaHostValidators,
   SchemaProfileKey,
   SchemaRenderer,
   SchemaSection,

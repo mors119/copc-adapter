@@ -1,4 +1,4 @@
-import { OPTION_SCHEMA, getOptionDefinition, isOptionConditionMet } from "./options.ts";
+import { OPTION_SCHEMA, isOptionConditionMet } from "./options.ts";
 import { ACTION_SCHEMA } from "./actions.ts";
 import { getAdapterManifest } from "./manifests.ts";
 import type {
@@ -11,33 +11,26 @@ import type {
   SchemaRenderer,
 } from "./types.ts";
 
-/** Select options supported by the exact package and capability context. */
+/** Select options supported by the package, selected renderer, and live host. */
 export function getSupportedOptions(
   context: CapabilityContext,
   schema: readonly SchemaOption[] = OPTION_SCHEMA,
 ): readonly SchemaOption[] {
   const packageOptions = new Set(context.manifest.supportedOptionIds);
+  const excludedForRenderer = new Set(
+    context.manifest.unsupportedOptionIdsByRenderer?.[context.renderer] ?? [],
+  );
   const packageCapabilities = new Set(context.manifest.capabilities);
   const runtimeCapabilities =
     context.runtimeCapabilities === undefined
       ? undefined
       : new Set(context.runtimeCapabilities);
-  const values = context.values;
+
   return schema.filter((option) => {
-    if (!packageOptions.has(option.id)) return false;
-    if (!option.renderers.includes(context.renderer)) return false;
-    if (
-      option.availabilityCondition &&
-      values !== undefined &&
-      (values[option.availabilityCondition.optionId] ??
-        resolveOptionDefault(
-          option.availabilityCondition.optionId,
-          context.manifest,
-        )) !== option.availabilityCondition.equals
-    ) {
+    if (!packageOptions.has(option.id) || excludedForRenderer.has(option.id)) {
       return false;
     }
-
+    if (!option.renderers.includes(context.renderer)) return false;
     return (option.requiredCapabilities ?? []).every(
       (capability) =>
         packageCapabilities.has(capability) &&
@@ -47,7 +40,36 @@ export function getSupportedOptions(
   });
 }
 
-/** Select supported options whose schema visibility condition is currently met. */
+/**
+ * Whether an option's configuration dependency is currently met. This is
+ * distinct from whether its package/renderer/runtime supports the option.
+ */
+export function isOptionAvailable(
+  option: SchemaOption,
+  context: CapabilityContext,
+  schema: readonly SchemaOption[] = OPTION_SCHEMA,
+): boolean {
+  if (!getSupportedOptions(context, schema).some(({ id }) => id === option.id)) {
+    return false;
+  }
+  if (!option.availabilityCondition) return true;
+
+  const values = context.values ?? {};
+  const dependencyId = option.availabilityCondition.optionId;
+  const configuredDependency = values[dependencyId];
+  const dependencyValue = configuredDependency !== undefined
+    ? configuredDependency
+    : resolveOptionDefault(
+        dependencyId,
+        context.manifest,
+        new Set(),
+        schema,
+        values,
+      );
+  return dependencyValue === option.availabilityCondition.equals;
+}
+
+/** Select supported options whose configuration and visibility conditions hold. */
 export function getAvailableOptions(
   context: CapabilityContext,
   schema: readonly SchemaOption[] = OPTION_SCHEMA,
@@ -55,18 +77,31 @@ export function getAvailableOptions(
   const supported = new Set(
     getSupportedOptions(context, schema).map(({ id }) => id),
   );
-  const values = context.values ?? {};
   return schema.filter(
     (option) =>
-      supported.has(option.id) && isOptionConditionMet(option, values),
+      supported.has(option.id) &&
+      isOptionAvailable(option, context, schema) &&
+      isOptionConditionMet(option, context.values, (dependencyId) =>
+        resolveOptionDefault(
+          dependencyId,
+          context.manifest,
+          new Set(),
+          schema,
+          context.values,
+        ),
+      ),
   );
 }
 
-/** Filter enum choices whose runtime capability is not currently present. */
+/** Filter enum choices against package and active-runtime capabilities. */
 export function getAvailableChoices(
   option: SchemaOption,
   context: Omit<CapabilityContext, "values">,
+  schema: readonly SchemaOption[] = OPTION_SCHEMA,
 ): readonly SchemaChoice[] {
+  if (!getSupportedOptions(context, schema).some(({ id }) => id === option.id)) {
+    return [];
+  }
   const packageCapabilities = new Set(context.manifest.capabilities);
   const runtimeCapabilities =
     context.runtimeCapabilities === undefined
@@ -123,28 +158,36 @@ export function getOptionDefault(
 }
 
 /**
- * Resolve a concrete or derived default. An omitted or absent default remains
- * undefined, matching the adapter's own omission semantics.
+ * Resolve a concrete or derived default. A derived default uses the effective
+ * source value when supplied, and otherwise follows that source's manifest
+ * default. Omitted defaults remain undefined so the adapter can derive them.
  */
 export function resolveOptionDefault(
   optionId: string,
   manifest: AdapterManifest,
   visiting: ReadonlySet<string> = new Set(),
+  schema: readonly SchemaOption[] = OPTION_SCHEMA,
+  effectiveValues: Readonly<Record<string, unknown>> = {},
 ): unknown {
   if (visiting.has(optionId)) return undefined;
   const value = getOptionDefault(optionId, manifest);
   if (!value || value.kind === "omitted") return undefined;
   if (value.kind === "value") return value.value;
 
-  const source =
-    getOptionDefinition(value.from)?.id ??
-    OPTION_SCHEMA.find((option) => option.statePath === value.from)?.id;
+  const source = schema.find(
+    (option) => option.id === value.from || option.statePath === value.from,
+  )?.id;
   if (!source) return undefined;
-  const sourceDefault = resolveOptionDefault(
-    source,
-    manifest,
-    new Set([...visiting, optionId]),
-  );
+  const effectiveSource = effectiveValues[source];
+  const sourceDefault = effectiveSource !== undefined
+    ? effectiveSource
+    : resolveOptionDefault(
+        source,
+        manifest,
+        new Set([...visiting, optionId]),
+        schema,
+        effectiveValues,
+      );
   if (typeof sourceDefault !== "number" || !Number.isFinite(sourceDefault)) {
     return undefined;
   }

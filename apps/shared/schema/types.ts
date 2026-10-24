@@ -1,6 +1,20 @@
 /** Renderer names understood by the shared Workbench schema. */
 export type SchemaRenderer = "cesium" | "three";
 
+/** Renderer-neutral form of the public normalized screen-space focus value. */
+export type SchemaFocusLens = {
+  readonly type: "screen-circle";
+  readonly center: Readonly<{ x: number; y: number }>;
+  readonly radius: number;
+  readonly detailBias: number;
+};
+
+/** Public Cesium style filter shape accepted by `setStyle()`. */
+export type SchemaClassificationFilter = {
+  readonly include?: readonly number[];
+  readonly exclude?: readonly number[];
+};
+
 /** Configuration sections used for shared panel grouping. */
 export type SchemaSection =
   | "source"
@@ -109,6 +123,8 @@ export type SchemaSerialization =
       readonly kind: "classification-filter";
       readonly includeKey: string;
       readonly excludeKey: string;
+      /** Explicit marker for a runtime clear (distinct from an omitted filter). */
+      readonly clearKey: string;
     }
   | {
       readonly kind: "focus-lens";
@@ -118,6 +134,8 @@ export type SchemaSerialization =
         radius: string;
         detailBias: string;
       }>;
+      /** Explicit marker for clearing the runtime focus lens. */
+      readonly clearKey: string;
     }
   | {
       readonly kind: "string-array";
@@ -209,12 +227,17 @@ export type SchemaDefault =
     };
 
 /** Package provenance is part of capability resolution, not inferred from a label. */
-export type PackageOrigin = "npm" | "workspace";
+/** Candidate tarballs are a distinct source and never inherit npm/workspace profiles. */
+export type PackageOrigin = "npm" | "workspace" | "candidate";
 
 export type AdapterManifest = {
   readonly origin: PackageOrigin;
   readonly version: string;
   readonly supportedOptionIds: readonly string[];
+  /** Sparse release-specific exclusions for otherwise supported renderer options. */
+  readonly unsupportedOptionIdsByRenderer?: Readonly<
+    Partial<Record<SchemaRenderer, readonly string[]>>
+  >;
   readonly capabilities: readonly string[];
   readonly defaults: Readonly<Record<string, SchemaDefault>>;
 };
@@ -225,4 +248,10 @@ export type CapabilityContext = {
   /** Capabilities reported by the active host/renderer instance. */
   readonly runtimeCapabilities?: readonly string[];
   readonly values?: Readonly<Record<string, unknown>>;
+};
+
+/** Specialized runtime checks stay with the app host that owns the resource. */
+export type SchemaHostValidators = {
+  /** True only for a loaded and verified library GTX grid instance. */
+  readonly isLoadedVerticalGrid?: (value: unknown) => boolean;
 };

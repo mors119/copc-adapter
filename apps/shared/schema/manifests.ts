@@ -5,6 +5,7 @@ import type {
   SchemaDefault,
   SchemaOption,
   SchemaProfileKey,
+  SchemaRenderer,
 } from "./types.ts";
 
 const npm06SupportedOptionIds = [
@@ -20,7 +21,6 @@ const npm06SupportedOptionIds = [
   "rendering.maxPointSize",
   "style.classificationFilter",
   "coordinates.heightOffsetMeters",
-  "coordinates.verticalTransform",
   "performance.maxRenderedPoints",
   "cache.maxPointCacheBytes",
   "streaming.maxNodes",
@@ -39,7 +39,7 @@ const npm06SupportedOptionIds = [
   "interaction.pickingThreshold",
 ] as const;
 
-const adapterCapabilities = [
+const npm06Capabilities = [
   "renderer.cesium",
   "renderer.three",
   "source.probe",
@@ -54,10 +54,14 @@ const adapterCapabilities = [
   "cesium.shader-point-size",
   "cesium.runtime-style",
   "cesium.refinement-focus",
-  "cesium.terrain-alignment",
-  "vertical.gtx-grid",
   "streaming.predictive-prefetch",
   "three.point-picking",
+] as const;
+
+const workspaceCapabilities = [
+  ...npm06Capabilities,
+  "cesium.terrain-alignment",
+  "vertical.gtx-grid",
 ] as const;
 
 function getDefaults(
@@ -77,18 +81,29 @@ function getDefaults(
   );
 }
 
-function createManifest(
-  origin: PackageOrigin,
-  version: string,
-  supportedOptionIds: readonly string[],
-): AdapterManifest {
+function createManifest<
+  const Origin extends PackageOrigin,
+  const Version extends string,
+  const OptionIds extends readonly string[],
+  const Capabilities extends readonly string[],
+  const RendererExclusions extends Partial<
+    Record<SchemaRenderer, readonly string[]>
+  >,
+>(
+  origin: Origin,
+  version: Version,
+  supportedOptionIds: OptionIds,
+  capabilities: Capabilities,
+  unsupportedOptionIdsByRenderer: RendererExclusions,
+) {
   return {
     origin,
     version,
     supportedOptionIds,
-    capabilities: adapterCapabilities,
+    unsupportedOptionIdsByRenderer,
+    capabilities,
     defaults: getDefaults(origin, version, supportedOptionIds),
-  };
+  } satisfies AdapterManifest;
 }
 
 /** Exact compatibility manifest for the installed published Playground release. */
@@ -96,6 +111,8 @@ export const NPM_0_6_MANIFEST = createManifest(
   "npm",
   "0.6.0",
   npm06SupportedOptionIds,
+  npm06Capabilities,
+  { cesium: ["streaming.maxConcurrentNodeLoads"] },
 );
 
 /**
@@ -107,20 +124,30 @@ export const WORKSPACE_CURRENT_MANIFEST = createManifest(
   "workspace",
   "0.6.0",
   OPTION_SCHEMA.map(({ id }) => id),
+  workspaceCapabilities,
+  {},
 );
 
-const npmManifests = new Map([[NPM_0_6_MANIFEST.version, NPM_0_6_MANIFEST]]);
-const workspaceManifests = new Map([
+const npmManifests = new Map<string, AdapterManifest>([[NPM_0_6_MANIFEST.version, NPM_0_6_MANIFEST]]);
+const workspaceManifests = new Map<string, AdapterManifest>([
   [WORKSPACE_CURRENT_MANIFEST.version, WORKSPACE_CURRENT_MANIFEST],
 ]);
+const candidateManifests = new Map<string, AdapterManifest>();
 
 /** Resolve only explicitly audited package origins and versions. */
 export function getAdapterManifest(
   origin: PackageOrigin,
   version: string,
 ): AdapterManifest | undefined {
-  return (origin === "npm" ? npmManifests : workspaceManifests).get(version);
+  const manifests =
+    origin === "npm"
+      ? npmManifests
+      : origin === "workspace"
+        ? workspaceManifests
+        : candidateManifests;
+  return manifests.get(version);
 }
 
 export const NPM_0_6_SUPPORTED_OPTION_IDS = npm06SupportedOptionIds;
-export const ADAPTER_0_6_CAPABILITIES = adapterCapabilities;
+export const NPM_0_6_CAPABILITIES = npm06Capabilities;
+export const WORKSPACE_CURRENT_CAPABILITIES = workspaceCapabilities;
