@@ -32,6 +32,8 @@ export type WorkbenchLayerConfig = {
   readonly colorMode: WorkbenchColorMode;
   readonly pointSize: number;
   readonly maxRenderedPoints: number;
+  /** Optional decoded point-buffer budget; omitted values use the package default. */
+  readonly maxPointCacheBytes?: number;
   readonly maxNodes: number;
   readonly maxDepth?: number;
   readonly maxScreenSpaceError?: number;
@@ -50,6 +52,7 @@ export type WorkbenchLayerOptions = {
   readonly colorMode: WorkbenchColorMode;
   readonly pointSize: number;
   readonly maxRenderedPoints: number;
+  readonly maxPointCacheBytes?: number;
   readonly rangeValidation?: WorkbenchRangeValidationPolicy;
   readonly streaming: {
     readonly maxNodes: number;
@@ -70,6 +73,7 @@ export function toWorkbenchLayerOptions(
     colorMode,
     pointSize,
     maxRenderedPoints,
+    maxPointCacheBytes,
     maxNodes,
     maxDepth,
     maxScreenSpaceError,
@@ -84,6 +88,7 @@ export function toWorkbenchLayerOptions(
     colorMode,
     pointSize,
     maxRenderedPoints,
+    ...(maxPointCacheBytes === undefined ? {} : { maxPointCacheBytes }),
     ...(rangeValidation === undefined ? {} : { rangeValidation }),
     streaming: {
       maxNodes,

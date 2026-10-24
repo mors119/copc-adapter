@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "test:unit": "node --experimental-strip-types --test test/diagnostics.test.mjs",
+    "test:unit": "node --experimental-strip-types --test test/*.test.mjs",
     "test:provenance": "node --test test/package-provenance.test.mjs",
     "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit",

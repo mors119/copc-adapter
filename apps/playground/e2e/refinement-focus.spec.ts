@@ -83,6 +83,8 @@ test("algorithm selection applies the actual constructor option and survives URL
       ).__COPC_PLAYGROUND_TEST__?.getMockLayerCreateCount() ?? 0,
   );
   await page.locator("#refinement-algorithm").selectOption("screen-projection");
+  await expect(page.getByRole("button", { name: "Apply changes" })).toBeEnabled();
+  await page.getByRole("button", { name: "Apply changes" }).click();
   await expect(page.locator("#source-status")).toHaveText(
     "Loaded algorithm.copc.laz",
   );
@@ -110,6 +112,7 @@ test("algorithm selection applies the actual constructor option and survives URL
   await expect(page).toHaveURL(/refinementAlgorithm=screen-projection/);
 
   await page.locator("#refinement-algorithm").selectOption("foveated");
+  await page.getByRole("button", { name: "Apply changes" }).click();
   await expect
     .poll(() =>
       page.evaluate(() =>
@@ -141,6 +144,7 @@ test("failed constructor changes keep the last successfully applied API example"
     hooks.failNextLoad();
   });
   await page.locator("#refinement-algorithm").selectOption("screen-projection");
+  await page.getByRole("button", { name: "Apply changes" }).click();
   await expect(page.locator("#source-status")).toHaveAttribute(
     "data-status",
     "error",
@@ -165,6 +169,7 @@ test("superseded constructor reloads cannot replace the applied API example", as
     hooks.delayNextLoad();
   });
   await page.locator("#refinement-algorithm").selectOption("screen-projection");
+  await page.getByRole("button", { name: "Apply changes" }).click();
   await expect(page.locator("#source-status")).toContainText("Loading");
 
   await page.locator("#refinement-algorithm").selectOption("foveated");

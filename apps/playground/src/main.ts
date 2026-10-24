@@ -1,5 +1,7 @@
 import type {
   CopcCesiumLayer,
+  CopcCesiumPointStyle,
+  CopcCesiumPointStyleUpdate,
   CopcPointInspection,
   CopcSourceProbeResult,
   RefinementAlgorithm,
@@ -14,8 +16,8 @@ import {
 import {
   createDiagnosticsRefreshLoop,
   createDiagnosticsViewModel,
-  DEFAULT_WORKBENCH_MAX_DEPTH,
   displaySourceLabel,
+  formatDiagnosticBytes,
   supportsLongTaskObservation,
   type PlaygroundBrowserMeasurements,
   type PlaygroundDiagnosticsContext,
@@ -56,6 +58,15 @@ import {
   writePlaygroundUrlConfig,
   type PlaygroundUrlConfig,
 } from "./playgroundUrlConfig";
+import {
+  cacheBytesToMib,
+  cacheMibToBytes,
+  clonePlaygroundConfig,
+  hasConstructorChanges,
+  normalizeClassificationFilter,
+  parseClassificationCodes,
+  validatePlaygroundConfig,
+} from "./playgroundConfig";
 import "./style.css";
 
 const app = document.querySelector<HTMLDivElement>("#app");
@@ -87,8 +98,23 @@ app.innerHTML = `
           <input id="custom-url" type="url" placeholder="https://host.example/area.copc.laz" autocomplete="url" spellcheck="false" aria-describedby="url-help">
         </label>
         <p class="field-help" id="url-help">The host must allow browser CORS and HTTP Range requests. The URL is requested directly.</p>
-        <button class="source-load" id="load-remote" type="button">Probe and load source</button>
+        <div class="source-actions">
+          <button id="probe-source" type="button">Probe source</button>
+          <button class="source-load" id="load-remote" type="button" disabled>Load source</button>
+        </div>
         <p class="source-probe ui-status" id="source-probe" role="status" aria-live="polite">Choose a source to check browser access, HTTP Range, and COPC metadata.</p>
+        <dl class="source-probe-details" id="source-probe-details" aria-label="Source probe details" hidden>
+          <div><dt>Reachable</dt><dd id="probe-reachable">Unknown</dd></div>
+          <div><dt>HTTP status</dt><dd id="probe-http-status">Unavailable</dd></div>
+          <div><dt>Range response status</dt><dd id="probe-partial-status">Unavailable</dd></div>
+          <div><dt>CORS readable</dt><dd id="probe-cors">Unknown</dd></div>
+          <div><dt>HTTP Range</dt><dd id="probe-range">Unknown</dd></div>
+          <div><dt>COPC</dt><dd id="probe-copc">Unknown</dd></div>
+          <div><dt>Point format</dt><dd id="probe-point-format">Unavailable</dd></div>
+          <div><dt>Resource size</dt><dd id="probe-resource-size">Unavailable</dd></div>
+          <div><dt>Validation</dt><dd id="probe-validation">Unavailable</dd></div>
+        </dl>
+        <p class="source-probe-warning" id="source-probe-warning" role="status" aria-live="polite" hidden></p>
         <details class="source-help ui-disclosure">
           <summary>About supported sources</summary>
           <p>HTTP sources must support byte ranges and browser CORS. Local files stay in this browser. Ordinary LAS/LAZ files without COPC hierarchy are unsupported.</p>
@@ -101,6 +127,17 @@ app.innerHTML = `
           <input id="copc-file" type="file" accept=".copc.laz,.laz,.copc,application/octet-stream">
         </label>
         <p class="source-status ui-status" id="source-status" data-status="unknown" role="status" aria-live="polite">Waiting for a source</p>
+        <section class="metadata-summary" id="metadata-summary" aria-label="Loaded dataset metadata" hidden>
+          <h2>Loaded dataset</h2>
+          <dl>
+            <div><dt>Total points</dt><dd id="metadata-point-count">Not available</dd></div>
+            <div><dt>Point format</dt><dd id="metadata-point-format">Not available</dd></div>
+            <div><dt>Bounds</dt><dd id="metadata-bounds">Not available</dd></div>
+            <div><dt>CRS metadata</dt><dd id="metadata-crs">Not available</dd></div>
+            <div><dt>Active backend</dt><dd id="metadata-backend">Not available</dd></div>
+            <div><dt>Active renderer</dt><dd id="metadata-renderer">Not available</dd></div>
+          </dl>
+        </section>
       </aside>
 
       <section class="viewer-column" aria-labelledby="viewer-heading">
@@ -128,18 +165,59 @@ app.innerHTML = `
           <label class="control-label backend-label">Backend</label>
           <div id="backend-control"></div>
         </section>
+        <p class="config-state" id="config-state" role="status" aria-live="polite">No layer is active. Settings apply when a source is loaded.</p>
         <section class="config-section" aria-labelledby="appearance-heading">
           <div class="section-heading"><div><span class="eyebrow">DISPLAY</span><h2 id="appearance-heading">Appearance</h2></div></div>
           <span class="control-label">Color mode</span>
           <div id="color-mode" aria-label="Color mode"></div>
           <div class="slider-control" id="point-size-control"></div>
-          <p class="control-hint">Slider changes apply when released.</p>
+          <label class="ui-field" for="point-size-value">Point size in pixels
+            <input id="point-size-value" type="number" min="0.01" step="0.01" inputmode="decimal">
+          </label>
+          <p class="control-hint" id="point-size-slider-help" hidden></p>
+          <p class="control-hint">Cesium applies color changes to the active layer. Three.js uses Apply for constructor changes.</p>
+          <section class="classification-controls" aria-labelledby="classification-heading">
+            <h3 id="classification-heading">Classification filter <span class="active-filter" id="classification-active">No filter</span></h3>
+            <label class="focus-checkbox" for="classification-include-enabled"><input id="classification-include-enabled" type="checkbox"> Use include list</label>
+            <label class="ui-field" for="classification-include">Include codes (0–255)
+              <input id="classification-include" type="text" inputmode="numeric" placeholder="e.g. 2, 6">
+            </label>
+            <label class="focus-checkbox" for="classification-exclude-enabled"><input id="classification-exclude-enabled" type="checkbox"> Use exclude list</label>
+            <label class="ui-field" for="classification-exclude">Exclude codes (0–255)
+              <input id="classification-exclude" type="text" inputmode="numeric" placeholder="e.g. 7, 18">
+            </label>
+            <div class="classification-actions">
+              <button id="apply-classification" type="button" disabled>Apply filter</button>
+              <button id="clear-classification" type="button" disabled>Clear filter</button>
+            </div>
+            <p class="control-hint" id="classification-help">An empty include list hides all points. Classification styling is available only on an active Cesium layer.</p>
+            <p class="control-error" id="classification-error" role="status" aria-live="polite" hidden></p>
+          </section>
+          <p class="control-error" id="style-error" role="status" aria-live="polite" hidden></p>
         </section>
         <section class="config-section" aria-labelledby="streaming-heading">
           <div class="section-heading"><div><span class="eyebrow">STREAM</span><h2 id="streaming-heading">Streaming</h2></div></div>
           <div class="slider-control" id="max-nodes-control"></div>
           <div class="slider-control" id="max-points-control"></div>
-          <p class="control-hint">Values preview while dragging and apply on release.</p>
+          <label class="ui-field" for="max-nodes-value">Max nodes
+            <input id="max-nodes-value" type="number" min="1" step="1" inputmode="numeric">
+          </label>
+          <label class="ui-field" for="max-points-value">Max rendered points
+            <input id="max-points-value" type="number" min="1" step="1" inputmode="numeric">
+          </label>
+          <label class="ui-field" for="cache-budget-mib">Point cache budget (MiB)
+            <input id="cache-budget-mib" type="number" min="0" step="0.25" inputmode="decimal">
+          </label>
+          <label class="ui-field" for="max-depth-value">Max refinement depth
+            <input id="max-depth-value" type="number" min="0" step="1" inputmode="numeric">
+          </label>
+          <label class="ui-field" for="max-sse-value">Max screen-space error (pixels)
+            <input id="max-sse-value" type="number" min="0.01" step="0.1" inputmode="decimal">
+          </label>
+          <label class="ui-field" for="max-distance-value">Max render distance (metres)
+            <input id="max-distance-value" type="number" min="0.01" step="1" inputmode="decimal">
+          </label>
+          <p class="control-hint" id="streaming-slider-help">Sliders are quick adjustments; numeric fields accept any valid package value. Constructor settings stay pending until applied.</p>
         </section>
         <section class="config-section focus-section" aria-labelledby="focus-heading">
           <div class="section-heading"><div><span class="eyebrow">REFINE</span><h2 id="focus-heading">Focus Lens</h2></div></div>
@@ -171,6 +249,11 @@ app.innerHTML = `
           <span class="package-mark" aria-hidden="true">↗</span>
           <div><strong>Adapter package</strong><span><code>@frillab/copc-adapter</code> v${__ADAPTER_VERSION__}</span><span id="package-source">${__ADAPTER_SOURCE__}</span></div>
         </section>
+        <div class="config-actions">
+          <button class="source-load" id="apply-changes" type="button" disabled>Apply changes</button>
+          <button id="reset-defaults" type="button">Reset to defaults</button>
+        </div>
+        <p class="control-error" id="config-validation" role="status" aria-live="polite" hidden></p>
       </aside>
     </main>
 
@@ -289,6 +372,7 @@ const sourceStatus = byId<HTMLElement>("source-status");
 const sourceProbe = byId<HTMLElement>("source-probe");
 const remoteSelect = byId<HTMLSelectElement>("remote-source");
 const customUrlInput = byId<HTMLInputElement>("custom-url");
+const probeSourceButton = byId<HTMLButtonElement>("probe-source");
 const remoteLoadButton = byId<HTMLButtonElement>("load-remote");
 const fileInput = byId<HTMLInputElement>("copc-file");
 const rendererHeading = byId<HTMLHeadingElement>("viewer-heading");
@@ -320,22 +404,36 @@ const copyCodeButton = byId<HTMLButtonElement>("copy-code");
 const copyInstallButton = byId<HTMLButtonElement>("copy-install");
 const copyShareButton = byId<HTMLButtonElement>("copy-share-link");
 const installCommand = byId<HTMLElement>("install-command");
-const maxDepth = DEFAULT_WORKBENCH_MAX_DEPTH;
-const maxScreenSpaceError = 8;
+const configState = byId<HTMLElement>("config-state");
+const applyChangesButton = byId<HTMLButtonElement>("apply-changes");
+const configValidation = byId<HTMLElement>("config-validation");
+const classificationIncludeInput = byId<HTMLInputElement>("classification-include");
+const classificationExcludeInput = byId<HTMLInputElement>("classification-exclude");
+const classificationActive = byId<HTMLElement>("classification-active");
+const classificationError = byId<HTMLElement>("classification-error");
+const styleError = byId<HTMLElement>("style-error");
+const applyClassificationButton = byId<HTMLButtonElement>("apply-classification");
+const clearClassificationButton = byId<HTMLButtonElement>("clear-classification");
+const metadataSummary = byId<HTMLElement>("metadata-summary");
+const probeDetails = byId<HTMLElement>("source-probe-details");
+const probeWarning = byId<HTMLElement>("source-probe-warning");
 const parsedUrlConfig = readPlaygroundUrlConfig(
   new URLSearchParams(window.location.search),
 );
 const shareSourceFromUrl = parsedUrlConfig.sourceUrl;
 if (parsedUrlConfig.warning) shareStatus.textContent = parsedUrlConfig.warning;
-let renderer: PlaygroundRenderer = parsedUrlConfig.config.renderer;
-let backend: PlaygroundBackend = parsedUrlConfig.config.backend;
-let colorMode: PlaygroundColorMode = parsedUrlConfig.config.colorMode;
-let pointSize = parsedUrlConfig.config.pointSize;
-let maxNodes = parsedUrlConfig.config.maxNodes;
-let maxRenderedPoints = parsedUrlConfig.config.maxRenderedPoints;
+let pendingConfig: IntegrationCodeConfig = {
+  ...clonePlaygroundConfig(parsedUrlConfig.config),
+  refinementConfig: {
+    ...parsedUrlConfig.refinementConfig,
+    center: { ...parsedUrlConfig.refinementConfig.center },
+  },
+};
+// The focus controls build one synchronous edit before committing it back to the
+// canonical pending configuration through updatePendingConfig/applyFocusSettings.
+let refinementConfig: PlaygroundRefinementConfig = pendingConfig.refinementConfig;
 let codeMode: "minimal" | "explicit" = "minimal";
-let refinementConfig: PlaygroundRefinementConfig = parsedUrlConfig.refinementConfig;
-let followPointerCenter = { ...refinementConfig.center };
+let followPointerCenter = { ...pendingConfig.refinementConfig.center };
 let focusDragPointerId: number | undefined;
 let focusDragOffset = { x: 0, y: 0 };
 let pendingDragCenter: { x: number; y: number } | undefined;
@@ -349,12 +447,17 @@ let pointerFocusTimer: number | undefined;
 let lastPointerFocusUpdateAt = 0;
 let lastAppliedFocusCenter: { x: number; y: number } | undefined;
 let focusConfigSyncTimer: number | undefined;
-let sourceGeneration = 0;
+let sourceSelectionGeneration = 0;
+let probeGeneration = 0;
+let probeController: AbortController | undefined;
+let loadGeneration = 0;
 let activeLoadPending = false;
-let activeSource: PlaygroundSource | undefined;
 let appliedSource: PlaygroundSource | undefined;
 let activeSourceName = "";
 let activeRuntime: PlaygroundRuntime | undefined;
+let activeRuntimeHost: HTMLDivElement | undefined;
+let pendingRuntime: PlaygroundRuntime | undefined;
+let pendingRuntimeHost: HTMLDivElement | undefined;
 let activeRuntimeReady = false;
 let activeDiagnosticsContext: PlaygroundDiagnosticsContext | undefined;
 let browserMeasurements: PlaygroundBrowserMeasurements = {};
@@ -363,8 +466,6 @@ let diagnosticsRefreshCleanup: (() => void) | undefined;
 let longTaskObserver: PerformanceObserver | undefined;
 const defaultIntegrationConfig: IntegrationCodeConfig = {
   ...defaultPlaygroundUrlConfig,
-  maxDepth,
-  maxScreenSpaceError,
   refinementConfig: {
     ...defaultPlaygroundRefinementConfig,
     center: { ...defaultPlaygroundRefinementConfig.center },
@@ -372,36 +473,71 @@ const defaultIntegrationConfig: IntegrationCodeConfig = {
 };
 let appliedConfig: IntegrationCodeConfig | undefined;
 let activeProbeResult: CopcSourceProbeResult | undefined;
+let currentProbeSourceUrl: string | undefined;
+let currentProbeGeneration: number | undefined;
+let currentProbeResult: CopcSourceProbeResult | undefined;
+let activePointFormat: number | undefined;
 let cameraInteractionVersion = 0;
 let layerFactory: CesiumLayerFactory | undefined;
 
 function captureWorkbenchConfig(): IntegrationCodeConfig {
   return {
-    renderer,
-    backend,
-    colorMode,
-    pointSize,
-    maxNodes,
-    maxDepth,
-    maxScreenSpaceError,
-    maxRenderedPoints,
-    refinementAlgorithm: refinementConfig.algorithm,
+    ...clonePlaygroundConfig(pendingConfig),
     refinementConfig: {
-      ...refinementConfig,
-      center: { ...refinementConfig.center },
+      ...pendingConfig.refinementConfig,
+      center: { ...pendingConfig.refinementConfig.center },
     },
   };
+}
+
+function cancelPendingApplyForEdit(): void {
+  if (!activeLoadPending || !activeRuntimeReady) return;
+  loadGeneration += 1;
+  releasePendingRuntime();
+  activeLoadPending = false;
+  updateRemoteLoadState();
+  setStatus(`Loaded ${activeSourceName}`, "ready");
+}
+
+function updatePendingConfig(
+  update: Partial<IntegrationCodeConfig>,
+  syncUrl = true,
+): void {
+  cancelPendingApplyForEdit();
+  pendingConfig = {
+    ...pendingConfig,
+    ...update,
+    ...(update.refinementConfig === undefined
+      ? {}
+      : { refinementAlgorithm: update.refinementConfig.algorithm }),
+    ...(update.classificationFilter === undefined
+      ? {}
+      : { classificationFilter: normalizeClassificationFilter(update.classificationFilter) }),
+    ...(update.refinementConfig === undefined
+      ? {}
+      : {
+          refinementConfig: {
+            ...update.refinementConfig,
+            center: { ...update.refinementConfig.center },
+          },
+        }),
+  };
+  refinementConfig = pendingConfig.refinementConfig;
+  if (syncUrl) writePendingUrlConfig();
+  syncPendingControls();
+  updateApplyState();
+  updateIntegrationExample();
 }
 
 for (const option of refinementAlgorithmOptions) {
   algorithmSelect.add(new Option(option.label, option.value));
 }
-algorithmSelect.value = refinementConfig.algorithm;
-focusModeSelect.value = refinementConfig.focusMode;
-focusEnabledInput.checked = refinementConfig.focusEnabled;
-focusShowGuideInput.checked = refinementConfig.showGuide;
-focusXInput.value = String(refinementConfig.center.x);
-focusYInput.value = String(refinementConfig.center.y);
+algorithmSelect.value = pendingConfig.refinementConfig.algorithm;
+focusModeSelect.value = pendingConfig.refinementConfig.focusMode;
+focusEnabledInput.checked = pendingConfig.refinementConfig.focusEnabled;
+focusShowGuideInput.checked = pendingConfig.refinementConfig.showGuide;
+focusXInput.value = String(pendingConfig.refinementConfig.center.x);
+focusYInput.value = String(pendingConfig.refinementConfig.center.y);
 if (parsedUrlConfig.warning) {
   focusConfigWarning.textContent = parsedUrlConfig.warning;
   focusConfigWarning.hidden = false;
@@ -425,12 +561,16 @@ declare global {
       useCameraResetLayerMock(): void;
       delayNextLoad(): void;
       failNextLoad(): void;
+      failNextStyle(): void;
       releaseDelayedLoad(): void;
       getMockDestroyCount(): number;
       getMockZoomCount(): number;
       setCameraView(view: PlaygroundTestCameraView): void;
       getCameraView(): PlaygroundTestCameraView;
       getMockLoadCount(): number;
+      getMockStyleUpdateCount(): number;
+      getAppliedConfig(): IntegrationCodeConfig | undefined;
+      getPendingConfig(): IntegrationCodeConfig;
       getPickablePointScreenPosition(): { x: number; y: number } | undefined;
       getMockLayerCreateCount(): number;
       getMockRefinementAlgorithm(): RefinementAlgorithm | undefined;
@@ -459,6 +599,8 @@ if (import.meta.env.DEV) {
   let mockRefinementFocus: RefinementFocus | undefined;
   let delayNextMockLoad = false;
   let failNextMockLoad = false;
+  let failNextMockStyle = false;
+  let mockStyleUpdateCount = 0;
   let releaseMockLoad: (() => void) | undefined;
   window.__COPC_PLAYGROUND_TEST__ = {
     useCameraResetLayerMock(): void {
@@ -466,6 +608,9 @@ if (import.meta.env.DEV) {
         mockLayerCreateCount += 1;
         mockRefinementAlgorithm = options.streaming?.refinementAlgorithm;
         mockRefinementFocus = undefined;
+        let mockStyle: CopcCesiumPointStyle = {
+          colorMode: options.colorMode ?? "fixed",
+        };
         return {
           attachTo(): void {},
           async load(): Promise<void> {
@@ -535,6 +680,26 @@ if (import.meta.env.DEV) {
           getMetadata(): undefined {
             return undefined;
           },
+          getStyle(): CopcCesiumPointStyle {
+            return structuredClone(mockStyle);
+          },
+          setStyle(update: CopcCesiumPointStyleUpdate): void {
+            mockStyleUpdateCount += 1;
+            if (failNextMockStyle) {
+              failNextMockStyle = false;
+              throw new Error("Injected mock style failure");
+            }
+            mockStyle = {
+              ...mockStyle,
+              ...(update.colorMode === undefined ? {} : { colorMode: update.colorMode }),
+              ...(update.classificationFilter === undefined
+                ? {}
+                : update.classificationFilter === null
+                  ? { classificationFilter: undefined }
+                  : { classificationFilter: update.classificationFilter }),
+            };
+            if (mockStyle.classificationFilter === undefined) delete mockStyle.classificationFilter;
+          },
           getHierarchyDiagnostics(): undefined {
             return undefined;
           },
@@ -564,11 +729,17 @@ if (import.meta.env.DEV) {
     failNextLoad(): void {
       failNextMockLoad = true;
     },
+    failNextStyle(): void {
+      failNextMockStyle = true;
+    },
     releaseDelayedLoad(): void {
       releaseMockLoad?.();
       releaseMockLoad = undefined;
     },
     getMockLoadCount: () => mockLoadCount,
+    getMockStyleUpdateCount: () => mockStyleUpdateCount,
+    getAppliedConfig: () => appliedConfig ? structuredClone(appliedConfig) : undefined,
+    getPendingConfig: () => structuredClone(pendingConfig),
     getMockLayerCreateCount: () => mockLayerCreateCount,
     getMockRefinementAlgorithm: () => mockRefinementAlgorithm,
     getMockFocusUpdateCount: () => mockFocusUpdateCount,
@@ -654,15 +825,25 @@ const colorControl = mountSegmentedControl<PlaygroundColorMode>(
   byId("color-mode"),
   {
     label: "Color mode",
-    value: colorMode,
+    value: pendingConfig.colorMode,
     className: "color-segments",
     choices: [],
     onChange: (value) => {
-      colorMode = value;
-      writePendingUrlConfig();
+      const activeCesium =
+        activeRuntimeReady &&
+        !activeLoadPending &&
+        activeRuntime?.renderer === "cesium" &&
+        appliedConfig?.renderer === "cesium" &&
+        pendingConfig.renderer === "cesium";
+      if (activeCesium && !applyCesiumStyle({ colorMode: value })) {
+        colorControl.setValue(appliedConfig?.colorMode ?? pendingConfig.colorMode);
+        return;
+      }
+      if (!activeCesium || activeLoadPending) {
+        updatePendingConfig({ colorMode: value });
+      }
       byId("point-empty").textContent =
         "Click a point in the viewport to inspect its available attributes.";
-      reloadActiveSource();
     },
   },
 );
@@ -688,9 +869,8 @@ const updateColorChoices = (pointFormat?: number): void => {
     },
   ];
   colorControl.setOptions(choices);
-  if (formatKnown && colorMode === "rgb" && !rgbSupported) {
-    colorMode = "elevation";
-    colorControl.setValue(colorMode);
+  if (formatKnown && !rgbSupported && pendingConfig.colorMode === "rgb") {
+    colorControl.setValue("elevation");
   }
 };
 updateColorChoices();
@@ -699,13 +879,11 @@ const rendererControl = mountSegmentedControl<PlaygroundRenderer>(
   byId("renderer-control"),
   {
     label: "Renderer",
-    value: renderer,
+    value: pendingConfig.renderer,
     choices: workbenchRendererOptions,
     onChange: (value) => {
-      renderer = value;
-      writePendingUrlConfig();
+      updatePendingConfig({ renderer: value });
       syncRendererLabels();
-      reloadActiveSource();
     },
   },
 );
@@ -714,13 +892,11 @@ const backendControl = mountSegmentedControl<PlaygroundBackend>(
   byId("backend-control"),
   {
     label: "COPC backend",
-    value: backend,
+    value: pendingConfig.backend,
     choices: workbenchBackendOptions,
     onChange: (value) => {
-      backend = value;
-      writePendingUrlConfig();
+      updatePendingConfig({ backend: value });
       syncRendererLabels();
-      reloadActiveSource();
     },
   },
 );
@@ -748,12 +924,11 @@ const sliders = [
     min: 1,
     max: 10,
     step: 1,
-    value: pointSize,
+    value: pendingConfig.pointSize,
     formatValue: (value) => `${formatUiNumber(value)} px`,
     onCommit(value) {
-      pointSize = value;
-      writePendingUrlConfig();
-      reloadActiveSource();
+      byId<HTMLInputElement>("point-size-value").value = String(value);
+      updatePendingConfig({ pointSize: value });
     },
   }),
   mountSlider(byId("max-nodes-control"), {
@@ -762,12 +937,11 @@ const sliders = [
     min: 1,
     max: 48,
     step: 1,
-    value: maxNodes,
+    value: pendingConfig.maxNodes,
     formatValue: formatUiNumber,
     onCommit(value) {
-      maxNodes = value;
-      writePendingUrlConfig();
-      reloadActiveSource();
+      byId<HTMLInputElement>("max-nodes-value").value = String(value);
+      updatePendingConfig({ maxNodes: value });
     },
   }),
   mountSlider(byId("max-points-control"), {
@@ -776,12 +950,11 @@ const sliders = [
     min: 50_000,
     max: 1_000_000,
     step: 50_000,
-    value: maxRenderedPoints,
+    value: pendingConfig.maxRenderedPoints,
     formatValue: (value) => formatUiNumber(value),
     onCommit(value) {
-      maxRenderedPoints = value;
-      writePendingUrlConfig();
-      reloadActiveSource();
+      byId<HTMLInputElement>("max-points-value").value = String(value);
+      updatePendingConfig({ maxRenderedPoints: value });
     },
   }),
 ];
@@ -815,12 +988,353 @@ const focusBiasSlider = mountSlider(byId("focus-bias-control"), {
 });
 sliders.push(focusRadiusSlider, focusBiasSlider);
 
+const invalidNumericInputs = new Map<string, string>();
+
+function syncPendingControls(): void {
+  rendererControl.setValue(pendingConfig.renderer);
+  backendControl.setValue(pendingConfig.backend);
+  colorControl.setValue(pendingConfig.colorMode);
+  sliders[0]?.setValue(pendingConfig.pointSize);
+  sliders[1]?.setValue(pendingConfig.maxNodes);
+  sliders[2]?.setValue(pendingConfig.maxRenderedPoints);
+  const pointSizeOutOfSliderRange = pendingConfig.pointSize < 1 || pendingConfig.pointSize > 10;
+  const maxNodesOutOfSliderRange = pendingConfig.maxNodes < 1 || pendingConfig.maxNodes > 48;
+  const maxPointsOutOfSliderRange = pendingConfig.maxRenderedPoints < 50_000 || pendingConfig.maxRenderedPoints > 1_000_000;
+  sliders[0]?.setDisabled(pointSizeOutOfSliderRange);
+  sliders[1]?.setDisabled(maxNodesOutOfSliderRange);
+  sliders[2]?.setDisabled(maxPointsOutOfSliderRange);
+  const pointSizeSliderHelp = byId<HTMLElement>("point-size-slider-help");
+  pointSizeSliderHelp.hidden = !pointSizeOutOfSliderRange;
+  pointSizeSliderHelp.textContent = pointSizeOutOfSliderRange
+    ? `The ${formatUiNumber(pendingConfig.pointSize)} px value is outside the quick-slider range. Adjust it with the numeric field.`
+    : "";
+  const streamingSliderHelp = byId<HTMLElement>("streaming-slider-help");
+  const outOfRangeSettings = [
+    ...(maxNodesOutOfSliderRange ? ["Max nodes"] : []),
+    ...(maxPointsOutOfSliderRange ? ["Max rendered points"] : []),
+  ];
+  streamingSliderHelp.textContent = outOfRangeSettings.length > 0
+    ? `${outOfRangeSettings.join(" and ")} is outside the quick-slider range. Adjust it with the numeric field. Constructor settings stay pending until applied.`
+    : "Sliders are quick adjustments; numeric fields accept any valid package value. Constructor settings stay pending until applied.";
+  byId<HTMLInputElement>("point-size-value").value = String(pendingConfig.pointSize);
+  byId<HTMLInputElement>("max-nodes-value").value = String(pendingConfig.maxNodes);
+  byId<HTMLInputElement>("max-points-value").value = String(pendingConfig.maxRenderedPoints);
+  byId<HTMLInputElement>("cache-budget-mib").value = String(
+    cacheBytesToMib(pendingConfig.maxPointCacheBytes),
+  );
+  byId<HTMLInputElement>("max-depth-value").value = String(pendingConfig.maxDepth);
+  byId<HTMLInputElement>("max-sse-value").value = String(
+    pendingConfig.maxScreenSpaceError,
+  );
+  byId<HTMLInputElement>("max-distance-value").value = String(
+    pendingConfig.maxRenderDistanceMeters,
+  );
+  algorithmSelect.value = pendingConfig.refinementConfig.algorithm;
+  refinementConfig = pendingConfig.refinementConfig;
+  updateFocusControls();
+  updateClassificationControls();
+}
+
+function updateApplyState(): void {
+  const configErrors = validatePlaygroundConfig(pendingConfig);
+  const errors = [...invalidNumericInputs.values(), ...configErrors];
+  configValidation.textContent = [...new Set(errors)].join(" ");
+  configValidation.hidden = errors.length === 0;
+  const hasPendingConstructorChanges =
+    appliedConfig !== undefined &&
+    hasConstructorChanges(pendingConfig, appliedConfig);
+  applyChangesButton.disabled =
+    !activeRuntimeReady ||
+    appliedSource === undefined ||
+    !hasPendingConstructorChanges ||
+    errors.length > 0 ||
+    activeLoadPending;
+  byId<HTMLButtonElement>("reset-defaults").disabled = activeLoadPending;
+  if (!activeRuntimeReady || !appliedConfig) {
+    configState.textContent =
+      "No layer is active. Settings apply when a source is loaded.";
+  } else if (activeLoadPending) {
+    configState.textContent = "Applying settings; the active layer remains available until replacement succeeds.";
+  } else if (hasPendingConstructorChanges) {
+    configState.textContent = "Pending settings differ from the active layer. Apply changes to replace the layer.";
+  } else {
+    configState.textContent = "Active layer matches the constructor settings.";
+  }
+  updateClassificationControls();
+  updateRemoteLoadState();
+}
+
+function bindNumericInput(
+  id: string,
+  label: string,
+  update: (value: number) => Partial<IntegrationCodeConfig>,
+  validate: (value: number) => boolean,
+): void {
+  const input = byId<HTMLInputElement>(id);
+  input.addEventListener("change", () => {
+    const value = Number(input.value);
+    if (input.value.trim() === "" || !validate(value)) {
+      const message = `${label} must be a valid finite value within the package contract.`;
+      invalidNumericInputs.set(id, message);
+      input.setAttribute("aria-invalid", "true");
+      updateApplyState();
+      return;
+    }
+    invalidNumericInputs.delete(id);
+    input.removeAttribute("aria-invalid");
+    updatePendingConfig(update(value));
+  });
+}
+
+bindNumericInput(
+  "point-size-value",
+  "Point size",
+  (pointSize) => ({ pointSize }),
+  (value) => Number.isFinite(value) && value > 0,
+);
+bindNumericInput(
+  "max-nodes-value",
+  "Max nodes",
+  (maxNodes) => ({ maxNodes }),
+  (value) => Number.isSafeInteger(value) && value > 0,
+);
+bindNumericInput(
+  "max-points-value",
+  "Max rendered points",
+  (maxRenderedPoints) => ({ maxRenderedPoints }),
+  (value) => Number.isSafeInteger(value) && value > 0,
+);
+bindNumericInput(
+  "cache-budget-mib",
+  "Cache budget",
+  (value) => ({ maxPointCacheBytes: cacheMibToBytes(value) }),
+  (value) => {
+    try {
+      cacheMibToBytes(value);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+);
+bindNumericInput(
+  "max-depth-value",
+  "Max depth",
+  (maxDepth) => ({ maxDepth }),
+  (value) => Number.isSafeInteger(value) && value >= 0,
+);
+bindNumericInput(
+  "max-sse-value",
+  "Max screen-space error",
+  (maxScreenSpaceError) => ({ maxScreenSpaceError }),
+  (value) => Number.isFinite(value) && value > 0,
+);
+bindNumericInput(
+  "max-distance-value",
+  "Max render distance",
+  (maxRenderDistanceMeters) => ({ maxRenderDistanceMeters }),
+  (value) => Number.isFinite(value) && value > 0,
+);
+
+function sameClassificationFilter(
+  left: IntegrationCodeConfig["classificationFilter"],
+  right: IntegrationCodeConfig["classificationFilter"],
+): boolean {
+  return JSON.stringify(normalizeClassificationFilter(left)) ===
+    JSON.stringify(normalizeClassificationFilter(right));
+}
+
+function applyCesiumStyle(
+  update: import("@frillab/copc-adapter/cesium").CopcCesiumPointStyleUpdate,
+): boolean {
+  const runtime = activeRuntime;
+  if (
+    !runtime ||
+    runtime.renderer !== "cesium" ||
+    !runtime.setStyle ||
+    !runtime.getStyle ||
+    !activeRuntimeReady ||
+    activeLoadPending ||
+    !appliedConfig
+  ) {
+    styleError.textContent = "Runtime styling requires an active Cesium layer.";
+    styleError.hidden = false;
+    return false;
+  }
+  try {
+    runtime.setStyle(update);
+    const style = runtime.getStyle();
+    if (
+      (update.colorMode !== undefined && style.colorMode !== update.colorMode) ||
+      (update.classificationFilter === null &&
+        style.classificationFilter !== undefined) ||
+      (update.classificationFilter !== undefined &&
+        update.classificationFilter !== null &&
+        !sameClassificationFilter(
+          style.classificationFilter,
+          update.classificationFilter,
+        ))
+    ) {
+      throw new Error("The Cesium layer did not confirm the requested style.");
+    }
+    const classificationFilter = normalizeClassificationFilter(
+      style.classificationFilter,
+    );
+    appliedConfig = {
+      ...appliedConfig,
+      colorMode: style.colorMode,
+      classificationFilter,
+    };
+    pendingConfig = {
+      ...pendingConfig,
+      colorMode: style.colorMode,
+      classificationFilter,
+    };
+    if (activeDiagnosticsContext) {
+      activeDiagnosticsContext = {
+        ...activeDiagnosticsContext,
+        config: appliedConfig,
+      };
+    }
+    styleError.hidden = true;
+    styleError.textContent = "";
+    writePendingUrlConfig();
+    syncPendingControls();
+    updateApplyState();
+    updateIntegrationExample();
+    refreshSnapshot();
+    return true;
+  } catch (error) {
+    styleError.textContent = `Style was not applied. ${safeErrorText(error)} The active style and generated code are unchanged.`;
+    styleError.hidden = false;
+    return false;
+  }
+}
+
+function updateClassificationControls(): void {
+  const activeCesium =
+    activeRuntimeReady &&
+    !activeLoadPending &&
+    activeRuntime?.renderer === "cesium";
+  const includeEnabled = pendingConfig.classificationFilter?.include !== undefined;
+  const excludeEnabled = pendingConfig.classificationFilter?.exclude !== undefined;
+  const includeCheckbox = byId<HTMLInputElement>("classification-include-enabled");
+  const excludeCheckbox = byId<HTMLInputElement>("classification-exclude-enabled");
+  includeCheckbox.checked = includeEnabled;
+  excludeCheckbox.checked = excludeEnabled;
+  classificationIncludeInput.disabled = !activeCesium || !includeEnabled;
+  classificationExcludeInput.disabled = !activeCesium || !excludeEnabled;
+  includeCheckbox.disabled = !activeCesium;
+  excludeCheckbox.disabled = !activeCesium;
+  classificationIncludeInput.value = includeEnabled
+    ? pendingConfig.classificationFilter!.include!.join(", ")
+    : "";
+  classificationExcludeInput.value = excludeEnabled
+    ? pendingConfig.classificationFilter!.exclude!.join(", ")
+    : "";
+  applyClassificationButton.disabled =
+    !activeCesium ||
+    sameClassificationFilter(
+      pendingConfig.classificationFilter,
+      appliedConfig?.classificationFilter,
+    );
+  clearClassificationButton.disabled =
+    !activeCesium || appliedConfig?.classificationFilter === undefined;
+  const activeFilter = appliedConfig?.classificationFilter;
+  classificationActive.textContent = activeFilter
+    ? [
+        activeFilter.include === undefined
+          ? undefined
+          : `Include [${activeFilter.include.join(", ")}]`,
+        activeFilter.exclude === undefined
+          ? undefined
+          : `Exclude [${activeFilter.exclude.join(", ")}]`,
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : "No filter";
+  byId("classification-help").textContent = activeCesium
+    ? "Cesium applies the filter to retained point buffers. An empty include list hides all points; clear removes the filter."
+    : "Classification filters require an active Cesium layer. Clear a Cesium filter before applying Three.js.";
+}
+
+function readClassificationForm(): IntegrationCodeConfig["classificationFilter"] {
+  const includeEnabled = byId<HTMLInputElement>("classification-include-enabled").checked;
+  const excludeEnabled = byId<HTMLInputElement>("classification-exclude-enabled").checked;
+  if (!includeEnabled && !excludeEnabled) return undefined;
+  return {
+    ...(includeEnabled
+      ? { include: parseClassificationCodes(classificationIncludeInput.value) }
+      : {}),
+    ...(excludeEnabled
+      ? { exclude: parseClassificationCodes(classificationExcludeInput.value) }
+      : {}),
+  };
+}
+
+byId<HTMLInputElement>("classification-include-enabled").addEventListener("change", () => {
+  classificationIncludeInput.disabled = !byId<HTMLInputElement>("classification-include-enabled").checked;
+  try {
+    updatePendingConfig({ classificationFilter: readClassificationForm() });
+    classificationError.hidden = true;
+  } catch (error) {
+    classificationError.textContent = error instanceof Error ? error.message : String(error);
+    classificationError.hidden = false;
+  }
+});
+byId<HTMLInputElement>("classification-exclude-enabled").addEventListener("change", () => {
+  classificationExcludeInput.disabled = !byId<HTMLInputElement>("classification-exclude-enabled").checked;
+  try {
+    updatePendingConfig({ classificationFilter: readClassificationForm() });
+    classificationError.hidden = true;
+  } catch (error) {
+    classificationError.textContent = error instanceof Error ? error.message : String(error);
+    classificationError.hidden = false;
+  }
+});
+classificationIncludeInput.addEventListener("change", () => {
+  try {
+    updatePendingConfig({ classificationFilter: readClassificationForm() });
+    classificationError.hidden = true;
+  } catch (error) {
+    classificationError.textContent = error instanceof Error ? error.message : String(error);
+    classificationError.hidden = false;
+  }
+});
+classificationExcludeInput.addEventListener("change", () => {
+  try {
+    updatePendingConfig({ classificationFilter: readClassificationForm() });
+    classificationError.hidden = true;
+  } catch (error) {
+    classificationError.textContent = error instanceof Error ? error.message : String(error);
+    classificationError.hidden = false;
+  }
+});
+applyClassificationButton.addEventListener("click", () => {
+  try {
+    const filter = readClassificationForm();
+    if (applyCesiumStyle({ classificationFilter: filter ?? null })) {
+      classificationError.hidden = true;
+    }
+  } catch (error) {
+    classificationError.textContent = error instanceof Error ? error.message : String(error);
+    classificationError.hidden = false;
+  }
+});
+clearClassificationButton.addEventListener("click", () => {
+  if (applyCesiumStyle({ classificationFilter: null })) {
+    classificationError.hidden = true;
+  }
+});
+
+syncPendingControls();
+
 function effectiveRefinementFocus(
-  center = refinementConfig.focusMode === "follow-pointer"
+  center = pendingConfig.refinementConfig.focusMode === "follow-pointer"
     ? followPointerCenter
-    : refinementConfig.center,
-  activeRenderer = renderer,
-  config = refinementConfig,
+    : pendingConfig.refinementConfig.center,
+  activeRenderer = activeRuntime?.renderer ?? pendingConfig.renderer,
+  config = pendingConfig.refinementConfig,
 ): RefinementFocus | undefined {
   if (
     activeRenderer !== "cesium" ||
@@ -936,7 +1450,7 @@ async function copyWithFeedback(
 }
 
 function createShareUrl(): string {
-  const config = appliedConfig ?? captureWorkbenchConfig();
+  const config = captureWorkbenchConfig();
   const sourceUrl =
     shareSourceInput.checked && typeof appliedSource === "string"
       ? appliedSource
@@ -953,25 +1467,29 @@ function createShareUrl(): string {
 }
 
 function updateFocusControls(): void {
+  const focusRenderer = activeRuntimeReady
+    ? activeRuntime?.renderer ?? pendingConfig.renderer
+    : pendingConfig.renderer;
+  refinementConfig = pendingConfig.refinementConfig;
   algorithmSelect.value = refinementConfig.algorithm;
   focusModeSelect.value = refinementConfig.focusMode;
   focusEnabledInput.checked = refinementConfig.focusEnabled;
   focusShowGuideInput.checked = refinementConfig.showGuide;
   focusEnabledInput.disabled =
-    renderer !== "cesium" || refinementConfig.focusMode === "auto-center";
-  focusShowGuideInput.disabled = renderer !== "cesium";
-  focusModeSelect.disabled = renderer !== "cesium";
+    focusRenderer !== "cesium" || refinementConfig.focusMode === "auto-center";
+  focusShowGuideInput.disabled = focusRenderer !== "cesium";
+  focusModeSelect.disabled = focusRenderer !== "cesium";
   focusRadiusSlider.setDisabled(
-    renderer !== "cesium" || refinementConfig.focusMode === "auto-center",
+    focusRenderer !== "cesium" || refinementConfig.focusMode === "auto-center",
   );
   focusBiasSlider.setDisabled(
-    renderer !== "cesium" || refinementConfig.focusMode === "auto-center",
+    focusRenderer !== "cesium" || refinementConfig.focusMode === "auto-center",
   );
   focusRadiusSlider.setValue(refinementConfig.radius * 100);
   focusBiasSlider.setValue(refinementConfig.detailBias);
 
   const positionEditable =
-    renderer === "cesium" &&
+    focusRenderer === "cesium" &&
     refinementConfig.focusMode !== "auto-center" &&
     refinementConfig.focusMode !== "follow-pointer";
   focusPositionControls.hidden = !positionEditable;
@@ -981,7 +1499,7 @@ function updateFocusControls(): void {
   focusYInput.value = String(refinementConfig.center.y);
   byId<HTMLButtonElement>("focus-reset").disabled = !positionEditable;
 
-  const focusAvailable = renderer === "cesium";
+  const focusAvailable = focusRenderer === "cesium";
   byId<HTMLElement>("focus-help").textContent = focusAvailable
     ? "Focus prioritizes LoD refinement near this screen-space region; it does not crop the point cloud."
     : "Focus Lens controls require the Cesium renderer. The refinement algorithm applies to both renderers.";
@@ -1014,7 +1532,7 @@ function writePendingUrlConfig(): void {
       : undefined;
   const params = writePlaygroundUrlConfig(
     captureWorkbenchConfig(),
-    refinementConfig,
+    pendingConfig.refinementConfig,
     sharedSource,
   );
   const query = params.toString();
@@ -1033,20 +1551,44 @@ function removeSharedSourceParam(): void {
 }
 
 function applyFocusSettings(syncUrl = true): void {
+  cancelPendingApplyForEdit();
+  pendingConfig = {
+    ...pendingConfig,
+    refinementConfig: {
+      ...refinementConfig,
+      center: { ...refinementConfig.center },
+    },
+  };
   updateFocusControls();
-  const focus = effectiveRefinementFocus();
-  activeRuntime?.setRefinementFocus(focus);
-  lastAppliedFocusCenter = focus?.center;
-  if (activeRuntime && activeRuntimeReady && appliedConfig) {
-    appliedConfig = {
-      ...appliedConfig,
-      refinementConfig: {
-        ...refinementConfig,
-        center: { ...refinementConfig.center },
-      },
-    };
+  const focus = effectiveRefinementFocus(
+    refinementConfig.focusMode === "follow-pointer"
+      ? followPointerCenter
+      : refinementConfig.center,
+    activeRuntime?.renderer ?? pendingConfig.renderer,
+    refinementConfig,
+  );
+  if (activeRuntime?.renderer === "cesium" && activeRuntimeReady && !activeLoadPending) {
+    try {
+      activeRuntime.setRefinementFocus(focus);
+      if (appliedConfig) {
+        appliedConfig = {
+          ...appliedConfig,
+          refinementConfig: {
+            ...refinementConfig,
+            algorithm: appliedConfig.refinementConfig.algorithm,
+            center: { ...refinementConfig.center },
+          },
+        };
+      }
+    } catch (error) {
+      styleError.textContent = `Focus settings were not applied. ${safeErrorText(error)}`;
+      styleError.hidden = false;
+      return;
+    }
   }
+  lastAppliedFocusCenter = focus?.center;
   if (syncUrl) writePendingUrlConfig();
+  updateApplyState();
   updateIntegrationExample();
   refreshSnapshot();
 }
@@ -1128,7 +1670,7 @@ function flushFollowPointerUpdate(): void {
   pointerFocusFrame = undefined;
   if (
     !pendingPointerCenter ||
-    renderer !== "cesium" ||
+    activeRuntime?.renderer !== "cesium" ||
     refinementConfig.focusMode !== "follow-pointer" ||
     !refinementConfig.focusEnabled
   )
@@ -1208,7 +1750,7 @@ function onFocusGuidePointerDown(event: PointerEvent): void {
   if (
     focusGuide.hidden ||
     refinementConfig.focusMode === "follow-pointer" ||
-    renderer !== "cesium"
+    activeRuntime?.renderer !== "cesium"
   )
     return;
   event.preventDefault();
@@ -1314,7 +1856,8 @@ const focusResizeObserver = new ResizeObserver(updateFocusGuidePosition);
 focusResizeObserver.observe(viewerFrame);
 
 function syncRendererLabels(): void {
-  const label = renderer === "cesium" ? "Cesium" : "Three.js";
+  const activeRenderer = activeRuntime?.renderer ?? pendingConfig.renderer;
+  const label = activeRenderer === "cesium" ? "Cesium" : "Three.js";
   rendererHeading.textContent = label;
   rendererBadge.textContent = label;
   viewport.setAttribute(
@@ -1574,11 +2117,7 @@ algorithmSelect.addEventListener("change", () => {
   );
   if (!selected) return;
   refinementConfig = { ...refinementConfig, algorithm: selected.value };
-  updateFocusControls();
-  writePendingUrlConfig();
-  updateIntegrationExample();
-  refreshSnapshot();
-  reloadActiveSource();
+  updatePendingConfig({ refinementConfig });
 });
 
 focusModeSelect.addEventListener("change", () => {
@@ -1596,8 +2135,14 @@ focusShowGuideInput.addEventListener("change", () => {
     ...refinementConfig,
     showGuide: focusShowGuideInput.checked,
   };
-  updateFocusControls();
-  writePendingUrlConfig();
+  updatePendingConfig({ refinementConfig });
+  if (appliedConfig) {
+    appliedConfig = {
+      ...appliedConfig,
+      refinementConfig: { ...appliedConfig.refinementConfig, showGuide: refinementConfig.showGuide },
+    };
+    updateIntegrationExample();
+  }
 });
 focusXInput.addEventListener("change", () => {
   const x = Number(focusXInput.value);
@@ -1627,49 +2172,70 @@ byId<HTMLButtonElement>("focus-reset").addEventListener("click", () => {
 updateFocusControls();
 updateIntegrationExample();
 
+function describeProbeTruth(value: boolean | "unknown", positive: string, negative: string): string {
+  return value === true ? positive : value === false ? negative : "Unknown";
+}
+
+function describeValidationLevel(value: string): string {
+  return value === "strict"
+    ? "Strict response validation"
+    : value === "compatibility-limited"
+      ? "Compatibility-limited"
+      : value;
+}
+
 const showProbe = (result: CopcSourceProbeResult): void => {
-  updateColorChoices(result.pointFormat);
-  byId("diagnostic-range").textContent =
-    result.rangeSupported === true
-      ? "Supported"
-      : result.rangeSupported === false
-        ? "Unavailable"
-        : "Unknown";
-  byId("diagnostic-copc").textContent =
-    result.copcDetected === true
-      ? "Detected"
-      : result.copcDetected === false
-        ? "Not detected"
-        : "Not confirmed";
-  byId("diagnostic-validation").textContent =
-    result.validationLevel === "strict"
-      ? "Strict response validation"
-      : result.validationLevel === "compatibility-limited"
-        ? "Compatibility-limited"
-        : result.validationLevel;
-  const warning = byId<HTMLElement>("diagnostic-warning");
-  warning.textContent = result.warnings.join(" ");
-  warning.hidden = result.warnings.length === 0;
-  sourceProbe.textContent =
-    result.warnings.length > 0
-      ? `${result.corsReadable === true ? "CORS readable" : "CORS unavailable"} · ${result.rangeSupported === true ? "HTTP Range supported" : "HTTP Range unavailable"}. ${result.warnings.join(" ")}`
-      : `CORS readable · HTTP Range supported · COPC ${result.copcDetected === true ? "detected" : "not confirmed"}`;
+  const warnings = safeErrorText(result.warnings.join(" "));
+  probeDetails.hidden = false;
+  byId("probe-reachable").textContent = result.reachable ? "Yes" : "No";
+  byId("probe-http-status").textContent = result.status === undefined ? "Unavailable" : String(result.status);
+  byId("probe-partial-status").textContent = result.partialStatus === undefined ? "Unavailable" : String(result.partialStatus);
+  byId("probe-cors").textContent = describeProbeTruth(result.corsReadable, "Readable", "Not readable");
+  byId("probe-range").textContent = describeProbeTruth(result.rangeSupported, "Supported", "Unsupported");
+  byId("probe-copc").textContent = describeProbeTruth(result.copcDetected, "Detected", "Not detected");
+  byId("probe-point-format").textContent = result.pointFormat === undefined ? "Unavailable" : String(result.pointFormat & 0x3f);
+  byId("probe-resource-size").textContent = result.contentLength === undefined ? "Unavailable" : formatDiagnosticBytes(result.contentLength);
+  byId("probe-validation").textContent = describeValidationLevel(result.validationLevel);
+  probeWarning.textContent = warnings;
+  probeWarning.hidden = warnings.length === 0;
+  sourceProbe.textContent = "Probe complete. Review the checks below before loading this source.";
 };
+
+function probeFailureReason(result: CopcSourceProbeResult): string | undefined {
+  if (result.status !== undefined && result.status >= 400) return `The source returned HTTP ${result.status}. Check the URL and access permissions.`;
+  if (result.partialStatus !== undefined && result.partialStatus >= 400) return `The Range request returned HTTP ${result.partialStatus}. Check the host's Range and access configuration.`;
+  if (result.corsReadable === false) return "The browser could not read this response because of its CORS policy. The host must allow this page's origin.";
+  if (result.rangeSupported === false) return "The host did not provide a usable byte-range response. Configure HTTP Range support without weakening response validation.";
+  if (result.validationLevel === "incompatible") return "The source did not satisfy the package's byte-range validation. Check the host's Range and Content-Range responses.";
+  if (result.copcDetected === false) return "The readable response does not contain COPC metadata. Choose a COPC LAZ resource.";
+  return undefined;
+}
 
 const getFilePointFormat = async (file: File): Promise<number | undefined> => {
   if (file.size <= 104) return undefined;
   const header = new Uint8Array(await file.slice(104, 105).arrayBuffer());
-  return header.length === 1 ? header[0] : undefined;
+  return header.length === 1 ? header[0] & 0x3f : undefined;
 };
 
-const destroyRuntime = (): void => {
+function clearRuntimeObservations(): void {
+  diagnosticsRefreshCleanup?.();
+  diagnosticsRefreshCleanup = undefined;
+  longTaskObserver?.disconnect();
+  longTaskObserver = undefined;
+  activeDiagnosticsContext = undefined;
+  browserMeasurements = {};
+  loadInitiatedAt = undefined;
+  updateSnapshot(undefined);
+  renderDiagnosticsDashboard(undefined);
+}
+
+function destroyActiveRuntime(clearDiagnostics = true): void {
   activeRuntimeReady = false;
   unbindPointerFocus();
   if (focusDragPointerId !== undefined) {
     const pointerId = focusDragPointerId;
     focusDragPointerId = undefined;
-    if (focusGuideHandle.hasPointerCapture(pointerId))
-      focusGuideHandle.releasePointerCapture(pointerId);
+    if (focusGuideHandle.hasPointerCapture(pointerId)) focusGuideHandle.releasePointerCapture(pointerId);
     activeRuntime?.setFocusDragging(false);
   }
   if (dragFocusFrame !== undefined) cancelAnimationFrame(dragFocusFrame);
@@ -1677,90 +2243,137 @@ const destroyRuntime = (): void => {
   dragFocusFrame = undefined;
   dragFocusTimer = undefined;
   pendingDragCenter = undefined;
-  if (focusConfigSyncTimer !== undefined)
-    window.clearTimeout(focusConfigSyncTimer);
+  if (focusConfigSyncTimer !== undefined) window.clearTimeout(focusConfigSyncTimer);
   focusConfigSyncTimer = undefined;
-  diagnosticsRefreshCleanup?.();
-  diagnosticsRefreshCleanup = undefined;
-  longTaskObserver?.disconnect();
-  longTaskObserver = undefined;
   activeRuntime?.destroy();
   activeRuntime = undefined;
-  activeDiagnosticsContext = undefined;
-  browserMeasurements = {};
-  loadInitiatedAt = undefined;
-  viewport.replaceChildren();
-  updateSnapshot(undefined);
-  renderDiagnosticsDashboard(undefined);
+  activeRuntimeHost?.remove();
+  activeRuntimeHost = undefined;
+  if (clearDiagnostics) clearRuntimeObservations();
   updateFocusGuidePosition();
-};
+}
+
+function disposeCandidate(runtime: PlaygroundRuntime | undefined, host: HTMLDivElement): void {
+  runtime?.destroy();
+  host.remove();
+}
+
+function releasePendingRuntime(): void {
+  const runtime = pendingRuntime;
+  const host = pendingRuntimeHost;
+  pendingRuntime = undefined;
+  pendingRuntimeHost = undefined;
+  if (host) disposeCandidate(runtime, host);
+}
+
+function renderLoadedMetadata(): void {
+  const metadata = activeRuntime?.getMetadata();
+  metadataSummary.hidden = appliedSource === undefined;
+  byId("metadata-point-count").textContent = metadata && Number.isFinite(metadata.pointCount)
+    ? new Intl.NumberFormat("en-US").format(metadata.pointCount)
+    : "Not available";
+  byId("metadata-point-format").textContent = activePointFormat === undefined
+    ? "Not available"
+    : String(activePointFormat & 0x3f);
+  byId("metadata-bounds").textContent = metadata?.bounds
+    ? `X ${metadata.bounds.minX}–${metadata.bounds.maxX}; Y ${metadata.bounds.minY}–${metadata.bounds.maxY}; Z ${metadata.bounds.minZ}–${metadata.bounds.maxZ} (source CRS units)`
+    : "Not available";
+  byId("metadata-crs").textContent = metadata?.wkt?.trim()
+    ? "WKT provided by source"
+    : metadata
+      ? "Not provided by source"
+      : "Not available";
+  byId("metadata-backend").textContent = appliedConfig?.backend ?? "Not available";
+  byId("metadata-renderer").textContent = appliedConfig?.renderer === "three" ? "Three.js" : appliedConfig?.renderer === "cesium" ? "Cesium" : "Not available";
+}
+
+function selectedRemoteSource(): { url: string; name: string } | undefined {
+  if (remoteSelect.value === "custom") {
+    try {
+      const parsed = new URL(customUrlInput.value.trim());
+      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return undefined;
+      return { url: parsed.href, name: "Custom URL" };
+    } catch {
+      return undefined;
+    }
+  }
+  if (remoteSelect.value === "chicago") {
+    return { url: "https://data.pointcloud.org/chicago-downtown/chicago-downtown.copc.laz", name: "Chicago Downtown" };
+  }
+  return { url: "https://data.pointcloud.org/autzen/autzen-classified.copc.laz", name: "Autzen Stadium" };
+}
+
+function updateRemoteLoadState(): void {
+  const selected = selectedRemoteSource();
+  const invalidConfiguration =
+    validatePlaygroundConfig(pendingConfig).length > 0 ||
+    invalidNumericInputs.size > 0;
+  const hasMatchingProbe = selected !== undefined &&
+    currentProbeResult !== undefined &&
+    currentProbeSourceUrl === selected.url &&
+    currentProbeGeneration === sourceSelectionGeneration;
+  remoteLoadButton.disabled = activeLoadPending || invalidConfiguration || !hasMatchingProbe || !!(hasMatchingProbe && probeFailureReason(currentProbeResult!));
+}
 
 const loadSource = async (
   source: PlaygroundSource,
   sourceName: string,
   options: {
     preserveCamera?: boolean;
-    generation?: number;
+    selectionGeneration: number;
     probeResult?: CopcSourceProbeResult;
     initiatedAt?: number;
-  } = {},
+    config?: IntegrationCodeConfig;
+  },
 ): Promise<void> => {
-  const generation = options.generation ?? ++sourceGeneration;
-  if (generation !== sourceGeneration) return;
-  const priorRuntime = activeRuntime;
-  const priorCamera =
-    options.preserveCamera && priorRuntime?.renderer === renderer
-      ? priorRuntime.getCameraState()
-      : undefined;
-  const capturedInteractionVersion = cameraInteractionVersion;
-  activeSource = source;
-  activeSourceName = sourceName;
-  if (source instanceof File) activeProbeResult = undefined;
-  else if (options.probeResult) activeProbeResult = options.probeResult;
-  const probeResult = options.probeResult ?? activeProbeResult;
-  destroyRuntime();
-  loadInitiatedAt = options.initiatedAt ?? performance.now();
-  renderPoint(undefined);
-  activeLoadPending = true;
-  setStatus(`Loading ${sourceName}…`, "loading");
-  const diagnosticWarning = byId<HTMLElement>("diagnostic-warning");
-  diagnosticWarning.textContent = probeResult?.warnings.join(" ") ?? "";
-  diagnosticWarning.hidden = !probeResult || probeResult.warnings.length === 0;
-  if (probeResult) {
-    byId("diagnostic-range").textContent =
-      probeResult.rangeSupported === true
-        ? "Supported"
-        : probeResult.rangeSupported === false
-          ? "Unavailable"
-          : "Unknown";
-    byId("diagnostic-copc").textContent =
-      probeResult.copcDetected === true
-        ? "Detected"
-        : probeResult.copcDetected === false
-          ? "Not detected"
-          : "Not confirmed";
-    byId("diagnostic-validation").textContent =
-      probeResult.validationLevel === "strict"
-        ? "Strict response validation"
-        : probeResult.validationLevel === "compatibility-limited"
-          ? "Compatibility-limited"
-          : probeResult.validationLevel;
-  } else {
-    byId("diagnostic-range").textContent =
-      typeof source === "string" ? "Checking" : "Not applicable (local file)";
-    byId("diagnostic-copc").textContent =
-      typeof source === "string" ? "Checking" : "Checked while loading";
-    byId("diagnostic-validation").textContent =
-      typeof source === "string" ? "Checking" : "Local byte source";
+  const requestGeneration = ++loadGeneration;
+  releasePendingRuntime();
+  const current = () => !disposed && requestGeneration === loadGeneration && options.selectionGeneration === sourceSelectionGeneration;
+  if (!current()) return;
+  const loadStartedAt = options.initiatedAt ?? performance.now();
+  let loadConfig = clonePlaygroundConfig(options.config ?? captureWorkbenchConfig());
+  const configurationErrors = [
+    ...validatePlaygroundConfig(loadConfig),
+    ...invalidNumericInputs.values(),
+  ];
+  if (configurationErrors.length > 0) {
+    setStatus(`Settings must be corrected before loading: ${[...new Set(configurationErrors)].join(" ")}`, "error");
+    return;
   }
-  let runtime: PlaygroundRuntime | undefined;
+  const priorRuntime = activeRuntime;
+  const priorCamera = options.preserveCamera && priorRuntime?.renderer === loadConfig.renderer
+    ? priorRuntime.getCameraState()
+    : undefined;
+  const capturedInteractionVersion = cameraInteractionVersion;
+  const probeResult = options.probeResult;
+  const host = document.createElement("div");
+  host.className = "runtime-host";
+  host.setAttribute("aria-hidden", "true");
+  host.style.visibility = "hidden";
+  viewport.append(host);
+  pendingRuntimeHost = host;
+  activeLoadPending = true;
+  updateRemoteLoadState();
+  updateApplyState();
+  setStatus(`Loading ${sourceName}…`, "loading");
+  let candidate: PlaygroundRuntime | undefined;
+  let candidateDisposed = false;
+  const disposeLocalCandidate = (): void => {
+    if (candidateDisposed) return;
+    candidateDisposed = true;
+    disposeCandidate(candidate, host);
+  };
   try {
-    if (source instanceof File) {
-      updateColorChoices(await getFilePointFormat(source));
+    const pointFormat = source instanceof File ? await getFilePointFormat(source) : probeResult?.pointFormat;
+    const rgbUnsupported = pointFormat !== undefined && !knownRgbFormats.has(pointFormat & 0x3f);
+    if (rgbUnsupported && loadConfig.colorMode === "rgb") {
+      loadConfig = { ...loadConfig, colorMode: "elevation" };
     }
-    if (generation !== sourceGeneration) return;
-    const loadConfig = captureWorkbenchConfig();
-    const createdRuntime = await createPlaygroundRuntime(
+    if (!current()) {
+      disposeLocalCandidate();
+      return;
+    }
+    const created = await createPlaygroundRuntime(
       {
         renderer: loadConfig.renderer,
         backend: loadConfig.backend,
@@ -1771,280 +2384,351 @@ const loadSource = async (
         maxNodes: loadConfig.maxNodes,
         maxDepth: loadConfig.maxDepth,
         maxScreenSpaceError: loadConfig.maxScreenSpaceError,
+        maxRenderDistanceMeters: loadConfig.maxRenderDistanceMeters,
         maxRenderedPoints: loadConfig.maxRenderedPoints,
+        maxPointCacheBytes: loadConfig.maxPointCacheBytes,
         refinementAlgorithm: loadConfig.refinementAlgorithm,
-        container: viewport,
-        onPointPicked: renderPoint,
-        isCurrent: () => generation === sourceGeneration,
-        canAutoZoom: () =>
-          capturedInteractionVersion === cameraInteractionVersion,
-        onLayerLoadStart: () => {
-          if (generation !== sourceGeneration) return;
-          loadInitiatedAt ??= performance.now();
-        },
-        onLayerLoadComplete: () => {
-          if (generation !== sourceGeneration) return;
-          browserMeasurements = {
-            ...browserMeasurements,
-            loadElapsedMs:
-              loadInitiatedAt === undefined
-                ? undefined
-                : performance.now() - loadInitiatedAt,
-          };
-          refreshSnapshot();
-        },
-        onError: (message) => {
-          if (runtime && activeRuntime === runtime)
-            setStatus(safeErrorText(message), "error");
-        },
+        ...(loadConfig.classificationFilter === undefined ? {} : { classificationFilter: loadConfig.classificationFilter }),
+        container: host,
+        onPointPicked: (point) => { if (activeRuntime === candidate) renderPoint(point); },
+        isCurrent: current,
+        canAutoZoom: () => capturedInteractionVersion === cameraInteractionVersion,
+        onLayerLoadStart: () => {},
+        onLayerLoadComplete: () => {},
+        onError: (message) => { if (candidate && activeRuntime === candidate) setStatus(safeErrorText(message), "error"); },
       },
       layerFactory,
     );
-    if (!createdRuntime) return;
-    runtime = createdRuntime;
-    activeRuntime = createdRuntime;
-    activeDiagnosticsContext = {
-      sourceLabel: displaySourceLabel(
-        sourceName,
-        typeof source === "string" ? source : undefined,
-      ),
-      renderer: loadConfig.renderer,
-      config: loadConfig,
-      sourceKind: source instanceof File ? "local" : "http",
-      ...(source instanceof File
-        ? { sourceSizeBytes: source.size }
-        : probeResult?.contentLength === undefined
-          ? {}
-          : { sourceSizeBytes: probeResult.contentLength }),
-      ...(probeResult?.status === undefined
-        ? {}
-        : { sourceHttpStatus: probeResult.status }),
-      ...(probeResult?.partialStatus === undefined
-        ? {}
-        : { sourcePartialHttpStatus: probeResult.partialStatus }),
-      ...(probeResult?.corsReadable === undefined
-        ? {}
-        : { corsReadable: probeResult.corsReadable }),
-      ...(probeResult?.rangeSupported === undefined
-        ? {}
-        : { rangeSupported: probeResult.rangeSupported }),
-      ...(probeResult?.copcDetected === undefined
-        ? {}
-        : { copcDetected: probeResult.copcDetected }),
+    if (!created) {
+      disposeLocalCandidate();
+      return;
+    }
+    candidate = created;
+    if (!current()) {
+      disposeLocalCandidate();
+      return;
+    }
+    pendingRuntime = candidate;
+    pendingRuntimeHost = host;
+    const focus = effectiveRefinementFocus(
+      loadConfig.refinementConfig.center,
+      loadConfig.renderer,
+      loadConfig.refinementConfig,
+    );
+    candidate.setRefinementFocus(focus);
+    await candidate.ready;
+    if (!current()) {
+      disposeLocalCandidate();
+      return;
+    }
+
+    let committedConfig: IntegrationCodeConfig = {
+      ...loadConfig,
+      refinementConfig: { ...loadConfig.refinementConfig, center: { ...loadConfig.refinementConfig.center } },
     };
-    observeBrowserLongTasks(createdRuntime);
-    bindPointerFocus(createdRuntime);
-    const initialFocus = effectiveRefinementFocus();
-    createdRuntime.setRefinementFocus(initialFocus);
-    lastAppliedFocusCenter = initialFocus?.center;
-    updateFocusControls();
+    if (candidate.renderer === "cesium" && pendingConfig.renderer === "cesium") {
+      const styleUpdate: CopcCesiumPointStyleUpdate = {};
+      if (pendingConfig.colorMode !== loadConfig.colorMode && !(rgbUnsupported && pendingConfig.colorMode === "rgb")) {
+        styleUpdate.colorMode = pendingConfig.colorMode;
+      }
+      if (!sameClassificationFilter(pendingConfig.classificationFilter, loadConfig.classificationFilter)) {
+        styleUpdate.classificationFilter = pendingConfig.classificationFilter ?? null;
+      }
+      if (Object.keys(styleUpdate).length > 0) candidate.setStyle?.(styleUpdate);
+      const actualStyle = candidate.getStyle?.();
+      if (actualStyle) {
+        committedConfig = {
+          ...committedConfig,
+          colorMode: actualStyle.colorMode,
+          classificationFilter: normalizeClassificationFilter(actualStyle.classificationFilter),
+        };
+      }
+      if (JSON.stringify(pendingConfig.refinementConfig) !== JSON.stringify(loadConfig.refinementConfig)) {
+        const pendingFocus = effectiveRefinementFocus(
+          pendingConfig.refinementConfig.focusMode === "follow-pointer" ? followPointerCenter : pendingConfig.refinementConfig.center,
+          "cesium",
+          pendingConfig.refinementConfig,
+        );
+        candidate.setRefinementFocus(pendingFocus);
+        committedConfig = {
+          ...committedConfig,
+          refinementConfig: {
+            ...pendingConfig.refinementConfig,
+            algorithm: loadConfig.refinementConfig.algorithm,
+            center: { ...pendingConfig.refinementConfig.center },
+          },
+        };
+      }
+    }
+
+    const cameraToRestore = priorRuntime?.renderer === candidate.renderer
+      ? capturedInteractionVersion === cameraInteractionVersion
+        ? priorCamera
+        : priorRuntime.getCameraState()
+      : undefined;
+    destroyActiveRuntime(true);
+    host.style.visibility = "visible";
+    host.removeAttribute("aria-hidden");
+    activeRuntime = candidate;
+    activeRuntimeHost = host;
+    candidateDisposed = true;
+    pendingRuntime = undefined;
+    pendingRuntimeHost = undefined;
+    activeRuntimeReady = true;
+    activeSourceName = sourceName;
+    appliedSource = source;
+    activeProbeResult = probeResult;
+    activePointFormat = pointFormat;
+    if (rgbUnsupported && pendingConfig.colorMode === "rgb") {
+      pendingConfig = { ...pendingConfig, colorMode: "elevation" };
+    }
+    appliedConfig = committedConfig;
+    activeDiagnosticsContext = {
+      sourceLabel: displaySourceLabel(sourceName, typeof source === "string" ? source : undefined),
+      renderer: loadConfig.renderer,
+      config: appliedConfig,
+      sourceKind: source instanceof File ? "local" : "http",
+      ...(source instanceof File ? { sourceSizeBytes: source.size } : probeResult?.contentLength === undefined ? {} : { sourceSizeBytes: probeResult.contentLength }),
+      ...(probeResult?.status === undefined ? {} : { sourceHttpStatus: probeResult.status }),
+      ...(probeResult?.partialStatus === undefined ? {} : { sourcePartialHttpStatus: probeResult.partialStatus }),
+      ...(probeResult ? { corsReadable: probeResult.corsReadable, rangeSupported: probeResult.rangeSupported, copcDetected: probeResult.copcDetected } : {}),
+    };
+    if (probeResult) {
+      byId("diagnostic-range").textContent = describeProbeTruth(probeResult.rangeSupported, "Supported", "Unsupported");
+      byId("diagnostic-copc").textContent = describeProbeTruth(probeResult.copcDetected, "Detected", "Not detected");
+      byId("diagnostic-validation").textContent = describeValidationLevel(probeResult.validationLevel);
+      const warning = byId<HTMLElement>("diagnostic-warning");
+      warning.textContent = safeErrorText(probeResult.warnings.join(" "));
+      warning.hidden = probeResult.warnings.length === 0;
+    } else {
+      byId("diagnostic-range").textContent = "Not applicable (local file)";
+      byId("diagnostic-copc").textContent = "COPC loaded from local file";
+      byId("diagnostic-validation").textContent = "Not applicable (local file)";
+      byId<HTMLElement>("diagnostic-warning").hidden = true;
+    }
+    loadInitiatedAt = loadStartedAt;
+    browserMeasurements = { loadElapsedMs: performance.now() - loadStartedAt };
+    if (cameraToRestore) candidate.setCameraState(cameraToRestore);
+    if (typeof source === "string") {
+      exactSourceInput.checked = !isPotentiallySensitiveSource(source);
+      shareSourceInput.checked = false;
+    } else {
+      exactSourceInput.checked = false;
+      shareSourceInput.checked = false;
+    }
+    updateColorChoices(activePointFormat);
+    observeBrowserLongTasks(candidate);
+    bindPointerFocus(candidate);
+    lastAppliedFocusCenter = focus?.center;
     diagnosticsRefreshCleanup = createDiagnosticsRefreshLoop(
       () => activeRuntime,
       (currentRuntime) => {
         if (currentRuntime) refreshSnapshot();
-        else {
-          updateSnapshot(undefined);
-          renderDiagnosticsDashboard(undefined);
-        }
+        else { updateSnapshot(undefined); renderDiagnosticsDashboard(undefined); }
       },
     );
-    refreshSnapshot();
-    await createdRuntime.ready;
-    if (generation !== sourceGeneration || activeRuntime !== createdRuntime) {
-      if (activeRuntime === createdRuntime) {
-        destroyRuntime();
-        activeLoadPending = false;
-        if (sourceStatus.textContent === `Loading ${sourceName}…`) {
-          setStatus(
-            "Source selection changed. Choose a source and load it.",
-            "unknown",
-          );
-        }
-      }
-      return;
-    }
     activeLoadPending = false;
-    if (
-      priorCamera &&
-      capturedInteractionVersion === cameraInteractionVersion
-    ) {
-      createdRuntime.setCameraState(priorCamera);
-    }
-    const sourceChanged = appliedSource !== source;
-    appliedConfig = {
-      ...loadConfig,
-      refinementConfig: {
-        ...refinementConfig,
-        center: { ...refinementConfig.center },
-      },
-    };
-    appliedSource = source;
-    if (sourceChanged) {
-      exactSourceInput.checked =
-        typeof source === "string" && !isPotentiallySensitiveSource(source);
-      shareSourceInput.checked = false;
-    }
-    activeRuntimeReady = true;
+    updateRemoteLoadState();
+    renderPoint(undefined);
+    renderLoadedMetadata();
+    syncPendingControls();
+    updateApplyState();
     updateIntegrationExample();
     setStatus(`Loaded ${sourceName}`, "ready");
-    viewerCaption.textContent = `${renderer === "cesium" ? "Cesium" : "Three.js"} streams visible COPC nodes as the camera moves.`;
+    viewerCaption.textContent = `${loadConfig.renderer === "cesium" ? "Cesium" : "Three.js"} streams visible COPC nodes as the camera moves.`;
     refreshSnapshot();
   } catch (error) {
-    if (generation !== sourceGeneration) {
-      if (runtime && activeRuntime === runtime) {
-        destroyRuntime();
-        activeLoadPending = false;
-        if (sourceStatus.textContent === `Loading ${sourceName}…`) {
-          setStatus(
-            "Source selection changed. Choose a source and load it.",
-            "unknown",
-          );
-        }
-      }
-      return;
+    disposeLocalCandidate();
+    if (!current()) return;
+    if (pendingRuntime === candidate) {
+      pendingRuntime = undefined;
+      pendingRuntimeHost = undefined;
     }
     activeLoadPending = false;
-    destroyRuntime();
-    setStatus(safeErrorText(error), "error");
-    byId("hud-state").textContent = "Error";
+    updateRemoteLoadState();
+    updateApplyState();
+    const reason = safeErrorText(error);
+    const browserHint = typeof source === "string"
+      ? " Check host CORS and Range support; browser network errors can hide the cause."
+      : "";
+    setStatus(
+      activeRuntime
+        ? `Could not load ${sourceName}: ${reason}${browserHint} The previous layer is still active.`
+        : `Could not load ${sourceName}: ${reason}${browserHint}`,
+      "error",
+    );
   }
 };
 
-function reloadActiveSource(): void {
-  if (activeSource !== undefined) {
-    void loadSource(activeSource, activeSourceName, {
-      preserveCamera: true,
-      initiatedAt: performance.now(),
-    });
-  }
+function resetProbeState(message: string): void {
+  currentProbeResult = undefined;
+  currentProbeSourceUrl = undefined;
+  currentProbeGeneration = undefined;
+  probeDetails.hidden = true;
+  probeWarning.hidden = true;
+  probeWarning.textContent = "";
+  remoteLoadButton.disabled = true;
+  sourceProbe.textContent = message;
 }
 
-const invalidateSourceRequest = (): number => {
-  const probeWasPending = remoteLoadButton.disabled;
-  const generation = ++sourceGeneration;
-  if (activeLoadPending) {
-    if (activeRuntime) destroyRuntime();
-    activeLoadPending = false;
-    if (sourceStatus.textContent.startsWith("Loading ")) {
-      setStatus(
-        "Source selection changed. Choose a source and load it.",
-        "unknown",
-      );
-    }
-  }
-  remoteLoadButton.disabled = false;
-  remoteLoadButton.textContent =
-    remoteSelect.value === "custom"
-      ? "Probe and load URL"
-      : "Probe and load source";
-  if (probeWasPending)
-    sourceProbe.textContent =
-      "Source selection changed. Run the probe again to load it.";
-  return generation;
-};
+function invalidateSourceSelection(message = "Source changed. Probe it before loading."): number {
+  sourceSelectionGeneration += 1;
+  probeGeneration += 1;
+  probeController?.abort();
+  probeController = undefined;
+  loadGeneration += 1;
+  releasePendingRuntime();
+  activeLoadPending = false;
+  probeSourceButton.disabled = false;
+  resetProbeState(message);
+  if (activeRuntimeReady) setStatus(`Loaded ${activeSourceName}`, "ready");
+  else setStatus("Waiting for a source", "unknown");
+  updateApplyState();
+  return sourceSelectionGeneration;
+}
 
 remoteSelect.addEventListener("change", () => {
-  invalidateSourceRequest();
+  invalidateSourceSelection();
   customUrlInput.disabled = remoteSelect.value !== "custom";
   removeSharedSourceParam();
 });
 customUrlInput.disabled = remoteSelect.value !== "custom";
-if (shareSourceFromUrl) customUrlInput.value = shareSourceFromUrl;
+if (shareSourceFromUrl) {
+  remoteSelect.value = "custom";
+  customUrlInput.disabled = false;
+  customUrlInput.value = shareSourceFromUrl;
+  resetProbeState("A safe source URL was restored. Probe it before loading.");
+}
 customUrlInput.addEventListener("input", () => {
   if (remoteSelect.value === "custom") {
-    invalidateSourceRequest();
+    invalidateSourceSelection();
     removeSharedSourceParam();
   }
+});
+
+probeSourceButton.addEventListener("click", async () => {
+  const selected = selectedRemoteSource();
+  if (!selected) {
+    resetProbeState("Enter a valid absolute HTTP or HTTPS URL.");
+    return;
+  }
+  const selection = sourceSelectionGeneration;
+  const request = ++probeGeneration;
+  probeController?.abort();
+  const controller = new AbortController();
+  probeController = controller;
+  currentProbeResult = undefined;
+  currentProbeSourceUrl = undefined;
+  currentProbeGeneration = undefined;
+  remoteLoadButton.disabled = true;
+  probeSourceButton.disabled = true;
+  sourceProbe.textContent = "Checking browser access, HTTP Range, and COPC metadata…";
+  probeDetails.hidden = true;
+  probeWarning.hidden = true;
+  try {
+    const { probeCopcSource } = await import("@frillab/copc-adapter/cesium");
+    const result = await probeCopcSource(selected.url, { signal: controller.signal });
+    if (selection !== sourceSelectionGeneration || request !== probeGeneration) return;
+    currentProbeResult = result;
+    currentProbeSourceUrl = selected.url;
+    currentProbeGeneration = selection;
+    showProbe(result);
+    const failure = probeFailureReason(result);
+    if (failure) sourceProbe.textContent = `Probe found an incompatible source. ${failure}`;
+    else if (!result.reachable) {
+      sourceProbe.textContent = "The browser exposed no HTTP response, so compatibility is unknown. This may be a CORS, network, or host access issue. Retry Probe, or choose Load for an explicit attempt using the package's normal response validation.";
+    } else if (result.corsReadable !== true || result.rangeSupported !== true || result.copcDetected !== true) {
+      sourceProbe.textContent = "Probe completed with unknown checks. Review the warnings; Load remains an explicit attempt and may still fail.";
+    }
+    updateRemoteLoadState();
+    if (!failure && !activeRuntimeReady) {
+      setStatus(
+        result.reachable && result.corsReadable === true && result.rangeSupported === true && result.copcDetected === true
+          ? "Source probe is ready to load."
+          : "Probe checks are unknown; loading is an explicit attempt.",
+        "unknown",
+      );
+    }
+  } catch (error) {
+    if (selection !== sourceSelectionGeneration || request !== probeGeneration) return;
+    const message = safeErrorText(error);
+    resetProbeState(`The browser could not complete the probe. CORS or a network error may hide the cause. Check the URL and host policy, then retry. Details: ${message}`);
+    if (!activeRuntimeReady) setStatus("Probe failed; no source was loaded.", "error");
+  } finally {
+    if (probeController === controller) {
+      probeController = undefined;
+      probeSourceButton.disabled = false;
+    }
+  }
+});
+
+remoteLoadButton.addEventListener("click", () => {
+  const selected = selectedRemoteSource();
+  const probe = currentProbeResult;
+  if (!selected || !probe || currentProbeSourceUrl !== selected.url || currentProbeGeneration !== sourceSelectionGeneration) {
+    sourceProbe.textContent = "This source has no current probe result. Probe it before loading.";
+    remoteLoadButton.disabled = true;
+    return;
+  }
+  const failure = probeFailureReason(probe);
+  if (failure) {
+    sourceProbe.textContent = `This source cannot be loaded from the probe result. ${failure}`;
+    remoteLoadButton.disabled = true;
+    return;
+  }
+  void loadSource(selected.url, selected.name, {
+    selectionGeneration: sourceSelectionGeneration,
+    probeResult: probe,
+    initiatedAt: performance.now(),
+  });
 });
 
 fileInput.addEventListener("change", async () => {
   const file = fileInput.files?.[0];
   if (!file) return;
   fileInput.value = "";
-  sourceProbe.textContent =
-    "Local files are read directly by the browser; HTTP CORS and Range checks do not apply.";
   removeSharedSourceParam();
-  const generation = invalidateSourceRequest();
-  await loadSource(file, file.name, {
-    generation,
+  const selectionGeneration = invalidateSourceSelection("Local file selected. HTTP CORS and Range checks do not apply.");
+  await loadSource(file, file.name, { selectionGeneration, initiatedAt: performance.now() });
+});
+
+applyChangesButton.addEventListener("click", () => {
+  if (!appliedSource || !appliedConfig || validatePlaygroundConfig(pendingConfig).length > 0 || invalidNumericInputs.size > 0) return;
+  void loadSource(appliedSource, activeSourceName, {
+    selectionGeneration: sourceSelectionGeneration,
+    preserveCamera: true,
     initiatedAt: performance.now(),
+    config: captureWorkbenchConfig(),
+    probeResult: activeProbeResult,
   });
 });
 
-remoteLoadButton.addEventListener("click", async () => {
-  const generation = invalidateSourceRequest();
-  let sourceUrl: string;
-  let sourceName: string;
-  if (remoteSelect.value === "custom") {
-    try {
-      const parsed = new URL(customUrlInput.value.trim());
-      if (parsed.protocol !== "https:" && parsed.protocol !== "http:")
-        throw new Error();
-      sourceUrl = parsed.href;
-      sourceName = "Custom URL";
-    } catch {
-      sourceProbe.textContent = "Enter a valid absolute HTTP or HTTPS URL.";
-      return;
-    }
-  } else if (remoteSelect.value === "chicago") {
-    sourceUrl =
-      "https://data.pointcloud.org/chicago-downtown/chicago-downtown.copc.laz";
-    sourceName = "Chicago Downtown";
-  } else {
-    sourceUrl = "https://data.pointcloud.org/autzen/autzen-classified.copc.laz";
-    sourceName = "Autzen Stadium";
-  }
-  const initiatedAt = performance.now();
-
-  remoteLoadButton.disabled = true;
-  remoteLoadButton.textContent = "Checking source…";
-  sourceProbe.textContent =
-    "Checking browser access, HTTP Range, and COPC metadata…";
-  byId("diagnostic-range").textContent = "Checking";
-  byId("diagnostic-copc").textContent = "Checking";
-  byId("diagnostic-validation").textContent = "Checking";
-  try {
-    const { probeCopcSource } = await import("@frillab/copc-adapter/cesium");
-    const probe = await probeCopcSource(sourceUrl);
-    if (generation !== sourceGeneration) return;
-    showProbe(probe);
-    if (probe.corsReadable !== true || probe.rangeSupported !== true) {
-      sourceProbe.textContent = `${sourceProbe.textContent} Check that the host permits browser CORS and HTTP Range.`;
-      setStatus(
-        "Source cannot be loaded with browser CORS and HTTP Range.",
-        "error",
-      );
-      return;
-    }
-    if (probe.copcDetected === false) {
-      sourceProbe.textContent =
-        "The response is readable but does not contain COPC metadata.";
-      setStatus(
-        "The selected source does not contain readable COPC metadata.",
-        "error",
-      );
-      return;
-    }
-    await loadSource(sourceUrl, sourceName, {
-      generation,
-      probeResult: probe,
-      initiatedAt,
-    });
-  } catch (error) {
-    if (generation === sourceGeneration) {
-      const message = safeErrorText(error);
-      sourceProbe.textContent = message;
-      setStatus(message, "error");
-    }
-  } finally {
-    if (generation === sourceGeneration) {
-      remoteLoadButton.disabled = false;
-      remoteLoadButton.textContent =
-        remoteSelect.value === "custom"
-          ? "Probe and load URL"
-          : "Probe and load source";
+byId<HTMLButtonElement>("reset-defaults").addEventListener("click", () => {
+  const resetConfig: IntegrationCodeConfig = {
+    ...defaultIntegrationConfig,
+    refinementConfig: { ...defaultIntegrationConfig.refinementConfig, center: { ...defaultIntegrationConfig.refinementConfig.center } },
+  };
+  invalidNumericInputs.clear();
+  updatePendingConfig(resetConfig);
+  for (const input of document.querySelectorAll<HTMLInputElement>("input[aria-invalid='true']")) input.removeAttribute("aria-invalid");
+  styleError.hidden = true;
+  classificationError.hidden = true;
+  if (activeRuntime?.renderer === "cesium" && activeRuntimeReady && !activeLoadPending) {
+    applyCesiumStyle({ colorMode: resetConfig.colorMode, classificationFilter: null });
+    if (appliedConfig) {
+      appliedConfig = {
+        ...appliedConfig,
+        refinementConfig: {
+          ...resetConfig.refinementConfig,
+          algorithm: appliedConfig.refinementConfig.algorithm,
+        },
+      };
+      activeRuntime.setRefinementFocus(undefined);
+      updateIntegrationExample();
     }
   }
+  updateApplyState();
+  writePendingUrlConfig();
 });
 
 codeModeMinimalButton.addEventListener("click", () => {
@@ -2097,18 +2781,17 @@ copyShareButton.addEventListener("click", async () => {
   );
 });
 
-if (shareSourceFromUrl) {
-  remoteSelect.value = "custom";
-  customUrlInput.disabled = false;
-  queueMicrotask(() => remoteLoadButton.click());
-}
-
 let disposed = false;
 const destroyPlayground = (): void => {
   if (disposed) return;
   disposed = true;
-  ++sourceGeneration;
-  destroyRuntime();
+  sourceSelectionGeneration += 1;
+  probeGeneration += 1;
+  probeController?.abort();
+  probeController = undefined;
+  loadGeneration += 1;
+  releasePendingRuntime();
+  destroyActiveRuntime();
   focusResizeObserver.disconnect();
   for (const slider of sliders) slider.destroy();
   colorControl.destroy();
