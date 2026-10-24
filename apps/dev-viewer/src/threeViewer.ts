@@ -6,7 +6,6 @@ import {
   type CopcThreeLayerOptions,
   type CopcThreeLayerSnapshot,
 } from "@frillab/copc-adapter/three";
-import type { CopcBackendName, CopcColorMode } from "@frillab/copc-adapter";
 import { createCoalescedUpdate } from "./coalescedUpdate";
 
 export type DevThreeCameraState = {
@@ -16,15 +15,9 @@ export type DevThreeCameraState = {
 
 export type DevThreeViewerOptions = {
   readonly container: HTMLElement;
-  readonly source: string | File;
   readonly sourceName: string;
-  readonly backend: CopcBackendName;
-  readonly colorMode: CopcColorMode;
-  readonly pointSize: number;
-  readonly maxRenderedPoints: number;
+  readonly layerOptions: CopcThreeLayerOptions;
   readonly cameraRenderDistance: number;
-  readonly rangeValidation: CopcThreeLayerOptions["rangeValidation"];
-  readonly streaming: NonNullable<CopcThreeLayerOptions["streaming"]>;
   readonly onPointPicked: (point: CopcPointInspection | undefined) => void;
   readonly onError: (error: unknown) => void;
 };
@@ -141,13 +134,7 @@ export function createDevThreeViewer(
   controls.dampingFactor = 0.08;
 
   const layer = new CopcThreeLayer({
-    url: options.source,
-    backend: options.backend,
-    colorMode: options.colorMode,
-    pointSize: options.pointSize,
-    maxRenderedPoints: options.maxRenderedPoints,
-    rangeValidation: options.rangeValidation,
-    streaming: options.streaming,
+    ...options.layerOptions,
     debug: true,
     onPointPicked: options.onPointPicked,
   });

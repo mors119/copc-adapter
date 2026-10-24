@@ -10,18 +10,29 @@ import type {
   CopcPointInspection,
   RefinementFocus,
 } from "@frillab/copc-adapter/cesium";
-import type { CopcThreeLayer } from "@frillab/copc-adapter/three";
+import type {
+  CopcThreeLayer,
+  CopcThreeLayerOptions,
+} from "@frillab/copc-adapter/three";
 import type {
   PlaygroundLayerDiagnostics,
   PlaygroundPerformanceDiagnostics,
   PlaygroundSnapshot,
 } from "./diagnostics";
 import {
-  toWorkbenchLayerOptions,
   type WorkbenchCameraPreset,
   type WorkbenchLayerConfig,
   type WorkbenchRenderer,
 } from "../../shared/workbench-config";
+import {
+  applySchemaRuntimeOperations,
+  buildSchemaApplicationPlan,
+  normalizeWorkbenchOptionValues,
+} from "../../shared/config/index.ts";
+import {
+  NPM_0_6_CAPABILITIES,
+  NPM_0_6_MANIFEST,
+} from "../../shared/schema/index.ts";
 
 export type PlaygroundRenderer = WorkbenchRenderer;
 export type PlaygroundBackend = WorkbenchLayerConfig["backend"];
@@ -271,6 +282,17 @@ export async function createPlaygroundRuntime(
   options: PlaygroundRuntimeOptions,
   layerFactory?: CesiumLayerFactory,
 ): Promise<PlaygroundRuntime | undefined> {
+  const configurationValues = normalizeWorkbenchOptionValues({
+    ...options,
+    "renderer.engine": options.renderer,
+    "source.url": options.source,
+  });
+  const applicationPlan = buildSchemaApplicationPlan(configurationValues, {
+    manifest: NPM_0_6_MANIFEST,
+    renderer: options.renderer,
+    runtimeCapabilities: NPM_0_6_CAPABILITIES,
+  });
+
   if (options.renderer === "cesium") {
     const [Cesium, adapter] = await Promise.all([
       import("cesium"),
@@ -297,17 +319,14 @@ export async function createPlaygroundRuntime(
       destination: Cesium.Cartesian3.fromDegrees(-12, 24, 19_000_000),
     });
 
-    const layerOptions: CopcCesiumLayerOptions = {
-      url: options.source,
-      ...toWorkbenchLayerOptions(options),
+    const layerOptions = {
+      ...applicationPlan.constructorOptions,
       onPointPicked: options.onPointPicked,
-    };
+    } as unknown as CopcCesiumLayerOptions;
     const layer = layerFactory
       ? layerFactory(layerOptions)
       : new adapter.CopcCesiumLayer(layerOptions);
-    if (options.classificationFilter !== undefined) {
-      layer.setStyle({ classificationFilter: options.classificationFilter });
-    }
+    await applySchemaRuntimeOperations(layer, applicationPlan.runtimeOperations);
     layer.attachTo(viewer);
     let destroyed = false;
     let lastPostRenderAt: number | undefined;
@@ -472,10 +491,9 @@ export async function createPlaygroundRuntime(
   controls.addEventListener("start", onCameraStart);
 
   const layerOptions = {
-    url: options.source,
-    ...toWorkbenchLayerOptions(options),
+    ...applicationPlan.constructorOptions,
     onPointPicked: options.onPointPicked,
-  };
+  } as unknown as CopcThreeLayerOptions;
   const layer = new adapter.CopcThreeLayer(layerOptions);
   layer.addEventListener("error", (event) => {
     options.onError(
