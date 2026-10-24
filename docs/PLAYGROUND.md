@@ -33,7 +33,11 @@ and CPU cache budgets, max nodes, max depth, screen-space error, maximum render
 distance, refinement algorithm, and Focus Lens. Constructor changes are
 Pending until **Apply changes** replaces the layer successfully. The old layer
 stays active if replacement fails, and the camera is preserved when possible.
-Cache input is in MiB and the layer receives integer bytes. Cesium color and
+The rendered-point budget estimates active-view workload, not GPU memory; the
+cache budget covers decoded CPU point buffers and is entered in MiB before
+conversion to integer bytes. Max nodes limits frontier pressure, max depth
+caps hierarchy refinement, lower SSE generally requests finer LoD, and render
+distance limits far visibility. Cesium color and
 classification changes use the public `getStyle()` and `setStyle()` methods
 without replacing the layer. Classification values are LAS codes 0–255; an
 empty include list hides every point, excludes apply after includes, and Clear

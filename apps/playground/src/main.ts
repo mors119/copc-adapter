@@ -170,6 +170,7 @@ app.innerHTML = `
           <div class="section-heading"><div><span class="eyebrow">DISPLAY</span><h2 id="appearance-heading">Appearance</h2></div></div>
           <span class="control-label">Color mode</span>
           <div id="color-mode" aria-label="Color mode"></div>
+          <p class="control-hint">Fixed uses one color; RGB reads stored color channels; Elevation maps height; Intensity and Classification use LAS attributes. The adapter applies its documented fallback when an attribute is unavailable.</p>
           <div class="slider-control" id="point-size-control"></div>
           <label class="ui-field" for="point-size-value">Point size in pixels
             <input id="point-size-value" type="number" min="0.01" step="0.01" inputmode="decimal">
@@ -205,9 +206,11 @@ app.innerHTML = `
           <label class="ui-field" for="max-points-value">Max rendered points
             <input id="max-points-value" type="number" min="1" step="1" inputmode="numeric">
           </label>
+          <p class="control-hint">Estimated active-view point workload; this is not an exact GPU memory limit.</p>
           <label class="ui-field" for="cache-budget-mib">Point cache budget (MiB)
             <input id="cache-budget-mib" type="number" min="0" step="0.25" inputmode="decimal">
           </label>
+          <p class="control-hint">Budget for decoded point buffers retained in CPU memory.</p>
           <label class="ui-field" for="max-depth-value">Max refinement depth
             <input id="max-depth-value" type="number" min="0" step="1" inputmode="numeric">
           </label>
@@ -217,6 +220,7 @@ app.innerHTML = `
           <label class="ui-field" for="max-distance-value">Max render distance (metres)
             <input id="max-distance-value" type="number" min="0.01" step="1" inputmode="decimal">
           </label>
+          <p class="control-hint">Max nodes limits active frontier pressure; max depth caps hierarchy refinement. Lower screen-space error generally requests finer LoD, and render distance limits far visibility.</p>
           <p class="control-hint" id="streaming-slider-help">Sliders are quick adjustments; numeric fields accept any valid package value. Constructor settings stay pending until applied.</p>
         </section>
         <section class="config-section focus-section" aria-labelledby="focus-heading">

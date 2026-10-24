@@ -44,7 +44,11 @@ render distance, refinement algorithm, and renderer changes use **Apply
 changes**. The current layer stays active if its replacement fails; a
 successful replacement commits Active settings and preserves the camera when
 the renderer permits it. Point-cache input is displayed in MiB and converted
-to the exact integer byte count passed to the package. Defaults follow the
+to the exact integer byte count passed to the package. The rendered-point
+budget estimates the active-view workload; it is not a GPU memory limit. The
+CPU cache budget covers retained decoded point buffers. Max nodes limits
+frontier pressure, max depth caps refinement, lower SSE generally requests
+finer LoD, and render distance limits far visibility. Defaults follow the
 Playground defaults audited against the installed public package.
 
 Cesium color changes and classification filters use the public `getStyle()` /

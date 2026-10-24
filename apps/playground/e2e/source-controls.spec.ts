@@ -584,14 +584,22 @@ test("Reset to defaults keeps the loaded local source and restores active style"
   await page.locator("#point-size-value").fill("4");
   await page.locator("#point-size-value").dispatchEvent("change");
   await expect(page.getByRole("button", { name: "Apply changes" })).toBeEnabled();
+  await page.getByRole("button", { name: "Apply changes" }).click();
+  await expect(page.locator("#source-status")).toHaveText("Loaded reset-source.copc.laz");
+  await expect(page.locator("#integration-example")).toContainText("pointSize: 4");
   await page.getByRole("button", { name: "Reset to defaults" }).click();
   await expect(page.locator("#source-status")).toHaveText("Loaded reset-source.copc.laz");
   await expect(page.locator("#point-size-value")).toHaveValue("3");
-  await expect(page.locator("#config-state")).toContainText("matches the constructor settings");
-  await expect(page.getByRole("button", { name: "Apply changes" })).toBeDisabled();
+  await expect(page.locator("#config-state")).toContainText("Pending settings differ");
+  await expect(page.getByRole("button", { name: "Apply changes" })).toBeEnabled();
   await expect(page.locator("#integration-example")).toContainText("colorMode: 'elevation'");
+  await expect(page.locator("#integration-example")).toContainText("pointSize: 4");
   await expect(page.locator("#include-share-source")).toBeDisabled();
   await expect(page).toHaveURL(/pointSize=3/);
+  await page.getByRole("button", { name: "Apply changes" }).click();
+  await expect(page.locator("#source-status")).toHaveText("Loaded reset-source.copc.laz");
+  await expect(page.getByRole("button", { name: "Apply changes" })).toBeDisabled();
+  await expect(page.locator("#integration-example")).not.toContainText("pointSize: 4");
 });
 
 test("camera movement during a layer reload is preserved", async ({ page }) => {
