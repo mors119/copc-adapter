@@ -1232,8 +1232,12 @@ function applyCesiumStyle(
     };
     pendingConfig = {
       ...pendingConfig,
-      colorMode: style.colorMode,
-      classificationFilter,
+      ...(update.colorMode === undefined
+        ? {}
+        : { colorMode: style.colorMode }),
+      ...(update.classificationFilter === undefined
+        ? {}
+        : { classificationFilter }),
     };
     if (activeDiagnosticsContext) {
       activeDiagnosticsContext = {

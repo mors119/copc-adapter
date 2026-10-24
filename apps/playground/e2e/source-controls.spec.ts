@@ -540,6 +540,41 @@ test("Cesium color and classification styles use setStyle without replacing the 
   await expect(page.locator("#integration-example")).not.toContainText("classificationFilter");
 });
 
+test("applying Cesium color preserves an unapplied classification filter draft", async ({ page }) => {
+  await page.goto("./");
+  await page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.useCameraResetLayerMock());
+  await page.locator("#copc-file").setInputFiles({
+    name: "pending-classification.copc.laz",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("local test source"),
+  });
+  await expect(page.locator("#source-status")).toHaveText("Loaded pending-classification.copc.laz");
+  const loads = await page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getMockLoadCount(),
+  );
+
+  await page.locator("#classification-include-enabled").check();
+  await page.locator("#classification-include").fill("6, 2, 6");
+  await page.locator("#classification-include").dispatchEvent("change");
+  await expect(page.getByRole("button", { name: "Apply filter" })).toBeEnabled();
+  await page.getByRole("radiogroup", { name: "Color mode" }).getByRole("radio", { name: "Intensity" }).click();
+
+  await expect(page.locator("#classification-include")).toHaveValue("2, 6");
+  await expect(page.getByRole("button", { name: "Apply filter" })).toBeEnabled();
+  await expect(page.locator("#classification-active")).toHaveText("No filter");
+  await expect(page.locator("#integration-example")).toContainText("layer.setStyle({ colorMode: 'intensity' });");
+  await expect(page.locator("#integration-example")).not.toContainText("classificationFilter");
+
+  await page.getByRole("button", { name: "Apply filter" }).click();
+  await expect(page.locator("#classification-active")).toHaveText("Include [2, 6]");
+  await expect(page.locator("#integration-example")).toContainText('classificationFilter: {"include":[2,6]}');
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getMockLoadCount(),
+  )).toBe(loads);
+});
+
 test("returning to active Cesium reconciles pending color through setStyle", async ({ page }) => {
   await page.goto("./");
   await page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.useCameraResetLayerMock());
