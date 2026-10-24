@@ -4,9 +4,17 @@
 
 ## 브라우저에서 먼저 체험하기
 
-[공개 Playground](https://mors119.github.io/copc-adapter/playground/)에서 Autzen·Chicago 공개 데이터, 직접 입력한 HTTP(S) URL, 로컬 파일을 열 수 있습니다. Cesium과 Three.js, JavaScript와 Rust/WASM 백엔드, 기본 색상 모드와 point size, 두 가지 streaming 한도를 선택하고 점을 클릭해 실제로 사용할 수 있는 속성을 확인할 수 있습니다.
+[공개 Playground](https://mors119.github.io/copc-adapter/playground/)에서 Autzen·Chicago 공개 데이터, 직접 입력한 HTTP(S) URL, 로컬 파일을 선택할 수 있습니다. 원격 주소는 **Probe source**로 먼저 검사하고 결과를 확인한 뒤 **Load source**를 눌러야 합니다. Probe는 설치된 패키지의 공개 `probeCopcSource()` API를 호출하며 layer를 만들거나 기존 layer를 교체하지 않습니다. HTTP 상태, 브라우저 CORS 읽기 가능 여부, Range 지원, COPC 감지, point format, 리소스 크기, 검증 수준과 경고를 제공되는 범위에서 표시합니다. 확인할 수 없는 값은 unknown으로 남깁니다. 알려진 HTTP·CORS·Range·비-COPC 실패는 설명과 함께 Load를 비활성화합니다. 일부 결과가 unknown이면 명시적으로 Load를 시도할 수 있지만 실제 로드도 실패할 수 있습니다. URL을 수정하면 이전 Probe 결과는 무효화됩니다. 로컬 `File`은 HTTP 검사 없이 직접 열 수 있습니다.
 
-원격 주소는 브라우저에서 그대로 요청하므로 호스트가 CORS와 HTTP Range를 허용해야 합니다. Playground는 URL을 프록시로 바꾸지 않습니다. Probe 결과는 브라우저가 확인할 수 있었던 응답 조건을 보여 주며, 원본 바이트의 진위나 불변성을 증명하지는 않습니다. 로컬 파일은 브라우저 안에서 읽고 업로드하지 않습니다. 상세 Worker·cache·benchmark 진단은 공개 화면에 두지 않고 내부 Dev Viewer에서 확인합니다.
+로드가 완료되면 전체 point count, point format, source bounds, source가 WKT를 제공했는지, 활성 backend와 renderer를 표시합니다. Bounds는 source CRS 단위 그대로입니다. 위치만으로 CRS, 수직 datum, 높이 기준을 추론하지 않습니다. 원격 요청은 브라우저에서 직접 이뤄지므로 호스트가 CORS와 유효한 HTTP Range 응답을 허용해야 합니다. Playground는 URL을 프록시로 바꾸거나 package의 응답 검증을 약화하지 않습니다. Probe는 브라우저가 확인할 수 있었던 조건만 보여 주며, 원본 데이터의 진위나 불변성을 증명하지는 않습니다. 로컬 파일은 브라우저 안에서 읽고 업로드하지 않습니다. 상세 Worker·cache·benchmark 진단은 공개 화면에 두지 않고 내부 Dev Viewer에서 확인합니다.
+
+Playground는 Cesium과 Three.js, JavaScript와 Rust/WASM backend, 색상 모드, point size, 표시 point/cache 예산, max nodes, max depth, screen-space error, 최대 렌더 거리, refinement algorithm, Focus Lens를 제공합니다. Layer 생성 설정은 **Pending** 상태로 편집하고 **Apply changes**를 눌러 성공적으로 교체된 뒤에만 **Active**가 됩니다. 교체가 실패하면 기존 layer와 화면을 유지합니다. 가능한 경우 카메라 위치도 보존합니다. 표시 point 예산은 현재 뷰의 예상 workload이며 GPU 메모리 한도가 아닙니다. Cache 예산은 CPU에 유지하는 decoded point buffer를 대상으로 하며 MiB로 입력하고 package에는 정확한 정수 byte 값으로 전달합니다. Max nodes는 활성 frontier 부담을 제한하고 max depth는 계층 refinement 깊이를 제한합니다. 낮은 SSE는 일반적으로 더 세밀한 LoD를 요청하며 render distance는 먼 거리의 표시를 제한합니다.
+
+Cesium의 색상과 classification 변경은 활성 layer의 공개 `getStyle()` / `setStyle()`로 처리하므로 layer를 다시 만들지 않습니다. Classification은 LAS 코드 0–255를 사용합니다. 빈 include 목록은 모든 점을 숨기며, exclude는 include 적용 뒤에 적용됩니다. **Clear filter**는 필터를 제거합니다. 유지된 point buffer에 스타일을 적용하지 못하면 복구 가능한 오류를 표시하고 이전 Active 스타일을 유지합니다. 공개 Three.js layer에는 runtime style setter가 없으므로 색상 변경은 Apply가 필요하고 classification은 사용할 수 없습니다. Three.js가 보류 중인 상태에서 색상을 바꾼 뒤 현재 활성 Cesium으로 돌아오면 layer를 교체하지 않고 `setStyle()`로 색상 차이를 적용합니다. Three.js로 전환하기 전에 Cesium classification 필터를 지워야 합니다. Cesium Focus Lens 변경은 활성 layer에 적용하고, refinement algorithm 변경은 Apply가 필요합니다.
+
+**Reset to defaults**는 Playground 기본 설정으로 되돌리지만 source 선택이나 선택된 로컬 파일을 지우지 않습니다. Cesium runtime 스타일은 공개 setter로 즉시 초기화하고, 생성자 설정 변경은 Pending으로 남겨 Apply를 기다립니다. 생성 코드는 마지막으로 성공적으로 적용한 설정과 스타일만 표시하며, pinned npm package의 public API를 사용합니다. 공유 링크에는 정규화된 설정을 저장하고 source는 기본적으로 제외합니다. 선택적으로 query 없는 HTTP(S) 주소만 포함할 수 있습니다. 자격 정보, query, fragment, 로컬 경로, File 내용은 링크에 기록하지 않습니다. 링크를 열면 설정을 복원하지만, 포함된 안전한 주소도 다시 Probe하고 직접 Load해야 합니다. source가 없는 링크는 layer가 로드됐다고 표시하지 않습니다.
+
+교체 중에는 현재 runtime을 표시한 채 숨겨진 후보 runtime을 로드합니다. 후보가 성공하면 교체하고 이전 runtime을 정리하며, 실패하거나 취소된 후보도 정리합니다. Cesium은 `layer.load()`가 끝나면 준비된 것으로 전환하고 자동 camera zoom은 후보가 표시된 뒤 시작하므로 숨겨진 camera flight가 Loading을 붙잡지 않습니다. Cesium 교체 중에는 viewer 두 개가 잠시 함께 존재할 수 있습니다.
 
 화면의 패키지 표시는 실제 설치된 Adapter 버전과 출처를 읽습니다. 공개 Pages는 lockfile의 정확한 npm 배포 버전과 무결성을 확인합니다. 로컬 workspace와 `.tgz` 후보 패키지는 별도 출처로 표시합니다.
 

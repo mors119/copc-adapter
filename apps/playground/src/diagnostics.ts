@@ -301,7 +301,7 @@ export function createDiagnosticsViewModel(
 
   return {
     sourceLabel: context.sourceLabel,
-    context: `${context.sourceLabel} · ${context.renderer === "cesium" ? "Cesium" : "Three.js"} · ${context.config.backend === "rust" ? "Rust / WASM" : "copc-js"} · ${context.config.colorMode} · budget ${formattedOptionalCount(context.config.maxRenderedPoints)} points · maxNodes ${formattedOptionalCount(context.config.maxNodes)} · maxDepth ${formatDiagnosticCount(effectiveMaxDepth)} · SSE ${sse === undefined ? UNAVAILABLE : `${formatDiagnosticCount(sse)} px`}`,
+    context: `${context.sourceLabel} · ${context.renderer === "cesium" ? "Cesium" : "Three.js"} · ${context.config.backend === "rust" ? "Rust / WASM" : "copc-js"} · ${context.config.colorMode} · budget ${formattedOptionalCount(context.config.maxRenderedPoints)} points · CPU cache ${formatDiagnosticBytes(context.config.maxPointCacheBytes)} · maxNodes ${formattedOptionalCount(context.config.maxNodes)} · maxDepth ${formatDiagnosticCount(effectiveMaxDepth)} · SSE ${sse === undefined ? UNAVAILABLE : `${formatDiagnosticCount(sse)} px`} · max distance ${context.config.maxRenderDistanceMeters === undefined ? UNAVAILABLE : `${formatDiagnosticCount(context.config.maxRenderDistanceMeters)} m`}`,
     lifecycle: snapshot?.lifecycle ?? UNAVAILABLE,
     renderedPoints: formatDiagnosticCount(snapshot?.renderedPoints),
     renderedNodes: formatDiagnosticCount(snapshot?.renderedNodes),

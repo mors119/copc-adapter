@@ -1,29 +1,25 @@
 import type {
   WorkbenchBackend,
   WorkbenchColorMode,
-  WorkbenchLayerConfig,
   WorkbenchRenderer,
 } from "../../shared/workbench-config";
-import { isPotentiallySensitiveSource } from "./integrationCode";
+import { isPotentiallySensitiveSource } from "./integrationCode.ts";
 import {
-  defaultPlaygroundRefinementConfig,
   readPlaygroundRefinementConfig,
   writePlaygroundRefinementConfig,
   type PlaygroundRefinementConfig,
-} from "./refinementConfig";
+} from "./refinementConfig.ts";
+import {
+  PLAYGROUND_DEFAULTS,
+  type PlaygroundConfig,
+  parseClassificationCodes,
+} from "./playgroundConfig.ts";
 
-export type PlaygroundUrlConfig = WorkbenchLayerConfig & {
-  readonly renderer: WorkbenchRenderer;
-};
+export type PlaygroundUrlConfig = PlaygroundConfig;
 
 export const defaultPlaygroundUrlConfig: PlaygroundUrlConfig = {
   renderer: "cesium",
-  backend: "copc-js",
-  colorMode: "elevation",
-  pointSize: 3,
-  maxNodes: 24,
-  maxRenderedPoints: 250_000,
-  refinementAlgorithm: defaultPlaygroundRefinementConfig.algorithm,
+  ...PLAYGROUND_DEFAULTS,
 };
 
 const renderers = new Set<WorkbenchRenderer>(["cesium", "three"]);
@@ -50,28 +46,45 @@ function readEnum<T extends string>(
   return fallback;
 }
 
-function readInteger(
+function readNumber(
   params: URLSearchParams,
   key: string,
-  minimum: number,
-  maximum: number,
-  step: number,
   fallback: number,
+  valid: (value: number) => boolean,
   warnings: string[],
 ): number {
   const raw = params.get(key);
   if (raw === null) return fallback;
   const value = Number(raw);
-  if (
-    !Number.isSafeInteger(value) ||
-    value < minimum ||
-    value > maximum ||
-    (value - minimum) % step !== 0
-  ) {
-    warnings.push(`Invalid ${key}; using ${fallback}.`);
+  if (!valid(value)) {
+    warnings.push(`Invalid ${key}; using the documented Playground default.`);
     return fallback;
   }
   return value;
+}
+
+function readClassificationFilter(
+  params: URLSearchParams,
+  warnings: string[],
+): PlaygroundConfig["classificationFilter"] {
+  const hasInclude = params.has("classificationInclude");
+  const hasExclude = params.has("classificationExclude");
+  if (!hasInclude && !hasExclude) return undefined;
+  try {
+    return {
+      ...(hasInclude
+        ? { include: parseClassificationCodes(params.get("classificationInclude") ?? "") }
+        : {}),
+      ...(hasExclude
+        ? { exclude: parseClassificationCodes(params.get("classificationExclude") ?? "") }
+        : {}),
+    };
+  } catch {
+    warnings.push(
+      "Invalid classification filter; no classification filter was restored.",
+    );
+    return undefined;
+  }
 }
 
 /** Read and normalize renderer settings and a safe optional source from a share URL. */
@@ -132,34 +145,57 @@ export function readPlaygroundUrlConfig(params: URLSearchParams): {
       renderer,
       backend,
       colorMode,
-      pointSize: readInteger(
+      pointSize: readNumber(
         params,
         "pointSize",
-        1,
-        10,
-        1,
         defaults.pointSize,
+        (value) => Number.isFinite(value) && value > 0,
         warnings,
       ),
-      maxNodes: readInteger(
-        params,
-        "maxNodes",
-        1,
-        48,
-        1,
-        defaults.maxNodes,
-        warnings,
-      ),
-      maxRenderedPoints: readInteger(
+      maxRenderedPoints: readNumber(
         params,
         "maxRenderedPoints",
-        50_000,
-        1_000_000,
-        50_000,
         defaults.maxRenderedPoints,
+        (value) => Number.isSafeInteger(value) && value > 0,
+        warnings,
+      ),
+      maxPointCacheBytes: readNumber(
+        params,
+        "maxPointCacheBytes",
+        defaults.maxPointCacheBytes,
+        (value) => Number.isSafeInteger(value) && value >= 0,
+        warnings,
+      ),
+      maxNodes: readNumber(
+        params,
+        "maxNodes",
+        defaults.maxNodes,
+        (value) => Number.isSafeInteger(value) && value > 0,
+        warnings,
+      ),
+      maxDepth: readNumber(
+        params,
+        "maxDepth",
+        defaults.maxDepth,
+        (value) => Number.isSafeInteger(value) && value >= 0,
+        warnings,
+      ),
+      maxScreenSpaceError: readNumber(
+        params,
+        "maxScreenSpaceError",
+        defaults.maxScreenSpaceError,
+        (value) => Number.isFinite(value) && value > 0,
+        warnings,
+      ),
+      maxRenderDistanceMeters: readNumber(
+        params,
+        "maxRenderDistanceMeters",
+        defaults.maxRenderDistanceMeters,
+        (value) => Number.isFinite(value) && value > 0,
         warnings,
       ),
       refinementAlgorithm: refinement.config.algorithm,
+      classificationFilter: readClassificationFilter(params, warnings),
     },
     refinementConfig: refinement.config,
     ...(sourceUrl ? { sourceUrl } : {}),
@@ -178,8 +214,27 @@ export function writePlaygroundUrlConfig(
   params.set("backend", config.backend);
   params.set("colorMode", config.colorMode);
   params.set("pointSize", String(config.pointSize));
-  params.set("maxNodes", String(config.maxNodes));
   params.set("maxRenderedPoints", String(config.maxRenderedPoints));
+  params.set("maxPointCacheBytes", String(config.maxPointCacheBytes));
+  params.set("maxNodes", String(config.maxNodes));
+  params.set("maxDepth", String(config.maxDepth));
+  params.set("maxScreenSpaceError", String(config.maxScreenSpaceError));
+  params.set(
+    "maxRenderDistanceMeters",
+    String(config.maxRenderDistanceMeters),
+  );
+  if (config.classificationFilter?.include !== undefined) {
+    params.set(
+      "classificationInclude",
+      parseClassificationCodes(config.classificationFilter.include.join(",")).join(","),
+    );
+  }
+  if (config.classificationFilter?.exclude !== undefined) {
+    params.set(
+      "classificationExclude",
+      parseClassificationCodes(config.classificationFilter.exclude.join(",")).join(","),
+    );
+  }
   const withRefinement = writePlaygroundRefinementConfig(params, refinementConfig);
   if (sourceUrl && !isPotentiallySensitiveSource(sourceUrl)) {
     withRefinement.set("sourceUrl", new URL(sourceUrl).href);

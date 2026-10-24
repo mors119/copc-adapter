@@ -3,6 +3,10 @@ import type * as ThreeTypes from "three";
 import type {
   CopcCesiumLayer,
   CopcCesiumLayerOptions,
+  CopcCesiumPointStyle,
+  CopcCesiumPointStyleUpdate,
+  CopcClassificationFilter,
+  CopcMetadata,
   CopcPointInspection,
   RefinementFocus,
 } from "@frillab/copc-adapter/cesium";
@@ -39,10 +43,17 @@ export type { PlaygroundSnapshot } from "./diagnostics";
 export type PlaygroundRuntime = {
   readonly renderer: PlaygroundRenderer;
   readonly ready: Promise<void>;
+  /** Present only for a loaded public Cesium layer. */
+  zoomTo?(): Promise<boolean>;
   getSnapshot(): PlaygroundSnapshot;
   getDiagnostics(): PlaygroundLayerDiagnostics;
   getLatestRenderIntervalMs(): number | undefined;
   getSelectedPoint(): CopcPointInspection | undefined;
+  getMetadata(): CopcMetadata | undefined;
+  /** Present only for the public Cesium runtime style API. */
+  getStyle?(): CopcCesiumPointStyle;
+  /** Present only for the public Cesium runtime style API. */
+  setStyle?(update: CopcCesiumPointStyleUpdate): void;
   setCameraView(view: PlaygroundCameraView): Promise<void>;
   getCameraState(): PlaygroundCameraState;
   setCameraState(state: PlaygroundCameraState): void;
@@ -58,12 +69,11 @@ export type PlaygroundRuntimeOptions = WorkbenchLayerConfig & {
   readonly renderer: PlaygroundRenderer;
   readonly source: PlaygroundSource;
   readonly sourceName: string;
+  readonly classificationFilter?: CopcClassificationFilter;
   readonly container: HTMLElement;
   readonly onPointPicked: (point: CopcPointInspection | undefined) => void;
   readonly onError: (message: string) => void;
   readonly isCurrent: () => boolean;
-  /** Allow callers to keep camera input made while the source was loading. */
-  readonly canAutoZoom?: () => boolean;
   /** App-owned observation hooks around the public layer.load() call. */
   readonly onLayerLoadStart?: () => void;
   readonly onLayerLoadComplete?: () => void;
@@ -79,6 +89,8 @@ type CesiumLayer = Pick<
   | "getMetadata"
   | "getHierarchyDiagnostics"
   | "getPointCacheDiagnostics"
+  | "getStyle"
+  | "setStyle"
   | "zoomTo"
   | "boundingSphere"
   | "setRefinementFocus"
@@ -293,6 +305,9 @@ export async function createPlaygroundRuntime(
     const layer = layerFactory
       ? layerFactory(layerOptions)
       : new adapter.CopcCesiumLayer(layerOptions);
+    if (options.classificationFilter !== undefined) {
+      layer.setStyle({ classificationFilter: options.classificationFilter });
+    }
     layer.attachTo(viewer);
     let destroyed = false;
     let lastPostRenderAt: number | undefined;
@@ -318,9 +333,8 @@ export async function createPlaygroundRuntime(
       }
     };
     options.onLayerLoadStart?.();
-    const ready = layer.load().then(async () => {
+    const ready = layer.load().then(() => {
       options.onLayerLoadComplete?.();
-      if (!destroyed && (options.canAutoZoom?.() ?? true)) await layer.zoomTo();
     });
 
     const getDiagnostics = (): PlaygroundLayerDiagnostics => {
@@ -343,10 +357,14 @@ export async function createPlaygroundRuntime(
     return {
       renderer: "cesium",
       ready,
+      zoomTo: () => destroyed ? Promise.resolve(false) : layer.zoomTo(),
       getSnapshot: () => getDiagnostics().snapshot,
       getDiagnostics,
       getLatestRenderIntervalMs: () => latestRenderIntervalMs,
       getSelectedPoint: () => layer.getSelectedPoint(),
+      getMetadata: () => layer.getMetadata(),
+      getStyle: () => layer.getStyle(),
+      setStyle: (update) => layer.setStyle(update),
       async setCameraView(view) {
         if (destroyed) return;
         const radius = layer.boundingSphere?.radius ?? 1_000;
@@ -575,6 +593,7 @@ export async function createPlaygroundRuntime(
     getDiagnostics,
     getLatestRenderIntervalMs: () => latestRenderIntervalMs,
     getSelectedPoint: () => layer.getSelectedPoint(),
+    getMetadata: () => layer.getMetadata(),
     async setCameraView(view) {
       if (destroyed) return;
       const distance =

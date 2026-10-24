@@ -219,6 +219,90 @@ button {
   font-size: 9px;
   line-height: 1.5;
 }
+.source-actions,
+.classification-actions,
+.config-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 9px;
+}
+.source-actions > button,
+.classification-actions > button,
+.config-actions > button {
+  min-height: 34px;
+  flex: 1;
+}
+.source-probe-details,
+.metadata-summary dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 12px;
+  margin: 10px 0;
+}
+.source-probe-details[hidden],
+.metadata-summary[hidden] {
+  display: none;
+}
+.source-probe-details > div,
+.metadata-summary dl > div {
+  min-width: 0;
+}
+.source-probe-details dt,
+.metadata-summary dt {
+  color: var(--ui-subtle);
+  font-size: 9px;
+}
+.source-probe-details dd,
+.metadata-summary dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+  color: #eff7ff;
+  font-size: 10px;
+}
+.source-probe-warning,
+.control-error {
+  color: #ffbd9a;
+  font-size: 10px;
+  line-height: 1.5;
+}
+.metadata-summary {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--ui-border);
+}
+.metadata-summary h2,
+.classification-controls h3 {
+  margin: 0 0 8px;
+  color: #eff7ff;
+  font-size: 11px;
+}
+.classification-controls {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--ui-border);
+}
+.classification-controls h3 {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.active-filter {
+  color: var(--ui-accent);
+  font-size: 9px;
+  font-weight: 500;
+  text-align: right;
+}
+.config-state {
+  margin: 7px 0 12px;
+  color: var(--ui-accent);
+  font-size: 10px;
+  line-height: 1.45;
+}
+.config-validation,
+#config-validation {
+  margin-top: 8px;
+}
 .source-help {
   margin: 3px 0 0;
   padding: 8px 0;
@@ -350,6 +434,10 @@ button {
   position: absolute;
   inset: 0;
 }
+.runtime-host {
+  position: absolute;
+  inset: 0;
+}
 .focus-guide {
   position: absolute;
   z-index: 3;
@@ -420,6 +508,11 @@ button {
   display: none;
 }
 #cesium-container > canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.runtime-host > canvas {
   display: block;
   width: 100%;
   height: 100%;

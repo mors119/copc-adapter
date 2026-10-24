@@ -22,6 +22,23 @@ const corsHeaders = {
   "access-control-expose-headers": "Content-Range, Content-Length",
 };
 
+type PlaygroundTestHooks = {
+  useCameraResetLayerMock(): void;
+  delayNextZoom(): void;
+  releaseDelayedZoom(): void;
+  failNextLoad(): void;
+  failNextStyle(): void;
+  getMockZoomCount(): number;
+  getMockLoadCount(): number;
+  getMockDestroyCount(): number;
+  getMockStyleUpdateCount(): number;
+  getAppliedConfig(): { pointSize: number; colorMode: string } | undefined;
+  getPendingConfig(): {
+    colorMode: string;
+    classificationFilter?: { include?: readonly number[]; exclude?: readonly number[] };
+  };
+};
+
 test("a local source selected during a remote probe supersedes the pending probe", async ({
   page,
 }) => {
@@ -46,15 +63,19 @@ test("a local source selected during a remote probe supersedes the pending probe
       probeRequestSeen = true;
       probeStarted();
       await probeGate;
-      await route.fulfill({
-        status: 206,
-        headers: {
-          ...corsHeaders,
-          "content-range": "bytes 0-1023/8192",
-          "content-length": "1024",
-        },
-        body: makeCopcProbeBody(),
-      });
+      try {
+        await route.fulfill({
+          status: 206,
+          headers: {
+            ...corsHeaders,
+            "content-range": "bytes 0-1023/8192",
+            "content-length": "1024",
+          },
+          body: makeCopcProbeBody(),
+        });
+      } catch {
+        // The source edit aborts this probe through its public AbortSignal.
+      }
       return;
     }
     remoteLayerRequests += 1;
@@ -67,7 +88,7 @@ test("a local source selected during a remote probe supersedes the pending probe
 
   try {
     await page.goto("./");
-    await page.getByRole("button", { name: "Probe and load source" }).click();
+    await page.getByRole("button", { name: "Probe source" }).click();
     await probeStartedPromise;
     await page.evaluate(() => {
       const status = document.querySelector("#source-status");
@@ -173,7 +194,9 @@ test("the same local file can be selected again after loading another source", a
     "Loading repeat.copc.laz",
   );
 
-  await page.getByRole("button", { name: "Probe and load source" }).click();
+  await page.getByRole("button", { name: "Probe source" }).click();
+  await expect(page.getByRole("button", { name: "Load source" })).toBeEnabled();
+  await page.getByRole("button", { name: "Load source" }).click();
   await expect.poll(() => remoteLayerRequests).toBeGreaterThan(0);
 
   await page.evaluate(() => {
@@ -199,7 +222,7 @@ test("the same local file can be selected again after loading another source", a
     .toBeGreaterThan(0);
 });
 
-test("point-size changes restore the current camera pose after layer reload", async ({
+test("explicit point-size apply restores the current camera pose after layer replacement", async ({
   page,
 }) => {
   await page.goto("./");
@@ -266,6 +289,8 @@ test("point-size changes restore the current camera pose after layer reload", as
     )
     .toBe(initialLoads);
   await page.locator("#point-size").dispatchEvent("change");
+  await expect(page.getByRole("button", { name: "Apply changes" })).toBeEnabled();
+  await page.getByRole("button", { name: "Apply changes" }).click();
   await expect
     .poll(() =>
       page.evaluate(() =>
@@ -331,9 +356,7 @@ test("a source selection change disposes an in-flight layer load", async ({
     )
     .toBe(1);
   await page.locator("#remote-source").selectOption("chicago");
-  await expect(page.locator("#source-status")).toHaveText(
-    "Source selection changed. Choose a source and load it.",
-  );
+  await expect(page.locator("#source-status")).toHaveText("Waiting for a source");
   const destroyCount = await page.evaluate(() =>
     (
       window as Window & {
@@ -342,6 +365,450 @@ test("a source selection change disposes an in-flight layer load", async ({
     ).__COPC_PLAYGROUND_TEST__?.getMockDestroyCount(),
   );
   expect(destroyCount).toBe(1);
+});
+
+test("editing a URL while its probe is pending invalidates the exact probe identity", async ({ page }) => {
+  let releaseProbe!: () => void;
+  let probeStarted!: () => void;
+  const probeGate = new Promise<void>((resolve) => { releaseProbe = resolve; });
+  const started = new Promise<void>((resolve) => { probeStarted = resolve; });
+  await page.route("https://example.com/**", async (route) => {
+    if (route.request().method() === "OPTIONS") {
+      await route.fulfill({ status: 204, headers: corsHeaders });
+      return;
+    }
+    probeStarted();
+    await probeGate;
+    try {
+      await route.fulfill({
+        status: 206,
+        headers: { ...corsHeaders, "content-range": "bytes 0-1023/8192", "content-length": "1024" },
+        body: makeCopcProbeBody(),
+      });
+    } catch {
+      // The edited URL aborts this probe through its public AbortSignal.
+    }
+  });
+  try {
+    await page.goto("./");
+    await page.locator("#remote-source").selectOption("custom");
+    await page.locator("#custom-url").fill("https://example.com/first.copc.laz");
+    await page.getByRole("button", { name: "Probe source" }).click();
+    await started;
+    await page.locator("#custom-url").fill("https://example.com/second.copc.laz");
+    releaseProbe();
+    await expect(page.getByRole("button", { name: "Probe source" })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Load source" })).toBeDisabled();
+    await expect(page.locator("#source-probe")).toHaveText("Source changed. Probe it before loading.");
+    await expect(page.locator("#source-probe-details")).toBeHidden();
+  } finally {
+    releaseProbe();
+  }
+});
+
+test("a known HTTP incompatibility explains the failure and blocks loading", async ({ page }) => {
+  await page.route("https://example.com/**", async (route) => {
+    if (route.request().method() === "OPTIONS") {
+      await route.fulfill({ status: 204, headers: corsHeaders });
+      return;
+    }
+    await route.fulfill({ status: 404, headers: corsHeaders, body: "not found" });
+  });
+  await page.goto("./");
+  await page.locator("#remote-source").selectOption("custom");
+  await page.locator("#custom-url").fill("https://example.com/missing.copc.laz");
+  await page.getByRole("button", { name: "Probe source" }).click();
+  await expect(page.locator("#probe-http-status")).toHaveText("404");
+  await expect(page.locator("#source-probe")).toContainText("returned HTTP 404");
+  await expect(page.getByRole("button", { name: "Load source" })).toBeDisabled();
+});
+
+test("a browser-hidden probe failure stays unknown and supports an explicit load attempt", async ({ page }) => {
+  await page.route("https://example.com/**", async (route) => {
+    await route.abort("failed");
+  });
+  await page.goto("./");
+  await page.locator("#remote-source").selectOption("custom");
+  await page.locator("#custom-url").fill("https://example.com/unknown.copc.laz");
+  await page.getByRole("button", { name: "Probe source" }).click();
+  await expect(page.locator("#probe-reachable")).toHaveText("No");
+  await expect(page.locator("#probe-cors")).toHaveText("Unknown");
+  await expect(page.locator("#source-probe")).toContainText("compatibility is unknown");
+  await expect(page.getByRole("button", { name: "Load source" })).toBeEnabled();
+  await page.getByRole("button", { name: "Load source" }).click();
+  await expect(page.locator("#source-status")).toHaveAttribute("data-status", "error");
+  await expect(page.locator("#source-status")).toContainText("Check host CORS and Range support");
+  await expect(page.locator("#source-status")).not.toContainText("token");
+});
+
+test("failed Apply keeps the previous runtime and active generated configuration", async ({ page }) => {
+  await page.goto("./");
+  await page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.useCameraResetLayerMock());
+  await page.locator("#copc-file").setInputFiles({
+    name: "still-active.copc.laz",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("local test source"),
+  });
+  await expect(page.locator("#source-status")).toHaveText("Loaded still-active.copc.laz");
+  await page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.failNextLoad());
+  await page.locator("#point-size-value").fill("4");
+  await page.locator("#point-size-value").dispatchEvent("change");
+  await page.getByRole("button", { name: "Apply changes" }).click();
+  await expect(page.locator("#source-status")).toContainText("The previous layer is still active.");
+  await expect.poll(() => page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.getAppliedConfig()?.pointSize)).toBe(3);
+  await expect(page.locator("#integration-example")).not.toContainText("pointSize: 4");
+  await expect(page.locator(".runtime-host")).toHaveCount(1);
+  await expect.poll(() => page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.getMockDestroyCount())).toBe(1);
+});
+
+test("a newer source selection supersedes a pending Apply without destroying the active layer", async ({ page }) => {
+  await page.goto("./");
+  await page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.useCameraResetLayerMock());
+  await page.locator("#copc-file").setInputFiles({
+    name: "active-before-stale-apply.copc.laz",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("local test source"),
+  });
+  await expect(page.locator("#source-status")).toHaveText("Loaded active-before-stale-apply.copc.laz");
+  await page.evaluate(() => {
+    const hooks = (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks & { delayNextLoad(): void } }).__COPC_PLAYGROUND_TEST__;
+    hooks?.delayNextLoad();
+  });
+  await page.locator("#point-size-value").fill("5");
+  await page.locator("#point-size-value").dispatchEvent("change");
+  await page.getByRole("button", { name: "Apply changes" }).click();
+  await expect(page.locator("#source-status")).toHaveText("Loading active-before-stale-apply.copc.laz…");
+  await page.locator("#remote-source").selectOption("chicago");
+  await expect(page.locator("#source-status")).toHaveText("Loaded active-before-stale-apply.copc.laz");
+  await page.evaluate(() => {
+    const hooks = (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks & { releaseDelayedLoad(): void } }).__COPC_PLAYGROUND_TEST__;
+    hooks?.releaseDelayedLoad();
+  });
+  await expect.poll(() => page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.getMockDestroyCount())).toBe(1);
+  await expect.poll(() => page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.getAppliedConfig()?.pointSize)).toBe(3);
+  await expect(page.locator(".runtime-host")).toHaveCount(1);
+});
+
+test("Cesium color and classification styles use setStyle without replacing the layer", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.goto("./");
+  await page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.useCameraResetLayerMock());
+  await page.locator("#copc-file").setInputFiles({
+    name: "style-test.copc.laz",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("local test source"),
+  });
+  await expect(page.locator("#source-status")).toHaveText("Loaded style-test.copc.laz");
+  const before = await page.evaluate(() => ({
+    loads: (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.getMockLoadCount(),
+    styles: (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.getMockStyleUpdateCount(),
+  }));
+  await page.getByRole("radiogroup", { name: "Color mode" }).getByRole("radio", { name: "Intensity" }).click();
+  await expect(page.locator("#integration-example")).toContainText("layer.setStyle({ colorMode: 'intensity' });");
+  await page.locator("#classification-include-enabled").check();
+  await page.locator("#classification-include").fill("6, 2, 6");
+  await page.locator("#classification-include").dispatchEvent("change");
+  await expect(page.getByRole("button", { name: "Apply filter" })).toBeEnabled();
+  await page.getByRole("button", { name: "Apply filter" }).click();
+  await expect(page.locator("#classification-active")).toHaveText("Include [2, 6]");
+  await expect(page.locator("#integration-example")).toContainText("classificationFilter");
+  await page.locator("#classification-include-enabled").uncheck();
+  await page.locator("#classification-exclude-enabled").check();
+  await page.locator("#classification-exclude").fill("7, 18");
+  await page.locator("#classification-exclude").dispatchEvent("change");
+  await expect(page.getByRole("button", { name: "Apply filter" })).toBeEnabled();
+  await page.getByRole("button", { name: "Apply filter" }).click();
+  await expect(page.locator("#classification-active")).toHaveText("Exclude [7, 18]");
+  await page.locator("#classification-include-enabled").check();
+  await page.locator("#classification-include").fill("");
+  await page.locator("#classification-include").dispatchEvent("change");
+  await expect(page.getByRole("button", { name: "Apply filter" })).toBeEnabled();
+  const applyFilter = page.locator("#apply-classification");
+  await applyFilter.scrollIntoViewIfNeeded();
+  await applyFilter.focus();
+  await applyFilter.press("Enter");
+  await expect(page.locator("#classification-active")).toHaveText("Include [] · Exclude [7, 18]");
+  await expect(page.locator("#integration-example")).toContainText('classificationFilter: {"include":[],"exclude":[7,18]}');
+  await page.getByRole("button", { name: "Clear filter" }).click();
+  await expect(page.locator("#classification-active")).toHaveText("No filter");
+  const after = await page.evaluate(() => ({
+    loads: (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.getMockLoadCount(),
+    styles: (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.getMockStyleUpdateCount(),
+  }));
+  expect(after.loads).toBe(before.loads);
+  expect(after.styles).toBeGreaterThan((before.styles ?? 0) + 3);
+  await expect(page.locator("#integration-example")).not.toContainText("classificationFilter");
+});
+
+test("applying Cesium color preserves an unapplied classification filter draft", async ({ page }) => {
+  await page.goto("./");
+  await page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.useCameraResetLayerMock());
+  await page.locator("#copc-file").setInputFiles({
+    name: "pending-classification.copc.laz",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("local test source"),
+  });
+  await expect(page.locator("#source-status")).toHaveText("Loaded pending-classification.copc.laz");
+  const loads = await page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getMockLoadCount(),
+  );
+
+  await page.locator("#classification-include-enabled").check();
+  await page.locator("#classification-include").fill("6, 2, 6");
+  await page.locator("#classification-include").dispatchEvent("change");
+  await expect(page.getByRole("button", { name: "Apply filter" })).toBeEnabled();
+  await page.getByRole("radiogroup", { name: "Color mode" }).getByRole("radio", { name: "Intensity" }).click();
+
+  await expect(page.locator("#classification-include")).toHaveValue("2, 6");
+  await expect(page.getByRole("button", { name: "Apply filter" })).toBeEnabled();
+  await expect(page.locator("#classification-active")).toHaveText("No filter");
+  await expect(page.locator("#integration-example")).toContainText("layer.setStyle({ colorMode: 'intensity' });");
+  await expect(page.locator("#integration-example")).not.toContainText("classificationFilter");
+
+  await page.getByRole("button", { name: "Apply filter" }).click();
+  await expect(page.locator("#classification-active")).toHaveText("Include [2, 6]");
+  await expect(page.locator("#integration-example")).toContainText('classificationFilter: {"include":[2,6]}');
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getMockLoadCount(),
+  )).toBe(loads);
+});
+
+test("returning to active Cesium reconciles pending color through setStyle", async ({ page }) => {
+  await page.goto("./");
+  await page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.useCameraResetLayerMock());
+  await page.locator("#copc-file").setInputFiles({
+    name: "renderer-color-reconcile.copc.laz",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("local test source"),
+  });
+  await expect(page.locator("#source-status")).toHaveText("Loaded renderer-color-reconcile.copc.laz");
+  const before = await page.evaluate(() => {
+    const hooks = (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__;
+    return {
+      loads: hooks?.getMockLoadCount(),
+      styles: hooks?.getMockStyleUpdateCount(),
+    };
+  });
+  await page.getByRole("radiogroup", { name: "Renderer" }).getByRole("radio", { name: "Three.js" }).click();
+  await page.getByRole("radiogroup", { name: "Color mode" }).getByRole("radio", { name: "Intensity" }).click();
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getPendingConfig().colorMode,
+  )).toBe("intensity");
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getAppliedConfig()?.colorMode,
+  )).toBe("elevation");
+
+  await page.getByRole("radiogroup", { name: "Renderer" }).getByRole("radio", { name: "Cesium" }).click();
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getAppliedConfig()?.colorMode,
+  )).toBe("intensity");
+  await expect(page.locator("#integration-example")).toContainText("layer.setStyle({ colorMode: 'intensity' });");
+  const after = await page.evaluate(() => {
+    const hooks = (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__;
+    return {
+      loads: hooks?.getMockLoadCount(),
+      styles: hooks?.getMockStyleUpdateCount(),
+    };
+  });
+  expect(after.loads).toBe(before.loads);
+  expect(after.styles).toBe((before.styles ?? 0) + 1);
+  await expect(page.getByRole("button", { name: "Apply changes" })).toBeDisabled();
+});
+
+test("failed color reconciliation keeps the previous Cesium style and active state", async ({ page }) => {
+  await page.goto("./");
+  await page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.useCameraResetLayerMock());
+  await page.locator("#copc-file").setInputFiles({
+    name: "renderer-color-failure.copc.laz",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("local test source"),
+  });
+  await expect(page.locator("#source-status")).toHaveText("Loaded renderer-color-failure.copc.laz");
+  const loads = await page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getMockLoadCount(),
+  );
+  await page.getByRole("radiogroup", { name: "Renderer" }).getByRole("radio", { name: "Three.js" }).click();
+  await page.getByRole("radiogroup", { name: "Color mode" }).getByRole("radio", { name: "Intensity" }).click();
+  await page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.failNextStyle(),
+  );
+  await page.getByRole("radiogroup", { name: "Renderer" }).getByRole("radio", { name: "Cesium" }).click();
+  await expect(page.locator("#style-error")).toContainText("Style was not applied");
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getAppliedConfig()?.colorMode,
+  )).toBe("elevation");
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getPendingConfig().colorMode,
+  )).toBe("elevation");
+  await expect(page.getByRole("radiogroup", { name: "Color mode" }).getByRole("radio", { name: "Elevation" })).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByRole("button", { name: "Apply changes" })).toBeDisabled();
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getMockLoadCount(),
+  )).toBe(loads);
+});
+
+test("numeric entries retain valid values outside the quick-slider ranges", async ({ page }) => {
+  await page.goto("./");
+  await page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.useCameraResetLayerMock());
+  await page.locator("#copc-file").setInputFiles({
+    name: "wide-config.copc.laz",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("local test source"),
+  });
+  await expect(page.locator("#source-status")).toHaveText("Loaded wide-config.copc.laz");
+  await page.locator("#point-size-value").fill("12");
+  await page.locator("#point-size-value").dispatchEvent("change");
+  await page.locator("#max-nodes-value").fill("60");
+  await page.locator("#max-nodes-value").dispatchEvent("change");
+  await page.locator("#max-points-value").fill("2000000");
+  await page.locator("#max-points-value").dispatchEvent("change");
+  await expect(page.getByRole("slider", { name: "Point size" })).toBeDisabled();
+  await expect(page.getByRole("slider", { name: "Max selected nodes" })).toBeDisabled();
+  await expect(page.getByRole("slider", { name: "Max rendered points" })).toBeDisabled();
+  await page.getByRole("button", { name: "Apply changes" }).click();
+  await expect(page.locator("#source-status")).toHaveText("Loaded wide-config.copc.laz");
+  await expect.poll(() => page.evaluate(() => {
+    const config = (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.getAppliedConfig();
+    return [config?.pointSize, config?.maxNodes, config?.maxRenderedPoints];
+  })).toEqual([12, 60, 2_000_000]);
+});
+
+test("failed Cesium setStyle preserves active state and does not reload the layer", async ({ page }) => {
+  await page.goto("./");
+  await page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.useCameraResetLayerMock());
+  await page.locator("#copc-file").setInputFiles({
+    name: "style-failure.copc.laz",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("local test source"),
+  });
+  await expect(page.locator("#source-status")).toHaveText("Loaded style-failure.copc.laz");
+  const loads = await page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.getMockLoadCount());
+  await page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.failNextStyle());
+  await page.getByRole("radiogroup", { name: "Color mode" }).getByRole("radio", { name: "Intensity" }).click();
+  await expect(page.locator("#style-error")).toContainText("Style was not applied");
+  await expect.poll(() => page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.getAppliedConfig()?.colorMode)).toBe("elevation");
+  await expect(page.locator("#integration-example")).not.toContainText('"intensity"');
+  await expect.poll(() => page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.getMockLoadCount())).toBe(loads);
+});
+
+test("Reset to defaults keeps the loaded local source and restores active style", async ({ page }) => {
+  await page.goto("./");
+  await page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.useCameraResetLayerMock());
+  await page.locator("#copc-file").setInputFiles({
+    name: "reset-source.copc.laz",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("local test source"),
+  });
+  await expect(page.locator("#source-status")).toHaveText("Loaded reset-source.copc.laz");
+  await expect(page.locator("#metadata-crs")).toHaveText("Not available");
+  await page.getByRole("radiogroup", { name: "Color mode" }).getByRole("radio", { name: "Intensity" }).click();
+  await page.locator("#point-size-value").fill("4");
+  await page.locator("#point-size-value").dispatchEvent("change");
+  await expect(page.getByRole("button", { name: "Apply changes" })).toBeEnabled();
+  await page.getByRole("button", { name: "Apply changes" }).click();
+  await expect(page.locator("#source-status")).toHaveText("Loaded reset-source.copc.laz");
+  await expect(page.locator("#integration-example")).toContainText("pointSize: 4");
+  await page.getByRole("button", { name: "Reset to defaults" }).click();
+  await expect(page.locator("#source-status")).toHaveText("Loaded reset-source.copc.laz");
+  await expect(page.locator("#point-size-value")).toHaveValue("3");
+  await expect(page.locator("#config-state")).toContainText("Pending settings differ");
+  await expect(page.getByRole("button", { name: "Apply changes" })).toBeEnabled();
+  await expect(page.locator("#integration-example")).toContainText("colorMode: 'elevation'");
+  await expect(page.locator("#integration-example")).toContainText("pointSize: 4");
+  await expect(page.locator("#include-share-source")).toBeDisabled();
+  await expect(page).toHaveURL(/pointSize=3/);
+  await page.getByRole("button", { name: "Apply changes" }).click();
+  await expect(page.locator("#source-status")).toHaveText("Loaded reset-source.copc.laz");
+  await expect(page.getByRole("button", { name: "Apply changes" })).toBeDisabled();
+  await expect(page.locator("#integration-example")).not.toContainText("pointSize: 4");
+});
+
+test("Reset to defaults clears a restored classification filter before loading", async ({ page }) => {
+  await page.goto("./?classificationInclude=");
+  await page.evaluate(() => {
+    const hooks = (window as Window & {
+      __COPC_PLAYGROUND_TEST__?: { useCameraResetLayerMock(): void };
+    }).__COPC_PLAYGROUND_TEST__;
+    if (!hooks) throw new Error("Playground test hooks are unavailable");
+    hooks.useCameraResetLayerMock();
+  });
+  await expect(page.locator("#classification-active")).toHaveText("No filter");
+  await page.getByRole("button", { name: "Reset to defaults" }).click();
+  const resetFilter = await page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getPendingConfig().classificationFilter,
+  );
+  expect(resetFilter).toBeUndefined();
+  await expect(page).not.toHaveURL(/classificationInclude=/);
+
+  await page.locator("#copc-file").setInputFiles({
+    name: "reset-unloaded-filter.copc.laz",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("local test source"),
+  });
+  await expect(page.locator("#source-status")).toHaveText("Loaded reset-unloaded-filter.copc.laz");
+  await expect(page.locator("#classification-active")).toHaveText("No filter");
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getAppliedConfig()?.colorMode,
+  )).toBe("elevation");
+});
+
+test("synchronizing valid controls clears stale numeric validation", async ({ page }) => {
+  await page.goto("./");
+  await page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.useCameraResetLayerMock());
+  await page.locator("#copc-file").setInputFiles({
+    name: "numeric-validation.copc.laz",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("local test source"),
+  });
+  await expect(page.locator("#source-status")).toHaveText("Loaded numeric-validation.copc.laz");
+  const maxNodes = page.locator("#max-nodes-value");
+  await maxNodes.fill("0");
+  await maxNodes.dispatchEvent("change");
+  await expect(maxNodes).toHaveAttribute("aria-invalid", "true");
+  await page.locator("#point-size-value").fill("4");
+  await page.locator("#point-size-value").dispatchEvent("change");
+  await expect(maxNodes).toHaveValue("24");
+  await expect(maxNodes).not.toHaveAttribute("aria-invalid", "true");
+  await expect(page.locator("#config-validation")).toBeHidden();
+  await expect(page.getByRole("button", { name: "Apply changes" })).toBeEnabled();
+});
+
+test("Cesium load becomes active before its camera zoom finishes", async ({ page }) => {
+  await page.goto("./");
+  await page.evaluate(() => {
+    const hooks = (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__;
+    if (!hooks) throw new Error("Playground test hooks are unavailable");
+    hooks.useCameraResetLayerMock();
+    hooks.delayNextZoom();
+  });
+  await page.locator("#copc-file").setInputFiles({
+    name: "delayed-zoom.copc.laz",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("local test source"),
+  });
+  await expect(page.locator("#source-status")).toHaveText("Loaded delayed-zoom.copc.laz");
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getMockZoomCount(),
+  )).toBe(1);
+  await expect(page.locator(".runtime-host")).toHaveCount(1);
+  await expect.poll(() => page.locator(".runtime-host").evaluate((host) => getComputedStyle(host).visibility)).toBe("visible");
+  await page.evaluate(() => {
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.releaseDelayedZoom();
+  });
 });
 
 test("camera movement during a layer reload is preserved", async ({ page }) => {
@@ -390,6 +857,7 @@ test("camera movement during a layer reload is preserved", async ({ page }) => {
     element.dispatchEvent(new Event("input", { bubbles: true }));
     element.dispatchEvent(new Event("change", { bubbles: true }));
   });
+  await page.getByRole("button", { name: "Apply changes" }).click();
   await expect(page.locator("#source-status")).toHaveText(
     "Loading camera-during-load.copc.laz…",
   );
@@ -517,7 +985,8 @@ test("custom URL input rejects malformed addresses before making a request", asy
   await page.goto("./");
   await page.locator("#remote-source").selectOption("custom");
   await page.locator("#custom-url").fill("not a url");
-  await page.getByRole("button", { name: "Probe and load URL" }).click();
+  await page.getByRole("button", { name: "Probe source" }).click();
+  await expect(page.getByRole("button", { name: "Load source" })).toBeDisabled();
   await expect(page.locator("#source-probe")).toHaveText(
     "Enter a valid absolute HTTP or HTTPS URL.",
   );
@@ -535,7 +1004,9 @@ for (const renderer of ["Cesium", "Three.js"] as const) {
     if (renderer === "Three.js") {
       await page.getByRole("radio", { name: "Three.js" }).click();
     }
-    await page.getByRole("button", { name: "Probe and load source" }).click();
+    await page.getByRole("button", { name: "Probe source" }).click();
+    await expect(page.getByRole("button", { name: "Load source" })).toBeEnabled({ timeout: 30_000 });
+    await page.getByRole("button", { name: "Load source" }).click();
     await expect(page.locator("#source-status")).toHaveText(
       "Loaded Autzen Stadium",
       { timeout: 120_000 },
@@ -544,6 +1015,12 @@ for (const renderer of ["Cesium", "Three.js"] as const) {
     await expect(page.locator("#diagnostic-validation")).toHaveText(
       "Strict response validation",
     );
+    await expect(page.locator("#metadata-summary")).toBeVisible();
+    await expect(page.locator("#metadata-point-count")).not.toHaveText("Not available");
+    if (renderer === "Three.js") {
+      await expect(page.locator("#classification-include-enabled")).toBeDisabled();
+      await expect(page.locator("#classification-help")).toContainText("active Cesium layer");
+    }
     await expect
       .poll(
         async () =>
@@ -758,13 +1235,35 @@ for (const renderer of ["Cesium", "Three.js"] as const) {
   });
 }
 
-test("the optional Rust/WASM backend streams the public Autzen COPC", async ({
+test("the Rust/WASM backend streams the public Autzen COPC", async ({
   page,
 }) => {
   test.setTimeout(150_000);
   await page.goto("./");
+  let probeFixtureUsed = false;
+  await page.route("https://data.pointcloud.org/**", async (route) => {
+    if (
+      !probeFixtureUsed &&
+      route.request().headers().range === "bytes=0-1023"
+    ) {
+      probeFixtureUsed = true;
+      await route.fulfill({
+        status: 206,
+        headers: {
+          ...corsHeaders,
+          "content-range": "bytes 0-1023/81123042",
+          "content-length": "1024",
+        },
+        body: makeCopcProbeBody(),
+      });
+      return;
+    }
+    await route.continue();
+  });
   await page.getByRole("radio", { name: "Rust / WASM" }).click();
-  await page.getByRole("button", { name: "Probe and load source" }).click();
+  await page.getByRole("button", { name: "Probe source" }).click();
+  await expect(page.getByRole("button", { name: "Load source" })).toBeEnabled({ timeout: 30_000 });
+  await page.getByRole("button", { name: "Load source" }).click();
   await expect(page.locator("#source-status")).toHaveText(
     "Loaded Autzen Stadium",
     { timeout: 120_000 },

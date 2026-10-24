@@ -1,17 +1,14 @@
 import type {
   CopcCesiumLayerOptions,
-  CopcCesiumPointStyleUpdate,
   RefinementFocus,
 } from "@frillab/copc-adapter/cesium";
 import type { CopcThreeLayerOptions } from "@frillab/copc-adapter/three";
-import type { WorkbenchLayerConfig, WorkbenchRenderer } from "../../shared/workbench-config";
+import type { WorkbenchRenderer } from "../../shared/workbench-config";
+import type { PlaygroundConfig } from "./playgroundConfig";
 import type { PlaygroundRefinementConfig } from "./refinementConfig";
 
-export type IntegrationCodeConfig = WorkbenchLayerConfig & {
-  readonly renderer: WorkbenchRenderer;
+export type IntegrationCodeConfig = PlaygroundConfig & {
   readonly refinementConfig: PlaygroundRefinementConfig;
-  /** Cesium-only runtime classification styling. */
-  readonly classificationFilter?: CopcCesiumPointStyleUpdate["classificationFilter"];
 };
 
 export type IntegrationCodeOptions = {
@@ -150,7 +147,8 @@ function buildOptions(
     ...(explicit || config.backend !== DEFAULTS.backend
       ? { backend: config.backend }
       : {}),
-    ...(explicit || config.colorMode !== DEFAULTS.colorMode
+    ...(config.renderer === "three" &&
+    (explicit || config.colorMode !== DEFAULTS.colorMode)
       ? { colorMode: config.colorMode }
       : {}),
     ...(explicit || config.pointSize !== DEFAULTS.pointSize
@@ -159,7 +157,9 @@ function buildOptions(
     ...(explicit || config.maxRenderedPoints !== DEFAULTS.maxRenderedPoints
       ? { maxRenderedPoints: config.maxRenderedPoints }
       : {}),
-    ...(explicit ? { maxPointCacheBytes: DEFAULTS.maxPointCacheBytes } : {}),
+    ...(explicit || config.maxPointCacheBytes !== DEFAULTS.maxPointCacheBytes
+      ? { maxPointCacheBytes: config.maxPointCacheBytes }
+      : {}),
     ...(Object.keys(streaming).length > 0 ? { streaming } : {}),
   };
 
@@ -196,10 +196,17 @@ function runtimeStyleLines(options: IntegrationCodeOptions): string[] {
   const { config, refinementFocus } = options;
   const lines: string[] = [];
   if (config.renderer === "cesium") {
+    const styleProperties: string[] = [];
+    if (options.mode === "explicit" || config.colorMode !== DEFAULTS.colorMode) {
+      styleProperties.push(`colorMode: ${quote(config.colorMode)}`);
+    }
     if (config.classificationFilter !== undefined) {
-      lines.push(
-        `layer.setStyle({ classificationFilter: ${JSON.stringify(config.classificationFilter)} });`,
+      styleProperties.push(
+        `classificationFilter: ${JSON.stringify(config.classificationFilter)}`,
       );
+    }
+    if (styleProperties.length > 0) {
+      lines.push(`layer.setStyle({ ${styleProperties.join(", ")} });`);
     }
     if (refinementFocus) {
       lines.push(

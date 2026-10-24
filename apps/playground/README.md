@@ -2,9 +2,10 @@
 
 The public Playground is a separate Vite application for trying COPC Adapter
 with public datasets or a user-provided URL. It supports Cesium and Three.js,
-the JavaScript and Rust/WASM backends, point styling, basic streaming limits,
-and point inspection. Internal diagnostics, benchmark controls, fixtures, and
-test harnesses remain in `apps/dev-viewer`.
+the JavaScript and Rust/WASM backends, point styling, streaming and cache
+budgets, LoD controls, classification filters, source metadata, and point
+inspection. Internal diagnostics, benchmark controls, fixtures, and test
+harnesses remain in `apps/dev-viewer`.
 
 The two apps reuse the public control widgets and normalized layer-option
 mapping under `apps/shared`. Their package inputs stay separate: the Playground
@@ -19,32 +20,93 @@ center, follow the pointer, or keep a pinned screen-space circle. Lens movement,
 radius, and detail-bias changes update the active layer; changing algorithms
 reapplies the layer because the strategy is a constructor option. The guide is
 visual only, and focus prioritizes detail without clipping the point cloud.
-The Generated code panel provides Minimal and Explicit TypeScript examples for
-the selected Cesium or Three.js renderer. It reads the last successfully
-applied settings; constructor settings waiting for Apply are not shown. The
-options object is checked against the public entrypoint types from the exact
-installed npm release. Three.js output includes an app-owned render loop and
-camera updates; Cesium classification filters use the public `setStyle()` API.
-Code and install commands can be copied, and copy feedback follows the
-clipboard result.
+## Source and settings workflow
 
-Renderer, backend, color, point-size, streaming, and focus settings are
-normalized in share URLs. A copied share link excludes the source by default;
-the source checkbox explicitly includes a query-free HTTP URL. URLs with
-credentials, query parameters, or fragments are treated as potentially
-sensitive: generated code shows a placeholder until the exact-source option is
-enabled, and copying that URL requires confirmation. Local files are emitted
-as a file-input example and are never placed in a URL. Refreshing a share link
-restores those settings to the controls, then loads a shared source when one
-was explicitly included.
+For an HTTP(S) source, choose or enter a URL and select **Probe source**. The
+probe calls the installed package's public `probeCopcSource()` API without
+creating or replacing a layer. Review HTTP status, CORS readability, byte
+ranges, COPC detection, point format, resource size, validation level, and
+warnings when available. Unknown results stay unknown. Known HTTP, CORS,
+Range, or non-COPC failures explain what to check and disable **Load source**.
+If a returned probe has unknown checks, Load remains a deliberate attempt and
+the subsequent load may still fail. Retry Probe explicitly to repeat a check.
+Editing the URL invalidates that probe. A local `File` can load directly; HTTP
+CORS and Range checks do not apply to it.
+
+After a successful load, the source panel shows point count, point format,
+source-coordinate bounds, whether the source supplied WKT, and the active
+backend and renderer. Bounds are in the dataset's source CRS units. The UI
+does not infer a CRS, vertical datum, or height reference from a location.
+
+Settings edits are **Pending** until applied. Backend, point size, rendered
+point budget, point-cache budget, max nodes, max depth, screen-space error,
+render distance, refinement algorithm, and renderer changes use **Apply
+changes**. The current layer stays active if its replacement fails; a
+successful replacement commits Active settings and preserves the camera when
+the renderer permits it. Point-cache input is displayed in MiB and converted
+to the exact integer byte count passed to the package. The rendered-point
+budget estimates the active-view workload; it is not a GPU memory limit. The
+CPU cache budget covers retained decoded point buffers. Max nodes limits
+frontier pressure, max depth caps refinement, lower SSE generally requests
+finer LoD, and render distance limits far visibility. Defaults follow the
+Playground defaults audited against the installed public package.
+
+Cesium color changes and classification filters use the public `getStyle()` /
+`setStyle()` API on the active layer. They do not recreate the layer. Filters
+accept LAS class codes 0–255; an empty include list hides all points, excludes
+are applied after includes, and **Clear filter** removes the filter. If the
+layer cannot apply a style to its retained buffers, the Playground shows a
+recoverable error and keeps the prior Active style. The installed Three.js
+layer has no equivalent public runtime style setter, so its color changes use
+Apply and classification filters are unavailable there. A Cesium filter must
+be cleared before applying a Three.js renderer. If a color is changed while a
+Three.js renderer is pending and the selected renderer returns to the active
+Cesium layer, the Playground reconciles that color through `setStyle()` without
+replacing the layer.
+
+**Reset to defaults** restores Playground settings without clearing the active
+source, including a local `File` already backing the active layer.
+Runtime-compatible Cesium styles are reset immediately; constructor changes remain Pending until
+**Apply changes**. A local file is never added to a share URL.
+
+During replacement, a hidden candidate runtime loads while the current runtime
+stays visible. The Playground swaps to the candidate after success and then
+disposes the previous runtime. Cesium becomes ready after `layer.load()`;
+automatic camera zoom starts after the candidate is visible so a camera flight
+cannot keep the hidden runtime in Loading. Failed or superseded candidates are
+disposed; Cesium replacements may briefly use two viewer instances.
+
+The Generated code panel provides Minimal and Explicit TypeScript examples for
+the selected Cesium or Three.js renderer. It reads only the last successfully
+applied configuration and runtime style; pending constructor settings are not
+represented as active. Cesium style changes are emitted as public `setStyle()`
+calls, while Three.js settings remain constructor options. Examples are typed
+against the public entrypoint types from the exact installed npm release.
+Three.js output includes an app-owned render loop and camera updates. Code and
+install commands can be copied, and copy feedback follows the clipboard
+result.
+
+Renderer, backend, color, point-size, rendered-point and cache budgets, all
+streaming and LoD settings, classification, and Focus Lens settings are
+normalized in canonical share URLs. A copied share link excludes the source
+by default; the source checkbox explicitly includes only a query-free HTTP(S)
+URL. Credentials, query parameters, and fragments are treated as sensitive,
+and are never copied to a share URL. Generated code uses a placeholder for
+such URLs unless the explicit exact-source option is selected; copying that
+code requires confirmation. Local file paths and bytes are never serialized.
+Refreshing a link restores configuration as settings only. If a safe source
+URL was included, it is filled into the source control and still requires a
+fresh Probe and explicit Load. A link without a source never claims a layer is
+loaded.
 
 HTTP sources are requested directly by the browser. A source must provide
-browser-readable CORS and HTTP Range responses. The Playground does not rewrite
-URLs through a proxy. The source probe reports what the browser could validate;
-it does not prove that a remote file is authentic or immutable. RGB mode is
-available only when the LAS point format advertises RGB attributes. Sliders
-preview while dragging and apply after release; applying a value reloads the
-current layer while keeping its camera view when possible.
+browser-readable CORS and usable HTTP Range responses. The Playground does not
+rewrite URLs through a proxy, upload data, or weaken the package's response
+validation. The probe reports what this browser could establish; it does not
+prove that a remote file is authentic or immutable. If the browser blocks a
+request, the exact cause may remain unknown; check host CORS, Range handling,
+and access policy. RGB mode is available even when attributes are unavailable;
+the package applies its documented missing-attribute behavior.
 
 The app has no mandatory Cesium ion token. Its basic Cesium viewer uses the
 ellipsoid and local background. Any remote source data remains in the browser,
@@ -80,6 +142,10 @@ The development server uses the same base path as production:
 ```text
 http://localhost:5173/copc-adapter/playground/
 ```
+
+Playground E2E tests include three real-streaming Autzen smoke tests alongside
+local-file and intercepted HTTP fixtures. Those smoke tests exercise the
+public host's current CORS, Range, and point-streaming behavior.
 
 ## Production build
 

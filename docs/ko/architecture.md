@@ -168,6 +168,8 @@ docs/benchmarks/
 - packed consumer: npm package 경계
 - benchmark/validation doc: 메인테이너가 승인한 장기 비교용 재현 가능한 성능 기준만 별도 보관 (일회성 검증은 PR 본문에 기록)
 
+공개 Playground E2E에는 로컬 파일과 HTTP 응답 fixture 테스트뿐 아니라 실제 Autzen 데이터 스트리밍 smoke 세 개도 포함됩니다. 이 테스트는 공개 호스트의 CORS·Range 응답과 실제 point streaming을 확인합니다.
+
 ## 내가 수정하려는 기능은 어디인가?
 
 | 하고 싶은 일 | 먼저 볼 곳 |
