@@ -59,7 +59,10 @@ layer cannot apply a style to its retained buffers, the Playground shows a
 recoverable error and keeps the prior Active style. The installed Three.js
 layer has no equivalent public runtime style setter, so its color changes use
 Apply and classification filters are unavailable there. A Cesium filter must
-be cleared before applying a Three.js renderer.
+be cleared before applying a Three.js renderer. If a color is changed while a
+Three.js renderer is pending and the selected renderer returns to the active
+Cesium layer, the Playground reconciles that color through `setStyle()` without
+replacing the layer.
 
 **Reset to defaults** restores Playground settings without clearing the active
 source, including a local `File` already backing the active layer.

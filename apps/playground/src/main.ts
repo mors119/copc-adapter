@@ -905,6 +905,26 @@ const rendererControl = mountSegmentedControl<PlaygroundRenderer>(
     onChange: (value) => {
       updatePendingConfig({ renderer: value });
       syncRendererLabels();
+      if (
+        value === "cesium" &&
+        activeRuntimeReady &&
+        !activeLoadPending &&
+        activeRuntime?.renderer === "cesium" &&
+        appliedConfig &&
+        pendingConfig.colorMode !== appliedConfig.colorMode
+      ) {
+        const requestedColorMode = pendingConfig.colorMode;
+        if (!applyCesiumStyle({ colorMode: requestedColorMode })) {
+          pendingConfig = {
+            ...pendingConfig,
+            colorMode: appliedConfig.colorMode,
+          };
+          colorControl.setValue(appliedConfig.colorMode);
+          writePendingUrlConfig();
+          updateApplyState();
+          updateIntegrationExample();
+        }
+      }
     },
   },
 );

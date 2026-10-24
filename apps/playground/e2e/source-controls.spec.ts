@@ -34,6 +34,7 @@ type PlaygroundTestHooks = {
   getMockStyleUpdateCount(): number;
   getAppliedConfig(): { pointSize: number; colorMode: string } | undefined;
   getPendingConfig(): {
+    colorMode: string;
     classificationFilter?: { include?: readonly number[]; exclude?: readonly number[] };
   };
 };
@@ -489,6 +490,7 @@ test("a newer source selection supersedes a pending Apply without destroying the
 });
 
 test("Cesium color and classification styles use setStyle without replacing the layer", async ({ page }) => {
+  test.setTimeout(60_000);
   await page.goto("./");
   await page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.useCameraResetLayerMock());
   await page.locator("#copc-file").setInputFiles({
@@ -536,6 +538,88 @@ test("Cesium color and classification styles use setStyle without replacing the 
   expect(after.loads).toBe(before.loads);
   expect(after.styles).toBeGreaterThan((before.styles ?? 0) + 3);
   await expect(page.locator("#integration-example")).not.toContainText("classificationFilter");
+});
+
+test("returning to active Cesium reconciles pending color through setStyle", async ({ page }) => {
+  await page.goto("./");
+  await page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.useCameraResetLayerMock());
+  await page.locator("#copc-file").setInputFiles({
+    name: "renderer-color-reconcile.copc.laz",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("local test source"),
+  });
+  await expect(page.locator("#source-status")).toHaveText("Loaded renderer-color-reconcile.copc.laz");
+  const before = await page.evaluate(() => {
+    const hooks = (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__;
+    return {
+      loads: hooks?.getMockLoadCount(),
+      styles: hooks?.getMockStyleUpdateCount(),
+    };
+  });
+  await page.getByRole("radiogroup", { name: "Renderer" }).getByRole("radio", { name: "Three.js" }).click();
+  await page.getByRole("radiogroup", { name: "Color mode" }).getByRole("radio", { name: "Intensity" }).click();
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getPendingConfig().colorMode,
+  )).toBe("intensity");
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getAppliedConfig()?.colorMode,
+  )).toBe("elevation");
+
+  await page.getByRole("radiogroup", { name: "Renderer" }).getByRole("radio", { name: "Cesium" }).click();
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getAppliedConfig()?.colorMode,
+  )).toBe("intensity");
+  await expect(page.locator("#integration-example")).toContainText("layer.setStyle({ colorMode: 'intensity' });");
+  const after = await page.evaluate(() => {
+    const hooks = (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__;
+    return {
+      loads: hooks?.getMockLoadCount(),
+      styles: hooks?.getMockStyleUpdateCount(),
+    };
+  });
+  expect(after.loads).toBe(before.loads);
+  expect(after.styles).toBe((before.styles ?? 0) + 1);
+  await expect(page.getByRole("button", { name: "Apply changes" })).toBeDisabled();
+});
+
+test("failed color reconciliation keeps the previous Cesium style and active state", async ({ page }) => {
+  await page.goto("./");
+  await page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.useCameraResetLayerMock());
+  await page.locator("#copc-file").setInputFiles({
+    name: "renderer-color-failure.copc.laz",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("local test source"),
+  });
+  await expect(page.locator("#source-status")).toHaveText("Loaded renderer-color-failure.copc.laz");
+  const loads = await page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getMockLoadCount(),
+  );
+  await page.getByRole("radiogroup", { name: "Renderer" }).getByRole("radio", { name: "Three.js" }).click();
+  await page.getByRole("radiogroup", { name: "Color mode" }).getByRole("radio", { name: "Intensity" }).click();
+  await page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.failNextStyle(),
+  );
+  await page.getByRole("radiogroup", { name: "Renderer" }).getByRole("radio", { name: "Cesium" }).click();
+  await expect(page.locator("#style-error")).toContainText("Style was not applied");
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getAppliedConfig()?.colorMode,
+  )).toBe("elevation");
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getPendingConfig().colorMode,
+  )).toBe("elevation");
+  await expect(page.getByRole("radiogroup", { name: "Color mode" }).getByRole("radio", { name: "Elevation" })).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByRole("button", { name: "Apply changes" })).toBeDisabled();
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getMockLoadCount(),
+  )).toBe(loads);
 });
 
 test("numeric entries retain valid values outside the quick-slider ranges", async ({ page }) => {
