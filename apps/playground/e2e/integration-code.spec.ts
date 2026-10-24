@@ -431,6 +431,7 @@ test("escapes URL strings and protects sensitive URLs; files use a file input pa
 });
 
 test("normalizes share configuration, omits unsafe sources, and copies the visible code", async ({ page }) => {
+  test.setTimeout(90_000);
   await page.addInitScript(() => {
     let copied = "";
     Object.defineProperty(navigator, "clipboard", {
@@ -531,12 +532,10 @@ test("normalizes share configuration, omits unsafe sources, and copies the visib
   await expect(page.getByRole("button", { name: "Apply changes" })).toBeEnabled();
   await page.getByRole("button", { name: "Apply changes" }).click();
   await expect(page.locator("#source-status")).toHaveText("Loaded copy-test.copc.laz");
-  await page.locator("#point-size").evaluate((element: HTMLInputElement) => {
-    element.value = "7";
-    element.dispatchEvent(new Event("input", { bubbles: true }));
-    element.dispatchEvent(new Event("change", { bubbles: true }));
-  });
+  await page.locator("#point-size-value").fill("7");
+  await page.locator("#point-size-value").dispatchEvent("change");
   await expect(page.locator("#integration-example")).not.toContainText("pointSize: 7");
+  await expect(page.getByRole("button", { name: "Apply changes" })).toBeEnabled();
   await page.getByRole("button", { name: "Apply changes" }).click();
   await expect(page.locator("#source-status")).toHaveText("Loaded copy-test.copc.laz");
   await page.locator("#copy-share-link").click();

@@ -138,6 +138,14 @@ The development server uses the same base path as production:
 http://localhost:5173/copc-adapter/playground/
 ```
 
+Playground E2E tests use local-file and intercepted HTTP fixtures by default.
+Three real-streaming Autzen smoke tests are opt-in because their result also
+depends on the public host's current CORS and Range availability:
+
+```bash
+PLAYGROUND_LIVE_SMOKE=1 npm --prefix apps/playground run test:e2e -- --grep "public Autzen COPC"
+```
+
 ## Production build
 
 The Pages consumer checks that the pinned version exists in npm and that its

@@ -168,6 +168,12 @@ docs/benchmarks/
 - packed consumer: npm package 경계
 - benchmark/validation doc: 메인테이너가 승인한 장기 비교용 재현 가능한 성능 기준만 별도 보관 (일회성 검증은 PR 본문에 기록)
 
+공개 Playground E2E는 기본적으로 로컬 파일과 HTTP 응답 fixture를 사용합니다. 공개 호스트의 CORS·Range 상태에 좌우되는 Autzen 실시간 streaming smoke 세 개는 필요할 때 명시적으로 실행합니다.
+
+```bash
+PLAYGROUND_LIVE_SMOKE=1 npm --prefix apps/playground run test:e2e -- --grep "public Autzen COPC"
+```
+
 ## 내가 수정하려는 기능은 어디인가?
 
 | 하고 싶은 일 | 먼저 볼 곳 |

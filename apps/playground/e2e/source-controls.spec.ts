@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 
 const sourceUrl =
   "https://data.pointcloud.org/autzen/autzen-classified.copc.laz";
+const runLiveDatasetSmoke = process.env.PLAYGROUND_LIVE_SMOKE === "1";
 
 function makeCopcProbeBody(): Buffer {
   const bytes = Buffer.alloc(1024);
@@ -500,6 +501,7 @@ test("Cesium color and classification styles use setStyle without replacing the 
   await page.locator("#classification-include-enabled").check();
   await page.locator("#classification-include").fill("6, 2, 6");
   await page.locator("#classification-include").dispatchEvent("change");
+  await expect(page.getByRole("button", { name: "Apply filter" })).toBeEnabled();
   await page.getByRole("button", { name: "Apply filter" }).click();
   await expect(page.locator("#classification-active")).toHaveText("Include [2, 6]");
   await expect(page.locator("#integration-example")).toContainText("classificationFilter");
@@ -507,11 +509,13 @@ test("Cesium color and classification styles use setStyle without replacing the 
   await page.locator("#classification-exclude-enabled").check();
   await page.locator("#classification-exclude").fill("7, 18");
   await page.locator("#classification-exclude").dispatchEvent("change");
+  await expect(page.getByRole("button", { name: "Apply filter" })).toBeEnabled();
   await page.getByRole("button", { name: "Apply filter" }).click();
   await expect(page.locator("#classification-active")).toHaveText("Exclude [7, 18]");
   await page.locator("#classification-include-enabled").check();
   await page.locator("#classification-include").fill("");
   await page.locator("#classification-include").dispatchEvent("change");
+  await expect(page.getByRole("button", { name: "Apply filter" })).toBeEnabled();
   await page.getByRole("button", { name: "Apply filter" }).click();
   await expect(page.locator("#classification-active")).toHaveText("Include [] · Exclude [7, 18]");
   await expect(page.locator("#integration-example")).toContainText('classificationFilter: {"include":[],"exclude":[7,18]}');
@@ -790,6 +794,10 @@ for (const renderer of ["Cesium", "Three.js"] as const) {
   test(`${renderer} streams and inspects points from the public Autzen COPC`, async ({
     page,
   }) => {
+    test.skip(
+      !runLiveDatasetSmoke,
+      "Set PLAYGROUND_LIVE_SMOKE=1 to run the external Autzen streaming smoke test.",
+    );
     test.setTimeout(150_000);
     await page.goto("./");
     if (renderer === "Three.js") {
@@ -1029,6 +1037,10 @@ for (const renderer of ["Cesium", "Three.js"] as const) {
 test("the optional Rust/WASM backend streams the public Autzen COPC", async ({
   page,
 }) => {
+  test.skip(
+    !runLiveDatasetSmoke,
+    "Set PLAYGROUND_LIVE_SMOKE=1 to run the external Autzen streaming smoke test.",
+  );
   test.setTimeout(150_000);
   await page.goto("./");
   let probeFixtureUsed = false;
