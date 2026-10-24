@@ -10,7 +10,7 @@
     "build:ci": "npm run typecheck && npm run prepare-laz-perf && vite build",
     "typecheck": "tsc --noEmit",
     "test": "npm run test:unit",
-    "test:unit": "node --import tsx --test test/*.test.mjs",
+    "test:unit": "node --import tsx --test test/*.test.mjs ../shared/schema/test/*.test.mjs",
     "test:e2e": "playwright test",
     "test:functional": "playwright test e2e/functional-validation.spec.ts --reporter=line",
     "benchmark:streaming": "playwright test e2e/streaming-performance.spec.ts --reporter=line",
