@@ -156,10 +156,6 @@ test("validates the eight core behaviors in the default Cesium viewer", async ({
   const debugPanel = page.getByRole("complementary", {
     name: "COPC runtime debug panel",
   });
-  const pointInspector = page.getByRole("region", {
-    name: "COPC point inspector",
-  });
-
   await test.step("1. Load and render the original COPC source", async () => {
     expect(new URL(page.url()).search).toBe(renderer);
     await expect(debugPanel).toBeVisible();
@@ -169,7 +165,6 @@ test("validates the eight core behaviors in the default Cesium viewer", async ({
     await expect(
       page.getByRole("radiogroup", { name: "Color mode" }),
     ).toBeVisible();
-    await expect(pointInspector).toBeVisible();
     await expect
       .poll(() => getState(page))
       .toMatchObject({
@@ -340,28 +335,32 @@ test("validates the eight core behaviors in the default Cesium viewer", async ({
         nodeKey: expect.any(String),
         pointIndex: expect.any(Number),
       });
+    const pointPopover = page.locator("[data-point-popover]");
+    await expect(pointPopover).toBeVisible();
+    await pointPopover.getByText("More point data").click();
+    const inspectedPoint = await page.evaluate(
+      () => window.__COPC_DEBUG__?.getState().selectedPoint,
+    );
+    if (!inspectedPoint)
+      throw new Error("The selected point inspector state disappeared.");
 
-    for (const field of [
-      "nodeKey",
-      "level",
-      "pointIndex",
-      "longitude",
-      "latitude",
-    ]) {
-      await expect(
-        pointInspector.locator(`[data-field="${field}"]`),
-      ).not.toBeEmpty();
-    }
-    for (const field of [
-      "height",
-      "source",
-      "intensity",
-      "classification",
-      "rgb",
-    ]) {
-      await expect(
-        pointInspector.locator(`[data-field="${field}"]`),
-      ).not.toBeEmpty();
+    const availableLabels = [
+      "Node key",
+      "Level",
+      "Point index",
+      "Longitude / latitude (WGS84 degrees)",
+      "WGS84 ellipsoidal height (m)",
+      ...(inspectedPoint.source ? ["Source coordinates (X / Y / Z)"] : []),
+      ...(inspectedPoint.world ? ["ECEF coordinates (metres)"] : []),
+      ...(inspectedPoint.intensity !== undefined ? ["Intensity"] : []),
+      ...(inspectedPoint.classification !== undefined ? ["Classification"] : []),
+      ...(inspectedPoint.rgb ? ["RGB"] : []),
+      ...Object.keys(inspectedPoint.dimensions ?? {}).map(
+        (name) => `Extra dimension · ${name}`,
+      ),
+    ];
+    for (const label of availableLabels) {
+      await expect(pointPopover).toContainText(label);
     }
   });
 

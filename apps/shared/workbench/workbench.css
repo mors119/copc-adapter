@@ -178,6 +178,13 @@
   display: none !important;
 }
 
+.workbench-empty-state {
+  color: var(--workbench-muted, #a8b5c3);
+  font-size: 0.7rem;
+  line-height: 1.5;
+  margin: 0.4rem 0;
+}
+
 .schema-controls {
   display: flex;
   flex-direction: column;

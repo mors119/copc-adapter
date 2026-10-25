@@ -155,13 +155,7 @@ test("streams a COPC sample through the opt-in Rust backend in a real Cesium sce
   await expect(debugPanel.locator('[data-field="bounds"]')).toBeVisible();
 
   await page.getByRole("tab", { name: "Data" }).click();
-  const pointInspector = page.getByRole("region", {
-    name: "COPC point inspector",
-  });
-  await expect(pointInspector).toBeVisible();
-  await expect(
-    pointInspector.getByText("Click a rendered point", { exact: true }),
-  ).toBeVisible();
+  await expect(page.locator("[data-point-popover]")).toBeHidden();
   await expect
     .poll(async () =>
       page.evaluate(() =>
@@ -194,9 +188,8 @@ test("streams a COPC sample through the opt-in Rust backend in a real Cesium sce
     () => window.__COPC_DEBUG__?.getState().selectedPoint,
   );
   expect(selectedPoint?.rgb).toBeDefined();
-  await expect(pointInspector.locator('[data-field="rgb"]')).not.toHaveText(
-    "Unavailable",
-  );
+  await expect(page.locator("[data-point-popover]")).toBeVisible();
+  await expect(page.locator("[data-point-popover]")).toContainText("RGB");
 
   const initialState = await getCompletedDebugState(page);
   expect(initialState.renderedNodeKeys).not.toEqual([]);

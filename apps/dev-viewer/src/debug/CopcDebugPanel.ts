@@ -2,7 +2,6 @@ import type {
   CopcCesiumLayerSnapshot,
   CopcColorMode,
   CopcMetadata,
-  CopcPointInspection,
   RangeValidationPolicy,
 } from "@frillab/copc-adapter";
 import type { CopcThreeLayerSnapshot } from "@frillab/copc-adapter/three";
@@ -11,7 +10,6 @@ import type {
   CopcSourceProbeResult,
   ProbeTruth,
 } from "@frillab/copc-adapter";
-import { createCopcPointInspector } from "./CopcPointInspector";
 
 export type CopcDebugPanelState = {
   snapshot: CopcCesiumLayerSnapshot | CopcThreeLayerSnapshot;
@@ -22,7 +20,6 @@ export type CopcDebugPanelState = {
   configuredRangeValidation: RangeValidationPolicy;
   sourceProbePolicy?: RangeValidationPolicy;
   rangeValidationApplicable: boolean;
-  selectedPoint?: CopcPointInspection;
   lastError?: string;
 };
 
@@ -532,7 +529,6 @@ export function createCopcDebugPanel(
       <code class="copc-debug-panel__url" data-field="datasetUrl"></code>
       <p class="dev-status" id="source-status" role="status" aria-live="polite" data-status="loading">Loading configured source…</p>
     </section>
-    <div data-point-inspector data-workbench-group="data"></div>
     <details class="copc-debug-panel__section" open data-workbench-group="health">
       <summary>Streaming metrics</summary>
       <dl>
@@ -693,9 +689,6 @@ export function createCopcDebugPanel(
   target.querySelectorAll<HTMLElement>("[data-field]").forEach((element) => {
     fields.set(element.dataset.field ?? "", element);
   });
-  const pointInspector = createCopcPointInspector(
-    target.querySelector<HTMLElement>("[data-point-inspector]")!,
-  );
   const panel = target.closest<HTMLElement>(".copc-debug-panel");
 
   const update = (): void => {
@@ -713,7 +706,6 @@ export function createCopcDebugPanel(
     }
 
     if (panel) panel.dataset.status = view.statusTone;
-    pointInspector.update(state.selectedPoint);
     const errorElement = fields.get("error");
     if (errorElement) {
       errorElement.hidden = !view.error;
@@ -737,7 +729,6 @@ export function createCopcDebugPanel(
     setPollingEnabled,
     destroy(): void {
       setPollingEnabled(false);
-      pointInspector.destroy();
     },
   };
 }

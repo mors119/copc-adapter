@@ -1,0 +1,124 @@
+.point-inspection-overlay {
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  position: absolute;
+  z-index: 12;
+}
+
+.point-inspection-overlay[aria-hidden="true"] {
+  visibility: hidden;
+}
+
+.point-selection-highlight {
+  border: 2px solid #f7fbff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px rgb(55 173 255 / 70%), 0 0 14px rgb(55 173 255 / 90%);
+  height: 22px;
+  pointer-events: none;
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 22px;
+}
+
+.point-popover {
+  background: #101a26;
+  border: 1px solid #4b6a85;
+  border-radius: 0.55rem;
+  box-shadow: 0 0.6rem 2.2rem rgb(0 0 0 / 48%);
+  color: #edf4fb;
+  max-height: min(70%, 25rem);
+  max-width: calc(100% - 1rem);
+  min-width: min(13rem, calc(100% - 1rem));
+  overflow: auto;
+  padding: 0.65rem 0.75rem;
+  pointer-events: auto;
+  position: absolute;
+  width: min(20rem, calc(100% - 1rem));
+}
+
+.point-popover[hidden] {
+  display: none;
+}
+
+.point-popover__header {
+  align-items: center;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+}
+
+.point-popover__header h2 {
+  color: #edf4fb;
+  font-size: 0.78rem;
+  font-weight: 650;
+  margin: 0;
+}
+
+.point-popover__close {
+  align-items: center;
+  background: transparent;
+  border: 1px solid #3b5268;
+  border-radius: 0.25rem;
+  color: #d5e1ec;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 1rem;
+  height: 1.75rem;
+  justify-content: center;
+  line-height: 1;
+  min-width: 1.75rem;
+  padding: 0;
+}
+
+.point-popover__close:focus-visible,
+.point-popover__details summary:focus-visible {
+  outline: 2px solid #62b5ff;
+  outline-offset: 2px;
+}
+
+.point-popover__summary dl,
+.point-popover__details dl {
+  display: grid;
+  gap: 0.25rem 0.65rem;
+  grid-template-columns: minmax(6rem, auto) minmax(0, 1fr);
+  margin: 0.55rem 0 0;
+}
+
+.point-popover__summary dt,
+.point-popover__details dt {
+  color: #a8b5c3;
+  font-size: 0.66rem;
+}
+
+.point-popover__summary dd,
+.point-popover__details dd {
+  color: #edf4fb;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.66rem;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.point-popover__details {
+  border-top: 1px solid #273b4d;
+  margin-top: 0.6rem;
+  padding-top: 0.5rem;
+}
+
+.point-popover__details[hidden] {
+  display: none;
+}
+
+.point-popover__details summary {
+  color: #b7d9f7;
+  cursor: pointer;
+  font-size: 0.68rem;
+}
+
+@media (max-width: 620px) {
+  .point-popover {
+    max-height: min(55%, 18rem);
+  }
+}

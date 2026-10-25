@@ -1293,14 +1293,53 @@ for (const renderer of ["Cesium", "Three.js"] as const) {
     if (!canvasBox)
       throw new Error("The renderer canvas has no visible bounds.");
     await page.mouse.click(canvasBox.x + point.x, canvasBox.y + point.y);
-    await page.getByRole("tab", { name: "Data" }).click();
-    await expect(page.locator("#point-attributes")).toBeVisible({
+    const pointPopover = page.locator("[data-point-popover]");
+    await expect(pointPopover).toBeVisible({
       timeout: 10_000,
     });
-    await expect(page.locator("#point-attributes")).toContainText("Height");
+    await expect(pointPopover).toContainText("WGS84 ellipsoidal height (m)");
+    await expect(page.locator("[data-point-highlight]")).toBeVisible();
+    const popoverBounds = await pointPopover.boundingBox();
+    const frameBounds = await page.locator("#viewer-frame").boundingBox();
+    expect(popoverBounds).not.toBeNull();
+    expect(frameBounds).not.toBeNull();
+    expect(popoverBounds!.x).toBeGreaterThanOrEqual(frameBounds!.x);
+    expect(popoverBounds!.y).toBeGreaterThanOrEqual(frameBounds!.y);
+    expect(popoverBounds!.x + popoverBounds!.width).toBeLessThanOrEqual(
+      frameBounds!.x + frameBounds!.width,
+    );
+    expect(popoverBounds!.y + popoverBounds!.height).toBeLessThanOrEqual(
+      frameBounds!.y + frameBounds!.height,
+    );
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(pointPopover).toBeVisible();
+    const narrowPopoverBounds = await pointPopover.boundingBox();
+    const narrowFrameBounds = await page.locator("#viewer-frame").boundingBox();
+    expect(narrowPopoverBounds).not.toBeNull();
+    expect(narrowFrameBounds).not.toBeNull();
+    expect(narrowPopoverBounds!.x).toBeGreaterThanOrEqual(narrowFrameBounds!.x);
+    expect(narrowPopoverBounds!.y).toBeGreaterThanOrEqual(narrowFrameBounds!.y);
+    expect(narrowPopoverBounds!.x + narrowPopoverBounds!.width).toBeLessThanOrEqual(
+      narrowFrameBounds!.x + narrowFrameBounds!.width,
+    );
+    expect(narrowPopoverBounds!.y + narrowPopoverBounds!.height).toBeLessThanOrEqual(
+      narrowFrameBounds!.y + narrowFrameBounds!.height,
+    );
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await expect(pointPopover).toBeVisible();
+    await pointPopover.getByText("More point data").click();
+    await expect(pointPopover).toContainText("Point index");
+    await page.getByRole("tab", { name: "Data" }).click();
+    await expect(page.locator("#workbench-panel-data")).not.toContainText("Point index");
+    await page.getByRole("tab", { name: "Health" }).click();
 
     if (renderer === "Cesium") {
-      await page.getByRole("tab", { name: "Health" }).click();
+      const highlight = page.locator("[data-point-highlight]");
+      const markerPosition = async () => {
+        const bounds = await highlight.boundingBox();
+        return bounds ? [bounds.x, bounds.y] : null;
+      };
+      const markerBeforeCameraMove = await markerPosition();
       const obliqueCamera = await page.evaluate(() => {
         const hooks = (
           window as Window & {
@@ -1308,7 +1347,8 @@ for (const renderer of ["Cesium", "Three.js"] as const) {
           }
         ).__COPC_PLAYGROUND_TEST__;
         if (!hooks) throw new Error("Playground test hooks are unavailable");
-        return { ...hooks.getCameraView(), pitch: -45 };
+        const view = hooks.getCameraView();
+        return { ...view, heading: view.heading + 15, pitch: -45 };
       });
       await page.evaluate((camera) => {
         (
@@ -1317,6 +1357,8 @@ for (const renderer of ["Cesium", "Three.js"] as const) {
           }
         ).__COPC_PLAYGROUND_TEST__?.setCameraView(camera);
       }, obliqueCamera);
+      await expect(pointPopover).toBeVisible();
+      await expect.poll(markerPosition).not.toEqual(markerBeforeCameraMove);
 
       await page.locator("#focus-mode").selectOption("center-boost");
       await page
@@ -1472,6 +1514,8 @@ for (const renderer of ["Cesium", "Three.js"] as const) {
         )
         .toBe(false);
     }
+    await pointPopover.getByRole("button", { name: "Close point details" }).click();
+    await expect(pointPopover).toBeHidden();
   });
 }
 

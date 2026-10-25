@@ -354,8 +354,7 @@ body {
   border-bottom: 1px solid var(--ui-border);
 }
 
-.copc-debug-panel__source-summary h3,
-.copc-point-inspector h3 {
+.copc-debug-panel__source-summary h3 {
   margin: 0 0 5px;
   color: #e8f3fd;
   font-size: 12px;
@@ -432,44 +431,6 @@ body {
 
 .copc-debug-panel__source-warning {
   overflow-wrap: anywhere;
-}
-
-.copc-point-inspector {
-  margin: 12px 0;
-  padding: 0 0 12px;
-  border-bottom: 1px solid var(--ui-border);
-}
-
-.copc-point-inspector__empty {
-  color: var(--ui-muted);
-  font-size: 11px;
-}
-
-.copc-point-inspector dl {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1px;
-  overflow: hidden;
-  border: 1px solid var(--ui-border);
-  border-radius: 6px;
-  background: var(--ui-border);
-}
-
-.copc-point-inspector dl div {
-  display: block;
-  min-width: 0;
-  padding: 6px 7px;
-  border: 0;
-  background: rgb(8 17 29 / 72%);
-}
-
-.copc-point-inspector dt {
-  font-family: inherit;
-  font-size: 10px;
-}
-
-.copc-point-inspector dd {
-  margin-top: 2px;
-  text-align: left;
 }
 
 .copc-debug-panel__detail {
