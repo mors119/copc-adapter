@@ -9,14 +9,17 @@ import {
   getChangedWorkbenchOptionIds,
   isWorkbenchConfigurationDirty,
   normalizeWorkbenchOptionValues,
+  resolveSchemaBackendSelection,
   restoreWorkbenchConfiguration,
   serializeWorkbenchConfiguration,
+  transitionRendererOptionValues,
   updateWorkbenchConfiguration,
   validateWorkbenchConfiguration,
 } from "../index.ts";
 import {
   NPM_0_6_CAPABILITIES,
   NPM_0_6_MANIFEST,
+  WORKSPACE_CURRENT_CAPABILITIES,
   WORKSPACE_CURRENT_MANIFEST,
 } from "../../schema/index.ts";
 
@@ -217,6 +220,102 @@ test("renderer-specific options are emitted only for the selected supported rend
   assert.equal(three.requiresLayerReplacement, true);
 });
 
+test("renderer changes stash and restore renderer-exclusive schema values", () => {
+  const schemaOnlyValues = {
+    "rendering.pointSizeMode": "attenuated",
+    "rendering.minPointSize": 2,
+    "rendering.maxPointSize": 16,
+  };
+  const optionIds = Object.keys(schemaOnlyValues);
+  const values = validValues({ ...schemaOnlyValues });
+  const inactiveValues = new Map();
+
+  values["renderer.engine"] = "three";
+  transitionRendererOptionValues(
+    values,
+    schemaOnlyValues,
+    "cesium",
+    "three",
+    inactiveValues,
+    { support: { manifest: NPM_0_6_MANIFEST, runtimeCapabilities: NPM_0_6_CAPABILITIES } },
+  );
+  for (const id of optionIds) {
+    assert.equal(Object.hasOwn(values, id), false, id + " must not reach Three.js");
+    assert.equal(Object.hasOwn(schemaOnlyValues, id), false, id + " must leave active schema state");
+  }
+  assert.equal(inactiveValues.size, 3);
+
+  values["renderer.engine"] = "cesium";
+  transitionRendererOptionValues(
+    values,
+    schemaOnlyValues,
+    "three",
+    "cesium",
+    inactiveValues,
+    { support: { manifest: NPM_0_6_MANIFEST, runtimeCapabilities: NPM_0_6_CAPABILITIES } },
+  );
+  assert.deepEqual(schemaOnlyValues, {
+    "rendering.pointSizeMode": "attenuated",
+    "rendering.minPointSize": 2,
+    "rendering.maxPointSize": 16,
+  });
+  assert.equal(inactiveValues.size, 0);
+});
+
+test("renderer transitions account for package-specific renderer exclusions", () => {
+  const optionId = "streaming.maxConcurrentNodeLoads";
+  const schemaOnlyValues = { [optionId]: 7 };
+  const values = validValues({
+    "renderer.engine": "three",
+    [optionId]: 7,
+  });
+  const inactiveValues = new Map();
+
+  transitionRendererOptionValues(
+    values,
+    schemaOnlyValues,
+    "three",
+    "cesium",
+    inactiveValues,
+    { support: { manifest: NPM_0_6_MANIFEST, runtimeCapabilities: NPM_0_6_CAPABILITIES } },
+  );
+  assert.equal(Object.hasOwn(values, optionId), false);
+  assert.equal(Object.hasOwn(schemaOnlyValues, optionId), false);
+  assert.equal(inactiveValues.get(optionId).value, 7);
+
+  values["renderer.engine"] = "three";
+  transitionRendererOptionValues(
+    values,
+    schemaOnlyValues,
+    "cesium",
+    "three",
+    inactiveValues,
+    { support: { manifest: NPM_0_6_MANIFEST, runtimeCapabilities: NPM_0_6_CAPABILITIES } },
+  );
+  assert.equal(values[optionId], 7);
+  assert.equal(schemaOnlyValues[optionId], 7);
+  assert.equal(inactiveValues.has(optionId), false);
+
+  const workspaceValues = validValues({
+    "renderer.engine": "three",
+    [optionId]: 9,
+  });
+  transitionRendererOptionValues(
+    workspaceValues,
+    {},
+    "three",
+    "cesium",
+    new Map(),
+    {
+      support: {
+        manifest: WORKSPACE_CURRENT_MANIFEST,
+        runtimeCapabilities: WORKSPACE_CURRENT_CAPABILITIES,
+      },
+    },
+  );
+  assert.equal(workspaceValues[optionId], 9);
+});
+
 test("specialized constructor options are kept out of generic API mapping", () => {
   const plan = buildSchemaApplicationPlan(
     validValues({
@@ -240,6 +339,29 @@ test("specialized constructor options are kept out of generic API mapping", () =
       value: "batched-geometry",
     },
   ]);
+});
+
+test("specialized Extra Dimensions instantiate the host-selected copc-js backend", () => {
+  const plan = buildSchemaApplicationPlan(
+    validValues({ "attributes.extraDimensions": ["gps-time", "leg_id"] }),
+    cesiumContext,
+  );
+  const factoryCalls = [];
+  const backend = resolveSchemaBackendSelection(plan, (options) => {
+    factoryCalls.push(options);
+    return { type: "configured-copc-js", ...options };
+  });
+
+  assert.deepEqual(factoryCalls, [{ extraDimensions: ["gps-time", "leg_id"] }]);
+  assert.deepEqual(backend, {
+    type: "configured-copc-js",
+    extraDimensions: ["gps-time", "leg_id"],
+  });
+
+  const plainPlan = buildSchemaApplicationPlan(validValues(), cesiumContext);
+  assert.equal(resolveSchemaBackendSelection(plainPlan, () => {
+    throw new Error("The backend factory must not run without specialized options.");
+  }), "copc-js");
 });
 
 test("runtime style edits avoid layer recreation and reset nullable filters explicitly", async () => {

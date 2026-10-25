@@ -32,10 +32,17 @@ type PlaygroundTestHooks = {
   getMockLoadCount(): number;
   getMockDestroyCount(): number;
   getMockStyleUpdateCount(): number;
-  getAppliedConfig(): { pointSize: number; colorMode: string } | undefined;
+  getAppliedConfig(): { pointSize: number; colorMode: string; maxNodes?: number } | undefined;
+  getMockLayerSettings(): {
+    rangeValidation?: string;
+    streaming?: { motionLookahead?: boolean; predictivePrefetch?: boolean };
+  } | undefined;
+  getMockBackendExtraDimensions(): unknown;
   getPendingConfig(): {
     colorMode: string;
+    maxNodes?: number;
     classificationFilter?: { include?: readonly number[]; exclude?: readonly number[] };
+    schemaOptionValues?: Readonly<Record<string, unknown>>;
   };
 };
 
@@ -129,6 +136,39 @@ test("a local source selected during a remote probe supersedes the pending probe
   } finally {
     releaseProbe();
   }
+});
+
+test("forwards schema-only settings to the created Playground runtime", async ({ page }) => {
+  await page.goto("./");
+  await page.evaluate(() => {
+    const hooks = (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__;
+    if (!hooks) throw new Error("Playground test hooks are unavailable");
+    hooks.useCameraResetLayerMock();
+  });
+
+  await page.getByRole("radiogroup", { name: "HTTP Range Validation" })
+    .getByRole("radio", { name: "Strict" }).click();
+  await page.locator('details[data-section="streaming"] summary').click();
+  await page.getByRole("radiogroup", { name: "Motion Lookahead" })
+    .getByRole("radio", { name: "Off" }).click();
+  await page.getByRole("checkbox", { name: "Predictive Prefetch" }).check();
+
+  await page.locator("#copc-file").setInputFiles({
+    name: "schema-options.copc.laz",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("local test source"),
+  });
+  await expect(page.locator("#source-status")).toHaveText("Loaded schema-options.copc.laz");
+
+  const settings = await page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getMockLayerSettings(),
+  );
+  expect(settings).toMatchObject({
+    rangeValidation: "strict",
+    streaming: { motionLookahead: false, predictivePrefetch: true },
+  });
 });
 
 test("the same local file can be selected again after loading another source", async ({
@@ -659,6 +699,8 @@ test("failed color reconciliation keeps the previous Cesium style and active sta
 
 test("numeric entries retain valid values outside the quick-slider ranges", async ({ page }) => {
   await page.goto("./");
+  await page.locator('details[data-section="streaming"] summary').click();
+  await page.locator('details[data-section="performance"] summary').click();
   await page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.useCameraResetLayerMock());
   await page.locator("#copc-file").setInputFiles({
     name: "wide-config.copc.laz",
@@ -673,7 +715,8 @@ test("numeric entries retain valid values outside the quick-slider ranges", asyn
   await page.locator("#max-points-value").fill("2000000");
   await page.locator("#max-points-value").dispatchEvent("change");
   await expect(page.getByRole("slider", { name: "Point size" })).toBeDisabled();
-  await expect(page.getByRole("slider", { name: "Max selected nodes" })).toBeDisabled();
+  await expect(page.getByRole("slider", { name: "Max selected nodes" })).toBeEnabled();
+  await expect(page.getByRole("slider", { name: "Max selected nodes" })).toHaveValue("60");
   await expect(page.getByRole("slider", { name: "Max rendered points" })).toBeDisabled();
   await page.getByRole("button", { name: "Apply changes" }).click();
   await expect(page.locator("#source-status")).toHaveText("Loaded wide-config.copc.laz");
@@ -764,8 +807,95 @@ test("Reset to defaults clears a restored classification filter before loading",
   )).toBe("elevation");
 });
 
+test("Reset to defaults clears schema-only and inactive renderer settings before loading", async ({ page }) => {
+  await page.goto("./");
+  await page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.useCameraResetLayerMock());
+
+  const renderer = page.getByRole("radiogroup", { name: "Renderer" });
+  await renderer.getByRole("radio", { name: "Three.js" }).click();
+  const streamingSection = page.locator('details[data-section="streaming"]');
+  if (!(await streamingSection.evaluate((element: HTMLDetailsElement) => element.open))) {
+    await streamingSection.locator("summary").click();
+  }
+  const concurrentLoads = page.locator("#max-concurrent-node-loads");
+  await concurrentLoads.fill("7");
+  await concurrentLoads.dispatchEvent("change");
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getPendingConfig().schemaOptionValues?.[
+        "streaming.maxConcurrentNodeLoads"
+      ],
+  )).toBe(7);
+
+  await renderer.getByRole("radio", { name: "Cesium" }).click();
+  await expect.poll(() => page.evaluate(() =>
+    Object.hasOwn(
+      (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+        .__COPC_PLAYGROUND_TEST__?.getPendingConfig().schemaOptionValues ?? {},
+      "streaming.maxConcurrentNodeLoads",
+    ),
+  )).toBe(false);
+
+  if (!(await streamingSection.evaluate((element: HTMLDetailsElement) => element.open))) {
+    await streamingSection.locator("summary").click();
+  }
+  await page.locator("#motion-lookahead-control").getByRole("radio", { name: "Off" }).click();
+  const sourceSection = page.locator('details[data-section="source"]');
+  if (!(await sourceSection.evaluate((element: HTMLDetailsElement) => element.open))) {
+    await sourceSection.locator("summary").click();
+  }
+  await page.locator("#range-validation-control").getByRole("radio", { name: "Strict" }).click();
+  await expect.poll(() => page.evaluate(() => {
+    const values = (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getPendingConfig().schemaOptionValues ?? {};
+    return [values["streaming.motionLookahead"], values["source.rangeValidation"]];
+  })).toEqual([false, "strict"]);
+
+  await page.getByRole("button", { name: "Reset to defaults" }).click();
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getPendingConfig().schemaOptionValues,
+  )).toEqual({});
+  await expect(page.locator("#motion-lookahead-control").getByRole("radio", { name: "On" })).toHaveAttribute("aria-checked", "true");
+  await expect(page.locator("#range-validation-control").getByRole("radio", { name: "HEAD Fallback" })).toHaveAttribute("aria-checked", "true");
+
+  await page.locator("#copc-file").setInputFiles({
+    name: "reset-schema-values.copc.laz",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("local test source"),
+  });
+  await expect(page.locator("#source-status")).toHaveText("Loaded reset-schema-values.copc.laz");
+  const settings = await page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getMockLayerSettings(),
+  );
+  expect(settings?.rangeValidation).toBeUndefined();
+  expect(settings?.streaming?.motionLookahead).toBeUndefined();
+});
+
+test("Extra Dimensions configures copc-js before the Playground layer is created", async ({ page }) => {
+  await page.goto("./");
+  await page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.useCameraResetLayerMock());
+  await page.locator('details[data-section="attributes"] summary').click();
+  const extraDimensions = page.getByRole("textbox", { name: "Extra Dimensions" });
+  await extraDimensions.fill("gps-time, leg_id");
+  await extraDimensions.dispatchEvent("change");
+
+  await page.locator("#copc-file").setInputFiles({
+    name: "extra-dimensions.copc.laz",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("local test source"),
+  });
+  await expect(page.locator("#source-status")).toHaveText("Loaded extra-dimensions.copc.laz");
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getMockBackendExtraDimensions(),
+  )).toEqual(["gps-time", "leg_id"]);
+});
+
 test("synchronizing valid controls clears stale numeric validation", async ({ page }) => {
   await page.goto("./");
+  await page.locator('details[data-section="streaming"] summary').click();
   await page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.useCameraResetLayerMock());
   await page.locator("#copc-file").setInputFiles({
     name: "numeric-validation.copc.laz",
@@ -783,6 +913,51 @@ test("synchronizing valid controls clears stale numeric validation", async ({ pa
   await expect(maxNodes).not.toHaveAttribute("aria-invalid", "true");
   await expect(page.locator("#config-validation")).toBeHidden();
   await expect(page.getByRole("button", { name: "Apply changes" })).toBeEnabled();
+});
+
+test("a rejected schema edit blocks Apply until the value is corrected", async ({ page }) => {
+  await page.goto("./");
+  await page.evaluate(() => {
+    const hooks = (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__;
+    if (!hooks) throw new Error("Playground test hooks are unavailable");
+    hooks.useCameraResetLayerMock();
+  });
+  await page.locator("#copc-file").setInputFiles({
+    name: "invalid-schema-edit.copc.laz",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("local test source"),
+  });
+  await expect(page.locator("#source-status")).toHaveText("Loaded invalid-schema-edit.copc.laz");
+  await page.locator('details[data-section="streaming"] summary').click();
+
+  const pointSize = page.locator("#point-size-value");
+  await pointSize.fill("4");
+  await pointSize.dispatchEvent("change");
+  const applyButton = page.getByRole("button", { name: "Apply changes" });
+  await expect(applyButton).toBeEnabled();
+
+  const maxNodes = page.locator("#max-nodes-value");
+  await maxNodes.fill("0");
+  await maxNodes.dispatchEvent("change");
+  await expect(maxNodes).toHaveAttribute("aria-invalid", "true");
+  await expect(page.locator("#config-validation")).toContainText("Max selected nodes");
+  await expect(applyButton).toBeDisabled();
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getPendingConfig().maxNodes,
+  )).toBe(24);
+
+  await maxNodes.fill("32");
+  await maxNodes.dispatchEvent("change");
+  await expect(maxNodes).not.toHaveAttribute("aria-invalid", "true");
+  await expect(applyButton).toBeEnabled();
+  await applyButton.click();
+  await expect(page.locator("#source-status")).toHaveText("Loaded invalid-schema-edit.copc.laz");
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getAppliedConfig()?.maxNodes,
+  )).toBe(32);
 });
 
 test("Cesium load becomes active before its camera zoom finishes", async ({ page }) => {
@@ -1011,12 +1186,15 @@ for (const renderer of ["Cesium", "Three.js"] as const) {
       "Loaded Autzen Stadium",
       { timeout: 120_000 },
     );
+    await page.getByRole("tab", { name: "Health" }).click();
     await expect(page.locator("#diagnostic-range")).toHaveText("Supported");
     await expect(page.locator("#diagnostic-validation")).toHaveText(
       "Strict response validation",
     );
+    await page.getByRole("tab", { name: "Source" }).click();
     await expect(page.locator("#metadata-summary")).toBeVisible();
     await expect(page.locator("#metadata-point-count")).not.toHaveText("Not available");
+    await page.getByRole("tab", { name: "Health" }).click();
     if (renderer === "Three.js") {
       await expect(page.locator("#classification-include-enabled")).toBeDisabled();
       await expect(page.locator("#classification-help")).toContainText("active Cesium layer");
@@ -1055,12 +1233,14 @@ for (const renderer of ["Cesium", "Three.js"] as const) {
     if (!canvasBox)
       throw new Error("The renderer canvas has no visible bounds.");
     await page.mouse.click(canvasBox.x + point.x, canvasBox.y + point.y);
+    await page.getByRole("tab", { name: "Data" }).click();
     await expect(page.locator("#point-attributes")).toBeVisible({
       timeout: 10_000,
     });
     await expect(page.locator("#point-attributes")).toContainText("Height");
 
     if (renderer === "Cesium") {
+      await page.getByRole("tab", { name: "Health" }).click();
       const obliqueCamera = await page.evaluate(() => {
         const hooks = (
           window as Window & {

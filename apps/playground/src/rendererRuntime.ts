@@ -28,6 +28,7 @@ import {
   applySchemaRuntimeOperations,
   buildSchemaApplicationPlan,
   normalizeWorkbenchOptionValues,
+  resolveSchemaBackendSelection,
 } from "../../shared/config/index.ts";
 import {
   NPM_0_6_CAPABILITIES,
@@ -77,6 +78,7 @@ export type PlaygroundRuntime = {
 };
 
 export type PlaygroundRuntimeOptions = WorkbenchLayerConfig & {
+  readonly schemaOptionValues?: Readonly<Record<string, unknown>>;
   readonly renderer: PlaygroundRenderer;
   readonly source: PlaygroundSource;
   readonly sourceName: string;
@@ -284,6 +286,7 @@ export async function createPlaygroundRuntime(
 ): Promise<PlaygroundRuntime | undefined> {
   const configurationValues = normalizeWorkbenchOptionValues({
     ...options,
+    ...(options.schemaOptionValues ?? {}),
     "renderer.engine": options.renderer,
     "source.url": options.source,
   });
@@ -319,8 +322,16 @@ export async function createPlaygroundRuntime(
       destination: Cesium.Cartesian3.fromDegrees(-12, 24, 19_000_000),
     });
 
+    const backend = resolveSchemaBackendSelection(
+      applicationPlan,
+      ({ extraDimensions }) =>
+        new adapter.CopcJsBackend({
+          extraDimensions: extraDimensions as import("@frillab/copc-adapter/cesium").CopcJsBackendOptions["extraDimensions"],
+        }),
+    );
     const layerOptions = {
       ...applicationPlan.constructorOptions,
+      backend,
       onPointPicked: options.onPointPicked,
     } as unknown as CopcCesiumLayerOptions;
     const layer = layerFactory
@@ -490,8 +501,16 @@ export async function createPlaygroundRuntime(
   };
   controls.addEventListener("start", onCameraStart);
 
+  const backend = resolveSchemaBackendSelection(
+    applicationPlan,
+    ({ extraDimensions }) =>
+      new adapter.CopcJsBackend({
+        extraDimensions: extraDimensions as import("@frillab/copc-adapter/three").CopcJsBackendOptions["extraDimensions"],
+      }),
+  );
   const layerOptions = {
     ...applicationPlan.constructorOptions,
+    backend,
     onPointPicked: options.onPointPicked,
   } as unknown as CopcThreeLayerOptions;
   const layer = new adapter.CopcThreeLayer(layerOptions);

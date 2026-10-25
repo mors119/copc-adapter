@@ -12,8 +12,7 @@ test("shows the exact published npm adapter version and origin", async ({
 }) => {
   await page.goto("./");
 
-  await expect(page.locator(".package-card")).toContainText(
-    `v${playgroundPackage.devDependencies["@frillab/copc-adapter"]}`,
+  await expect(page.locator("#package-source")).toHaveText(
+    `npm release ${playgroundPackage.devDependencies["@frillab/copc-adapter"]} / Playground`,
   );
-  await expect(page.locator("#package-source")).toHaveText("npm release");
 });

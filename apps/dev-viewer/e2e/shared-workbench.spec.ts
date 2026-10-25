@@ -1,0 +1,173 @@
+import { expect, test } from "@playwright/test";
+
+type DevViewerFocusTestApi = {
+  getSnapshot():
+    | {
+        lifecycle: string;
+        performance: { refinementFocusEnabled?: boolean };
+      }
+    | undefined;
+};
+
+declare global {
+  interface Window {
+    __COPC_DEV_VIEWER__?: DevViewerFocusTestApi;
+  }
+}
+
+test("uses the same schema controls and default Workbench tabs as Playground", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  await expect(page.locator(".workbench-provenance")).toHaveText(
+    /^local \d+\.\d+\.\d+ \/ Dev Viewer$/,
+  );
+  const tabs = page.getByRole("tablist", { name: "Workbench details" });
+  await expect(tabs.getByRole("tab")).toHaveText([
+    "Code",
+    "Source",
+    "Health",
+    "Data",
+  ]);
+  await expect(tabs.getByRole("tab", { name: "Code" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await expect(page.locator("#workbench-panel-code")).toBeVisible();
+  const desktopLayout = await page.evaluate(() => ({
+    viewportWidth: document.querySelector("#viewport-panel")!.getBoundingClientRect().width,
+    windowWidth: window.innerWidth,
+  }));
+  expect(desktopLayout.viewportWidth).toBeGreaterThanOrEqual(
+    desktopLayout.windowWidth * 0.5,
+  );
+
+  await expect(page.getByRole("radiogroup", { name: "Renderer", exact: true })).toBeVisible();
+  await expect(page.getByRole("radiogroup", { name: "COPC backend" })).toBeVisible();
+  await expect(page.getByRole("radiogroup", { name: "Color mode" })).toBeVisible();
+  await expect(page.getByRole("slider", { name: "Point size" })).toBeVisible();
+  await expect(
+    page.locator('.schema-control-section[data-section="streaming"] summary'),
+  ).toHaveText("Streaming");
+  await expect(
+    page.locator(".dev-control-section").filter({
+      has: page.getByText("Camera presets", { exact: true }),
+    }),
+  ).not.toHaveAttribute("open", "");
+  await expect(
+    page.locator(".dev-control-section").filter({
+      has: page.getByText("Terrain and height alignment", { exact: true }),
+    }),
+  ).not.toHaveAttribute("open", "");
+
+  const toggle = page.locator("#controls-toggle");
+  await expect(toggle).toHaveAccessibleName("Collapse configuration panel");
+  await toggle.click();
+  await expect(page.locator("#controls-panel")).toBeHidden();
+  await expect(toggle).toHaveAccessibleName("Expand configuration panel");
+  await toggle.click();
+  await expect(page.locator("#controls-panel")).toBeVisible();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  const leftToggle = page.locator("#controls-toggle");
+  const rightToggle = page.locator("#inspector-toggle");
+  await leftToggle.click();
+  await rightToggle.click();
+  const mobileCollapsed = await page.evaluate(() => ({
+    leftHeight: document.querySelector(".workbench-panel-shell--left")!.getBoundingClientRect().height,
+    rightHeight: document.querySelector(".workbench-panel-shell--right")!.getBoundingClientRect().height,
+  }));
+  expect(mobileCollapsed.leftHeight).toBeLessThanOrEqual(48);
+  expect(mobileCollapsed.rightHeight).toBeLessThanOrEqual(48);
+
+  await page.setViewportSize({ width: 768, height: 844 });
+  const tabletCollapsedHeight = await page.locator(".workbench-panel-shell--right").evaluate(
+    (element) => element.getBoundingClientRect().height,
+  );
+  expect(tabletCollapsedHeight).toBeLessThanOrEqual(48);
+  await rightToggle.click();
+  await expect.poll(() => page.locator(".workbench-panel-shell--right").evaluate(
+    (element) => element.getBoundingClientRect().height,
+  )).toBeGreaterThan(200);
+  await rightToggle.click();
+  await expect.poll(() => page.locator(".workbench-panel-shell--right").evaluate(
+    (element) => element.getBoundingClientRect().height,
+  )).toBeLessThanOrEqual(48);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  const narrowLayout = await page.evaluate(() => ({
+    documentWidth: document.documentElement.scrollWidth,
+    viewportWidth: document.querySelector("#cesium-container")!.getBoundingClientRect().width,
+  }));
+  expect(narrowLayout.documentWidth).toBeLessThanOrEqual(390);
+  expect(narrowLayout.viewportWidth).toBeGreaterThan(0);
+});
+
+test("applies Focus Lens to the active Cesium session through its runtime operation", async ({
+  page,
+}) => {
+  await page.goto("/?debugPanel=0");
+  await expect
+    .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.lifecycle))
+    .toBe("ready");
+
+  await page.locator('.schema-control-section[data-section="focus"] summary').click();
+  await page.locator("#schema-focus-enabled").check();
+  const applyButton = page.locator("#apply-settings");
+  await expect(applyButton).toBeEnabled();
+  await applyButton.click();
+
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        window.__COPC_DEV_VIEWER__?.getSnapshot()?.performance.refinementFocusEnabled,
+      ),
+    )
+    .toBe(true);
+});
+
+test("a rejected schema edit blocks Dev Viewer Apply until corrected", async ({ page }) => {
+  await page.goto("/?debugPanel=0");
+  await expect
+    .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.lifecycle))
+    .toBe("ready");
+
+  const pointSize = page.locator("#point-size-value");
+  await pointSize.fill("4");
+  await pointSize.dispatchEvent("change");
+  const applyButton = page.locator("#apply-settings");
+  await expect(applyButton).toBeEnabled();
+
+  await page.locator('.schema-control-section[data-section="streaming"] summary').click();
+  const maxNodes = page.locator("#max-nodes-value");
+  await maxNodes.fill("0");
+  await maxNodes.dispatchEvent("change");
+  await expect(maxNodes).toHaveAttribute("aria-invalid", "true");
+  await expect(applyButton).toBeDisabled();
+
+  await maxNodes.fill("32");
+  await maxNodes.dispatchEvent("change");
+  await expect(maxNodes).not.toHaveAttribute("aria-invalid", "true");
+  await expect(applyButton).toBeEnabled();
+});
+
+test("refreshes Dev Viewer validation after a corrected cross-field value", async ({ page }) => {
+  await page.goto("/?debugPanel=0");
+  await expect
+    .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.lifecycle))
+    .toBe("ready");
+
+  await page.locator("#point-size-mode").selectOption("attenuated");
+  const minimumPointSize = page.locator("#min-point-size");
+  const applyButton = page.locator("#apply-settings");
+  await minimumPointSize.fill("13");
+  await minimumPointSize.dispatchEvent("change");
+  await expect(minimumPointSize).toHaveAttribute("aria-invalid", "true");
+  await expect(applyButton).toBeDisabled();
+
+  await minimumPointSize.fill("1");
+  await minimumPointSize.dispatchEvent("change");
+  await expect(minimumPointSize).not.toHaveAttribute("aria-invalid", "true");
+  await expect(applyButton).toBeEnabled();
+});

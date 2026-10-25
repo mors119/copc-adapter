@@ -1165,3 +1165,117 @@ button {
     grid-column: 1 / -1;
   }
 }
+
+/* Shared Workbench frame: side panels scroll in their own columns. */
+.playground-shell.workbench-root {
+  min-height: 0;
+  height: 100vh;
+  height: 100dvh;
+}
+
+.playground-shell .workbench-three-column {
+  height: 100%;
+}
+
+.playground-shell .workbench-left-panel {
+  background: var(--panel);
+}
+
+.playground-shell .source-panel,
+.playground-shell .config-panel {
+  border: 0;
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  min-height: auto;
+  overflow: visible;
+  padding: 12px 14px;
+}
+
+.playground-shell .source-panel {
+  border-bottom: 1px solid var(--ui-border);
+}
+
+.playground-shell .source-panel .panel-heading,
+.playground-shell .source-panel .panel-intro {
+  display: none;
+}
+
+.playground-shell .config-panel {
+  border-left: 0;
+  gap: 0.2rem;
+}
+
+.playground-shell .viewer-column {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+}
+
+.playground-shell .viewer-toolbar {
+  flex: 0 0 auto;
+}
+
+.playground-shell .viewer-frame {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+}
+
+.playground-shell #cesium-container {
+  height: 100%;
+  min-height: 0;
+}
+
+.playground-shell .viewer-footer {
+  flex: 0 0 auto;
+}
+
+.playground-shell .workbench-right-panel {
+  background: var(--panel);
+}
+
+.playground-shell .workbench-tabs__panel {
+  overflow-wrap: anywhere;
+}
+
+.playground-shell .generated-code-card {
+  margin: 0;
+  max-width: 100%;
+}
+
+.playground-shell .diagnostics-dashboard,
+.playground-shell .point-card {
+  margin: 0;
+  min-width: 0;
+}
+
+.playground-shell .schema-control-section {
+  border-color: var(--ui-border);
+}
+
+.playground-shell .schema-option__slider-label {
+  color: var(--ui-muted);
+}
+
+@media (max-width: 720px) {
+  .playground-shell .workbench-three-column {
+    height: auto;
+    min-height: 0;
+  }
+
+  .playground-shell .viewer-column {
+    min-height: 46vh;
+  }
+
+  .playground-shell .viewer-frame {
+    min-height: 0;
+  }
+
+  .playground-shell .source-panel,
+  .playground-shell .config-panel {
+    padding: 12px;
+  }
+}

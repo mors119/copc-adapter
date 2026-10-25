@@ -7,9 +7,11 @@ export {
   getChangedWorkbenchOptionIds,
   isWorkbenchConfigurationDirty,
   normalizeWorkbenchOptionValues,
+  resolveSchemaBackendSelection,
   replaceWorkbenchConfiguration,
   restoreWorkbenchConfiguration,
   serializeWorkbenchConfiguration,
+  transitionRendererOptionValues,
   updateWorkbenchConfiguration,
   validateWorkbenchConfiguration,
 } from "./workbenchConfiguration.ts";
@@ -23,4 +25,6 @@ export type {
   WorkbenchConfigurationState,
   WorkbenchConfigurationUpdate,
   WorkbenchOptionValues,
+  InactiveRendererOptionValues,
+  RendererOptionTransitionOptions,
 } from "./workbenchConfiguration.ts";

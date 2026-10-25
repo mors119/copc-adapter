@@ -22,6 +22,8 @@ export type PlaygroundConfig = Omit<
   | "maxScreenSpaceError"
   | "maxRenderDistanceMeters"
 > & {
+  /** Schema-defined options without a legacy flat setting in this host. */
+  readonly schemaOptionValues?: Readonly<Record<string, unknown>>;
   readonly renderer: WorkbenchRenderer;
   readonly maxPointCacheBytes: number;
   readonly maxDepth: number;
@@ -97,7 +99,10 @@ export function normalizeClassificationFilter(
 /** Validate values against the supported package contract before construction. */
 export function validatePlaygroundConfig(config: PlaygroundConfig): string[] {
   const values = normalizeWorkbenchOptionValues(
-    config as unknown as Readonly<Record<string, unknown>>,
+    {
+      ...(config as unknown as Readonly<Record<string, unknown>>),
+      ...(config.schemaOptionValues ?? {}),
+    },
   );
   const validation = validateWorkbenchConfiguration(values, {
     manifest: NPM_0_6_MANIFEST,
@@ -120,10 +125,16 @@ export function hasConstructorChanges(
 ): boolean {
   try {
     const pendingValues = normalizeWorkbenchOptionValues(
-      pending as unknown as Readonly<Record<string, unknown>>,
+      {
+        ...(pending as unknown as Readonly<Record<string, unknown>>),
+        ...(pending.schemaOptionValues ?? {}),
+      },
     );
     const activeValues = normalizeWorkbenchOptionValues(
-      active as unknown as Readonly<Record<string, unknown>>,
+      {
+        ...(active as unknown as Readonly<Record<string, unknown>>),
+        ...(active.schemaOptionValues ?? {}),
+      },
     );
     return buildSchemaApplicationPlan(
       pendingValues,
@@ -149,6 +160,9 @@ export function clonePlaygroundConfig<T extends PlaygroundConfig>(
   );
   return {
     ...config,
+    ...(config.schemaOptionValues === undefined
+      ? {}
+      : { schemaOptionValues: { ...config.schemaOptionValues } }),
     ...(classificationFilter === undefined ? {} : { classificationFilter }),
   } as T;
 }

@@ -527,13 +527,13 @@ export function createCopcDebugPanel(
   getState: () => CopcDebugPanelState,
 ): CopcDebugPanel {
   target.innerHTML = `
-    <section class="copc-debug-panel__source-summary" aria-label="Current status and active source">
+    <section class="copc-debug-panel__source-summary" aria-label="Current status and active source" data-workbench-group="source">
       <h3 data-field="datasetName"></h3>
       <code class="copc-debug-panel__url" data-field="datasetUrl"></code>
       <p class="dev-status" id="source-status" role="status" aria-live="polite" data-status="loading">Loading configured source…</p>
     </section>
-    <div data-point-inspector></div>
-    <details class="copc-debug-panel__section" open>
+    <div data-point-inspector data-workbench-group="data"></div>
+    <details class="copc-debug-panel__section" open data-workbench-group="health">
       <summary>Streaming metrics</summary>
       <dl>
         <div><dt>Metadata points</dt><dd data-field="pointCount"></dd></div>
@@ -585,7 +585,7 @@ export function createCopcDebugPanel(
         <p>Live values update with the inspector. Selection prediction, candidates, weights, selected count, and accepted refinement effects describe the last selection update; rendered count reflects current renderer state.</p>
       </details>
     </details>
-    <details class="copc-debug-panel__section">
+    <details class="copc-debug-panel__section" data-workbench-group="source">
       <summary>Source diagnostics</summary>
       <dl>
         <div><dt>Configured HTTP Range policy</dt><dd data-field="configuredRangeValidation"></dd></div>
@@ -601,7 +601,7 @@ export function createCopcDebugPanel(
       </dl>
       <p class="copc-debug-panel__source-warning" data-field="sourceWarnings"></p>
     </details>
-    <details class="copc-debug-panel__section">
+    <details class="copc-debug-panel__section" data-workbench-group="data">
       <summary>Hierarchy diagnostics</summary>
       <dl>
         <div><dt>Requests / cache hits</dt><dd><span data-field="hierarchyRequests"></span> / <span data-field="hierarchyCacheHits"></span></dd></div>
@@ -625,7 +625,7 @@ export function createCopcDebugPanel(
         <div><dt>Visible levels</dt><dd data-field="visibleLevelRange"></dd></div>
       </dl>
     </details>
-    <details class="copc-debug-panel__section">
+    <details class="copc-debug-panel__section" data-workbench-group="health">
       <summary>Cache and Worker diagnostics</summary>
       <details>
         <summary>Decoded CPU point cache</summary>
@@ -648,7 +648,7 @@ export function createCopcDebugPanel(
         </dl>
       </details>
     </details>
-    <details class="copc-debug-panel__section">
+    <details class="copc-debug-panel__section" data-workbench-group="data">
       <summary>Performance and benchmark diagnostics</summary>
       <dl>
         <div><dt>Deferred nodes / points</dt><dd><span data-field="deferredNodeCount"></span> / <span data-field="deferredPointCount"></span></dd></div>
@@ -668,7 +668,7 @@ export function createCopcDebugPanel(
         <div><dt>Gaze refinements</dt><dd data-field="gazeInfluencedRefinements"></dd></div>
       </dl>
     </details>
-    <details class="copc-debug-panel__section">
+    <details class="copc-debug-panel__section" data-workbench-group="data">
       <summary>Advanced internal debug information</summary>
       <details>
         <summary>Metadata</summary>

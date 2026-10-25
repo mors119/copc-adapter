@@ -6,6 +6,8 @@ import {
   CopcCesiumLayer,
   probeCopcSource,
   type CopcBackendName,
+  CopcJsBackend,
+  type CopcJsBackendOptions,
   type CopcCesiumPointStyle,
   type CopcCesiumPointStyleUpdate,
   type CopcHierarchyDiagnostics,
@@ -21,6 +23,7 @@ import type { CopcThreeLayerSnapshot } from "@frillab/copc-adapter/three";
 import type {
   CopcBackendSelection,
   CopcPointDecoder,
+  RefinementFocus,
 } from "@frillab/copc-adapter/cesium";
 import {
   BatchedGeometryPointRenderer,
@@ -44,11 +47,16 @@ import {
   type DevThreeCameraState,
   type DevThreeViewer,
 } from "./threeViewer";
-import { mountWorkbenchPanels } from "./workbenchPanels";
 import { mountDevViewerControls } from "./devViewerControls";
+import {
+  mountWorkbenchLayout,
+  mountWorkbenchRightTabs,
+  type WorkbenchTab,
+} from "../../shared/workbench/WorkbenchLayout.ts";
 import {
   applySchemaRuntimeOperations,
   buildSchemaApplicationPlan,
+  resolveSchemaBackendSelection,
 } from "../../shared/config/index.ts";
 import {
   WORKSPACE_CURRENT_CAPABILITIES,
@@ -92,6 +100,10 @@ type ViewerCameraState =
       rollDegrees: number;
     }
   | { engine: "three"; state: DevThreeCameraState };
+
+function tabUsesDiagnostics(tab: WorkbenchTab): boolean {
+  return tab === "health" || tab === "data";
+}
 
 function getCopcUrl(): string {
   return (
@@ -236,6 +248,7 @@ type ViewerSession = {
   getPickablePointScreenPosition(): { x: number; y: number } | undefined;
   getStyle(): CopcCesiumPointStyle;
   setStyle?(update: CopcCesiumPointStyleUpdate): void;
+  setRefinementFocus?(focus: RefinementFocus | undefined): void;
   destroy(): void;
 };
 
@@ -566,7 +579,7 @@ function installDebugAdapter(
       const canvasBounds = viewer.scene.canvas.getBoundingClientRect();
       const blockingBounds = [
         ...document.querySelectorAll<HTMLElement>(
-          ".dev-panel:not([hidden]), .dev-panel-toggle",
+          ".dev-panel:not([hidden]), .dev-panel-toggle, .workbench-global-header, .workbench-statusbar",
         ),
       ].map((element) => element.getBoundingClientRect());
       const isObscured = (position: { x: number; y: number }): boolean => {
@@ -587,7 +600,7 @@ function installDebugAdapter(
           if (
             !candidate.picked ||
             !candidate.screenPosition ||
-            candidate.screenPosition.x < 380 ||
+            candidate.screenPosition.x < 4 ||
             candidate.screenPosition.x > viewer.scene.canvas.clientWidth - 4 ||
             candidate.screenPosition.y < 4 ||
             candidate.screenPosition.y > viewer.scene.canvas.clientHeight - 4 ||
@@ -628,7 +641,7 @@ function installDebugAdapter(
           );
           if (
             position &&
-            position.x >= 380 &&
+            position.x >= 4 &&
             position.x <= viewer.scene.canvas.clientWidth - 4 &&
             position.y >= 4 &&
             position.y <= viewer.scene.canvas.clientHeight - 4 &&
@@ -812,6 +825,18 @@ function safeErrorMessage(error: unknown): string {
     .replace(/([?&][^=\s]+)=([^&\s]+)/g, "$1=[redacted]");
 }
 
+function createWorkbenchBackend(
+  applicationPlan: ReturnType<typeof buildSchemaApplicationPlan>,
+): CopcBackendSelection | undefined {
+  return resolveSchemaBackendSelection(
+    applicationPlan,
+    ({ extraDimensions }) =>
+      new CopcJsBackend({
+        extraDimensions: extraDimensions as CopcJsBackendOptions["extraDimensions"],
+      }),
+  ) as CopcBackendSelection | undefined;
+}
+
 async function createCesiumSession(
   container: HTMLElement,
   config: DevViewerConfig,
@@ -877,8 +902,10 @@ async function createCesiumSession(
   const researchRenderer = usePublicBatchedRenderer
     ? new BatchedGeometryPointRenderer()
     : undefined;
+  const backend = createWorkbenchBackend(applicationPlan);
   const layer = new CopcCesiumLayer({
     ...getLayerOptions(config.source, config, applicationPlan),
+    ...(backend === undefined ? {} : { backend }),
     renderer: researchRenderer ?? new PointPrimitiveRenderer(),
     onPointPicked,
     ...(ellipsoidalTerrainFixture
@@ -931,6 +958,7 @@ async function createCesiumSession(
     setCameraRenderDistance(distance) {
       moveCameraToHeight(viewer, distance);
     },
+    setRefinementFocus: (focus) => layer.setRefinementFocus(focus),
     getCameraState(): ViewerCameraState {
       const position = viewer.camera.positionCartographic;
       return {
@@ -988,8 +1016,11 @@ function createThreeSession(
       runtimeCapabilities: WORKSPACE_CURRENT_CAPABILITIES,
     },
   );
-  const layerOptions = applicationPlan.constructorOptions as unknown as
-    import("@frillab/copc-adapter/three").CopcThreeLayerOptions;
+  const backend = createWorkbenchBackend(applicationPlan);
+  const layerOptions = {
+    ...applicationPlan.constructorOptions,
+    ...(backend === undefined ? {} : { backend }),
+  } as unknown as import("@frillab/copc-adapter/three").CopcThreeLayerOptions;
   const viewer: DevThreeViewer = createDevThreeViewer({
     container,
     sourceName: getSafeSourceLabel(config.source, window.location.href),
@@ -1191,6 +1222,7 @@ async function main(): Promise<void> {
   };
   let activeConfig = { ...activeInitialConfig };
   let pendingConfig = { ...activeConfig };
+  let workbenchControls: ReturnType<typeof mountDevViewerControls> | undefined;
   let activeSession: ViewerSession | undefined;
   let activeMount: HTMLElement | undefined;
   let stagedSession: ViewerSession | undefined;
@@ -1276,6 +1308,14 @@ async function main(): Promise<void> {
 
   const container = getElement<HTMLElement>("#cesium-container");
   const controlsPanel = getElement<HTMLElement>("#controls-panel");
+  const inspectorPanel = getElement<HTMLElement>("#inspector-panel");
+  const controlsToggle = getElement<HTMLButtonElement>("#controls-toggle");
+  const inspectorToggle = getElement<HTMLButtonElement>("#inspector-toggle");
+  const devWorkbench = getElement<HTMLElement>(".dev-workbench");
+  const viewportPanel = getElement<HTMLElement>("#viewport-panel");
+  const workbenchStatus = document.createElement("footer");
+  workbenchStatus.id = "workbench-status";
+  workbenchStatus.textContent = "Loading configured source…";
   const loadButton = getElement<HTMLButtonElement>("#load-source");
   const applySettingsButton = getElement<HTMLButtonElement>("#apply-settings");
   const reloadCurrentSourceButton = getElement<HTMLButtonElement>(
@@ -1285,10 +1325,6 @@ async function main(): Promise<void> {
   const configurationErrorElement = getElement<HTMLElement>(
     "#configuration-error",
   );
-  const packageVersion = getElement<HTMLElement>("#package-version");
-  const cesiumRendererGroup = getElement<HTMLElement>(
-    "#cesium-point-renderer-group",
-  );
   const terrainUrlInput = getElement<HTMLInputElement>("#terrain-url");
   const terrainSourceStatus = getElement<HTMLElement>("#terrain-source-status");
   const groundConfirmation = getElement<HTMLInputElement>("#ground-confirmation");
@@ -1297,30 +1333,34 @@ async function main(): Promise<void> {
   const applyTerrainButton = getElement<HTMLButtonElement>("#apply-terrain-estimate");
   const terrainPreview = getElement<HTMLElement>("#terrain-estimate-preview");
   terrainUrlInput.value = activeConfig.terrainUrl;
+  let inspectorExpanded = isDebugPanelEnabled();
+  let setInspectorPolling: ((enabled: boolean) => void) | undefined;
+  let selectedRightTab: WorkbenchTab = "code";
   let terrainEstimate: TerrainHeightAlignmentEstimate | undefined;
   let terrainEstimateAbortController: AbortController | undefined;
   let terrainEstimateInFlight = false;
-  packageVersion.textContent =
-    "v" + __COPC_ADAPTER_VERSION__ + " · workspace package";
-  let inspectorExpanded = isDebugPanelEnabled();
-  let setInspectorPolling: ((enabled: boolean) => void) | undefined;
-
-  const panelLayout = mountWorkbenchPanels({
-    controls: {
-      panel: getElement<HTMLElement>("#controls-panel"),
-      toggle: getElement<HTMLButtonElement>("#controls-toggle"),
-      label: "Controls",
-      expandedInitially: true,
-    },
-    inspector: {
-      panel: getElement<HTMLElement>("#inspector-panel"),
-      toggle: getElement<HTMLButtonElement>("#inspector-toggle"),
-      label: "Inspector",
-      expandedInitially: inspectorExpanded,
-      onExpandedChange(expanded) {
-        inspectorExpanded = expanded;
-        setInspectorPolling?.(expanded);
-      },
+  container.remove();
+  viewportPanel.append(container);
+  const workbenchLayout = mountWorkbenchLayout({
+    root: devWorkbench,
+    provenance: `local ${__COPC_ADAPTER_VERSION__} / Dev Viewer`,
+    provenanceId: "package-version",
+    leftPanel: controlsPanel,
+    viewport: viewportPanel,
+    rightPanel: inspectorPanel,
+    status: workbenchStatus,
+    leftLabel: "Configuration",
+    rightLabel: "COPC runtime debug panel",
+    leftToggle: controlsToggle,
+    rightToggle: inspectorToggle,
+    rightToggleLabel: "Inspector",
+    keyboardShortcut: { panel: "right", key: "d", shift: true },
+    rightExpandedInitially: inspectorExpanded,
+    onRightExpandedChange(expanded) {
+      inspectorExpanded = expanded;
+      setInspectorPolling?.(
+        expanded && (selectedRightTab === "health" || selectedRightTab === "data"),
+      );
     },
   });
 
@@ -1332,6 +1372,33 @@ async function main(): Promise<void> {
     }
     return left === right;
   };
+  const inspectorTabsTarget = getElement<HTMLElement>("#inspector-content");
+  const codePanel = document.createElement("section");
+  codePanel.className = "dev-code-panel";
+  codePanel.innerHTML = "<h3>Integration code</h3><p>Shared integration code generation is being connected in the next Workbench phase.</p>";
+  const sourcePanel = document.createElement("section");
+  const healthPanel = document.createElement("section");
+  healthPanel.id = "inspector-health";
+  const dataPanel = document.createElement("section");
+  dataPanel.className = "dev-data-panel";
+  const dataHeading = document.createElement("h3");
+  dataHeading.textContent = "Dataset and streaming data";
+  dataPanel.append(dataHeading);
+  const rightTabs = mountWorkbenchRightTabs({
+    target: inspectorTabsTarget,
+    tabs: [
+      { tab: "code", label: "Code", panel: codePanel },
+      { tab: "source", label: "Source", panel: sourcePanel },
+      { tab: "health", label: "Health", panel: healthPanel },
+      { tab: "data", label: "Data", panel: dataPanel },
+    ],
+    onChange(tab) {
+      selectedRightTab = tab;
+      setInspectorPolling?.(
+        inspectorExpanded && (tab === "health" || tab === "data"),
+      );
+    },
+  });
   const publicConfig = (config: DevViewerConfig) => {
     const { terrainUrl, ...safeConfig } = config;
     return {
@@ -1349,6 +1416,8 @@ async function main(): Promise<void> {
   ): void => {
     status.textContent = message;
     status.dataset.status = tone;
+    workbenchStatus.textContent = message;
+    workbenchStatus.dataset.status = tone;
   };
   const updateTerrainAlignmentUi = (): void => {
     const selectedPoint = activeSession?.renderer === "cesium"
@@ -1411,6 +1480,7 @@ async function main(): Promise<void> {
   };
   const updateConfigurationState = (): void => {
     const dirty = hasUnappliedSettings(activeConfig, pendingConfig);
+    const schemaValidationErrors = workbenchControls?.getValidationErrors() ?? [];
     const selectedSourceDiffers = !sameSource(
       activeConfig.source,
       pendingConfig.source,
@@ -1424,8 +1494,12 @@ async function main(): Promise<void> {
     configurationErrorElement.textContent = configurationError ?? "";
     configurationErrorElement.hidden = !configurationError;
     applySettingsButton.disabled =
-      isLoading || startupIssues.size > 0 || (!dirty && !configurationError);
-    loadButton.disabled = isLoading || startupIssues.size > 0;
+      isLoading ||
+      startupIssues.size > 0 ||
+      schemaValidationErrors.length > 0 ||
+      (!dirty && !configurationError);
+    loadButton.disabled =
+      isLoading || startupIssues.size > 0 || schemaValidationErrors.length > 0;
     reloadCurrentSourceButton.disabled = isLoading || !activeSession;
     controlsPanel
       .querySelectorAll<HTMLInputElement | HTMLSelectElement>("input, select")
@@ -1437,8 +1511,6 @@ async function main(): Promise<void> {
       .forEach((control) => {
         control.disabled = isLoading;
       });
-    cesiumRendererGroup.hidden =
-      activeConfig.renderer !== "cesium" && pendingConfig.renderer !== "cesium";
     updateTerrainAlignmentUi();
   };
   const showConfigurationError = (message: string): void => {
@@ -1486,7 +1558,7 @@ async function main(): Promise<void> {
   };
 
   const debugPanel = createCopcDebugPanel(
-    getElement<HTMLElement>("#inspector-content"),
+    healthPanel,
     () => ({
       snapshot: activeSnapshot(),
       metadata: activeSession?.getMetadata(),
@@ -1507,8 +1579,16 @@ async function main(): Promise<void> {
           : undefined),
     }),
   );
+  for (const group of healthPanel.querySelectorAll<HTMLElement>(
+    '[data-workbench-group="source"]',
+  )) sourcePanel.append(group);
+  for (const group of healthPanel.querySelectorAll<HTMLElement>(
+    '[data-workbench-group="data"]',
+  )) dataPanel.append(group);
   setInspectorPolling = (enabled) => debugPanel.setPollingEnabled(enabled);
-  debugPanel.setPollingEnabled(inspectorExpanded);
+  debugPanel.setPollingEnabled(
+    inspectorExpanded && tabUsesDiagnostics(selectedRightTab),
+  );
   const status = getElement<HTMLElement>("#source-status");
 
   const setActiveError = (error: unknown): void => {
@@ -1568,6 +1648,13 @@ async function main(): Promise<void> {
       updateStatus(validationError, "error");
       return;
     }
+    const schemaValidationErrors = workbenchControls?.getValidationErrors() ?? [];
+    if (schemaValidationErrors.length > 0) {
+      const message = schemaValidationErrors.join(" ");
+      showConfigurationError(message);
+      updateStatus(message, "error");
+      return;
+    }
     if (typeof config.source === "string") {
       const trimmedSource = config.source.trim();
       if (!trimmedSource) {
@@ -1606,12 +1693,22 @@ async function main(): Promise<void> {
 
     if (!recreate) {
       try {
-        if (
-          activeSession?.renderer === "cesium" &&
-          activeConfig.colorMode !== config.colorMode
-        ) {
-          activeSession.setStyle?.({ colorMode: config.colorMode });
-        }
+        const session = activeSession;
+        if (!session) throw new Error("The active viewer session is unavailable.");
+        const runtimePlan = buildSchemaApplicationPlan(
+          {
+            ...toWorkbenchOptionValues(config),
+            "source.url": config.source,
+            "renderer.engine": config.renderer,
+          },
+          {
+            manifest: WORKSPACE_CURRENT_MANIFEST,
+            renderer: config.renderer,
+            runtimeCapabilities: WORKSPACE_CURRENT_CAPABILITIES,
+          },
+          toWorkbenchOptionValues(activeConfig),
+        );
+        await applySchemaRuntimeOperations(session, runtimePlan.runtimeOperations);
         activeConfig = { ...config };
         if (purpose === "load") {
           pendingConfig = { ...config };
@@ -1866,8 +1963,9 @@ async function main(): Promise<void> {
     );
   });
 
-  const workbenchControls = mountDevViewerControls({
+  workbenchControls = mountDevViewerControls({
     initialConfig: pendingConfig,
+    onValidationChange: updateConfigurationState,
     sourcePresets: new Map<string, string>([
       ["local-autzen", DEFAULT_COPC_URL],
       ["autzen-remote", AUTZEN_REMOTE_URL],
@@ -1970,7 +2068,7 @@ async function main(): Promise<void> {
   });
 
   loadButton.addEventListener("click", () => {
-    const source = workbenchControls.getSelectedSource();
+    const source = workbenchControls?.getSelectedSource();
     if (source === undefined) {
       setActiveError(new Error("Choose a local COPC file before loading."));
       return;
@@ -2016,8 +2114,9 @@ async function main(): Promise<void> {
       generation += 1;
       probeAbortController?.abort();
       debugPanel.destroy();
-      panelLayout.destroy();
-      workbenchControls.destroy();
+      rightTabs.destroy();
+      workbenchLayout.destroy();
+      workbenchControls?.destroy();
       activeDebugAdapter?.destroy();
       stagedSession?.destroy();
       activeSession?.destroy();

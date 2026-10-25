@@ -597,7 +597,10 @@ test("records bounded SoFi multi-GB Cesium browser streaming", async ({
     {
       longitudeDegrees: SOFI_CENTER.longitudeDegrees,
       latitudeDegrees: SOFI_CENTER.latitudeDegrees + 0.001,
-      heightMeters: 1_500,
+      // Request finer, likely uncached detail before holding a Range response;
+      // the wider shared Workbench viewport can otherwise keep the same nodes
+      // selected across this small camera movement.
+      heightMeters: 300,
       headingDegrees: 0,
       pitchDegrees: -80,
     },

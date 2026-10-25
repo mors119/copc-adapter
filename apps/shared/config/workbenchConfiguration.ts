@@ -25,6 +25,16 @@ import type {
 
 export type WorkbenchOptionValues = Readonly<Record<string, unknown>>;
 
+export type InactiveRendererOptionValues = Map<
+  string,
+  { readonly value: unknown; readonly schemaOnly: boolean }
+>;
+
+export type RendererOptionTransitionOptions = {
+  readonly schema?: readonly SchemaOption[];
+  readonly support?: Pick<CapabilityContext, "manifest" | "runtimeCapabilities">;
+};
+
 /**
  * The sole pending/applied configuration snapshot shared by Workbench hosts.
  * Values are keyed by stable schema option ID, not by UI control or API path.
@@ -215,6 +225,91 @@ export function normalizeWorkbenchOptionValues(
     }
   }
   return normalized;
+}
+
+/**
+ * Remove renderer-exclusive values while they are inactive, retaining their
+ * pending values so a later switch back restores them. `schemaOnlyValues` is
+ * updated alongside normalized values so inactive options cannot reach a host
+ * constructor or generated configuration for the other renderer.
+ */
+export function transitionRendererOptionValues(
+  values: Record<string, unknown>,
+  schemaOnlyValues: Record<string, unknown>,
+  currentRenderer: SchemaRenderer,
+  nextRenderer: SchemaRenderer,
+  inactiveValues: InactiveRendererOptionValues,
+  options: RendererOptionTransitionOptions = {},
+): void {
+  if (currentRenderer === nextRenderer) return;
+
+  const schema: readonly SchemaOption[] = options.schema ?? OPTION_SCHEMA;
+  const supportedFor = (renderer: SchemaRenderer): Set<string> => {
+    if (!options.support) {
+      return new Set(
+        schema
+          .filter((option) => option.renderers.includes(renderer))
+          .map(({ id }) => id),
+      );
+    }
+    return new Set(
+      getSupportedOptions(
+        { ...options.support, renderer },
+        schema,
+      ).map(({ id }) => id),
+    );
+  };
+  const supportedAfter = supportedFor(nextRenderer);
+
+  // Package exclusions and live capabilities can make an option unavailable
+  // even when its schema lists both renderers. Remove every unavailable value
+  // before the host validates or applies the next configuration.
+  for (const option of schema) {
+    if (supportedAfter.has(option.id) || !Object.hasOwn(values, option.id)) {
+      continue;
+    }
+
+    const schemaOnly = Object.hasOwn(schemaOnlyValues, option.id);
+    inactiveValues.set(option.id, { value: values[option.id], schemaOnly });
+    delete values[option.id];
+    if (schemaOnly) delete schemaOnlyValues[option.id];
+  }
+
+  for (const [optionId, inactive] of inactiveValues) {
+    if (!supportedAfter.has(optionId)) continue;
+    if (Object.hasOwn(values, optionId)) {
+      inactiveValues.delete(optionId);
+      continue;
+    }
+    values[optionId] = inactive.value;
+    if (inactive.schemaOnly) {
+      schemaOnlyValues[optionId] = inactive.value;
+    }
+    inactiveValues.delete(optionId);
+  }
+}
+
+/**
+ * Resolve the backend constructor setting for specialized schema options.
+ * Package backends are supplied by each host so the shared configuration
+ * layer stays independent from npm/workspace runtime imports.
+ */
+export function resolveSchemaBackendSelection(
+  plan: Pick<SchemaApplicationPlan, "constructorOptions" | "specializedOptions">,
+  createCopcJsBackend: (options: { readonly extraDimensions: unknown }) => unknown,
+): unknown {
+  const extraDimensions = plan.specializedOptions.find(
+    ({ handler }) => handler === "copc-js-extra-dimensions",
+  );
+  if (!extraDimensions) return plan.constructorOptions.backend;
+  if (
+    extraDimensions.apiPath !== "backend.extraDimensions" ||
+    (plan.constructorOptions.backend !== undefined &&
+      plan.constructorOptions.backend !== "copc-js")
+  ) {
+    throw new TypeError("Extra Dimensions requires the supported copc-js backend option.");
+  }
+  return createCopcJsBackend({ extraDimensions: extraDimensions.value });
 }
 
 /** Validate a complete or partial normalized option map for its selected renderer. */

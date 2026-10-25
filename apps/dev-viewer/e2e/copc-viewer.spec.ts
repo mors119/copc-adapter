@@ -137,20 +137,24 @@ test("streams a COPC sample through the opt-in Rust backend in a real Cesium sce
   const debugPanel = page.getByRole("complementary", {
     name: "COPC runtime debug panel",
   });
+  await page.getByRole("tab", { name: "Source" }).click();
   await expect(debugPanel).toBeVisible();
   await expect(
     debugPanel.getByText("autzen.copc.laz", { exact: true }),
   ).toBeVisible();
+  await expect(page.locator("#source-status")).toContainText("Ready");
+  await page.getByRole("tab", { name: "Health" }).click();
   await expect(
     debugPanel.getByText("10,653,336", { exact: true }),
   ).toBeVisible();
-  await expect(page.locator("#source-status")).toContainText("Ready");
+  await page.getByRole("tab", { name: "Data" }).click();
   await debugPanel
     .getByText("Advanced internal debug information", { exact: true })
     .click();
   await debugPanel.getByText("Metadata", { exact: true }).click();
   await expect(debugPanel.locator('[data-field="bounds"]')).toBeVisible();
 
+  await page.getByRole("tab", { name: "Data" }).click();
   const pointInspector = page.getByRole("region", {
     name: "COPC point inspector",
   });
@@ -171,7 +175,15 @@ test("streams a COPC sample through the opt-in Rust backend in a real Cesium sce
   if (!pointPosition) {
     throw new Error("No visible rendered COPC point was available for picking");
   }
-  await page.mouse.click(pointPosition.x, pointPosition.y);
+  const canvasBounds = await page
+    .locator("#cesium-container canvas")
+    .first()
+    .boundingBox();
+  expect(canvasBounds).not.toBeNull();
+  await page.mouse.click(
+    canvasBounds!.x + pointPosition.x,
+    canvasBounds!.y + pointPosition.y,
+  );
   await expect
     .poll(async () => (await getDebugState(page)).selectedPoint)
     .toMatchObject({
@@ -244,6 +256,7 @@ test("restyles and filters cached points without rereading the source", async ({
   page,
 }) => {
   await page.goto("/?backend=rust");
+  await page.getByRole("tab", { name: "Data" }).click();
 
   await expect
     .poll(() => getDebugState(page))
@@ -277,7 +290,15 @@ test("restyles and filters cached points without rereading the source", async ({
       "No visible point was available to read a classification value",
     );
   }
-  await page.mouse.click(pickPosition.x, pickPosition.y);
+  const canvasBounds = await page
+    .locator("#cesium-container canvas")
+    .first()
+    .boundingBox();
+  expect(canvasBounds).not.toBeNull();
+  await page.mouse.click(
+    canvasBounds!.x + pickPosition.x,
+    canvasBounds!.y + pickPosition.y,
+  );
   await expect
     .poll(async () => (await getDebugState(page)).selectedPoint)
     .toMatchObject({ classification: expect.any(Number) });
@@ -651,7 +672,15 @@ test("manual height offset keeps picked points aligned with the globe shown or h
   );
   if (!screenPosition)
     throw new Error("No rendered COPC point was available for picking");
-  await page.mouse.click(screenPosition.x, screenPosition.y);
+  const canvasBounds = await page
+    .locator("#cesium-container canvas")
+    .first()
+    .boundingBox();
+  expect(canvasBounds).not.toBeNull();
+  await page.mouse.click(
+    canvasBounds!.x + screenPosition.x,
+    canvasBounds!.y + screenPosition.y,
+  );
   await expect
     .poll(async () => (await getDebugState(page)).selectedPoint)
     .toMatchObject({

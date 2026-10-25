@@ -146,6 +146,12 @@ test("validates the eight core behaviors in the default Cesium viewer", async ({
       ? "?renderer=public-batched"
       : "";
   await page.goto(`/${renderer}`);
+  await page.getByRole("tab", { name: "Data" }).click();
+  await page
+    .locator(".dev-control-section")
+    .filter({ has: page.getByText("Camera presets", { exact: true }) })
+    .locator("summary")
+    .click();
 
   const debugPanel = page.getByRole("complementary", {
     name: "COPC runtime debug panel",
@@ -161,7 +167,7 @@ test("validates the eight core behaviors in the default Cesium viewer", async ({
       page.getByRole("radiogroup", { name: "Camera presets" }),
     ).toBeVisible();
     await expect(
-      page.getByRole("radiogroup", { name: "Point color mode" }),
+      page.getByRole("radiogroup", { name: "Color mode" }),
     ).toBeVisible();
     await expect(pointInspector).toBeVisible();
     await expect
@@ -283,7 +289,7 @@ test("validates the eight core behaviors in the default Cesium viewer", async ({
               ? "Intensity"
               : "Class";
       const radio = page
-        .getByRole("radiogroup", { name: "Point color mode" })
+        .getByRole("radiogroup", { name: "Color mode" })
         .getByRole("radio", { name: label });
       await radio.click();
       await expect(radio).toHaveAttribute("aria-checked", "true");

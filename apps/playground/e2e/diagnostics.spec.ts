@@ -4,6 +4,7 @@ test("diagnostics show unavailable values honestly and follow the replacement la
   page,
 }) => {
   await page.goto("./");
+  await page.getByRole("tab", { name: "Health" }).click();
   await expect(page.locator("#diagnostic-points")).toHaveText("Not available");
   await expect(page.locator("#diagnostic-render-interval")).toHaveText(
     "Not available",
@@ -58,6 +59,7 @@ test("keeps Long Task observation active when source selection changes", async (
   page,
 }) => {
   await page.goto("./");
+  await page.getByRole("tab", { name: "Health" }).click();
   const supportsLongTasks = await page.evaluate(() =>
     PerformanceObserver.supportedEntryTypes.includes("longtask"),
   );

@@ -1,4 +1,5 @@
 @import "../../shared/ui.css";
+@import "../../shared/workbench/workbench.css";
 
 html,
 body,
@@ -511,6 +512,147 @@ body {
 
 .copc-debug-panel[data-status="error"] .copc-debug-panel__source-summary {
   border-bottom-color: rgb(255 133 133 / 45%);
+}
+
+/* Shared Workbench shell overrides the former floating-panel layout. */
+html,
+body {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.dev-workbench.workbench-root {
+  display: flex;
+  flex-direction: column;
+  inset: 0;
+  pointer-events: auto;
+  position: fixed;
+}
+
+.dev-workbench.workbench-root > * {
+  pointer-events: auto;
+}
+
+.dev-workbench .workbench-three-column {
+  position: relative;
+}
+
+.dev-workbench .dev-panel {
+  backdrop-filter: none;
+  background: var(--ui-surface);
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  color: #eff7ff;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: visible;
+  padding: 0;
+  position: relative;
+  top: auto;
+  bottom: auto;
+  width: auto;
+  z-index: auto;
+}
+
+.dev-workbench .dev-panel--left {
+  left: auto;
+}
+
+.dev-workbench .dev-panel--right {
+  right: auto;
+}
+
+.dev-workbench .dev-panel__header {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: space-between;
+  margin: 0;
+  min-height: 2.4rem;
+  padding: 0.3rem 0.75rem;
+  position: relative;
+}
+
+.dev-workbench .dev-panel__header h2 {
+  font-size: 0.78rem;
+  line-height: 1.2;
+}
+
+.dev-workbench .dev-panel__content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 0.65rem 0.65rem;
+  scrollbar-width: auto;
+}
+
+.dev-workbench .workbench-left-panel,
+.dev-workbench .workbench-right-panel {
+  overflow: hidden;
+}
+
+.dev-workbench .dev-panel-toggle {
+  flex: 0 0 auto;
+  font-size: 1rem;
+  min-height: 1.8rem;
+  position: static;
+  width: 1.8rem;
+}
+
+.dev-workbench .workbench-panel-toggle {
+  position: absolute;
+  top: 0.45rem;
+}
+
+.dev-workbench .workbench-panel-toggle--left {
+  left: auto;
+  right: -0.65rem;
+}
+
+.dev-workbench .workbench-panel-toggle--right {
+  left: -0.65rem;
+  right: auto;
+}
+
+.dev-workbench .dev-version {
+  position: static;
+}
+
+.dev-workbench .dev-viewport {
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  position: relative;
+  width: 100%;
+}
+
+.dev-workbench #cesium-container {
+  height: 100%;
+  inset: 0;
+  position: absolute;
+  width: 100%;
+}
+
+.dev-workbench .workbench-statusbar {
+  position: relative;
+  z-index: 5;
+}
+
+.dev-workbench .workbench-tabs__panel {
+  padding: 0.55rem;
+}
+
+@media (max-width: 740px) {
+  .dev-workbench .dev-panel,
+  .dev-workbench .dev-panel--left,
+  .dev-workbench .dev-panel--right {
+    left: auto;
+    right: auto;
+    width: auto;
+  }
 }
 
 @media (max-width: 740px) {

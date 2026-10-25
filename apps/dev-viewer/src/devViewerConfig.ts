@@ -31,6 +31,8 @@ export type DevViewerConfig = Omit<
   | "motionLookahead"
   | "rangeValidation"
 > & {
+  /** Schema options that have no legacy flat field in this host config. */
+  schemaOptionValues?: Readonly<Record<string, unknown>>;
   renderer: RenderingEngine;
   cesiumRenderer: CesiumPointRendererVariant;
   refinementAlgorithm: RefinementAlgorithm;
@@ -238,6 +240,7 @@ export function toWorkbenchOptionValues(
     delete values["rendering.cesiumPointRenderer"];
     delete values["coordinates.heightOffsetMeters"];
   }
+  Object.assign(values, config.schemaOptionValues ?? {});
   values["streaming.maxRenderDistanceMeters"] = config.maxRenderDistance;
   return values;
 }
