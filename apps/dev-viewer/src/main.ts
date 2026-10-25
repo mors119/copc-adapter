@@ -1448,6 +1448,7 @@ async function main(): Promise<void> {
     if (!sameSource(lastIntegrationCodeSource, activeConfig.source)) {
       lastIntegrationCodeSource = activeConfig.source;
       integrationCodePanel.setSourcePrivacySelection(
+        activeConfig.source,
         typeof activeConfig.source === "string" &&
           !isPotentiallySensitiveSource(activeConfig.source),
       );
@@ -1488,6 +1489,7 @@ async function main(): Promise<void> {
   };
   let lastIntegrationCodeSource = activeConfig.source;
   integrationCodePanel.setSourcePrivacySelection(
+    activeConfig.source,
     typeof activeConfig.source === "string" &&
       !isPotentiallySensitiveSource(activeConfig.source),
   );

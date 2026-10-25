@@ -262,6 +262,62 @@ test("the same local file can be selected again after loading another source", a
     .toBeGreaterThan(0);
 });
 
+test("uses a newly active public URL in generated code after a local file", async ({
+  page,
+}) => {
+  let probeRequestSeen = false;
+  await page.route("https://data.pointcloud.org/**", async (route) => {
+    const request = route.request();
+    if (request.method() === "OPTIONS") {
+      await route.fulfill({ status: 204, headers: corsHeaders });
+      return;
+    }
+    if (request.headers().range === "bytes=0-1023" && !probeRequestSeen) {
+      probeRequestSeen = true;
+      await route.fulfill({
+        status: 206,
+        headers: {
+          ...corsHeaders,
+          "content-range": "bytes 0-1023/8192",
+          "content-length": "1024",
+        },
+        body: makeCopcProbeBody(),
+      });
+      return;
+    }
+    await route.fulfill({ status: 500, headers: corsHeaders, body: "unused" });
+  });
+
+  await page.goto("./");
+  await page.evaluate(() => {
+    const hooks = (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__;
+    if (!hooks) throw new Error("Playground test hooks are unavailable");
+    hooks.useCameraResetLayerMock();
+  });
+  const fileBytes = Buffer.alloc(128);
+  await page.locator("#copc-file").setInputFiles({
+    name: "local-before-public.copc.laz",
+    mimeType: "application/octet-stream",
+    buffer: fileBytes,
+  });
+  await expect(page.locator("#source-status")).toHaveText(
+    "Loaded local-before-public.copc.laz",
+  );
+
+  await page.locator("#remote-source").selectOption("custom");
+  await page.locator("#custom-url").fill(sourceUrl);
+  await page.getByRole("button", { name: "Probe source" }).click();
+  await expect(page.getByRole("button", { name: "Load source" })).toBeEnabled();
+  await page.getByRole("button", { name: "Load source" }).click();
+
+  await expect(page.locator("#source-status")).toHaveText("Loaded Custom URL");
+  await expect(page.locator("#include-exact-source")).toBeChecked();
+  await expect(page.locator("#integration-example")).toContainText(
+    `const sourceUrl = '${sourceUrl}';`,
+  );
+});
+
 test("explicit point-size apply restores the current camera pose after layer replacement", async ({
   page,
 }) => {

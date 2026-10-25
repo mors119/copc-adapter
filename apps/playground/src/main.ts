@@ -2410,6 +2410,7 @@ const loadSource = async (
     browserMeasurements = { loadElapsedMs: performance.now() - loadStartedAt };
     if (cameraToRestore) candidate.setCameraState(cameraToRestore);
     integrationCodePanel.setSourcePrivacySelection(
+      source,
       typeof source === "string" && !isPotentiallySensitiveSource(source),
     );
     updateColorChoices(activePointFormat);

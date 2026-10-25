@@ -16,7 +16,11 @@ export type IntegrationCodePanelContent = {
 export type IntegrationCodePanelController = {
   setContent(content: IntegrationCodePanelContent): void;
   setStatus(message: string): void;
-  setSourcePrivacySelection(includeExactSource: boolean, includeShareSource?: boolean): void;
+  setSourcePrivacySelection(
+    source: string | Blob | undefined,
+    includeExactSource: boolean,
+    includeShareSource?: boolean,
+  ): void;
   getState(): IntegrationCodePanelState;
   destroy(): void;
 };
@@ -274,7 +278,8 @@ export function mountIntegrationCodePanel(options: {
   return {
     setContent,
     setStatus,
-    setSourcePrivacySelection(includeExactSource, includeShareSource = false): void {
+    setSourcePrivacySelection(source, includeExactSource, includeShareSource = false): void {
+      content = { ...content, source };
       exactSourceInput.checked = includeExactSource;
       shareSourceInput.checked = includeShareSource;
       syncSourceControls();
