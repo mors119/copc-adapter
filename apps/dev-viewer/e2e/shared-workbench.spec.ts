@@ -104,6 +104,76 @@ test("uses the same schema controls and default Workbench tabs as Playground", a
   expect(narrowLayout.viewportWidth).toBeGreaterThan(0);
 });
 
+test("generates shared Code tab output from applied workspace configuration", async ({
+  page,
+}) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  await page.goto("/");
+  await expect
+    .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.lifecycle))
+    .toBe("ready");
+
+  const code = page.locator("#integration-example");
+  await expect(code).toContainText("local workspace source; unpublished");
+  await expect(code).toContainText("CopcCesiumLayer");
+  const initialCode = await code.textContent();
+
+  const pointSize = page.locator("#point-size-value");
+  await pointSize.fill("7");
+  await pointSize.dispatchEvent("change");
+  await page.locator('.schema-control-section[data-section="performance"] summary').click();
+  const maxPoints = page.locator("#max-points-value");
+  await maxPoints.fill("500000");
+  await maxPoints.dispatchEvent("change");
+
+  await page.locator('.schema-control-section[data-section="streaming"] summary').click();
+  const maxNodes = page.locator("#max-nodes-value");
+  await maxNodes.fill("32");
+  await maxNodes.dispatchEvent("change");
+  await expect(code).toHaveText(initialCode ?? "");
+
+  await page.locator("#apply-settings").click();
+  await expect
+    .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.lifecycle))
+    .toBe("ready");
+  await expect(code).toContainText("maxNodes: 32");
+  await expect(code).toContainText("pointSize: 7");
+  await expect(code).toContainText("maxRenderedPoints: 500000");
+  await expect(page.locator("#copy-code")).toBeVisible();
+  await expect(page.locator("#copy-share-link")).toBeVisible();
+  await expect(page.locator("#install-guidance-label")).toBeHidden();
+
+  await page.evaluate(() => {
+    const target = window as Window & { __copiedText?: string };
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async (value: string) => { target.__copiedText = value; } },
+    });
+  });
+  await page.locator("#copy-share-link").click();
+  await expect(page.locator("#share-status")).toHaveText("Share link copied.");
+  const shareLink = await page.evaluate(
+    () => (window as Window & { __copiedText?: string }).__copiedText,
+  );
+  expect(shareLink).toMatch(/^https?:\/\//u);
+  expect(pageErrors).toEqual([]);
+  expect(shareLink).toContain("backend=copc-js");
+  expect(shareLink).toContain("pointSize=7");
+  expect(shareLink).toContain("maxNodes=32");
+  expect(shareLink).toContain("maxRenderedPoints=500000");
+  expect(shareLink).not.toContain("source=");
+
+  await page.goto(shareLink ?? "/");
+  await expect
+    .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.lifecycle))
+    .toBe("ready");
+  await expect(page.locator("#point-size-value")).toHaveValue("7");
+  await expect(page.locator("#max-nodes-value")).toHaveValue("32");
+  await expect(page.locator("#max-points-value")).toHaveValue("500000");
+  await expect(page.locator("#integration-example")).toContainText("maxRenderedPoints: 500000");
+});
+
 test("applies Focus Lens to the active Cesium session through its runtime operation", async ({
   page,
 }) => {

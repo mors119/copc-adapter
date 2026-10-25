@@ -2,6 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  createWorkbenchConfigurationState,
+  serializeWorkbenchConfiguration,
+} from "../../shared/config/index.ts";
+import {
+  WORKSPACE_CURRENT_CAPABILITIES,
+  WORKSPACE_CURRENT_MANIFEST,
+} from "../../shared/schema/index.ts";
+
+import {
   getCesiumTerrainProviderUrl,
   getSafeSourceLabel,
   getSafeTerrainSourceLabel,
@@ -9,6 +18,7 @@ import {
   isRangeValidationPolicy,
   isRefinementAlgorithm,
   needsSessionRecreation,
+  restoreDevViewerShareConfiguration,
   sourceSupportsHttpRange,
   toWorkbenchOptionValues,
   validateDevViewerConfig,
@@ -144,6 +154,49 @@ test("normalizes active renderer settings without applying inactive Cesium rende
   assert.equal(Object.hasOwn(three, "rendering.cesiumPointRenderer"), false);
   assert.equal(Object.hasOwn(three, "coordinates.heightOffsetMeters"), false);
   assert.equal(three["streaming.maxRenderDistanceMeters"], 12_000);
+});
+
+test("restores schema-serialized settings from a share URL into host configuration", () => {
+  const appliedConfig = createConfig({
+    pointSize: 7,
+    maxNodes: 32,
+    maxRenderedPoints: 500_000,
+    maxDepth: 9,
+    maxRenderDistance: 20_000,
+    refinementAlgorithm: "screen-projection",
+  });
+  const values = toWorkbenchOptionValues(appliedConfig);
+  const params = serializeWorkbenchConfiguration(
+    createWorkbenchConfigurationState(values, values),
+    {
+      manifest: WORKSPACE_CURRENT_MANIFEST,
+      renderer: appliedConfig.renderer,
+      runtimeCapabilities: WORKSPACE_CURRENT_CAPABILITIES,
+    },
+    "applied",
+  );
+  params.set("debugPanel", "0");
+  params.set("scenario", "issue61");
+
+  const restored = restoreDevViewerShareConfiguration(params, createConfig());
+  assert.equal(restored.config.pointSize, 7);
+  assert.equal(restored.config.maxNodes, 32);
+  assert.equal(restored.config.maxRenderedPoints, 500_000);
+  assert.equal(restored.config.maxDepth, 9);
+  assert.equal(restored.config.maxRenderDistance, 20_000);
+  assert.equal(restored.config.refinementAlgorithm, "screen-projection");
+  assert.deepEqual(restored.warnings, []);
+});
+
+test("uses the renderer alias and ignores unrelated developer URL parameters during share restore", () => {
+  const params = new URLSearchParams(
+    "renderer=public-batched&backend=rust&maxNodes=32&scenario=issue61&debugPanel=0&budget=123456",
+  );
+  const restored = restoreDevViewerShareConfiguration(params, createConfig());
+  assert.equal(restored.config.renderer, "cesium");
+  assert.equal(restored.config.backend, "rust");
+  assert.equal(restored.config.maxNodes, 32);
+  assert.deepEqual(restored.warnings, []);
 });
 
 test("redacts credentials and signed query values from source labels", () => {

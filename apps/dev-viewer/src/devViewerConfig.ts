@@ -12,8 +12,10 @@ import {
   buildSchemaApplicationPlan,
   getChangedWorkbenchOptionIds,
   normalizeWorkbenchOptionValues,
+  restoreWorkbenchConfiguration,
 } from "../../shared/config/index.ts";
 import {
+  OPTION_SCHEMA,
   WORKSPACE_CURRENT_CAPABILITIES,
   WORKSPACE_CURRENT_MANIFEST,
 } from "../../shared/schema/index.ts";
@@ -49,6 +51,80 @@ export type DevViewerConfig = Omit<
   cameraRenderDistance: number;
   maxRenderDistance: number;
 };
+
+export type DevViewerShareRestoreResult = {
+  readonly config: DevViewerConfig;
+  readonly warnings: readonly string[];
+};
+
+function serializedSchemaKeys(): ReadonlySet<string> {
+  const keys = new Set<string>();
+  for (const option of OPTION_SCHEMA) {
+    const serialization = option.serialization;
+    switch (serialization.kind) {
+      case "scalar":
+      case "string-array":
+        keys.add(serialization.key);
+        break;
+      case "classification-filter":
+        keys.add(serialization.includeKey);
+        keys.add(serialization.excludeKey);
+        keys.add(serialization.clearKey);
+        break;
+      case "focus-lens":
+        Object.values(serialization.keys).forEach((key) => keys.add(key));
+        keys.add(serialization.clearKey);
+        break;
+    }
+  }
+  return keys;
+}
+
+/** Restore shareable schema options into the Dev Viewer host configuration. */
+export function restoreDevViewerShareConfiguration(
+  params: URLSearchParams,
+  baseConfig: DevViewerConfig,
+): DevViewerShareRestoreResult {
+  const schemaParams = new URLSearchParams();
+  const allowedKeys = serializedSchemaKeys();
+  for (const key of allowedKeys) {
+    for (const value of params.getAll(key)) schemaParams.append(key, value);
+  }
+  // Preserve the existing public-batched viewer alias while giving the schema
+  // deserializer its canonical renderer value.
+  if (
+    params.getAll("renderer").length === 1 &&
+    params.get("renderer") === "public-batched"
+  ) schemaParams.set("renderer", "cesium");
+
+  const restored = restoreWorkbenchConfiguration(
+    schemaParams,
+    {
+      manifest: WORKSPACE_CURRENT_MANIFEST,
+      renderer: baseConfig.renderer,
+      runtimeCapabilities: WORKSPACE_CURRENT_CAPABILITIES,
+    },
+    toWorkbenchOptionValues(baseConfig),
+  );
+  const config = { ...baseConfig, schemaOptionValues: {} } as DevViewerConfig &
+    Record<string, unknown>;
+  const schemaOptionValues: Record<string, unknown> = {};
+  for (const option of OPTION_SCHEMA) {
+    if (!Object.hasOwn(restored.values, option.id)) continue;
+    const segments = option.statePath.split(".");
+    const leaf = segments.at(-1)!;
+    const hostField = option.statePath === "streaming.maxRenderDistanceMeters"
+      ? "maxRenderDistance"
+      : leaf;
+    if (Object.hasOwn(baseConfig, hostField)) {
+      config[hostField] = restored.values[option.id];
+    } else {
+      schemaOptionValues[option.id] = restored.values[option.id];
+    }
+  }
+  config.schemaOptionValues = schemaOptionValues;
+  return { config, warnings: restored.warnings };
+}
 
 export function isRefinementAlgorithm(
   value: unknown,

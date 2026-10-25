@@ -235,6 +235,20 @@ test(
             },
           }),
         },
+        {
+          name: "cesium-specialized-options",
+          code: hooks.generateIntegrationCode({
+            ...schemaOptionsBase,
+            config: {
+              ...schemaOptionsBase.config,
+              backend: "copc-js",
+              schemaOptionValues: {
+                "attributes.extraDimensions": ["mission_id", "returnNumber"],
+                "rendering.cesiumPointRenderer": "batched-geometry",
+              },
+            },
+          }),
+        },
       ];
     });
     const fixtureDir = await mkdtemp(
@@ -429,8 +443,8 @@ test(
 test("generates Cesium classification include, exclude, and clear calls after attachment", async ({ page }) => {
   await page.goto("./");
   for (const [filter, expected] of [
-    [{ include: [2, 6] }, 'classificationFilter: {"include":[2,6]}'],
-    [{ exclude: [7] }, 'classificationFilter: {"exclude":[7]}'],
+    [{ include: [2, 6] }, "classificationFilter: { include: [2, 6] }"],
+    [{ exclude: [7] }, "classificationFilter: { exclude: [7] }"],
     [null, "classificationFilter: null"],
   ] as const) {
     const code = await generatedCode(page, {

@@ -53,10 +53,17 @@ import {
   mountWorkbenchRightTabs,
   type WorkbenchTab,
 } from "../../shared/workbench/WorkbenchLayout.ts";
+import { mountIntegrationCodePanel } from "../../shared/codegen/IntegrationCodePanel.ts";
+import {
+  generateWorkbenchIntegrationCode,
+  isPotentiallySensitiveSource,
+} from "../../shared/codegen/integrationCode.ts";
 import {
   applySchemaRuntimeOperations,
   buildSchemaApplicationPlan,
+  createWorkbenchConfigurationState,
   resolveSchemaBackendSelection,
+  serializeWorkbenchConfiguration,
 } from "../../shared/config/index.ts";
 import {
   WORKSPACE_CURRENT_CAPABILITIES,
@@ -70,6 +77,7 @@ import {
   isRangeValidationPolicy,
   isRefinementAlgorithm,
   needsSessionRecreation,
+  restoreDevViewerShareConfiguration,
   sourceSupportsHttpRange,
   toWorkbenchOptionValues,
   validateDevViewerConfig,
@@ -1189,7 +1197,7 @@ async function main(): Promise<void> {
     );
   }
 
-  const activeInitialConfig: DevViewerConfig = {
+  const baseInitialConfig: DevViewerConfig = {
     renderer,
     cesiumRenderer,
     backend:
@@ -1220,6 +1228,14 @@ async function main(): Promise<void> {
     heightOffsetMeters: initialOptions.heightOffsetMeters ?? 0,
     terrainUrl: "",
   };
+  const restoredInitialConfig = restoreDevViewerShareConfiguration(
+    params,
+    baseInitialConfig,
+  );
+  const activeInitialConfig = restoredInitialConfig.config;
+  const shareConfigurationWarnings = restoredInitialConfig.warnings.map(
+    (warning) => "Shared configuration: " + warning,
+  );
   let activeConfig = { ...activeInitialConfig };
   let pendingConfig = { ...activeConfig };
   let workbenchControls: ReturnType<typeof mountDevViewerControls> | undefined;
@@ -1375,7 +1391,108 @@ async function main(): Promise<void> {
   const inspectorTabsTarget = getElement<HTMLElement>("#inspector-content");
   const codePanel = document.createElement("section");
   codePanel.className = "dev-code-panel";
-  codePanel.innerHTML = "<h3>Integration code</h3><p>Shared integration code generation is being connected in the next Workbench phase.</p>";
+  const integrationCodePanel = mountIntegrationCodePanel({
+    target: codePanel,
+    summary: "Local workspace source · v" + __COPC_ADAPTER_VERSION__ + " · unpublished",
+    intro: "Generated against the current local workspace package. A published npm release may expose a different API.",
+    installLabel: "Package source",
+    onStateChange: () => refreshIntegrationCode(),
+    createShareLink: (includeSource) => createWorkbenchShareLink(includeSource),
+  });
+  const integrationValues = (config: DevViewerConfig): Record<string, unknown> => {
+    const values = toWorkbenchOptionValues(config);
+    values["source.url"] = config.source;
+    values["renderer.engine"] = config.renderer;
+    values["adapter.backend"] = config.backend;
+    values["rendering.colorMode"] = config.colorMode;
+    values["rendering.pointSize"] = config.pointSize;
+    values["streaming.maxNodes"] = config.maxNodes;
+    values["performance.maxRenderedPoints"] = config.maxRenderedPoints;
+    values["streaming.maxDepth"] = config.maxDepth;
+    values["streaming.maxScreenSpaceError"] = config.maxScreenSpaceError;
+    values["streaming.maxRenderDistanceMeters"] = config.maxRenderDistance;
+    values["streaming.refinementAlgorithm"] = config.refinementAlgorithm;
+    values["streaming.motionLookahead"] = config.motionLookahead;
+    values["source.rangeValidation"] = config.rangeValidation;
+    if (config.renderer === "cesium") {
+      values["rendering.cesiumPointRenderer"] = config.cesiumRenderer;
+      values["coordinates.heightOffsetMeters"] = config.heightOffsetMeters;
+    }
+    return values;
+  };
+  const createWorkbenchShareLink = (includeSource: boolean): string => {
+    const values = integrationValues(activeConfig);
+    const context = {
+      manifest: WORKSPACE_CURRENT_MANIFEST,
+      renderer: activeConfig.renderer,
+      runtimeCapabilities: WORKSPACE_CURRENT_CAPABILITIES,
+    } as const;
+    const state = createWorkbenchConfigurationState(values, values);
+    const params = serializeWorkbenchConfiguration(state, context, "applied");
+    if (
+      includeSource &&
+      typeof activeConfig.source === "string" &&
+      !isPotentiallySensitiveSource(activeConfig.source)
+    ) {
+      params.set("source", activeConfig.source);
+    }
+    if (params.toString().length > 8192) {
+      throw new RangeError("Share state exceeds the 8192-character limit.");
+    }
+    const url = new URL(window.location.href);
+    url.search = params.toString();
+    url.hash = "";
+    return url.toString();
+  };
+  const refreshIntegrationCode = (): void => {
+    if (!sameSource(lastIntegrationCodeSource, activeConfig.source)) {
+      lastIntegrationCodeSource = activeConfig.source;
+      integrationCodePanel.setSourcePrivacySelection(
+        activeConfig.source,
+        typeof activeConfig.source === "string" &&
+          !isPotentiallySensitiveSource(activeConfig.source),
+      );
+      return;
+    }
+    const values = integrationValues(activeConfig);
+    const state = integrationCodePanel.getState();
+    try {
+      const generated = generateWorkbenchIntegrationCode({
+        renderer: activeConfig.renderer,
+        values,
+        source: activeConfig.source,
+        includeExactSource: state.includeExactSource,
+        mode: state.mode,
+        manifest: WORKSPACE_CURRENT_MANIFEST,
+        runtimeCapabilities: WORKSPACE_CURRENT_CAPABILITIES,
+        adapterVersion: __COPC_ADAPTER_VERSION__,
+        packageOriginLabel: "current local workspace source; unpublished",
+      });
+      const warnings = [...shareConfigurationWarnings, ...generated.warnings];
+      if (activeConfig.renderer === "cesium" && activeConfig.terrainUrl.trim()) {
+        warnings.push(
+          "Dev Viewer Terrain is configured on the Cesium viewer, not on the adapter layer. Configure the equivalent Cesium Terrain provider separately in your application.",
+        );
+      }
+      integrationCodePanel.setContent({
+        code: generated.code,
+        warnings,
+        source: activeConfig.source,
+      });
+    } catch (error) {
+      integrationCodePanel.setContent({
+        code: "",
+        warnings: [safeErrorMessage(error)],
+        source: activeConfig.source,
+      });
+    }
+  };
+  let lastIntegrationCodeSource = activeConfig.source;
+  integrationCodePanel.setSourcePrivacySelection(
+    activeConfig.source,
+    typeof activeConfig.source === "string" &&
+      !isPotentiallySensitiveSource(activeConfig.source),
+  );
   const sourcePanel = document.createElement("section");
   const healthPanel = document.createElement("section");
   healthPanel.id = "inspector-health";
@@ -1710,6 +1827,7 @@ async function main(): Promise<void> {
         );
         await applySchemaRuntimeOperations(session, runtimePlan.runtimeOperations);
         activeConfig = { ...config };
+        refreshIntegrationCode();
         if (purpose === "load") {
           pendingConfig = { ...config };
         } else if (purpose === "apply") {
@@ -1828,6 +1946,7 @@ async function main(): Promise<void> {
       activeDebugAdapter = candidateSession.debugAdapter;
       activeDebugAdapter?.activate();
       activeConfig = { ...config };
+      refreshIntegrationCode();
       if (purpose === "load") {
         pendingConfig = { ...config };
       } else if (purpose === "apply") {
@@ -2024,6 +2143,7 @@ async function main(): Promise<void> {
         try {
           activeSession.setStyle?.({ colorMode: value });
           activeConfig = { ...activeConfig, colorMode: value };
+          refreshIntegrationCode();
           lastError = undefined;
           configurationError = undefined;
         } catch (error) {
@@ -2114,6 +2234,7 @@ async function main(): Promise<void> {
       generation += 1;
       probeAbortController?.abort();
       debugPanel.destroy();
+      integrationCodePanel.destroy();
       rightTabs.destroy();
       workbenchLayout.destroy();
       workbenchControls?.destroy();

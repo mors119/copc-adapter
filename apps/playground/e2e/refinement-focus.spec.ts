@@ -599,7 +599,7 @@ test("URL focus settings restore the guide, radius, bias, and public API snippet
     "layer.setRefinementFocus",
   );
   await expect(page.locator("#integration-example")).toContainText(
-    "x: 0.7000, y: 0.3000",
+    "center: { x: 0.7, y: 0.3 }",
   );
   await expect
     .poll(() =>
