@@ -45,6 +45,32 @@ test("uses the shared schema controls and four-tab Workbench shell", async ({
   await expect(page.locator("#workbench-controls")).toBeVisible();
 
   await page.setViewportSize({ width: 390, height: 844 });
+  const leftToggle = page.locator("#workbench-left-toggle");
+  const rightToggle = page.locator("#workbench-right-toggle");
+  await leftToggle.click();
+  await rightToggle.click();
+  const mobileCollapsed = await page.evaluate(() => ({
+    leftHeight: document.querySelector(".workbench-panel-shell--left")!.getBoundingClientRect().height,
+    rightHeight: document.querySelector(".workbench-panel-shell--right")!.getBoundingClientRect().height,
+  }));
+  expect(mobileCollapsed.leftHeight).toBeLessThanOrEqual(48);
+  expect(mobileCollapsed.rightHeight).toBeLessThanOrEqual(48);
+
+  await page.setViewportSize({ width: 768, height: 844 });
+  const tabletCollapsedHeight = await page.locator(".workbench-panel-shell--right").evaluate(
+    (element) => element.getBoundingClientRect().height,
+  );
+  expect(tabletCollapsedHeight).toBeLessThanOrEqual(48);
+  await rightToggle.click();
+  await expect.poll(() => page.locator(".workbench-panel-shell--right").evaluate(
+    (element) => element.getBoundingClientRect().height,
+  )).toBeGreaterThan(200);
+  await rightToggle.click();
+  await expect.poll(() => page.locator(".workbench-panel-shell--right").evaluate(
+    (element) => element.getBoundingClientRect().height,
+  )).toBeLessThanOrEqual(48);
+
+  await page.setViewportSize({ width: 390, height: 844 });
   const narrowLayout = await page.evaluate(() => ({
     documentWidth: document.documentElement.scrollWidth,
     viewportWidth: document.querySelector("#cesium-container")!.getBoundingClientRect().width,

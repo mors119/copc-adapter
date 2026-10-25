@@ -32,9 +32,14 @@ type PlaygroundTestHooks = {
   getMockLoadCount(): number;
   getMockDestroyCount(): number;
   getMockStyleUpdateCount(): number;
-  getAppliedConfig(): { pointSize: number; colorMode: string } | undefined;
+  getAppliedConfig(): { pointSize: number; colorMode: string; maxNodes?: number } | undefined;
+  getMockLayerSettings(): {
+    rangeValidation?: string;
+    streaming?: { motionLookahead?: boolean; predictivePrefetch?: boolean };
+  } | undefined;
   getPendingConfig(): {
     colorMode: string;
+    maxNodes?: number;
     classificationFilter?: { include?: readonly number[]; exclude?: readonly number[] };
   };
 };
@@ -129,6 +134,39 @@ test("a local source selected during a remote probe supersedes the pending probe
   } finally {
     releaseProbe();
   }
+});
+
+test("forwards schema-only settings to the created Playground runtime", async ({ page }) => {
+  await page.goto("./");
+  await page.evaluate(() => {
+    const hooks = (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__;
+    if (!hooks) throw new Error("Playground test hooks are unavailable");
+    hooks.useCameraResetLayerMock();
+  });
+
+  await page.getByRole("radiogroup", { name: "HTTP Range Validation" })
+    .getByRole("radio", { name: "Strict" }).click();
+  await page.locator('details[data-section="streaming"] summary').click();
+  await page.getByRole("radiogroup", { name: "Motion Lookahead" })
+    .getByRole("radio", { name: "Off" }).click();
+  await page.getByRole("checkbox", { name: "Predictive Prefetch" }).check();
+
+  await page.locator("#copc-file").setInputFiles({
+    name: "schema-options.copc.laz",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("local test source"),
+  });
+  await expect(page.locator("#source-status")).toHaveText("Loaded schema-options.copc.laz");
+
+  const settings = await page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getMockLayerSettings(),
+  );
+  expect(settings).toMatchObject({
+    rangeValidation: "strict",
+    streaming: { motionLookahead: false, predictivePrefetch: true },
+  });
 });
 
 test("the same local file can be selected again after loading another source", async ({
@@ -787,6 +825,51 @@ test("synchronizing valid controls clears stale numeric validation", async ({ pa
   await expect(maxNodes).not.toHaveAttribute("aria-invalid", "true");
   await expect(page.locator("#config-validation")).toBeHidden();
   await expect(page.getByRole("button", { name: "Apply changes" })).toBeEnabled();
+});
+
+test("a rejected schema edit blocks Apply until the value is corrected", async ({ page }) => {
+  await page.goto("./");
+  await page.evaluate(() => {
+    const hooks = (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__;
+    if (!hooks) throw new Error("Playground test hooks are unavailable");
+    hooks.useCameraResetLayerMock();
+  });
+  await page.locator("#copc-file").setInputFiles({
+    name: "invalid-schema-edit.copc.laz",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("local test source"),
+  });
+  await expect(page.locator("#source-status")).toHaveText("Loaded invalid-schema-edit.copc.laz");
+  await page.locator('details[data-section="streaming"] summary').click();
+
+  const pointSize = page.locator("#point-size-value");
+  await pointSize.fill("4");
+  await pointSize.dispatchEvent("change");
+  const applyButton = page.getByRole("button", { name: "Apply changes" });
+  await expect(applyButton).toBeEnabled();
+
+  const maxNodes = page.locator("#max-nodes-value");
+  await maxNodes.fill("0");
+  await maxNodes.dispatchEvent("change");
+  await expect(maxNodes).toHaveAttribute("aria-invalid", "true");
+  await expect(page.locator("#config-validation")).toContainText("Max selected nodes");
+  await expect(applyButton).toBeDisabled();
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getPendingConfig().maxNodes,
+  )).toBe(24);
+
+  await maxNodes.fill("32");
+  await maxNodes.dispatchEvent("change");
+  await expect(maxNodes).not.toHaveAttribute("aria-invalid", "true");
+  await expect(applyButton).toBeEnabled();
+  await applyButton.click();
+  await expect(page.locator("#source-status")).toHaveText("Loaded invalid-schema-edit.copc.laz");
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getAppliedConfig()?.maxNodes,
+  )).toBe(32);
 });
 
 test("Cesium load becomes active before its camera zoom finishes", async ({ page }) => {

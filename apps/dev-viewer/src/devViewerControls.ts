@@ -8,6 +8,7 @@ import { mountSegmentedControl } from "../../shared/ui-controls";
 import { mountSchemaOptionPanel } from "../../shared/workbench/SchemaOptionPanel.ts";
 import { renderSharedSpecialControl } from "../../shared/workbench/specialControls.ts";
 import {
+  OPTION_SCHEMA,
   WORKSPACE_CURRENT_CAPABILITIES,
   WORKSPACE_CURRENT_MANIFEST,
   getOptionDefinition,
@@ -37,6 +38,7 @@ export type DevViewerControlsOptions = {
   readonly onMotionLookaheadSelected: (enabled: boolean) => void;
   readonly onRangeValidationSelected: (policy: RangeValidationPolicy) => void;
   readonly onPendingConfigChange: (update: Partial<DevViewerConfig>) => void;
+  readonly onValidationChange: () => void;
   readonly onCameraDistanceSelected: (distance: number) => void;
   readonly onInvalidCameraDistance: () => void;
   readonly getCameraDistance: () => number;
@@ -72,6 +74,10 @@ export function mountDevViewerControls(
   let schemaOptionValues: Record<string, unknown> = {
     ...(options.initialConfig.schemaOptionValues ?? {}),
   };
+  const inactiveRendererValues = new Map<
+    string,
+    { readonly value: unknown; readonly schemaOnly: boolean }
+  >();
   const initialUrl = typeof options.initialConfig.source === "string"
     ? options.initialConfig.source
     : "";
@@ -159,7 +165,42 @@ export function mountDevViewerControls(
     values = { ...values, [optionId]: value };
     switch (optionId) {
       case "renderer.engine": {
-        renderer = value as SchemaRenderer;
+        const nextRenderer = value as SchemaRenderer;
+        if (nextRenderer !== renderer) {
+          for (const definition of OPTION_SCHEMA) {
+            const wasSupported = definition.renderers.some(
+              (candidate) => candidate === renderer,
+            );
+            const willBeSupported = definition.renderers.some(
+              (candidate) => candidate === nextRenderer,
+            );
+            if (!wasSupported || willBeSupported || !Object.hasOwn(values, definition.id)) {
+              continue;
+            }
+            const schemaOnly = Object.hasOwn(schemaOptionValues, definition.id);
+            inactiveRendererValues.set(definition.id, {
+              value: values[definition.id],
+              schemaOnly,
+            });
+            delete values[definition.id];
+            if (schemaOnly) delete schemaOptionValues[definition.id];
+          }
+
+          renderer = nextRenderer;
+          for (const definition of OPTION_SCHEMA) {
+            if (!definition.renderers.some((candidate) => candidate === nextRenderer)) {
+              continue;
+            }
+            const inactive = inactiveRendererValues.get(definition.id);
+            if (!inactive) continue;
+            values[definition.id] = inactive.value;
+            if (inactive.schemaOnly) {
+              schemaOptionValues[definition.id] = inactive.value;
+            }
+            inactiveRendererValues.delete(definition.id);
+          }
+          options.onPendingConfigChange({ schemaOptionValues });
+        }
         const cameraDistance = options.onEngineSelected(renderer);
         cameraDistanceInput.value = String(cameraDistance);
         break;
@@ -210,6 +251,7 @@ export function mountDevViewerControls(
     excludeOptionIds: ["source.url", "coordinates.verticalTransform"],
     renderSpecialControl: renderSharedSpecialControl,
     onChange: setOption,
+    onValidationChange: options.onValidationChange,
   });
 
   return {

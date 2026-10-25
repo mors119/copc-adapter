@@ -271,7 +271,7 @@
 @media (max-width: 960px) {
   .workbench-three-column {
     grid-template-columns: var(--workbench-left-track, minmax(12rem, 34vw)) minmax(0, 1fr);
-    grid-template-rows: minmax(18rem, 1fr) minmax(0, 1fr);
+    grid-template-rows: minmax(18rem, 1fr) var(--workbench-right-tablet-row-track, minmax(0, 1fr));
   }
 
   .workbench-panel-shell--right {
@@ -288,7 +288,10 @@
 @media (max-width: 620px) {
   .workbench-three-column {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(18rem, 46vh) minmax(15rem, auto) auto;
+    grid-template-rows:
+      minmax(18rem, 46vh)
+      var(--workbench-left-mobile-row-track, minmax(15rem, auto))
+      var(--workbench-right-mobile-row-track, auto);
     overflow: auto;
   }
 

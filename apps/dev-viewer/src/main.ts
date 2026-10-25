@@ -21,6 +21,7 @@ import type { CopcThreeLayerSnapshot } from "@frillab/copc-adapter/three";
 import type {
   CopcBackendSelection,
   CopcPointDecoder,
+  RefinementFocus,
 } from "@frillab/copc-adapter/cesium";
 import {
   BatchedGeometryPointRenderer,
@@ -244,6 +245,7 @@ type ViewerSession = {
   getPickablePointScreenPosition(): { x: number; y: number } | undefined;
   getStyle(): CopcCesiumPointStyle;
   setStyle?(update: CopcCesiumPointStyleUpdate): void;
+  setRefinementFocus?(focus: RefinementFocus | undefined): void;
   destroy(): void;
 };
 
@@ -939,6 +941,7 @@ async function createCesiumSession(
     setCameraRenderDistance(distance) {
       moveCameraToHeight(viewer, distance);
     },
+    setRefinementFocus: (focus) => layer.setRefinementFocus(focus),
     getCameraState(): ViewerCameraState {
       const position = viewer.camera.positionCartographic;
       return {
@@ -1199,6 +1202,7 @@ async function main(): Promise<void> {
   };
   let activeConfig = { ...activeInitialConfig };
   let pendingConfig = { ...activeConfig };
+  let workbenchControls: ReturnType<typeof mountDevViewerControls> | undefined;
   let activeSession: ViewerSession | undefined;
   let activeMount: HTMLElement | undefined;
   let stagedSession: ViewerSession | undefined;
@@ -1456,6 +1460,7 @@ async function main(): Promise<void> {
   };
   const updateConfigurationState = (): void => {
     const dirty = hasUnappliedSettings(activeConfig, pendingConfig);
+    const schemaValidationErrors = workbenchControls?.getValidationErrors() ?? [];
     const selectedSourceDiffers = !sameSource(
       activeConfig.source,
       pendingConfig.source,
@@ -1469,8 +1474,12 @@ async function main(): Promise<void> {
     configurationErrorElement.textContent = configurationError ?? "";
     configurationErrorElement.hidden = !configurationError;
     applySettingsButton.disabled =
-      isLoading || startupIssues.size > 0 || (!dirty && !configurationError);
-    loadButton.disabled = isLoading || startupIssues.size > 0;
+      isLoading ||
+      startupIssues.size > 0 ||
+      schemaValidationErrors.length > 0 ||
+      (!dirty && !configurationError);
+    loadButton.disabled =
+      isLoading || startupIssues.size > 0 || schemaValidationErrors.length > 0;
     reloadCurrentSourceButton.disabled = isLoading || !activeSession;
     controlsPanel
       .querySelectorAll<HTMLInputElement | HTMLSelectElement>("input, select")
@@ -1619,6 +1628,13 @@ async function main(): Promise<void> {
       updateStatus(validationError, "error");
       return;
     }
+    const schemaValidationErrors = workbenchControls?.getValidationErrors() ?? [];
+    if (schemaValidationErrors.length > 0) {
+      const message = schemaValidationErrors.join(" ");
+      showConfigurationError(message);
+      updateStatus(message, "error");
+      return;
+    }
     if (typeof config.source === "string") {
       const trimmedSource = config.source.trim();
       if (!trimmedSource) {
@@ -1657,12 +1673,22 @@ async function main(): Promise<void> {
 
     if (!recreate) {
       try {
-        if (
-          activeSession?.renderer === "cesium" &&
-          activeConfig.colorMode !== config.colorMode
-        ) {
-          activeSession.setStyle?.({ colorMode: config.colorMode });
-        }
+        const session = activeSession;
+        if (!session) throw new Error("The active viewer session is unavailable.");
+        const runtimePlan = buildSchemaApplicationPlan(
+          {
+            ...toWorkbenchOptionValues(config),
+            "source.url": config.source,
+            "renderer.engine": config.renderer,
+          },
+          {
+            manifest: WORKSPACE_CURRENT_MANIFEST,
+            renderer: config.renderer,
+            runtimeCapabilities: WORKSPACE_CURRENT_CAPABILITIES,
+          },
+          toWorkbenchOptionValues(activeConfig),
+        );
+        await applySchemaRuntimeOperations(session, runtimePlan.runtimeOperations);
         activeConfig = { ...config };
         if (purpose === "load") {
           pendingConfig = { ...config };
@@ -1917,8 +1943,9 @@ async function main(): Promise<void> {
     );
   });
 
-  const workbenchControls = mountDevViewerControls({
+  workbenchControls = mountDevViewerControls({
     initialConfig: pendingConfig,
+    onValidationChange: updateConfigurationState,
     sourcePresets: new Map<string, string>([
       ["local-autzen", DEFAULT_COPC_URL],
       ["autzen-remote", AUTZEN_REMOTE_URL],
@@ -2021,7 +2048,7 @@ async function main(): Promise<void> {
   });
 
   loadButton.addEventListener("click", () => {
-    const source = workbenchControls.getSelectedSource();
+    const source = workbenchControls?.getSelectedSource();
     if (source === undefined) {
       setActiveError(new Error("Choose a local COPC file before loading."));
       return;
@@ -2069,7 +2096,7 @@ async function main(): Promise<void> {
       debugPanel.destroy();
       rightTabs.destroy();
       workbenchLayout.destroy();
-      workbenchControls.destroy();
+      workbenchControls?.destroy();
       activeDebugAdapter?.destroy();
       stagedSession?.destroy();
       activeSession?.destroy();

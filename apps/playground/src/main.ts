@@ -592,6 +592,13 @@ declare global {
       getPendingConfig(): IntegrationCodeConfig;
       getPickablePointScreenPosition(): { x: number; y: number } | undefined;
       getMockLayerCreateCount(): number;
+      getMockLayerSettings(): {
+        readonly rangeValidation?: string;
+        readonly streaming?: {
+          readonly motionLookahead?: boolean;
+          readonly predictivePrefetch?: boolean;
+        };
+      } | undefined;
       getMockRefinementAlgorithm(): RefinementAlgorithm | undefined;
       getMockFocusUpdateCount(): number;
       getMockRefinementFocus(): RefinementFocus | undefined;
@@ -613,6 +620,15 @@ if (import.meta.env.DEV) {
   let mockDestroyCount = 0;
   let mockZoomCount = 0;
   let mockLayerCreateCount = 0;
+  let mockLayerSettings:
+    | {
+        rangeValidation?: string;
+        streaming?: {
+          motionLookahead?: boolean;
+          predictivePrefetch?: boolean;
+        };
+      }
+    | undefined;
   let mockRefinementAlgorithm: RefinementAlgorithm | undefined;
   let mockFocusUpdateCount = 0;
   let mockRefinementFocus: RefinementFocus | undefined;
@@ -627,6 +643,13 @@ if (import.meta.env.DEV) {
     useCameraResetLayerMock(): void {
       layerFactory = (options) => {
         mockLayerCreateCount += 1;
+        mockLayerSettings = {
+          rangeValidation: options.rangeValidation,
+          streaming: {
+            motionLookahead: options.streaming?.motionLookahead,
+            predictivePrefetch: options.streaming?.predictivePrefetch,
+          },
+        };
         mockRefinementAlgorithm = options.streaming?.refinementAlgorithm;
         mockRefinementFocus = undefined;
         let mockStyle: CopcCesiumPointStyle = {
@@ -775,6 +798,8 @@ if (import.meta.env.DEV) {
     getAppliedConfig: () => appliedConfig ? structuredClone(appliedConfig) : undefined,
     getPendingConfig: () => structuredClone(pendingConfig),
     getMockLayerCreateCount: () => mockLayerCreateCount,
+    getMockLayerSettings: () =>
+      mockLayerSettings ? structuredClone(mockLayerSettings) : undefined,
     getMockRefinementAlgorithm: () => mockRefinementAlgorithm,
     getMockFocusUpdateCount: () => mockFocusUpdateCount,
     getMockRefinementFocus: () => mockRefinementFocus,
@@ -968,6 +993,10 @@ schemaPanel = mountSchemaOptionPanel({
     "coordinates.verticalTransform",
   ],
   onChange: handleSchemaOptionChange,
+  onValidationChange() {
+    updateApplyState();
+    updateRemoteLoadState();
+  },
 });
 updateColorChoices();
 
@@ -2233,7 +2262,8 @@ function updateRemoteLoadState(): void {
   const selected = selectedRemoteSource();
   const invalidConfiguration =
     validatePlaygroundConfig(pendingConfig).length > 0 ||
-    invalidNumericInputs.size > 0;
+    invalidNumericInputs.size > 0 ||
+    (schemaPanel?.getValidationErrors().length ?? 0) > 0;
   const hasMatchingProbe = selected !== undefined &&
     currentProbeResult !== undefined &&
     currentProbeSourceUrl === selected.url &&
@@ -2261,6 +2291,7 @@ const loadSource = async (
   const configurationErrors = [
     ...validatePlaygroundConfig(loadConfig),
     ...invalidNumericInputs.values(),
+    ...(schemaPanel?.getValidationErrors() ?? []),
   ];
   if (configurationErrors.length > 0) {
     setStatus(`Settings must be corrected before loading: ${[...new Set(configurationErrors)].join(" ")}`, "error");
@@ -2314,6 +2345,7 @@ const loadSource = async (
         maxRenderedPoints: loadConfig.maxRenderedPoints,
         maxPointCacheBytes: loadConfig.maxPointCacheBytes,
         refinementAlgorithm: loadConfig.refinementAlgorithm,
+        schemaOptionValues: loadConfig.schemaOptionValues,
         ...(loadConfig.classificationFilter === undefined ? {} : { classificationFilter: loadConfig.classificationFilter }),
         container: host,
         onPointPicked: (point) => { if (activeRuntime === candidate) renderPoint(point); },

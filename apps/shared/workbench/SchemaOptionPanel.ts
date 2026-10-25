@@ -37,6 +37,8 @@ export type SchemaOptionPanelOptions = {
   readonly context: CapabilityContext;
   readonly values: Readonly<Record<string, unknown>>;
   readonly onChange: (optionId: string, value: unknown) => void;
+  /** Notify the host when a rejected edit changes whether Apply/Load is allowed. */
+  readonly onValidationChange?: () => void;
   readonly schema?: readonly SchemaOption[];
   readonly hostValidators?: SchemaHostValidators;
   readonly sections?: readonly SchemaSection[];
@@ -150,6 +152,7 @@ function mountGenericOption(
   choices: readonly UiSegmentOption<string>[],
   getContext: () => CapabilityContext,
   onChange: (value: unknown) => void,
+  onInvalidEdit: (errors: readonly string[]) => void,
   hostValidators: SchemaHostValidators | undefined,
   schema: readonly SchemaOption[],
 ): MountedOption {
@@ -183,6 +186,7 @@ function mountGenericOption(
       message.includes(" and " + option.label),
     );
     const messages = [...new Set([...localErrors, ...relevant])];
+    onInvalidEdit(localErrors);
     error.textContent = messages.join(" ");
     error.hidden = messages.length === 0;
     if (input) {
@@ -385,10 +389,21 @@ export function mountSchemaOptionPanel(options: SchemaOptionPanelOptions): Schem
   const openSections = new Set(options.openSections ?? ["source", "renderer", "backend", "style"]);
   const sections = new Map<SchemaSection, HTMLDetailsElement>();
   const mounted = new Map<string, MountedOption>();
+  const invalidEditErrors = new Map<string, readonly string[]>();
   const actionButtons: Array<{ action: SchemaActionDefinition; button: HTMLButtonElement }> = [];
   const choiceOverrides = new Map<string, readonly UiSegmentOption<string>[]>();
   let context: CapabilityContext = { ...options.context, values: options.values };
   let values = options.values;
+
+  const recordInvalidEdit = (optionId: string, errors: readonly string[]): void => {
+    const previous = invalidEditErrors.get(optionId) ?? [];
+    if (previous.length === errors.length && previous.every((error, index) => error === errors[index])) {
+      return;
+    }
+    if (errors.length > 0) invalidEditErrors.set(optionId, [...errors]);
+    else invalidEditErrors.delete(optionId);
+    options.onValidationChange?.();
+  };
 
   const supported = supportedAcrossRenderers(context, schema);
   for (const option of supported) {
@@ -424,6 +439,7 @@ export function mountSchemaOptionPanel(options: SchemaOptionPanelOptions): Schem
         choices,
         () => context,
         (value) => options.onChange(option.id, value),
+        (errors) => recordInvalidEdit(option.id, errors),
         options.hostValidators,
         schema,
       );
@@ -451,6 +467,7 @@ export function mountSchemaOptionPanel(options: SchemaOptionPanelOptions): Schem
             message.includes(" and " + option.label),
           );
           const messages = [...new Set([...localErrors, ...groupErrors])];
+          recordInvalidEdit(option.id, localErrors);
           errorText.textContent = messages.join(" ");
           errorText.hidden = messages.length === 0;
           if (messages.length) specializedControl?.element.setAttribute("aria-invalid", "true");
@@ -514,10 +531,14 @@ export function mountSchemaOptionPanel(options: SchemaOptionPanelOptions): Schem
 
   const refresh = (): void => {
     const available = new Set(getAvailableOptions({ ...context, values }, schema).map(({ id }) => id));
+    let clearedHiddenEdit = false;
     for (const [id, control] of mounted) {
       const isSupported = getSupportedOptions(context, schema).some(({ id: candidate }) => candidate === id);
       const isVisible = available.has(id) && isOptionAvailable(control.option, { ...context, values }, schema);
       control.wrapper.hidden = !isSupported || !isVisible;
+      if ((!isSupported || !isVisible) && invalidEditErrors.delete(id)) {
+        clearedHiddenEdit = true;
+      }
       const choices = choiceOverrides.get(id) ?? getAvailableChoices(control.option, context, schema);
       control.setChoices?.(choices);
       control.setValue(values[id] !== undefined
@@ -544,20 +565,28 @@ export function mountSchemaOptionPanel(options: SchemaOptionPanelOptions): Schem
           control.option.label + " choice " + String(values[id]) + " is unavailable in the active runtime.",
         );
       }
-      control.error.textContent = validationErrors.join(" ");
-      control.error.hidden = validationErrors.length === 0;
+      const messages = [
+        ...(invalidEditErrors.get(id) ?? []),
+        ...validationErrors,
+      ];
+      control.error.textContent = [...new Set(messages)].join(" ");
+      control.error.hidden = messages.length === 0;
     }
     for (const { action, button } of actionButtons) {
       button.disabled = !getAvailableActions(context).some(({ id }) => id === action.id);
     }
+    if (clearedHiddenEdit) options.onValidationChange?.();
   };
   refresh();
 
   return {
     update(next) {
+      const hadInvalidEdit = invalidEditErrors.size > 0;
+      invalidEditErrors.clear();
       values = next.values;
       context = { ...context, ...next.context, values };
       refresh();
+      if (hadInvalidEdit) options.onValidationChange?.();
     },
     setChoices(optionId, choices) {
       choiceOverrides.set(optionId, choices);
@@ -577,7 +606,8 @@ export function mountSchemaOptionPanel(options: SchemaOptionPanelOptions): Schem
           errors.push((option?.label ?? id) + " is unavailable for the current source.");
         }
       }
-      return errors;
+      for (const messages of invalidEditErrors.values()) errors.push(...messages);
+      return [...new Set(errors)];
     },
     destroy() {
       for (const control of mounted.values()) control.clearListeners();

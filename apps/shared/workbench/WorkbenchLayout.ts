@@ -221,6 +221,7 @@ export function mountWorkbenchLayout(
     const toggle = toggles[panel];
     panels[panel].hidden = !isExpanded;
     shell.dataset.expanded = String(isExpanded);
+    grid.dataset[panel + "Expanded"] = String(isExpanded);
     const action = isExpanded ? "Collapse" : "Expand";
     toggle.setAttribute("aria-expanded", String(isExpanded));
     toggle.setAttribute("aria-label", `${action} ${toggleLabels[panel].toLowerCase()} panel`);
@@ -237,6 +238,20 @@ export function mountWorkbenchLayout(
         ? panel === "left" ? "minmax(15rem, 18rem)" : "minmax(16rem, 19rem)"
         : "0px",
     );
+    grid.style.setProperty(
+      panel === "left"
+        ? "--workbench-left-mobile-row-track"
+        : "--workbench-right-mobile-row-track",
+      isExpanded
+        ? panel === "left" ? "minmax(15rem, auto)" : "auto"
+        : "2.5rem",
+    );
+    if (panel === "right") {
+      grid.style.setProperty(
+        "--workbench-right-tablet-row-track",
+        isExpanded ? "minmax(0, 1fr)" : "2.5rem",
+      );
+    }
     (panel === "left" ? options.onLeftExpandedChange : options.onRightExpandedChange)?.(isExpanded);
   };
   function setExpanded(panel: "left" | "right", isExpanded: boolean): void {
