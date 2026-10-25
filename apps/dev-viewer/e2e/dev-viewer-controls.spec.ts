@@ -348,11 +348,39 @@ test("switches renderer and backend, applies controls, and inspects a Three poin
       longitude: expect.any(Number),
       latitude: expect.any(Number),
     });
-  await expect(
-    page
-      .getByRole("region", { name: "COPC point inspector" })
-      .locator('[data-field="pointIndex"]'),
-  ).not.toBeEmpty();
+  const pointPopover = page.locator("[data-point-popover]");
+  await expect(pointPopover).toBeVisible();
+  await expect(pointPopover).toContainText("WGS84 ellipsoidal height (m)");
+  await expect(page.locator("[data-point-highlight]")).toBeVisible();
+  await expect(page.locator("[data-point-inspector]")).toHaveCount(0);
+  const threeHighlight = page.locator("[data-point-highlight]");
+  const threeMarkerBeforeMove = await threeHighlight.boundingBox();
+  const threeCanvasBounds = await canvas.boundingBox();
+  if (!threeMarkerBeforeMove || !threeCanvasBounds)
+    throw new Error("The selected Three.js point is missing its screen bounds.");
+  const dragStart = {
+    x: threeCanvasBounds.x + threeCanvasBounds.width * 0.8,
+    y: threeCanvasBounds.y + threeCanvasBounds.height * 0.6,
+  };
+  await page.mouse.move(dragStart.x, dragStart.y);
+  await page.mouse.down();
+  await page.mouse.move(dragStart.x + 55, dragStart.y + 24, { steps: 5 });
+  await page.mouse.up();
+  await expect(pointPopover).toBeVisible();
+  await expect
+    .poll(async () => {
+      const bounds = await threeHighlight.boundingBox();
+      return bounds ? [Math.round(bounds.x), Math.round(bounds.y)] : null;
+    })
+    .not.toEqual([
+      Math.round(threeMarkerBeforeMove.x),
+      Math.round(threeMarkerBeforeMove.y),
+    ]);
+  await expect(pointPopover).toBeVisible();
+  await pointPopover.getByText("More point data").click();
+  await expect(pointPopover).toContainText("Point index");
+  await page.keyboard.press("Escape");
+  await expect(pointPopover).toBeHidden();
 
   await page
     .getByRole("radiogroup", { name: "Color mode" })
@@ -377,6 +405,26 @@ test("switches renderer and backend, applies controls, and inspects a Three poin
     .toBe("rust");
   await expect(page.locator("#source-status")).toContainText("Ready");
 
+  await expect
+    .poll(async () =>
+      page.evaluate(() =>
+        window.__COPC_DEV_VIEWER__?.getPickablePointScreenPosition(),
+      ),
+    )
+    .toBeTruthy();
+  const selectedCanvas = page.locator(
+    '#cesium-container canvas[aria-label="Interactive Three.js COPC point cloud"]',
+  );
+  const selectedCanvasBounds = await selectedCanvas.boundingBox();
+  const nextPickPosition = await page.evaluate(() =>
+    window.__COPC_DEV_VIEWER__?.getPickablePointScreenPosition(),
+  );
+  await page.mouse.click(
+    (selectedCanvasBounds?.x ?? 0) + (nextPickPosition?.x ?? 0),
+    (selectedCanvasBounds?.y ?? 0) + (nextPickPosition?.y ?? 0),
+  );
+  await expect(pointPopover).toBeVisible();
+
   await rendererGroup.getByRole("radio", { name: "Cesium" }).click();
   await page.getByRole("button", { name: "Apply Settings" }).click();
   await expect
@@ -392,6 +440,8 @@ test("switches renderer and backend, applies controls, and inspects a Three poin
     )
     .toBe("ready");
   await expect(page.locator("#cesium-container canvas")).toBeVisible();
+  await expect(pointPopover).toBeHidden();
+  await expect(page.locator("[data-point-highlight]")).toBeHidden();
 
   await page.setViewportSize({ width: 768, height: 720 });
   const panelLayout = await page.evaluate(() => {
@@ -424,6 +474,46 @@ test("switches renderer and backend, applies controls, and inspects a Three poin
   expect(panelLayout.canvasHeight).toBeGreaterThan(0);
   expect(panelLayout.canvasHeight).toBeLessThan(720);
   expect(panelLayout.documentWidth).toBeLessThanOrEqual(768);
+});
+
+test.describe("touch point inspection", () => {
+  test.use({ hasTouch: true, viewport: { width: 1024, height: 768 } });
+
+  test("opens the shared popover for a touched Three.js point", async ({ page }) => {
+    test.setTimeout(120_000);
+    await page.goto("/?renderer=three&debugPanel=0");
+    await expect(page.locator("#source-status")).toHaveAttribute(
+      "data-status",
+      "ready",
+      { timeout: 60_000 },
+    );
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => window.__COPC_DEV_VIEWER__?.getPickablePointScreenPosition(),
+        ),
+      )
+      .toBeTruthy();
+
+    const canvas = page.locator(
+      '#cesium-container canvas[aria-label="Interactive Three.js COPC point cloud"]',
+    );
+    const canvasBounds = await canvas.boundingBox();
+    const point = await page.evaluate(
+      () => window.__COPC_DEV_VIEWER__?.getPickablePointScreenPosition(),
+    );
+    if (!canvasBounds || !point)
+      throw new Error("No touch-pickable point is visible in the viewport.");
+    await page.touchscreen.tap(canvasBounds.x + point.x, canvasBounds.y + point.y);
+
+    await expect
+      .poll(() =>
+        page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSelectedPoint()),
+      )
+      .toMatchObject({ pointIndex: expect.any(Number) });
+    await expect(page.locator("[data-point-popover]")).toBeVisible();
+    await expect(page.locator("[data-point-highlight]")).toBeVisible();
+  });
 });
 
 test("collapses the controls and Inspector independently while preserving the viewport", async ({

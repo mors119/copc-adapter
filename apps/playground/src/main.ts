@@ -2,7 +2,6 @@ import type {
   CopcCesiumLayer,
   CopcCesiumPointStyle,
   CopcCesiumPointStyleUpdate,
-  CopcPointInspection,
   CopcSourceProbeResult,
   RefinementAlgorithm,
   RefinementFocus,
@@ -46,6 +45,7 @@ import {
   type IntegrationCodeOptions,
 } from "./integrationCode";
 import { mountIntegrationCodePanel } from "../../shared/codegen/IntegrationCodePanel.ts";
+import { mountPointPopover } from "../../shared/inspection/PointPopover.ts";
 import {
   createPlaygroundRuntime,
   type CesiumLayerFactory,
@@ -283,11 +283,6 @@ app.innerHTML = `
         </details>
         <p class="diagnostic-warning" id="diagnostic-warning" hidden></p>
       </section>
-      <section class="point-card" aria-labelledby="point-heading">
-        <div class="section-heading"><div><span class="eyebrow">INSPECT</span><h2 id="point-heading">Selected point</h2></div></div>
-        <p id="point-empty">Click a point in the viewport to inspect its available attributes.</p>
-        <dl id="point-attributes" class="point-attributes" hidden></dl>
-      </section>
       <div id="generated-code-card-mount"></div>
     </section>
     <footer class="statusbar"><span id="footer-status">Ready · No source loaded</span><span>Client-side · No upload</span></footer>
@@ -325,7 +320,6 @@ const healthTabPanel = document.createElement("section");
 const dataTabPanel = document.createElement("section");
 const generatedCodeCard = belowViewer.querySelector<HTMLElement>(".generated-code-card")!;
 const diagnosticCard = belowViewer.querySelector<HTMLElement>(".diagnostics-dashboard")!;
-const pointCard = belowViewer.querySelector<HTMLElement>(".point-card")!;
 codeTabPanel.append(generatedCodeCard);
 sourceTabPanel.append(
   byId("source-status"),
@@ -336,7 +330,8 @@ sourceTabPanel.append(
 );
 workbenchLeft.append(sourcePanel, configPanel);
 healthTabPanel.append(diagnosticCard);
-dataTabPanel.append(pointCard);
+dataTabPanel.innerHTML =
+  '<p class="workbench-empty-state">Point details appear beside the selected point in the viewport. Dataset and streaming summaries are available in Source and Health.</p>';
 const rightTabs = mountWorkbenchRightTabs({
   target: workbenchRight,
   tabs: [
@@ -374,6 +369,7 @@ const rendererBadge = byId<HTMLElement>("renderer-badge");
 const viewerCaption = byId<HTMLElement>("viewer-caption");
 const statusFooter = byId<HTMLElement>("footer-status");
 const viewerFrame = byId<HTMLDivElement>("viewer-frame");
+const pointPopover = mountPointPopover(viewerFrame);
 const focusGuide = byId<HTMLDivElement>("focus-guide");
 const focusGuideHandle = byId<HTMLButtonElement>("focus-guide-handle");
 const focusModeSelect = byId<HTMLSelectElement>("focus-mode");
@@ -948,8 +944,6 @@ function handleSchemaOptionChange(optionId: string, value: unknown): void {
       return;
     }
     if (!activeCesium || activeLoadPending) updatePendingConfig({ colorMode });
-    byId("point-empty").textContent =
-      "Click a point in the viewport to inspect its available attributes.";
     return;
   }
   if (optionId === "streaming.refinementAlgorithm") {
@@ -1767,45 +1761,6 @@ function syncRendererLabels(): void {
 }
 syncRendererLabels();
 
-const renderPoint = (point: CopcPointInspection | undefined): void => {
-  const empty = byId<HTMLElement>("point-empty");
-  const attributes = byId<HTMLDListElement>("point-attributes");
-  if (!point) {
-    empty.hidden = false;
-    attributes.hidden = true;
-    attributes.replaceChildren();
-    return;
-  }
-  const rows: Array<[string, string]> = [
-    ["Longitude", `${point.longitude.toFixed(7)}°`],
-    ["Latitude", `${point.latitude.toFixed(7)}°`],
-    ["Height", `${formatUiNumber(point.height, 3)} m`],
-  ];
-  if (point.classification !== undefined)
-    rows.push([
-      "Classification",
-      point.classificationLabel ?? String(point.classification),
-    ]);
-  if (point.intensity !== undefined)
-    rows.push(["Intensity", formatUiNumber(point.intensity)]);
-  if (point.rgb !== undefined)
-    rows.push([
-      "RGB",
-      `(${point.rgb.red}, ${point.rgb.green}, ${point.rgb.blue})`,
-    ]);
-  attributes.replaceChildren(
-    ...rows.flatMap(([label, value]) => {
-      const term = document.createElement("dt");
-      term.textContent = label;
-      const description = document.createElement("dd");
-      description.textContent = value;
-      return [term, description];
-    }),
-  );
-  empty.hidden = true;
-  attributes.hidden = false;
-};
-
 const updateSnapshot = (snapshot: PlaygroundSnapshot | undefined): void => {
   byId("hud-points").textContent = formatUiNumber(
     snapshot?.renderedPoints ?? 0,
@@ -2117,6 +2072,7 @@ function clearRuntimeObservations(): void {
 }
 
 function destroyActiveRuntime(clearDiagnostics = true): void {
+  pointPopover.clear();
   activeRuntimeReady = false;
   unbindPointerFocus();
   if (focusDragPointerId !== undefined) {
@@ -2280,7 +2236,13 @@ const loadSource = async (
         schemaOptionValues: loadConfig.schemaOptionValues,
         ...(loadConfig.classificationFilter === undefined ? {} : { classificationFilter: loadConfig.classificationFilter }),
         container: host,
-        onPointPicked: (point) => { if (activeRuntime === candidate) renderPoint(point); },
+        onPointPicked: (point) => {
+          if (activeRuntime === candidate) pointPopover.setSelection(point);
+        },
+        onPointPositionChanged: (position) => {
+          if (activeRuntime === candidate)
+            pointPopover.updatePosition(position);
+        },
         isCurrent: current,
         onLayerLoadStart: () => {},
         onLayerLoadComplete: () => {},
@@ -2426,7 +2388,6 @@ const loadSource = async (
     );
     activeLoadPending = false;
     updateRemoteLoadState();
-    renderPoint(undefined);
     renderLoadedMetadata();
     syncPendingControls();
     updateApplyState();
@@ -2651,6 +2612,7 @@ const destroyPlayground = (): void => {
   loadGeneration += 1;
   releasePendingRuntime();
   destroyActiveRuntime();
+  pointPopover.destroy();
   focusResizeObserver.disconnect();
   focusRadiusSlider.destroy();
   focusBiasSlider.destroy();

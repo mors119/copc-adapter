@@ -7,6 +7,7 @@ import {
   type CopcThreeLayerSnapshot,
 } from "@frillab/copc-adapter/three";
 import { createCoalescedUpdate } from "./coalescedUpdate";
+import type { PointScreenPosition } from "../../shared/inspection/PointPopover.ts";
 
 export type DevThreeCameraState = {
   readonly position: readonly [number, number, number];
@@ -18,7 +19,13 @@ export type DevThreeViewerOptions = {
   readonly sourceName: string;
   readonly layerOptions: CopcThreeLayerOptions;
   readonly cameraRenderDistance: number;
-  readonly onPointPicked: (point: CopcPointInspection | undefined) => void;
+  readonly onPointPicked: (
+    point: CopcPointInspection | undefined,
+    position?: PointScreenPosition,
+  ) => void;
+  readonly onPointPositionChanged: (
+    position: PointScreenPosition | undefined,
+  ) => void;
   readonly onError: (error: unknown) => void;
 };
 
@@ -98,6 +105,54 @@ function findPickablePosition(
   return candidate;
 }
 
+function findSelectedPointObject(
+  root: THREE.Object3D | undefined,
+  point: CopcPointInspection,
+): THREE.Points | undefined {
+  if (!root) return undefined;
+  let match: THREE.Points | undefined;
+  root.traverse((object) => {
+    if (
+      !match &&
+      object instanceof THREE.Points &&
+      object.userData.copcNodeKey === point.nodeKey
+    ) match = object;
+  });
+  return match;
+}
+
+function projectSelectedPoint(
+  object: THREE.Points | undefined,
+  camera: THREE.PerspectiveCamera,
+  canvas: HTMLCanvasElement,
+  pointIndex: number,
+): PointScreenPosition | undefined {
+  if (!object) return undefined;
+  const bounds = canvas.getBoundingClientRect();
+  if (bounds.width <= 0 || bounds.height <= 0) return undefined;
+  const positions = object.geometry.getAttribute("position");
+  if (!positions || pointIndex >= positions.count) return undefined;
+  object.updateMatrixWorld(true);
+  camera.updateMatrixWorld(true);
+  const projected = new THREE.Vector3()
+    .fromBufferAttribute(positions, pointIndex)
+    .applyMatrix4(object.matrixWorld)
+    .project(camera);
+  if (
+    !Number.isFinite(projected.x) ||
+    !Number.isFinite(projected.y) ||
+    !Number.isFinite(projected.z) ||
+    projected.z < -1 ||
+    projected.z > 1 ||
+    Math.abs(projected.x) > 1 ||
+    Math.abs(projected.y) > 1
+  ) return undefined;
+  return {
+    x: bounds.left + ((projected.x + 1) * bounds.width) / 2,
+    y: bounds.top + ((1 - projected.y) * bounds.height) / 2,
+  };
+}
+
 export function createDevThreeViewer(
   options: DevThreeViewerOptions,
 ): DevThreeViewer {
@@ -133,15 +188,33 @@ export function createDevThreeViewer(
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
 
+  let root: THREE.Object3D | undefined;
+  let selectedPoint: CopcPointInspection | undefined;
+  let selectedPointObject: THREE.Points | undefined;
   const layer = new CopcThreeLayer({
     ...options.layerOptions,
     debug: true,
-    onPointPicked: options.onPointPicked,
+    onPointPicked: (point) => {
+      selectedPoint = point;
+      selectedPointObject = point
+        ? findSelectedPointObject(root, point)
+        : undefined;
+      const position = point
+        ? projectSelectedPoint(
+            selectedPointObject,
+            camera,
+            renderer.domElement,
+            point.pointIndex,
+          )
+        : undefined;
+      options.onPointPicked(point, position);
+      options.onPointPositionChanged(position);
+    },
   });
   layer.addEventListener("error", (event) => options.onError(event.error));
   const childrenBeforeAttach = new Set(scene.children);
   layer.attachTo({ scene, camera, renderer });
-  const root = scene.children.find((child) => !childrenBeforeAttach.has(child));
+  root = scene.children.find((child) => !childrenBeforeAttach.has(child));
 
   let destroyed = false;
   let animationFrame = 0;
@@ -161,6 +234,16 @@ export function createDevThreeViewer(
     animationFrame = requestAnimationFrame(draw);
     controls.update();
     renderer.render(scene, camera);
+    if (selectedPoint) {
+      options.onPointPositionChanged(
+        projectSelectedPoint(
+          selectedPointObject,
+          camera,
+          renderer.domElement,
+          selectedPoint.pointIndex,
+        ),
+      );
+    }
   };
   animationFrame = requestAnimationFrame(draw);
 
@@ -252,6 +335,11 @@ export function createDevThreeViewer(
     destroy() {
       if (destroyed) return;
       destroyed = true;
+      if (selectedPoint) {
+        selectedPoint = undefined;
+        options.onPointPicked(undefined);
+        options.onPointPositionChanged(undefined);
+      }
       cancelAnimationFrame(animationFrame);
       if (updateTimer !== undefined) window.clearTimeout(updateTimer);
       updateLayerView.destroy();

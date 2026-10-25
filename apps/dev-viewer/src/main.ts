@@ -55,6 +55,10 @@ import {
 } from "../../shared/workbench/WorkbenchLayout.ts";
 import { mountIntegrationCodePanel } from "../../shared/codegen/IntegrationCodePanel.ts";
 import {
+  mountPointPopover,
+  type PointScreenPosition,
+} from "../../shared/inspection/PointPopover.ts";
+import {
   generateWorkbenchIntegrationCode,
   isPotentiallySensitiveSource,
 } from "../../shared/codegen/integrationCode.ts";
@@ -833,6 +837,41 @@ function safeErrorMessage(error: unknown): string {
     .replace(/([?&][^=\s]+)=([^&\s]+)/g, "$1=[redacted]");
 }
 
+function projectCesiumPoint(
+  viewer: Cesium.Viewer,
+  point: CopcPointInspection,
+): PointScreenPosition | undefined {
+  const cartesian = point.world &&
+    [point.world.x, point.world.y, point.world.z].every(Number.isFinite)
+    ? new Cesium.Cartesian3(point.world.x, point.world.y, point.world.z)
+    : Number.isFinite(point.longitude) &&
+        Number.isFinite(point.latitude) &&
+        Number.isFinite(point.height)
+      ? Cesium.Cartesian3.fromDegrees(
+          point.longitude,
+          point.latitude,
+          point.height,
+        )
+      : undefined;
+  if (!cartesian) return undefined;
+  const canvas = viewer.scene.canvas;
+  const bounds = canvas.getBoundingClientRect();
+  const position = Cesium.SceneTransforms.worldToWindowCoordinates(
+    viewer.scene,
+    cartesian,
+  );
+  if (
+    !position ||
+    !Number.isFinite(position.x) ||
+    !Number.isFinite(position.y) ||
+    position.x < 0 ||
+    position.y < 0 ||
+    position.x > canvas.clientWidth ||
+    position.y > canvas.clientHeight
+  ) return undefined;
+  return { x: bounds.left + position.x, y: bounds.top + position.y };
+}
+
 function createWorkbenchBackend(
   applicationPlan: ReturnType<typeof buildSchemaApplicationPlan>,
 ): CopcBackendSelection | undefined {
@@ -849,7 +888,11 @@ async function createCesiumSession(
   container: HTMLElement,
   config: DevViewerConfig,
   onError: (error: unknown) => void,
-  onPointPicked: (point: CopcPointInspection | undefined) => void,
+  onPointPicked: (
+    point: CopcPointInspection | undefined,
+    position?: PointScreenPosition,
+  ) => void,
+  onPointPositionChanged: (position: PointScreenPosition | undefined) => void,
 ): Promise<ViewerSession> {
   const applicationPlan = buildSchemaApplicationPlan(
     {
@@ -907,6 +950,17 @@ async function createCesiumSession(
     ...(testHighDpiRendering ? { useBrowserRecommendedResolution: false } : {}),
     ...(terrainProvider ? { terrainProvider } : {}),
   });
+  let selectedPoint: CopcPointInspection | undefined;
+  const onPostRender = (): void => {
+    if (selectedPoint)
+      onPointPositionChanged(projectCesiumPoint(viewer, selectedPoint));
+  };
+  const onCameraChanged = (): void => {
+    if (selectedPoint)
+      onPointPositionChanged(projectCesiumPoint(viewer, selectedPoint));
+  };
+  viewer.scene.postRender.addEventListener(onPostRender);
+  viewer.camera.changed.addEventListener(onCameraChanged);
   const researchRenderer = usePublicBatchedRenderer
     ? new BatchedGeometryPointRenderer()
     : undefined;
@@ -915,7 +969,10 @@ async function createCesiumSession(
     ...getLayerOptions(config.source, config, applicationPlan),
     ...(backend === undefined ? {} : { backend }),
     renderer: researchRenderer ?? new PointPrimitiveRenderer(),
-    onPointPicked,
+    onPointPicked: (point) => {
+      selectedPoint = point;
+      onPointPicked(point, point ? projectCesiumPoint(viewer, point) : undefined);
+    },
     ...(ellipsoidalTerrainFixture
       ? {
           backend: ellipsoidalTerrainFixture.backend,
@@ -1000,6 +1057,13 @@ async function createCesiumSession(
     getStyle: () => layer.getStyle(),
     setStyle: (update) => layer.setStyle(update),
     destroy() {
+      if (selectedPoint) {
+        selectedPoint = undefined;
+        onPointPicked(undefined);
+        onPointPositionChanged(undefined);
+      }
+      viewer.scene.postRender.removeEventListener(onPostRender);
+      viewer.camera.changed.removeEventListener(onCameraChanged);
       debugAdapter.destroy();
       layer.destroy();
       if (!viewer.isDestroyed()) viewer.destroy();
@@ -1011,6 +1075,11 @@ function createThreeSession(
   container: HTMLElement,
   config: DevViewerConfig,
   onError: (error: unknown) => void,
+  onPointPicked: (
+    point: CopcPointInspection | undefined,
+    position?: PointScreenPosition,
+  ) => void,
+  onPointPositionChanged: (position: PointScreenPosition | undefined) => void,
 ): ViewerSession {
   const applicationPlan = buildSchemaApplicationPlan(
     {
@@ -1034,7 +1103,8 @@ function createThreeSession(
     sourceName: getSafeSourceLabel(config.source, window.location.href),
     layerOptions,
     cameraRenderDistance: config.cameraRenderDistance,
-    onPointPicked: () => undefined,
+    onPointPicked,
+    onPointPositionChanged,
     onError,
   });
   return {
@@ -1357,6 +1427,7 @@ async function main(): Promise<void> {
   let terrainEstimateInFlight = false;
   container.remove();
   viewportPanel.append(container);
+  const pointPopover = mountPointPopover(viewportPanel);
   const workbenchLayout = mountWorkbenchLayout({
     root: devWorkbench,
     provenance: `local ${__COPC_ADAPTER_VERSION__} / Dev Viewer`,
@@ -1688,7 +1759,6 @@ async function main(): Promise<void> {
         activeConfig.source,
         window.location.href,
       ),
-      selectedPoint: activeSession?.getSelectedPoint(),
       lastError:
         lastError ??
         (activeDebugAdapter?.getLastError()
@@ -1899,21 +1969,39 @@ async function main(): Promise<void> {
         updateStatus(lastError, "error");
         debugPanel.refresh();
       };
+      const handlePointPicked = (
+        point: CopcPointInspection | undefined,
+        position?: PointScreenPosition,
+      ): void => {
+        if (!candidateSession || activeSession !== candidateSession) return;
+        pointPopover.setSelection(point, position);
+        terrainEstimateAbortController?.abort();
+        terrainEstimate = undefined;
+        groundConfirmation.checked = false;
+        updateTerrainAlignmentUi();
+      };
+      const handlePointPositionChanged = (
+        position: PointScreenPosition | undefined,
+      ): void => {
+        if (!candidateSession || activeSession !== candidateSession) return;
+        pointPopover.updatePosition(position);
+      };
       candidateSession =
         config.renderer === "cesium"
           ? await createCesiumSession(
               candidateMount,
               config,
               reportCandidateError,
-              () => {
-                if (activeSession !== candidateSession) return;
-                terrainEstimateAbortController?.abort();
-                terrainEstimate = undefined;
-                groundConfirmation.checked = false;
-                updateTerrainAlignmentUi();
-              },
+              handlePointPicked,
+              handlePointPositionChanged,
             )
-          : createThreeSession(candidateMount, config, reportCandidateError);
+          : createThreeSession(
+              candidateMount,
+              config,
+              reportCandidateError,
+              handlePointPicked,
+              handlePointPositionChanged,
+            );
       stagedSession = candidateSession;
       await candidateSession.ready;
       if (currentGeneration !== generation || disposed) {
@@ -1936,6 +2024,7 @@ async function main(): Promise<void> {
       }
 
       candidateMount.style.visibility = "visible";
+      pointPopover.clear();
       activeDebugAdapter?.destroy();
       activeSession?.destroy();
       activeMount?.remove();
@@ -2236,11 +2325,12 @@ async function main(): Promise<void> {
       debugPanel.destroy();
       integrationCodePanel.destroy();
       rightTabs.destroy();
-      workbenchLayout.destroy();
       workbenchControls?.destroy();
       activeDebugAdapter?.destroy();
       stagedSession?.destroy();
       activeSession?.destroy();
+      pointPopover.destroy();
+      workbenchLayout.destroy();
       stagedMount?.remove();
       activeMount?.remove();
       delete window.__COPC_DEV_VIEWER__;
