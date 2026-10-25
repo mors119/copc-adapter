@@ -1,6 +1,3 @@
-import type { RefinementAlgorithm } from "@frillab/copc-adapter/cesium";
-import type { UiSegmentOption } from "../../shared/ui-controls";
-
 export type PlaygroundFocusMode =
   | "auto-center"
   | "center-boost"
@@ -8,7 +5,6 @@ export type PlaygroundFocusMode =
   | "pinned";
 
 export type PlaygroundRefinementConfig = {
-  algorithm: RefinementAlgorithm;
   focusMode: PlaygroundFocusMode;
   focusEnabled: boolean;
   showGuide: boolean;
@@ -17,20 +13,7 @@ export type PlaygroundRefinementConfig = {
   detailBias: number;
 };
 
-/** Public algorithms exposed by the installed adapter package. */
-const refinementAlgorithmLabels = {
-  foveated: "Foveated (default)",
-  "screen-projection": "Screen projection (legacy)",
-} satisfies Record<RefinementAlgorithm, string>;
-
-export const refinementAlgorithmOptions: readonly UiSegmentOption<RefinementAlgorithm>[] =
-  Object.entries(refinementAlgorithmLabels).map(([value, label]) => ({
-    value: value as RefinementAlgorithm,
-    label,
-  }));
-
 export const defaultPlaygroundRefinementConfig: PlaygroundRefinementConfig = {
-  algorithm: "foveated",
   focusMode: "auto-center",
   focusEnabled: false,
   showGuide: true,
@@ -68,26 +51,13 @@ function readBoundedNumber(
   return value;
 }
 
-/** Parse safe refinement and focus settings from a Playground URL. */
+/** Parse safe Focus Lens settings from a Playground URL. */
 export function readPlaygroundRefinementConfig(params: URLSearchParams): {
   config: PlaygroundRefinementConfig;
   warning?: string;
 } {
   const errors: string[] = [];
   const defaults = defaultPlaygroundRefinementConfig;
-  const rawAlgorithm = params.get("refinementAlgorithm");
-  let algorithm = defaults.algorithm;
-  if (rawAlgorithm !== null) {
-    const option = refinementAlgorithmOptions.find(
-      (candidate) => candidate.value === rawAlgorithm,
-    );
-    if (option) algorithm = option.value;
-    else
-      errors.push(
-        `Unknown refinement algorithm “${rawAlgorithm}”; using Foveated.`,
-      );
-  }
-
   const rawMode = params.get("focusMode") as PlaygroundFocusMode | null;
   let focusMode = defaults.focusMode;
   if (rawMode !== null) {
@@ -111,7 +81,6 @@ export function readPlaygroundRefinementConfig(params: URLSearchParams): {
   const focusEnabled = focusMode !== "auto-center" && enabledValue === "true";
   return {
     config: {
-      algorithm,
       focusMode,
       focusEnabled,
       showGuide:
@@ -147,13 +116,12 @@ export function readPlaygroundRefinementConfig(params: URLSearchParams): {
   };
 }
 
-/** Replace only the public, non-source refinement settings in the current URL. */
+/** Replace only the public, non-source Focus Lens settings in the current URL. */
 export function writePlaygroundRefinementConfig(
   params: URLSearchParams,
   config: PlaygroundRefinementConfig,
 ): URLSearchParams {
   const next = new URLSearchParams(params);
-  next.set("refinementAlgorithm", config.algorithm);
   next.set("focusMode", config.focusMode);
   next.set("focusEnabled", String(config.focusEnabled));
   next.set("showFocusGuide", String(config.showGuide));

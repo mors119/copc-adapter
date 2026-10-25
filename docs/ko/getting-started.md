@@ -143,7 +143,7 @@ const layer = new CopcCesiumLayer({
 3. `getSnapshot()`으로 streaming 상태 확인
 4. `getPointCacheDiagnostics()`으로 cache 확인
 5. `setStyle()`로 색상 모드 변경
-6. 점을 클릭해 point inspection 확인
+6. 점을 클릭해 선택한 점 가까이에 표시되는 point inspection 확인
 
 ## Terrain과 수직 기준 확인
 

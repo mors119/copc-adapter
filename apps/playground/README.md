@@ -7,12 +7,12 @@ budgets, LoD controls, classification filters, source metadata, and point
 inspection. Internal diagnostics, benchmark controls, fixtures, and test
 harnesses remain in `apps/dev-viewer`.
 
-The two apps reuse the public control widgets and normalized layer-option
-mapping under `apps/shared`. Their package inputs stay separate: the Playground
-uses the exact published npm version in its manifest and lockfile, while the
-Dev Viewer aliases the workspace package source and keeps its fixture
-middleware and developer modules in its own entrypoint. CI separately packs
-the working commit and installs that candidate into isolated consumers.
+Both apps render controls from the shared option schema and use its
+configuration engine. Their package inputs stay separate: the Playground uses
+the exact published npm version in its manifest and lockfile, while the Dev
+Viewer aliases the workspace package source and keeps its fixture middleware
+and developer modules in its own entrypoint. CI separately packs the working
+commit and installs that candidate into isolated consumers.
 
 Refinement can use the public `foveated` strategy (the default) or the legacy
 `screen-projection` strategy. In Cesium, Focus Lens modes can prioritize the

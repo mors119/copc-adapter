@@ -33,7 +33,6 @@ test("URL settings round-trip every constructor, refinement, and classification 
   };
   const refinement = {
     ...defaultPlaygroundRefinementConfig,
-    algorithm: "screen-projection",
     focusMode: "pinned",
     focusEnabled: true,
     center: { x: 0.23, y: 0.78 },

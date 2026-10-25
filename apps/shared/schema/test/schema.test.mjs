@@ -33,6 +33,23 @@ const cesiumContext = {
   renderer: "cesium",
 };
 
+test("schema choices are the shared renderer and adapter option inventory", () => {
+  for (const [id, values] of [
+    ["renderer.engine", ["cesium", "three"]],
+    ["adapter.backend", ["copc-js", "rust"]],
+    [
+      "rendering.colorMode",
+      ["fixed", "rgb", "elevation", "intensity", "classification"],
+    ],
+    ["streaming.refinementAlgorithm", ["foveated", "screen-projection"]],
+    ["source.rangeValidation", ["head-fallback", "strict"]],
+  ]) {
+    const option = getOptionDefinition(id);
+    assert.ok(option, id);
+    assert.deepEqual(option.choices?.map(({ value }) => value), values, id);
+  }
+});
+
 test("schema integrity: IDs, mappings, defaults, controls, references, and capability names", () => {
   const ids = OPTION_SCHEMA.map(({ id }) => id);
   assert.equal(new Set(ids).size, ids.length);

@@ -192,9 +192,9 @@ function resolveContext(
 }
 
 /**
- * Normalize a legacy flat or nested host config into schema-ID keyed values.
- * Schema IDs win; statePath is canonical, with a leaf-name fallback for the
- * existing flat streaming controls during the migration.
+ * Normalize a host's flat or nested config into schema-ID keyed values.
+ * Schema IDs win; statePath is canonical, with a leaf-name fallback for flat
+ * host settings.
  */
 export function normalizeWorkbenchOptionValues(
   values: Readonly<Record<string, unknown>>,

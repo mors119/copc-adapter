@@ -511,7 +511,6 @@ function playgroundOptionValues(
   return normalizeWorkbenchOptionValues({
     ...(config as unknown as Readonly<Record<string, unknown>>),
     ...(config.schemaOptionValues ?? {}),
-    "streaming.refinementAlgorithm": config.refinementConfig.algorithm,
   });
 }
 
@@ -542,9 +541,6 @@ function updatePendingConfig(
   pendingConfig = {
     ...pendingConfig,
     ...update,
-    ...(update.refinementConfig === undefined
-      ? {}
-      : { refinementAlgorithm: update.refinementConfig.algorithm }),
     ...(update.classificationFilter === undefined
       ? {}
       : { classificationFilter: normalizeClassificationFilter(update.classificationFilter) }),
@@ -993,10 +989,8 @@ function handleSchemaOptionChange(optionId: string, value: unknown): void {
     return;
   }
   if (optionId === "streaming.refinementAlgorithm") {
-    const algorithm = value as PlaygroundRefinementConfig["algorithm"];
     updatePendingConfig({
-      refinementAlgorithm: algorithm,
-      refinementConfig: { ...pendingConfig.refinementConfig, algorithm },
+      refinementAlgorithm: value as PlaygroundUrlConfig["refinementAlgorithm"],
     });
     return;
   }
@@ -1511,7 +1505,6 @@ function applyFocusSettings(syncUrl = true, cancelReplacement = true): void {
           ...appliedConfig,
           refinementConfig: {
             ...refinementConfig,
-            algorithm: appliedConfig.refinementConfig.algorithm,
             center: { ...refinementConfig.center },
           },
         };
@@ -2300,7 +2293,6 @@ const loadSource = async (
           ...committedConfig,
           refinementConfig: {
             ...pendingConfig.refinementConfig,
-            algorithm: loadConfig.refinementConfig.algorithm,
             center: { ...pendingConfig.refinementConfig.center },
           },
         };
@@ -2564,7 +2556,6 @@ byId<HTMLButtonElement>("reset-defaults").addEventListener("click", () => {
         ...appliedConfig,
         refinementConfig: {
           ...resetConfig.refinementConfig,
-          algorithm: appliedConfig.refinementConfig.algorithm,
         },
       };
       activeRuntime.setRefinementFocus(undefined);

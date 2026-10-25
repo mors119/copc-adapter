@@ -6,29 +6,28 @@ Playground and is not a production consumer interface. It imports the workspace
 package source and keeps development diagnostics and local Range middleware out
 of the published package.
 
-The Dev Viewer reuses the Playground's public control widgets and normalized
-layer-option mapping from `apps/shared`. It keeps the workspace-source aliases,
+The Dev Viewer renders its controls from the shared Workbench schema and
+configuration engine in `apps/shared`. It keeps the workspace-source aliases,
 local sample middleware, fixtures, and developer instrumentation in its own
 build; the public Playground consumes an exact published npm release, while CI
 tests packed candidates in isolated consumers.
 
 ## Workbench
 
-The full-window Cesium or Three.js canvas sits behind two independently
-collapsible panels:
+The full-window Cesium or Three.js canvas sits beside shared schema controls
+and a details panel with four tabs:
 
-- **Controls** on the left groups source selection, rendering engine and backend,
-  camera presets, appearance, streaming, and advanced settings.
-- **Inspector** on the right groups current source status, the selected point,
-  streaming metrics, source and hierarchy diagnostics, cache and Worker
-  information, performance data, and advanced internal diagnostics. Detailed
-  metrics use collapsible subsections and scroll within the panel.
+- **Code** shows generated integration examples.
+- **Source** shows source metadata and validation.
+- **Health** shows runtime status and diagnostics.
+- **Data** shows dataset and hierarchy details.
 
-Each panel has a keyboard-operable toggle that remains visible while collapsed.
-The panels do not reserve space when closed. At narrow widths they become
-viewport-sized drawers, with the canvas remaining full-window. The compact
-version label reads the workspace adapter package version; it does not indicate
-the version currently published to npm.
+Picking a point opens an anchored popover beside it. Detailed diagnostics stay
+available in the Health and Data tabs.
+
+The panels remain keyboard-operable and adapt to narrow widths while the canvas
+stays full-window. The compact version label reads the workspace adapter
+package version; it does not indicate the version currently published to npm.
 
 ## Sources and configuration
 

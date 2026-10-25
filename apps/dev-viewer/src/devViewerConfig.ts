@@ -305,7 +305,7 @@ export function needsSessionRecreation(
   }
 }
 
-/** Map the existing host config to stable schema IDs during Phase 2 migration. */
+/** Normalize the Dev Viewer host config to stable schema IDs. */
 export function toWorkbenchOptionValues(
   config: DevViewerConfig,
 ): Record<string, unknown> {
