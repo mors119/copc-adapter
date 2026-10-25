@@ -126,6 +126,15 @@ test("emits the public backend and Cesium renderer specialized handlers", () => 
   assert.match(extraDimensions, /import \{ CopcCesiumLayer, CopcJsBackend \}/u);
   assert.match(extraDimensions, /backend: new CopcJsBackend\(\{ extraDimensions: \['mission_id', 'returnNumber'\]\s\}\)/u);
 
+  const allExtraDimensions = generate({
+    values: {
+      renderer: "cesium",
+      backend: "copc-js",
+      schemaOptionValues: { "attributes.extraDimensions": "*" },
+    },
+  }).code;
+  assert.match(allExtraDimensions, /backend: new CopcJsBackend\(\{ extraDimensions: '\*'\s\}\)/u);
+
   const batchedRenderer = generate({
     values: {
       renderer: "cesium",

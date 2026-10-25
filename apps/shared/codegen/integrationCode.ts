@@ -367,7 +367,17 @@ function buildConstructorOptions(
   for (const specialized of plan.specializedOptions) {
     switch (specialized.handler) {
       case "copc-js-extra-dimensions": {
-        if (specialized.apiPath !== "backend.extraDimensions" || !Array.isArray(specialized.value)) {
+        const option = schema.find(({ id }) => id === specialized.optionId);
+        const wildcard = option?.validation.kind === "string-array"
+          ? option.validation.wildcard
+          : undefined;
+        const isSupportedValue = Array.isArray(specialized.value) ||
+          (wildcard !== undefined && specialized.value === wildcard);
+        if (
+          specialized.optionId !== "attributes.extraDimensions" ||
+          specialized.apiPath !== "backend.extraDimensions" ||
+          !isSupportedValue
+        ) {
           throw new TypeError("Extra Dimensions has an invalid public constructor mapping.");
         }
         imports.add("CopcJsBackend");
