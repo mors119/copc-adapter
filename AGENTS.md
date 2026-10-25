@@ -14,7 +14,7 @@ Repository-wide rules for COPC Adapter.
 ## Internal Cleanup
 
 - Remove obsolete or duplicated internal implementations when their consumers and replacements have been verified.
-- Keep tests only while they provide distinct coverage for supported behavior. Existing tests do not automatically require permanent preservation.
+- Keep tests when they provide distinct coverage for supported behavior; existing tests do not automatically require permanent preservation. Assess redundancy within the same validation boundary. Unit, integration, browser, and packed-consumer tests can cover different failure modes for the same feature, so tests at different layers are not duplicates by default.
 - Retain developer diagnostics, benchmarks, fixtures, and scripts when they serve a demonstrated purpose. Before removing a unique validation capability or historical measurement, verify that its purpose is retired or adequately covered elsewhere.
 - Give every meaningful removal a clear reason and validate the affected behavior with the relevant surviving regression checks.
 - Prefer direct, understandable implementations over speculative extension points and unnecessary compatibility layers.
