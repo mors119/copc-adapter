@@ -82,10 +82,16 @@ test("switches renderer and backend, applies controls, and inspects a Three poin
 }) => {
   test.setTimeout(180_000);
   await page.goto("/");
+  await page
+    .locator(".dev-control-section")
+    .filter({ has: page.getByText("Camera presets", { exact: true }) })
+    .locator("summary")
+    .click();
   const rendererGroup = page.getByRole("radiogroup", {
-    name: "Rendering engine",
+    name: "Renderer",
+    exact: true,
   });
-  const backendGroup = page.getByRole("radiogroup", { name: "Backend" });
+  const backendGroup = page.getByRole("radiogroup", { name: "COPC backend" });
   await expect(rendererGroup).toBeVisible();
   await expect(backendGroup).toBeVisible();
   await expect(page.locator("#source-status")).toContainText("Ready");
@@ -93,8 +99,10 @@ test("switches renderer and backend, applies controls, and inspects a Three poin
     page.getByRole("radiogroup", { name: "Camera presets" }),
   ).toHaveCount(1);
   await expect(
-    page.getByRole("radiogroup", { name: "Point color mode" }),
+    page.getByRole("radiogroup", { name: "Color mode" }),
   ).toHaveCount(1);
+  await page.locator('.schema-control-section[data-section="streaming"] summary').click();
+  await page.locator('.schema-control-section[data-section="lod"] summary').click();
   const refinementGroup = page.getByRole("radiogroup", {
     name: "Refinement Algorithm",
   });
@@ -118,7 +126,7 @@ test("switches renderer and backend, applies controls, and inspects a Three poin
   });
   await expect(page.locator("#cesium-point-renderer-group")).toBeVisible();
   await expect(
-    cesiumRendererGroup.getByRole("radio", { name: "PointPrimitive" }),
+    cesiumRendererGroup.getByRole("radio", { name: "Point Primitives" }),
   ).toHaveAttribute("aria-checked", "true");
   await expect(page.locator(".dev-stream-hud")).toHaveCount(0);
 
@@ -215,6 +223,7 @@ test("switches renderer and backend, applies controls, and inspects a Three poin
       ),
     )
     .toBe("screen-projection");
+  await page.getByRole("tab", { name: "Source" }).click();
   await page.getByText("Source diagnostics", { exact: true }).click();
   await expect(
     page.locator('[data-field="configuredRangeValidation"]'),
@@ -259,6 +268,7 @@ test("switches renderer and backend, applies controls, and inspects a Three poin
   const diagnostics = page.getByRole("complementary", {
     name: "COPC runtime debug panel",
   });
+  await page.getByRole("tab", { name: "Data" }).click();
   await diagnostics
     .getByText("Advanced internal debug information", { exact: true })
     .click();
@@ -345,7 +355,7 @@ test("switches renderer and backend, applies controls, and inspects a Three poin
   ).not.toBeEmpty();
 
   await page
-    .getByRole("radiogroup", { name: "Point color mode" })
+    .getByRole("radiogroup", { name: "Color mode" })
     .getByRole("radio", { name: "Elevation" })
     .click();
   await page.getByRole("button", { name: "Apply Settings" }).click();
@@ -394,21 +404,29 @@ test("switches renderer and backend, applies controls, and inspects a Three poin
     const canvas = document
       .querySelector("#cesium-container")!
       .getBoundingClientRect();
+    const viewport = document
+      .querySelector("#viewport-panel")!
+      .getBoundingClientRect();
     return {
       controlsRight: controls.right,
-      inspectorLeft: inspector.left,
+      viewportLeft: viewport.left,
+      inspectorTop: inspector.top,
+      viewportBottom: viewport.bottom,
       canvasWidth: canvas.width,
       canvasHeight: canvas.height,
       documentWidth: document.documentElement.scrollWidth,
     };
   });
-  expect(panelLayout.controlsRight).toBeLessThan(panelLayout.inspectorLeft);
-  expect(panelLayout.canvasWidth).toBe(768);
-  expect(panelLayout.canvasHeight).toBe(720);
+  expect(panelLayout.controlsRight).toBeLessThanOrEqual(panelLayout.viewportLeft + 1);
+  expect(panelLayout.inspectorTop).toBeGreaterThanOrEqual(panelLayout.viewportBottom - 1);
+  expect(panelLayout.canvasWidth).toBeGreaterThan(0);
+  expect(panelLayout.canvasWidth).toBeLessThan(768);
+  expect(panelLayout.canvasHeight).toBeGreaterThan(0);
+  expect(panelLayout.canvasHeight).toBeLessThan(720);
   expect(panelLayout.documentWidth).toBeLessThanOrEqual(768);
 });
 
-test("collapses the controls and Inspector independently and keeps the canvas full-screen", async ({
+test("collapses the controls and Inspector independently while preserving the viewport", async ({
   page,
 }) => {
   test.setTimeout(240_000);
@@ -452,6 +470,7 @@ test("collapses the controls and Inspector independently and keeps the canvas fu
   await inspectorToggle.click();
   await expect(inspector).toBeVisible();
   await expect(controls).toBeVisible();
+  await page.getByRole("tab", { name: "Data" }).click();
   await expect(page.locator("#cesium-container canvas").first()).toBeVisible();
   await expect
     .poll(async () =>
@@ -464,7 +483,7 @@ test("collapses the controls and Inspector independently and keeps the canvas fu
   });
 
   const version = page.locator("#package-version");
-  await expect(version).toHaveText(/^v\d+\.\d+\.\d+ · workspace package$/);
+  await expect(version).toHaveText(/^local \d+\.\d+\.\d+ \/ Dev Viewer$/);
   const versionLayout = await version.evaluate((element) => ({
     height: element.getBoundingClientRect().height,
     position: getComputedStyle(element).position,
@@ -473,8 +492,9 @@ test("collapses the controls and Inspector independently and keeps the canvas fu
       .getBoundingClientRect().height,
   }));
   expect(versionLayout.height).toBeLessThan(16);
-  expect(versionLayout.position).toBe("fixed");
-  expect(versionLayout.canvasHeight).toBe(768);
+  expect(versionLayout.position).toBe("static");
+  expect(versionLayout.canvasHeight).toBeGreaterThan(0);
+  expect(versionLayout.canvasHeight).toBeLessThan(768);
 
   await page.locator("#inspector-content").evaluate((content) => {
     content
@@ -674,7 +694,10 @@ test("collapses the controls and Inspector independently and keeps the canvas fu
     .toBe(1);
 
   const canvas = await page.locator("#cesium-container").boundingBox();
-  expect(canvas).toMatchObject({ x: 0, y: 0, width: 1024, height: 768 });
+  const viewport = await page.locator("#viewport-panel").boundingBox();
+  expect(canvas).not.toBeNull();
+  expect(viewport).not.toBeNull();
+  expect(canvas).toMatchObject(viewport!);
 });
 
 test("compares both refinement algorithms at Overview, Far, and Near without changing workbench settings", async ({
@@ -685,6 +708,14 @@ test("compares both refinement algorithms at Overview, Far, and Near without cha
   page.on("pageerror", (error) => pageErrors.push(error));
   await page.goto("/?debugPanel=0");
   await expect(page.locator("#source-status")).toContainText("Ready");
+  await page
+    .locator('.schema-control-section[data-section="lod"] summary')
+    .click();
+  await page
+    .locator(".dev-control-section")
+    .filter({ has: page.getByText("Camera presets", { exact: true }) })
+    .locator("summary")
+    .click();
 
   const readState = () =>
     page.evaluate(() => ({
@@ -712,6 +743,32 @@ test("compares both refinement algorithms at Overview, Far, and Near without cha
     maxScreenSpaceError: initial.config.maxScreenSpaceError,
     maxRenderDistance: initial.config.maxRenderDistance,
   };
+  const cameraPresetGroup = page.getByRole("radiogroup", {
+    name: "Camera presets",
+  });
+  const selectedCameraPreset = await cameraPresetGroup
+    .getByRole("radio", { checked: true })
+    .textContent();
+  const setupPreset = selectedCameraPreset?.trim() === "Far" ? "Near" : "Far";
+  const cameraEventsBeforeSetup = await page.evaluate(
+    () => window.__COPC_DEBUG__!.getState().cameraMoveEventCount,
+  );
+  await cameraPresetGroup.getByRole("radio", { name: setupPreset }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(() => window.__COPC_DEBUG__!.getState().cameraMoveEventCount),
+    )
+    .toBeGreaterThan(cameraEventsBeforeSetup);
+  await expect
+    .poll(async () => {
+      const current = await readState();
+      return (
+        current.snapshot?.transition?.activeReplacementGroupCount === 0 &&
+        current.activeNodeCount === 0 &&
+        current.snapshot?.rangeRequests.active === 0
+      );
+    })
+    .toBe(true);
   const comparison: Array<Record<string, unknown>> = [];
   const algorithms = ["foveated", "screen-projection", "foveated"] as const;
   const presets = [
@@ -758,10 +815,7 @@ test("compares both refinement algorithms at Overview, Far, and Near without cha
       const cameraEventsBefore = await page.evaluate(
         () => window.__COPC_DEBUG__!.getState().cameraMoveEventCount,
       );
-      await page
-        .getByRole("radiogroup", { name: "Camera presets" })
-        .getByRole("radio", { name: preset.label })
-        .click();
+      await cameraPresetGroup.getByRole("radio", { name: preset.label }).click();
       await expect
         .poll(async () =>
           page.evaluate(
@@ -825,7 +879,7 @@ test("applies advanced streaming inputs and keeps mobile controls reachable", as
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/?debugPanel=0");
-  const panel = page.getByRole("complementary", { name: "Viewer controls" });
+  const panel = page.getByRole("complementary", { name: "Configuration" });
   await expect(panel).toBeVisible();
   const inspectorToggle = page.locator("#inspector-toggle");
   await expect(inspectorToggle).toHaveAccessibleName("Expand inspector panel");
@@ -833,6 +887,10 @@ test("applies advanced streaming inputs and keeps mobile controls reachable", as
   await expect(
     page.getByRole("slider", { name: "Point size" }),
   ).toHaveAttribute("min", "1");
+  const streamingSection = page.locator('.schema-control-section[data-section="streaming"]');
+  await streamingSection.locator("summary").click();
+  const performanceSection = page.locator('.schema-control-section[data-section="performance"]');
+  await performanceSection.locator("summary").click();
   await expect(
     page.getByRole("slider", { name: "Max selected nodes" }),
   ).toHaveAttribute("max", "64");
@@ -840,12 +898,17 @@ test("applies advanced streaming inputs and keeps mobile controls reachable", as
     page.getByRole("slider", { name: "Max rendered points" }),
   ).toHaveAttribute("max", "1000000");
 
-  const advanced = page.locator(".dev-advanced-settings");
-  await advanced.locator("summary").click();
-  await advanced.locator("#max-depth").fill("5");
-  await advanced.locator("#max-sse").fill("10");
-  await advanced.locator("#camera-render-distance").fill("4000");
-  await advanced.locator("#max-render-distance").fill("9000");
+  const lodSection = page.locator('.schema-control-section[data-section="lod"]');
+  await lodSection.locator("summary").click();
+  await lodSection.locator("#max-depth-value").fill("5");
+  await lodSection.locator("#max-sse-value").fill("10");
+  await page
+    .locator(".dev-control-section")
+    .filter({ has: page.getByText("Camera presets", { exact: true }) })
+    .locator("summary")
+    .click();
+  await page.locator("#camera-render-distance").fill("4000");
+  await streamingSection.locator("#max-distance-value").fill("9000");
   await page.getByRole("button", { name: "Apply Settings" }).click();
   await expect
     .poll(async () =>
@@ -969,6 +1032,9 @@ test("shows actionable errors for unknown URL-driven refinement values", async (
   await expect(error).toContainText("foveated");
   await expect(page.locator("#load-source")).toBeDisabled();
   await expect(page.locator("#apply-settings")).toBeDisabled();
+  await page
+    .locator('.schema-control-section[data-section="lod"] summary')
+    .click();
 
   await page
     .getByRole("radiogroup", { name: "Refinement Algorithm" })

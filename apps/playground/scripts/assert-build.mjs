@@ -192,10 +192,12 @@ if (!bundledJavaScript.includes(`${basePath}cesium/`)) {
 }
 if (
   !bundledJavaScript.includes(packageJson.version) ||
-  !bundledJavaScript.includes(packageSourceLabel)
+  !bundledJavaScript.includes(packageSourceLabel.version) ||
+  !bundledJavaScript.includes(packageSourceLabel.source) ||
+  !bundledJavaScript.includes("/ Playground")
 ) {
   throw new Error(
-    "The Playground package card does not report the installed adapter version and source.",
+    "The Playground header does not report the installed adapter version, package source, and application origin.",
   );
 }
 if (!bundledJavaScript.includes("data:text/javascript;base64,")) {

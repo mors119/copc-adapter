@@ -58,6 +58,40 @@ async function useMockLayer(
   });
 }
 
+async function openLodOptions(
+  page: import("@playwright/test").Page,
+): Promise<void> {
+  const section = page.locator('details[data-section="lod"]');
+  if (!(await section.evaluate((element: HTMLDetailsElement) => element.open))) {
+    await section.locator("summary").click();
+  }
+}
+
+async function selectRefinementAlgorithm(
+  page: import("@playwright/test").Page,
+  value: "foveated" | "screen-projection",
+): Promise<void> {
+  await page
+    .getByRole("radiogroup", { name: "Refinement Algorithm" })
+    .getByRole("radio", {
+      name: value === "foveated" ? "Foveated" : "Screen Projection",
+    })
+    .click();
+}
+
+async function expectRefinementAlgorithm(
+  page: import("@playwright/test").Page,
+  value: "foveated" | "screen-projection",
+): Promise<void> {
+  await expect(
+    page
+      .getByRole("radiogroup", { name: "Refinement Algorithm" })
+      .getByRole("radio", {
+        name: value === "foveated" ? "Foveated" : "Screen Projection",
+      }),
+  ).toHaveAttribute("aria-checked", "true");
+}
+
 async function loadFile(
   page: import("@playwright/test").Page,
   name = "focus-test.copc.laz",
@@ -74,6 +108,7 @@ test("algorithm selection applies the actual constructor option and survives URL
   page,
 }) => {
   await page.goto("./");
+  await openLodOptions(page);
   await useMockLayer(page);
   await loadFile(page, "algorithm.copc.laz");
 
@@ -83,7 +118,7 @@ test("algorithm selection applies the actual constructor option and survives URL
         window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }
       ).__COPC_PLAYGROUND_TEST__?.getMockLayerCreateCount() ?? 0,
   );
-  await page.locator("#refinement-algorithm").selectOption("screen-projection");
+  await selectRefinementAlgorithm(page, "screen-projection");
   await expect(page.getByRole("button", { name: "Apply changes" })).toBeEnabled();
   await page.getByRole("button", { name: "Apply changes" }).click();
   await expect(page.locator("#source-status")).toHaveText(
@@ -112,7 +147,7 @@ test("algorithm selection applies the actual constructor option and survives URL
   );
   await expect(page).toHaveURL(/refinementAlgorithm=screen-projection/);
 
-  await page.locator("#refinement-algorithm").selectOption("foveated");
+  await selectRefinementAlgorithm(page, "foveated");
   await page.getByRole("button", { name: "Apply changes" }).click();
   await expect
     .poll(() =>
@@ -130,6 +165,7 @@ test("failed constructor changes keep the last successfully applied API example"
   page,
 }) => {
   await page.goto("./");
+  await openLodOptions(page);
   await useMockLayer(page);
   await loadFile(page, "failed-apply.copc.laz");
   await page.getByRole("button", { name: "Explicit" }).click();
@@ -144,7 +180,7 @@ test("failed constructor changes keep the last successfully applied API example"
     if (!hooks) throw new Error("Playground test hooks are unavailable");
     hooks.failNextLoad();
   });
-  await page.locator("#refinement-algorithm").selectOption("screen-projection");
+  await selectRefinementAlgorithm(page, "screen-projection");
   await page.getByRole("button", { name: "Apply changes" }).click();
   await expect(page.locator("#source-status")).toHaveAttribute(
     "data-status",
@@ -158,6 +194,7 @@ test("superseded constructor reloads cannot replace the applied API example", as
   page,
 }) => {
   await page.goto("./");
+  await openLodOptions(page);
   await useMockLayer(page);
   await loadFile(page, "superseded-apply.copc.laz");
   await page.getByRole("button", { name: "Explicit" }).click();
@@ -169,11 +206,11 @@ test("superseded constructor reloads cannot replace the applied API example", as
     if (!hooks) throw new Error("Playground test hooks are unavailable");
     hooks.delayNextLoad();
   });
-  await page.locator("#refinement-algorithm").selectOption("screen-projection");
+  await selectRefinementAlgorithm(page, "screen-projection");
   await page.getByRole("button", { name: "Apply changes" }).click();
   await expect(page.locator("#source-status")).toContainText("Loading");
 
-  await page.locator("#refinement-algorithm").selectOption("foveated");
+  await selectRefinementAlgorithm(page, "foveated");
   await expect(page.locator("#source-status")).toHaveText(
     "Loaded superseded-apply.copc.laz",
   );
@@ -194,6 +231,7 @@ test("superseded constructor reloads cannot replace the applied API example", as
 
 test("follow-pointer movement does not cancel a pending constructor replacement", async ({ page }) => {
   await page.goto("./");
+  await openLodOptions(page);
   await useMockLayer(page);
   await loadFile(page, "follow-pointer-replacement.copc.laz");
   await page.locator("#focus-mode").selectOption("follow-pointer");
@@ -248,6 +286,7 @@ test("focus modes update the active Cesium layer without recreating it", async (
 }) => {
   test.setTimeout(60_000);
   await page.goto("./");
+  await openLodOptions(page);
   await useMockLayer(page);
   await loadFile(page);
   const initialLoads = await page.evaluate(
@@ -339,15 +378,10 @@ test("focus modes update the active Cesium layer without recreating it", async (
         height: rect.height,
       };
     });
-  await page.locator("#cesium-container canvas").evaluate((canvas, bounds) => {
-    canvas.dispatchEvent(
-      new PointerEvent("pointermove", {
-        bubbles: true,
-        clientX: bounds.left + bounds.width * 0.73,
-        clientY: bounds.top + bounds.height * 0.31,
-      }),
-    );
-  }, canvasBounds);
+  await page.mouse.move(
+    canvasBounds.left + canvasBounds.width * 0.73,
+    canvasBounds.top + canvasBounds.height * 0.31,
+  );
   await expect
     .poll(() =>
       page.evaluate(
@@ -372,16 +406,10 @@ test("focus modes update the active Cesium layer without recreating it", async (
       ),
     )
     .toBeCloseTo(0.31, 2);
-  await page.locator("#cesium-container canvas").evaluate((canvas, bounds) => {
-    canvas.dispatchEvent(
-      new PointerEvent("pointermove", {
-        bubbles: true,
-        clientX: bounds.left + bounds.width * 0.22,
-        clientY: bounds.top + bounds.height * 0.72,
-      }),
-    );
-    canvas.dispatchEvent(new PointerEvent("pointerleave", { bubbles: false }));
-  }, canvasBounds);
+  await page.mouse.move(
+    canvasBounds.left + canvasBounds.width * 0.22,
+    canvasBounds.top + canvasBounds.height * 0.72,
+  );
   await expect
     .poll(() =>
       page.evaluate(
@@ -554,12 +582,11 @@ test("URL focus settings restore the guide, radius, bias, and public API snippet
   await page.goto(
     "./?refinementAlgorithm=screen-projection&focusMode=pinned&focusEnabled=true&showFocusGuide=false&focusX=0.7&focusY=0.3&focusRadius=0.22&focusBias=1.8",
   );
+  await openLodOptions(page);
   await useMockLayer(page);
   await loadFile(page, "shared-focus.copc.laz");
 
-  await expect(page.locator("#refinement-algorithm")).toHaveValue(
-    "screen-projection",
-  );
+  await expectRefinementAlgorithm(page, "screen-projection");
   await expect(page.locator("#focus-mode")).toHaveValue("pinned");
   await expect(page.locator("#focus-enabled")).toBeChecked();
   await expect(page.locator("#focus-show-guide")).not.toBeChecked();
@@ -589,9 +616,8 @@ test("URL focus settings restore the guide, radius, bias, and public API snippet
     });
 
   await page.reload();
-  await expect(page.locator("#refinement-algorithm")).toHaveValue(
-    "screen-projection",
-  );
+  await openLodOptions(page);
+  await expectRefinementAlgorithm(page, "screen-projection");
   await expect(page.locator("#focus-mode")).toHaveValue("pinned");
   await expect(page.locator("#focus-radius")).toHaveValue("22");
 });
@@ -600,7 +626,8 @@ test("unknown algorithm query values are reported instead of silently accepted",
   page,
 }) => {
   await page.goto("./?refinementAlgorithm=unknown-next-algorithm");
-  await expect(page.locator("#refinement-algorithm")).toHaveValue("foveated");
+  await openLodOptions(page);
+  await expectRefinementAlgorithm(page, "foveated");
   await expect(page.locator("#focus-config-warning")).toContainText(
     "Unknown refinement algorithm",
   );

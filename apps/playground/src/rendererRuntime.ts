@@ -77,6 +77,7 @@ export type PlaygroundRuntime = {
 };
 
 export type PlaygroundRuntimeOptions = WorkbenchLayerConfig & {
+  readonly schemaOptionValues?: Readonly<Record<string, unknown>>;
   readonly renderer: PlaygroundRenderer;
   readonly source: PlaygroundSource;
   readonly sourceName: string;
@@ -284,6 +285,7 @@ export async function createPlaygroundRuntime(
 ): Promise<PlaygroundRuntime | undefined> {
   const configurationValues = normalizeWorkbenchOptionValues({
     ...options,
+    ...(options.schemaOptionValues ?? {}),
     "renderer.engine": options.renderer,
     "source.url": options.source,
   });

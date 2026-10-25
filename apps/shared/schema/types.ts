@@ -161,6 +161,32 @@ export type SchemaCrossFieldConstraint = {
   readonly otherOptionId: string;
 };
 
+/** Presentation hints for schema-generated controls, not adapter constraints. */
+export type SchemaControlPresentation = {
+  /** Stable host-independent DOM id for the input or control group. */
+  readonly controlId?: string;
+  /** Optional wrapper id used by existing accessibility and browser contracts. */
+  readonly containerId?: string;
+  readonly ariaLabel?: string;
+  readonly widget?: "native" | "segmented";
+  readonly inputId?: string;
+  /** A convenience slider range; the number input still accepts the API contract. */
+  readonly slider?: {
+    readonly id: string;
+    readonly label: string;
+    readonly minimum: number;
+    readonly maximum: number;
+    readonly step: number;
+    readonly unit?: string;
+  };
+  /** Convert between an input display unit and the adapter's canonical value. */
+  readonly displayScale?: {
+    readonly factor: number;
+    readonly unit: string;
+    readonly fractionDigits?: number;
+  };
+};
+
 export type SchemaProfileKey = string;
 
 /** One user-facing setting, its adapter mapping, and host capability contract. */
@@ -175,6 +201,7 @@ export type SchemaOption = {
   readonly apiPath?: string;
   readonly valueType: SchemaValueType;
   readonly control: SchemaControl;
+  readonly presentation?: SchemaControlPresentation;
   readonly choices?: readonly SchemaChoice[];
   readonly validation: SchemaValidation;
   readonly constraints?: readonly SchemaCrossFieldConstraint[];

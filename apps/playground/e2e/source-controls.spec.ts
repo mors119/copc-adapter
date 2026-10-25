@@ -659,6 +659,8 @@ test("failed color reconciliation keeps the previous Cesium style and active sta
 
 test("numeric entries retain valid values outside the quick-slider ranges", async ({ page }) => {
   await page.goto("./");
+  await page.locator('details[data-section="streaming"] summary').click();
+  await page.locator('details[data-section="performance"] summary').click();
   await page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.useCameraResetLayerMock());
   await page.locator("#copc-file").setInputFiles({
     name: "wide-config.copc.laz",
@@ -673,7 +675,8 @@ test("numeric entries retain valid values outside the quick-slider ranges", asyn
   await page.locator("#max-points-value").fill("2000000");
   await page.locator("#max-points-value").dispatchEvent("change");
   await expect(page.getByRole("slider", { name: "Point size" })).toBeDisabled();
-  await expect(page.getByRole("slider", { name: "Max selected nodes" })).toBeDisabled();
+  await expect(page.getByRole("slider", { name: "Max selected nodes" })).toBeEnabled();
+  await expect(page.getByRole("slider", { name: "Max selected nodes" })).toHaveValue("60");
   await expect(page.getByRole("slider", { name: "Max rendered points" })).toBeDisabled();
   await page.getByRole("button", { name: "Apply changes" }).click();
   await expect(page.locator("#source-status")).toHaveText("Loaded wide-config.copc.laz");
@@ -766,6 +769,7 @@ test("Reset to defaults clears a restored classification filter before loading",
 
 test("synchronizing valid controls clears stale numeric validation", async ({ page }) => {
   await page.goto("./");
+  await page.locator('details[data-section="streaming"] summary').click();
   await page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.useCameraResetLayerMock());
   await page.locator("#copc-file").setInputFiles({
     name: "numeric-validation.copc.laz",
@@ -1011,12 +1015,15 @@ for (const renderer of ["Cesium", "Three.js"] as const) {
       "Loaded Autzen Stadium",
       { timeout: 120_000 },
     );
+    await page.getByRole("tab", { name: "Health" }).click();
     await expect(page.locator("#diagnostic-range")).toHaveText("Supported");
     await expect(page.locator("#diagnostic-validation")).toHaveText(
       "Strict response validation",
     );
+    await page.getByRole("tab", { name: "Source" }).click();
     await expect(page.locator("#metadata-summary")).toBeVisible();
     await expect(page.locator("#metadata-point-count")).not.toHaveText("Not available");
+    await page.getByRole("tab", { name: "Health" }).click();
     if (renderer === "Three.js") {
       await expect(page.locator("#classification-include-enabled")).toBeDisabled();
       await expect(page.locator("#classification-help")).toContainText("active Cesium layer");
@@ -1055,12 +1062,14 @@ for (const renderer of ["Cesium", "Three.js"] as const) {
     if (!canvasBox)
       throw new Error("The renderer canvas has no visible bounds.");
     await page.mouse.click(canvasBox.x + point.x, canvasBox.y + point.y);
+    await page.getByRole("tab", { name: "Data" }).click();
     await expect(page.locator("#point-attributes")).toBeVisible({
       timeout: 10_000,
     });
     await expect(page.locator("#point-attributes")).toContainText("Height");
 
     if (renderer === "Cesium") {
+      await page.getByRole("tab", { name: "Health" }).click();
       const obliqueCamera = await page.evaluate(() => {
         const hooks = (
           window as Window & {

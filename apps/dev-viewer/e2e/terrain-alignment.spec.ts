@@ -125,6 +125,11 @@ async function openFixture(
     params.set("terrainEllipsoidalFixture", "1");
   }
   await page.goto(`/?${params.toString()}`);
+  await page
+    .locator(".dev-control-section")
+    .filter({ has: page.getByText("Terrain and height alignment", { exact: true }) })
+    .locator("summary")
+    .click();
   await expect(page.locator("#source-status")).toContainText("Ready");
   await expect
     .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.renderedPointCount ?? 0))
@@ -154,7 +159,15 @@ async function pickRenderedPoint(page: Page): Promise<SelectedPoint> {
   const position = await page.evaluate(
     () => window.__COPC_DEV_VIEWER__?.getPickablePointScreenPosition(),
   );
-  await page.mouse.click(position!.x, position!.y);
+  const canvasBounds = await page
+    .locator("#cesium-container canvas")
+    .first()
+    .boundingBox();
+  expect(canvasBounds).not.toBeNull();
+  await page.mouse.click(
+    canvasBounds!.x + position!.x,
+    canvasBounds!.y + position!.y,
+  );
   await expect
     .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSelectedPoint()))
     .toBeDefined();

@@ -55,6 +55,7 @@ export const OPTION_SCHEMA = [
     statePath: "renderer",
     valueType: "enum",
     control: "renderer",
+    presentation: { controlId: "renderer-control", ariaLabel: "Renderer", widget: "segmented" },
     choices: [
       { value: "cesium", label: "Cesium" },
       { value: "three", label: "Three.js" },
@@ -77,6 +78,7 @@ export const OPTION_SCHEMA = [
     apiPath: "backend",
     valueType: "enum",
     control: "select",
+    presentation: { controlId: "backend-control", ariaLabel: "COPC backend", widget: "segmented" },
     choices: [
       { value: "copc-js", label: "JavaScript" },
       {
@@ -103,6 +105,7 @@ export const OPTION_SCHEMA = [
     apiPath: "colorMode",
     valueType: "enum",
     control: "select",
+    presentation: { controlId: "color-mode", ariaLabel: "Color mode", widget: "segmented" },
     choices: [
       { value: "fixed", label: "Fixed" },
       { value: "rgb", label: "RGB" },
@@ -158,6 +161,10 @@ export const OPTION_SCHEMA = [
     apiPath: "pointSize",
     valueType: "number",
     control: "number",
+    presentation: {
+      inputId: "point-size-value",
+      slider: { id: "point-size", label: "Point size", minimum: 1, maximum: 10, step: 0.5, unit: "px" },
+    },
     validation: {
       kind: "number",
       finite: true,
@@ -181,6 +188,12 @@ export const OPTION_SCHEMA = [
     apiPath: "renderer",
     valueType: "enum",
     control: "cesium-renderer",
+    presentation: {
+      containerId: "cesium-point-renderer-group",
+      controlId: "cesium-renderer-control",
+      ariaLabel: "Cesium point renderer",
+      widget: "segmented",
+    },
     choices: [
       { value: "point-primitive", label: "Point Primitives" },
       {
@@ -210,6 +223,7 @@ export const OPTION_SCHEMA = [
     apiPath: "pointSizeMode",
     valueType: "enum",
     control: "select",
+    presentation: { controlId: "point-size-mode" },
     choices: [
       { value: "fixed", label: "Fixed" },
       {
@@ -236,6 +250,7 @@ export const OPTION_SCHEMA = [
     apiPath: "minPointSize",
     valueType: "number",
     control: "number",
+    presentation: { inputId: "min-point-size" },
     validation: {
       kind: "number",
       finite: true,
@@ -264,6 +279,7 @@ export const OPTION_SCHEMA = [
     apiPath: "maxPointSize",
     valueType: "number",
     control: "number",
+    presentation: { inputId: "max-point-size" },
     validation: {
       kind: "number",
       finite: true,
@@ -355,13 +371,24 @@ export const OPTION_SCHEMA = [
   },
   {
     id: "performance.maxRenderedPoints",
-    label: "Rendered Point Budget",
+    label: "Max rendered points",
     description: "Maximum estimated points in the active current-view workload.",
     section: "performance",
     statePath: "maxRenderedPoints",
     apiPath: "maxRenderedPoints",
     valueType: "integer",
     control: "number",
+    presentation: {
+      inputId: "max-points-value",
+      slider: {
+        id: "max-points",
+        label: "Max rendered points",
+        minimum: 50_000,
+        maximum: 1_000_000,
+        step: 50_000,
+        unit: "points",
+      },
+    },
     validation: {
       kind: "number",
       finite: true,
@@ -384,6 +411,10 @@ export const OPTION_SCHEMA = [
     apiPath: "maxPointCacheBytes",
     valueType: "integer",
     control: "number",
+    presentation: {
+      inputId: "cache-budget-mib",
+      displayScale: { factor: 1024 * 1024, unit: "MiB", fractionDigits: 2 },
+    },
     validation: {
       kind: "number",
       finite: true,
@@ -399,13 +430,23 @@ export const OPTION_SCHEMA = [
   },
   {
     id: "streaming.maxNodes",
-    label: "Maximum Selected Nodes",
+    label: "Max selected nodes",
     description: "Upper bound for nodes in the active view frontier.",
     section: "streaming",
     statePath: "streaming.maxNodes",
     apiPath: "streaming.maxNodes",
     valueType: "integer",
     control: "number",
+    presentation: {
+      inputId: "max-nodes-value",
+      slider: {
+        id: "max-nodes",
+        label: "Max selected nodes",
+        minimum: 1,
+        maximum: 64,
+        step: 1,
+      },
+    },
     validation: {
       kind: "number",
       finite: true,
@@ -428,6 +469,7 @@ export const OPTION_SCHEMA = [
     apiPath: "streaming.maxDepth",
     valueType: "integer",
     control: "number",
+    presentation: { inputId: "max-depth-value" },
     validation: {
       kind: "number",
       finite: true,
@@ -450,6 +492,7 @@ export const OPTION_SCHEMA = [
     apiPath: "streaming.maxScreenSpaceError",
     valueType: "number",
     control: "number",
+    presentation: { inputId: "max-sse-value" },
     validation: {
       kind: "number",
       finite: true,
@@ -473,6 +516,7 @@ export const OPTION_SCHEMA = [
     apiPath: "streaming.screenSpaceErrorHysteresis",
     valueType: "number",
     control: "number",
+    presentation: { inputId: "sse-hysteresis" },
     validation: {
       kind: "number",
       finite: true,
@@ -500,6 +544,7 @@ export const OPTION_SCHEMA = [
     apiPath: "streaming.maxRenderDistanceMeters",
     valueType: "number",
     control: "number",
+    presentation: { inputId: "max-distance-value" },
     validation: {
       kind: "number",
       finite: true,
@@ -526,6 +571,7 @@ export const OPTION_SCHEMA = [
     apiPath: "streaming.maxConcurrentNodeLoads",
     valueType: "integer",
     control: "number",
+    presentation: { inputId: "max-concurrent-node-loads" },
     validation: {
       kind: "number",
       finite: true,
@@ -551,6 +597,11 @@ export const OPTION_SCHEMA = [
     apiPath: "streaming.refinementAlgorithm",
     valueType: "enum",
     control: "select",
+    presentation: {
+      controlId: "refinement-algorithm",
+      ariaLabel: "Refinement Algorithm",
+      widget: "segmented",
+    },
     choices: [
       { value: "foveated", label: "Foveated" },
       { value: "screen-projection", label: "Screen Projection" },
@@ -576,6 +627,11 @@ export const OPTION_SCHEMA = [
     apiPath: "streaming.motionLookahead",
     valueType: "boolean",
     control: "toggle",
+    presentation: {
+      controlId: "motion-lookahead-control",
+      ariaLabel: "Motion Lookahead",
+      widget: "segmented",
+    },
     validation: { kind: "boolean" },
     optional: true,
     renderers: BOTH_RENDERERS,
@@ -594,6 +650,7 @@ export const OPTION_SCHEMA = [
     apiPath: "streaming.predictivePrefetch",
     valueType: "boolean",
     control: "toggle",
+    presentation: { controlId: "predictive-prefetch" },
     validation: { kind: "boolean" },
     optional: true,
     renderers: BOTH_RENDERERS,
@@ -646,6 +703,11 @@ export const OPTION_SCHEMA = [
     apiPath: "rangeValidation",
     valueType: "enum",
     control: "select",
+    presentation: {
+      controlId: "range-validation-control",
+      ariaLabel: "HTTP Range Validation",
+      widget: "segmented",
+    },
     choices: [
       { value: "head-fallback", label: "HEAD Fallback" },
       { value: "strict", label: "Strict" },
@@ -668,6 +730,7 @@ export const OPTION_SCHEMA = [
     apiPath: "maxRangeBytes",
     valueType: "integer",
     control: "number",
+    presentation: { inputId: "max-range-bytes" },
     validation: {
       kind: "number",
       finite: true,
@@ -690,6 +753,7 @@ export const OPTION_SCHEMA = [
     apiPath: "maxConcurrentRangeRequests",
     valueType: "integer",
     control: "number",
+    presentation: { inputId: "max-concurrent-range-requests" },
     validation: {
       kind: "number",
       finite: true,
@@ -715,6 +779,7 @@ export const OPTION_SCHEMA = [
     apiPath: "pickingThreshold",
     valueType: "number",
     control: "number",
+    presentation: { inputId: "picking-threshold" },
     validation: {
       kind: "number",
       finite: true,

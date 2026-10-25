@@ -102,10 +102,12 @@ async function openRemoteSource(
 
 async function openSourceDiagnostics(page: Page): Promise<void> {
   await page.locator("#inspector-toggle").click();
+  await page.getByRole("tab", { name: "Source" }).click();
   await page.getByText("Source diagnostics", { exact: true }).click();
 }
 
 async function expectLoadedPoints(page: Page): Promise<void> {
+  await page.getByRole("tab", { name: "Health" }).click();
   const renderedPoints = page.locator('[data-field="renderedPointCount"]');
   await expect
     .poll(async () =>

@@ -14,6 +14,17 @@ import {
   type UiSegmentOption,
 } from "../../shared/ui-controls";
 import {
+  NPM_0_6_CAPABILITIES,
+  NPM_0_6_MANIFEST,
+  getOptionDefinition,
+} from "../../shared/schema/index.ts";
+import { normalizeWorkbenchOptionValues } from "../../shared/config/index.ts";
+import { mountSchemaOptionPanel } from "../../shared/workbench/SchemaOptionPanel.ts";
+import {
+  mountWorkbenchLayout,
+  mountWorkbenchRightTabs,
+} from "../../shared/workbench/WorkbenchLayout.ts";
+import {
   createDiagnosticsRefreshLoop,
   createDiagnosticsViewModel,
   displaySourceLabel,
@@ -23,10 +34,6 @@ import {
   type PlaygroundDiagnosticsContext,
   type PlaygroundLayerDiagnostics,
 } from "./diagnostics";
-import {
-  workbenchBackendOptions,
-  workbenchRendererOptions,
-} from "../../shared/workbench-config";
 import {
   generateIntegrationCode,
   isPotentiallySensitiveSource,
@@ -48,7 +55,6 @@ import {
 } from "./rendererRuntime";
 import {
   defaultPlaygroundRefinementConfig,
-  refinementAlgorithmOptions,
   type PlaygroundFocusMode,
   type PlaygroundRefinementConfig,
 } from "./refinementConfig";
@@ -59,8 +65,6 @@ import {
   type PlaygroundUrlConfig,
 } from "./playgroundUrlConfig";
 import {
-  cacheBytesToMib,
-  cacheMibToBytes,
   clonePlaygroundConfig,
   hasConstructorChanges,
   normalizeClassificationFilter,
@@ -68,6 +72,7 @@ import {
   validatePlaygroundConfig,
 } from "./playgroundConfig";
 import "./style.css";
+import "../../shared/workbench/workbench.css";
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("The Playground application root is missing.");
@@ -84,7 +89,7 @@ app.innerHTML = `
     </header>
 
     <main class="workbench" aria-label="COPC Adapter Playground">
-      <aside class="side-panel source-panel" aria-labelledby="source-heading">
+      <aside class="side-panel source-panel" id="source-panel" aria-labelledby="source-heading">
         <div class="panel-heading"><div><span class="eyebrow">SOURCE</span><h1 id="source-heading">Load a point cloud</h1></div></div>
         <p class="panel-intro">Stream a public COPC dataset, provide a browser-readable URL, or choose a local file.</p>
         <label class="ui-field" for="remote-source">Source
@@ -140,7 +145,7 @@ app.innerHTML = `
         </section>
       </aside>
 
-      <section class="viewer-column" aria-labelledby="viewer-heading">
+      <section class="viewer-column" id="viewer-column" aria-labelledby="viewer-heading">
         <div class="viewer-toolbar">
           <div class="viewer-title"><span class="eyebrow">VIEWPORT</span><h2 id="viewer-heading">Cesium</h2></div>
           <div class="camera-controls"><span class="control-label">Camera</span><div id="camera-control"></div></div>
@@ -158,26 +163,10 @@ app.innerHTML = `
         <div class="viewer-footer"><p class="viewer-caption" id="viewer-caption">Select a source to start streaming.</p><span class="renderer-badge" id="renderer-badge">Cesium</span></div>
       </section>
 
-      <aside class="side-panel config-panel" aria-label="Point cloud controls">
-        <section class="config-section" aria-labelledby="renderer-heading">
-          <div class="section-heading"><div><span class="eyebrow">RENDER</span><h2 id="renderer-heading">Renderer</h2></div></div>
-          <div id="renderer-control"></div>
-          <label class="control-label backend-label">Backend</label>
-          <div id="backend-control"></div>
-        </section>
+      <aside class="side-panel config-panel" id="config-panel" aria-label="Point cloud controls">
+        <div id="shared-schema-controls" class="schema-controls" aria-label="Adapter configuration options"></div>
         <p class="config-state" id="config-state" role="status" aria-live="polite">No layer is active. Settings apply when a source is loaded.</p>
-        <section class="config-section" aria-labelledby="appearance-heading">
-          <div class="section-heading"><div><span class="eyebrow">DISPLAY</span><h2 id="appearance-heading">Appearance</h2></div></div>
-          <span class="control-label">Color mode</span>
-          <div id="color-mode" aria-label="Color mode"></div>
-          <p class="control-hint">Fixed uses one color; RGB reads stored color channels; Elevation maps height; Intensity and Classification use LAS attributes. The adapter applies its documented fallback when an attribute is unavailable.</p>
-          <div class="slider-control" id="point-size-control"></div>
-          <label class="ui-field" for="point-size-value">Point size in pixels
-            <input id="point-size-value" type="number" min="0.01" step="0.01" inputmode="decimal">
-          </label>
-          <p class="control-hint" id="point-size-slider-help" hidden></p>
-          <p class="control-hint">Cesium applies color changes to the active layer. Three.js uses Apply for constructor changes.</p>
-          <section class="classification-controls" aria-labelledby="classification-heading">
+        <section class="config-section classification-controls" aria-labelledby="classification-heading">
             <h3 id="classification-heading">Classification filter <span class="active-filter" id="classification-active">No filter</span></h3>
             <label class="focus-checkbox" for="classification-include-enabled"><input id="classification-include-enabled" type="checkbox"> Use include list</label>
             <label class="ui-field" for="classification-include">Include codes (0–255)
@@ -193,41 +182,10 @@ app.innerHTML = `
             </div>
             <p class="control-hint" id="classification-help">An empty include list hides all points. Classification styling is available only on an active Cesium layer.</p>
             <p class="control-error" id="classification-error" role="status" aria-live="polite" hidden></p>
-          </section>
           <p class="control-error" id="style-error" role="status" aria-live="polite" hidden></p>
-        </section>
-        <section class="config-section" aria-labelledby="streaming-heading">
-          <div class="section-heading"><div><span class="eyebrow">STREAM</span><h2 id="streaming-heading">Streaming</h2></div></div>
-          <div class="slider-control" id="max-nodes-control"></div>
-          <div class="slider-control" id="max-points-control"></div>
-          <label class="ui-field" for="max-nodes-value">Max nodes
-            <input id="max-nodes-value" type="number" min="1" step="1" inputmode="numeric">
-          </label>
-          <label class="ui-field" for="max-points-value">Max rendered points
-            <input id="max-points-value" type="number" min="1" step="1" inputmode="numeric">
-          </label>
-          <p class="control-hint">Estimated active-view point workload; this is not an exact GPU memory limit.</p>
-          <label class="ui-field" for="cache-budget-mib">Point cache budget (MiB)
-            <input id="cache-budget-mib" type="number" min="0" step="0.25" inputmode="decimal">
-          </label>
-          <p class="control-hint">Budget for decoded point buffers retained in CPU memory.</p>
-          <label class="ui-field" for="max-depth-value">Max refinement depth
-            <input id="max-depth-value" type="number" min="0" step="1" inputmode="numeric">
-          </label>
-          <label class="ui-field" for="max-sse-value">Max screen-space error (pixels)
-            <input id="max-sse-value" type="number" min="0.01" step="0.1" inputmode="decimal">
-          </label>
-          <label class="ui-field" for="max-distance-value">Max render distance (metres)
-            <input id="max-distance-value" type="number" min="0.01" step="1" inputmode="decimal">
-          </label>
-          <p class="control-hint">Max nodes limits active frontier pressure; max depth caps hierarchy refinement. Lower screen-space error generally requests finer LoD, and render distance limits far visibility.</p>
-          <p class="control-hint" id="streaming-slider-help">Sliders are quick adjustments; numeric fields accept any valid package value. Constructor settings stay pending until applied.</p>
         </section>
         <section class="config-section focus-section" aria-labelledby="focus-heading">
           <div class="section-heading"><div><span class="eyebrow">REFINE</span><h2 id="focus-heading">Focus Lens</h2></div></div>
-          <label class="ui-field" for="refinement-algorithm">Refinement algorithm
-            <select id="refinement-algorithm"></select>
-          </label>
           <label class="ui-field" for="focus-mode">Focus mode
             <select id="focus-mode">
               <option value="auto-center">Auto center</option>
@@ -249,10 +207,6 @@ app.innerHTML = `
           <p class="control-hint" id="focus-help">Focus prioritizes LoD refinement near this screen-space region; it does not crop the point cloud.</p>
           <p class="focus-config-warning" id="focus-config-warning" role="status" aria-live="polite" hidden></p>
         </section>
-        <section class="package-card" aria-label="Installed adapter package">
-          <span class="package-mark" aria-hidden="true">↗</span>
-          <div><strong>Adapter package</strong><span><code>@frillab/copc-adapter</code> v${__ADAPTER_VERSION__}</span><span id="package-source">${__ADAPTER_SOURCE__}</span></div>
-        </section>
         <div class="config-actions">
           <button class="source-load" id="apply-changes" type="button" disabled>Apply changes</button>
           <button id="reset-defaults" type="button">Reset to defaults</button>
@@ -261,7 +215,7 @@ app.innerHTML = `
       </aside>
     </main>
 
-    <section class="below-viewer" aria-label="Source and point details">
+    <section class="below-viewer" id="below-viewer" aria-label="Source and point details">
       <section class="diagnostics-card diagnostics-dashboard" aria-labelledby="diagnostics-heading">
         <div class="diagnostics-title-row">
           <div><span class="eyebrow">LIVE</span><h2 id="diagnostics-heading">Streaming diagnostics</h2></div>
@@ -371,6 +325,59 @@ const byId = <T extends HTMLElement>(id: string): T => {
   return element as T;
 };
 
+const playgroundShell = app.querySelector<HTMLElement>(".playground-shell")!;
+const oldWorkbench = app.querySelector<HTMLElement>(".workbench")!;
+const belowViewer = byId<HTMLElement>("below-viewer");
+const sourcePanel = byId<HTMLElement>("source-panel");
+const viewerColumn = byId<HTMLElement>("viewer-column");
+const configPanel = byId<HTMLElement>("config-panel");
+const workbenchLeft = document.createElement("aside");
+workbenchLeft.id = "workbench-controls";
+const workbenchRight = document.createElement("aside");
+workbenchRight.id = "workbench-details";
+workbenchRight.setAttribute("aria-label", "Workbench details");
+const codeTabPanel = document.createElement("section");
+const sourceTabPanel = document.createElement("section");
+const healthTabPanel = document.createElement("section");
+const dataTabPanel = document.createElement("section");
+const generatedCodeCard = belowViewer.querySelector<HTMLElement>(".generated-code-card")!;
+const diagnosticCard = belowViewer.querySelector<HTMLElement>(".diagnostics-dashboard")!;
+const pointCard = belowViewer.querySelector<HTMLElement>(".point-card")!;
+codeTabPanel.append(generatedCodeCard);
+sourceTabPanel.append(
+  byId("source-status"),
+  byId("source-probe"),
+  byId("source-probe-details"),
+  byId("source-probe-warning"),
+  byId("metadata-summary"),
+);
+workbenchLeft.append(sourcePanel, configPanel);
+healthTabPanel.append(diagnosticCard);
+dataTabPanel.append(pointCard);
+const rightTabs = mountWorkbenchRightTabs({
+  target: workbenchRight,
+  tabs: [
+    { tab: "code", label: "Code", panel: codeTabPanel },
+    { tab: "source", label: "Source", panel: sourceTabPanel },
+    { tab: "health", label: "Health", panel: healthTabPanel },
+    { tab: "data", label: "Data", panel: dataTabPanel },
+  ],
+});
+const workbenchStatus = byId<HTMLElement>("footer-status").closest<HTMLElement>("footer")!;
+const workbenchLayout = mountWorkbenchLayout({
+  root: playgroundShell,
+  provenance: `${__ADAPTER_SOURCE__} ${__ADAPTER_VERSION__} / Playground`,
+  provenanceId: "package-source",
+  leftPanel: workbenchLeft,
+  viewport: viewerColumn,
+  rightPanel: workbenchRight,
+  status: workbenchStatus,
+  leftLabel: "Configuration",
+  rightLabel: "Workbench details",
+});
+oldWorkbench.remove();
+belowViewer.remove();
+
 const viewport = byId<HTMLDivElement>("cesium-container");
 const sourceStatus = byId<HTMLElement>("source-status");
 const sourceProbe = byId<HTMLElement>("source-probe");
@@ -386,7 +393,6 @@ const statusFooter = byId<HTMLElement>("footer-status");
 const viewerFrame = byId<HTMLDivElement>("viewer-frame");
 const focusGuide = byId<HTMLDivElement>("focus-guide");
 const focusGuideHandle = byId<HTMLButtonElement>("focus-guide-handle");
-const algorithmSelect = byId<HTMLSelectElement>("refinement-algorithm");
 const focusModeSelect = byId<HTMLSelectElement>("focus-mode");
 const focusEnabledInput = byId<HTMLInputElement>("focus-enabled");
 const focusShowGuideInput = byId<HTMLInputElement>("focus-show-guide");
@@ -483,6 +489,17 @@ let currentProbeResult: CopcSourceProbeResult | undefined;
 let activePointFormat: number | undefined;
 let cameraInteractionVersion = 0;
 let layerFactory: CesiumLayerFactory | undefined;
+let schemaPanel: ReturnType<typeof mountSchemaOptionPanel> | undefined;
+
+function playgroundOptionValues(
+  config: IntegrationCodeConfig,
+): Record<string, unknown> {
+  return normalizeWorkbenchOptionValues({
+    ...(config as unknown as Readonly<Record<string, unknown>>),
+    ...(config.schemaOptionValues ?? {}),
+    "streaming.refinementAlgorithm": config.refinementConfig.algorithm,
+  });
+}
 
 function captureWorkbenchConfig(): IntegrationCodeConfig {
   return {
@@ -533,10 +550,6 @@ function updatePendingConfig(
   updateIntegrationExample();
 }
 
-for (const option of refinementAlgorithmOptions) {
-  algorithmSelect.add(new Option(option.label, option.value));
-}
-algorithmSelect.value = pendingConfig.refinementConfig.algorithm;
 focusModeSelect.value = pendingConfig.refinementConfig.focusMode;
 focusEnabledInput.checked = pendingConfig.refinementConfig.focusEnabled;
 focusShowGuideInput.checked = pendingConfig.refinementConfig.showGuide;
@@ -842,33 +855,6 @@ const setStatus = (
 };
 
 const knownRgbFormats = new Set([2, 3, 5, 7, 8, 10]);
-const colorControl = mountSegmentedControl<PlaygroundColorMode>(
-  byId("color-mode"),
-  {
-    label: "Color mode",
-    value: pendingConfig.colorMode,
-    className: "color-segments",
-    choices: [],
-    onChange: (value) => {
-      const activeCesium =
-        activeRuntimeReady &&
-        !activeLoadPending &&
-        activeRuntime?.renderer === "cesium" &&
-        appliedConfig?.renderer === "cesium" &&
-        pendingConfig.renderer === "cesium";
-      if (activeCesium && !applyCesiumStyle({ colorMode: value })) {
-        colorControl.setValue(appliedConfig?.colorMode ?? pendingConfig.colorMode);
-        return;
-      }
-      if (!activeCesium || activeLoadPending) {
-        updatePendingConfig({ colorMode: value });
-      }
-      byId("point-empty").textContent =
-        "Click a point in the viewport to inspect its available attributes.";
-    },
-  },
-);
-
 const updateColorChoices = (pointFormat?: number): void => {
   const formatKnown = pointFormat !== undefined;
   const rgbSupported =
@@ -889,58 +875,101 @@ const updateColorChoices = (pointFormat?: number): void => {
           : undefined,
     },
   ];
-  colorControl.setOptions(choices);
+  schemaPanel?.setChoices("rendering.colorMode", choices);
   if (formatKnown && !rgbSupported && pendingConfig.colorMode === "rgb") {
-    colorControl.setValue("elevation");
+    updatePendingConfig({ colorMode: "elevation" });
   }
 };
-updateColorChoices();
 
-const rendererControl = mountSegmentedControl<PlaygroundRenderer>(
-  byId("renderer-control"),
-  {
-    label: "Renderer",
-    value: pendingConfig.renderer,
-    choices: workbenchRendererOptions,
-    onChange: (value) => {
-      updatePendingConfig({ renderer: value });
-      syncRendererLabels();
-      if (
-        value === "cesium" &&
-        activeRuntimeReady &&
-        !activeLoadPending &&
-        activeRuntime?.renderer === "cesium" &&
-        appliedConfig &&
-        pendingConfig.colorMode !== appliedConfig.colorMode
-      ) {
-        const requestedColorMode = pendingConfig.colorMode;
-        if (!applyCesiumStyle({ colorMode: requestedColorMode })) {
-          pendingConfig = {
-            ...pendingConfig,
-            colorMode: appliedConfig.colorMode,
-          };
-          colorControl.setValue(appliedConfig.colorMode);
-          writePendingUrlConfig();
-          updateApplyState();
-          updateIntegrationExample();
-        }
+function handleSchemaOptionChange(optionId: string, value: unknown): void {
+  if (optionId === "renderer.engine") {
+    const renderer = value as PlaygroundRenderer;
+    updatePendingConfig({ renderer });
+    syncRendererLabels();
+    if (
+      renderer === "cesium" &&
+      activeRuntimeReady &&
+      !activeLoadPending &&
+      activeRuntime?.renderer === "cesium" &&
+      appliedConfig &&
+      pendingConfig.colorMode !== appliedConfig.colorMode
+    ) {
+      if (!applyCesiumStyle({ colorMode: pendingConfig.colorMode })) {
+        pendingConfig = { ...pendingConfig, colorMode: appliedConfig.colorMode };
+        schemaPanel?.update({
+          values: playgroundOptionValues(pendingConfig),
+          context: { renderer: pendingConfig.renderer },
+        });
+        writePendingUrlConfig();
+        updateApplyState();
+        updateIntegrationExample();
       }
-    },
-  },
-);
+    }
+    return;
+  }
+  if (optionId === "adapter.backend") {
+    updatePendingConfig({ backend: value as PlaygroundBackend });
+    syncRendererLabels();
+    return;
+  }
+  if (optionId === "rendering.colorMode") {
+    const colorMode = value as PlaygroundColorMode;
+    const activeCesium =
+      activeRuntimeReady &&
+      !activeLoadPending &&
+      activeRuntime?.renderer === "cesium" &&
+      appliedConfig?.renderer === "cesium" &&
+      pendingConfig.renderer === "cesium";
+    if (activeCesium && !applyCesiumStyle({ colorMode })) {
+      schemaPanel?.update({ values: playgroundOptionValues(pendingConfig) });
+      return;
+    }
+    if (!activeCesium || activeLoadPending) updatePendingConfig({ colorMode });
+    byId("point-empty").textContent =
+      "Click a point in the viewport to inspect its available attributes.";
+    return;
+  }
+  if (optionId === "streaming.refinementAlgorithm") {
+    const algorithm = value as PlaygroundRefinementConfig["algorithm"];
+    updatePendingConfig({
+      refinementAlgorithm: algorithm,
+      refinementConfig: { ...pendingConfig.refinementConfig, algorithm },
+    });
+    return;
+  }
 
-const backendControl = mountSegmentedControl<PlaygroundBackend>(
-  byId("backend-control"),
-  {
-    label: "COPC backend",
-    value: pendingConfig.backend,
-    choices: workbenchBackendOptions,
-    onChange: (value) => {
-      updatePendingConfig({ backend: value });
-      syncRendererLabels();
+  const definition = getOptionDefinition(optionId);
+  const stateField = definition?.statePath.split(".").at(-1);
+  if (stateField && Object.hasOwn(pendingConfig, stateField)) {
+    updatePendingConfig({ [stateField]: value } as Partial<IntegrationCodeConfig>);
+    return;
+  }
+  updatePendingConfig({
+    schemaOptionValues: {
+      ...(pendingConfig.schemaOptionValues ?? {}),
+      [optionId]: value,
     },
+  });
+}
+
+schemaPanel = mountSchemaOptionPanel({
+  target: byId("shared-schema-controls"),
+  context: {
+    manifest: NPM_0_6_MANIFEST,
+    renderer: pendingConfig.renderer,
+    runtimeCapabilities: NPM_0_6_CAPABILITIES,
   },
-);
+  values: playgroundOptionValues(pendingConfig),
+  excludeOptionIds: [
+    "source.url",
+    "style.classificationFilter",
+    "streaming.refinementFocus",
+    "rendering.cesiumPointRenderer",
+    "coordinates.verticalTransform",
+  ],
+  onChange: handleSchemaOptionChange,
+});
+updateColorChoices();
 
 const cameraControl = mountSegmentedControl<PlaygroundCameraView>(
   byId("camera-control"),
@@ -957,48 +986,6 @@ const cameraControl = mountSegmentedControl<PlaygroundCameraView>(
     },
   },
 );
-
-const sliders = [
-  mountSlider(byId("point-size-control"), {
-    id: "point-size",
-    label: "Point size",
-    min: 1,
-    max: 10,
-    step: 1,
-    value: pendingConfig.pointSize,
-    formatValue: (value) => `${formatUiNumber(value)} px`,
-    onCommit(value) {
-      byId<HTMLInputElement>("point-size-value").value = String(value);
-      updatePendingConfig({ pointSize: value });
-    },
-  }),
-  mountSlider(byId("max-nodes-control"), {
-    id: "max-nodes",
-    label: "Max selected nodes",
-    min: 1,
-    max: 48,
-    step: 1,
-    value: pendingConfig.maxNodes,
-    formatValue: formatUiNumber,
-    onCommit(value) {
-      byId<HTMLInputElement>("max-nodes-value").value = String(value);
-      updatePendingConfig({ maxNodes: value });
-    },
-  }),
-  mountSlider(byId("max-points-control"), {
-    id: "max-points",
-    label: "Max rendered points",
-    min: 50_000,
-    max: 1_000_000,
-    step: 50_000,
-    value: pendingConfig.maxRenderedPoints,
-    formatValue: (value) => formatUiNumber(value),
-    onCommit(value) {
-      byId<HTMLInputElement>("max-points-value").value = String(value);
-      updatePendingConfig({ maxRenderedPoints: value });
-    },
-  }),
-];
 
 const focusRadiusSlider = mountSlider(byId("focus-radius-control"), {
   id: "focus-radius",
@@ -1027,54 +1014,14 @@ const focusBiasSlider = mountSlider(byId("focus-bias-control"), {
     applyFocusSettings();
   },
 });
-sliders.push(focusRadiusSlider, focusBiasSlider);
 
 const invalidNumericInputs = new Map<string, string>();
 
 function syncPendingControls(): void {
-  rendererControl.setValue(pendingConfig.renderer);
-  backendControl.setValue(pendingConfig.backend);
-  colorControl.setValue(pendingConfig.colorMode);
-  sliders[0]?.setValue(pendingConfig.pointSize);
-  sliders[1]?.setValue(pendingConfig.maxNodes);
-  sliders[2]?.setValue(pendingConfig.maxRenderedPoints);
-  const pointSizeOutOfSliderRange = pendingConfig.pointSize < 1 || pendingConfig.pointSize > 10;
-  const maxNodesOutOfSliderRange = pendingConfig.maxNodes < 1 || pendingConfig.maxNodes > 48;
-  const maxPointsOutOfSliderRange = pendingConfig.maxRenderedPoints < 50_000 || pendingConfig.maxRenderedPoints > 1_000_000;
-  sliders[0]?.setDisabled(pointSizeOutOfSliderRange);
-  sliders[1]?.setDisabled(maxNodesOutOfSliderRange);
-  sliders[2]?.setDisabled(maxPointsOutOfSliderRange);
-  const pointSizeSliderHelp = byId<HTMLElement>("point-size-slider-help");
-  pointSizeSliderHelp.hidden = !pointSizeOutOfSliderRange;
-  pointSizeSliderHelp.textContent = pointSizeOutOfSliderRange
-    ? `The ${formatUiNumber(pendingConfig.pointSize)} px value is outside the quick-slider range. Adjust it with the numeric field.`
-    : "";
-  const streamingSliderHelp = byId<HTMLElement>("streaming-slider-help");
-  const outOfRangeSettings = [
-    ...(maxNodesOutOfSliderRange ? ["Max nodes"] : []),
-    ...(maxPointsOutOfSliderRange ? ["Max rendered points"] : []),
-  ];
-  streamingSliderHelp.textContent = outOfRangeSettings.length > 0
-    ? `${outOfRangeSettings.join(" and ")} is outside the quick-slider range. Adjust it with the numeric field. Constructor settings stay pending until applied.`
-    : "Sliders are quick adjustments; numeric fields accept any valid package value. Constructor settings stay pending until applied.";
-  for (const id of ["point-size-value", "max-nodes-value", "max-points-value", "cache-budget-mib", "max-depth-value", "max-sse-value", "max-distance-value"]) {
-    invalidNumericInputs.delete(id);
-    byId<HTMLInputElement>(id).removeAttribute("aria-invalid");
-  }
-  byId<HTMLInputElement>("point-size-value").value = String(pendingConfig.pointSize);
-  byId<HTMLInputElement>("max-nodes-value").value = String(pendingConfig.maxNodes);
-  byId<HTMLInputElement>("max-points-value").value = String(pendingConfig.maxRenderedPoints);
-  byId<HTMLInputElement>("cache-budget-mib").value = String(
-    cacheBytesToMib(pendingConfig.maxPointCacheBytes),
-  );
-  byId<HTMLInputElement>("max-depth-value").value = String(pendingConfig.maxDepth);
-  byId<HTMLInputElement>("max-sse-value").value = String(
-    pendingConfig.maxScreenSpaceError,
-  );
-  byId<HTMLInputElement>("max-distance-value").value = String(
-    pendingConfig.maxRenderDistanceMeters,
-  );
-  algorithmSelect.value = pendingConfig.refinementConfig.algorithm;
+  schemaPanel?.update({
+    values: playgroundOptionValues(pendingConfig),
+    context: { renderer: pendingConfig.renderer },
+  });
   refinementConfig = pendingConfig.refinementConfig;
   updateFocusControls();
   updateClassificationControls();
@@ -1082,7 +1029,11 @@ function syncPendingControls(): void {
 
 function updateApplyState(): void {
   const configErrors = validatePlaygroundConfig(pendingConfig);
-  const errors = [...invalidNumericInputs.values(), ...configErrors];
+  const errors = [
+    ...invalidNumericInputs.values(),
+    ...configErrors,
+    ...(schemaPanel?.getValidationErrors() ?? []),
+  ];
   configValidation.textContent = [...new Set(errors)].join(" ");
   configValidation.hidden = errors.length === 0;
   const hasPendingConstructorChanges =
@@ -1108,78 +1059,6 @@ function updateApplyState(): void {
   updateClassificationControls();
   updateRemoteLoadState();
 }
-
-function bindNumericInput(
-  id: string,
-  label: string,
-  update: (value: number) => Partial<IntegrationCodeConfig>,
-  validate: (value: number) => boolean,
-): void {
-  const input = byId<HTMLInputElement>(id);
-  input.addEventListener("change", () => {
-    const value = Number(input.value);
-    if (input.value.trim() === "" || !validate(value)) {
-      const message = `${label} must be a valid finite value within the package contract.`;
-      invalidNumericInputs.set(id, message);
-      input.setAttribute("aria-invalid", "true");
-      updateApplyState();
-      return;
-    }
-    invalidNumericInputs.delete(id);
-    input.removeAttribute("aria-invalid");
-    updatePendingConfig(update(value));
-  });
-}
-
-bindNumericInput(
-  "point-size-value",
-  "Point size",
-  (pointSize) => ({ pointSize }),
-  (value) => Number.isFinite(value) && value > 0,
-);
-bindNumericInput(
-  "max-nodes-value",
-  "Max nodes",
-  (maxNodes) => ({ maxNodes }),
-  (value) => Number.isSafeInteger(value) && value > 0,
-);
-bindNumericInput(
-  "max-points-value",
-  "Max rendered points",
-  (maxRenderedPoints) => ({ maxRenderedPoints }),
-  (value) => Number.isSafeInteger(value) && value > 0,
-);
-bindNumericInput(
-  "cache-budget-mib",
-  "Cache budget",
-  (value) => ({ maxPointCacheBytes: cacheMibToBytes(value) }),
-  (value) => {
-    try {
-      cacheMibToBytes(value);
-      return true;
-    } catch {
-      return false;
-    }
-  },
-);
-bindNumericInput(
-  "max-depth-value",
-  "Max depth",
-  (maxDepth) => ({ maxDepth }),
-  (value) => Number.isSafeInteger(value) && value >= 0,
-);
-bindNumericInput(
-  "max-sse-value",
-  "Max screen-space error",
-  (maxScreenSpaceError) => ({ maxScreenSpaceError }),
-  (value) => Number.isFinite(value) && value > 0,
-);
-bindNumericInput(
-  "max-distance-value",
-  "Max render distance",
-  (maxRenderDistanceMeters) => ({ maxRenderDistanceMeters }),
-  (value) => Number.isFinite(value) && value > 0,
-);
 
 function sameClassificationFilter(
   left: IntegrationCodeConfig["classificationFilter"],
@@ -1528,7 +1407,6 @@ function updateFocusControls(): void {
     ? activeRuntime?.renderer ?? pendingConfig.renderer
     : pendingConfig.renderer;
   refinementConfig = pendingConfig.refinementConfig;
-  algorithmSelect.value = refinementConfig.algorithm;
   focusModeSelect.value = refinementConfig.focusMode;
   focusEnabledInput.checked = refinementConfig.focusEnabled;
   focusShowGuideInput.checked = refinementConfig.showGuide;
@@ -2167,15 +2045,6 @@ const observeBrowserLongTasks = (
     longTaskObserver = undefined;
   }
 };
-
-algorithmSelect.addEventListener("change", () => {
-  const selected = refinementAlgorithmOptions.find(
-    (option) => option.value === algorithmSelect.value,
-  );
-  if (!selected) return;
-  refinementConfig = { ...refinementConfig, algorithm: selected.value };
-  updatePendingConfig({ refinementConfig });
-});
 
 focusModeSelect.addEventListener("change", () => {
   setFocusMode(focusModeSelect.value as PlaygroundFocusMode);
@@ -2870,10 +2739,11 @@ const destroyPlayground = (): void => {
   releasePendingRuntime();
   destroyActiveRuntime();
   focusResizeObserver.disconnect();
-  for (const slider of sliders) slider.destroy();
-  colorControl.destroy();
-  rendererControl.destroy();
-  backendControl.destroy();
+  focusRadiusSlider.destroy();
+  focusBiasSlider.destroy();
+  schemaPanel?.destroy();
+  rightTabs.destroy();
+  workbenchLayout.destroy();
   cameraControl.destroy();
 };
 window.addEventListener("pagehide", destroyPlayground, { once: true });
