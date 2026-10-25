@@ -1246,12 +1246,11 @@ for (const renderer of ["Cesium", "Three.js"] as const) {
       "Loaded Autzen Stadium",
       { timeout: 120_000 },
     );
-    await page.getByRole("tab", { name: "Health" }).click();
-    await expect(page.locator("#diagnostic-range")).toHaveText("Supported");
-    await expect(page.locator("#diagnostic-validation")).toHaveText(
+    await page.getByRole("tab", { name: "Source" }).click();
+    await expect(page.locator("#probe-range")).toHaveText("Supported");
+    await expect(page.locator("#probe-validation")).toHaveText(
       "Strict response validation",
     );
-    await page.getByRole("tab", { name: "Source" }).click();
     await expect(page.locator("#metadata-summary")).toBeVisible();
     await expect(page.locator("#metadata-point-count")).not.toHaveText("Not available");
     await page.getByRole("tab", { name: "Health" }).click();

@@ -90,6 +90,35 @@ test("uses the shared schema controls and four-tab Workbench shell", async ({
   expect(narrowLayout.viewportWidth).toBeGreaterThan(0);
 });
 
+test("keeps source validation, runtime health, and dataset analysis in their own tabs", async ({
+  page,
+}) => {
+  await page.goto("./");
+
+  await page.getByRole("tab", { name: "Source" }).click();
+  await expect(page.locator("#source-status")).toBeVisible();
+
+  await page.getByRole("tab", { name: "Health" }).click();
+  await expect(
+    page.locator("#workbench-panel-health [data-diagnostic-section='playground-health-runtime'] summary"),
+  ).toHaveText("Runtime status");
+  await expect(
+    page.locator("#workbench-panel-health [data-diagnostic-section='playground-health-resources'] summary"),
+  ).toHaveText("Cache and workers");
+  await expect(
+    page.locator("#workbench-panel-health [data-diagnostic-section='playground-data-hierarchy']"),
+  ).toHaveCount(0);
+
+  await page.getByRole("tab", { name: "Data" }).click();
+  await expect(
+    page.locator("#workbench-panel-data [data-diagnostic-section='playground-data-hierarchy'] summary"),
+  ).toHaveText("Hierarchy and coverage");
+  await expect(
+    page.locator("#workbench-panel-data [data-diagnostic-section='playground-data-refinement'] summary"),
+  ).toHaveText("Refinement and budget");
+  await expect(page.locator("#workbench-panel-data .point-popover")).toHaveCount(0);
+});
+
 test("retains Cesium-only schema options across renderer changes without applying them to Three.js", async ({
   page,
 }) => {

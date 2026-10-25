@@ -1,7 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildCopcDebugPanelView } from "../src/debug/CopcDebugPanel.ts";
+import {
+  buildCopcDebugPanelView,
+  COPC_DEBUG_DATA_SECTIONS,
+  COPC_DEBUG_HEALTH_SECTIONS,
+  COPC_DEBUG_SOURCE_SECTIONS,
+} from "../src/debug/CopcDebugPanel.ts";
+import { validateDiagnosticSections } from "../../shared/diagnostics/DiagnosticSections.ts";
 
 function createSnapshot(overrides = {}) {
   return {
@@ -21,7 +27,6 @@ function createSnapshot(overrides = {}) {
       maxScreenSpaceError: 8,
       configuredPointBudget: 250000,
       candidateSelectedPointCount: 3456,
-      activeRenderedPointCount: 2345,
       deferredNodeCount: 2,
       deferredPointCount: 1111,
       budgetDeferDropCount: 2,
@@ -166,7 +171,6 @@ test("maps layer diagnostics and metadata into browser-visible values", () => {
       lastQueryDurationMs: 275,
       loadedEntryCount: 28,
     },
-    activeColorMode: "classification",
     configuredRangeValidation: "head-fallback",
     sourceProbePolicy: "head-fallback",
     rangeValidationApplicable: true,
@@ -191,8 +195,6 @@ test("maps layer diagnostics and metadata into browser-visible values", () => {
   assert.equal(view.motionLiveState, "decaying");
   assert.equal(view.motionLiveMovementSamples, "4");
   assert.match(view.motionLivePrediction, /2\.4000000° horizontal/);
-  assert.equal(view.motionSelectionGeneration, "7");
-  assert.equal(view.motionSelectionNodes, "3 selected · 2 rendered");
   assert.equal(view.motionSelectionCandidates, "4");
   assert.equal(view.motionSelectionWeights, "0.10000000–0.80000000");
   assert.match(
@@ -203,7 +205,6 @@ test("maps layer diagnostics and metadata into browser-visible values", () => {
   assert.equal(view.renderedNodeCount, "2");
   assert.equal(view.renderedNodeKeys, "1-0-0-0, 1-1-0-0");
   assert.equal(view.renderedPointCount, "2,345");
-  assert.equal(view.activeColorMode, "classification");
   assert.equal(view.hierarchyRequests, "9");
   assert.equal(view.hierarchyCacheHits, "4");
   assert.equal(view.hierarchyLoadedPages, "3");
@@ -218,7 +219,6 @@ test("maps layer diagnostics and metadata into browser-visible values", () => {
   assert.equal(view.refinementReplacementCommits, "5");
   assert.equal(view.configuredPointBudget, "250,000");
   assert.equal(view.candidateSelectedPointCount, "3,456");
-  assert.equal(view.activeRenderedPointCount, "2,345");
   assert.equal(view.deferredNodeCount, "2");
   assert.equal(view.deferredPointCount, "1,111");
   assert.equal(view.budgetUtilization, "0.93800000%");
@@ -265,6 +265,30 @@ test("maps layer diagnostics and metadata into browser-visible values", () => {
   assert.equal(view.sourceWarnings, "—");
 });
 
+test("assigns every Dev Viewer diagnostic field to one source, health, or data owner", () => {
+  const allSections = [
+    ...COPC_DEBUG_SOURCE_SECTIONS,
+    ...COPC_DEBUG_HEALTH_SECTIONS,
+    ...COPC_DEBUG_DATA_SECTIONS,
+  ];
+  assert.doesNotThrow(() => validateDiagnosticSections(allSections));
+  const keysFor = (sections) => sections.flatMap((section) =>
+    section.fields.map((field) => field.key),
+  );
+  const sourceKeys = keysFor(COPC_DEBUG_SOURCE_SECTIONS);
+  const healthKeys = keysFor(COPC_DEBUG_HEALTH_SECTIONS);
+  const dataKeys = keysFor(COPC_DEBUG_DATA_SECTIONS);
+
+  assert.ok(sourceKeys.includes("pointCount"));
+  assert.ok(sourceKeys.includes("sourceRange"));
+  assert.ok(healthKeys.includes("status"));
+  assert.ok(healthKeys.includes("pointCacheBytes"));
+  assert.ok(dataKeys.includes("hierarchyRequests"));
+  assert.ok(dataKeys.includes("viewDistance"));
+  assert.ok(dataKeys.includes("motionLiveState"));
+  assert.equal(dataKeys.includes("selectedPoint"), false);
+});
+
 test("formats adaptive view-distance diagnostics for browser inspection", () => {
   const view = buildCopcDebugPanelView({
     snapshot: createSnapshot({
@@ -303,7 +327,7 @@ test("shows loading placeholders and gives runtime errors precedence", () => {
   assert.equal(loading.statusTone, "loading");
   assert.equal(loading.pointCount, "—");
   assert.equal(loading.selectedNodeKeys, "—");
-  assert.equal(loading.motionLiveState, "disabled");
+  assert.equal(loading.motionLiveState, "—");
 
   const failed = buildCopcDebugPanelView({
     snapshot: createSnapshot({ lifecycle: "loading" }),
@@ -313,6 +337,31 @@ test("shows loading placeholders and gives runtime errors precedence", () => {
   assert.equal(failed.status, "Error");
   assert.equal(failed.statusTone, "error");
   assert.equal(failed.error, "Range request failed");
+});
+
+test("keeps unavailable workspace diagnostics distinct from real zero measurements", () => {
+  const view = buildCopcDebugPanelView({
+    snapshot: createSnapshot({
+      lifecycle: "idle",
+      performance: {},
+      pointCache: undefined,
+      selectedNodeKeys: [],
+      renderedNodeKeys: [],
+      renderedPointCount: 0,
+    }),
+    snapshotIsAvailable: false,
+  });
+
+  assert.equal(view.status, "Not loaded");
+  assert.equal(view.selectedNodeCount, "—");
+  assert.equal(view.renderedNodeCount, "—");
+  assert.equal(view.renderedPointCount, "—");
+  assert.equal(view.streamingUpdateCount, "—");
+  assert.equal(view.hierarchyRequests, "—");
+  assert.equal(view.configuredPointBudget, "—");
+  assert.equal(view.motionLiveState, "—");
+  assert.equal(view.motionLivePrediction, "—");
+  assert.equal(view.pointCacheBytes, "—");
 });
 
 test("keeps completed scheduling priority visible after the pending queue drains", () => {

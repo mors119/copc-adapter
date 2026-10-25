@@ -104,6 +104,40 @@ test("uses the same schema controls and default Workbench tabs as Playground", a
   expect(narrowLayout.viewportWidth).toBeGreaterThan(0);
 });
 
+test("assigns source, runtime health, and dataset analysis to separate tabs", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  await page.getByRole("tab", { name: "Source" }).click();
+  await expect(
+    page.locator("#workbench-panel-source [data-diagnostic-section='source-current'] summary"),
+  ).toHaveText("Current source");
+  await expect(
+    page.locator("#workbench-panel-source [data-diagnostic-section='source-probe'] summary"),
+  ).toHaveText("Range, CORS, and format validation");
+
+  await page.getByRole("tab", { name: "Health" }).click();
+  await expect(
+    page.locator("#workbench-panel-health [data-diagnostic-section='health-runtime'] summary"),
+  ).toHaveText("Runtime status");
+  await expect(
+    page.locator("#workbench-panel-health [data-diagnostic-section='health-cache'] summary"),
+  ).toHaveText("Decoded CPU point cache");
+  await expect(
+    page.locator("#workbench-panel-health [data-diagnostic-section='data-hierarchy']"),
+  ).toHaveCount(0);
+
+  await page.getByRole("tab", { name: "Data" }).click();
+  await expect(
+    page.locator("#workbench-panel-data [data-diagnostic-section='data-hierarchy'] summary"),
+  ).toHaveText("Hierarchy");
+  await expect(
+    page.locator("#workbench-panel-data [data-diagnostic-section='data-motion'] summary"),
+  ).toHaveText("Motion Lookahead");
+  await expect(page.locator("#workbench-panel-data .point-popover")).toHaveCount(0);
+});
+
 test("generates shared Code tab output from applied workspace configuration", async ({
   page,
 }) => {

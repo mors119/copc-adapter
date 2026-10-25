@@ -785,49 +785,6 @@ button {
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
-.diagnostic-note {
-  margin: 9px 0 0;
-  color: var(--ui-subtle);
-  font-size: 8px;
-  line-height: 1.5;
-}
-.diagnostic-summary-grid {
-  display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 13px;
-}
-.diagnostic-tile {
-  min-width: 0;
-  min-height: 62px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 9px 10px;
-  border: 1px solid #203448;
-  border-radius: 5px;
-  background: #0e1b29;
-}
-.diagnostic-tile > span {
-  color: var(--ui-subtle);
-  font-size: 8px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-.diagnostic-tile strong {
-  color: #e2effb;
-  font-family: var(--mono);
-  font-size: 13px;
-  font-weight: 600;
-  overflow-wrap: anywhere;
-}
-.diagnostic-tile small {
-  color: var(--ui-muted);
-  font-family: var(--mono);
-  font-size: 8px;
-  line-height: 1.4;
-  overflow-wrap: anywhere;
-}
 .diagnostic-details {
   margin-top: 13px;
   border-top: 1px solid var(--ui-border);
@@ -855,31 +812,6 @@ button {
   text-align: right;
   overflow-wrap: anywhere;
 }
-.diagnostics-list {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px 12px;
-  margin: 12px 0 0;
-}
-.diagnostics-list > div {
-  min-width: 0;
-}
-.diagnostics-list dt {
-  color: var(--ui-subtle);
-  font-size: 8px;
-}
-.diagnostics-list dd {
-  margin: 3px 0 0;
-  color: #d6e3f0;
-  font-family: var(--mono);
-  font-size: 9px;
-  overflow-wrap: anywhere;
-}
-.diagnostic-warning {
-  color: var(--ui-warning);
-  font-size: 9px;
-  line-height: 1.45;
-}
 .code-card pre {
   max-width: 100%;
   margin: 10px 0 0;
@@ -892,23 +824,12 @@ button {
   white-space: pre-wrap;
 }
 
-@media (max-width: 900px) {
-  .diagnostic-summary-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-}
 @media (max-width: 640px) {
   .below-viewer {
     grid-template-columns: minmax(0, 1fr);
   }
   .diagnostics-dashboard {
     grid-column: auto;
-  }
-  .diagnostic-summary-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .diagnostics-list {
-    grid-template-columns: minmax(0, 1fr);
   }
 }
 .code-card code {

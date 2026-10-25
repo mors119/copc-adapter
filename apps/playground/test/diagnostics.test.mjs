@@ -79,21 +79,11 @@ test("maps missing Worker data as unavailable and never fabricates numeric zeros
   assert.equal(jsModel.workerSummary, "Not applicable for this backend");
 });
 
-test("uses the public maxDepth default when omitted and honors an explicit value", () => {
-  const { maxDepth: _maxDepth, ...configWithoutMaxDepth } = config;
-  const defaultModel = createDiagnosticsViewModel(
-    undefined,
-    { ...context, config: configWithoutMaxDepth },
-    {},
-  );
-  const explicitModel = createDiagnosticsViewModel(
-    undefined,
-    { ...context, config: { ...configWithoutMaxDepth, maxDepth: 3 } },
-    {},
-  );
+test("keeps the health context concise instead of repeating configuration controls", () => {
+  const model = createDiagnosticsViewModel(undefined, context, {});
 
-  assert.match(defaultModel.context, /maxDepth 6/);
-  assert.match(explicitModel.context, /maxDepth 3/);
+  assert.equal(model.context, "Autzen · data.pointcloud.org · Cesium · Rust / WASM");
+  assert.doesNotMatch(model.context, /budget|maxNodes|maxDepth|SSE|colorMode/iu);
 });
 
 test("shows a long on-demand render gap as cadence interval, not render cost", () => {

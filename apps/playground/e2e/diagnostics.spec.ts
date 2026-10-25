@@ -9,6 +9,9 @@ test("diagnostics show unavailable values honestly and follow the replacement la
   await expect(page.locator("#diagnostic-render-interval")).toHaveText(
     "Not available",
   );
+  await page
+    .locator('[data-diagnostic-section="playground-health-processing"] summary')
+    .click();
   await expect(
     page.getByText("Observed render interval", { exact: true }),
   ).toBeVisible();
@@ -91,7 +94,9 @@ test("keeps Long Task observation active when source selection changes", async (
     }
   });
 
-  await page.locator(".diagnostic-details summary").click();
+  await page.locator(
+    '[data-diagnostic-section="playground-health-processing"] summary',
+  ).click();
   await expect(page.locator("#diagnostic-long-task")).not.toHaveText(
     "Not available",
     { timeout: 3_000 },

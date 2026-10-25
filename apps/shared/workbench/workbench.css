@@ -185,6 +185,67 @@
   margin: 0.4rem 0;
 }
 
+.workbench-diagnostic-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.workbench-diagnostic-section {
+  border-bottom: 1px solid var(--workbench-border, #273442);
+  min-width: 0;
+  padding: 0.25rem 0 0.5rem;
+}
+
+.workbench-diagnostic-section > summary {
+  color: var(--workbench-text, #edf4fb);
+  cursor: pointer;
+  font-size: 0.74rem;
+  font-weight: 620;
+  line-height: 1.45;
+  padding: 0.35rem 0.1rem;
+}
+
+.workbench-diagnostic-section > summary:focus-visible {
+  outline: 2px solid var(--workbench-accent, #62b5ff);
+  outline-offset: 2px;
+}
+
+.workbench-diagnostic-description {
+  color: var(--workbench-muted, #a8b5c3);
+  font-size: 0.66rem;
+  line-height: 1.45;
+  margin: 0.2rem 0 0.5rem;
+}
+
+.workbench-diagnostic-list {
+  display: grid;
+  gap: 0.55rem 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
+  margin: 0.45rem 0 0;
+}
+
+.workbench-diagnostic-list > div {
+  min-width: 0;
+}
+
+.workbench-diagnostic-list dt {
+  color: var(--workbench-muted, #a8b5c3);
+  font-size: 0.64rem;
+  line-height: 1.35;
+}
+
+.workbench-diagnostic-list dd {
+  color: var(--workbench-text, #d6e3f0);
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.68rem;
+  line-height: 1.45;
+  margin: 0.15rem 0 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .schema-controls {
   display: flex;
   flex-direction: column;
