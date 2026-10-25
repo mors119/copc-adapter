@@ -107,6 +107,8 @@ test("uses the same schema controls and default Workbench tabs as Playground", a
 test("generates shared Code tab output from applied workspace configuration", async ({
   page,
 }) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
   await page.goto("/");
   await expect
     .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.lifecycle))
@@ -150,10 +152,12 @@ test("generates shared Code tab output from applied workspace configuration", as
     });
   });
   await page.locator("#copy-share-link").click();
-  await expect(page.locator("#copy-share-link")).toHaveText("Copied");
+  await expect(page.locator("#share-status")).toHaveText("Share link copied.");
   const shareLink = await page.evaluate(
     () => (window as Window & { __copiedText?: string }).__copiedText,
   );
+  expect(shareLink).toMatch(/^https?:\/\//u);
+  expect(pageErrors).toEqual([]);
   expect(shareLink).toContain("backend=copc-js");
   expect(shareLink).toContain("pointSize=7");
   expect(shareLink).toContain("maxNodes=32");
