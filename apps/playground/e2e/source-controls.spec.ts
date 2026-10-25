@@ -568,7 +568,9 @@ test("Cesium color and classification styles use setStyle without replacing the 
   await applyFilter.focus();
   await applyFilter.press("Enter");
   await expect(page.locator("#classification-active")).toHaveText("Include [] · Exclude [7, 18]");
-  await expect(page.locator("#integration-example")).toContainText('classificationFilter: {"include":[],"exclude":[7,18]}');
+  await expect(page.locator("#integration-example")).toContainText(
+    "classificationFilter: { include: [], exclude: [7, 18] }",
+  );
   await page.getByRole("button", { name: "Clear filter" }).click();
   await expect(page.locator("#classification-active")).toHaveText("No filter");
   const after = await page.evaluate(() => ({
@@ -608,7 +610,9 @@ test("applying Cesium color preserves an unapplied classification filter draft",
 
   await page.getByRole("button", { name: "Apply filter" }).click();
   await expect(page.locator("#classification-active")).toHaveText("Include [2, 6]");
-  await expect(page.locator("#integration-example")).toContainText('classificationFilter: {"include":[2,6]}');
+  await expect(page.locator("#integration-example")).toContainText(
+    "classificationFilter: { include: [2, 6] }",
+  );
   await expect.poll(() => page.evaluate(() =>
     (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
       .__COPC_PLAYGROUND_TEST__?.getMockLoadCount(),
