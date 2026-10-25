@@ -1,5 +1,16 @@
 import { expect, test } from "@playwright/test";
 
+declare global {
+  interface Window {
+    __COPC_PLAYGROUND_TEST__?: {
+      getPendingConfig(): {
+        renderer: string;
+        schemaOptionValues?: Readonly<Record<string, unknown>>;
+      };
+    };
+  }
+}
+
 test("uses the shared schema controls and four-tab Workbench shell", async ({
   page,
 }) => {
@@ -77,4 +88,38 @@ test("uses the shared schema controls and four-tab Workbench shell", async ({
   }));
   expect(narrowLayout.documentWidth).toBeLessThanOrEqual(390);
   expect(narrowLayout.viewportWidth).toBeGreaterThan(0);
+});
+
+test("retains Cesium-only schema options across renderer changes without applying them to Three.js", async ({
+  page,
+}) => {
+  await page.goto("./");
+  const pointSizeMode = page.locator("#point-size-mode");
+  await pointSizeMode.selectOption("attenuated");
+  await expect.poll(() => page.evaluate(() =>
+    window.__COPC_PLAYGROUND_TEST__?.getPendingConfig().schemaOptionValues?.[
+      "rendering.pointSizeMode"
+    ],
+  )).toBe("attenuated");
+
+  const rendererGroup = page.getByRole("radiogroup", { name: "Renderer" });
+  await rendererGroup.getByRole("radio", { name: "Three.js" }).click();
+  await expect.poll(() => page.evaluate(() =>
+    window.__COPC_PLAYGROUND_TEST__?.getPendingConfig().renderer,
+  )).toBe("three");
+  await expect.poll(() => page.evaluate(() =>
+    Object.hasOwn(
+      window.__COPC_PLAYGROUND_TEST__?.getPendingConfig().schemaOptionValues ?? {},
+      "rendering.pointSizeMode",
+    ),
+  )).toBe(false);
+  await expect(page.locator("#config-validation")).not.toContainText("Point Size Mode");
+
+  await rendererGroup.getByRole("radio", { name: "Cesium" }).click();
+  await expect.poll(() => page.evaluate(() =>
+    window.__COPC_PLAYGROUND_TEST__?.getPendingConfig().schemaOptionValues?.[
+      "rendering.pointSizeMode"
+    ],
+  )).toBe("attenuated");
+  await expect(pointSizeMode).toHaveValue("attenuated");
 });

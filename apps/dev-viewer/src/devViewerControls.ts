@@ -8,11 +8,11 @@ import { mountSegmentedControl } from "../../shared/ui-controls";
 import { mountSchemaOptionPanel } from "../../shared/workbench/SchemaOptionPanel.ts";
 import { renderSharedSpecialControl } from "../../shared/workbench/specialControls.ts";
 import {
-  OPTION_SCHEMA,
   WORKSPACE_CURRENT_CAPABILITIES,
   WORKSPACE_CURRENT_MANIFEST,
   getOptionDefinition,
 } from "../../shared/schema/index.ts";
+import { transitionRendererOptionValues } from "../../shared/config/index.ts";
 import type { SchemaRenderer } from "../../shared/schema/index.ts";
 import type {
   CameraPreset,
@@ -167,38 +167,14 @@ export function mountDevViewerControls(
       case "renderer.engine": {
         const nextRenderer = value as SchemaRenderer;
         if (nextRenderer !== renderer) {
-          for (const definition of OPTION_SCHEMA) {
-            const wasSupported = definition.renderers.some(
-              (candidate) => candidate === renderer,
-            );
-            const willBeSupported = definition.renderers.some(
-              (candidate) => candidate === nextRenderer,
-            );
-            if (!wasSupported || willBeSupported || !Object.hasOwn(values, definition.id)) {
-              continue;
-            }
-            const schemaOnly = Object.hasOwn(schemaOptionValues, definition.id);
-            inactiveRendererValues.set(definition.id, {
-              value: values[definition.id],
-              schemaOnly,
-            });
-            delete values[definition.id];
-            if (schemaOnly) delete schemaOptionValues[definition.id];
-          }
-
+          transitionRendererOptionValues(
+            values,
+            schemaOptionValues,
+            renderer,
+            nextRenderer,
+            inactiveRendererValues,
+          );
           renderer = nextRenderer;
-          for (const definition of OPTION_SCHEMA) {
-            if (!definition.renderers.some((candidate) => candidate === nextRenderer)) {
-              continue;
-            }
-            const inactive = inactiveRendererValues.get(definition.id);
-            if (!inactive) continue;
-            values[definition.id] = inactive.value;
-            if (inactive.schemaOnly) {
-              schemaOptionValues[definition.id] = inactive.value;
-            }
-            inactiveRendererValues.delete(definition.id);
-          }
           options.onPendingConfigChange({ schemaOptionValues });
         }
         const cameraDistance = options.onEngineSelected(renderer);

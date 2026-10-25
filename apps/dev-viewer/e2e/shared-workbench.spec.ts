@@ -151,3 +151,23 @@ test("a rejected schema edit blocks Dev Viewer Apply until corrected", async ({ 
   await expect(maxNodes).not.toHaveAttribute("aria-invalid", "true");
   await expect(applyButton).toBeEnabled();
 });
+
+test("refreshes Dev Viewer validation after a corrected cross-field value", async ({ page }) => {
+  await page.goto("/?debugPanel=0");
+  await expect
+    .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.lifecycle))
+    .toBe("ready");
+
+  await page.locator("#point-size-mode").selectOption("attenuated");
+  const minimumPointSize = page.locator("#min-point-size");
+  const applyButton = page.locator("#apply-settings");
+  await minimumPointSize.fill("13");
+  await minimumPointSize.dispatchEvent("change");
+  await expect(minimumPointSize).toHaveAttribute("aria-invalid", "true");
+  await expect(applyButton).toBeDisabled();
+
+  await minimumPointSize.fill("1");
+  await minimumPointSize.dispatchEvent("change");
+  await expect(minimumPointSize).not.toHaveAttribute("aria-invalid", "true");
+  await expect(applyButton).toBeEnabled();
+});

@@ -531,6 +531,13 @@ export function mountSchemaOptionPanel(options: SchemaOptionPanelOptions): Schem
 
   const refresh = (): void => {
     const available = new Set(getAvailableOptions({ ...context, values }, schema).map(({ id }) => id));
+    const schemaValidationErrors = validateSchemaValues(
+      values,
+      context,
+      schema,
+      options.hostValidators,
+      { requireRequired: false },
+    );
     let clearedHiddenEdit = false;
     for (const [id, control] of mounted) {
       const isSupported = getSupportedOptions(context, schema).some(({ id: candidate }) => candidate === id);
@@ -547,6 +554,13 @@ export function mountSchemaOptionPanel(options: SchemaOptionPanelOptions): Schem
       const validationErrors = values[id] === undefined
         ? []
         : validateOptionValue(control.option, values[id], options.hostValidators);
+      validationErrors.push(
+        ...schemaValidationErrors.filter((message) =>
+          message.startsWith(control.option.label + " ") ||
+          message.includes(control.option.label + " and ") ||
+          message.includes(" and " + control.option.label),
+        ),
+      );
       if (control.input) {
         if (validationErrors.length) control.input.setAttribute("aria-invalid", "true");
         else control.input.removeAttribute("aria-invalid");
@@ -581,12 +595,11 @@ export function mountSchemaOptionPanel(options: SchemaOptionPanelOptions): Schem
 
   return {
     update(next) {
-      const hadInvalidEdit = invalidEditErrors.size > 0;
       invalidEditErrors.clear();
       values = next.values;
       context = { ...context, ...next.context, values };
       refresh();
-      if (hadInvalidEdit) options.onValidationChange?.();
+      options.onValidationChange?.();
     },
     setChoices(optionId, choices) {
       choiceOverrides.set(optionId, choices);

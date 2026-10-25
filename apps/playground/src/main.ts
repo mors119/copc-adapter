@@ -18,7 +18,10 @@ import {
   NPM_0_6_MANIFEST,
   getOptionDefinition,
 } from "../../shared/schema/index.ts";
-import { normalizeWorkbenchOptionValues } from "../../shared/config/index.ts";
+import {
+  normalizeWorkbenchOptionValues,
+  transitionRendererOptionValues,
+} from "../../shared/config/index.ts";
 import { mountSchemaOptionPanel } from "../../shared/workbench/SchemaOptionPanel.ts";
 import {
   mountWorkbenchLayout,
@@ -490,6 +493,10 @@ let activePointFormat: number | undefined;
 let cameraInteractionVersion = 0;
 let layerFactory: CesiumLayerFactory | undefined;
 let schemaPanel: ReturnType<typeof mountSchemaOptionPanel> | undefined;
+const inactiveRendererOptionValues = new Map<
+  string,
+  { readonly value: unknown; readonly schemaOnly: boolean }
+>();
 
 function playgroundOptionValues(
   config: IntegrationCodeConfig,
@@ -909,7 +916,19 @@ const updateColorChoices = (pointFormat?: number): void => {
 function handleSchemaOptionChange(optionId: string, value: unknown): void {
   if (optionId === "renderer.engine") {
     const renderer = value as PlaygroundRenderer;
-    updatePendingConfig({ renderer });
+    const schemaOptionValues = { ...(pendingConfig.schemaOptionValues ?? {}) };
+    const optionValues = {
+      ...playgroundOptionValues(pendingConfig),
+      "renderer.engine": renderer,
+    };
+    transitionRendererOptionValues(
+      optionValues,
+      schemaOptionValues,
+      pendingConfig.renderer,
+      renderer,
+      inactiveRendererOptionValues,
+    );
+    updatePendingConfig({ renderer, schemaOptionValues });
     syncRendererLabels();
     if (
       renderer === "cesium" &&

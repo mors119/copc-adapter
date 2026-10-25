@@ -10,6 +10,7 @@ export {
   replaceWorkbenchConfiguration,
   restoreWorkbenchConfiguration,
   serializeWorkbenchConfiguration,
+  transitionRendererOptionValues,
   updateWorkbenchConfiguration,
   validateWorkbenchConfiguration,
 } from "./workbenchConfiguration.ts";
@@ -23,4 +24,5 @@ export type {
   WorkbenchConfigurationState,
   WorkbenchConfigurationUpdate,
   WorkbenchOptionValues,
+  InactiveRendererOptionValues,
 } from "./workbenchConfiguration.ts";

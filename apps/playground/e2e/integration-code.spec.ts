@@ -122,6 +122,22 @@ test("generates deterministic public Cesium and Three.js snippets with defaults 
     });
     expect(code).toContain(`colorMode: '${colorMode}'`);
   }
+
+  const schemaConfiguredCode = await generatedCode(page, {
+    config: {
+      ...config(),
+      schemaOptionValues: {
+        "source.rangeValidation": "strict",
+        "streaming.motionLookahead": false,
+        "streaming.predictivePrefetch": true,
+      },
+    },
+    adapterVersion: "0.6.0",
+    mode: "explicit",
+  });
+  expect(schemaConfiguredCode).toContain("rangeValidation: 'strict'");
+  expect(schemaConfiguredCode).toContain("motionLookahead: false");
+  expect(schemaConfiguredCode).toContain("predictivePrefetch: true");
 });
 
 test(
@@ -172,6 +188,7 @@ test(
         adapterVersion: "0.6.0",
         mode,
       });
+      const schemaOptionsBase = make("cesium", "explicit", false);
       return [
         {
           name: "cesium-minimal-url",
@@ -202,6 +219,21 @@ test(
         {
           name: "three-file",
           code: hooks.generateIntegrationCode(make("three", "minimal", true)),
+        },
+        {
+          name: "cesium-schema-options",
+          code: hooks.generateIntegrationCode({
+            ...schemaOptionsBase,
+            config: {
+              ...schemaOptionsBase.config,
+              backend: "copc-js",
+              schemaOptionValues: {
+                "source.rangeValidation": "strict",
+                "streaming.motionLookahead": false,
+                "streaming.predictivePrefetch": true,
+              },
+            },
+          }),
         },
       ];
     });

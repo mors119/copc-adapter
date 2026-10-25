@@ -4,6 +4,13 @@ import type {
 } from "@frillab/copc-adapter/cesium";
 import type { CopcThreeLayerOptions } from "@frillab/copc-adapter/three";
 import type { WorkbenchRenderer } from "../../shared/workbench-config";
+import { buildSchemaApplicationPlan, normalizeWorkbenchOptionValues } from "../../shared/config/index.ts";
+import {
+  NPM_0_6_CAPABILITIES,
+  NPM_0_6_MANIFEST,
+  getOptionApplyMode,
+  getOptionDefinition,
+} from "../../shared/schema/index.ts";
 import type { PlaygroundConfig } from "./playgroundConfig";
 import type { PlaygroundRefinementConfig } from "./refinementConfig";
 
@@ -105,10 +112,122 @@ function resolveCodeSource(options: IntegrationCodeOptions): {
   };
 }
 
+function readApiPath(target: Readonly<Record<string, unknown>>, path: string): unknown {
+  let current: unknown = target;
+  for (const segment of path.split(".")) {
+    if (
+      segment === "__proto__" ||
+      segment === "prototype" ||
+      segment === "constructor" ||
+      typeof current !== "object" ||
+      current === null ||
+      !Object.hasOwn(current, segment)
+    ) {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current;
+}
+
+function setApiPath(
+  target: Record<string, unknown>,
+  path: string,
+  value: unknown,
+): void {
+  const segments = path.split(".");
+  if (
+    segments.length === 0 ||
+    segments.some((segment) =>
+      !/^[A-Za-z][A-Za-z0-9_]*$/u.test(segment) ||
+      segment === "__proto__" ||
+      segment === "prototype" ||
+      segment === "constructor"
+    )
+  ) {
+    throw new TypeError("The schema contains an unsafe integration API path.");
+  }
+  let current = target;
+  for (const segment of segments.slice(0, -1)) {
+    const nested = current[segment];
+    if (nested === undefined) current[segment] = {};
+    else if (typeof nested !== "object" || nested === null || Array.isArray(nested)) {
+      throw new TypeError("Schema integration options conflict at " + path + ".");
+    }
+    current = current[segment] as Record<string, unknown>;
+  }
+  current[segments.at(-1)!] = value;
+}
+
+function mergeOptionRecords(
+  target: Record<string, unknown>,
+  source: Readonly<Record<string, unknown>>,
+): void {
+  for (const [key, value] of Object.entries(source)) {
+    const current = target[key];
+    if (
+      typeof current === "object" && current !== null && !Array.isArray(current) &&
+      typeof value === "object" && value !== null && !Array.isArray(value)
+    ) {
+      mergeOptionRecords(
+        current as Record<string, unknown>,
+        value as Readonly<Record<string, unknown>>,
+      );
+    } else {
+      target[key] = value;
+    }
+  }
+}
+
+/** Map schema-only constructor settings through the verified public option paths. */
+function schemaConstructorOverrides(
+  config: IntegrationCodeConfig,
+  source: string | File,
+): Record<string, unknown> {
+  const schemaOnlyValues = config.schemaOptionValues ?? {};
+  if (Object.keys(schemaOnlyValues).length === 0) return {};
+
+  const context = {
+    manifest: NPM_0_6_MANIFEST,
+    renderer: config.renderer,
+    runtimeCapabilities: NPM_0_6_CAPABILITIES,
+  } as const;
+  const values = normalizeWorkbenchOptionValues({
+    ...(config as unknown as Readonly<Record<string, unknown>>),
+    ...schemaOnlyValues,
+    "renderer.engine": config.renderer,
+    "source.url": source,
+    "streaming.refinementAlgorithm": config.refinementConfig.algorithm,
+  });
+  const plan = buildSchemaApplicationPlan(values, context);
+  const overrides: Record<string, unknown> = {};
+
+  for (const id of Object.keys(schemaOnlyValues)) {
+    const option = getOptionDefinition(id);
+    if (!option) {
+      throw new TypeError("Cannot generate code for unregistered option " + id + ".");
+    }
+    if (
+      getOptionApplyMode(option, config.renderer) !== "constructor" ||
+      option.codeGeneration.kind !== "constructor-option"
+    ) {
+      continue;
+    }
+    if (!option.apiPath) {
+      throw new TypeError(option.label + " has no public constructor path for generated code.");
+    }
+    const value = readApiPath(plan.constructorOptions, option.apiPath);
+    if (value !== undefined) setApiPath(overrides, option.apiPath, value);
+  }
+
+  return overrides;
+}
+
 function buildOptions(
   config: IntegrationCodeConfig,
   sourceValue: string | File,
   mode: "minimal" | "explicit",
+  schemaOverrides: Readonly<Record<string, unknown>>,
 ): CopcCesiumLayerOptions | CopcThreeLayerOptions {
   if (config.renderer === "three" && config.classificationFilter !== undefined) {
     throw new Error(
@@ -142,7 +261,7 @@ function buildOptions(
       : {}),
   };
 
-  const common = {
+  const common: Record<string, unknown> = {
     url: sourceValue,
     ...(explicit || config.backend !== DEFAULTS.backend
       ? { backend: config.backend }
@@ -163,11 +282,13 @@ function buildOptions(
     ...(Object.keys(streaming).length > 0 ? { streaming } : {}),
   };
 
+  mergeOptionRecords(common, schemaOverrides);
+
   if (config.renderer === "cesium") {
-    const options: CopcCesiumLayerOptions = common;
+    const options: CopcCesiumLayerOptions = common as unknown as CopcCesiumLayerOptions;
     return options;
   }
-  const options: CopcThreeLayerOptions = common;
+  const options: CopcThreeLayerOptions = common as unknown as CopcThreeLayerOptions;
   return options;
 }
 
@@ -221,7 +342,16 @@ function runtimeStyleLines(options: IntegrationCodeOptions): string[] {
 export function generateIntegrationCode(options: IntegrationCodeOptions): string {
   const mode = options.mode ?? "minimal";
   const source = resolveCodeSource(options);
-  const layerOptions = buildOptions(options.config, source.sourceValue, mode);
+  const schemaOverrides = schemaConstructorOverrides(
+    options.config,
+    source.sourceValue,
+  );
+  const layerOptions = buildOptions(
+    options.config,
+    source.sourceValue,
+    mode,
+    schemaOverrides,
+  );
   const codeHeader = `// Generated against @frillab/copc-adapter v${options.adapterVersion}.\n`;
   const runtimeStyles = runtimeStyleLines(options);
 

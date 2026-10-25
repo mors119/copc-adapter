@@ -11,6 +11,7 @@ import {
   normalizeWorkbenchOptionValues,
   restoreWorkbenchConfiguration,
   serializeWorkbenchConfiguration,
+  transitionRendererOptionValues,
   updateWorkbenchConfiguration,
   validateWorkbenchConfiguration,
 } from "../index.ts";
@@ -215,6 +216,46 @@ test("renderer-specific options are emitted only for the selected supported rend
   assert.equal(three.renderer, "three");
   assert.equal(three.constructorOptions.streaming.maxConcurrentNodeLoads, 2);
   assert.equal(three.requiresLayerReplacement, true);
+});
+
+test("renderer changes stash and restore renderer-exclusive schema values", () => {
+  const schemaOnlyValues = {
+    "rendering.pointSizeMode": "attenuated",
+    "rendering.minPointSize": 2,
+    "rendering.maxPointSize": 16,
+  };
+  const optionIds = Object.keys(schemaOnlyValues);
+  const values = validValues({ ...schemaOnlyValues });
+  const inactiveValues = new Map();
+
+  values["renderer.engine"] = "three";
+  transitionRendererOptionValues(
+    values,
+    schemaOnlyValues,
+    "cesium",
+    "three",
+    inactiveValues,
+  );
+  for (const id of optionIds) {
+    assert.equal(Object.hasOwn(values, id), false, id + " must not reach Three.js");
+    assert.equal(Object.hasOwn(schemaOnlyValues, id), false, id + " must leave active schema state");
+  }
+  assert.equal(inactiveValues.size, 3);
+
+  values["renderer.engine"] = "cesium";
+  transitionRendererOptionValues(
+    values,
+    schemaOnlyValues,
+    "three",
+    "cesium",
+    inactiveValues,
+  );
+  assert.deepEqual(schemaOnlyValues, {
+    "rendering.pointSizeMode": "attenuated",
+    "rendering.minPointSize": 2,
+    "rendering.maxPointSize": 16,
+  });
+  assert.equal(inactiveValues.size, 0);
 });
 
 test("specialized constructor options are kept out of generic API mapping", () => {

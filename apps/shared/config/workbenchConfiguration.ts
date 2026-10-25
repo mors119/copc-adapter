@@ -25,6 +25,11 @@ import type {
 
 export type WorkbenchOptionValues = Readonly<Record<string, unknown>>;
 
+export type InactiveRendererOptionValues = Map<
+  string,
+  { readonly value: unknown; readonly schemaOnly: boolean }
+>;
+
 /**
  * The sole pending/applied configuration snapshot shared by Workbench hosts.
  * Values are keyed by stable schema option ID, not by UI control or API path.
@@ -215,6 +220,59 @@ export function normalizeWorkbenchOptionValues(
     }
   }
   return normalized;
+}
+
+/**
+ * Remove renderer-exclusive values while they are inactive, retaining their
+ * pending values so a later switch back restores them. `schemaOnlyValues` is
+ * updated alongside normalized values so inactive options cannot reach a host
+ * constructor or generated configuration for the other renderer.
+ */
+export function transitionRendererOptionValues(
+  values: Record<string, unknown>,
+  schemaOnlyValues: Record<string, unknown>,
+  currentRenderer: SchemaRenderer,
+  nextRenderer: SchemaRenderer,
+  inactiveValues: InactiveRendererOptionValues,
+  schema: readonly SchemaOption[] = OPTION_SCHEMA,
+): void {
+  if (currentRenderer === nextRenderer) return;
+
+  for (const option of schema) {
+    const supportedBefore = option.renderers.some(
+      (renderer) => renderer === currentRenderer,
+    );
+    const supportedAfter = option.renderers.some(
+      (renderer) => renderer === nextRenderer,
+    );
+    if (
+      !supportedBefore ||
+      supportedAfter ||
+      !Object.hasOwn(values, option.id)
+    ) {
+      continue;
+    }
+
+    const schemaOnly = Object.hasOwn(schemaOnlyValues, option.id);
+    inactiveValues.set(option.id, { value: values[option.id], schemaOnly });
+    delete values[option.id];
+    if (schemaOnly) delete schemaOnlyValues[option.id];
+  }
+
+  for (const option of schema) {
+    const supportedAfter = option.renderers.some(
+      (renderer) => renderer === nextRenderer,
+    );
+    if (!supportedAfter) continue;
+
+    const inactive = inactiveValues.get(option.id);
+    if (!inactive) continue;
+    values[option.id] = inactive.value;
+    if (inactive.schemaOnly) {
+      schemaOnlyValues[option.id] = inactive.value;
+    }
+    inactiveValues.delete(option.id);
+  }
 }
 
 /** Validate a complete or partial normalized option map for its selected renderer. */
