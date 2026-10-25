@@ -404,25 +404,45 @@ test("switches renderer and backend, applies controls, and inspects a Three poin
     )
     .toBe("rust");
   await expect(page.locator("#source-status")).toContainText("Ready");
-
   await expect
     .poll(async () =>
-      page.evaluate(() =>
-        window.__COPC_DEV_VIEWER__?.getPickablePointScreenPosition(),
+      page.evaluate(
+        () => window.__COPC_DEV_VIEWER__?.getSnapshot()?.renderedPointCount ?? 0,
       ),
     )
-    .toBeTruthy();
+    .toBeGreaterThan(0);
+  await expect
+    .poll(async () =>
+      page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.lifecycle),
+    )
+    .toBe("ready");
+
   const selectedCanvas = page.locator(
     '#cesium-container canvas[aria-label="Interactive Three.js COPC point cloud"]',
   );
   const selectedCanvasBounds = await selectedCanvas.boundingBox();
-  const nextPickPosition = await page.evaluate(() =>
-    window.__COPC_DEV_VIEWER__?.getPickablePointScreenPosition(),
-  );
+  let nextPickPosition: { x: number; y: number } | undefined;
+  await expect
+    .poll(async () => {
+      nextPickPosition = await page.evaluate(() =>
+        window.__COPC_DEV_VIEWER__?.getPickablePointScreenPosition(),
+      );
+      return nextPickPosition;
+    })
+    .toBeTruthy();
+  if (!selectedCanvasBounds || !nextPickPosition)
+    throw new Error(
+      "No pickable Three.js point is available after backend reload.",
+    );
   await page.mouse.click(
-    (selectedCanvasBounds?.x ?? 0) + (nextPickPosition?.x ?? 0),
-    (selectedCanvasBounds?.y ?? 0) + (nextPickPosition?.y ?? 0),
+    selectedCanvasBounds.x + nextPickPosition.x,
+    selectedCanvasBounds.y + nextPickPosition.y,
   );
+  await expect
+    .poll(async () =>
+      page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSelectedPoint()),
+    )
+    .toMatchObject({ pointIndex: expect.any(Number) });
   await expect(pointPopover).toBeVisible();
 
   await rendererGroup.getByRole("radio", { name: "Cesium" }).click();
