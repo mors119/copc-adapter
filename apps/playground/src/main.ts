@@ -39,11 +39,13 @@ import {
 } from "./diagnostics";
 import {
   generateIntegrationCode,
+  generateIntegrationCodeResult,
   isPotentiallySensitiveSource,
   PLAYGROUND_INSTALL_COMMANDS,
   type IntegrationCodeConfig,
   type IntegrationCodeOptions,
 } from "./integrationCode";
+import { mountIntegrationCodePanel } from "../../shared/codegen/IntegrationCodePanel.ts";
 import {
   createPlaygroundRuntime,
   type CesiumLayerFactory,
@@ -286,37 +288,7 @@ app.innerHTML = `
         <p id="point-empty">Click a point in the viewport to inspect its available attributes.</p>
         <dl id="point-attributes" class="point-attributes" hidden></dl>
       </section>
-      <details class="code-card generated-code-card" open>
-        <summary><span>Generated code</span><span class="summary-state">Public API · v${__ADAPTER_VERSION__}</span></summary>
-        <p class="generated-code-intro">Copy a runnable starting point for the last successfully applied Playground settings.</p>
-        <div class="generated-code-toolbar">
-          <div class="code-mode-control" role="group" aria-label="Code detail">
-            <button id="code-mode-minimal" type="button" aria-pressed="true">Minimal</button>
-            <button id="code-mode-explicit" type="button" aria-pressed="false">Explicit</button>
-          </div>
-          <button id="copy-code" type="button">Copy code</button>
-        </div>
-        <label class="share-option" id="exact-source-option" for="include-exact-source">
-          <input id="include-exact-source" type="checkbox" checked>
-          Include the active source URL in code
-        </label>
-        <p class="source-privacy-warning" id="source-code-warning" role="status" aria-live="polite" hidden></p>
-        <pre><code id="integration-example"></code></pre>
-        <div class="install-guidance">
-          <span>Install for this renderer</span>
-          <code id="install-command"></code>
-          <button id="copy-install" type="button">Copy install command</button>
-        </div>
-        <div class="share-toolbar">
-          <label class="share-option" id="share-source-option" for="include-share-source">
-            <input id="include-share-source" type="checkbox">
-            Include source URL in share link
-          </label>
-          <button id="copy-share-link" type="button">Copy share link</button>
-        </div>
-        <p class="source-privacy-warning" id="source-share-warning" role="status" aria-live="polite" hidden></p>
-        <p class="share-status" id="share-status" role="status" aria-live="polite"></p>
-      </details>
+      <div id="generated-code-card-mount"></div>
     </section>
     <footer class="statusbar"><span id="footer-status">Ready · No source loaded</span><span>Client-side · No upload</span></footer>
   </div>
@@ -327,6 +299,14 @@ const byId = <T extends HTMLElement>(id: string): T => {
   if (!element) throw new Error(`Missing Playground element #${id}.`);
   return element as T;
 };
+
+const integrationCodePanel = mountIntegrationCodePanel({
+  target: byId<HTMLElement>("generated-code-card-mount"),
+  summary: "Public API · v" + __ADAPTER_VERSION__,
+  intro: "Copy a runnable starting point for the last successfully applied Playground settings.",
+  createShareLink: (includeSource) => createShareUrl(includeSource),
+  onStateChange: () => updateIntegrationExample(),
+});
 
 const playgroundShell = app.querySelector<HTMLElement>(".playground-shell")!;
 const oldWorkbench = app.querySelector<HTMLElement>(".workbench")!;
@@ -403,20 +383,6 @@ const focusXInput = byId<HTMLInputElement>("focus-x");
 const focusYInput = byId<HTMLInputElement>("focus-y");
 const focusPositionControls = byId<HTMLDivElement>("focus-position-controls");
 const focusConfigWarning = byId<HTMLElement>("focus-config-warning");
-const codeElement = byId<HTMLElement>("integration-example");
-const codeModeMinimalButton = byId<HTMLButtonElement>("code-mode-minimal");
-const codeModeExplicitButton = byId<HTMLButtonElement>("code-mode-explicit");
-const exactSourceOption = byId<HTMLLabelElement>("exact-source-option");
-const exactSourceInput = byId<HTMLInputElement>("include-exact-source");
-const sourceCodeWarning = byId<HTMLElement>("source-code-warning");
-const shareSourceInput = byId<HTMLInputElement>("include-share-source");
-const shareSourceOption = byId<HTMLLabelElement>("share-source-option");
-const sourceShareWarning = byId<HTMLElement>("source-share-warning");
-const shareStatus = byId<HTMLElement>("share-status");
-const copyCodeButton = byId<HTMLButtonElement>("copy-code");
-const copyInstallButton = byId<HTMLButtonElement>("copy-install");
-const copyShareButton = byId<HTMLButtonElement>("copy-share-link");
-const installCommand = byId<HTMLElement>("install-command");
 const configState = byId<HTMLElement>("config-state");
 const applyChangesButton = byId<HTMLButtonElement>("apply-changes");
 const configValidation = byId<HTMLElement>("config-validation");
@@ -434,7 +400,7 @@ const parsedUrlConfig = readPlaygroundUrlConfig(
   new URLSearchParams(window.location.search),
 );
 const shareSourceFromUrl = parsedUrlConfig.sourceUrl;
-if (parsedUrlConfig.warning) shareStatus.textContent = parsedUrlConfig.warning;
+if (parsedUrlConfig.warning) integrationCodePanel.setStatus(parsedUrlConfig.warning);
 let pendingConfig: IntegrationCodeConfig = {
   ...clonePlaygroundConfig(parsedUrlConfig.config),
   refinementConfig: {
@@ -445,7 +411,6 @@ let pendingConfig: IntegrationCodeConfig = {
 // The focus controls build one synchronous edit before committing it back to the
 // canonical pending configuration through updatePendingConfig/applyFocusSettings.
 let refinementConfig: PlaygroundRefinementConfig = pendingConfig.refinementConfig;
-let codeMode: "minimal" | "explicit" = "minimal";
 let followPointerCenter = { ...pendingConfig.refinementConfig.center };
 let focusDragPointerId: number | undefined;
 let focusDragOffset = { x: 0, y: 0 };
@@ -1340,35 +1305,6 @@ function effectiveRefinementFocus(
   };
 }
 
-function syncSourcePrivacyControls(): void {
-  const source = appliedSource;
-  const hasSource = source !== undefined;
-  const isLocalFile =
-    typeof File !== "undefined" && source instanceof File;
-  const sensitive =
-    typeof source === "string" && isPotentiallySensitiveSource(source);
-
-  exactSourceOption.hidden = !hasSource || isLocalFile;
-  exactSourceInput.disabled = !hasSource || isLocalFile;
-  if (!hasSource || isLocalFile) exactSourceInput.checked = false;
-  sourceCodeWarning.hidden = !sensitive;
-  sourceCodeWarning.textContent = sensitive
-    ? exactSourceInput.checked
-      ? "This URL contains credentials, query parameters, or a fragment. The visible snippet includes it; copying requires confirmation."
-      : "This URL may contain credentials or tokens. The snippet uses a placeholder; enable the checkbox above to reveal and copy the exact URL."
-    : "";
-
-  shareSourceOption.hidden = !hasSource;
-  shareSourceInput.disabled = !hasSource || isLocalFile || sensitive;
-  if (shareSourceInput.disabled) shareSourceInput.checked = false;
-  sourceShareWarning.hidden = !hasSource || (!isLocalFile && !sensitive);
-  sourceShareWarning.textContent = isLocalFile
-    ? "A local File cannot be serialized into a share link; the link will contain settings only."
-    : sensitive
-      ? "This URL may contain credentials or tokens, so it cannot be included in a share link."
-      : "";
-}
-
 function updateIntegrationExample(): void {
   const config = appliedConfig ?? defaultIntegrationConfig;
   const focusConfig = config.refinementConfig;
@@ -1377,69 +1313,32 @@ function updateIntegrationExample(): void {
     config.renderer,
     focusConfig,
   );
-  codeElement.textContent = generateIntegrationCode({
-    config,
-    source: appliedSource,
-    includeExactSource: exactSourceInput.checked,
-    mode: codeMode,
-    adapterVersion: __ADAPTER_VERSION__,
-    ...(focus ? { refinementFocus: focus } : {}),
-  });
-  installCommand.textContent = PLAYGROUND_INSTALL_COMMANDS[config.renderer];
-  codeModeMinimalButton.setAttribute(
-    "aria-pressed",
-    String(codeMode === "minimal"),
-  );
-  codeModeExplicitButton.setAttribute(
-    "aria-pressed",
-    String(codeMode === "explicit"),
-  );
-  syncSourcePrivacyControls();
-}
-
-function copyTextToClipboard(text: string): Promise<void> {
-  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
-  const field = document.createElement("textarea");
-  field.value = text;
-  field.setAttribute("readonly", "");
-  field.style.position = "fixed";
-  field.style.opacity = "0";
-  document.body.append(field);
-  field.select();
-  const copied = document.execCommand("copy");
-  field.remove();
-  return copied
-    ? Promise.resolve()
-    : Promise.reject(new Error("Clipboard access is unavailable."));
-}
-
-async function copyWithFeedback(
-  button: HTMLButtonElement,
-  content: string,
-  successMessage: string,
-): Promise<void> {
   try {
-    await copyTextToClipboard(content);
-    button.textContent = "Copied";
-    shareStatus.textContent = successMessage;
-  } catch {
-    button.textContent = "Copy failed";
-    shareStatus.textContent =
-      "Copy failed. Select the visible text and copy it manually.";
+    const generated = generateIntegrationCodeResult({
+      config,
+      source: appliedSource,
+      includeExactSource: integrationCodePanel.getState().includeExactSource,
+      mode: integrationCodePanel.getState().mode,
+      adapterVersion: __ADAPTER_VERSION__,
+      ...(focus ? { refinementFocus: focus } : {}),
+    });
+    integrationCodePanel.setContent({
+      code: generated.code,
+      warnings: generated.warnings,
+      source: appliedSource,
+      installCommand: PLAYGROUND_INSTALL_COMMANDS[config.renderer],
+    });
+  } catch (error) {
+    integrationCodePanel.setContent({
+      code: "",
+      warnings: [error instanceof Error ? error.message : "Integration code could not be generated."],
+      source: appliedSource,
+      installCommand: PLAYGROUND_INSTALL_COMMANDS[config.renderer],
+    });
   }
-  window.setTimeout(() => {
-    if (!disposed) {
-      button.textContent =
-        button === copyCodeButton
-          ? "Copy code"
-          : button === copyInstallButton
-            ? "Copy install command"
-            : "Copy share link";
-    }
-  }, 1800);
 }
 
-function createShareUrl(): string {
+function createShareUrl(includeSource = integrationCodePanel.getState().includeShareSource): string {
   const config = appliedConfig
     ? {
         ...clonePlaygroundConfig(appliedConfig),
@@ -1450,7 +1349,7 @@ function createShareUrl(): string {
       }
     : captureWorkbenchConfig();
   const sourceUrl =
-    shareSourceInput.checked && typeof appliedSource === "string"
+    includeSource && typeof appliedSource === "string"
       ? appliedSource
       : undefined;
   const params = writePlaygroundUrlConfig(
@@ -2510,13 +2409,9 @@ const loadSource = async (
     loadInitiatedAt = loadStartedAt;
     browserMeasurements = { loadElapsedMs: performance.now() - loadStartedAt };
     if (cameraToRestore) candidate.setCameraState(cameraToRestore);
-    if (typeof source === "string") {
-      exactSourceInput.checked = !isPotentiallySensitiveSource(source);
-      shareSourceInput.checked = false;
-    } else {
-      exactSourceInput.checked = false;
-      shareSourceInput.checked = false;
-    }
+    integrationCodePanel.setSourcePrivacySelection(
+      typeof source === "string" && !isPotentiallySensitiveSource(source),
+    );
     updateColorChoices(activePointFormat);
     observeBrowserLongTasks(candidate);
     bindPointerFocus(candidate);
@@ -2744,56 +2639,6 @@ byId<HTMLButtonElement>("reset-defaults").addEventListener("click", () => {
   writePendingUrlConfig();
 });
 
-codeModeMinimalButton.addEventListener("click", () => {
-  codeMode = "minimal";
-  updateIntegrationExample();
-});
-codeModeExplicitButton.addEventListener("click", () => {
-  codeMode = "explicit";
-  updateIntegrationExample();
-});
-exactSourceInput.addEventListener("change", updateIntegrationExample);
-shareSourceInput.addEventListener("change", () => {
-  shareStatus.textContent = shareSourceInput.checked
-    ? "The active source URL will be included in the copied share link."
-    : "The copied share link will contain settings only.";
-});
-copyCodeButton.addEventListener("click", async () => {
-  const sensitiveSource =
-    typeof appliedSource === "string" &&
-    isPotentiallySensitiveSource(appliedSource) &&
-    exactSourceInput.checked;
-  if (
-    sensitiveSource &&
-    !window.confirm(
-      "The visible code contains a URL that may include credentials or tokens. Copy it anyway?",
-    )
-  ) {
-    shareStatus.textContent =
-      "Copy cancelled. Switch to the placeholder source to copy without the exact URL.";
-    return;
-  }
-  await copyWithFeedback(
-    copyCodeButton,
-    codeElement.textContent ?? "",
-    "Generated code copied.",
-  );
-});
-copyInstallButton.addEventListener("click", async () => {
-  await copyWithFeedback(
-    copyInstallButton,
-    installCommand.textContent ?? "",
-    "Install command copied.",
-  );
-});
-copyShareButton.addEventListener("click", async () => {
-  await copyWithFeedback(
-    copyShareButton,
-    createShareUrl(),
-    "Share link copied.",
-  );
-});
-
 let disposed = false;
 const destroyPlayground = (): void => {
   if (disposed) return;
@@ -2809,6 +2654,7 @@ const destroyPlayground = (): void => {
   focusRadiusSlider.destroy();
   focusBiasSlider.destroy();
   schemaPanel?.destroy();
+  integrationCodePanel.destroy();
   rightTabs.destroy();
   workbenchLayout.destroy();
   cameraControl.destroy();

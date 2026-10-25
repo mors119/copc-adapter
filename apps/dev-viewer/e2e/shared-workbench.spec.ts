@@ -104,6 +104,50 @@ test("uses the same schema controls and default Workbench tabs as Playground", a
   expect(narrowLayout.viewportWidth).toBeGreaterThan(0);
 });
 
+test("generates shared Code tab output from applied workspace configuration", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect
+    .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.lifecycle))
+    .toBe("ready");
+
+  const code = page.locator("#integration-example");
+  await expect(code).toContainText("local workspace source; unpublished");
+  await expect(code).toContainText("CopcCesiumLayer");
+  const initialCode = await code.textContent();
+
+  await page.locator('.schema-control-section[data-section="streaming"] summary').click();
+  const maxNodes = page.locator("#max-nodes-value");
+  await maxNodes.fill("32");
+  await maxNodes.dispatchEvent("change");
+  await expect(code).toHaveText(initialCode ?? "");
+
+  await page.locator("#apply-settings").click();
+  await expect
+    .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.lifecycle))
+    .toBe("ready");
+  await expect(code).toContainText("maxNodes: 32");
+  await expect(page.locator("#copy-code")).toBeVisible();
+  await expect(page.locator("#copy-share-link")).toBeVisible();
+  await expect(page.locator("#install-guidance-label")).toBeHidden();
+
+  await page.evaluate(() => {
+    const target = window as Window & { __copiedText?: string };
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async (value: string) => { target.__copiedText = value; } },
+    });
+  });
+  await page.locator("#copy-share-link").click();
+  await expect(page.locator("#copy-share-link")).toHaveText("Copied");
+  const shareLink = await page.evaluate(
+    () => (window as Window & { __copiedText?: string }).__copiedText,
+  );
+  expect(shareLink).toContain("backend=copc-js");
+  expect(shareLink).not.toContain("source=");
+});
+
 test("applies Focus Lens to the active Cesium session through its runtime operation", async ({
   page,
 }) => {
