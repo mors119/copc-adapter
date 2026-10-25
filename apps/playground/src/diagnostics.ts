@@ -1,8 +1,5 @@
 import type { WorkbenchLayerConfig, WorkbenchRenderer } from "../../shared/workbench-config";
 
-/** Public adapter default from docs/API.md; keep aligned with the package contract. */
-export const DEFAULT_WORKBENCH_MAX_DEPTH = 6;
-
 export type PlaygroundPerformanceDiagnostics = {
   readonly updateDurationMs?: number;
   readonly nodeSelectionMs?: number;
@@ -226,10 +223,6 @@ export function supportsLongTaskObservation(
   return observer?.supportedEntryTypes?.includes("longtask") === true;
 }
 
-function formattedOptionalCount(value: number | undefined): string {
-  return formatDiagnosticCount(value);
-}
-
 function formatApproximateRenderCadence(intervalMs: number | undefined): string {
   const interval = finiteNumber(intervalMs);
   if (interval === undefined || interval === 0) return UNAVAILABLE;
@@ -264,15 +257,12 @@ export function createDiagnosticsViewModel(
   const cache = diagnostics?.pointCache;
   const levels = snapshot?.visibleLevelRange;
   const renderInterval = finiteNumber(browser.renderIntervalMs);
-  const effectiveMaxDepth =
-    context.config.maxDepth ?? DEFAULT_WORKBENCH_MAX_DEPTH;
+  const sse = context.config.maxScreenSpaceError ?? performance?.maxScreenSpaceError;
   const rejectedRefinements =
     finiteNumber(performance?.refinementRejectedByNodeBudgetCount) === undefined &&
     finiteNumber(performance?.refinementRejectedByPointBudgetCount) === undefined
       ? UNAVAILABLE
       : `${formatDiagnosticCount(performance?.refinementRejectedByNodeBudgetCount)} node · ${formatDiagnosticCount(performance?.refinementRejectedByPointBudgetCount)} point`;
-  const sse =
-    context.config.maxScreenSpaceError ?? performance?.maxScreenSpaceError;
   const selectedAlgorithm = snapshot?.refinementAlgorithm;
   const rangeStatus =
     context.rangeSupported === true
@@ -301,7 +291,7 @@ export function createDiagnosticsViewModel(
 
   return {
     sourceLabel: context.sourceLabel,
-    context: `${context.sourceLabel} · ${context.renderer === "cesium" ? "Cesium" : "Three.js"} · ${context.config.backend === "rust" ? "Rust / WASM" : "copc-js"} · ${context.config.colorMode} · budget ${formattedOptionalCount(context.config.maxRenderedPoints)} points · CPU cache ${formatDiagnosticBytes(context.config.maxPointCacheBytes)} · maxNodes ${formattedOptionalCount(context.config.maxNodes)} · maxDepth ${formatDiagnosticCount(effectiveMaxDepth)} · SSE ${sse === undefined ? UNAVAILABLE : `${formatDiagnosticCount(sse)} px`} · max distance ${context.config.maxRenderDistanceMeters === undefined ? UNAVAILABLE : `${formatDiagnosticCount(context.config.maxRenderDistanceMeters)} m`}`,
+    context: `${context.sourceLabel} · ${context.renderer === "cesium" ? "Cesium" : "Three.js"} · ${context.config.backend === "rust" ? "Rust / WASM" : "copc-js"}`,
     lifecycle: snapshot?.lifecycle ?? UNAVAILABLE,
     renderedPoints: formatDiagnosticCount(snapshot?.renderedPoints),
     renderedNodes: formatDiagnosticCount(snapshot?.renderedNodes),

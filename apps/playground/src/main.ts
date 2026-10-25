@@ -45,6 +45,10 @@ import {
   type IntegrationCodeOptions,
 } from "./integrationCode";
 import { mountIntegrationCodePanel } from "../../shared/codegen/IntegrationCodePanel.ts";
+import {
+  mountDiagnosticSections,
+  type DiagnosticSectionDefinition,
+} from "../../shared/diagnostics/DiagnosticSections.ts";
 import { mountPointPopover } from "../../shared/inspection/PointPopover.ts";
 import {
   createPlaygroundRuntime,
@@ -81,6 +85,90 @@ import "../../shared/workbench/workbench.css";
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("The Playground application root is missing.");
+
+const PLAYGROUND_HEALTH_SECTIONS = [
+  {
+    id: "playground-health-runtime",
+    title: "Runtime status",
+    initiallyOpen: true,
+    fields: [
+      { key: "lifecycle", label: "Layer lifecycle", id: "diagnostic-status" },
+      { key: "renderedPoints", label: "Rendered points", id: "diagnostic-points" },
+      { key: "renderedNodes", label: "Rendered nodes", id: "diagnostic-nodes" },
+      { key: "selectedNodes", label: "Selected nodes", id: "diagnostic-selected" },
+      { key: "updateCount", label: "Streaming updates", id: "diagnostic-update-count" },
+    ],
+  },
+  {
+    id: "playground-health-range",
+    title: "HTTP Range activity",
+    fields: [
+      { key: "rangeRequests", label: "Range requests", id: "diagnostic-range-requests" },
+      { key: "rangeBytes", label: "Transferred bytes, latest update", id: "diagnostic-range-bytes" },
+      { key: "rangeDuration", label: "Range duration, latest update", id: "diagnostic-range-duration" },
+    ],
+  },
+  {
+    id: "playground-health-processing",
+    title: "Processing and browser timings",
+    fields: [
+      { key: "updateDuration", label: "Update duration, latest update", id: "diagnostic-update-duration" },
+      { key: "selectionDuration", label: "Node selection, latest update", id: "diagnostic-selection-duration" },
+      { key: "decodeDuration", label: "Decode duration, latest update", id: "diagnostic-decode-duration" },
+      { key: "preparationDuration", label: "Point preparation", id: "diagnostic-preparation-duration" },
+      { key: "crsDuration", label: "CRS transform", id: "diagnostic-crs-duration" },
+      { key: "rendererDuration", label: "Renderer preparation", id: "diagnostic-renderer-duration" },
+      { key: "renderInterval", label: "Observed render interval", id: "diagnostic-render-interval" },
+      { key: "renderCadence", label: "Approximate observed render cadence", id: "diagnostic-render-cadence" },
+      { key: "loadElapsed", label: "Load initiated to adapter completion", id: "diagnostic-load-time" },
+      { key: "firstVisible", label: "First points observed", id: "diagnostic-first-visible" },
+      { key: "longestLongTask", label: "Longest observed browser Long Task", id: "diagnostic-long-task" },
+    ],
+  },
+  {
+    id: "playground-health-resources",
+    title: "Cache and workers",
+    fields: [
+      { key: "cacheBytes", label: "CPU cache bytes", id: "diagnostic-cache-bytes" },
+      { key: "cacheBudget", label: "CPU cache budget", id: "diagnostic-cache-budget" },
+      { key: "cacheEntries", label: "Cached nodes", id: "diagnostic-cache-entries" },
+      { key: "cacheActivity", label: "Cache hits, misses, evictions", id: "diagnostic-cache-hits" },
+      { key: "cacheEvictions", label: "Evicted bytes", id: "diagnostic-cache-evictions" },
+      { key: "workerSummary", label: "Worker state", id: "diagnostic-worker" },
+      { key: "workerDetails", label: "Worker jobs", id: "diagnostic-worker-details" },
+    ],
+  },
+] satisfies readonly DiagnosticSectionDefinition[];
+
+const PLAYGROUND_DATA_SECTIONS = [
+  {
+    id: "playground-data-hierarchy",
+    title: "Hierarchy and coverage",
+    initiallyOpen: true,
+    fields: [
+      { key: "selectedPointCost", label: "Estimated selected points", id: "diagnostic-selected-point-cost" },
+      { key: "visibleLevels", label: "Visible levels", id: "diagnostic-lod" },
+      { key: "hierarchyRequests", label: "Hierarchy requests", id: "diagnostic-hierarchy-requests" },
+      { key: "hierarchyBytes", label: "Hierarchy bytes", id: "diagnostic-hierarchy-bytes" },
+      { key: "hierarchyCache", label: "Hierarchy page cache", id: "diagnostic-hierarchy-cache" },
+      { key: "transitionSummary", label: "Coverage transitions", id: "diagnostic-transition" },
+    ],
+  },
+  {
+    id: "playground-data-refinement",
+    title: "Refinement and budget",
+    fields: [
+      { key: "configuredBudget", label: "Configured point budget", id: "diagnostic-budget" },
+      { key: "maxScreenSpaceError", label: "Active maximum screen-space error", id: "diagnostic-sse" },
+      { key: "acceptedRefinements", label: "Accepted refinements", id: "diagnostic-accepted-refinements" },
+      { key: "rejectedRefinements", label: "Rejected by node / point budget", id: "diagnostic-refinements" },
+      { key: "refinementAlgorithm", label: "Refinement algorithm", id: "diagnostic-algorithm" },
+      { key: "focusState", label: "Focus Lens", id: "diagnostic-focus" },
+      { key: "focusCandidates", label: "Focus candidates", id: "diagnostic-focus-candidates" },
+      { key: "focusRefinements", label: "Focus-influenced refinements", id: "diagnostic-focus-refinements" },
+    ],
+  },
+] satisfies readonly DiagnosticSectionDefinition[];
 
 app.innerHTML = `
   <div class="playground-shell">
@@ -221,67 +309,13 @@ app.innerHTML = `
     </main>
 
     <section class="below-viewer" id="below-viewer" aria-label="Source and point details">
-      <section class="diagnostics-card diagnostics-dashboard" aria-labelledby="diagnostics-heading">
+      <section class="diagnostics-card diagnostics-dashboard" aria-label="Runtime health">
         <div class="diagnostics-title-row">
-          <div><span class="eyebrow">LIVE</span><h2 id="diagnostics-heading">Streaming diagnostics</h2></div>
-          <span class="summary-state" id="diagnostic-summary">Waiting for a source</span>
+          <div><span class="eyebrow">LIVE</span><h2>Runtime health</h2></div>
+          <span class="summary-state" id="diagnostic-summary" aria-live="polite">Waiting for a source</span>
         </div>
         <p class="diagnostic-context" id="diagnostic-context">Load a source to see active configuration and measurements.</p>
-        <div class="diagnostic-summary-grid" aria-label="Live diagnostic summary">
-          <div class="diagnostic-tile"><span>Rendered</span><strong id="diagnostic-points">Not available</strong><small>points</small></div>
-          <div class="diagnostic-tile"><span>Nodes</span><strong id="diagnostic-nodes">Not available</strong><small><span id="diagnostic-selected">Not available</span> selected</small></div>
-          <div class="diagnostic-tile"><span>Range</span><strong id="diagnostic-range-bytes">Not available</strong><small id="diagnostic-range-requests">Not available</small></div>
-          <div class="diagnostic-tile"><span>Decode</span><strong id="diagnostic-decode">Not available</strong><small>latest update</small></div>
-          <div class="diagnostic-tile"><span>CPU cache</span><strong id="diagnostic-cache-bytes">Not available</strong><small id="diagnostic-cache-entries">Not available entries</small></div>
-          <div class="diagnostic-tile"><span>Worker</span><strong id="diagnostic-worker">Not available</strong><small id="diagnostic-worker-note">Rust / WASM</small></div>
-          <div class="diagnostic-tile"><span>Observed render interval</span><strong id="diagnostic-render-interval">Not available</strong><small id="diagnostic-render-cadence">Not available</small></div>
-        </div>
-        <p class="diagnostic-note">Refreshes every 500 ms. Adapter timings and Range bytes describe the latest view update. Render interval is the time between renders, not render cost; Cesium on-demand rendering and browser throttling can increase it. Load and Long Task values are Playground browser observations.</p>
-        <details class="diagnostic-details">
-          <summary>Detailed counters and measurements</summary>
-          <dl class="diagnostics-list">
-            <div><dt>Layer status</dt><dd id="diagnostic-status">Not available</dd></div>
-            <div><dt>Source host and resource size</dt><dd id="diagnostic-source">Not available</dd></div>
-            <div><dt>HTTP Range probe</dt><dd id="diagnostic-range">Not available</dd></div>
-            <div><dt>COPC metadata probe</dt><dd id="diagnostic-copc">Not available</dd></div>
-            <div><dt>Dataset point count</dt><dd id="diagnostic-metadata-points">Not available</dd></div>
-            <div><dt>Selected point estimate</dt><dd id="diagnostic-selected-point-cost">Not available</dd></div>
-            <div><dt>Rendered nodes</dt><dd id="diagnostic-rendered-nodes">Not available</dd></div>
-            <div><dt>Selected nodes</dt><dd id="diagnostic-selected-nodes">Not available</dd></div>
-            <div><dt>Visible levels</dt><dd id="diagnostic-lod">Not available</dd></div>
-            <div><dt>Streaming updates</dt><dd id="diagnostic-update-count">Not available</dd></div>
-            <div><dt>Range request count</dt><dd id="diagnostic-range-requests-details">Not available</dd></div>
-            <div><dt>Hierarchy requests</dt><dd id="diagnostic-hierarchy-requests">Not available</dd></div>
-            <div><dt>Hierarchy bytes</dt><dd id="diagnostic-hierarchy-bytes">Not available</dd></div>
-            <div><dt>Hierarchy page cache</dt><dd id="diagnostic-hierarchy-cache">Not available</dd></div>
-            <div><dt>Coverage transitions</dt><dd id="diagnostic-transition">Not available</dd></div>
-            <div><dt>Source probe status</dt><dd id="diagnostic-source-status">Not available</dd></div>
-            <div><dt>Update duration (latest update)</dt><dd id="diagnostic-update-duration">Not available</dd></div>
-            <div><dt>Node selection (latest update)</dt><dd id="diagnostic-selection-duration">Not available</dd></div>
-            <div><dt>Range duration (latest update)</dt><dd id="diagnostic-range-duration">Not available</dd></div>
-            <div><dt>Decode duration (latest update)</dt><dd id="diagnostic-decode-duration">Not available</dd></div>
-            <div><dt>Point preparation (latest update)</dt><dd id="diagnostic-preparation-duration">Not available</dd></div>
-            <div><dt>CRS transform (latest update)</dt><dd id="diagnostic-crs-duration">Not available</dd></div>
-            <div><dt>Renderer preparation (latest update)</dt><dd id="diagnostic-renderer-duration">Not available</dd></div>
-            <div><dt>Configured point budget</dt><dd id="diagnostic-budget">Not available</dd></div>
-            <div><dt>Active max SSE</dt><dd id="diagnostic-sse">Not available</dd></div>
-            <div><dt>Accepted / rejected refinements</dt><dd id="diagnostic-refinements">Not available</dd></div>
-            <div><dt>Cache budget</dt><dd id="diagnostic-cache-budget">Not available</dd></div>
-            <div><dt>Cache hits / misses</dt><dd id="diagnostic-cache-hits">Not available</dd></div>
-            <div><dt>Cache evictions / bytes evicted</dt><dd id="diagnostic-cache-evictions">Not available</dd></div>
-            <div><dt>Worker jobs</dt><dd id="diagnostic-worker-details">Not available</dd></div>
-            <div><dt>Refinement algorithm</dt><dd id="diagnostic-algorithm">Not available</dd></div>
-            <div><dt>Focus lens</dt><dd id="diagnostic-focus">Not available</dd></div>
-            <div><dt>Focus candidates</dt><dd id="diagnostic-focus-candidates">Not available</dd></div>
-            <div><dt>Focus-influenced refinements</dt><dd id="diagnostic-focus-refinements">Not available</dd></div>
-            <div><dt>Approximate observed render cadence</dt><dd id="diagnostic-detailed-cadence">Not available</dd></div>
-            <div><dt>Load initiated → adapter load complete</dt><dd id="diagnostic-load-time">Not available</dd></div>
-            <div><dt>First points observed</dt><dd id="diagnostic-first-visible">Not available</dd></div>
-            <div><dt>Longest observed browser Long Task</dt><dd id="diagnostic-long-task">Not available</dd></div>
-            <div><dt>HTTP validation</dt><dd id="diagnostic-validation">Unknown</dd></div>
-          </dl>
-        </details>
-        <p class="diagnostic-warning" id="diagnostic-warning" hidden></p>
+        <div id="diagnostic-health-content"></div>
       </section>
       <div id="generated-code-card-mount"></div>
     </section>
@@ -320,6 +354,9 @@ const healthTabPanel = document.createElement("section");
 const dataTabPanel = document.createElement("section");
 const generatedCodeCard = belowViewer.querySelector<HTMLElement>(".generated-code-card")!;
 const diagnosticCard = belowViewer.querySelector<HTMLElement>(".diagnostics-dashboard")!;
+const dataDiagnosticsCard = document.createElement("section");
+dataDiagnosticsCard.className = "diagnostics-card";
+dataDiagnosticsCard.setAttribute("aria-label", "Dataset and streaming analysis");
 codeTabPanel.append(generatedCodeCard);
 sourceTabPanel.append(
   byId("source-status"),
@@ -330,8 +367,17 @@ sourceTabPanel.append(
 );
 workbenchLeft.append(sourcePanel, configPanel);
 healthTabPanel.append(diagnosticCard);
-dataTabPanel.innerHTML =
-  '<p class="workbench-empty-state">Point details appear beside the selected point in the viewport. Dataset and streaming summaries are available in Source and Health.</p>';
+dataTabPanel.append(dataDiagnosticsCard);
+const healthDiagnostics = mountDiagnosticSections(
+  diagnosticCard.querySelector<HTMLElement>("#diagnostic-health-content")!,
+  PLAYGROUND_HEALTH_SECTIONS,
+  { sectionClassName: "diagnostic-details" },
+);
+const dataDiagnostics = mountDiagnosticSections(
+  dataDiagnosticsCard,
+  PLAYGROUND_DATA_SECTIONS,
+  { sectionClassName: "diagnostic-details" },
+);
 const rightTabs = mountWorkbenchRightTabs({
   target: workbenchRight,
   tabs: [
@@ -1774,127 +1820,68 @@ const renderDiagnosticsDashboard = (
   diagnostics: PlaygroundLayerDiagnostics | undefined,
 ): void => {
   const context = activeDiagnosticsContext;
+  const summary = byId<HTMLElement>("diagnostic-summary");
+  const contextElement = byId<HTMLElement>("diagnostic-context");
   if (!context) {
-    byId("diagnostic-context").textContent =
+    contextElement.textContent =
       "Load a source to see active configuration and measurements.";
-    byId("diagnostic-summary").textContent = "Waiting for a source";
-    const unavailableIds = [
-      "diagnostic-status",
-      "diagnostic-source",
-      "diagnostic-range",
-      "diagnostic-copc",
-      "diagnostic-validation",
-      "diagnostic-source-status",
-      "diagnostic-metadata-points",
-      "diagnostic-points",
-      "diagnostic-nodes",
-      "diagnostic-selected",
-      "diagnostic-selected-point-cost",
-      "diagnostic-rendered-nodes",
-      "diagnostic-selected-nodes",
-      "diagnostic-lod",
-      "diagnostic-update-count",
-      "diagnostic-range-bytes",
-      "diagnostic-range-requests",
-      "diagnostic-range-requests-details",
-      "diagnostic-hierarchy-requests",
-      "diagnostic-hierarchy-bytes",
-      "diagnostic-hierarchy-cache",
-      "diagnostic-transition",
-      "diagnostic-decode",
-      "diagnostic-update-duration",
-      "diagnostic-selection-duration",
-      "diagnostic-range-duration",
-      "diagnostic-decode-duration",
-      "diagnostic-preparation-duration",
-      "diagnostic-crs-duration",
-      "diagnostic-renderer-duration",
-      "diagnostic-budget",
-      "diagnostic-sse",
-      "diagnostic-refinements",
-      "diagnostic-cache-bytes",
-      "diagnostic-cache-entries",
-      "diagnostic-cache-budget",
-      "diagnostic-cache-hits",
-      "diagnostic-cache-evictions",
-      "diagnostic-worker",
-      "diagnostic-worker-note",
-      "diagnostic-worker-details",
-      "diagnostic-render-interval",
-      "diagnostic-render-cadence",
-      "diagnostic-detailed-cadence",
-      "diagnostic-load-time",
-      "diagnostic-first-visible",
-      "diagnostic-long-task",
-      "diagnostic-algorithm",
-      "diagnostic-focus",
-      "diagnostic-focus-candidates",
-      "diagnostic-focus-refinements",
-    ];
-    for (const id of unavailableIds) byId(id).textContent = "Not available";
+    summary.textContent = "Waiting for a source";
+    healthDiagnostics.update({});
+    dataDiagnostics.update({});
     return;
   }
+
   const model = createDiagnosticsViewModel(
     diagnostics,
     context,
     browserMeasurements,
   );
-  const values: Record<string, string> = {
-    "diagnostic-context": model.context,
-    "diagnostic-status": model.lifecycle,
-    "diagnostic-source": `${model.sourceLabel} · ${model.sourceSize}`,
-    "diagnostic-source-status": model.sourceStatus,
-    "diagnostic-metadata-points": model.metadataPointCount,
-    "diagnostic-points": model.renderedPoints,
-    "diagnostic-nodes": model.renderedNodes,
-    "diagnostic-selected": model.selectedNodes,
-    "diagnostic-selected-point-cost": model.selectedPointCost,
-    "diagnostic-rendered-nodes": model.renderedNodes,
-    "diagnostic-selected-nodes": model.selectedNodes,
-    "diagnostic-lod": model.visibleLevels,
-    "diagnostic-update-count": model.updateCount,
-    "diagnostic-range-bytes": model.rangeBytesLatestUpdate,
-    "diagnostic-range-requests": model.rangeRequests,
-    "diagnostic-range-requests-details": model.rangeRequests,
-    "diagnostic-hierarchy-requests": model.hierarchyRequests,
-    "diagnostic-hierarchy-bytes": model.hierarchyBytes,
-    "diagnostic-hierarchy-cache": model.hierarchyCache,
-    "diagnostic-transition": model.transitionSummary,
-    "diagnostic-decode": model.decodeDuration,
-    "diagnostic-update-duration": model.updateDuration,
-    "diagnostic-selection-duration": model.selectionDuration,
-    "diagnostic-range-duration": model.rangeDuration,
-    "diagnostic-decode-duration": model.decodeDuration,
-    "diagnostic-preparation-duration": model.preparationDuration,
-    "diagnostic-crs-duration": model.crsDuration,
-    "diagnostic-renderer-duration": model.rendererDuration,
-    "diagnostic-budget": model.configuredBudget,
-    "diagnostic-sse": model.maxScreenSpaceError,
-    "diagnostic-refinements": `${model.acceptedRefinements} accepted · ${model.rejectedRefinements} rejected`,
-    "diagnostic-cache-bytes": model.cacheBytes,
-    "diagnostic-cache-entries": `${model.cacheEntries} entries`,
-    "diagnostic-cache-budget": model.cacheBudget,
-    "diagnostic-cache-hits": `${model.cacheHits} hits · ${model.cacheMisses} misses`,
-    "diagnostic-cache-evictions": `${model.cacheEvictions} · ${model.cacheBytesEvicted}`,
-    "diagnostic-worker": model.workerSummary,
-    "diagnostic-worker-note":
-      context.config.backend === "rust"
-        ? "worker pool diagnostics"
-        : "copc-js backend",
-    "diagnostic-worker-details": model.workerDetails,
-    "diagnostic-render-interval": model.renderInterval,
-    "diagnostic-render-cadence": model.approximateRenderCadence,
-    "diagnostic-detailed-cadence": model.approximateRenderCadence,
-    "diagnostic-load-time": model.loadElapsed,
-    "diagnostic-first-visible": model.firstVisiblePoints,
-    "diagnostic-long-task": model.longestLongTask,
-    "diagnostic-algorithm": model.refinementAlgorithm,
-    "diagnostic-focus": model.focusState,
-    "diagnostic-focus-candidates": model.focusCandidates,
-    "diagnostic-focus-refinements": model.focusRefinements,
-  };
-  for (const [id, value] of Object.entries(values))
-    byId(id).textContent = value;
+  contextElement.textContent = model.context;
+  summary.textContent = model.lifecycle;
+  healthDiagnostics.update({
+    lifecycle: model.lifecycle,
+    renderedPoints: model.renderedPoints,
+    renderedNodes: model.renderedNodes,
+    selectedNodes: model.selectedNodes,
+    updateCount: model.updateCount,
+    rangeRequests: model.rangeRequests,
+    rangeBytes: model.rangeBytesLatestUpdate,
+    rangeDuration: model.rangeDuration,
+    updateDuration: model.updateDuration,
+    selectionDuration: model.selectionDuration,
+    decodeDuration: model.decodeDuration,
+    preparationDuration: model.preparationDuration,
+    crsDuration: model.crsDuration,
+    rendererDuration: model.rendererDuration,
+    renderInterval: model.renderInterval,
+    renderCadence: model.approximateRenderCadence,
+    loadElapsed: model.loadElapsed,
+    firstVisible: model.firstVisiblePoints,
+    longestLongTask: model.longestLongTask,
+    cacheBytes: model.cacheBytes,
+    cacheBudget: model.cacheBudget,
+    cacheEntries: model.cacheEntries,
+    cacheActivity: `${model.cacheHits} hits · ${model.cacheMisses} misses · ${model.cacheEvictions} evictions`,
+    cacheEvictions: model.cacheBytesEvicted,
+    workerSummary: model.workerSummary,
+    workerDetails: model.workerDetails,
+  });
+
+  dataDiagnostics.update({
+    selectedPointCost: model.selectedPointCost,
+    visibleLevels: model.visibleLevels,
+    hierarchyRequests: model.hierarchyRequests,
+    hierarchyBytes: model.hierarchyBytes,
+    hierarchyCache: model.hierarchyCache,
+    transitionSummary: model.transitionSummary,
+    configuredBudget: model.configuredBudget,
+    maxScreenSpaceError: model.maxScreenSpaceError,
+    acceptedRefinements: model.acceptedRefinements,
+    refinementAlgorithm: model.refinementAlgorithm,
+    focusState: model.focusState,
+    focusCandidates: model.focusCandidates,
+    focusRefinements: model.focusRefinements,
+  });
 };
 
 const refreshSnapshot = (): void => {
@@ -2355,19 +2342,6 @@ const loadSource = async (
       ...(probeResult?.partialStatus === undefined ? {} : { sourcePartialHttpStatus: probeResult.partialStatus }),
       ...(probeResult ? { corsReadable: probeResult.corsReadable, rangeSupported: probeResult.rangeSupported, copcDetected: probeResult.copcDetected } : {}),
     };
-    if (probeResult) {
-      byId("diagnostic-range").textContent = describeProbeTruth(probeResult.rangeSupported, "Supported", "Unsupported");
-      byId("diagnostic-copc").textContent = describeProbeTruth(probeResult.copcDetected, "Detected", "Not detected");
-      byId("diagnostic-validation").textContent = describeValidationLevel(probeResult.validationLevel);
-      const warning = byId<HTMLElement>("diagnostic-warning");
-      warning.textContent = safeErrorText(probeResult.warnings.join(" "));
-      warning.hidden = probeResult.warnings.length === 0;
-    } else {
-      byId("diagnostic-range").textContent = "Not applicable (local file)";
-      byId("diagnostic-copc").textContent = "COPC loaded from local file";
-      byId("diagnostic-validation").textContent = "Not applicable (local file)";
-      byId<HTMLElement>("diagnostic-warning").hidden = true;
-    }
     loadInitiatedAt = loadStartedAt;
     browserMeasurements = { loadElapsedMs: performance.now() - loadStartedAt };
     if (cameraToRestore) candidate.setCameraState(cameraToRestore);

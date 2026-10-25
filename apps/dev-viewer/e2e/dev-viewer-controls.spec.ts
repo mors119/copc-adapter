@@ -224,12 +224,20 @@ test("switches renderer and backend, applies controls, and inspects a Three poin
     )
     .toBe("screen-projection");
   await page.getByRole("tab", { name: "Source" }).click();
-  await page.getByText("Source diagnostics", { exact: true }).click();
+  await page
+    .locator(
+      '#workbench-panel-source [data-diagnostic-section="source-probe"] summary',
+    )
+    .click();
   await expect(
-    page.locator('[data-field="configuredRangeValidation"]'),
+    page.locator(
+      '#workbench-panel-source [data-field="configuredRangeValidation"]',
+    ),
   ).toHaveText("strict");
   await expect(
-    page.locator('[data-field="sourceProbeValidationLevel"]'),
+    page.locator(
+      '#workbench-panel-source [data-field="sourceProbeValidationLevel"]',
+    ),
   ).toHaveText("strict");
 
   const threeRenderer = rendererGroup.getByRole("radio", { name: "Three.js" });
@@ -265,15 +273,12 @@ test("switches renderer and backend, applies controls, and inspects a Three poin
       ),
     )
     .toBe("cesium");
-  const diagnostics = page.getByRole("complementary", {
-    name: "COPC runtime debug panel",
-  });
-  await page.getByRole("tab", { name: "Data" }).click();
-  await diagnostics
-    .getByText("Advanced internal debug information", { exact: true })
-    .click();
-  await diagnostics.getByText("Metadata", { exact: true }).click();
-  await expect(diagnostics.locator('[data-field="bounds"]')).toBeVisible();
+  await page.getByRole("tab", { name: "Source" }).click();
+  await expect(
+    page.locator(
+      '#workbench-panel-source [data-diagnostic-value="bounds"]',
+    ),
+  ).toBeVisible();
 
   const pointSize = page.getByRole("slider", { name: "Point size" });
   await pointSize.focus();

@@ -1,6 +1,5 @@
 import type {
   CopcCesiumLayerSnapshot,
-  CopcColorMode,
   CopcMetadata,
   RangeValidationPolicy,
 } from "@frillab/copc-adapter";
@@ -10,13 +9,20 @@ import type {
   CopcSourceProbeResult,
   ProbeTruth,
 } from "@frillab/copc-adapter";
+import {
+  mountDiagnosticSections,
+  type DiagnosticSectionDefinition,
+  type DiagnosticSectionsController,
+} from "../../../shared/diagnostics/DiagnosticSections.ts";
 
 export type CopcDebugPanelState = {
   snapshot: CopcCesiumLayerSnapshot | CopcThreeLayerSnapshot;
   metadata?: CopcMetadata;
   hierarchy?: CopcHierarchyDiagnostics;
   sourceProbe?: CopcSourceProbeResult;
-  activeColorMode?: CopcColorMode;
+  safeSourceProbeLabel?: string;
+  safeSourceProbeWarnings?: string;
+  snapshotIsAvailable?: boolean;
   configuredRangeValidation: RangeValidationPolicy;
   sourceProbePolicy?: RangeValidationPolicy;
   rangeValidationApplicable: boolean;
@@ -26,10 +32,10 @@ export type CopcDebugPanelState = {
 export type CopcDebugPanelView = {
   datasetName: string;
   datasetUrl: string;
-  activeColorMode: string;
   status: string;
   statusTone: "loading" | "ready" | "error" | "inactive";
   pointCount: string;
+  sourceCrsWkt: string;
   bounds: string;
   scale: string;
   offset: string;
@@ -53,7 +59,6 @@ export type CopcDebugPanelView = {
   refinementReplacementCommits: string;
   configuredPointBudget: string;
   candidateSelectedPointCount: string;
-  activeRenderedPointCount: string;
   deferredNodeCount: string;
   deferredPointCount: string;
   budgetUtilization: string;
@@ -124,8 +129,6 @@ export type CopcDebugPanelView = {
   motionLivePrediction: string;
   motionLiveActivity: string;
   motionLiveAge: string;
-  motionSelectionGeneration: string;
-  motionSelectionNodes: string;
   motionSelectionPrediction: string;
   motionSelectionCandidates: string;
   motionSelectionWeights: string;
@@ -142,6 +145,18 @@ const numberFormatter = new Intl.NumberFormat("en-US");
 
 function formatNumber(value: number): string {
   return numberFormatter.format(value);
+}
+
+function formatOptionalNumber(value: number | undefined): string {
+  return value === undefined ? "—" : formatNumber(value);
+}
+
+function formatOptionalBytes(value: number | undefined): string {
+  return value === undefined ? "—" : formatBytes(value);
+}
+
+function formatOptionalCoordinate(value: number | undefined): string {
+  return value === undefined ? "—" : formatCoordinate(value);
 }
 
 function formatBytes(value: number): string {
@@ -190,23 +205,13 @@ export function buildCopcDebugPanelView(
   state: CopcDebugPanelState,
 ): CopcDebugPanelView {
   const { snapshot, metadata, hierarchy, sourceProbe, lastError } = state;
-  const liveMotion = snapshot.performance?.motionLive ?? {
-    enabled: snapshot.performance?.motionLookaheadEnabled ?? false,
-    acceptedMovementSampleCount:
-      snapshot.performance?.motionSampledMovementCount ?? 0,
-    horizontalAngularVelocityDegreesPerSecond: 0,
-    verticalAngularVelocityDegreesPerSecond: 0,
-    horizonMilliseconds: snapshot.performance?.motionHorizonMilliseconds ?? 200,
-    predictedHorizontalDisplacementDegrees: 0,
-    predictedVerticalDisplacementDegrees: 0,
-    activity: 0,
-    state: snapshot.performance?.motionLookaheadEnabled
-      ? ("stationary" as const)
-      : ("disabled" as const),
-  };
+  const liveMotion = snapshot.performance?.motionLive;
+  const hasSnapshot = state.snapshotIsAvailable ?? true;
   const rangeRequests =
     "rangeRequests" in snapshot ? snapshot.rangeRequests : undefined;
-  const status = lastError
+  const status = !hasSnapshot
+    ? "Not loaded"
+    : lastError
     ? "Error"
     : snapshot.lifecycle === "ready"
       ? "Ready"
@@ -214,7 +219,9 @@ export function buildCopcDebugPanelView(
         ? "Loading"
         : snapshot.lifecycle.charAt(0).toUpperCase() +
           snapshot.lifecycle.slice(1);
-  const statusTone = lastError
+  const statusTone = !hasSnapshot
+    ? "inactive"
+    : lastError
     ? "error"
     : snapshot.lifecycle === "ready"
       ? "ready"
@@ -225,45 +232,62 @@ export function buildCopcDebugPanelView(
   return {
     datasetName: getDatasetName(snapshot.datasetUrl),
     datasetUrl: snapshot.datasetUrl,
-    activeColorMode: state.activeColorMode ?? "fixed",
     refinementAlgorithm:
-      snapshot.performance?.refinementAlgorithm ?? "foveated",
-    motionLiveEnabled: liveMotion.enabled ? "on" : "off",
-    motionLiveState: liveMotion.state,
-    motionLiveMovementSamples: formatNumber(
-      liveMotion.acceptedMovementSampleCount,
+      snapshot.performance?.refinementAlgorithm ?? "—",
+    motionLiveEnabled:
+      liveMotion?.enabled === undefined
+        ? snapshot.performance?.motionLookaheadEnabled === undefined
+          ? "—"
+          : snapshot.performance.motionLookaheadEnabled ? "on" : "off"
+        : liveMotion.enabled ? "on" : "off",
+    motionLiveState: liveMotion?.state ?? "—",
+    motionLiveMovementSamples: formatOptionalNumber(
+      liveMotion?.acceptedMovementSampleCount ??
+        snapshot.performance?.motionSampledMovementCount,
     ),
-    motionLiveAngularVelocity: `${formatCoordinate(liveMotion.horizontalAngularVelocityDegreesPerSecond)}°/s horizontal · ${formatCoordinate(liveMotion.verticalAngularVelocityDegreesPerSecond)}°/s vertical`,
-    motionLivePrediction: `${formatCoordinate(liveMotion.predictedHorizontalDisplacementDegrees)}° horizontal · ${formatCoordinate(liveMotion.predictedVerticalDisplacementDegrees)}° vertical (${liveMotion.horizonMilliseconds} ms)`,
-    motionLiveActivity: formatCoordinate(liveMotion.activity),
+    motionLiveAngularVelocity: liveMotion
+      ? `${formatCoordinate(liveMotion.horizontalAngularVelocityDegreesPerSecond)}°/s horizontal · ${formatCoordinate(liveMotion.verticalAngularVelocityDegreesPerSecond)}°/s vertical`
+      : "—",
+    motionLivePrediction: liveMotion
+      ? `${formatCoordinate(liveMotion.predictedHorizontalDisplacementDegrees)}° horizontal · ${formatCoordinate(liveMotion.predictedVerticalDisplacementDegrees)}° vertical (${liveMotion.horizonMilliseconds} ms)`
+      : "—",
+    motionLiveActivity: formatOptionalCoordinate(liveMotion?.activity),
     motionLiveAge:
-      liveMotion.millisecondsSinceLastAcceptedMovement === undefined
-        ? "no accepted movement sample"
+      liveMotion?.millisecondsSinceLastAcceptedMovement === undefined
+        ? liveMotion ? "no accepted movement sample" : "—"
         : `${formatCoordinate(liveMotion.millisecondsSinceLastAcceptedMovement)} ms`,
-    motionSelectionGeneration: formatNumber(snapshot.streamingUpdateCount),
-    motionSelectionNodes: `${formatNumber(snapshot.performance?.selectedNodeCount ?? snapshot.selectedNodeKeys.length)} selected · ${formatNumber(snapshot.renderedNodeKeys.length)} rendered`,
-    motionSelectionPrediction: `${formatCoordinate(snapshot.performance?.motionPredictedHorizontalDisplacementDegrees ?? 0)}° horizontal · ${formatCoordinate(snapshot.performance?.motionPredictedVerticalDisplacementDegrees ?? 0)}° vertical`,
-    motionSelectionCandidates: formatNumber(
-      snapshot.performance?.motionCandidateCount ?? 0,
+    motionSelectionPrediction:
+      snapshot.performance?.motionPredictedHorizontalDisplacementDegrees === undefined ||
+      snapshot.performance.motionPredictedVerticalDisplacementDegrees === undefined
+        ? "—"
+        : `${formatCoordinate(snapshot.performance.motionPredictedHorizontalDisplacementDegrees)}° horizontal · ${formatCoordinate(snapshot.performance.motionPredictedVerticalDisplacementDegrees)}° vertical`,
+    motionSelectionCandidates: formatOptionalNumber(
+      snapshot.performance?.motionCandidateCount,
     ),
     motionSelectionWeights: formatPriorityRange(
       snapshot.performance?.motionWeightMin,
       snapshot.performance?.motionWeightMax,
     ),
     motionSelectionInfluence:
-      (snapshot.performance?.motionInfluencedRefinementCount ?? 0) > 0
-        ? `${formatNumber(snapshot.performance?.motionInfluencedRefinementCount ?? 0)} accepted refinement${snapshot.performance?.motionInfluencedRefinementCount === 1 ? "" : "s"} influenced`
-        : (snapshot.performance?.motionCandidateCount ?? 0) > 0
-          ? "weighted candidates; no accepted refinement changed"
-          : "no motion-weighted candidates",
-    rangeFetchBytes: formatBytes(snapshot.performance?.rangeFetchBytes ?? 0),
+      snapshot.performance?.motionInfluencedRefinementCount === undefined
+        ? "—"
+        : snapshot.performance.motionInfluencedRefinementCount > 0
+          ? `${formatNumber(snapshot.performance.motionInfluencedRefinementCount)} accepted refinement${snapshot.performance.motionInfluencedRefinementCount === 1 ? "" : "s"} influenced`
+          : snapshot.performance.motionCandidateCount === undefined
+            ? "—"
+            : snapshot.performance.motionCandidateCount > 0
+              ? "weighted candidates; no accepted refinement changed"
+              : "no motion-weighted candidates",
+    rangeFetchBytes: formatOptionalBytes(snapshot.performance?.rangeFetchBytes),
     configuredRangeValidation: state.configuredRangeValidation,
     sourceProbePolicy: sourceProbe
       ? (state.sourceProbePolicy ?? "—")
       : state.rangeValidationApplicable
         ? "—"
         : "not applicable · local File",
-    sourceProbeSource: sourceProbe?.source ?? "—",
+    sourceProbeSource: sourceProbe
+      ? (state.safeSourceProbeLabel ?? "Source checked")
+      : "—",
     sourceProbeValidationLevel:
       sourceProbe?.validationLevel ??
       (state.rangeValidationApplicable ? "—" : "not applicable · local File"),
@@ -273,6 +297,11 @@ export function buildCopcDebugPanelView(
     status,
     statusTone,
     pointCount: metadata ? formatNumber(metadata.pointCount) : "—",
+    sourceCrsWkt: metadata
+      ? metadata.wkt?.trim()
+        ? "WKT provided by source"
+        : "WKT not provided by source"
+      : "—",
     bounds: metadata
       ? [
           metadata.bounds.minX,
@@ -287,26 +316,47 @@ export function buildCopcDebugPanelView(
       : "—",
     scale: formatVector(metadata?.scale),
     offset: formatVector(metadata?.offset),
-    selectedNodeCount: formatNumber(snapshot.selectedNodeKeys.length),
+    selectedNodeCount: hasSnapshot
+      ? formatNumber(snapshot.selectedNodeKeys.length)
+      : "—",
     selectedNodeKeys:
       snapshot.selectedNodeKeys.length > 0
         ? snapshot.selectedNodeKeys.join(", ")
         : "—",
-    renderedNodeCount: formatNumber(snapshot.renderedNodeKeys.length),
+    renderedNodeCount: hasSnapshot
+      ? formatNumber(snapshot.renderedNodeKeys.length)
+      : "—",
     renderedNodeKeys:
       snapshot.renderedNodeKeys.length > 0
         ? snapshot.renderedNodeKeys.join(", ")
         : "—",
-    renderedPointCount: formatNumber(snapshot.renderedPointCount),
-    hierarchyRequests: formatNumber(hierarchy?.pageRequests ?? 0),
-    hierarchyCacheHits: formatNumber(hierarchy?.pageCacheHits ?? 0),
-    hierarchyLoadedPages: formatNumber(hierarchy?.loadedPageCount ?? 0),
-    hierarchyLoadedEntries: formatNumber(hierarchy?.loadedEntryCount ?? 0),
-    hierarchyPageConcurrency: `${formatNumber(hierarchy?.activePageLoads ?? 0)} active / ${formatNumber(hierarchy?.peakActivePageLoads ?? 0)} peak`,
-    hierarchySourceDuration: `${formatCoordinate(hierarchy?.sourceOpenDurationMs ?? 0)} ms`,
-    hierarchyMetadataDuration: `${formatCoordinate(hierarchy?.metadataLoadDurationMs ?? 0)} ms`,
-    hierarchyRootDuration: `${formatCoordinate(hierarchy?.rootHierarchyLoadDurationMs ?? 0)} ms`,
-    hierarchyQueryDuration: `${formatCoordinate(hierarchy?.lastQueryDurationMs ?? 0)} ms`,
+    renderedPointCount: hasSnapshot
+      ? formatNumber(snapshot.renderedPointCount)
+      : "—",
+    hierarchyRequests: formatOptionalNumber(hierarchy?.pageRequests),
+    hierarchyCacheHits: formatOptionalNumber(hierarchy?.pageCacheHits),
+    hierarchyLoadedPages: formatOptionalNumber(hierarchy?.loadedPageCount),
+    hierarchyLoadedEntries: formatOptionalNumber(hierarchy?.loadedEntryCount),
+    hierarchyPageConcurrency:
+      hierarchy === undefined
+        ? "—"
+        : `${formatNumber(hierarchy.activePageLoads)} active / ${formatNumber(hierarchy.peakActivePageLoads)} peak`,
+    hierarchySourceDuration:
+      hierarchy?.sourceOpenDurationMs === undefined
+        ? "—"
+        : `${formatCoordinate(hierarchy.sourceOpenDurationMs)} ms`,
+    hierarchyMetadataDuration:
+      hierarchy?.metadataLoadDurationMs === undefined
+        ? "—"
+        : `${formatCoordinate(hierarchy.metadataLoadDurationMs)} ms`,
+    hierarchyRootDuration:
+      hierarchy?.rootHierarchyLoadDurationMs === undefined
+        ? "—"
+        : `${formatCoordinate(hierarchy.rootHierarchyLoadDurationMs)} ms`,
+    hierarchyQueryDuration:
+      hierarchy?.lastQueryDurationMs === undefined
+        ? "—"
+        : `${formatCoordinate(hierarchy.lastQueryDurationMs)} ms`,
     viewDistance: snapshot.viewDistance
       ? `${
           snapshot.viewDistance.visibleFootprintMeters === undefined
@@ -314,45 +364,44 @@ export function buildCopcDebugPanelView(
             : `${formatCoordinate(snapshot.viewDistance.visibleFootprintMeters)} m`
         } / ${formatCoordinate(snapshot.viewDistance.effectiveDistanceMeters)} m / ${formatCoordinate(snapshot.viewDistance.maxRenderDistanceMeters)} m cap · ${snapshot.viewDistance.transition}${snapshot.viewDistance.clampedToMaxRenderDistance ? " · capped" : ""} · overscan ${formatCoordinate(snapshot.viewDistance.overscanFactor)}× · expand ${formatNumber(snapshot.viewDistance.expansionCount)} / shrink ${formatNumber(snapshot.viewDistance.shrinkCount)} / hold ${formatNumber(snapshot.viewDistance.hysteresisHoldCount)} / fallback ${formatNumber(snapshot.viewDistance.fallbackCount)}`
       : "—",
-    activeReplacementGroups: formatNumber(
-      snapshot.transition?.activeReplacementGroupCount ?? 0,
+    activeReplacementGroups: formatOptionalNumber(
+      snapshot.transition?.activeReplacementGroupCount,
     ),
-    coarseNodesRetained: formatNumber(
-      snapshot.transition?.coarseNodesRetainedForCoverageCount ?? 0,
+    coarseNodesRetained: formatOptionalNumber(
+      snapshot.transition?.coarseNodesRetainedForCoverageCount,
     ),
-    refinementReplacementCommits: formatNumber(
-      snapshot.transition?.refinementReplacementCommitCount ?? 0,
+    refinementReplacementCommits: formatOptionalNumber(
+      snapshot.transition?.refinementReplacementCommitCount,
     ),
-    configuredPointBudget: formatNumber(
-      snapshot.performance?.configuredPointBudget ?? 0,
+    configuredPointBudget: formatOptionalNumber(
+      snapshot.performance?.configuredPointBudget,
     ),
-    candidateSelectedPointCount: formatNumber(
-      snapshot.performance?.candidateSelectedPointCount ?? 0,
+    candidateSelectedPointCount: formatOptionalNumber(
+      snapshot.performance?.candidateSelectedPointCount,
     ),
-    activeRenderedPointCount: formatNumber(
-      snapshot.performance?.activeRenderedPointCount ??
-        snapshot.renderedPointCount,
+    deferredNodeCount: formatOptionalNumber(
+      snapshot.performance?.deferredNodeCount,
     ),
-    deferredNodeCount: formatNumber(
-      snapshot.performance?.deferredNodeCount ?? 0,
+    deferredPointCount: formatOptionalNumber(
+      snapshot.performance?.deferredPointCount,
     ),
-    deferredPointCount: formatNumber(
-      snapshot.performance?.deferredPointCount ?? 0,
+    budgetUtilization:
+      snapshot.performance?.budgetUtilizationPercent === undefined
+        ? "—"
+        : `${formatCoordinate(snapshot.performance.budgetUtilizationPercent)}%`,
+    budgetDeferDropCount: formatOptionalNumber(
+      snapshot.performance?.budgetDeferDropCount,
     ),
-    budgetUtilization: `${formatCoordinate(snapshot.performance?.budgetUtilizationPercent ?? 0)}%`,
-    budgetDeferDropCount: formatNumber(
-      snapshot.performance?.budgetDeferDropCount ?? 0,
+    maxConcurrentNodeLoads: formatOptionalNumber(
+      snapshot.performance?.maxConcurrentNodeLoads,
     ),
-    maxConcurrentNodeLoads: formatNumber(
-      snapshot.performance?.maxConcurrentNodeLoads ?? 0,
+    queuedNodeCount: formatOptionalNumber(snapshot.performance?.queuedNodeCount),
+    activeNodeCount: formatOptionalNumber(snapshot.performance?.activeNodeCount),
+    completedNodeCount: formatOptionalNumber(
+      snapshot.performance?.completedNodeCount,
     ),
-    queuedNodeCount: formatNumber(snapshot.performance?.queuedNodeCount ?? 0),
-    activeNodeCount: formatNumber(snapshot.performance?.activeNodeCount ?? 0),
-    completedNodeCount: formatNumber(
-      snapshot.performance?.completedNodeCount ?? 0,
-    ),
-    cancelledNodeCount: formatNumber(
-      snapshot.performance?.cancelledNodeCount ?? 0,
+    cancelledNodeCount: formatOptionalNumber(
+      snapshot.performance?.cancelledNodeCount,
     ),
     rangeRequestsRequested: rangeRequests
       ? formatNumber(rangeRequests.requested)
@@ -372,8 +421,8 @@ export function buildCopcDebugPanelView(
     rangeRequestsAbortedLifecycle: rangeRequests
       ? formatNumber(rangeRequests.abortedLifecycle)
       : "—",
-    peakActiveNodeCount: formatNumber(
-      snapshot.performance?.peakActiveNodeCount ?? 0,
+    peakActiveNodeCount: formatOptionalNumber(
+      snapshot.performance?.peakActiveNodeCount,
     ),
     firstHighPriorityNodeReadyLatency:
       snapshot.performance?.firstHighPriorityNodeReadyLatencyMs === undefined
@@ -383,7 +432,11 @@ export function buildCopcDebugPanelView(
       snapshot.performance?.firstHighPriorityNodeStartLatencyMs === undefined
         ? "—"
         : `${formatCoordinate(snapshot.performance.firstHighPriorityNodeStartLatencyMs)} ms`,
-    highPriorityQueuedActive: `${formatNumber(snapshot.performance?.queuedHighPriorityNodeCount ?? 0)} / ${formatNumber(snapshot.performance?.activeHighPriorityNodeCount ?? 0)}`,
+    highPriorityQueuedActive:
+      snapshot.performance?.queuedHighPriorityNodeCount === undefined ||
+      snapshot.performance.activeHighPriorityNodeCount === undefined
+        ? "—"
+        : `${formatNumber(snapshot.performance.queuedHighPriorityNodeCount)} / ${formatNumber(snapshot.performance.activeHighPriorityNodeCount)}`,
     completedPendingSchedulingPriority: `${formatPriorityRange(
       snapshot.performance?.completedSchedulingPriorityMin,
       snapshot.performance?.completedSchedulingPriorityMax,
@@ -391,14 +444,19 @@ export function buildCopcDebugPanelView(
       snapshot.performance?.pendingSchedulingPriorityMin,
       snapshot.performance?.pendingSchedulingPriorityMax,
     )}`,
-    streamingUpdateCount: formatNumber(snapshot.streamingUpdateCount),
-    candidatesBeforeCulling: formatNumber(
-      snapshot.performance?.candidatesBeforeCulling ?? 0,
+    streamingUpdateCount: hasSnapshot
+      ? formatNumber(snapshot.streamingUpdateCount)
+      : "—",
+    candidatesBeforeCulling: formatOptionalNumber(
+      snapshot.performance?.candidatesBeforeCulling,
     ),
-    frustumCulledCount: formatNumber(
-      snapshot.performance?.frustumCulledCount ?? 0,
+    frustumCulledCount: formatOptionalNumber(
+      snapshot.performance?.frustumCulledCount,
     ),
-    maxScreenSpaceError: `${formatCoordinate(snapshot.performance?.maxScreenSpaceError ?? 0)} px`,
+    maxScreenSpaceError:
+      snapshot.performance?.maxScreenSpaceError === undefined
+        ? "—"
+        : `${formatCoordinate(snapshot.performance.maxScreenSpaceError)} px`,
     representativeScreenSpaceError:
       snapshot.performance?.screenSpaceErrorMin !== undefined &&
       snapshot.performance?.screenSpaceErrorMax !== undefined
@@ -434,54 +492,60 @@ export function buildCopcDebugPanelView(
       snapshot.performance?.detailBiasMax !== undefined
         ? `${formatCoordinate(snapshot.performance.detailBiasMin)}–${formatCoordinate(snapshot.performance.detailBiasMax)}×`
         : "—",
-    influenceCandidates: formatNumber(
-      snapshot.performance?.candidatesWithNonZeroInfluenceCount ?? 0,
+    influenceCandidates: formatOptionalNumber(
+      snapshot.performance?.candidatesWithNonZeroInfluenceCount,
     ),
-    gazeInfluencedRefinements: formatNumber(
-      snapshot.performance?.acceptedGazeInfluencedRefinementCount ?? 0,
+    gazeInfluencedRefinements: formatOptionalNumber(
+      snapshot.performance?.acceptedGazeInfluencedRefinementCount,
     ),
-    refinedNodeCount: formatNumber(snapshot.performance?.refinedNodeCount ?? 0),
-    keptNodeCount: formatNumber(snapshot.performance?.keptNodeCount ?? 0),
-    frontierNodeCount: formatNumber(
-      snapshot.performance?.frontierNodeCount ?? 0,
+    refinedNodeCount: formatOptionalNumber(snapshot.performance?.refinedNodeCount),
+    keptNodeCount: formatOptionalNumber(snapshot.performance?.keptNodeCount),
+    frontierNodeCount: formatOptionalNumber(
+      snapshot.performance?.frontierNodeCount,
     ),
-    frontierPointCount: formatNumber(
-      snapshot.performance?.frontierPointCount ?? 0,
+    frontierPointCount: formatOptionalNumber(
+      snapshot.performance?.frontierPointCount,
     ),
-    acceptedRefinementCount: formatNumber(
-      snapshot.performance?.acceptedRefinementCount ?? 0,
+    acceptedRefinementCount: formatOptionalNumber(
+      snapshot.performance?.acceptedRefinementCount,
     ),
-    refinementRejectedByBudget: formatNumber(
-      (snapshot.performance?.refinementRejectedByNodeBudgetCount ?? 0) +
-        (snapshot.performance?.refinementRejectedByPointBudgetCount ?? 0),
+    refinementRejectedByBudget:
+      snapshot.performance?.refinementRejectedByNodeBudgetCount === undefined &&
+      snapshot.performance?.refinementRejectedByPointBudgetCount === undefined
+        ? "—"
+        : `${formatOptionalNumber(snapshot.performance.refinementRejectedByNodeBudgetCount)} node · ${formatOptionalNumber(snapshot.performance.refinementRejectedByPointBudgetCount)} point`,
+    refinementRejectedByNodeBudget: formatOptionalNumber(
+      snapshot.performance?.refinementRejectedByNodeBudgetCount,
     ),
-    refinementRejectedByNodeBudget: formatNumber(
-      snapshot.performance?.refinementRejectedByNodeBudgetCount ?? 0,
+    refinementRejectedByPointBudget: formatOptionalNumber(
+      snapshot.performance?.refinementRejectedByPointBudgetCount,
     ),
-    refinementRejectedByPointBudget: formatNumber(
-      snapshot.performance?.refinementRejectedByPointBudgetCount ?? 0,
-    ),
-    refinementDeferredByIncompleteHierarchyCount: formatNumber(
-      snapshot.performance?.refinementDeferredByIncompleteHierarchyCount ?? 0,
+    refinementDeferredByIncompleteHierarchyCount: formatOptionalNumber(
+      snapshot.performance?.refinementDeferredByIncompleteHierarchyCount,
     ),
     impossibleMinimumFrontier:
-      snapshot.performance?.minimumFrontierExceedsNodeBudget ||
-      snapshot.performance?.minimumFrontierExceedsPointBudget
-        ? "yes"
-        : "no",
+      snapshot.performance?.minimumFrontierExceedsNodeBudget === undefined &&
+      snapshot.performance?.minimumFrontierExceedsPointBudget === undefined
+        ? "—"
+        : snapshot.performance?.minimumFrontierExceedsNodeBudget === true ||
+            snapshot.performance?.minimumFrontierExceedsPointBudget === true
+          ? "yes"
+          : "no",
     visibleLevelRange: snapshot.performance?.visibleLevelRange
       ? `${snapshot.performance.visibleLevelRange.min}–${snapshot.performance.visibleLevelRange.max}`
       : "—",
     cameraDirection: formatVector(snapshot.performance?.cameraDirection),
-    pointCacheBudget: formatBytes(snapshot.pointCache?.cacheByteBudget ?? 0),
-    pointCacheBytes: formatBytes(snapshot.pointCache?.currentCacheBytes ?? 0),
-    cachedNodeCount: formatNumber(snapshot.pointCache?.cachedNodeCount ?? 0),
-    cacheHits: formatNumber(snapshot.pointCache?.hits ?? 0),
-    cacheMisses: formatNumber(snapshot.pointCache?.misses ?? 0),
-    cacheEvictionCount: formatNumber(snapshot.pointCache?.evictionCount ?? 0),
-    cacheBytesEvicted: formatBytes(snapshot.pointCache?.bytesEvicted ?? 0),
-    largestCachedEntryBytes: formatBytes(
-      snapshot.pointCache?.largestCachedEntryBytes ?? 0,
+    pointCacheBudget: formatOptionalBytes(snapshot.pointCache?.cacheByteBudget),
+    pointCacheBytes: formatOptionalBytes(snapshot.pointCache?.currentCacheBytes),
+    cachedNodeCount: formatOptionalNumber(snapshot.pointCache?.cachedNodeCount),
+    cacheHits: formatOptionalNumber(snapshot.pointCache?.hits),
+    cacheMisses: formatOptionalNumber(snapshot.pointCache?.misses),
+    cacheEvictionCount: formatOptionalNumber(
+      snapshot.pointCache?.evictionCount,
+    ),
+    cacheBytesEvicted: formatOptionalBytes(snapshot.pointCache?.bytesEvicted),
+    largestCachedEntryBytes: formatOptionalBytes(
+      snapshot.pointCache?.largestCachedEntryBytes,
     ),
     workerConcurrency: snapshot.worker
       ? `${formatNumber(snapshot.worker.activeCount)} / ${formatNumber(snapshot.worker.workerCount)} active`
@@ -506,8 +570,9 @@ export function buildCopcDebugPanelView(
       ? formatProbeTruth(sourceProbe.corsReadable, "Browser response readable")
       : "—",
     sourceWarnings:
-      sourceProbe && sourceProbe.warnings.length > 0
-        ? [...new Set(sourceProbe.warnings)].join(" ")
+      sourceProbe
+        ? state.safeSourceProbeWarnings ??
+          ([...new Set(sourceProbe.warnings)].join(" ") || "—")
         : "—",
     error: lastError,
   };
@@ -519,177 +584,248 @@ export type CopcDebugPanel = {
   destroy(): void;
 };
 
+export type CopcDebugPanelTargets = {
+  readonly source: HTMLElement;
+  readonly health: HTMLElement;
+  readonly data: HTMLElement;
+};
+
+export const COPC_DEBUG_SOURCE_SECTIONS = [
+  {
+    id: "source-current",
+    title: "Current source",
+    initiallyOpen: true,
+    fields: [
+      { key: "datasetName", label: "Source name" },
+      { key: "datasetUrl", label: "Source label" },
+      { key: "pointCount", label: "Point count" },
+      { key: "sourceCrsWkt", label: "Coordinate reference metadata" },
+      { key: "bounds", label: "Bounds" },
+      { key: "scale", label: "Scale" },
+      { key: "offset", label: "Offset" },
+    ],
+  },
+  {
+    id: "source-probe",
+    title: "Range, CORS, and format validation",
+    fields: [
+      { key: "configuredRangeValidation", label: "Configured HTTP Range policy" },
+      { key: "rangeValidationScope", label: "Policy scope" },
+      { key: "sourceProbePolicy", label: "Probe policy" },
+      { key: "sourceProbeSource", label: "Last probe source" },
+      { key: "sourceProbeValidationLevel", label: "Probe validation level" },
+      { key: "sourceReachable", label: "Reachability" },
+      { key: "sourceRange", label: "Range support" },
+      { key: "sourceCopc", label: "COPC detected" },
+      { key: "sourcePointFormat", label: "Point format" },
+      { key: "sourceCors", label: "Browser readability (CORS)" },
+      { key: "sourceWarnings", label: "Warnings" },
+    ],
+  },
+] satisfies readonly DiagnosticSectionDefinition[];
+
+export const COPC_DEBUG_HEALTH_SECTIONS = [
+  {
+    id: "health-runtime",
+    title: "Runtime status",
+    initiallyOpen: true,
+    fields: [
+      { key: "status", label: "Lifecycle" },
+      { key: "renderedPointCount", label: "Rendered points" },
+      { key: "renderedNodeCount", label: "Rendered nodes" },
+      { key: "selectedNodeCount", label: "Selected nodes" },
+      { key: "streamingUpdateCount", label: "Streaming updates" },
+      { key: "rangeFetchBytes", label: "Range bytes, latest update" },
+      { key: "error", label: "Last error" },
+    ],
+  },
+  {
+    id: "health-range",
+    title: "HTTP Range activity",
+    fields: [
+      { key: "rangeRequestsRequested", label: "Requested" },
+      { key: "rangeRequestsActive", label: "Active" },
+      { key: "rangeRequestsCompleted", label: "Completed" },
+      { key: "rangeRequestsFailed", label: "Failed" },
+      { key: "rangeRequestsAbortedSuperseded", label: "Aborted by view changes" },
+      { key: "rangeRequestsAbortedLifecycle", label: "Aborted by lifecycle" },
+    ],
+  },
+  {
+    id: "health-cache",
+    title: "Decoded CPU point cache",
+    description: "Typed-array bytes only; Cesium/WebGL memory is not measured.",
+    fields: [
+      { key: "pointCacheBudget", label: "Byte budget" },
+      { key: "pointCacheBytes", label: "Cached bytes" },
+      { key: "cachedNodeCount", label: "Cached nodes" },
+      { key: "cacheHits", label: "Hits" },
+      { key: "cacheMisses", label: "Misses" },
+      { key: "cacheEvictionCount", label: "Evictions" },
+      { key: "cacheBytesEvicted", label: "Bytes evicted" },
+      { key: "largestCachedEntryBytes", label: "Largest entry" },
+    ],
+  },
+  {
+    id: "health-worker",
+    title: "Rust decode workers",
+    fields: [
+      { key: "workerConcurrency", label: "Concurrency" },
+      { key: "workerQueue", label: "Queue" },
+    ],
+  },
+] satisfies readonly DiagnosticSectionDefinition[];
+
+export const COPC_DEBUG_DATA_SECTIONS = [
+  {
+    id: "data-hierarchy",
+    title: "Hierarchy",
+    initiallyOpen: true,
+    fields: [
+      { key: "hierarchyRequests", label: "Page requests" },
+      { key: "hierarchyCacheHits", label: "Page cache hits" },
+      { key: "hierarchyLoadedPages", label: "Loaded pages" },
+      { key: "hierarchyLoadedEntries", label: "Loaded entries" },
+      { key: "hierarchyPageConcurrency", label: "Page loads active / peak" },
+      { key: "hierarchySourceDuration", label: "Source open" },
+      { key: "hierarchyMetadataDuration", label: "Metadata load" },
+      { key: "hierarchyRootDuration", label: "Root hierarchy load" },
+      { key: "hierarchyQueryDuration", label: "Last query" },
+    ],
+  },
+  {
+    id: "data-view",
+    title: "View and level of detail",
+    fields: [
+      { key: "viewDistance", label: "View need / active distance / cap" },
+      { key: "visibleLevelRange", label: "Visible levels" },
+      { key: "cameraDirection", label: "Camera direction (ECEF)" },
+    ],
+  },
+  {
+    id: "data-coverage",
+    title: "Coverage transitions",
+    fields: [
+      { key: "activeReplacementGroups", label: "Active replacement groups" },
+      { key: "coarseNodesRetained", label: "Coarse nodes retained" },
+      { key: "refinementReplacementCommits", label: "Refinement replacement commits" },
+    ],
+  },
+  {
+    id: "data-scheduler",
+    title: "Priority streaming scheduler",
+    fields: [
+      { key: "maxConcurrentNodeLoads", label: "Load slots" },
+      { key: "queuedNodeCount", label: "Queued nodes" },
+      { key: "activeNodeCount", label: "Active nodes" },
+      { key: "completedNodeCount", label: "Completed nodes" },
+      { key: "cancelledNodeCount", label: "Cancelled nodes" },
+      { key: "peakActiveNodeCount", label: "Peak active nodes" },
+      { key: "highPriorityQueuedActive", label: "High-priority queued / active" },
+      { key: "completedPendingSchedulingPriority", label: "Completed / pending priority" },
+      { key: "firstHighPriorityNodeStartLatency", label: "First priority start" },
+      { key: "firstHighPriorityNodeReadyLatency", label: "First priority ready" },
+    ],
+  },
+  {
+    id: "data-refinement",
+    title: "Refinement and budget",
+    fields: [
+      { key: "refinementAlgorithm", label: "Active refinement algorithm" },
+      { key: "configuredPointBudget", label: "Configured point budget" },
+      { key: "candidateSelectedPointCount", label: "Candidate selected points" },
+      { key: "deferredNodeCount", label: "Deferred nodes" },
+      { key: "deferredPointCount", label: "Deferred points" },
+      { key: "budgetUtilization", label: "Budget utilization" },
+      { key: "budgetDeferDropCount", label: "Budget drops" },
+      { key: "refinedNodeCount", label: "Refined nodes" },
+      { key: "keptNodeCount", label: "Kept nodes" },
+      { key: "frontierNodeCount", label: "Frontier nodes" },
+      { key: "frontierPointCount", label: "Frontier points" },
+      { key: "acceptedRefinementCount", label: "Accepted refinements" },
+      { key: "refinementRejectedByBudget", label: "Rejected refinements" },
+      { key: "refinementRejectedByNodeBudget", label: "Rejected by node budget" },
+      { key: "refinementRejectedByPointBudget", label: "Rejected by point budget" },
+      { key: "refinementDeferredByIncompleteHierarchyCount", label: "Deferred by incomplete hierarchy" },
+      { key: "impossibleMinimumFrontier", label: "Minimum frontier over budget" },
+    ],
+  },
+  {
+    id: "data-refinement-detail",
+    title: "Screen-space and influence detail",
+    fields: [
+      { key: "candidatesBeforeCulling", label: "Candidates before culling" },
+      { key: "frustumCulledCount", label: "Frustum culled" },
+      { key: "maxScreenSpaceError", label: "SSE threshold" },
+      { key: "representativeScreenSpaceError", label: "Observed SSE" },
+      { key: "effectiveScreenSpaceError", label: "Effective SSE" },
+      { key: "refinementCenterWeight", label: "Refinement centre weight" },
+      { key: "schedulingCenterWeight", label: "Scheduling centre weight" },
+      { key: "refinementPriority", label: "Refinement priority" },
+      { key: "schedulingPriority", label: "Scheduling priority" },
+      { key: "detailBias", label: "Detail bias" },
+      { key: "influenceCandidates", label: "Influenced candidates" },
+      { key: "gazeInfluencedRefinements", label: "Gaze-influenced refinements" },
+    ],
+  },
+  {
+    id: "data-motion",
+    title: "Motion Lookahead",
+    description: "Live values follow camera movement. Prediction and refinement effects describe the most recent selection update.",
+    fields: [
+      { key: "motionLiveEnabled", label: "Live enabled" },
+      { key: "motionLiveState", label: "Live state" },
+      { key: "motionLiveMovementSamples", label: "Accepted movement samples" },
+      { key: "motionLiveAngularVelocity", label: "Angular velocity" },
+      { key: "motionLivePrediction", label: "Predicted displacement" },
+      { key: "motionLiveActivity", label: "Live activity" },
+      { key: "motionLiveAge", label: "Time since movement" },
+      { key: "motionSelectionPrediction", label: "Selection prediction" },
+      { key: "motionSelectionCandidates", label: "Weighted candidates" },
+      { key: "motionSelectionWeights", label: "Weight range" },
+      { key: "motionSelectionInfluence", label: "Refinement influence" },
+    ],
+  },
+  {
+    id: "data-node-structure",
+    title: "Active node structure",
+    fields: [
+      {
+        key: "selectedNodeKeys",
+        label: "Selected node keys",
+        valueClassName: "copc-debug-panel__nodes",
+      },
+      {
+        key: "renderedNodeKeys",
+        label: "Rendered node keys",
+        valueClassName: "copc-debug-panel__nodes",
+      },
+    ],
+  },
+] satisfies readonly DiagnosticSectionDefinition[];
+
 export function createCopcDebugPanel(
-  target: HTMLElement,
+  targets: CopcDebugPanelTargets,
   getState: () => CopcDebugPanelState,
 ): CopcDebugPanel {
-  target.innerHTML = `
-    <section class="copc-debug-panel__source-summary" aria-label="Current status and active source" data-workbench-group="source">
-      <h3 data-field="datasetName"></h3>
-      <code class="copc-debug-panel__url" data-field="datasetUrl"></code>
-      <p class="dev-status" id="source-status" role="status" aria-live="polite" data-status="loading">Loading configured source…</p>
-    </section>
-    <details class="copc-debug-panel__section" open data-workbench-group="health">
-      <summary>Streaming metrics</summary>
-      <dl>
-        <div><dt>Metadata points</dt><dd data-field="pointCount"></dd></div>
-        <div><dt>Selected nodes</dt><dd data-field="selectedNodeCount"></dd></div>
-        <div><dt>Rendered nodes</dt><dd data-field="renderedNodeCount"></dd></div>
-        <div><dt>Rendered points</dt><dd data-field="renderedPointCount"></dd></div>
-        <div><dt>Stream updates</dt><dd data-field="streamingUpdateCount"></dd></div>
-        <div><dt>Active refinement algorithm</dt><dd data-field="refinementAlgorithm"></dd></div>
-        <div><dt>Transferred range bytes</dt><dd data-field="rangeFetchBytes"></dd></div>
-        <div><dt>Configured point budget</dt><dd data-field="configuredPointBudget"></dd></div>
-        <div><dt>Candidate / active points</dt><dd><span data-field="candidateSelectedPointCount"></span> / <span data-field="activeRenderedPointCount"></span></dd></div>
-      </dl>
-      <details>
-        <summary>HTTP Range requests</summary>
-        <dl>
-          <div><dt>Requested / active / completed</dt><dd><span data-field="rangeRequestsRequested"></span> / <span data-field="rangeRequestsActive"></span> / <span data-field="rangeRequestsCompleted"></span></dd></div>
-          <div><dt>Aborted by view changes</dt><dd data-field="rangeRequestsAbortedSuperseded"></dd></div>
-          <div><dt>Aborted by lifecycle</dt><dd data-field="rangeRequestsAbortedLifecycle"></dd></div>
-          <div><dt>Failed</dt><dd data-field="rangeRequestsFailed"></dd></div>
-        </dl>
-      </details>
-      <details>
-        <summary>Priority streaming scheduler</summary>
-        <dl>
-          <div><dt>Load slots</dt><dd data-field="maxConcurrentNodeLoads"></dd></div>
-          <div><dt>Queued / active</dt><dd><span data-field="queuedNodeCount"></span> / <span data-field="activeNodeCount"></span></dd></div>
-          <div><dt>Completed / cancelled</dt><dd><span data-field="completedNodeCount"></span> / <span data-field="cancelledNodeCount"></span></dd></div>
-          <div><dt>Peak active</dt><dd data-field="peakActiveNodeCount"></dd></div>
-          <div><dt>High-priority queued / active</dt><dd data-field="highPriorityQueuedActive"></dd></div>
-          <div><dt>Completed / pending priority</dt><dd data-field="completedPendingSchedulingPriority"></dd></div>
-          <div><dt>First priority start</dt><dd data-field="firstHighPriorityNodeStartLatency"></dd></div>
-          <div><dt>First priority ready</dt><dd data-field="firstHighPriorityNodeReadyLatency"></dd></div>
-        </dl>
-      </details>
-      <details>
-        <summary>Motion Lookahead</summary>
-        <dl>
-          <div><dt>Live enabled / state</dt><dd><span data-field="motionLiveEnabled"></span> / <span data-field="motionLiveState"></span></dd></div>
-          <div><dt>Accepted movement samples</dt><dd data-field="motionLiveMovementSamples"></dd></div>
-          <div><dt>Live angular velocity</dt><dd data-field="motionLiveAngularVelocity"></dd></div>
-          <div><dt>Live predicted displacement</dt><dd data-field="motionLivePrediction"></dd></div>
-          <div><dt>Live activity / time since movement</dt><dd><span data-field="motionLiveActivity"></span> / <span data-field="motionLiveAge"></span></dd></div>
-          <div><dt>Last selection update</dt><dd data-field="motionSelectionGeneration"></dd></div>
-          <div><dt>Selected / rendered nodes</dt><dd data-field="motionSelectionNodes"></dd></div>
-          <div><dt>Selection prediction</dt><dd data-field="motionSelectionPrediction"></dd></div>
-          <div><dt>Weighted candidates / weight range</dt><dd><span data-field="motionSelectionCandidates"></span> / <span data-field="motionSelectionWeights"></span></dd></div>
-          <div><dt>Refinement influence</dt><dd data-field="motionSelectionInfluence"></dd></div>
-        </dl>
-        <p>Live values update with the inspector. Selection prediction, candidates, weights, selected count, and accepted refinement effects describe the last selection update; rendered count reflects current renderer state.</p>
-      </details>
-    </details>
-    <details class="copc-debug-panel__section" data-workbench-group="source">
-      <summary>Source diagnostics</summary>
-      <dl>
-        <div><dt>Configured HTTP Range policy</dt><dd data-field="configuredRangeValidation"></dd></div>
-        <div><dt>Policy scope</dt><dd data-field="rangeValidationScope"></dd></div>
-        <div><dt>Probe policy</dt><dd data-field="sourceProbePolicy"></dd></div>
-        <div><dt>Last probe source</dt><dd data-field="sourceProbeSource"></dd></div>
-        <div><dt>Probe validation level</dt><dd data-field="sourceProbeValidationLevel"></dd></div>
-        <div><dt>Reachability</dt><dd data-field="sourceReachable"></dd></div>
-        <div><dt>Range support</dt><dd data-field="sourceRange"></dd></div>
-        <div><dt>Format</dt><dd data-field="sourceCopc"></dd></div>
-        <div><dt>Point format</dt><dd data-field="sourcePointFormat"></dd></div>
-        <div><dt>CORS</dt><dd data-field="sourceCors"></dd></div>
-      </dl>
-      <p class="copc-debug-panel__source-warning" data-field="sourceWarnings"></p>
-    </details>
-    <details class="copc-debug-panel__section" data-workbench-group="data">
-      <summary>Hierarchy diagnostics</summary>
-      <dl>
-        <div><dt>Requests / cache hits</dt><dd><span data-field="hierarchyRequests"></span> / <span data-field="hierarchyCacheHits"></span></dd></div>
-        <div><dt>Loaded pages / entries</dt><dd><span data-field="hierarchyLoadedPages"></span> / <span data-field="hierarchyLoadedEntries"></span></dd></div>
-        <div><dt>Page loads active / peak</dt><dd data-field="hierarchyPageConcurrency"></dd></div>
-        <div><dt>Source open</dt><dd data-field="hierarchySourceDuration"></dd></div>
-        <div><dt>Metadata load</dt><dd data-field="hierarchyMetadataDuration"></dd></div>
-        <div><dt>Root hierarchy load</dt><dd data-field="hierarchyRootDuration"></dd></div>
-        <div><dt>Last query</dt><dd data-field="hierarchyQueryDuration"></dd></div>
-        <div><dt>View need / active distance / cap</dt><dd data-field="viewDistance"></dd></div>
-        <div><dt>Active replacements / coarse retained</dt><dd><span data-field="activeReplacementGroups"></span> / <span data-field="coarseNodesRetained"></span></dd></div>
-        <div><dt>Refinement commits</dt><dd data-field="refinementReplacementCommits"></dd></div>
-        <div><dt>Refined / kept nodes</dt><dd><span data-field="refinedNodeCount"></span> / <span data-field="keptNodeCount"></span></dd></div>
-        <div><dt>Frontier nodes / points</dt><dd><span data-field="frontierNodeCount"></span> / <span data-field="frontierPointCount"></span></dd></div>
-        <div><dt>Accepted refinements</dt><dd data-field="acceptedRefinementCount"></dd></div>
-        <div><dt>Rejected refinements</dt><dd data-field="refinementRejectedByBudget"></dd></div>
-        <div><dt>Rejected by node budget</dt><dd data-field="refinementRejectedByNodeBudget"></dd></div>
-        <div><dt>Rejected by point budget</dt><dd data-field="refinementRejectedByPointBudget"></dd></div>
-        <div><dt>Deferred by incomplete hierarchy</dt><dd data-field="refinementDeferredByIncompleteHierarchyCount"></dd></div>
-        <div><dt>Minimum frontier over budget</dt><dd data-field="impossibleMinimumFrontier"></dd></div>
-        <div><dt>Visible levels</dt><dd data-field="visibleLevelRange"></dd></div>
-      </dl>
-    </details>
-    <details class="copc-debug-panel__section" data-workbench-group="health">
-      <summary>Cache and Worker diagnostics</summary>
-      <details>
-        <summary>Decoded CPU point cache</summary>
-        <dl>
-          <div><dt>Byte budget</dt><dd data-field="pointCacheBudget"></dd></div>
-          <div><dt>Cached bytes</dt><dd data-field="pointCacheBytes"></dd></div>
-          <div><dt>Cached nodes</dt><dd data-field="cachedNodeCount"></dd></div>
-          <div><dt>Hits / misses</dt><dd><span data-field="cacheHits"></span> / <span data-field="cacheMisses"></span></dd></div>
-          <div><dt>Evictions</dt><dd data-field="cacheEvictionCount"></dd></div>
-          <div><dt>Bytes evicted</dt><dd data-field="cacheBytesEvicted"></dd></div>
-          <div><dt>Largest entry</dt><dd data-field="largestCachedEntryBytes"></dd></div>
-        </dl>
-        <p>Typed-array bytes only; Cesium/WebGL memory is not measured.</p>
-      </details>
-      <details>
-        <summary>Rust decode workers</summary>
-        <dl>
-          <div><dt>Concurrency</dt><dd data-field="workerConcurrency"></dd></div>
-          <div><dt>Queue</dt><dd data-field="workerQueue"></dd></div>
-        </dl>
-      </details>
-    </details>
-    <details class="copc-debug-panel__section" data-workbench-group="data">
-      <summary>Performance and benchmark diagnostics</summary>
-      <dl>
-        <div><dt>Deferred nodes / points</dt><dd><span data-field="deferredNodeCount"></span> / <span data-field="deferredPointCount"></span></dd></div>
-        <div><dt>Budget utilization</dt><dd data-field="budgetUtilization"></dd></div>
-        <div><dt>Budget drops</dt><dd data-field="budgetDeferDropCount"></dd></div>
-        <div><dt>Candidates before culling</dt><dd data-field="candidatesBeforeCulling"></dd></div>
-        <div><dt>Frustum culled</dt><dd data-field="frustumCulledCount"></dd></div>
-        <div><dt>SSE threshold</dt><dd data-field="maxScreenSpaceError"></dd></div>
-        <div><dt>SSE observed</dt><dd data-field="representativeScreenSpaceError"></dd></div>
-        <div><dt>Effective SSE</dt><dd data-field="effectiveScreenSpaceError"></dd></div>
-        <div><dt>Refinement centre weight</dt><dd data-field="refinementCenterWeight"></dd></div>
-        <div><dt>Scheduling centre weight</dt><dd data-field="schedulingCenterWeight"></dd></div>
-        <div><dt>Refinement priority</dt><dd data-field="refinementPriority"></dd></div>
-        <div><dt>Scheduling priority</dt><dd data-field="schedulingPriority"></dd></div>
-        <div><dt>Detail bias</dt><dd data-field="detailBias"></dd></div>
-        <div><dt>Influenced candidates</dt><dd data-field="influenceCandidates"></dd></div>
-        <div><dt>Gaze refinements</dt><dd data-field="gazeInfluencedRefinements"></dd></div>
-      </dl>
-    </details>
-    <details class="copc-debug-panel__section" data-workbench-group="data">
-      <summary>Advanced internal debug information</summary>
-      <details>
-        <summary>Metadata</summary>
-        <div class="copc-debug-panel__detail"><span>Bounds</span><code data-field="bounds"></code></div>
-        <div class="copc-debug-panel__detail"><span>Scale</span><code data-field="scale"></code></div>
-        <div class="copc-debug-panel__detail"><span>Offset</span><code data-field="offset"></code></div>
-        <div class="copc-debug-panel__detail"><span>Camera direction (ECEF)</span><code data-field="cameraDirection"></code></div>
-      </details>
-      <details>
-        <summary>Selected node keys</summary>
-        <code class="copc-debug-panel__nodes" data-field="selectedNodeKeys"></code>
-      </details>
-      <details>
-        <summary>Rendered node keys</summary>
-        <code class="copc-debug-panel__nodes" data-field="renderedNodeKeys"></code>
-      </details>
-      <div class="copc-debug-panel__error" data-field="error" role="alert" hidden></div>
-    </details>
-  `;
-
-  const fields = new Map<string, HTMLElement>();
-  target.querySelectorAll<HTMLElement>("[data-field]").forEach((element) => {
-    fields.set(element.dataset.field ?? "", element);
+  const sourcePanel = mountDiagnosticSections(targets.source, COPC_DEBUG_SOURCE_SECTIONS, {
+    className: "copc-debug-panel__groups",
+    sectionClassName: "copc-debug-panel__section workbench-diagnostic-section",
   });
-  const panel = target.closest<HTMLElement>(".copc-debug-panel");
+  const healthPanel = mountDiagnosticSections(targets.health, COPC_DEBUG_HEALTH_SECTIONS, {
+    className: "copc-debug-panel__groups",
+    sectionClassName: "copc-debug-panel__section workbench-diagnostic-section",
+  });
+  const dataPanel = mountDiagnosticSections(targets.data, COPC_DEBUG_DATA_SECTIONS, {
+    className: "copc-debug-panel__groups",
+    sectionClassName: "copc-debug-panel__section workbench-diagnostic-section",
+  });
+  const debugPanels: readonly DiagnosticSectionsController[] = [
+    sourcePanel,
+    healthPanel,
+    dataPanel,
+  ];
+  const statusPanel = targets.health.closest<HTMLElement>(".copc-debug-panel");
 
   const update = (): void => {
     let state: CopcDebugPanelState;
@@ -699,17 +835,10 @@ export function createCopcDebugPanel(
       return;
     }
     const view = buildCopcDebugPanelView(state);
-
-    for (const [field, element] of fields) {
-      const value = view[field as keyof CopcDebugPanelView];
-      element.textContent = typeof value === "string" ? value : "";
-    }
-
-    if (panel) panel.dataset.status = view.statusTone;
-    const errorElement = fields.get("error");
-    if (errorElement) {
-      errorElement.hidden = !view.error;
-    }
+    sourcePanel.update(view);
+    healthPanel.update(view);
+    dataPanel.update(view);
+    if (statusPanel) statusPanel.dataset.status = view.statusTone;
   };
   let updateTimer: number | undefined;
   const setPollingEnabled = (enabled: boolean): void => {
@@ -724,11 +853,13 @@ export function createCopcDebugPanel(
     updateTimer = undefined;
   };
 
+  update();
   return {
     refresh: update,
     setPollingEnabled,
     destroy(): void {
       setPollingEnabled(false);
+      for (const panel of debugPanels) panel.destroy();
     },
   };
 }

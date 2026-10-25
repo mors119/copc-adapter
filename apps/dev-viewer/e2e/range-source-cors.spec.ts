@@ -103,7 +103,11 @@ async function openRemoteSource(
 async function openSourceDiagnostics(page: Page): Promise<void> {
   await page.locator("#inspector-toggle").click();
   await page.getByRole("tab", { name: "Source" }).click();
-  await page.getByText("Source diagnostics", { exact: true }).click();
+  await page
+    .locator(
+      '#workbench-panel-source [data-diagnostic-section="source-probe"] summary',
+    )
+    .click();
 }
 
 async function expectLoadedPoints(page: Page): Promise<void> {

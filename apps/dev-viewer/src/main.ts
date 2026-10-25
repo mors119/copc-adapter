@@ -1569,9 +1569,6 @@ async function main(): Promise<void> {
   healthPanel.id = "inspector-health";
   const dataPanel = document.createElement("section");
   dataPanel.className = "dev-data-panel";
-  const dataHeading = document.createElement("h3");
-  dataHeading.textContent = "Dataset and streaming data";
-  dataPanel.append(dataHeading);
   const rightTabs = mountWorkbenchRightTabs({
     target: inspectorTabsTarget,
     tabs: [
@@ -1746,14 +1743,20 @@ async function main(): Promise<void> {
   };
 
   const debugPanel = createCopcDebugPanel(
-    healthPanel,
+    { source: sourcePanel, health: healthPanel, data: dataPanel },
     () => ({
       snapshot: activeSnapshot(),
+      snapshotIsAvailable: activeSession !== undefined || lastSnapshot !== undefined,
       metadata: activeSession?.getMetadata(),
       hierarchy: activeSession?.getHierarchyDiagnostics(),
       sourceProbe,
+      safeSourceProbeLabel: sourceProbe
+        ? getSafeSourceLabel(sourceProbe.source, window.location.href)
+        : undefined,
+      safeSourceProbeWarnings: sourceProbe
+        ? safeErrorMessage(sourceProbe.warnings.join(" ")).trim() || "—"
+        : undefined,
       sourceProbePolicy,
-      activeColorMode: activeConfig.colorMode,
       configuredRangeValidation: activeConfig.rangeValidation,
       rangeValidationApplicable: sourceSupportsHttpRange(
         activeConfig.source,
@@ -1766,17 +1769,17 @@ async function main(): Promise<void> {
           : undefined),
     }),
   );
-  for (const group of healthPanel.querySelectorAll<HTMLElement>(
-    '[data-workbench-group="source"]',
-  )) sourcePanel.append(group);
-  for (const group of healthPanel.querySelectorAll<HTMLElement>(
-    '[data-workbench-group="data"]',
-  )) dataPanel.append(group);
   setInspectorPolling = (enabled) => debugPanel.setPollingEnabled(enabled);
   debugPanel.setPollingEnabled(
     inspectorExpanded && tabUsesDiagnostics(selectedRightTab),
   );
-  const status = getElement<HTMLElement>("#source-status");
+  const status = document.createElement("p");
+  status.id = "source-status";
+  status.className = "dev-status";
+  status.setAttribute("role", "status");
+  status.setAttribute("aria-live", "polite");
+  status.textContent = "Loading configured source…";
+  sourcePanel.prepend(status);
 
   const setActiveError = (error: unknown): void => {
     lastError = safeErrorMessage(error);

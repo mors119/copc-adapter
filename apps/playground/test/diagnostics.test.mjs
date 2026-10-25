@@ -79,21 +79,11 @@ test("maps missing Worker data as unavailable and never fabricates numeric zeros
   assert.equal(jsModel.workerSummary, "Not applicable for this backend");
 });
 
-test("uses the public maxDepth default when omitted and honors an explicit value", () => {
-  const { maxDepth: _maxDepth, ...configWithoutMaxDepth } = config;
-  const defaultModel = createDiagnosticsViewModel(
-    undefined,
-    { ...context, config: configWithoutMaxDepth },
-    {},
-  );
-  const explicitModel = createDiagnosticsViewModel(
-    undefined,
-    { ...context, config: { ...configWithoutMaxDepth, maxDepth: 3 } },
-    {},
-  );
+test("keeps the health context concise instead of repeating configuration controls", () => {
+  const model = createDiagnosticsViewModel(undefined, context, {});
 
-  assert.match(defaultModel.context, /maxDepth 6/);
-  assert.match(explicitModel.context, /maxDepth 3/);
+  assert.equal(model.context, "Autzen · data.pointcloud.org · Cesium · Rust / WASM");
+  assert.doesNotMatch(model.context, /budget|maxNodes|maxDepth|SSE|colorMode/iu);
 });
 
 test("shows a long on-demand render gap as cadence interval, not render cost", () => {
@@ -139,6 +129,29 @@ test("marks Rust CRS work as fused when the public metric reports point preparat
   );
   assert.equal(model.crsDuration, "Included in point preparation");
   assert.equal(model.refinementAlgorithm, "Foveated");
+});
+
+test("keeps accepted and budget-rejected refinements available to the Data tab", () => {
+  const model = createDiagnosticsViewModel(
+    {
+      snapshot: {
+        lifecycle: "ready",
+        renderedPoints: 12,
+        renderedNodes: 1,
+        selectedNodes: 1,
+        performance: {
+          acceptedRefinementCount: 8,
+          refinementRejectedByNodeBudgetCount: 2,
+          refinementRejectedByPointBudgetCount: 3,
+        },
+      },
+    },
+    context,
+    {},
+  );
+
+  assert.equal(model.acceptedRefinements, "8");
+  assert.equal(model.rejectedRefinements, "2 node · 3 point");
 });
 
 test("replaces the active source model without retaining the prior layer", () => {
