@@ -77,6 +77,7 @@ import {
   isRangeValidationPolicy,
   isRefinementAlgorithm,
   needsSessionRecreation,
+  restoreDevViewerShareConfiguration,
   sourceSupportsHttpRange,
   toWorkbenchOptionValues,
   validateDevViewerConfig,
@@ -1196,7 +1197,7 @@ async function main(): Promise<void> {
     );
   }
 
-  const activeInitialConfig: DevViewerConfig = {
+  const baseInitialConfig: DevViewerConfig = {
     renderer,
     cesiumRenderer,
     backend:
@@ -1227,6 +1228,14 @@ async function main(): Promise<void> {
     heightOffsetMeters: initialOptions.heightOffsetMeters ?? 0,
     terrainUrl: "",
   };
+  const restoredInitialConfig = restoreDevViewerShareConfiguration(
+    params,
+    baseInitialConfig,
+  );
+  const activeInitialConfig = restoredInitialConfig.config;
+  const shareConfigurationWarnings = restoredInitialConfig.warnings.map(
+    (warning) => "Shared configuration: " + warning,
+  );
   let activeConfig = { ...activeInitialConfig };
   let pendingConfig = { ...activeConfig };
   let workbenchControls: ReturnType<typeof mountDevViewerControls> | undefined;
@@ -1458,7 +1467,7 @@ async function main(): Promise<void> {
         adapterVersion: __COPC_ADAPTER_VERSION__,
         packageOriginLabel: "current local workspace source; unpublished",
       });
-      const warnings = [...generated.warnings];
+      const warnings = [...shareConfigurationWarnings, ...generated.warnings];
       if (activeConfig.renderer === "cesium" && activeConfig.terrainUrl.trim()) {
         warnings.push(
           "Dev Viewer Terrain is configured on the Cesium viewer, not on the adapter layer. Configure the equivalent Cesium Terrain provider separately in your application.",
