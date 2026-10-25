@@ -131,6 +131,29 @@ test("marks Rust CRS work as fused when the public metric reports point preparat
   assert.equal(model.refinementAlgorithm, "Foveated");
 });
 
+test("keeps accepted and budget-rejected refinements available to the Data tab", () => {
+  const model = createDiagnosticsViewModel(
+    {
+      snapshot: {
+        lifecycle: "ready",
+        renderedPoints: 12,
+        renderedNodes: 1,
+        selectedNodes: 1,
+        performance: {
+          acceptedRefinementCount: 8,
+          refinementRejectedByNodeBudgetCount: 2,
+          refinementRejectedByPointBudgetCount: 3,
+        },
+      },
+    },
+    context,
+    {},
+  );
+
+  assert.equal(model.acceptedRefinements, "8");
+  assert.equal(model.rejectedRefinements, "2 node · 3 point");
+});
+
 test("replaces the active source model without retaining the prior layer", () => {
   const first = createDiagnosticsViewModel(
     {

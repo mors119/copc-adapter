@@ -160,7 +160,8 @@ const PLAYGROUND_DATA_SECTIONS = [
     fields: [
       { key: "configuredBudget", label: "Configured point budget", id: "diagnostic-budget" },
       { key: "maxScreenSpaceError", label: "Active maximum screen-space error", id: "diagnostic-sse" },
-      { key: "acceptedRefinements", label: "Accepted / rejected refinements", id: "diagnostic-refinements" },
+      { key: "acceptedRefinements", label: "Accepted refinements", id: "diagnostic-accepted-refinements" },
+      { key: "rejectedRefinements", label: "Rejected by node / point budget", id: "diagnostic-refinements" },
       { key: "refinementAlgorithm", label: "Refinement algorithm", id: "diagnostic-algorithm" },
       { key: "focusState", label: "Focus Lens", id: "diagnostic-focus" },
       { key: "focusCandidates", label: "Focus candidates", id: "diagnostic-focus-candidates" },

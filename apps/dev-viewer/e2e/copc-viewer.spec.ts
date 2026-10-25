@@ -142,17 +142,26 @@ test("streams a COPC sample through the opt-in Rust backend in a real Cesium sce
   await expect(
     debugPanel.getByText("autzen.copc.laz", { exact: true }),
   ).toBeVisible();
+  await expect(
+    debugPanel.locator('[data-diagnostic-value="pointCount"]'),
+  ).toHaveText("10,653,336");
   await expect(page.locator("#source-status")).toContainText("Ready");
   await page.getByRole("tab", { name: "Health" }).click();
-  await expect(
-    debugPanel.getByText("10,653,336", { exact: true }),
-  ).toBeVisible();
+  await expect
+    .poll(async () =>
+      Number(
+        (
+          await debugPanel
+            .locator('[data-diagnostic-value="renderedPointCount"]')
+            .textContent()
+        )?.replaceAll(",", ""),
+      ),
+    )
+    .toBeGreaterThan(0);
   await page.getByRole("tab", { name: "Data" }).click();
-  await debugPanel
-    .getByText("Advanced internal debug information", { exact: true })
-    .click();
-  await debugPanel.getByText("Metadata", { exact: true }).click();
-  await expect(debugPanel.locator('[data-field="bounds"]')).toBeVisible();
+  await expect(
+    debugPanel.locator('[data-diagnostic-section="data-hierarchy"]'),
+  ).toBeVisible();
 
   await page.getByRole("tab", { name: "Data" }).click();
   await expect(page.locator("[data-point-popover]")).toBeHidden();

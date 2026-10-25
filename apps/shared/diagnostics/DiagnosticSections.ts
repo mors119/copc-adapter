@@ -95,6 +95,9 @@ export function mountDiagnosticSections(
         "workbench-diagnostic-value",
         field.valueClassName,
       ].filter(Boolean).join(" ");
+      // Keep the preexisting host diagnostic selector while exposing the
+      // shared data attribute used by Workbench-level ownership tests.
+      value.dataset.field = field.key;
       value.dataset.diagnosticValue = field.key;
       if (field.id) value.id = field.id;
       row.append(label, value);
