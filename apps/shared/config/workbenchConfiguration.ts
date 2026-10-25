@@ -30,6 +30,11 @@ export type InactiveRendererOptionValues = Map<
   { readonly value: unknown; readonly schemaOnly: boolean }
 >;
 
+export type RendererOptionTransitionOptions = {
+  readonly schema?: readonly SchemaOption[];
+  readonly support?: Pick<CapabilityContext, "manifest" | "runtimeCapabilities">;
+};
+
 /**
  * The sole pending/applied configuration snapshot shared by Workbench hosts.
  * Values are keyed by stable schema option ID, not by UI control or API path.
@@ -234,22 +239,33 @@ export function transitionRendererOptionValues(
   currentRenderer: SchemaRenderer,
   nextRenderer: SchemaRenderer,
   inactiveValues: InactiveRendererOptionValues,
-  schema: readonly SchemaOption[] = OPTION_SCHEMA,
+  options: RendererOptionTransitionOptions = {},
 ): void {
   if (currentRenderer === nextRenderer) return;
 
+  const schema: readonly SchemaOption[] = options.schema ?? OPTION_SCHEMA;
+  const supportedFor = (renderer: SchemaRenderer): Set<string> => {
+    if (!options.support) {
+      return new Set(
+        schema
+          .filter((option) => option.renderers.includes(renderer))
+          .map(({ id }) => id),
+      );
+    }
+    return new Set(
+      getSupportedOptions(
+        { ...options.support, renderer },
+        schema,
+      ).map(({ id }) => id),
+    );
+  };
+  const supportedAfter = supportedFor(nextRenderer);
+
+  // Package exclusions and live capabilities can make an option unavailable
+  // even when its schema lists both renderers. Remove every unavailable value
+  // before the host validates or applies the next configuration.
   for (const option of schema) {
-    const supportedBefore = option.renderers.some(
-      (renderer) => renderer === currentRenderer,
-    );
-    const supportedAfter = option.renderers.some(
-      (renderer) => renderer === nextRenderer,
-    );
-    if (
-      !supportedBefore ||
-      supportedAfter ||
-      !Object.hasOwn(values, option.id)
-    ) {
+    if (supportedAfter.has(option.id) || !Object.hasOwn(values, option.id)) {
       continue;
     }
 
@@ -259,20 +275,41 @@ export function transitionRendererOptionValues(
     if (schemaOnly) delete schemaOnlyValues[option.id];
   }
 
-  for (const option of schema) {
-    const supportedAfter = option.renderers.some(
-      (renderer) => renderer === nextRenderer,
-    );
-    if (!supportedAfter) continue;
-
-    const inactive = inactiveValues.get(option.id);
-    if (!inactive) continue;
-    values[option.id] = inactive.value;
-    if (inactive.schemaOnly) {
-      schemaOnlyValues[option.id] = inactive.value;
+  for (const [optionId, inactive] of inactiveValues) {
+    if (!supportedAfter.has(optionId)) continue;
+    if (Object.hasOwn(values, optionId)) {
+      inactiveValues.delete(optionId);
+      continue;
     }
-    inactiveValues.delete(option.id);
+    values[optionId] = inactive.value;
+    if (inactive.schemaOnly) {
+      schemaOnlyValues[optionId] = inactive.value;
+    }
+    inactiveValues.delete(optionId);
   }
+}
+
+/**
+ * Resolve the backend constructor setting for specialized schema options.
+ * Package backends are supplied by each host so the shared configuration
+ * layer stays independent from npm/workspace runtime imports.
+ */
+export function resolveSchemaBackendSelection(
+  plan: Pick<SchemaApplicationPlan, "constructorOptions" | "specializedOptions">,
+  createCopcJsBackend: (options: { readonly extraDimensions: unknown }) => unknown,
+): unknown {
+  const extraDimensions = plan.specializedOptions.find(
+    ({ handler }) => handler === "copc-js-extra-dimensions",
+  );
+  if (!extraDimensions) return plan.constructorOptions.backend;
+  if (
+    extraDimensions.apiPath !== "backend.extraDimensions" ||
+    (plan.constructorOptions.backend !== undefined &&
+      plan.constructorOptions.backend !== "copc-js")
+  ) {
+    throw new TypeError("Extra Dimensions requires the supported copc-js backend option.");
+  }
+  return createCopcJsBackend({ extraDimensions: extraDimensions.value });
 }
 
 /** Validate a complete or partial normalized option map for its selected renderer. */

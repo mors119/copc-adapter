@@ -606,6 +606,7 @@ declare global {
           readonly predictivePrefetch?: boolean;
         };
       } | undefined;
+      getMockBackendExtraDimensions(): unknown;
       getMockRefinementAlgorithm(): RefinementAlgorithm | undefined;
       getMockFocusUpdateCount(): number;
       getMockRefinementFocus(): RefinementFocus | undefined;
@@ -636,6 +637,7 @@ if (import.meta.env.DEV) {
         };
       }
     | undefined;
+  let mockBackendExtraDimensions: unknown;
   let mockRefinementAlgorithm: RefinementAlgorithm | undefined;
   let mockFocusUpdateCount = 0;
   let mockRefinementFocus: RefinementFocus | undefined;
@@ -657,6 +659,11 @@ if (import.meta.env.DEV) {
             predictivePrefetch: options.streaming?.predictivePrefetch,
           },
         };
+        const configuredBackend = options.backend;
+        mockBackendExtraDimensions =
+          typeof configuredBackend === "object" && configuredBackend !== null
+            ? (configuredBackend as unknown as { extraDimensions?: unknown }).extraDimensions
+            : undefined;
         mockRefinementAlgorithm = options.streaming?.refinementAlgorithm;
         mockRefinementFocus = undefined;
         let mockStyle: CopcCesiumPointStyle = {
@@ -807,6 +814,7 @@ if (import.meta.env.DEV) {
     getMockLayerCreateCount: () => mockLayerCreateCount,
     getMockLayerSettings: () =>
       mockLayerSettings ? structuredClone(mockLayerSettings) : undefined,
+    getMockBackendExtraDimensions: () => mockBackendExtraDimensions,
     getMockRefinementAlgorithm: () => mockRefinementAlgorithm,
     getMockFocusUpdateCount: () => mockFocusUpdateCount,
     getMockRefinementFocus: () => mockRefinementFocus,
@@ -927,6 +935,12 @@ function handleSchemaOptionChange(optionId: string, value: unknown): void {
       pendingConfig.renderer,
       renderer,
       inactiveRendererOptionValues,
+      {
+        support: {
+          manifest: NPM_0_6_MANIFEST,
+          runtimeCapabilities: NPM_0_6_CAPABILITIES,
+        },
+      },
     );
     updatePendingConfig({ renderer, schemaOptionValues });
     syncRendererLabels();
@@ -2702,10 +2716,12 @@ applyChangesButton.addEventListener("click", () => {
 byId<HTMLButtonElement>("reset-defaults").addEventListener("click", () => {
   const resetConfig: IntegrationCodeConfig = {
     ...defaultIntegrationConfig,
+    schemaOptionValues: {},
     classificationFilter: undefined,
     refinementConfig: { ...defaultIntegrationConfig.refinementConfig, center: { ...defaultIntegrationConfig.refinementConfig.center } },
   };
   invalidNumericInputs.clear();
+  inactiveRendererOptionValues.clear();
   updatePendingConfig(resetConfig);
   for (const input of document.querySelectorAll<HTMLInputElement>("input[aria-invalid='true']")) input.removeAttribute("aria-invalid");
   styleError.hidden = true;

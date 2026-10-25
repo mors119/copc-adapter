@@ -28,6 +28,7 @@ import {
   applySchemaRuntimeOperations,
   buildSchemaApplicationPlan,
   normalizeWorkbenchOptionValues,
+  resolveSchemaBackendSelection,
 } from "../../shared/config/index.ts";
 import {
   NPM_0_6_CAPABILITIES,
@@ -321,8 +322,16 @@ export async function createPlaygroundRuntime(
       destination: Cesium.Cartesian3.fromDegrees(-12, 24, 19_000_000),
     });
 
+    const backend = resolveSchemaBackendSelection(
+      applicationPlan,
+      ({ extraDimensions }) =>
+        new adapter.CopcJsBackend({
+          extraDimensions: extraDimensions as import("@frillab/copc-adapter/cesium").CopcJsBackendOptions["extraDimensions"],
+        }),
+    );
     const layerOptions = {
       ...applicationPlan.constructorOptions,
+      backend,
       onPointPicked: options.onPointPicked,
     } as unknown as CopcCesiumLayerOptions;
     const layer = layerFactory
@@ -492,8 +501,16 @@ export async function createPlaygroundRuntime(
   };
   controls.addEventListener("start", onCameraStart);
 
+  const backend = resolveSchemaBackendSelection(
+    applicationPlan,
+    ({ extraDimensions }) =>
+      new adapter.CopcJsBackend({
+        extraDimensions: extraDimensions as import("@frillab/copc-adapter/three").CopcJsBackendOptions["extraDimensions"],
+      }),
+  );
   const layerOptions = {
     ...applicationPlan.constructorOptions,
+    backend,
     onPointPicked: options.onPointPicked,
   } as unknown as CopcThreeLayerOptions;
   const layer = new adapter.CopcThreeLayer(layerOptions);

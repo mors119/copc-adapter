@@ -37,10 +37,12 @@ type PlaygroundTestHooks = {
     rangeValidation?: string;
     streaming?: { motionLookahead?: boolean; predictivePrefetch?: boolean };
   } | undefined;
+  getMockBackendExtraDimensions(): unknown;
   getPendingConfig(): {
     colorMode: string;
     maxNodes?: number;
     classificationFilter?: { include?: readonly number[]; exclude?: readonly number[] };
+    schemaOptionValues?: Readonly<Record<string, unknown>>;
   };
 };
 
@@ -803,6 +805,92 @@ test("Reset to defaults clears a restored classification filter before loading",
     (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
       .__COPC_PLAYGROUND_TEST__?.getAppliedConfig()?.colorMode,
   )).toBe("elevation");
+});
+
+test("Reset to defaults clears schema-only and inactive renderer settings before loading", async ({ page }) => {
+  await page.goto("./");
+  await page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.useCameraResetLayerMock());
+
+  const renderer = page.getByRole("radiogroup", { name: "Renderer" });
+  await renderer.getByRole("radio", { name: "Three.js" }).click();
+  const streamingSection = page.locator('details[data-section="streaming"]');
+  if (!(await streamingSection.evaluate((element: HTMLDetailsElement) => element.open))) {
+    await streamingSection.locator("summary").click();
+  }
+  const concurrentLoads = page.locator("#max-concurrent-node-loads");
+  await concurrentLoads.fill("7");
+  await concurrentLoads.dispatchEvent("change");
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getPendingConfig().schemaOptionValues?.[
+        "streaming.maxConcurrentNodeLoads"
+      ],
+  )).toBe(7);
+
+  await renderer.getByRole("radio", { name: "Cesium" }).click();
+  await expect.poll(() => page.evaluate(() =>
+    Object.hasOwn(
+      (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+        .__COPC_PLAYGROUND_TEST__?.getPendingConfig().schemaOptionValues ?? {},
+      "streaming.maxConcurrentNodeLoads",
+    ),
+  )).toBe(false);
+
+  if (!(await streamingSection.evaluate((element: HTMLDetailsElement) => element.open))) {
+    await streamingSection.locator("summary").click();
+  }
+  await page.locator("#motion-lookahead-control").getByRole("radio", { name: "Off" }).click();
+  const sourceSection = page.locator('details[data-section="source"]');
+  if (!(await sourceSection.evaluate((element: HTMLDetailsElement) => element.open))) {
+    await sourceSection.locator("summary").click();
+  }
+  await page.locator("#range-validation-control").getByRole("radio", { name: "Strict" }).click();
+  await expect.poll(() => page.evaluate(() => {
+    const values = (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getPendingConfig().schemaOptionValues ?? {};
+    return [values["streaming.motionLookahead"], values["source.rangeValidation"]];
+  })).toEqual([false, "strict"]);
+
+  await page.getByRole("button", { name: "Reset to defaults" }).click();
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getPendingConfig().schemaOptionValues,
+  )).toEqual({});
+  await expect(page.locator("#motion-lookahead-control").getByRole("radio", { name: "On" })).toHaveAttribute("aria-checked", "true");
+  await expect(page.locator("#range-validation-control").getByRole("radio", { name: "HEAD Fallback" })).toHaveAttribute("aria-checked", "true");
+
+  await page.locator("#copc-file").setInputFiles({
+    name: "reset-schema-values.copc.laz",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("local test source"),
+  });
+  await expect(page.locator("#source-status")).toHaveText("Loaded reset-schema-values.copc.laz");
+  const settings = await page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getMockLayerSettings(),
+  );
+  expect(settings?.rangeValidation).toBeUndefined();
+  expect(settings?.streaming?.motionLookahead).toBeUndefined();
+});
+
+test("Extra Dimensions configures copc-js before the Playground layer is created", async ({ page }) => {
+  await page.goto("./");
+  await page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.useCameraResetLayerMock());
+  await page.locator('details[data-section="attributes"] summary').click();
+  const extraDimensions = page.getByRole("textbox", { name: "Extra Dimensions" });
+  await extraDimensions.fill("gps-time, leg_id");
+  await extraDimensions.dispatchEvent("change");
+
+  await page.locator("#copc-file").setInputFiles({
+    name: "extra-dimensions.copc.laz",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("local test source"),
+  });
+  await expect(page.locator("#source-status")).toHaveText("Loaded extra-dimensions.copc.laz");
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getMockBackendExtraDimensions(),
+  )).toEqual(["gps-time", "leg_id"]);
 });
 
 test("synchronizing valid controls clears stale numeric validation", async ({ page }) => {

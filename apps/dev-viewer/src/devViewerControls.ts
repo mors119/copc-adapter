@@ -173,6 +173,12 @@ export function mountDevViewerControls(
             renderer,
             nextRenderer,
             inactiveRendererValues,
+            {
+              support: {
+                manifest: WORKSPACE_CURRENT_MANIFEST,
+                runtimeCapabilities: HOST_RUNTIME_CAPABILITIES,
+              },
+            },
           );
           renderer = nextRenderer;
           options.onPendingConfigChange({ schemaOptionValues });

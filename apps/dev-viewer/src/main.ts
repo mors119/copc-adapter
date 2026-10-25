@@ -6,6 +6,8 @@ import {
   CopcCesiumLayer,
   probeCopcSource,
   type CopcBackendName,
+  CopcJsBackend,
+  type CopcJsBackendOptions,
   type CopcCesiumPointStyle,
   type CopcCesiumPointStyleUpdate,
   type CopcHierarchyDiagnostics,
@@ -54,6 +56,7 @@ import {
 import {
   applySchemaRuntimeOperations,
   buildSchemaApplicationPlan,
+  resolveSchemaBackendSelection,
 } from "../../shared/config/index.ts";
 import {
   WORKSPACE_CURRENT_CAPABILITIES,
@@ -822,6 +825,18 @@ function safeErrorMessage(error: unknown): string {
     .replace(/([?&][^=\s]+)=([^&\s]+)/g, "$1=[redacted]");
 }
 
+function createWorkbenchBackend(
+  applicationPlan: ReturnType<typeof buildSchemaApplicationPlan>,
+): CopcBackendSelection | undefined {
+  return resolveSchemaBackendSelection(
+    applicationPlan,
+    ({ extraDimensions }) =>
+      new CopcJsBackend({
+        extraDimensions: extraDimensions as CopcJsBackendOptions["extraDimensions"],
+      }),
+  ) as CopcBackendSelection | undefined;
+}
+
 async function createCesiumSession(
   container: HTMLElement,
   config: DevViewerConfig,
@@ -887,8 +902,10 @@ async function createCesiumSession(
   const researchRenderer = usePublicBatchedRenderer
     ? new BatchedGeometryPointRenderer()
     : undefined;
+  const backend = createWorkbenchBackend(applicationPlan);
   const layer = new CopcCesiumLayer({
     ...getLayerOptions(config.source, config, applicationPlan),
+    ...(backend === undefined ? {} : { backend }),
     renderer: researchRenderer ?? new PointPrimitiveRenderer(),
     onPointPicked,
     ...(ellipsoidalTerrainFixture
@@ -999,8 +1016,11 @@ function createThreeSession(
       runtimeCapabilities: WORKSPACE_CURRENT_CAPABILITIES,
     },
   );
-  const layerOptions = applicationPlan.constructorOptions as unknown as
-    import("@frillab/copc-adapter/three").CopcThreeLayerOptions;
+  const backend = createWorkbenchBackend(applicationPlan);
+  const layerOptions = {
+    ...applicationPlan.constructorOptions,
+    ...(backend === undefined ? {} : { backend }),
+  } as unknown as import("@frillab/copc-adapter/three").CopcThreeLayerOptions;
   const viewer: DevThreeViewer = createDevThreeViewer({
     container,
     sourceName: getSafeSourceLabel(config.source, window.location.href),
