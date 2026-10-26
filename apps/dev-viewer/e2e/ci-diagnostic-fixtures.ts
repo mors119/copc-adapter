@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { test as base, expect } from "@playwright/test";
 import type { Page, TestInfo } from "@playwright/test";
+import { isVisibleResponseHeader } from "./diagnostic-cors";
 
 export { expect };
 
@@ -49,45 +50,6 @@ function sanitizeText(input: string): string {
     .replace(/([?&](?:source|url|token|signature|credential|key|auth)[^=\s]*=)[^&\s]+/gi, "$1[redacted]")
     .replace(/(?:\/home\/runner\/work\/[^/\s]+\/[^/\s]+|\/Users\/[^/\s]+)(?:\/[^\s:'"<>]*)?/g, "[local-path]")
     .slice(0, MAX_MESSAGE_LENGTH);
-}
-
-function isVisibleResponseHeader(
-  responseUrl: string,
-  pageOrigin: string,
-  headerName: string,
-  responseHeaders: Record<string, string>,
-): boolean {
-  let responseOrigin: string;
-  try {
-    responseOrigin = new URL(responseUrl).origin;
-  } catch {
-    return false;
-  }
-  if (responseOrigin === pageOrigin) return true;
-  const allowedOrigin = responseHeaders["access-control-allow-origin"];
-  if (
-    allowedOrigin !== "*" &&
-    allowedOrigin !== pageOrigin
-  ) {
-    return false;
-  }
-  if (
-    allowedOrigin === "*" &&
-    responseHeaders["access-control-allow-credentials"]?.toLowerCase() ===
-      "true"
-  ) {
-    return false;
-  }
-  if (headerName === "content-length") return true;
-  const exposed = (responseHeaders["access-control-expose-headers"] ?? "")
-    .split(",")
-    .map((header) => header.trim().toLowerCase());
-  return (
-    exposed.includes(headerName.toLowerCase()) ||
-    (exposed.includes("*") &&
-      responseHeaders["access-control-allow-credentials"]?.toLowerCase() !==
-        "true")
-  );
 }
 
 function boundedPush<T>(items: T[], item: T, maximum: number): void {
