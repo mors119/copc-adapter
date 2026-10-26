@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 
 import {
+  applyPreparedPointHeightOffset,
   createPointTransformer,
   createProjectPointTransformer,
   transformPointBufferToPreparedPointData,
@@ -407,6 +408,39 @@ test("source WKT, grid units, manual offset, inverse query and ECEF agree", asyn
   const correctedPrepared = applyPreparedPointVerticalGrid(rustLikePrepared, grid);
   assert.deepEqual([...correctedPrepared.geographic.coordinates], [...prepared.geographic.coordinates]);
   assert.deepEqual([...correctedPrepared.world.coordinates], [...prepared.world.coordinates]);
+
+  const offsetBeforeGrid = applyPreparedPointHeightOffset(
+    createPreparedPointData({
+      pointCount: 1,
+      sourceCoordinates: sourceCoordinates.slice(),
+      geographicCoordinates: new Float64Array([0.5, 0.5, 100]),
+      worldCoordinates: (() => {
+        const world = geographicToEcef({
+          longitude: 0.5,
+          latitude: 0.5,
+          height: 100,
+        });
+        return new Float64Array([world.x, world.y, world.z]);
+      })(),
+    }),
+    5,
+  );
+  const defaultTargetOffsetPrepared = applyPreparedPointVerticalGrid(
+    offsetBeforeGrid,
+    grid,
+  );
+  assert.deepEqual(
+    [...defaultTargetOffsetPrepared.geographic.coordinates],
+    [...prepared.geographic.coordinates],
+  );
+  const targetOffsetRemoved = applyPreparedPointHeightOffset(
+    defaultTargetOffsetPrepared,
+    -5,
+  );
+  assert.deepEqual(
+    [...targetOffsetRemoved.geographic.coordinates],
+    [0.5, 0.5, 125],
+  );
 
   const canonicallyPrepared = applyPreparedPointVerticalGrid(
     rustLikePrepared,

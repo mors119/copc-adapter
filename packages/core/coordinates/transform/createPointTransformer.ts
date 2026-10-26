@@ -433,9 +433,9 @@ export function applyPreparedPointVerticalGrid(
       latitude,
       "orthometric-to-ellipsoidal",
     );
-    const height = targetHeightOffset === 0
+    const height = targetOffset === 0
       ? gridCorrectedHeight
-      : gridCorrectedHeight + targetHeightOffset;
+      : gridCorrectedHeight + targetOffset;
     geographicCoordinates[offset + 2] = height;
     const world = geographicToEcef({ longitude, latitude, height });
     worldCoordinates[offset] = world.x;
