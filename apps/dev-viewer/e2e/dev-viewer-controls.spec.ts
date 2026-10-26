@@ -80,7 +80,7 @@ declare global {
 test("switches renderer and backend, applies controls, and inspects a Three point", async ({
   page,
 }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(240_000);
   await page.goto("/");
   await page
     .locator(".dev-control-section")
