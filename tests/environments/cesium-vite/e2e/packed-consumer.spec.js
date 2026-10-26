@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import path from "node:path";
 
 async function state(page) {
-  return page.evaluate(() => window.__PACKED_CONSUMER__.getState());
+  return page.evaluate(() => window.__PACKED_CONSUMER__?.getState());
 }
 
 async function completedState(page) {

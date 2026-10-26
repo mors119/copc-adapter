@@ -1,6 +1,7 @@
 import "./style.css";
 import "cesium/Build/Cesium/Widgets/widgets.css";
 import * as Cesium from "cesium";
+import { createTerrainAlignmentFixture } from "./terrainAlignmentFixture.js";
 import {
   CopcCesiumLayer,
   BatchedGeometryPointRenderer,
@@ -13,10 +14,7 @@ const params = new URLSearchParams(window.location.search);
 const terrainAlignmentFixtureEnabled =
   params.get("terrainAlignmentFixture") === "1";
 const terrainFixture = terrainAlignmentFixtureEnabled
-  ? await import("./terrainAlignmentFixture.js").then(
-      ({ createTerrainAlignmentFixture }) =>
-        createTerrainAlignmentFixture(250),
-    )
+  ? createTerrainAlignmentFixture(250)
   : undefined;
 const datasetUrl =
   terrainFixture?.sourceUrl ?? "/samples/autzen.copc.laz";
