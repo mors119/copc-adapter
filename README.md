@@ -22,6 +22,18 @@ keeps ownership of its own viewer or scene.
 - [Validation overview](https://mors119.github.io/copc-adapter/ko/validation)
 - [Public API](https://mors119.github.io/copc-adapter/API)
 
+## Try the Playground
+
+[Open Playground](https://mors119.github.io/copc-adapter/playground/)
+
+Paste a browser-readable COPC URL, tune display and LoD settings, inspect
+runtime metrics, and copy integration code. Remote sources must allow HTTP
+Range requests and browser CORS; see the [HTTP Range / CORS hosting
+guide](https://mors119.github.io/copc-adapter/source-hosting). GitHub Pages is
+static and does not proxy private or incompatible sources. Performance depends
+on the browser, hardware, network, and dataset; large datasets stream from
+their source and are not bundled into the Playground.
+
 The repository-owned captures use the local Autzen Stadium sample
 (`/samples/autzen.copc.laz`) rendered in CesiumJS with the demo's `rgb` color
 mode. The streaming capture shows the same dataset while camera movement
