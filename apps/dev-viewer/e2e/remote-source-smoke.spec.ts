@@ -2,9 +2,13 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "./ci-diagnostic-fixtures";
+import { readBoundedBodyLength } from "./remote-smoke-utils";
 
 const packageEntryUrl = `/@fs/${fileURLToPath(
   new URL("../../../packages/index.ts", import.meta.url),
+)}`;
+const smokeUtilsUrl = `/@fs/${fileURLToPath(
+  new URL("./remote-smoke-utils.ts", import.meta.url),
 )}`;
 const viewerRoot = fileURLToPath(new URL("..", import.meta.url));
 
@@ -64,7 +68,7 @@ test("classifies direct browser Range reads for public COPC sources", async ({
   const results: SmokeResult[] = [];
   for (const source of remoteSources) {
     const result = await page.evaluate(
-      async ({ moduleUrl, sourceUrl, label }) => {
+      async ({ moduleUrl, smokeUtilsUrl, sourceUrl, label }) => {
         type RequestEvidence = SmokeResult["requests"][number];
         const requests: RequestEvidence[] = [];
         const nativeFetch = window.fetch.bind(window);
@@ -81,17 +85,8 @@ test("classifies direct browser Range reads for public COPC sources", async ({
                 : undefined;
             let bodyLength: number | undefined;
             try {
-              const reader = response.clone().body?.getReader();
-              if (reader) {
-                bodyLength = 0;
-                while (bodyLength < 257) {
-                  const next = await reader.read();
-                  if (next.done) break;
-                  bodyLength += Math.min(next.value.byteLength, 257 - bodyLength);
-                }
-                if (bodyLength === 257) await reader.cancel();
-                reader.releaseLock();
-              }
+              const helpers = await import(/* @vite-ignore */ smokeUtilsUrl);
+              bodyLength = await helpers.readBoundedBodyLength(response, 257);
             } catch {
               // The direct browser request can be readable while the body is
               // interrupted; keep its metadata and classify it below.
@@ -210,7 +205,12 @@ test("classifies direct browser Range reads for public COPC sources", async ({
           requests,
         };
       },
-      { moduleUrl: packageEntryUrl, sourceUrl: source.url, label: source.label },
+      {
+        moduleUrl: packageEntryUrl,
+        smokeUtilsUrl,
+        sourceUrl: source.url,
+        label: source.label,
+      },
     );
     results.push(result);
     console.log(`COPC_REMOTE_SMOKE ${JSON.stringify(result)}`);
@@ -236,4 +236,30 @@ test("classifies direct browser Range reads for public COPC sources", async ({
       failures.map(({ host, reason }) => ({ host, reason }),
     )).slice(0, 1000)}`,
   ).toHaveLength(0);
+});
+
+test("does not wait for an unconsumed response clone to cancel", async () => {
+  const response = new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(1024));
+      },
+    }),
+  );
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(
+      () => reject(new Error("bounded body read waited on clone cancellation")),
+      1_000,
+    );
+  });
+
+  try {
+    await expect(
+      Promise.race([readBoundedBodyLength(response, 257), timedOut]),
+    ).resolves.toBe(257);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+    await response.body?.cancel();
+  }
 });
