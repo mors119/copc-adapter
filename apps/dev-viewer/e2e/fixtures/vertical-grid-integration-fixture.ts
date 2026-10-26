@@ -146,6 +146,11 @@ viewer.camera.setView({
 const layers = new Map<string, LayerRecord>();
 const grids = new Map<string, GtxGeoidGrid>();
 const gridLoadDurationMs = new Map<string, number>();
+let cameraChangedEventCount = 0;
+let cameraMoveEndEventCount = 0;
+let postRenderFrameCount = 0;
+let lastCameraChangedAtMs: number | undefined;
+let lastCameraMoveEndAtMs: number | undefined;
 let nextGridId = 0;
 let lastCanvasClick:
   | { clientX: number; clientY: number; offsetX: number; offsetY: number }
@@ -159,7 +164,16 @@ viewer.scene.canvas.addEventListener("click", (event) => {
     offsetY: event.offsetY,
   };
 });
+viewer.camera.changed.addEventListener(() => {
+  cameraChangedEventCount += 1;
+  lastCameraChangedAtMs = performance.now();
+});
+viewer.camera.moveEnd.addEventListener(() => {
+  cameraMoveEndEventCount += 1;
+  lastCameraMoveEndAtMs = performance.now();
+});
 viewer.scene.postRender.addEventListener(() => {
+  postRenderFrameCount += 1;
   const now = performance.now();
   for (const record of layers.values()) {
     if (
@@ -477,6 +491,28 @@ integrationWindow.__VERTICAL_GRID_INTEGRATION__ = {
         latitude: Cesium.Math.toDegrees(viewer.camera.positionCartographic.latitude),
         height: viewer.camera.positionCartographic.height,
         pitch: Cesium.Math.toDegrees(viewer.camera.pitch),
+        heading: Cesium.Math.toDegrees(viewer.camera.heading),
+        position: {
+          x: viewer.camera.positionWC.x,
+          y: viewer.camera.positionWC.y,
+          z: viewer.camera.positionWC.z,
+        },
+        direction: {
+          x: viewer.camera.directionWC.x,
+          y: viewer.camera.directionWC.y,
+          z: viewer.camera.directionWC.z,
+        },
+      },
+      cameraEvents: {
+        changedCount: cameraChangedEventCount,
+        moveEndCount: cameraMoveEndEventCount,
+        postRenderFrameCount,
+        ...(lastCameraChangedAtMs === undefined
+          ? {}
+          : { lastChangedAtMs: lastCameraChangedAtMs }),
+        ...(lastCameraMoveEndAtMs === undefined
+          ? {}
+          : { lastMoveEndAtMs: lastCameraMoveEndAtMs }),
       },
       ...(snapshot.viewDistance
         ? {
