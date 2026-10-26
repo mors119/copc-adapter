@@ -178,6 +178,19 @@ test("both backends prefer WKT VLRs, use EVLR WKT when needed, and report confli
     assert.equal(copcJsMetadata.wkt, wktEvlr);
     assert.equal(rustMetadata.crsWktProvenance?.selected, "evlr");
     assert.deepEqual(rustMetadata.crsWktProvenance?.available, ["evlr"]);
+    assert.equal(rustMetadata.crsWktProvenance?.conflicting, true);
+    assert.ok(rustMetadata.crsDiagnostic?.reasons.some((reason) => reason.code === "conflicting-source-wkt"));
+    assertMetadataParity(rustMetadata, copcJsMetadata);
+  }, { wktVlr: null, wktEvlr: [wktEvlr, 'GEOGCS["Later EVLR CRS"]'] });
+
+  await withFixture(async (fixture, fixturePath) => {
+    const { rust, copcJs } = await openBackendPair(fixturePath, fixture.bytes);
+    const rustMetadata = rust.getMetadata();
+    const copcJsMetadata = copcJs.getMetadata();
+    assert.equal(rustMetadata.wkt, wktEvlr);
+    assert.equal(copcJsMetadata.wkt, wktEvlr);
+    assert.equal(rustMetadata.crsWktProvenance?.selected, "evlr");
+    assert.deepEqual(rustMetadata.crsWktProvenance?.available, ["evlr"]);
     assert.equal(rustMetadata.crsWktProvenance?.conflicting, false);
     assertMetadataParity(rustMetadata, copcJsMetadata);
   }, { wktVlr: null, wktEvlr });

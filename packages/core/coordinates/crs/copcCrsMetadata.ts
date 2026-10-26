@@ -340,20 +340,55 @@ function isVertical(keyword: string): boolean {
   return keyword === "VERT_CS" || keyword === "VERTCRS";
 }
 
+function unresolvedUnit(keywords: readonly string[]): ParsedUnit {
+  return {
+    kind: keywords.includes("ANGLEUNIT") && !keywords.includes("LENGTHUNIT")
+      ? "angular"
+      : "linear",
+    name: "__unsupported_units__",
+    toSi: Number.NaN,
+  };
+}
+
 function declaredUnit(section: string, keyword: string, axis?: string): ParsedUnit | undefined {
   const isGeographic = ["GEOGCS", "GEOGCRS", "GEODCRS"].includes(keyword);
   const targets = isGeographic ? ["ANGLEUNIT", "UNIT"] : ["LENGTHUNIT", "UNIT"];
   if (axis) {
     const axisUnit = parseUnit(axis, targets);
     if (axisUnit) return axisUnit;
+    if (allSections(axis).some(({ keyword: child }) => targets.includes(child))) {
+      return unresolvedUnit(targets);
+    }
   }
-  const direct = directSections(section).filter(({ keyword: child }) => targets.includes(child));
-  if (direct.length > 0) return parseUnit(direct[0].text, targets);
   const axes = directSections(section).filter(({ keyword: child }) => child === "AXIS");
-  const axisUnits = axes.map(({ text }) => parseUnit(text, targets)).filter((unit): unit is ParsedUnit => unit !== undefined);
-  if (axisUnits.length === 0) return undefined;
+  const axisDeclarations = axes.map(({ text }) => ({
+    hasUnit: allSections(text).some(({ keyword: child }) => targets.includes(child)),
+    unit: parseUnit(text, targets),
+  }));
+  const direct = directSections(section).filter(({ keyword: child }) => targets.includes(child));
+  const directUnit = direct.length > 0 ? parseUnit(direct[0].text, targets) : undefined;
+  if (!axisDeclarations.some(({ hasUnit }) => hasUnit)) {
+    return direct.length > 0 ? directUnit ?? unresolvedUnit(targets) : undefined;
+  }
+  if (axisDeclarations.some(({ hasUnit, unit }) => !hasUnit || !unit)) {
+    return unresolvedUnit(targets);
+  }
+  const axisUnits = axisDeclarations.map(({ unit }) => unit!);
   const first = axisUnits[0];
-  if (axisUnits.some((unit) => unit.kind !== first.kind || Math.abs(unit.toSi - first.toSi) > Math.max(1e-14, first.toSi * 1e-12))) return { ...first, name: "__conflicting_units__" };
+  const inconsistentAxisUnits = axisUnits.some((unit) =>
+    unit.kind !== first.kind ||
+    Math.abs(unit.toSi - first.toSi) > Math.max(1e-14, first.toSi * 1e-12),
+  );
+  if (inconsistentAxisUnits) return { ...first, name: "__conflicting_units__" };
+  if (direct.length > 0) {
+    if (!directUnit) return unresolvedUnit(targets);
+    if (
+      directUnit.kind !== first.kind ||
+      Math.abs(directUnit.toSi - first.toSi) > Math.max(1e-14, first.toSi * 1e-12)
+    ) {
+      return { ...first, name: "__conflicting_units__" };
+    }
+  }
   return first;
 }
 
@@ -458,6 +493,8 @@ export function resolveCopcCrsMetadata(
     const horizontalUnit = declaredUnit(horizontal.text, horizontal.keyword);
     if (horizontalUnit?.name === "__conflicting_units__") {
       addReason(diagnostic, "conflicting-axis-units", "Horizontal coordinate axes declare inconsistent units.");
+    } else if (horizontalUnit?.name === "__unsupported_units__") {
+      addReason(diagnostic, "unsupported-horizontal-unit", "A horizontal coordinate axis declares a unit that cannot be normalized safely.");
     } else if (horizontalUnit) {
       diagnostic.horizontal.units = unitDiagnostic(horizontalUnit);
       diagnostic.evidence.push({ field: "units", source: "wkt", value: `${horizontalUnit.name} (${horizontalUnit.toSi})`, certainty: "explicit" });
@@ -494,7 +531,11 @@ export function resolveCopcCrsMetadata(
     const axisSection = directSections(vertical.text).find(({ keyword }) => keyword === "AXIS")?.text;
     const axis = axisSection ? parseAxis(axisSection) : undefined;
     const verticalUnit = declaredUnit(vertical.text, vertical.keyword, axisSection);
-    if (verticalUnit) {
+    if (verticalUnit?.name === "__conflicting_units__") {
+      addReason(diagnostic, "conflicting-axis-units", "Vertical coordinate axes declare inconsistent units.");
+    } else if (verticalUnit?.name === "__unsupported_units__") {
+      addReason(diagnostic, "unsupported-vertical-unit", "The vertical coordinate axis declares a unit that cannot be normalized safely.");
+    } else if (verticalUnit) {
       diagnostic.vertical.units = unitDiagnostic(verticalUnit);
       diagnostic.evidence.push({ field: "units", source: "wkt", value: `${verticalUnit.name} (${verticalUnit.toSi})`, certainty: "explicit" });
       if (!isUnitDeclarationConsistent(verticalUnit)) {

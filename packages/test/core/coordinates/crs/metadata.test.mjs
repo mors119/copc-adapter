@@ -15,6 +15,7 @@ const UNKNOWN_LOCAL_VERTICAL = 'COMPD_CS["Local test CRS",PROJCS["Local grid",GE
 const CONTRADICTORY_IDENTIFIERS = 'PROJCS["Conflicting identifiers",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],UNIT["metre",1],AUTHORITY["EPSG","1000"],AUTHORITY["EPSG","2000"]]';
 const WGS84_3D = 'GEOGCRS["WGS 84",DATUM["World Geodetic System 1984",ELLIPSOID["WGS 84",6378137,298.257223563,LENGTHUNIT["metre",1]],ID["EPSG",6326]],CS[ellipsoidal,3],AXIS["geodetic latitude (Lat)",north,ORDER[1],ANGLEUNIT["degree",0.0174532925199433]],AXIS["geodetic longitude (Lon)",east,ORDER[2],ANGLEUNIT["degree",0.0174532925199433]],AXIS["ellipsoidal height (h)",up,ORDER[3],LENGTHUNIT["metre",1]],ID["EPSG",4979]]';
 const CONTRADICTORY_UNIT = 'PROJCS["Conflicting unit",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],UNIT["US survey foot",0.3048]]';
+const PARTIAL_AXIS_UNIT = 'PROJCRS["Partial axis unit",BASEGEOGCRS["WGS 84",DATUM["WGS 84",ELLIPSOID["WGS 84",6378137,298.257223563,LENGTHUNIT["metre",1]]],PRIMEM["Greenwich",0],ANGLEUNIT["degree",0.0174532925199433]],CONVERSION["test",METHOD["Transverse Mercator"]],CS[Cartesian,2],AXIS["Easting",east,ORDER[1],LENGTHUNIT["metre",1]],AXIS["Northing",north,ORDER[2],LENGTHUNIT["bad",0]]]';
 
 test("reports source CRS identities, explicit axes, and distinct foot definitions", () => {
   const autzen = auditFixtures.find((fixture) => fixture.id === "autzen-wkt1-compound-lcc");
@@ -79,6 +80,14 @@ test("reports missing, malformed, and contradictory source CRS metadata with sta
   const contradictoryUnit = resolveCopcCrsMetadata(CONTRADICTORY_UNIT);
   assert.equal(contradictoryUnit.horizontal.units.standard, "other");
   assert.ok(contradictoryUnit.reasons.some((reason) => reason.code === "inconsistent-unit-declaration"));
+});
+
+test("leaves horizontal units unknown when any declared axis unit is unresolvable", () => {
+  const diagnostic = resolveCopcCrsMetadata(PARTIAL_AXIS_UNIT);
+
+  assert.equal(diagnostic.horizontal.units.kind, "unknown");
+  assert.equal(diagnostic.horizontal.units.name, undefined);
+  assert.ok(diagnostic.reasons.some((reason) => reason.code === "unsupported-horizontal-unit"));
 });
 
 test("unknown WKT2 vertical systems remain unknown even with an explicit unit", () => {

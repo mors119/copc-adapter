@@ -259,6 +259,10 @@ const EVLR_HEADER_BYTES = 60;
 const MAX_EVLRS_TO_SCAN = 4096;
 
 type EvIrWktRecord = { readonly payload: Uint8Array; readonly value: string };
+type EvIrWktScan = {
+  readonly selected?: EvIrWktRecord;
+  readonly values: readonly string[];
+};
 
 function decodeCString(bytes: Uint8Array): string {
   const terminator = bytes.indexOf(0);
@@ -292,15 +296,15 @@ function scanVlrWktValues(metadataBytes: Uint8Array): string[] {
   return values;
 }
 
-async function readFirstEvlrWkt(
+async function readEvlrWkts(
   byteSource: RandomAccessByteSource,
   initialBytes: Uint8Array,
   maxRangeBytes: number,
-): Promise<EvIrWktRecord | undefined> {
+): Promise<EvIrWktScan> {
   const view = new DataView(initialBytes.buffer, initialBytes.byteOffset, initialBytes.byteLength);
   const startOffsetBig = view.getBigUint64(235, true);
   const count = view.getUint32(243, true);
-  if (count === 0) return undefined;
+  if (count === 0) return { values: [] };
   if (startOffsetBig === 0n) {
     throw new RustCopcParseError("invalid-header", "LAS declares EVLRs without a valid first EVLR offset");
   }
@@ -311,6 +315,9 @@ async function readFirstEvlrWkt(
     throw new RustCopcParseError("unsupported-value", "LAS EVLR offset is not a JavaScript-safe integer");
   }
   let position = Number(startOffsetBig);
+  let totalWktBytes = 0;
+  let selected: EvIrWktRecord | undefined;
+  const values: string[] = [];
   const size = await byteSource.size();
   if (size !== undefined && position > size) {
     throw new RustCopcParseError("invalid-header", "LAS EVLR offset exceeds the source size");
@@ -340,12 +347,18 @@ async function readFirstEvlrWkt(
       if (length > maxRangeBytes) {
         throw new RustCopcParseError("unsupported-value", `CRS WKT EVLR exceeds the ${maxRangeBytes}-byte range limit`);
       }
+      totalWktBytes += length;
+      if (totalWktBytes > maxRangeBytes) {
+        throw new RustCopcParseError("unsupported-value", `Total CRS WKT EVLR payload exceeds the ${maxRangeBytes}-byte scan limit`);
+      }
       const payload = length === 0 ? new Uint8Array() : await byteSource.readRange(payloadOffset, length);
-      return { payload, value: decodeCString(payload) };
+      const record = { payload, value: decodeCString(payload) };
+      selected ??= record;
+      values.push(record.value);
     }
     position = payloadOffset + length;
   }
-  return undefined;
+  return { selected, values };
 }
 
 function withSyntheticEvlr(
@@ -375,17 +388,17 @@ function withSyntheticEvlr(
 
 function resolveWktProvenance(
   vlrValues: readonly string[],
-  evlr: EvIrWktRecord | undefined,
+  evlrValues: readonly string[],
 ): CopcCrsWktProvenance {
   const hasVlr = vlrValues.length > 0;
   const available: Array<"vlr" | "evlr"> = [];
   if (hasVlr) available.push("vlr");
-  if (evlr) available.push("evlr");
-  const selected = hasVlr ? "vlr" : evlr ? "evlr" : "unknown";
-  const selectedValue = hasVlr ? vlrValues[0] : evlr?.value;
+  if (evlrValues.length > 0) available.push("evlr");
+  const selected = hasVlr ? "vlr" : evlrValues.length > 0 ? "evlr" : "unknown";
+  const selectedValue = hasVlr ? vlrValues[0] : evlrValues[0];
   const conflicts =
     vlrValues.some((value) => value !== selectedValue) ||
-    (hasVlr && evlr !== undefined && evlr.value !== selectedValue);
+    evlrValues.some((value) => value !== selectedValue);
   return { selected, available, conflicting: conflicts };
 }
 
@@ -537,9 +550,9 @@ export class RustCopcReader {
         ? initialBytes.slice(0, pointDataOffset)
         : await byteSource.readRange(0, pointDataOffset);
     const vlrWktValues = scanVlrWktValues(metadataPrefix);
-    const evlrWkt = await readFirstEvlrWkt(byteSource, initialBytes, maxRangeBytes);
-    const crsWktProvenance = resolveWktProvenance(vlrWktValues, evlrWkt);
-    const metadataBytes = withSyntheticEvlr(metadataPrefix, evlrWkt);
+    const evlrWkts = await readEvlrWkts(byteSource, initialBytes, maxRangeBytes);
+    const crsWktProvenance = resolveWktProvenance(vlrWktValues, evlrWkts.values);
+    const metadataBytes = withSyntheticEvlr(metadataPrefix, evlrWkts.selected);
     const parsedHeader = await parseWithRust<RustCopcHeader>(
       metadataBytes,
       (wasm, pointer, length) => wasm.parse_copc_header_json(pointer, length),
