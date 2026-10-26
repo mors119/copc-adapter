@@ -445,6 +445,7 @@ test("estimates, previews, and applies a WKT2 ellipsoidal fixture only after app
   expect(after.height).toBe(102);
   expect(after.world).not.toEqual(before.world);
   const rangeMetricsAfterApply = sourceMetrics.snapshot();
+  const uploadEvents = applyGlEvents.filter((event) => event.kind.startsWith("buffer"));
   expect(appliedSnapshot.renderedPointCount).toBe(2);
   expect(await page.locator("#cesium-container > .dev-session-mount").count()).toBe(1);
   console.info("WKT2 ellipsoidal Terrain fixture measurements", {
@@ -478,9 +479,9 @@ test("estimates, previews, and applies a WKT2 ellipsoidal fixture only after app
     additionalRangeBytes:
       rangeMetricsAfterApply.rangeBytes - rangeMetricsBeforeApply.rangeBytes,
     candidateSessionGlUploads: {
-      uploadCalls: applyGlEvents.filter((event) => event.kind.startsWith("buffer")).length,
-      uploadBytes: applyGlEvents.reduce((sum, event) => sum + event.bytes, 0),
-      uploadApiDurationMs: applyGlEvents.reduce(
+      uploadCalls: uploadEvents.length,
+      uploadBytes: uploadEvents.reduce((sum, event) => sum + event.bytes, 0),
+      uploadApiDurationMs: uploadEvents.reduce(
         (sum, event) => sum + event.durationMs,
         0,
       ),
