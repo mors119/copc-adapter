@@ -192,8 +192,8 @@ through the current decoded node buffer. Use
 `onPointPicked` or `layer.getSelectedPoint()` after a click to read transformed
 position/height, retained source XYZ, and RGB/intensity/classification when
 those fields were requested and decoded. Missing fields remain unavailable,
-and picking never forces full-field decoding. The demo includes a compact
-lower-right inspector.
+and picking never forces full-field decoding. The demo opens a point popover
+anchored beside the selected point.
 
 HTTP COPC sources must support Range requests and return exact `206` partial
 responses. The default `rangeValidation: 'head-fallback'` policy validates a

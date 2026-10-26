@@ -2,14 +2,15 @@ import type {
   Assert,
   AssertNoIncompatibleSchemaDefaults,
   AssertNoMissingPublicPaths,
+  SchemaChoiceValues,
   SchemaConstructorPaths,
+  SchemaOptionUnion,
 } from "../../shared/schema/typeContracts.ts";
 import type {
   SchemaClassificationFilter,
   SchemaFocusLens,
 } from "../../shared/schema/types.ts";
 
-type OptionUnion = (typeof import("../../shared/schema/options.ts").OPTION_SCHEMA)[number];
 type NpmManifest = typeof import("../../shared/schema/manifests.ts").NPM_0_6_MANIFEST;
 type CesiumApi = typeof import("@frillab/copc-adapter/cesium");
 type ThreeApi = typeof import("@frillab/copc-adapter/three");
@@ -18,8 +19,8 @@ type ThreeOptions = import("@frillab/copc-adapter/three").CopcThreeLayerOptions;
 type CesiumLayer = InstanceType<CesiumApi["CopcCesiumLayer"]>;
 type ThreeLayer = InstanceType<ThreeApi["CopcThreeLayer"]>;
 
-type NpmCesiumPaths = SchemaConstructorPaths<OptionUnion, "cesium", NpmManifest>;
-type NpmThreePaths = SchemaConstructorPaths<OptionUnion, "three", NpmManifest>;
+type NpmCesiumPaths = SchemaConstructorPaths<SchemaOptionUnion, "cesium", NpmManifest>;
+type NpmThreePaths = SchemaConstructorPaths<SchemaOptionUnion, "three", NpmManifest>;
 type Head<Path extends string> = Path extends `${infer Key}.${string}` ? Key : Path;
 type NpmCesiumRoots = Head<NpmCesiumPaths>;
 type NpmThreeRoots = Head<NpmThreePaths>;
@@ -52,7 +53,7 @@ export type NpmCesiumPathsExist = AssertNoMissingPublicPaths<CesiumOptions, NpmC
 export type NpmThreePathsExist = AssertNoMissingPublicPaths<ThreeOptions, NpmThreePaths>;
 export type NpmCesiumDefaultsMatchApiTypes = Assert<
   AssertNoIncompatibleSchemaDefaults<
-    OptionUnion,
+    SchemaOptionUnion,
     "cesium",
     NpmManifest,
     CesiumOptions,
@@ -61,7 +62,7 @@ export type NpmCesiumDefaultsMatchApiTypes = Assert<
 >;
 export type NpmThreeDefaultsMatchApiTypes = Assert<
   AssertNoIncompatibleSchemaDefaults<
-    OptionUnion,
+    SchemaOptionUnion,
     "three",
     NpmManifest,
     ThreeOptions,
@@ -91,14 +92,6 @@ type HasMethod<Type, Key extends PropertyKey> = Key extends keyof Type
     : false
   : false;
 type HasKey<Type, Key extends PropertyKey> = Key extends keyof Type ? true : false;
-type OptionChoices<Id extends string> = Extract<OptionUnion, { readonly id: Id }> extends {
-  readonly choices: readonly (infer Choice)[];
-}
-  ? Choice extends { readonly value: infer Value }
-    ? Value
-    : never
-  : never;
-
 export type NpmStyleSetterContract = Assert<HasMethod<CesiumLayer, "setStyle">>;
 export type NpmFocusSetterContract = Assert<HasMethod<CesiumLayer, "setRefinementFocus">>;
 type NpmFocusArgument = NonNullable<Parameters<CesiumLayer["setRefinementFocus"]>[0]>;
@@ -143,23 +136,23 @@ type NpmRustBackend = import("@frillab/copc-adapter/cesium").RustCopcBackendOpti
 type NpmInputSource = import("@frillab/copc-adapter/cesium").CopcInputSource;
 
 export type NpmColorModeChoicesMatch = AssertEqual<
-  OptionChoices<"rendering.colorMode">,
+  SchemaChoiceValues<"rendering.colorMode">,
   NpmColorMode
 >;
 export type NpmPointSizeChoicesMatch = AssertEqual<
-  OptionChoices<"rendering.pointSizeMode">,
+  SchemaChoiceValues<"rendering.pointSizeMode">,
   NpmPointSizeMode
 >;
 export type NpmRefinementChoicesMatch = AssertEqual<
-  OptionChoices<"streaming.refinementAlgorithm">,
+  SchemaChoiceValues<"streaming.refinementAlgorithm">,
   NpmRefinementAlgorithm
 >;
 export type NpmRangePolicyChoicesMatch = AssertEqual<
-  OptionChoices<"source.rangeValidation">,
+  SchemaChoiceValues<"source.rangeValidation">,
   NpmRangePolicy
 >;
 export type NpmBackendChoicesMatch = AssertEqual<
-  OptionChoices<"adapter.backend">,
+  SchemaChoiceValues<"adapter.backend">,
   NpmBackendName
 >;
 export type NpmExtraDimensionNamesSupported = Assert<

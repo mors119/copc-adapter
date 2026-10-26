@@ -7,7 +7,6 @@ import { fileURLToPath } from "node:url";
 const playgroundDir = fileURLToPath(new URL("..", import.meta.url));
 
 type RefinementConfig = {
-  algorithm: "foveated" | "screen-projection";
   focusMode: "auto-center" | "center-boost" | "follow-pointer" | "pinned";
   focusEnabled: boolean;
   showGuide: boolean;
@@ -29,7 +28,6 @@ const config = (renderer: "cesium" | "three" = "cesium") => ({
   maxRenderDistanceMeters: 12_000,
   refinementAlgorithm: "foveated" as const,
   refinementConfig: {
-    algorithm: "foveated" as const,
     focusMode: "auto-center" as const,
     focusEnabled: false,
     showGuide: true,
@@ -155,7 +153,6 @@ test(
       ).__COPC_PLAYGROUND_TEST__;
       if (!hooks) throw new Error("Playground test hooks are unavailable");
       const refinementConfig = {
-        algorithm: "foveated",
         focusMode: "pinned",
         focusEnabled: true,
         showGuide: true,
@@ -506,7 +503,6 @@ test("escapes URL strings and protects sensitive URLs; files use a file input pa
         maxRenderDistanceMeters: 12_000,
         refinementAlgorithm: "foveated",
         refinementConfig: {
-          algorithm: "foveated",
           focusMode: "auto-center",
           focusEnabled: false,
           showGuide: true,
@@ -562,7 +558,6 @@ test("normalizes share configuration, omits unsafe sources, and copies the visib
       refinementAlgorithm: "foveated",
     };
     const refinement = {
-      algorithm: "foveated",
       focusMode: "auto-center",
       focusEnabled: false,
       showGuide: true,

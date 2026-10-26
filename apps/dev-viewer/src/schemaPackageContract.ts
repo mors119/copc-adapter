@@ -2,14 +2,15 @@ import type {
   Assert,
   AssertNoIncompatibleSchemaDefaults,
   AssertNoMissingPublicPaths,
+  SchemaChoiceValues,
   SchemaConstructorPaths,
+  SchemaOptionUnion,
 } from "../../shared/schema/typeContracts.ts";
 import type {
   SchemaClassificationFilter,
   SchemaFocusLens,
 } from "../../shared/schema/types.ts";
 
-type OptionUnion = (typeof import("../../shared/schema/options.ts").OPTION_SCHEMA)[number];
 type WorkspaceManifest = typeof import("../../shared/schema/manifests.ts").WORKSPACE_CURRENT_MANIFEST;
 type CesiumApi = typeof import("@frillab/copc-adapter/cesium");
 type ThreeApi = typeof import("@frillab/copc-adapter/three");
@@ -18,8 +19,8 @@ type ThreeOptions = import("@frillab/copc-adapter/three").CopcThreeLayerOptions;
 type CesiumLayer = InstanceType<CesiumApi["CopcCesiumLayer"]>;
 type ThreeLayer = InstanceType<ThreeApi["CopcThreeLayer"]>;
 
-type WorkspaceCesiumPaths = SchemaConstructorPaths<OptionUnion, "cesium", WorkspaceManifest>;
-type WorkspaceThreePaths = SchemaConstructorPaths<OptionUnion, "three", WorkspaceManifest>;
+type WorkspaceCesiumPaths = SchemaConstructorPaths<SchemaOptionUnion, "cesium", WorkspaceManifest>;
+type WorkspaceThreePaths = SchemaConstructorPaths<SchemaOptionUnion, "three", WorkspaceManifest>;
 type Head<Path extends string> = Path extends `${infer Key}.${string}` ? Key : Path;
 type Equal<Left, Right> = [Left] extends [Right]
   ? [Right] extends [Left]
@@ -49,7 +50,7 @@ export type WorkspaceCesiumPathsExist = AssertNoMissingPublicPaths<CesiumOptions
 export type WorkspaceThreePathsExist = AssertNoMissingPublicPaths<ThreeOptions, WorkspaceThreePaths>;
 export type WorkspaceCesiumDefaultsMatchApiTypes = Assert<
   AssertNoIncompatibleSchemaDefaults<
-    OptionUnion,
+    SchemaOptionUnion,
     "cesium",
     WorkspaceManifest,
     CesiumOptions,
@@ -58,7 +59,7 @@ export type WorkspaceCesiumDefaultsMatchApiTypes = Assert<
 >;
 export type WorkspaceThreeDefaultsMatchApiTypes = Assert<
   AssertNoIncompatibleSchemaDefaults<
-    OptionUnion,
+    SchemaOptionUnion,
     "three",
     WorkspaceManifest,
     ThreeOptions,
@@ -88,14 +89,6 @@ type HasMethod<Type, Key extends PropertyKey> = Key extends keyof Type
     : false
   : false;
 type HasKey<Type, Key extends PropertyKey> = Key extends keyof Type ? true : false;
-type OptionChoices<Id extends string> = Extract<OptionUnion, { readonly id: Id }> extends {
-  readonly choices: readonly (infer Choice)[];
-}
-  ? Choice extends { readonly value: infer Value }
-    ? Value
-    : never
-  : never;
-
 export type WorkspaceStyleSetterContract = Assert<HasMethod<CesiumLayer, "setStyle">>;
 export type WorkspaceFocusSetterContract = Assert<HasMethod<CesiumLayer, "setRefinementFocus">>;
 type WorkspaceFocusArgument = NonNullable<
@@ -144,23 +137,23 @@ type WorkspaceRustBackend = import("@frillab/copc-adapter/cesium").RustCopcBacke
 type WorkspaceInputSource = import("@frillab/copc-adapter/cesium").CopcInputSource;
 
 export type WorkspaceColorModeChoicesMatch = AssertEqual<
-  OptionChoices<"rendering.colorMode">,
+  SchemaChoiceValues<"rendering.colorMode">,
   WorkspaceColorMode
 >;
 export type WorkspacePointSizeChoicesMatch = AssertEqual<
-  OptionChoices<"rendering.pointSizeMode">,
+  SchemaChoiceValues<"rendering.pointSizeMode">,
   WorkspacePointSizeMode
 >;
 export type WorkspaceRefinementChoicesMatch = AssertEqual<
-  OptionChoices<"streaming.refinementAlgorithm">,
+  SchemaChoiceValues<"streaming.refinementAlgorithm">,
   WorkspaceRefinementAlgorithm
 >;
 export type WorkspaceRangePolicyChoicesMatch = AssertEqual<
-  OptionChoices<"source.rangeValidation">,
+  SchemaChoiceValues<"source.rangeValidation">,
   WorkspaceRangePolicy
 >;
 export type WorkspaceBackendChoicesMatch = AssertEqual<
-  OptionChoices<"adapter.backend">,
+  SchemaChoiceValues<"adapter.backend">,
   WorkspaceBackendName
 >;
 export type WorkspaceExtraDimensionNamesSupported = Assert<

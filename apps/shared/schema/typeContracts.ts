@@ -1,4 +1,17 @@
 /** Type-level utilities used by the consuming apps to check schema/API drift. */
+export type SchemaOptionUnion =
+  (typeof import("./options.ts").OPTION_SCHEMA)[number];
+
+/** Choice values for an option are derived from the authoritative schema. */
+export type SchemaChoiceValues<Id extends string> = Extract<
+  SchemaOptionUnion,
+  { readonly id: Id }
+> extends { readonly choices: readonly (infer Choice)[] }
+  ? Choice extends { readonly value: infer Value }
+    ? Value
+    : never
+  : never;
+
 export type SchemaConstructorPaths<
   Options,
   Renderer extends string,

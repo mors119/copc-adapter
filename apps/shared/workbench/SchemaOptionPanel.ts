@@ -49,7 +49,7 @@ export type SchemaOptionPanelOptions = {
   ) => SchemaSpecialControl | undefined;
   readonly onAction?: (action: SchemaActionDefinition) => void;
   readonly actionSections?: readonly SchemaSection[];
-  /** Host-owned workflows can remain beside the schema form during migration. */
+  /** Host-owned workflows can sit beside the schema-generated options. */
   readonly excludeOptionIds?: readonly string[];
 };
 

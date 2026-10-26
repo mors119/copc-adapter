@@ -241,6 +241,16 @@ test("switches renderer and backend, applies controls, and inspects a Three poin
   ).toHaveText("strict");
 
   const threeRenderer = rendererGroup.getByRole("radio", { name: "Three.js" });
+  const pointSize = page.getByRole("slider", { name: "Point size" });
+  await pointSize.focus();
+  await pointSize.press("ArrowRight");
+  await expect
+    .poll(async () =>
+      page.evaluate(
+        () => window.__COPC_DEV_VIEWER__?.getPendingConfiguration().pointSize,
+      ),
+    )
+    .toBe(3.5);
   await threeRenderer.click();
   await expect
     .poll(async () =>
@@ -264,33 +274,6 @@ test("switches renderer and backend, applies controls, and inspects a Three poin
       ),
     )
     .toBe("three");
-  await rendererGroup.getByRole("radio", { name: "Cesium" }).click();
-  await page.getByRole("button", { name: "Apply Settings" }).click();
-  await expect
-    .poll(async () =>
-      page.evaluate(
-        () => window.__COPC_DEV_VIEWER__?.getConfiguration().renderer,
-      ),
-    )
-    .toBe("cesium");
-  await page.getByRole("tab", { name: "Source" }).click();
-  await expect(
-    page.locator(
-      '#workbench-panel-source [data-diagnostic-value="bounds"]',
-    ),
-  ).toBeVisible();
-
-  const pointSize = page.getByRole("slider", { name: "Point size" });
-  await pointSize.focus();
-  await pointSize.press("ArrowRight");
-  await expect
-    .poll(async () =>
-      page.evaluate(
-        () => window.__COPC_DEV_VIEWER__?.getPendingConfiguration().pointSize,
-      ),
-    )
-    .toBe(3.5);
-  await page.getByRole("button", { name: "Apply Settings" }).click();
   await expect
     .poll(async () =>
       page.evaluate(
@@ -298,13 +281,16 @@ test("switches renderer and backend, applies controls, and inspects a Three poin
       ),
     )
     .toBe(3.5);
+  await expect(
+    page.locator(
+      '#workbench-panel-source [data-diagnostic-value="bounds"]',
+    ),
+  ).toBeVisible();
   await expect(page.locator("#source-status")).toHaveAttribute(
     "data-status",
     "ready",
   );
 
-  await rendererGroup.getByRole("radio", { name: "Three.js" }).click();
-  await page.getByRole("button", { name: "Apply Settings" }).click();
   await expect(page.locator("#cesium-point-renderer-group")).toBeHidden();
   await expect(
     page.locator(

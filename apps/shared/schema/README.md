@@ -7,11 +7,10 @@ code-generation form, serialization behavior, and defaults keyed by package
 origin and version.
 
 This is a schema-driven contract, not reflection over TypeScript interfaces.
-Maintainers intentionally register each user-facing option here. The shared
-Workbench phases can then derive controls, validation and generated code from
-that one definition instead of maintaining separate Playground and Dev Viewer
-lists. Phase 1 establishes the executable contract; it does not yet generate
-real UI controls or integration code.
+Maintainers register each user-facing option here. The shared Workbench derives
+controls, validation, configuration application, share-state serialization,
+and generated integration code from that definition instead of maintaining
+separate Playground and Dev Viewer option lists.
 
 `apps/shared/config/` owns normalized pending/applied option maps and derives
 constructor options and runtime method calls from this registry. It validates

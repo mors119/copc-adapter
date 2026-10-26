@@ -1,8 +1,10 @@
 import type {
   WorkbenchBackend,
   WorkbenchColorMode,
+  WorkbenchRefinementAlgorithm,
   WorkbenchRenderer,
 } from "../../shared/workbench-config";
+import { getOptionDefinition } from "../../shared/schema/index.ts";
 import { isPotentiallySensitiveSource } from "./integrationCode.ts";
 import {
   readPlaygroundRefinementConfig,
@@ -22,15 +24,20 @@ export const defaultPlaygroundUrlConfig: PlaygroundUrlConfig = {
   ...PLAYGROUND_DEFAULTS,
 };
 
-const renderers = new Set<WorkbenchRenderer>(["cesium", "three"]);
-const backends = new Set<WorkbenchBackend>(["copc-js", "rust"]);
-const colorModes = new Set<WorkbenchColorMode>([
-  "fixed",
-  "rgb",
-  "elevation",
-  "intensity",
-  "classification",
-]);
+function getOptionChoices<Choice extends string>(
+  optionId: string,
+): ReadonlySet<Choice> {
+  return new Set(
+    getOptionDefinition(optionId)?.choices?.map(({ value }) => value as Choice) ?? [],
+  );
+}
+
+const renderers = getOptionChoices<WorkbenchRenderer>("renderer.engine");
+const backends = getOptionChoices<WorkbenchBackend>("adapter.backend");
+const colorModes = getOptionChoices<WorkbenchColorMode>("rendering.colorMode");
+const refinementAlgorithms = getOptionChoices<WorkbenchRefinementAlgorithm>(
+  "streaming.refinementAlgorithm",
+);
 
 function readEnum<T extends string>(
   params: URLSearchParams,
@@ -42,7 +49,11 @@ function readEnum<T extends string>(
   const value = params.get(key);
   if (value === null) return fallback;
   if (allowed.has(value as T)) return value as T;
-  warnings.push(`Unknown ${key} value; using ${fallback}.`);
+  if (key === "refinementAlgorithm") {
+    warnings.push(`Unknown refinement algorithm “${value}”; using Foveated.`);
+  } else {
+    warnings.push(`Unknown ${key} value; using ${fallback}.`);
+  }
   return fallback;
 }
 
@@ -115,6 +126,13 @@ export function readPlaygroundUrlConfig(params: URLSearchParams): {
     "colorMode",
     colorModes,
     defaults.colorMode,
+    warnings,
+  );
+  const refinementAlgorithm = readEnum(
+    params,
+    "refinementAlgorithm",
+    refinementAlgorithms,
+    defaults.refinementAlgorithm,
     warnings,
   );
   const refinement = readPlaygroundRefinementConfig(params);
@@ -194,7 +212,7 @@ export function readPlaygroundUrlConfig(params: URLSearchParams): {
         (value) => Number.isFinite(value) && value > 0,
         warnings,
       ),
-      refinementAlgorithm: refinement.config.algorithm,
+      refinementAlgorithm,
       classificationFilter: readClassificationFilter(params, warnings),
     },
     refinementConfig: refinement.config,
@@ -235,6 +253,7 @@ export function writePlaygroundUrlConfig(
       parseClassificationCodes(config.classificationFilter.exclude.join(",")).join(","),
     );
   }
+  params.set("refinementAlgorithm", config.refinementAlgorithm);
   const withRefinement = writePlaygroundRefinementConfig(params, refinementConfig);
   if (sourceUrl && !isPotentiallySensitiveSource(sourceUrl)) {
     withRefinement.set("sourceUrl", new URL(sourceUrl).href);
