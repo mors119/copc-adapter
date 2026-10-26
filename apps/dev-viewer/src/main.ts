@@ -34,7 +34,9 @@ import { createCopcDebugPanel } from "./debug/CopcDebugPanel";
 import {
   runSyntheticRendererLayoutComparisonBenchmark,
   runSyntheticRendererPerformanceBenchmark,
+  runSyntheticEllipsoidalHeightOffsetBenchmark,
   runSyntheticThreeCacheLayoutBenchmark,
+  type EllipsoidalHeightOffsetBenchmark,
   type RendererBenchmarkKind,
 } from "./rendererPerformanceBenchmark";
 import type { CpuPointPickProbe } from "../../../packages/cesium/render/BatchedGeometryPointRenderer";
@@ -47,6 +49,7 @@ import {
   type DevThreeCameraState,
   type DevThreeViewer,
 } from "./threeViewer";
+import type { DevTerrainFixtureProvider } from "./devTerrainFixture";
 import { mountDevViewerControls } from "./devViewerControls";
 import {
   mountWorkbenchLayout,
@@ -212,6 +215,10 @@ type CopcDebugAdapter = {
     renderer?: RendererBenchmarkKind,
     pointCount?: number,
   ): ReturnType<typeof runSyntheticRendererLayoutComparisonBenchmark>;
+  runSyntheticEllipsoidalHeightOffsetBenchmark(
+    pointCount?: number,
+  ): EllipsoidalHeightOffsetBenchmark;
+  setTerrainFixtureHeight(heightMeters: number): void;
   runSyntheticThreeCacheLayoutBenchmark(): ReturnType<
     typeof runSyntheticThreeCacheLayoutBenchmark
   >;
@@ -264,6 +271,43 @@ type ViewerSession = {
   destroy(): void;
 };
 
+type ApplyTraceStage =
+  | "apply-input"
+  | "approval-validity-checked"
+  | "approval-rejected"
+  | "session-replacement-started"
+  | "source-probe-started"
+  | "source-probe-completed"
+  | "candidate-mount-created"
+  | "session-create-started"
+  | "session-created"
+  | "session-ready-wait-started"
+  | "session-ready"
+  | "candidate-mount-visible"
+  | "first-visible-node"
+  | "first-visible-post-render"
+  | "view-settled"
+  | "old-session-disposal-started"
+  | "old-session-disposed"
+  | "status-ready"
+  | "apply-error";
+
+type ApplyTrace = {
+  startedAt: number;
+  events: Array<{ stage: ApplyTraceStage; elapsedMs: number }>;
+};
+
+function recordApplyTrace(
+  trace: ApplyTrace | undefined,
+  stage: ApplyTraceStage,
+): void {
+  if (!trace) return;
+  trace.events.push({
+    stage,
+    elapsedMs: performance.now() - trace.startedAt,
+  });
+}
+
 declare global {
   interface Window {
     __COPC_DEV_VIEWER__?: {
@@ -281,7 +325,12 @@ declare global {
         source: string;
         terrainSource: string;
       };
+      getLastApplyTrace(): Array<{
+        stage: ApplyTraceStage;
+        elapsedMs: number;
+      }>;
     };
+    __COPC_TEST_TERRAIN_HEIGHT__?: number;
   }
 }
 
@@ -341,6 +390,7 @@ function installDebugAdapter(
   layer: CopcCesiumLayer,
   researchRenderer?: BatchedGeometryPointRenderer,
   rangeValidation: RangeValidationPolicy = "head-fallback",
+  devTerrainProvider?: DevTerrainFixtureProvider,
 ): CopcDebugAdapter {
   let cameraMoveEventCount = 0;
   let lastError: string | undefined;
@@ -540,6 +590,22 @@ function installDebugAdapter(
         repetitions: 5,
         warmups: 2,
       }),
+    runSyntheticEllipsoidalHeightOffsetBenchmark: (pointCount = 100_000) =>
+      runSyntheticEllipsoidalHeightOffsetBenchmark({
+        pointCount,
+        repetitions: 5,
+        warmups: 2,
+      }),
+    setTerrainFixtureHeight(heightMeters): void {
+      if (!Number.isFinite(heightMeters)) {
+        throw new RangeError("Terrain fixture height must be finite");
+      }
+      if (!devTerrainProvider) {
+        throw new Error("The controlled Terrain fixture is not active");
+      }
+      window.__COPC_TEST_TERRAIN_HEIGHT__ = heightMeters;
+      devTerrainProvider.setHeightMeters(heightMeters);
+    },
     runSyntheticThreeCacheLayoutBenchmark: () =>
       runSyntheticThreeCacheLayoutBenchmark(),
     probePublicBatchPick: () => {
@@ -893,6 +959,7 @@ async function createCesiumSession(
     position?: PointScreenPosition,
   ) => void,
   onPointPositionChanged: (position: PointScreenPosition | undefined) => void,
+  applyTrace?: ApplyTrace,
 ): Promise<ViewerSession> {
   const applicationPlan = buildSchemaApplicationPlan(
     {
@@ -922,14 +989,19 @@ async function createCesiumSession(
     ellipsoidalTerrainFixture = createDevEllipsoidalTerrainFixture();
   }
   let terrainProvider: Cesium.TerrainProvider | undefined;
+  let devTerrainFixtureProvider: DevTerrainFixtureProvider | undefined;
   let terrainSourceStatus =
     "WGS84 ellipsoid only · imagery may still be shown; no terrain elevations are available.";
   const testTerrainFixture = params.get("terrainFixtureHeight");
   if (import.meta.env.DEV && testTerrainFixture !== null) {
-    const height = Number(testTerrainFixture);
+    const configuredHeight = Number(testTerrainFixture);
+    const height = Number.isFinite(window.__COPC_TEST_TERRAIN_HEIGHT__)
+      ? window.__COPC_TEST_TERRAIN_HEIGHT__!
+      : configuredHeight;
     if (Number.isFinite(height)) {
       const { createDevTerrainFixture } = await import("./devTerrainFixture");
-      terrainProvider = createDevTerrainFixture(height);
+      devTerrainFixtureProvider = createDevTerrainFixture(height);
+      terrainProvider = devTerrainFixtureProvider;
       terrainSourceStatus = "Deterministic browser-test Terrain fixture.";
     }
   } else if (config.terrainUrl.trim()) {
@@ -980,12 +1052,38 @@ async function createCesiumSession(
         }
       : {}),
   });
+  const removeApplyTraceListeners: Array<() => void> = [];
+  if (applyTrace) {
+    let firstViewSettledRecorded = false;
+    removeApplyTraceListeners.push(
+      layer.firstVisible.addEventListener(() => {
+        recordApplyTrace(applyTrace, "first-visible-node");
+        let removePostRender: (() => void) | undefined;
+        const onFirstVisibleFrame = (): void => {
+          removePostRender?.();
+          removePostRender = undefined;
+          recordApplyTrace(applyTrace, "first-visible-post-render");
+        };
+        removePostRender = viewer.scene.postRender.addEventListener(
+          onFirstVisibleFrame,
+        );
+        removeApplyTraceListeners.push(() => removePostRender?.());
+      }),
+      layer.viewSettled.addEventListener(() => {
+        if (!firstViewSettledRecorded) {
+          firstViewSettledRecorded = true;
+          recordApplyTrace(applyTrace, "view-settled");
+        }
+      }),
+    );
+  }
   await applySchemaRuntimeOperations(layer, applicationPlan.runtimeOperations);
   const debugAdapter = installDebugAdapter(
     viewer,
     layer,
     researchRenderer,
     config.rangeValidation,
+    devTerrainFixtureProvider,
   );
   const ready = layer
     .load()
@@ -1064,6 +1162,9 @@ async function createCesiumSession(
       }
       viewer.scene.postRender.removeEventListener(onPostRender);
       viewer.camera.changed.removeEventListener(onCameraChanged);
+      for (const removeListener of removeApplyTraceListeners) {
+        removeListener();
+      }
       debugAdapter.destroy();
       layer.destroy();
       if (!viewer.isDestroyed()) viewer.destroy();
@@ -1328,6 +1429,7 @@ async function main(): Promise<void> {
   let isLoading = false;
   let probeAbortController: AbortController | undefined;
   let disposed = false;
+  let lastApplyTrace: ApplyTrace | undefined;
 
   const getPendingDebugState = (): CopcDebugState => ({
     cesiumVersion: cesiumRuntimeVersion,
@@ -1818,6 +1920,7 @@ async function main(): Promise<void> {
   async function runSession(
     config: DevViewerConfig,
     purpose: "apply" | "alignment" | "load" | "reload",
+    applyTrace?: ApplyTrace,
   ): Promise<void> {
     const currentGeneration = ++generation;
     terrainEstimateAbortController?.abort();
@@ -1875,6 +1978,9 @@ async function main(): Promise<void> {
         Boolean(activeSession),
         sourceSupportsHttpRange(config.source, window.location.href),
       );
+    if (applyTrace) {
+      recordApplyTrace(applyTrace, "session-replacement-started");
+    }
     const previousCamera = activeSession?.getCameraState();
     const previousPending = { ...pendingConfig };
     let candidateMount: HTMLElement | undefined;
@@ -1936,6 +2042,7 @@ async function main(): Promise<void> {
         sourceSupportsHttpRange(config.source, window.location.href) &&
         typeof config.source === "string"
       ) {
+        recordApplyTrace(applyTrace, "source-probe-started");
         sourceProbePolicy = config.rangeValidation;
         sourceProbe = undefined;
         debugPanel.refresh();
@@ -1943,6 +2050,7 @@ async function main(): Promise<void> {
           rangeValidation: config.rangeValidation,
           signal: controller.signal,
         });
+        recordApplyTrace(applyTrace, "source-probe-completed");
         if (currentGeneration !== generation || disposed) return;
         sourceProbe = candidateProbe;
         sourceProbePolicy = config.rangeValidation;
@@ -1966,6 +2074,7 @@ async function main(): Promise<void> {
       candidateMount.style.visibility = "hidden";
       container.append(candidateMount);
       stagedMount = candidateMount;
+      recordApplyTrace(applyTrace, "candidate-mount-created");
       const reportCandidateError = (error: unknown): void => {
         if (currentGeneration !== generation || disposed) return;
         lastError = safeErrorMessage(error);
@@ -1989,6 +2098,7 @@ async function main(): Promise<void> {
         if (!candidateSession || activeSession !== candidateSession) return;
         pointPopover.updatePosition(position);
       };
+      recordApplyTrace(applyTrace, "session-create-started");
       candidateSession =
         config.renderer === "cesium"
           ? await createCesiumSession(
@@ -1997,6 +2107,7 @@ async function main(): Promise<void> {
               reportCandidateError,
               handlePointPicked,
               handlePointPositionChanged,
+              applyTrace,
             )
           : createThreeSession(
               candidateMount,
@@ -2005,8 +2116,11 @@ async function main(): Promise<void> {
               handlePointPicked,
               handlePointPositionChanged,
             );
+      recordApplyTrace(applyTrace, "session-created");
       stagedSession = candidateSession;
+      recordApplyTrace(applyTrace, "session-ready-wait-started");
       await candidateSession.ready;
+      recordApplyTrace(applyTrace, "session-ready");
       if (currentGeneration !== generation || disposed) {
         candidateSession.destroy();
         candidateMount.remove();
@@ -2027,9 +2141,12 @@ async function main(): Promise<void> {
       }
 
       candidateMount.style.visibility = "visible";
+      recordApplyTrace(applyTrace, "candidate-mount-visible");
       pointPopover.clear();
+      recordApplyTrace(applyTrace, "old-session-disposal-started");
       activeDebugAdapter?.destroy();
       activeSession?.destroy();
+      recordApplyTrace(applyTrace, "old-session-disposed");
       activeMount?.remove();
       activeSession = candidateSession;
       activeMount = candidateMount;
@@ -2060,6 +2177,7 @@ async function main(): Promise<void> {
         "Ready · " + getSafeSourceLabel(config.source, window.location.href),
         "ready",
       );
+      recordApplyTrace(applyTrace, "status-ready");
       debugPanel.refresh();
     } catch (error) {
       if (currentGeneration !== generation || disposed) {
@@ -2072,6 +2190,7 @@ async function main(): Promise<void> {
       if (stagedSession === candidateSession) stagedSession = undefined;
       if (stagedMount === candidateMount) stagedMount = undefined;
       lastError = safeErrorMessage(error);
+      recordApplyTrace(applyTrace, "apply-error");
       configurationError = lastError;
       updateStatus(lastError, "error");
       debugPanel.refresh();
@@ -2157,12 +2276,25 @@ async function main(): Promise<void> {
   applyTerrainButton.addEventListener("click", () => {
     const estimate = terrainEstimate;
     const session = activeSession;
+    const applyTrace: ApplyTrace = {
+      startedAt: performance.now(),
+      events: [],
+    };
+    lastApplyTrace = applyTrace;
+    recordApplyTrace(applyTrace, "apply-input");
+    const approvalIsValid = Boolean(
+      estimate?.actionable &&
+        estimate.status === "ready" &&
+        session?.isTerrainHeightAlignmentEstimateCurrent?.(estimate) &&
+        Number.isFinite(estimate.effectiveProposedHeightOffsetMeters),
+    );
+    recordApplyTrace(applyTrace, "approval-validity-checked");
     if (
-      !estimate?.actionable ||
-      estimate.status !== "ready" ||
-      !session?.isTerrainHeightAlignmentEstimateCurrent?.(estimate) ||
-      !Number.isFinite(estimate.effectiveProposedHeightOffsetMeters)
+      !approvalIsValid ||
+      !estimate ||
+      !session
     ) {
+      recordApplyTrace(applyTrace, "approval-rejected");
       updateTerrainAlignmentUi();
       return;
     }
@@ -2171,6 +2303,7 @@ async function main(): Promise<void> {
     void runSession(
       { ...activeConfig, heightOffsetMeters: effectiveOffset },
       "alignment",
+      applyTrace,
     );
   });
 
@@ -2317,6 +2450,7 @@ async function main(): Promise<void> {
       activeSession?.getPickablePointScreenPosition(),
     getConfiguration: () => publicConfig(activeConfig),
     getPendingConfiguration: () => publicConfig(pendingConfig),
+    getLastApplyTrace: () => lastApplyTrace?.events.map((event) => ({ ...event })) ?? [],
   };
 
   window.addEventListener(
