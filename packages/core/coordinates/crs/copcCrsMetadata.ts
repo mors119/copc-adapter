@@ -355,14 +355,23 @@ function declaredUnit(
   keyword: string,
   axis?: string,
   horizontalAxesOnly = false,
+  unitKindOverride?: "angular" | "linear",
 ): ParsedUnit | undefined {
   const isGeographic = ["GEOGCS", "GEOGCRS", "GEODCRS"].includes(keyword);
-  const targets = isGeographic ? ["ANGLEUNIT", "UNIT"] : ["LENGTHUNIT", "UNIT"];
+  const targets = unitKindOverride === "angular" || (unitKindOverride === undefined && isGeographic)
+    ? ["ANGLEUNIT", "UNIT"]
+    : ["LENGTHUNIT", "UNIT"];
   const direct = directSections(section).filter(({ keyword: child }) => targets.includes(child));
   const directUnits = direct.map(({ text }) => parseUnit(text, targets));
   if (directUnits.some((unit) => unit === undefined)) return unresolvedUnit(targets);
   const normalizedDirectUnits = directUnits as ParsedUnit[];
   const directUnit = normalizedDirectUnits[0];
+  if (
+    normalizedDirectUnits.length > 1 &&
+    normalizedDirectUnits.some((unit) => !isUnitDeclarationConsistent(unit))
+  ) {
+    return { ...directUnit, name: "__inconsistent_units__" };
+  }
   if (normalizedDirectUnits.some((unit) =>
     unit.kind !== directUnit?.kind ||
     Math.abs(unit.toSi - directUnit!.toSi) > Math.max(1e-14, directUnit!.toSi * 1e-12),
@@ -395,6 +404,12 @@ function declaredUnit(
   }
   const axisUnits = axisDeclarations.map(({ unit }) => unit!);
   const first = axisUnits[0];
+  if (
+    (axisUnits.length > 1 || directUnits.length > 0) &&
+    [...axisUnits, ...normalizedDirectUnits].some((unit) => !isUnitDeclarationConsistent(unit))
+  ) {
+    return { ...first, name: "__inconsistent_units__" };
+  }
   const inconsistentAxisUnits = axisUnits.some((unit) =>
     unit.kind !== first.kind ||
     Math.abs(unit.toSi - first.toSi) > Math.max(1e-14, first.toSi * 1e-12),
@@ -509,6 +524,8 @@ export function resolveCopcCrsMetadata(
     const horizontalUnit = declaredUnit(horizontal.text, horizontal.keyword, undefined, true);
     if (horizontalUnit?.name === "__conflicting_units__") {
       addReason(diagnostic, "conflicting-axis-units", "Horizontal coordinate axes declare inconsistent units.");
+    } else if (horizontalUnit?.name === "__inconsistent_units__") {
+      addReason(diagnostic, "inconsistent-unit-declaration", "A horizontal axis unit name conflicts with its declared conversion factor.");
     } else if (horizontalUnit?.name === "__unsupported_units__") {
       addReason(diagnostic, "unsupported-horizontal-unit", "A horizontal coordinate axis declares a unit that cannot be normalized safely.");
     } else if (horizontalUnit) {
@@ -549,6 +566,8 @@ export function resolveCopcCrsMetadata(
     const verticalUnit = declaredUnit(vertical.text, vertical.keyword, axisSection);
     if (verticalUnit?.name === "__conflicting_units__") {
       addReason(diagnostic, "conflicting-axis-units", "Vertical coordinate axes declare inconsistent units.");
+    } else if (verticalUnit?.name === "__inconsistent_units__") {
+      addReason(diagnostic, "inconsistent-unit-declaration", "A vertical axis unit name conflicts with its declared conversion factor.");
     } else if (verticalUnit?.name === "__unsupported_units__") {
       addReason(diagnostic, "unsupported-vertical-unit", "The vertical coordinate axis declares a unit that cannot be normalized safely.");
     } else if (verticalUnit) {
@@ -585,9 +604,37 @@ export function resolveCopcCrsMetadata(
     const cs = directSections(horizontal.text).find(({ keyword }) => keyword === "CS")?.text.match(/^CS\s*\[\s*"?([A-Z_]+)"?\s*,\s*(\d+)/i);
     if (!identity?.conflict && identity?.authority?.toUpperCase() === "EPSG" && identity.code === "4979" && cs?.[1].toLowerCase() === "ellipsoidal" && Number(cs[2]) === 3 && axes.length === 3 && axes.some(({ direction }) => direction === "UP")) {
       diagnostic.vertical.heightKind = { value: "ellipsoidal", certainty: "explicit" };
-      const heightAxis = directSections(horizontal.text).filter(({ keyword }) => keyword === "AXIS")[2]?.text;
-      const heightUnit = heightAxis ? parseUnit(heightAxis, ["LENGTHUNIT"]) : undefined;
-      if (heightUnit) diagnostic.vertical.units = unitDiagnostic(heightUnit);
+      const heightAxis = directSections(horizontal.text)
+        .filter(({ keyword }) => keyword === "AXIS")
+        .find(({ text }) => parseAxis(text)?.direction === "UP")?.text;
+      const heightUnit = heightAxis
+        ? declaredUnit(horizontal.text, horizontal.keyword, heightAxis, false, "linear")
+        : undefined;
+      if (heightUnit?.name === "__conflicting_units__") {
+        addReason(diagnostic, "conflicting-axis-units", "The ellipsoidal height axis declares inconsistent units.");
+      } else if (heightUnit?.name === "__inconsistent_units__") {
+        addReason(diagnostic, "inconsistent-unit-declaration", "The ellipsoidal height unit name conflicts with its declared conversion factor.");
+      } else if (heightUnit?.name === "__unsupported_units__") {
+        addReason(diagnostic, "unsupported-vertical-unit", "The ellipsoidal height axis declares a unit that cannot be normalized safely.");
+      } else if (heightUnit) {
+        diagnostic.vertical.units = unitDiagnostic(heightUnit);
+        diagnostic.evidence.push({ field: "units", source: "wkt", value: `${heightUnit.name} (${heightUnit.toSi})`, certainty: "explicit" });
+        if (!isUnitDeclarationConsistent(heightUnit)) {
+          diagnostic.vertical.units = { ...diagnostic.vertical.units, standard: "other" };
+          addReason(diagnostic, "inconsistent-unit-declaration", "The ellipsoidal height unit name conflicts with its declared conversion factor.");
+        }
+      } else {
+        const hasHeightUnit = heightAxis
+          ? allSections(heightAxis).some(({ keyword }) => ["LENGTHUNIT", "UNIT"].includes(keyword))
+          : false;
+        addReason(
+          diagnostic,
+          hasHeightUnit ? "unsupported-vertical-unit" : "missing-vertical-unit",
+          hasHeightUnit
+            ? "The ellipsoidal height axis declares a unit that cannot be normalized safely."
+            : "The ellipsoidal height axis does not declare its coordinate unit.",
+        );
+      }
       diagnostic.evidence.push({ field: "vertical", source: "wkt", value: "EPSG:4979, ellipsoidal 3D CRS with UP axis", certainty: "explicit" });
     } else {
       addReason(diagnostic, "unknown-vertical-reference", "The geographic CRS does not explicitly identify a supported vertical component.");
