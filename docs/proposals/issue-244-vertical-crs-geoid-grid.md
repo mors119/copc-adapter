@@ -539,6 +539,128 @@ not an observed EGM2008 load or a peak-memory prediction for the separate NGA
 decoder. No real geoid model or authoritative geodetic sample was used in
 these performance runs.
 
+### Issue #323: NGA sample storage and browser scheduling (2026-10-26)
+
+The NGA loader now keeps its verified private byte snapshot as the sample
+backing store. On little-endian hosts it creates one typed-array view per NGA
+row and maps south-to-north grid row lookups onto the north-to-south source
+rows. This preserves the caller snapshot and the SHA-256 check while avoiding
+the additional 149,333,760-byte decoded sample allocation. The generic GTX
+loader keeps its existing in-place decode path.
+
+The check used the official extracted NGA raw member, whose SHA-256 matched the
+pinned digest above. Reproduce the post-change Node run with:
+
+```sh
+COPC_VERTICAL_GRID_SAMPLES=3 \
+COPC_NGA_EGM2008_FILE=/path/to/Und_min2.5x2.5_egm2008_isw=82_WGS84_TideFree_SE \
+npm --prefix packages run benchmark:vertical-grid
+```
+
+The existing script runs synthetic GTX float32 sizes and, when the NGA path is
+set, the exact sequential EGM2008 file in fresh child processes. NGA scenarios
+cover a file-backed `Blob`, a mutable `ArrayBuffer`, two layer references to
+one shared grid object, and two independent grid loads. Each scenario has three
+cold repetitions and nine 250,000-sample interpolation timings. The two-layer
+case measures grid retention only; it does not include separate layer caches,
+point buffers, or renderer resources.
+
+For a before run, the same benchmark driver can run against the core source at
+base commit `ad5104ea281fe632d4355c3cd64591599099e9df`:
+
+```sh
+BASE=/tmp/copc-adapter-issue-323-before
+mkdir -p "$BASE/packages/scripts"
+git archive ad5104ea281fe632d4355c3cd64591599099e9df packages/core | tar -x -C "$BASE"
+cp packages/scripts/vertical-grid-performance-benchmark.mjs "$BASE/packages/scripts/"
+cp packages/package.json "$BASE/packages/"
+ln -s "$PWD/packages/node_modules" "$BASE/packages/node_modules"
+COPC_VERTICAL_GRID_SAMPLES=3 \
+COPC_NGA_EGM2008_FILE=/path/to/Und_min2.5x2.5_egm2008_isw=82_WGS84_TideFree_SE \
+npm --prefix "$BASE/packages" run benchmark:vertical-grid
+```
+
+On Node v26.12.1, macOS 26.6 (Darwin 25.6), Apple M2 arm64, 8 logical CPUs,
+and 8 GiB RAM, the 142.42 MiB sample array produced these median
+`process.memoryUsage().arrayBuffers` deltas:
+
+| NGA input and retained grids | At loader return before → after | After explicit GC before → after |
+| --- | ---: | ---: |
+| `ArrayBuffer`, one grid | 298,702,088 → 149,368,328 B | 149,333,760 → 149,368,328 B |
+| `ArrayBuffer`, two references sharing one grid | 298,702,088 → 149,368,328 B | 149,333,760 → 149,368,328 B |
+| `ArrayBuffer`, two independent grids | 448,035,848 → 298,736,656 B | 298,667,520 → 298,736,656 B |
+| File-backed Node `Blob`, one grid | 298,702,104 → 298,736,672 B | 149,333,776 → 149,368,344 B |
+
+For the one-grid `ArrayBuffer` case, the live ArrayBuffer delta at loader return
+fell by exactly one logical sample array (149,333,760 B, 142.42 MiB). Two
+references to the same immutable grid retained one unique grid object. Two
+independent loads retained two grids; their return-time delta fell by one
+sample array. After collection, retained memory remains one encoded snapshot
+per unique grid, with 34,568 bytes of NGA row markers beyond the logical sample
+size. In this Node version, the file-backed `Blob` did not show the same
+return-time reduction; the browser `File` path is measured separately below.
+
+The `ArrayBuffer` one-grid load median was 1,003 ms before and 732 ms after;
+the three runs were 993–1,014 ms before and 645–746 ms after. The `Blob`
+one-grid median was 1,030 ms before and 791 ms after. This local CPU profile
+shows the direct little-endian row reads and conditional extrema checks
+reduced cold scan time; three runs do not establish a cross-device speedup.
+The one-grid `ArrayBuffer` interpolation median was 18.97 ms before and
+15.52 ms after for 250,000 samples, with overlapping nine-sample tails, so no
+general interpolation improvement is claimed. Two independent `ArrayBuffer`
+loads measured 1,768 ms before and 1,570 ms after in total. Process high-water
+RSS also varied and did not consistently track the ArrayBuffer delta. RSS
+includes V8, native Web Crypto, and process memory outside the grid; it is not
+attributed to the loader. GPU memory is not involved in the CPU grid storage
+and is not observable through this benchmark.
+
+The browser harness can load the exact local NGA file as either a `Blob` or an
+`ArrayBuffer`, record load duration, Long Tasks, animation-frame gaps, timer
+delay during loading, and 250,000-sample interpolation, then assert the pinned
+digest and published bilinear reference. Run it with:
+
+```sh
+COPC_NGA_EGM2008_FILE=/path/to/Und_min2.5x2.5_egm2008_isw=82_WGS84_TideFree_SE \
+npm --prefix apps/dev-viewer run test:e2e -- e2e/vertical-grid.spec.ts --grep "pinned NGA EGM2008"
+```
+
+This browser check observes main-thread scheduling while the loader's existing
+bounded row loop yields every 16 rows. It does not move digest or row validation
+to a Worker. The grid is not copied to decode Workers, GPU memory is not
+measured as geoid storage, and `performance.measureUserAgentSpecificMemory`
+is reported only when the browser exposes it. The exact-grid check streams
+from a local HTTP server, so it does not measure an external network or time to
+first rendered COPC points. The existing Cesium streaming benchmark still
+measures first-visible points, reload, frame gaps, and worker startup with an
+8 MiB synthetic GTX; it cannot stand in for a full EGM2008 browser load.
+
+The exact-grid Chromium run passed in HeadlessChrome 155 on the same Apple M2
+setup. It streamed the official 149,368,328-byte file from a local HTTP server
+and used a blank browser fixture so a Cesium viewer and its GPU work were not
+part of the measurement. In the final instrumented run, the Blob case measured
+6 ms fetch, 219 ms body-to-Blob conversion, 1,658 ms loader time, and 16.1 ms
+for 250,000 interpolations. The ArrayBuffer case measured 2.1 ms fetch,
+354 ms body-to-buffer conversion, 1,858 ms loader time, and 21.4 ms for the
+same interpolation batch. Both modes returned the pinned digest and the San
+Francisco bilinear value above. The harness also timed 270 row-loop resume
+chunks: the longest observed chunk was 1.4 ms for Blob and 4.5 ms for
+ArrayBuffer. Long Task entries were 146 ms for Blob and 77 ms and 333 ms for
+ArrayBuffer; maximum timer delays were 140 ms and 419 ms, and maximum
+animation-frame gaps were 133 ms and 350 ms. The measured row chunks do not
+account for those longer tasks. The browser profile does not isolate which
+other loader operation caused them. It did not expose
+`performance.measureUserAgentSpecificMemory`, and this direct loader harness
+did not use decode Workers or render points. Its timings are a local
+file-transfer and loader profile, not end-to-end startup latency.
+
+The measured memory reduction is useful for mutable `ArrayBuffer` inputs, so
+the shared row-view representation is retained. A Worker-backed loader,
+transferable ownership mode, automatic cross-layer cache, and region/lazy
+loading remain deferred. They need separate cancellation, teardown, concurrency,
+stale-grid, package-worker, and format-random-access validation; the existing
+shared immutable grid already avoids a second grid allocation when two layers
+receive the same instance.
+
 The GTX interpretation follows GDAL's implementation: a big-endian 40-byte
 header with latitude/longitude origin and spacing, int32 row/column counts, and
 float32 samples (the reader also accepts legacy float64 when file length

@@ -12,6 +12,7 @@ import assert from "node:assert/strict";
 import {
   transformPointBufferToPreparedPointData,
 } from "../core/coordinates/transform/createPointTransformer.ts";
+import { loadNgaEgm2008Grid } from "../core/coordinates/transform/egm2008Grid.ts";
 import { loadGtxGeoidGrid } from "../core/coordinates/transform/verticalGrid.ts";
 
 const execFileAsync = promisify(execFile);
@@ -179,6 +180,78 @@ async function runColdChild(path, sha256, gridId) {
   );
 }
 
+async function runNgaChild(path, inputMode, retentionMode) {
+  if (typeof globalThis.gc !== "function") {
+    throw new Error("Run with --expose-gc to make memory observations reproducible");
+  }
+  globalThis.gc();
+  const beforeSource = memorySnapshot();
+  const source = inputMode === "file-backed-blob"
+    ? await openGridBlob(path)
+    : await readFile(path);
+  globalThis.gc();
+  const beforeLoad = memorySnapshot();
+  const maxRssBeforeBytes = maxRssBytes();
+  const loadCount = retentionMode === "two-independent-grids" ? 2 : 1;
+  const grids = [];
+  const loadDurationsMs = [];
+  for (let index = 0; index < loadCount; index += 1) {
+    globalThis.gc();
+    const startedAt = performance.now();
+    grids.push(await loadNgaEgm2008Grid(source));
+    loadDurationsMs.push(performance.now() - startedAt);
+  }
+  const retainedGrids = retentionMode === "two-layers-shared-grid"
+    ? [grids[0], grids[0]]
+    : grids;
+  const afterLoad = memorySnapshot();
+  await new Promise((resolveNextTurn) => setImmediate(resolveNextTurn));
+  globalThis.gc();
+  globalThis.gc();
+  const afterGc = memorySnapshot();
+  const maxRssAfterBytes = maxRssBytes();
+
+  const coordinates = createPoints(250_000).coordinates;
+  const interpolationMs = [];
+  let checksum = 0;
+  for (let repetition = 0; repetition < repetitions; repetition += 1) {
+    globalThis.gc();
+    const startedAt = performance.now();
+    let runChecksum = 0;
+    for (let point = 0; point < 250_000; point += 1) {
+      const offset = point * 3;
+      runChecksum += grids[0].sampleUndulation(
+        coordinates[offset],
+        coordinates[offset + 1],
+      );
+    }
+    interpolationMs.push(performance.now() - startedAt);
+    checksum += runChecksum;
+  }
+
+  process.stdout.write(
+    `${JSON.stringify({
+      inputMode,
+      retentionMode,
+      sourceBytes: inputMode === "file-backed-blob" ? source.size : source.byteLength,
+      sourceArrayBuffersDeltaBytes:
+        beforeLoad.arrayBuffersBytes - beforeSource.arrayBuffersBytes,
+      loadDurationsMs,
+      encodedByteLength: grids[0].encodedByteLength,
+      decodedByteLength: grids[0].decodedByteLength,
+      sha256: grids[0].sha256,
+      retainedGridReferences: retainedGrids.length,
+      uniqueGridObjects: new Set(retainedGrids).size,
+      beforeLoad,
+      afterLoad,
+      afterGc,
+      maxRssIncreaseBytes: Math.max(0, maxRssAfterBytes - maxRssBeforeBytes),
+      interpolation250kMs: interpolationMs,
+      interpolationChecksum: checksum,
+    })}\n`,
+  );
+}
+
 function createPoints(pointCount) {
   const coordinates = new Float64Array(pointCount * 3);
   let seed = 0x51f15e;
@@ -258,6 +331,7 @@ async function runParent() {
     join(tmpdir(), "copc-vertical-grid-benchmark-"),
   );
   const results = [];
+  const ngaResults = [];
   try {
     for (const testCase of cases) {
       const path = join(temporaryDirectory, `${testCase.name}.gtx`);
@@ -366,6 +440,71 @@ async function runParent() {
       grid = undefined;
       globalThis.gc();
     }
+
+    const ngaPath = process.env.COPC_NGA_EGM2008_FILE;
+    if (ngaPath) {
+      const modes = [
+        ["file-backed-blob", "one-grid"],
+        ["array-buffer", "one-grid"],
+        ["file-backed-blob", "two-layers-shared-grid"],
+        ["array-buffer", "two-layers-shared-grid"],
+        ["file-backed-blob", "two-independent-grids"],
+        ["array-buffer", "two-independent-grids"],
+      ];
+      for (const [inputMode, retentionMode] of modes) {
+        const coldRuns = [];
+        for (let sampleIndex = 0; sampleIndex < Math.min(3, repetitions); sampleIndex += 1) {
+          const { stdout } = await execFileAsync(
+            process.execPath,
+            [
+              "--expose-gc",
+              "--import",
+              "tsx",
+              resolve(process.argv[1]),
+              "--nga-child",
+              ngaPath,
+              inputMode,
+              retentionMode,
+            ],
+            { maxBuffer: 1024 * 1024 },
+          );
+          coldRuns.push(JSON.parse(stdout.trim().split("\n").at(-1)));
+        }
+        ngaResults.push({
+          inputMode,
+          retentionMode,
+          repetitions: coldRuns.length,
+          totalLoadMs: summary(
+            coldRuns.map((run) => run.loadDurationsMs.reduce((sum, value) => sum + value, 0)),
+          ),
+          loadPerGridMs: summary(coldRuns.flatMap((run) => run.loadDurationsMs)),
+          sourceArrayBuffersDeltaBytes: summary(
+            coldRuns.map((run) => run.sourceArrayBuffersDeltaBytes),
+          ),
+          arrayBuffersDeltaAtReturnBytes: summary(
+            coldRuns.map(
+              (run) => run.afterLoad.arrayBuffersBytes - run.beforeLoad.arrayBuffersBytes,
+            ),
+          ),
+          retainedArrayBuffersDeltaAfterGcBytes: summary(
+            coldRuns.map(
+              (run) => run.afterGc.arrayBuffersBytes - run.beforeLoad.arrayBuffersBytes,
+            ),
+          ),
+          peakRssIncreaseBytes: summary(
+            coldRuns.map((run) => run.maxRssIncreaseBytes),
+          ),
+          interpolation250kMs: summary(
+            coldRuns.flatMap((run) => run.interpolation250kMs),
+          ),
+          encodedByteLength: coldRuns[0].encodedByteLength,
+          decodedByteLength: coldRuns[0].decodedByteLength,
+          sha256: coldRuns[0].sha256,
+          retainedGridReferences: coldRuns[0].retainedGridReferences,
+          uniqueGridObjects: coldRuns[0].uniqueGridObjects,
+        });
+      }
+    }
   } finally {
     await rm(temporaryDirectory, { recursive: true, force: true });
   }
@@ -393,6 +532,7 @@ async function runParent() {
           dataPolicy: "generated to the OS temp directory, removed on completion, never committed",
         },
         results,
+        ...(ngaResults.length > 0 ? { ngaResults } : {}),
       },
       null,
       2,
@@ -403,6 +543,9 @@ async function runParent() {
 if (process.argv[2] === "--cold-child") {
   const [, , , path, sha256, gridId] = process.argv;
   await runColdChild(path, sha256, gridId);
+} else if (process.argv[2] === "--nga-child") {
+  const [, , , path, inputMode, retentionMode] = process.argv;
+  await runNgaChild(path, inputMode, retentionMode);
 } else {
   await runParent();
 }

@@ -10,9 +10,11 @@ import {
 import {
   GtxGeoidGrid,
   VerticalTransformError,
+  createVerifiedGeoidGrid,
   loadGtxGeoidGrid,
 } from "../../../core/coordinates/transform/verticalGrid.ts";
 import {
+  createNgaEgm2008SampleReader,
   loadNgaEgm2008Grid,
   processNgaEgm2008Rows,
 } from "../../../core/coordinates/transform/egm2008Grid.ts";
@@ -153,6 +155,67 @@ test("NGA EGM2008 row decoding yields between bounded chunks", async () => {
 
   assert.deepEqual(rows, Array.from({ length: 35 }, (_, row) => row));
   assert.equal(yieldCount, 2);
+});
+
+test("NGA sample reader reverses source rows using views of the verified byte snapshot", () => {
+  const sourceRowsNorthToSouth = [[5, 6], [3, 4], [1, 2]];
+  const columns = 2;
+  const rowBytes = columns * 4;
+  const recordBytes = rowBytes + 8;
+  const bytes = new Uint8Array(sourceRowsNorthToSouth.length * recordBytes);
+  const view = new DataView(bytes.buffer);
+  for (let row = 0; row < sourceRowsNorthToSouth.length; row += 1) {
+    const recordOffset = row * recordBytes;
+    view.setUint32(recordOffset, rowBytes, true);
+    sourceRowsNorthToSouth[row].forEach((value, column) => {
+      view.setFloat32(recordOffset + 4 + column * 4, value, true);
+    });
+    view.setUint32(recordOffset + recordBytes - 4, rowBytes, true);
+  }
+
+  const arrayBuffersBeforeViews = process.memoryUsage().arrayBuffers;
+  const sampleReader = createNgaEgm2008SampleReader(
+    bytes,
+    sourceRowsNorthToSouth.length,
+    columns,
+  );
+  const readValue = sampleReader.readValue;
+  assert.equal(process.memoryUsage().arrayBuffers, arrayBuffersBeforeViews);
+  assert.deepEqual(
+    Array.from({ length: 3 }, (_, row) => [readValue(row, 0), readValue(row, 1)]),
+    [[1, 2], [3, 4], [5, 6]],
+  );
+
+  const grid = createVerifiedGeoidGrid({
+    options: {
+      gridId: "synthetic-north-to-south-grid",
+      sourceVerticalCrs: "Local orthometric height",
+      targetVerticalCrs: "EPSG:4979",
+      horizontalCrs: "EPSG:4326",
+      referenceEllipsoid: "WGS84",
+      sha256: "a".repeat(64),
+      valueUnit: "metre",
+      valueConvention: "ellipsoidal-minus-orthometric",
+      noDataValue: null,
+    },
+    sha256: "a".repeat(64),
+    width: columns,
+    height: sourceRowsNorthToSouth.length,
+    longitudeOrigin: 0,
+    latitudeOrigin: -1,
+    longitudeStep: 1,
+    latitudeStep: 1,
+    readValue,
+    decodedByteLength: sourceRowsNorthToSouth.length * columns * 4,
+    encodedByteLength: bytes.byteLength,
+    minimumUndulationMeters: 1,
+    maximumUndulationMeters: 6,
+    globalLongitudeCoverage: "none",
+  });
+  assert.equal(grid.decodedByteLength, 24);
+  assert.equal(grid.sampleUndulation(0, -1), 1);
+  assert.equal(grid.sampleUndulation(0.5, -0.5), 2.5);
+  assert.equal(grid.sampleUndulation(1, 1), 6);
 });
 
 test("GTX bilinear interpolation handles positive and negative values and cell boundaries", async () => {

@@ -21,6 +21,7 @@ const NGA_EGM2008_ROW_SAMPLES_BYTES = NGA_EGM2008_COLUMNS * 4;
 const NGA_EGM2008_RECORD_BYTES = NGA_EGM2008_ROW_SAMPLES_BYTES + 8;
 const NGA_EGM2008_FILE_BYTES = NGA_EGM2008_ROWS * NGA_EGM2008_RECORD_BYTES;
 const NGA_EGM2008_ROWS_PER_CHUNK = 16;
+const HOST_LITTLE_ENDIAN = new Uint8Array(new Uint32Array([1]).buffer)[0] === 1;
 // Calculated from the raw member in NGA's official interpolation ZIP acquired
 // on 2026-10-22. NGA does not publish a separate checksum for this file.
 const NGA_EGM2008_EXPECTED_SHA256 =
@@ -45,6 +46,44 @@ export async function processNgaEgm2008Rows(
       await yieldTask();
     }
   }
+}
+
+/**
+ * @internal Read the NGA north-to-south sequential samples through zero-copy
+ * row views when the host byte order permits it.
+ */
+export type NgaEgm2008SampleReader = {
+  readValue(row: number, column: number): number;
+  readSourceValue(sourceRow: number, column: number): number;
+};
+
+export function createNgaEgm2008SampleReader(
+  bytes: Uint8Array<ArrayBuffer>,
+  rowCount = NGA_EGM2008_ROWS,
+  columnCount = NGA_EGM2008_COLUMNS,
+): NgaEgm2008SampleReader {
+  const rowBytes = columnCount * 4;
+  const recordBytes = rowBytes + 8;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const sampleRows = HOST_LITTLE_ENDIAN && bytes.byteOffset % 4 === 0
+    ? Array.from(
+        { length: rowCount },
+        (_, sourceRow) => new Float32Array(
+          bytes.buffer,
+          bytes.byteOffset + sourceRow * recordBytes + 4,
+          columnCount,
+        ),
+      )
+    : undefined;
+
+  const readSourceValue = (sourceRow: number, column: number): number =>
+    sampleRows
+      ? sampleRows[sourceRow][column]
+      : view.getFloat32(sourceRow * recordBytes + 4 + column * 4, true);
+  return {
+    readValue: (row, column) => readSourceValue(rowCount - 1 - row, column),
+    readSourceValue,
+  };
 }
 
 function fail(
@@ -135,7 +174,8 @@ function createNgaGridOptions(maxGridBytes: number): GtxGeoidGridOptions {
  *
  * NGA stores rows north-to-south as little-endian float32 values, with a
  * little-endian Fortran record-length marker before and after each row. The
- * sampler stores rows south-to-north, so decoding reverses row order once.
+ * sampler indexes rows south-to-north, so its reader maps lookup rows onto
+ * zero-copy views of the corresponding source rows.
  * The supported profile fixes WGS 84 longitude/latitude sampling, metres,
  * `h - H` undulation, no NoData sentinel, and bilinear interpolation.
  *
@@ -171,7 +211,7 @@ export async function loadNgaEgm2008Grid(
   }
 
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const values = new Float32Array(NGA_EGM2008_ROWS * NGA_EGM2008_COLUMNS);
+  const sampleReader = createNgaEgm2008SampleReader(bytes);
   let minimum = Number.POSITIVE_INFINITY;
   let maximum = Number.NEGATIVE_INFINITY;
   await processNgaEgm2008Rows(NGA_EGM2008_ROWS, (sourceRow) => {
@@ -191,20 +231,16 @@ export async function loadNgaEgm2008Grid(
       );
     }
 
-    const targetRow = NGA_EGM2008_ROWS - 1 - sourceRow;
-    const rowValuesOffset = recordOffset + 4;
-    const targetRowOffset = targetRow * NGA_EGM2008_COLUMNS;
     for (let column = 0; column < NGA_EGM2008_COLUMNS; column += 1) {
-      const value = view.getFloat32(rowValuesOffset + column * 4, true);
+      const value = sampleReader.readSourceValue(sourceRow, column);
       if (!Number.isFinite(value)) {
         fail(
           "grid-format",
           `Non-finite EGM2008 undulation at row ${sourceRow}, column ${column}`,
         );
       }
-      values[targetRowOffset + column] = value;
-      minimum = Math.min(minimum, value);
-      maximum = Math.max(maximum, value);
+      if (value < minimum) minimum = value;
+      if (value > maximum) maximum = value;
     }
   });
 
@@ -217,7 +253,8 @@ export async function loadNgaEgm2008Grid(
     latitudeOrigin: -90,
     longitudeStep: 2.5 / 60,
     latitudeStep: 2.5 / 60,
-    values,
+    readValue: sampleReader.readValue,
+    decodedByteLength: NGA_EGM2008_ROWS * NGA_EGM2008_COLUMNS * 4,
     encodedByteLength: bytes.byteLength,
     minimumUndulationMeters: minimum,
     maximumUndulationMeters: maximum,
