@@ -14,6 +14,10 @@ import type {
   CopcPointFieldSelection,
 } from '../points/fieldSelection';
 import type { CoordinateBuffer } from '../../coordinates/types';
+import type {
+  CopcCrsMetadataDiagnostic,
+  CopcCrsWktProvenance,
+} from '../../coordinates/crs/copcCrsMetadata';
 
 /**
  * COPC metadata expressed in the source coordinate system declared by the
@@ -74,6 +78,14 @@ export type CopcMetadata = {
   };
   /** CRS WKT retained from the source metadata, when present. */
   wkt?: string;
+  /**
+   * Backend-neutral interpretation of source CRS metadata, when provided by a
+   * built-in backend. It reports source evidence and never infers CRS from
+   * coordinate ranges or the adapter's WGS84 output.
+   */
+  crsDiagnostic?: CopcCrsMetadataDiagnostic;
+  /** Where source CRS WKT was found and whether VLR/EVLR values conflicted. */
+  crsWktProvenance?: CopcCrsWktProvenance;
 };
 
 /** One decoded point in the COPC source CRS; axis units are CRS-defined. */

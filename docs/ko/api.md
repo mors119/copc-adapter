@@ -56,6 +56,25 @@ const layer = new CopcCesiumLayer({
 제한하며, 기본 설정에서 최대 약 256 MiB를 사용합니다. 둘 중 하나를 높이면 가능한
 메모리 사용량도 늘어납니다.
 
+### CRS metadata 진단
+
+두 기본 backend의 `getMetadata()`는 원본 `wkt`와 버전이 지정된
+`crsDiagnostic`을 제공합니다. 여기에는 수평/수직 CRS 이름과 식별자, 선언된 단위
+(국제 foot과 미국 측량 foot 구분), 명시된 수평 축 순서, WKT1/WKT2 metadata 문법
+지원 여부, evidence 출처와 안정된 reason code가 포함됩니다. `heightKind`는
+`ellipsoidal`, `gravity-related/orthometric`, `local/unknown` 중 하나이며
+확실성은 `explicit`, `inferred`, `unknown`으로 표시됩니다.
+두 reader는 첫 WKT VLR을 선택하고, VLR WKT가 없을 때만 첫 WKT EVLR을 사용합니다.
+여러 WKT record 내용이 다르면 `conflicting-source-wkt`를 보고하고 해당 precedence의
+첫 값을 선택된 원본으로 유지합니다.
+
+좌표 범위, 국가, 출력 좌표 라벨 또는 WGS84/ECEF 변환 결과로 CRS나 높이 기준을
+추론하지 않습니다. 수직 의미를 증명할 수 없으면 `local/unknown`입니다. WKT 문법
+인식은 metadata parsing을 뜻합니다. `transformSupport: "backend-dependent"`는
+인식된 모든 정의를 변환할 수 있다는 보장이 아닙니다. 기존 렌더링 기본 동작과
+원본 좌표는 바뀌지 않습니다. 정밀한 수직 datum 변환을 요청하는 앱은 source metadata가
+부족하거나 호환되지 않을 때 실패하는 기존 명시적 변환 경로를 사용해야 합니다.
+
 ## Lifecycle
 
 ```ts

@@ -23,6 +23,8 @@ import type { CopcWorkerDiagnostics } from "./backend/types";
 import { performanceNow, type CopcPerformanceObserver } from "./performance";
 import { resolveMaxRangeBytes, resolveWasmMaxRangeBytes } from "./range/types";
 import { resolveHeightOffsetMeters } from "../coordinates/transform/heightOffset";
+import { resolveCopcCrsMetadata } from "../coordinates/crs/copcCrsMetadata";
+import type { CopcCrsWktProvenance } from "../coordinates/crs/copcCrsMetadata";
 
 const INITIAL_LAS_HEADER_LENGTH = 375;
 const MAX_SAFE_INTEGER = Number.MAX_SAFE_INTEGER;
@@ -252,6 +254,154 @@ function headerLayout(
   return { headerSize, pointDataOffset };
 }
 
+const VLR_HEADER_BYTES = 54;
+const EVLR_HEADER_BYTES = 60;
+const MAX_EVLRS_TO_SCAN = 4096;
+
+type EvIrWktRecord = { readonly payload: Uint8Array; readonly value: string };
+type EvIrWktScan = {
+  readonly selected?: EvIrWktRecord;
+  readonly values: readonly string[];
+};
+
+function decodeCString(bytes: Uint8Array): string {
+  const terminator = bytes.indexOf(0);
+  return new TextDecoder().decode(terminator < 0 ? bytes : bytes.subarray(0, terminator));
+}
+
+function scanVlrWktValues(metadataBytes: Uint8Array): string[] {
+  const view = new DataView(metadataBytes.buffer, metadataBytes.byteOffset, metadataBytes.byteLength);
+  const headerSize = view.getUint16(94, true);
+  const pointDataOffset = view.getUint32(96, true);
+  const count = view.getUint32(100, true);
+  const values: string[] = [];
+  let position = headerSize;
+  for (let index = 0; index < count; index += 1) {
+    if (position > pointDataOffset - VLR_HEADER_BYTES) {
+      throw new RustCopcParseError("truncated", "VLR header exceeds the metadata area");
+    }
+    const userId = decodeCString(metadataBytes.subarray(position + 2, position + 18));
+    const recordId = view.getUint16(position + 18, true);
+    const length = view.getUint16(position + 20, true);
+    const payloadStart = position + VLR_HEADER_BYTES;
+    const payloadEnd = payloadStart + length;
+    if (payloadEnd > pointDataOffset) {
+      throw new RustCopcParseError("invalid-header", "VLR payload exceeds the metadata area");
+    }
+    if (userId === "LASF_Projection" && recordId === 2112) {
+      values.push(decodeCString(metadataBytes.subarray(payloadStart, payloadEnd)));
+    }
+    position = payloadEnd;
+  }
+  return values;
+}
+
+async function readEvlrWkts(
+  byteSource: RandomAccessByteSource,
+  initialBytes: Uint8Array,
+  maxRangeBytes: number,
+): Promise<EvIrWktScan> {
+  const view = new DataView(initialBytes.buffer, initialBytes.byteOffset, initialBytes.byteLength);
+  const startOffsetBig = view.getBigUint64(235, true);
+  const count = view.getUint32(243, true);
+  if (count === 0) return { values: [] };
+  if (startOffsetBig === 0n) {
+    throw new RustCopcParseError("invalid-header", "LAS declares EVLRs without a valid first EVLR offset");
+  }
+  if (count > MAX_EVLRS_TO_SCAN) {
+    throw new RustCopcParseError("unsupported-value", `LAS EVLR count exceeds the ${MAX_EVLRS_TO_SCAN}-record safety limit`);
+  }
+  if (startOffsetBig > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new RustCopcParseError("unsupported-value", "LAS EVLR offset is not a JavaScript-safe integer");
+  }
+  let position = Number(startOffsetBig);
+  let totalWktBytes = 0;
+  let selected: EvIrWktRecord | undefined;
+  const values: string[] = [];
+  const size = await byteSource.size();
+  if (size !== undefined && position > size) {
+    throw new RustCopcParseError("invalid-header", "LAS EVLR offset exceeds the source size");
+  }
+
+  for (let index = 0; index < count; index += 1) {
+    const recordHeader = await byteSource.readRange(position, EVLR_HEADER_BYTES);
+    if (recordHeader.byteLength !== EVLR_HEADER_BYTES) {
+      throw new RustCopcParseError("truncated", "LAS EVLR header is truncated");
+    }
+    const recordView = new DataView(recordHeader.buffer, recordHeader.byteOffset, recordHeader.byteLength);
+    const userId = decodeCString(recordHeader.subarray(2, 18));
+    const recordId = recordView.getUint16(18, true);
+    const lengthBig = recordView.getBigUint64(20, true);
+    if (lengthBig > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new RustCopcParseError("unsupported-value", "LAS EVLR payload length is not a JavaScript-safe integer");
+    }
+    const length = Number(lengthBig);
+    const payloadOffset = position + EVLR_HEADER_BYTES;
+    if (!Number.isSafeInteger(payloadOffset + length)) {
+      throw new RustCopcParseError("overflow", "LAS EVLR payload range overflows");
+    }
+    if (size !== undefined && payloadOffset + length > size) {
+      throw new RustCopcParseError("invalid-header", "LAS EVLR payload exceeds the source size");
+    }
+    if (userId === "LASF_Projection" && recordId === 2112) {
+      if (length > maxRangeBytes) {
+        throw new RustCopcParseError("unsupported-value", `CRS WKT EVLR exceeds the ${maxRangeBytes}-byte range limit`);
+      }
+      totalWktBytes += length;
+      if (totalWktBytes > maxRangeBytes) {
+        throw new RustCopcParseError("unsupported-value", `Total CRS WKT EVLR payload exceeds the ${maxRangeBytes}-byte scan limit`);
+      }
+      const payload = length === 0 ? new Uint8Array() : await byteSource.readRange(payloadOffset, length);
+      const record = { payload, value: decodeCString(payload) };
+      selected ??= record;
+      values.push(record.value);
+    }
+    position = payloadOffset + length;
+  }
+  return { selected, values };
+}
+
+function withSyntheticEvlr(
+  metadataBytes: Uint8Array,
+  wktRecord: EvIrWktRecord | undefined,
+): Uint8Array {
+  const extraLength = wktRecord ? EVLR_HEADER_BYTES + wktRecord.payload.byteLength : 0;
+  const result = new Uint8Array(metadataBytes.byteLength + extraLength);
+  result.set(metadataBytes);
+  const view = new DataView(result.buffer);
+  if (!wktRecord) {
+    view.setBigUint64(235, 0n, true);
+    view.setUint32(243, 0, true);
+    return result;
+  }
+
+  const evlrOffset = metadataBytes.byteLength;
+  view.setBigUint64(235, BigInt(evlrOffset), true);
+  view.setUint32(243, 1, true);
+  const header = evlrOffset;
+  result.set(new TextEncoder().encode("LASF_Projection"), header + 2);
+  view.setUint16(header + 18, 2112, true);
+  view.setBigUint64(header + 20, BigInt(wktRecord.payload.byteLength), true);
+  result.set(wktRecord.payload, header + EVLR_HEADER_BYTES);
+  return result;
+}
+
+function resolveWktProvenance(
+  vlrValues: readonly string[],
+  evlrValues: readonly string[],
+): CopcCrsWktProvenance {
+  const hasVlr = vlrValues.length > 0;
+  const available: Array<"vlr" | "evlr"> = [];
+  if (hasVlr) available.push("vlr");
+  if (evlrValues.length > 0) available.push("evlr");
+  const selected = hasVlr ? "vlr" : evlrValues.length > 0 ? "evlr" : "unknown";
+  const selectedValue = hasVlr ? vlrValues[0] : evlrValues[0];
+  const conflicts =
+    vlrValues.some((value) => value !== selectedValue) ||
+    evlrValues.some((value) => value !== selectedValue);
+  return { selected, available, conflicting: conflicts };
+}
+
 function key(level: number, x: number, y: number, z: number): string {
   return `${level}-${x}-${y}-${z}`;
 }
@@ -309,6 +459,7 @@ export class RustCopcReader {
   /** Additive ellipsoidal-height correction used by prepared-point reads. */
   readonly heightOffsetMeters: number;
   private readonly byteSource: RandomAccessByteSource;
+  private readonly crsWktProvenance: CopcCrsWktProvenance;
   private readonly decodeWorkerPool?: RustCopcDecodeWorkerPool;
   private nodePreparer?: Promise<RustCopcNodePreparer>;
   private performanceObserver?: CopcPerformanceObserver;
@@ -318,12 +469,14 @@ export class RustCopcReader {
     header: RustCopcHeader,
     maxRangeBytes: number,
     heightOffsetMeters: number,
+    crsWktProvenance: CopcCrsWktProvenance,
   ) {
     this.byteSource = byteSource;
     this.source = byteSource.source;
     this.header = header;
     this.maxRangeBytes = maxRangeBytes;
     this.heightOffsetMeters = heightOffsetMeters;
+    this.crsWktProvenance = crsWktProvenance;
     this.decodeWorkerPool =
       typeof Worker !== "undefined"
         ? new RustCopcDecodeWorkerPool({ maxRangeBytes, heightOffsetMeters })
@@ -392,20 +545,29 @@ export class RustCopcReader {
     // settle before the parser promise is awaited below.
     const wasmPromise = loadCopcWasm();
     void wasmPromise.catch(() => undefined);
-    const metadataBytes =
+    const metadataPrefix =
       pointDataOffset <= initialBytes.byteLength
         ? initialBytes.slice(0, pointDataOffset)
         : await byteSource.readRange(0, pointDataOffset);
-    const header = await parseWithRust<RustCopcHeader>(
+    const vlrWktValues = scanVlrWktValues(metadataPrefix);
+    const evlrWkts = await readEvlrWkts(byteSource, initialBytes, maxRangeBytes);
+    const crsWktProvenance = resolveWktProvenance(vlrWktValues, evlrWkts.values);
+    const metadataBytes = withSyntheticEvlr(metadataPrefix, evlrWkts.selected);
+    const parsedHeader = await parseWithRust<RustCopcHeader>(
       metadataBytes,
       (wasm, pointer, length) => wasm.parse_copc_header_json(pointer, length),
       wasmPromise,
     );
+    const header: RustCopcHeader = {
+      ...parsedHeader,
+      wkt: parsedHeader.wkt ?? undefined,
+    };
     const reader = new RustCopcReader(
       byteSource,
       header,
       maxRangeBytes,
       heightOffsetMeters,
+      crsWktProvenance,
     );
     reader.metadataBytes = metadataBytes;
     reader.decodeWorkerPool?.setMetadata(metadataBytes);
@@ -437,6 +599,11 @@ export class RustCopcReader {
         maxZ: cube[5],
       },
       wkt: this.header.wkt,
+      crsWktProvenance: {
+        ...this.crsWktProvenance,
+        available: [...this.crsWktProvenance.available],
+      },
+      crsDiagnostic: resolveCopcCrsMetadata(this.header.wkt, this.crsWktProvenance),
     };
   }
 

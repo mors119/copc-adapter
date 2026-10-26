@@ -21,6 +21,7 @@ import {
 } from "../../../core/copc/adapters/hierarchyAdapter.ts";
 import { toCopcPointView } from "../../../core/copc/backend/copcJsBackend.ts";
 import { toCopcMetadata } from "../../../core/copc/adapters/metadataAdapter.ts";
+import { resolveCopcCrsMetadata } from "../../../core/coordinates/crs/copcCrsMetadata.ts";
 import { createCopcContext } from "../../../core/copc/context/createCopcContext.ts";
 import { createCopcGetter } from "../../../core/copc/getter/createCopcGetter.ts";
 import { toCartesian3Array } from "../../../cesium/render/renderPoints.ts";
@@ -151,6 +152,7 @@ test("toCopcMetadata maps header and cube data to project metadata", () => {
         maxZ: 16,
       },
       wkt: 'GEOGCS["WGS 84"]',
+      crsDiagnostic: resolveCopcCrsMetadata('GEOGCS["WGS 84"]'),
     },
   );
 });

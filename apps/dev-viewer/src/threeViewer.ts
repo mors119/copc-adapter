@@ -53,11 +53,13 @@ function getCameraDistance(sourceName: string): number {
 
 function findPickablePosition(
   root: THREE.Object3D | undefined,
+  liveNodeKeys: readonly string[],
   camera: THREE.PerspectiveCamera,
   canvas: HTMLCanvasElement,
 ): { x: number; y: number } | undefined {
-  if (!root || canvas.clientWidth <= 0 || canvas.clientHeight <= 0)
+  if (!root || liveNodeKeys.length === 0 || canvas.clientWidth <= 0 || canvas.clientHeight <= 0)
     return undefined;
+  const liveNodes = new Set(liveNodeKeys);
   let candidate: { x: number; y: number } | undefined;
   const canvasBounds = canvas.getBoundingClientRect();
   const blockingPanels = [
@@ -66,7 +68,11 @@ function findPickablePosition(
     ),
   ].map((panel) => panel.getBoundingClientRect());
   root.traverse((object) => {
-    if (candidate || !(object instanceof THREE.Points)) return;
+    if (
+      candidate ||
+      !(object instanceof THREE.Points) ||
+      !liveNodes.has(String(object.userData.copcNodeKey ?? ""))
+    ) return;
     const attribute = object.geometry.getAttribute("position");
     if (!attribute || attribute.count === 0) return;
     object.updateMatrixWorld(true);
@@ -331,7 +337,12 @@ export function createDevThreeViewer(
       onCameraChange();
     },
     getPickablePointScreenPosition: () =>
-      findPickablePosition(root, camera, renderer.domElement),
+      findPickablePosition(
+        root,
+        layer.getRenderedNodeKeys(),
+        camera,
+        renderer.domElement,
+      ),
     destroy() {
       if (destroyed) return;
       destroyed = true;

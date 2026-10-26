@@ -1,5 +1,7 @@
 import type {
   CopcCesiumLayerSnapshot,
+  CopcCrsIdentityDiagnostic,
+  CopcCrsUnitDiagnostic,
   CopcMetadata,
   RangeValidationPolicy,
 } from "@frillab/copc-adapter";
@@ -36,6 +38,14 @@ export type CopcDebugPanelView = {
   statusTone: "loading" | "ready" | "error" | "inactive";
   pointCount: string;
   sourceCrsWkt: string;
+  horizontalCrs: string;
+  horizontalUnits: string;
+  horizontalAxisOrder: string;
+  verticalCrs: string;
+  verticalUnits: string;
+  verticalHeightKind: string;
+  sourceWktSupport: string;
+  crsReasons: string;
   bounds: string;
   scale: string;
   offset: string;
@@ -228,6 +238,18 @@ export function buildCopcDebugPanelView(
       : snapshot.lifecycle === "loading"
         ? "loading"
         : "inactive";
+  const crs = metadata?.crsDiagnostic;
+  const formatIdentity = (identity: CopcCrsIdentityDiagnostic | undefined): string => {
+    if (!identity) return "Unknown";
+    const code = identity.authority && identity.code
+      ? `${identity.authority}:${identity.code}`
+      : undefined;
+    return [code, identity.name].filter(Boolean).join(" · ");
+  };
+  const formatUnits = (unit: CopcCrsUnitDiagnostic): string =>
+    unit.name === undefined
+      ? "Unknown"
+      : `${unit.name}${unit.toSi === undefined ? "" : ` · ${formatCoordinate(unit.toSi)} ${unit.kind === "angular" ? "radians" : "metres"} per unit`}`;
 
   return {
     datasetName: getDatasetName(snapshot.datasetUrl),
@@ -302,6 +324,18 @@ export function buildCopcDebugPanelView(
         ? "WKT provided by source"
         : "WKT not provided by source"
       : "—",
+    horizontalCrs: formatIdentity(crs?.horizontal.identity),
+    horizontalUnits: formatUnits(crs?.horizontal.units ?? { kind: "unknown", certainty: "unknown" }),
+    horizontalAxisOrder: crs?.horizontal.axisOrder.order ?? "Unknown",
+    verticalCrs: formatIdentity(crs?.vertical.identity),
+    verticalUnits: formatUnits(crs?.vertical.units ?? { kind: "unknown", certainty: "unknown" }),
+    verticalHeightKind: crs
+      ? `${crs.vertical.heightKind.value} (${crs.vertical.heightKind.certainty})`
+      : "Unknown",
+    sourceWktSupport: crs
+      ? `${crs.wkt.format} · metadata ${crs.wkt.metadataSupport} · transforms backend-dependent`
+      : "Unknown",
+    crsReasons: crs?.reasons.map((reason) => `${reason.code}: ${reason.message}`).join(" ") || "None",
     bounds: metadata
       ? [
           metadata.bounds.minX,
@@ -600,6 +634,14 @@ export const COPC_DEBUG_SOURCE_SECTIONS = [
       { key: "datasetUrl", label: "Source label" },
       { key: "pointCount", label: "Point count" },
       { key: "sourceCrsWkt", label: "Coordinate reference metadata" },
+      { key: "sourceWktSupport", label: "WKT syntax support" },
+      { key: "horizontalCrs", label: "Horizontal CRS" },
+      { key: "horizontalUnits", label: "Horizontal units" },
+      { key: "horizontalAxisOrder", label: "Horizontal axis order" },
+      { key: "verticalCrs", label: "Vertical CRS" },
+      { key: "verticalUnits", label: "Vertical units" },
+      { key: "verticalHeightKind", label: "Source height kind" },
+      { key: "crsReasons", label: "CRS diagnostic reasons" },
       { key: "bounds", label: "Bounds" },
       { key: "scale", label: "Scale" },
       { key: "offset", label: "Offset" },

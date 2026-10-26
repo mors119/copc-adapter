@@ -1,7 +1,12 @@
 import type { Copc } from "copc";
 import type { CopcMetadata } from "../types/copc";
+import { resolveCopcCrsMetadata } from "../../coordinates/crs/copcCrsMetadata";
+import type { CopcCrsWktProvenance } from "../../coordinates/crs/copcCrsMetadata";
 
-export function toCopcMetadata(copc: Copc): CopcMetadata {
+export function toCopcMetadata(
+  copc: Copc,
+  crsWktProvenance?: CopcCrsWktProvenance,
+): CopcMetadata {
   const { header, info } = copc;
 
   return {
@@ -34,5 +39,14 @@ export function toCopcMetadata(copc: Copc): CopcMetadata {
       maxZ: info.cube[5],
     },
     wkt: copc.wkt,
+    ...(crsWktProvenance
+      ? {
+          crsWktProvenance: {
+            ...crsWktProvenance,
+            available: [...crsWktProvenance.available],
+          },
+        }
+      : {}),
+    crsDiagnostic: resolveCopcCrsMetadata(copc.wkt, crsWktProvenance),
   };
 }

@@ -143,6 +143,17 @@ export type {
   GeographicPoint,
   GeographicPointBuffer,
 } from "./core/copc/types/copc";
+export { resolveCopcCrsMetadata } from "./core/coordinates/crs/copcCrsMetadata";
+export type {
+  CopcCrsDiagnosticReason,
+  CopcCrsDiagnosticReasonCode,
+  CopcCrsEvidence,
+  CopcCrsEvidenceCertainty,
+  CopcCrsIdentityDiagnostic,
+  CopcCrsMetadataDiagnostic,
+  CopcCrsUnitDiagnostic,
+  CopcCrsWktProvenance,
+} from "./core/coordinates/crs/copcCrsMetadata";
 export type {
   CoordinateDirection,
   CoordinateBounds,

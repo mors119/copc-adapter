@@ -232,6 +232,8 @@ app.innerHTML = `
             <div><dt>Point format</dt><dd id="metadata-point-format">Not available</dd></div>
             <div><dt>Bounds</dt><dd id="metadata-bounds">Not available</dd></div>
             <div><dt>CRS metadata</dt><dd id="metadata-crs">Not available</dd></div>
+            <div><dt>CRS units</dt><dd id="metadata-crs-units">Not available</dd></div>
+            <div><dt>CRS diagnostic</dt><dd id="metadata-crs-diagnostic">Not available</dd></div>
             <div><dt>Active backend</dt><dd id="metadata-backend">Not available</dd></div>
             <div><dt>Active renderer</dt><dd id="metadata-renderer">Not available</dd></div>
           </dl>
@@ -2089,8 +2091,31 @@ function releasePendingRuntime(): void {
   if (host) disposeCandidate(runtime, host);
 }
 
+type PlaygroundCrsMetadataView = {
+  readonly wkt: { readonly format: string; readonly metadataSupport: string };
+  readonly horizontal: {
+    readonly units: { readonly name?: string; readonly kind: string };
+    readonly identity?: {
+      readonly authority?: string;
+      readonly code?: string;
+      readonly name: string;
+    };
+  };
+  readonly vertical: {
+    readonly units: { readonly name?: string; readonly kind: string };
+    readonly heightKind: { readonly value: string; readonly certainty: string };
+  };
+  readonly reasons: readonly { readonly code: string; readonly message: string }[];
+};
+
 function renderLoadedMetadata(): void {
   const metadata = activeRuntime?.getMetadata();
+  // Pages intentionally pins its released package; this structural view lets
+  // the UI show the optional workspace diagnostic after that release includes it.
+  const crsDiagnostic = metadata
+    ? (metadata as typeof metadata & { crsDiagnostic?: PlaygroundCrsMetadataView })
+        .crsDiagnostic
+    : undefined;
   metadataSummary.hidden = appliedSource === undefined;
   byId("metadata-point-count").textContent = metadata && Number.isFinite(metadata.pointCount)
     ? new Intl.NumberFormat("en-US").format(metadata.pointCount)
@@ -2102,10 +2127,26 @@ function renderLoadedMetadata(): void {
     ? `X ${metadata.bounds.minX}–${metadata.bounds.maxX}; Y ${metadata.bounds.minY}–${metadata.bounds.maxY}; Z ${metadata.bounds.minZ}–${metadata.bounds.maxZ} (source CRS units)`
     : "Not available";
   byId("metadata-crs").textContent = metadata?.wkt?.trim()
-    ? "WKT provided by source"
+    ? crsDiagnostic
+      ? [
+          crsDiagnostic.horizontal.identity?.authority && crsDiagnostic.horizontal.identity.code
+            ? `${crsDiagnostic.horizontal.identity.authority}:${crsDiagnostic.horizontal.identity.code}`
+            : crsDiagnostic.horizontal.identity?.name ?? "Horizontal CRS unknown",
+          `height ${crsDiagnostic.vertical.heightKind.value} (${crsDiagnostic.vertical.heightKind.certainty})`,
+          `${crsDiagnostic.wkt.format} metadata ${crsDiagnostic.wkt.metadataSupport}`,
+        ].join(" · ")
+      : "WKT provided by source"
     : metadata
       ? "Not provided by source"
       : "Not available";
+  byId("metadata-crs-units").textContent = crsDiagnostic
+    ? `Horizontal ${crsDiagnostic.horizontal.units.name ?? "unknown"} (${crsDiagnostic.horizontal.units.kind}); vertical ${crsDiagnostic.vertical.units.name ?? "unknown"} (${crsDiagnostic.vertical.units.kind})`
+    : "Not available";
+  byId("metadata-crs-diagnostic").textContent = crsDiagnostic
+    ? crsDiagnostic.reasons.length > 0
+      ? crsDiagnostic.reasons.map((reason) => `${reason.code}: ${reason.message}`).join(" ")
+      : "No CRS metadata issues reported. Transform support is backend-dependent."
+    : "Not available";
   byId("metadata-backend").textContent = appliedConfig?.backend ?? "Not available";
   byId("metadata-renderer").textContent = appliedConfig?.renderer === "three" ? "Three.js" : appliedConfig?.renderer === "cesium" ? "Cesium" : "Not available";
 }

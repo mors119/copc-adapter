@@ -175,6 +175,29 @@ This uses the current defaults: fixed cyan points at 3 pixels, the `copc-js`
 backend, and the shared streaming limits. `url` also accepts a browser `File`
 or `Blob`; local sources are read in slices and are not uploaded.
 
+### CRS metadata diagnostics
+
+`getMetadata()` includes the original `wkt` and a versioned
+`crsDiagnostic` for both built-in backends. The diagnostic records the source
+horizontal and vertical CRS names/identifiers, declared units (including
+international and US survey feet), explicit horizontal axis order, WKT1/WKT2
+metadata syntax support, evidence provenance, and stable reason codes.
+`heightKind` is `ellipsoidal`, `gravity-related/orthometric`, or
+`local/unknown`, with an `explicit`, `inferred`, or `unknown` certainty.
+Both readers choose the first WKT VLR and use the first WKT EVLR only when no
+VLR WKT exists. If multiple WKT records disagree, the diagnostic reports
+`conflicting-source-wkt` and retains the first value under that precedence.
+
+The resolver does not infer a CRS or height reference from coordinate ranges,
+country, output labels, or transformed WGS84/ECEF values. Missing or
+unprovable vertical semantics remain `local/unknown`. WKT syntax recognition
+is metadata parsing only; `transformSupport: "backend-dependent"` does not
+promise that either backend can transform every recognized definition.
+Rendering defaults are unchanged, and this metadata resolver does not alter
+source bytes or coordinates. Applications requesting precise vertical datum
+conversion must use the existing explicit conversion path, which fails closed
+when source metadata is incompatible or insufficient.
+
 `show` defaults to `true`. The built-in renderer owns one
 `Cesium.PrimitiveCollection` per attached layer, with its node point
 collections below it. Changing `show` affects only that parent collection;
