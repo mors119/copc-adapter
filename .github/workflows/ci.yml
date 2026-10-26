@@ -147,6 +147,15 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      - name: Upload sanitized browser failure summaries
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: browser-failure-diagnostics-${{ matrix.shard }}
+          path: apps/dev-viewer/test-results/ci-diagnostics/*.json
+          if-no-files-found: ignore
+          retention-days: 7
+
   viewer-package:
     runs-on: ubuntu-latest
     timeout-minutes: 60

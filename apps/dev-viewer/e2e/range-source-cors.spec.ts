@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./ci-diagnostic-fixtures";
 import type { Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -13,9 +13,11 @@ const autzenFixturePath = fileURLToPath(
 type CopcResponseMode =
   | "valid"
   | "hidden"
+  | "hidden-head-short"
   | "invalid-readable"
   | "status-200"
   | "short"
+  | "long"
   | "changed-validator";
 
 async function installCopcResponseFixture(
@@ -36,7 +38,7 @@ async function installCopcResponseFixture(
       "Access-Control-Allow-Headers":
         request.headers()["access-control-request-headers"] ?? "*",
       "Access-Control-Expose-Headers":
-        mode === "hidden"
+        mode === "hidden" || mode === "hidden-head-short"
           ? "Content-Length, ETag, Last-Modified"
           : "Content-Length, Content-Range, ETag, Last-Modified",
       "Accept-Ranges": "bytes",
@@ -50,7 +52,12 @@ async function installCopcResponseFixture(
     if (method === "HEAD") {
       await route.fulfill({
         status: 200,
-        headers: { ...corsHeaders, "Content-Length": String(copc.byteLength) },
+        headers: {
+          ...corsHeaders,
+          "Content-Length": String(
+            mode === "hidden-head-short" ? 64 : copc.byteLength,
+          ),
+        },
       });
       return;
     }
@@ -66,6 +73,8 @@ async function installCopcResponseFixture(
     let body = copc.subarray(start, end + 1);
     if (mode === "short" && body.byteLength > 1) {
       body = body.subarray(0, body.byteLength - 1);
+    } else if (mode === "long") {
+      body = copc.subarray(start, Math.min(copc.byteLength, end + 2));
     }
     const status = mode === "status-200" ? 200 : 206;
     const contentRange =
@@ -249,7 +258,7 @@ test("default compatibility fallback works and strict mode refuses hidden Conten
   expect(rangeWarnings[0]).toContain("rangeValidation: 'strict'");
 });
 
-test("loads the public Autzen source with readable Content-Range under the default policy", async ({
+test("loads the deterministic Autzen fixture with readable Content-Range under the default policy", async ({
   page,
 }) => {
   test.setTimeout(120_000);
@@ -289,6 +298,161 @@ test("loads the public Autzen source with readable Content-Range under the defau
   expect(methods).toContain("GET");
   expect(methods).not.toContain("HEAD");
   expect(compatibilityWarnings).toEqual([]);
+});
+
+test("rejects a HEAD length that cannot contain the requested byte range", async ({
+  page,
+}) => {
+  const origin = "https://short-head-range.invalid";
+  const methods = await installCopcResponseFixture(
+    page,
+    origin,
+    "hidden-head-short",
+  );
+  await page.route("**/range-validation-fixture.html", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "text/html",
+      body: "<!doctype html><html><head></head><body></body></html>",
+    });
+  });
+  await page.goto("/range-validation-fixture.html", {
+    waitUntil: "domcontentloaded",
+  });
+
+  const outcome = await page.evaluate(
+    async ({ moduleUrl, sourceUrl }) => {
+      const module = await import(/* @vite-ignore */ moduleUrl);
+      const source = new module.HttpRangeByteSource(sourceUrl);
+      return source.readRange(100, 4).then(
+        () => ({ code: "unexpected-success" }),
+        (error: { code?: string; status?: number }) => ({
+          code: error.code,
+          status: error.status,
+        }),
+      );
+    },
+    {
+      moduleUrl: packageEntryUrl,
+      sourceUrl: `${origin}/autzen.copc.laz`,
+    },
+  );
+
+  expect(outcome).toEqual({ code: "out-of-bounds", status: 200 });
+  expect(methods).toEqual(["GET", "HEAD"]);
+});
+
+test("aborts a delayed same-origin Range read and continues with a later read", async ({
+  page,
+}) => {
+  let startDelayedResponse!: () => void;
+  const delayedResponseStarted = new Promise<void>((resolve) => {
+    startDelayedResponse = resolve;
+  });
+  let releaseDelayedResponse!: () => void;
+  const delayedResponse = new Promise<void>((resolve) => {
+    releaseDelayedResponse = resolve;
+  });
+  const requests: string[] = [];
+
+  await page.route("**/range-abort-fixture.html", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "text/html",
+      body: "<!doctype html><html><head></head><body></body></html>",
+    });
+  });
+  await page.goto("/range-abort-fixture.html", {
+    waitUntil: "domcontentloaded",
+  });
+  const origin = new URL(page.url()).origin;
+  await page.route(`${origin}/__range_fixture__/abort.copc.laz`, async (route) => {
+    const range = route.request().headers().range ?? "";
+    requests.push(range);
+    if (requests.length === 1) {
+      startDelayedResponse();
+      await delayedResponse;
+    }
+    const match = /^bytes=(\d+)-(\d+)$/.exec(range);
+    if (!match) {
+      await route.fulfill({ status: 400, body: "missing Range" });
+      return;
+    }
+    const start = Number(match[1]);
+    const end = Number(match[2]);
+    const bytes = Uint8Array.from(
+      { length: end - start + 1 },
+      (_value, index) => (start + index) % 256,
+    );
+    await route
+      .fulfill({
+        status: 206,
+        headers: {
+          "Content-Length": String(bytes.byteLength),
+          "Content-Range": `bytes ${start}-${end}/4096`,
+        },
+        body: Buffer.from(bytes),
+      })
+      .catch(() => undefined);
+  });
+
+  await page.evaluate(
+    async ({ moduleUrl, sourceUrl }) => {
+      const module = await import(/* @vite-ignore */ moduleUrl);
+      const controller = new AbortController();
+      const source = new module.HttpRangeByteSource(sourceUrl, { size: 4096 });
+      const globals = window as Window & {
+        __rangeAbortController?: AbortController;
+        __rangeSource?: InstanceType<typeof module.HttpRangeByteSource>;
+        __rangeAbortOutcome?: unknown;
+      };
+      globals.__rangeAbortController = controller;
+      globals.__rangeSource = source;
+      void source.readRange(100, 4, { signal: controller.signal }).then(
+        () => {
+          globals.__rangeAbortOutcome = { code: "unexpected-success" };
+        },
+        (error: { code?: string }) => {
+          globals.__rangeAbortOutcome = { code: error.code };
+        },
+      );
+    },
+    {
+      moduleUrl: packageEntryUrl,
+      sourceUrl: `${origin}/__range_fixture__/abort.copc.laz`,
+    },
+  );
+
+  try {
+    await delayedResponseStarted;
+    await page.evaluate(() => {
+      (
+        window as Window & { __rangeAbortController?: AbortController }
+      ).__rangeAbortController?.abort("superseded fixture read");
+    });
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (
+              window as Window & { __rangeAbortOutcome?: { code?: string } }
+            ).__rangeAbortOutcome,
+        ),
+      )
+      .toEqual({ code: "aborted" });
+  } finally {
+    releaseDelayedResponse();
+  }
+
+  const nextRead = await page.evaluate(async () => {
+    const globals = window as Window & {
+      __rangeSource?: { readRange(offset: number, length: number): Promise<Uint8Array> };
+    };
+    const bytes = await globals.__rangeSource!.readRange(200, 4);
+    return [...bytes];
+  });
+  expect(nextRead).toEqual([200, 201, 202, 203]);
+  expect(requests).toEqual(["bytes=100-103", "bytes=200-203"]);
 });
 
 test("HEAD Fallback reports limited assurance and loads when Content-Range is hidden", async ({
@@ -366,8 +530,14 @@ for (const policy of ["head-fallback", "strict"] as const) {
   });
 }
 
-for (const mode of ["status-200", "short"] as const) {
-  test(`rejects ${mode === "status-200" ? "HTTP 200 instead of 206" : "an incomplete partial response"}`, async ({
+for (const mode of ["status-200", "short", "long"] as const) {
+  const scenario =
+    mode === "status-200"
+      ? "HTTP 200 instead of 206"
+      : mode === "short"
+        ? "a short partial response body"
+        : "a long partial response body";
+  test(`rejects ${scenario}`, async ({
     page,
   }) => {
     test.setTimeout(60_000);

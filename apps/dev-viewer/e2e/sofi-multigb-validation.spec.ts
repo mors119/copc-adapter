@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./ci-diagnostic-fixtures";
 
 const SOFI_SOURCE = "https://hobu-lidar.s3.amazonaws.com/sofi.copc.laz";
 const SOFI_OBJECT_BYTES = 2_029_696_615;
