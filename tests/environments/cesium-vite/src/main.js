@@ -1,6 +1,7 @@
 import "./style.css";
 import "cesium/Build/Cesium/Widgets/widgets.css";
 import * as Cesium from "cesium";
+import { createTerrainAlignmentFixture } from "./terrainAlignmentFixture.js";
 import {
   CopcCesiumLayer,
   BatchedGeometryPointRenderer,
@@ -9,8 +10,14 @@ import {
   RustCrsTransformer,
 } from "@packed-adapter";
 
-const datasetUrl = "/samples/autzen.copc.laz";
 const params = new URLSearchParams(window.location.search);
+const terrainAlignmentFixtureEnabled =
+  params.get("terrainAlignmentFixture") === "1";
+const terrainFixture = terrainAlignmentFixtureEnabled
+  ? createTerrainAlignmentFixture(250)
+  : undefined;
+const datasetUrl =
+  terrainFixture?.sourceUrl ?? "/samples/autzen.copc.laz";
 const backend = params.get("backend") === "copc-js" ? "copc-js" : "rust";
 const colorMode = params.get("mode") ?? "rgb";
 const pointSizeMode =
@@ -21,6 +28,8 @@ const renderer =
   params.get("renderer") === "batched"
     ? new BatchedGeometryPointRenderer()
     : undefined;
+
+const terrainFixtureProvider = terrainFixture?.terrainProvider;
 
 const viewer = new Cesium.Viewer("cesium-container", {
   animation: false,
@@ -34,11 +43,15 @@ const viewer = new Cesium.Viewer("cesium-container", {
   sceneModePicker: false,
   selectionIndicator: false,
   timeline: false,
+  ...(terrainFixtureProvider
+    ? { terrainProvider: terrainFixtureProvider }
+    : {}),
 });
 const layer = new CopcCesiumLayer({
   url: datasetUrl,
   ...(renderer ? { renderer } : {}),
-  backend,
+  backend: terrainFixture?.backend ?? backend,
+  ...(terrainFixture ? { decoder: terrainFixture.decoder } : {}),
   colorMode,
   pointSizeMode,
   minPointSize: 1,
@@ -56,6 +69,7 @@ const layer = new CopcCesiumLayer({
 
 let lastError;
 let lastErrorStack;
+let lastTerrainEstimate;
 let cameraMoveEventCount = 0;
 let cameraChangeCount = 0;
 let lastWheelInputAt;
@@ -133,6 +147,48 @@ function* getPointPrimitiveCollections(collection) {
       yield* getPointPrimitiveCollections(primitive);
     }
   }
+}
+
+function getPointPrimitivePickTarget() {
+  for (const collection of getPointPrimitiveCollections(
+    viewer.scene.primitives,
+  )) {
+    for (let pointIndex = 0; pointIndex < collection.length; pointIndex += 1) {
+      const point = collection.get(pointIndex);
+      if (!point.show) continue;
+      const screenPosition = Cesium.SceneTransforms.worldToWindowCoordinates(
+        viewer.scene,
+        point.position,
+      );
+      if (
+        !screenPosition ||
+        screenPosition.x < 0 ||
+        screenPosition.y < 0 ||
+        screenPosition.x >= viewer.scene.canvas.clientWidth ||
+        screenPosition.y >= viewer.scene.canvas.clientHeight
+      ) {
+        continue;
+      }
+      const position = new Cesium.Cartesian2(
+        Math.round(screenPosition.x),
+        Math.round(screenPosition.y),
+      );
+      const picked = viewer.scene.pick(position, 1, 1);
+      const id = picked?.id;
+      if (
+        id &&
+        typeof id.nodeKey === "string" &&
+        typeof id.pointIndex === "number"
+      ) {
+        return {
+          nodeKey: id.nodeKey,
+          pointIndex: id.pointIndex,
+          screenPosition: { x: position.x, y: position.y },
+        };
+      }
+    }
+  }
+  return undefined;
 }
 
 function renderedDiagnostics() {
@@ -396,6 +452,31 @@ window.__PACKED_CONSUMER__ = {
     };
   },
   rustCrsTransformerExportAvailable: typeof RustCrsTransformer === "function",
+  async estimateTerrainHeightAlignment(options) {
+    const anchor = layer.getSelectedPoint();
+    if (!anchor) throw new Error("Select a rendered point before estimating");
+    lastTerrainEstimate = await layer.estimateTerrainHeightAlignment(
+      anchor,
+      options,
+    );
+    return lastTerrainEstimate;
+  },
+  isTerrainHeightAlignmentEstimateCurrent(estimate) {
+    return layer.isTerrainHeightAlignmentEstimateCurrent(
+      estimate ?? lastTerrainEstimate,
+    );
+  },
+  getPointPrimitivePickTarget,
+  usesTerrainFixtureProvider() {
+    return (
+      terrainFixtureProvider !== undefined &&
+      viewer.terrainProvider === terrainFixtureProvider
+    );
+  },
+  useEllipsoidTerrainProvider() {
+    viewer.terrainProvider = new Cesium.EllipsoidTerrainProvider();
+    return viewer.terrainProvider;
+  },
   batchedRendererExportAvailable:
     typeof BatchedGeometryPointRenderer === "function",
   getLastErrorStack: () => lastErrorStack,

@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import path from "node:path";
 
 async function state(page) {
-  return page.evaluate(() => window.__PACKED_CONSUMER__.getState());
+  return page.evaluate(() => window.__PACKED_CONSUMER__?.getState());
 }
 
 async function completedState(page) {
@@ -340,6 +340,129 @@ test("loads the packed opt-in batched Cesium renderer without changing the defau
     height: expect.any(Number),
     world: { coordinateSystem: "wgs84-ecef-meters" },
   });
+  expect(pageErrors).toEqual([]);
+});
+
+test("estimates against the consumer TerrainProvider and rejects ellipsoid-only sampling", async ({
+  page,
+}) => {
+  const pageErrors = [];
+  page.on("pageerror", (error) => pageErrors.push(error));
+  await page.goto("/?terrainAlignmentFixture=1");
+  await expect
+    .poll(() => state(page))
+    .toMatchObject({
+      viewerCreatedByConsumer: true,
+      viewerAlive: true,
+      layerAttachedToCallerViewer: true,
+      lifecycle: "ready",
+      backend: "custom",
+    });
+  await expect
+    .poll(async () => (await state(page)).renderedPointCount)
+    .toBeGreaterThan(0);
+  await page.evaluate(() =>
+    window.__PACKED_CONSUMER__.setCameraPose({
+      longitude: -122.495,
+      latitude: 44.505,
+      height: 3_000,
+      pitch: -90,
+    }),
+  );
+
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        window.__PACKED_CONSUMER__.getPointPrimitivePickTarget(),
+      ),
+    )
+    .toBeDefined();
+  const target = await page.evaluate(() =>
+    window.__PACKED_CONSUMER__.getPointPrimitivePickTarget(),
+  );
+  expect(target).toMatchObject({
+    nodeKey: expect.any(String),
+    pointIndex: expect.any(Number),
+    screenPosition: { x: expect.any(Number), y: expect.any(Number) },
+  });
+  const canvasBounds = await page
+    .locator("#cesium-container canvas")
+    .first()
+    .boundingBox();
+  expect(canvasBounds).not.toBeNull();
+  await page.mouse.click(
+    (canvasBounds?.x ?? 0) + target.screenPosition.x,
+    (canvasBounds?.y ?? 0) + target.screenPosition.y,
+  );
+  await expect
+    .poll(async () => (await state(page)).selectedPoint?.pointIndex)
+    .toBe(target.pointIndex);
+
+  const before = (await state(page)).selectedPoint;
+  expect(before).toMatchObject({
+    classification: 2,
+    height: expect.any(Number),
+    source: {
+      x: expect.any(Number),
+      y: expect.any(Number),
+      z: expect.any(Number),
+    },
+    world: { coordinateSystem: "wgs84-ecef-meters" },
+  });
+  expect(
+    await page.evaluate(() =>
+      window.__PACKED_CONSUMER__.usesTerrainFixtureProvider(),
+    ),
+  ).toBe(true);
+
+  const estimate = await page.evaluate(() =>
+    window.__PACKED_CONSUMER__.estimateTerrainHeightAlignment(),
+  );
+  expect(estimate).toMatchObject({
+    status: "ready",
+    actionable: true,
+    terrainHeightMeters: 250,
+    terrainProvider: {
+      type: "PackedConsumerTerrainFixture",
+      hasTileAvailability: true,
+    },
+    terrainSamplingCalls: 1,
+  });
+  expect(estimate.proposedOffsetMeters).toBeCloseTo(
+    250 - before.height,
+    3,
+  );
+  expect(
+    await page.evaluate(() =>
+      window.__PACKED_CONSUMER__.isTerrainHeightAlignmentEstimateCurrent(),
+    ),
+  ).toBe(true);
+
+  const afterPreview = (await state(page)).selectedPoint;
+  expect(afterPreview.height).toBe(before.height);
+  expect(afterPreview.source).toEqual(before.source);
+  expect(afterPreview.world).toEqual(before.world);
+  expect(
+    await page.evaluate(() =>
+      window.__PACKED_CONSUMER__.usesTerrainFixtureProvider(),
+    ),
+  ).toBe(true);
+
+  await page.evaluate(() =>
+    window.__PACKED_CONSUMER__.useEllipsoidTerrainProvider(),
+  );
+  expect(
+    await page.evaluate(() =>
+      window.__PACKED_CONSUMER__.isTerrainHeightAlignmentEstimateCurrent(),
+    ),
+  ).toBe(false);
+  const ellipsoidResult = await page.evaluate(() =>
+    window.__PACKED_CONSUMER__.estimateTerrainHeightAlignment(),
+  );
+  expect(ellipsoidResult.status).toBe("unavailable");
+  expect(ellipsoidResult.actionable).toBe(false);
+  expect(ellipsoidResult.terrainSamplingCalls).toBe(0);
+  expect(ellipsoidResult.rejectionReason).toMatch(/only the ellipsoid/);
   expect(pageErrors).toEqual([]);
 });
 
