@@ -1,6 +1,6 @@
 use crate::binary::{ensure_range, read_f64, read_u16, read_u32, read_u64};
 use crate::error::{CopcError, Result};
-use crate::vlr::{VlrVisit, for_each_vlr};
+use crate::vlr::{VlrVisit, for_each_evlr, for_each_vlr};
 
 const LAS_HEADER_SIZE: usize = 375;
 const COPC_INFO_SIZE: usize = 160;
@@ -91,6 +91,7 @@ pub fn parse_header(bytes: &[u8]) -> Result<CopcHeader> {
     let point_data_record_length = read_u16(bytes, 105, "point data record length")?;
     let mut copc_info: Option<CopcInfo> = None;
     let mut wkt: Option<String> = None;
+    let mut wkt_record_found = false;
 
     for_each_vlr(
         bytes,
@@ -123,6 +124,10 @@ pub fn parse_header(bytes: &[u8]) -> Result<CopcHeader> {
             }
 
             if record_user_id == "LASF_Projection" && record_id == 2112 {
+                if wkt_record_found {
+                    return Ok(VlrVisit::Continue);
+                }
+                wkt_record_found = true;
                 let end = payload
                     .iter()
                     .position(|byte| *byte == 0)
@@ -137,6 +142,44 @@ pub fn parse_header(bytes: &[u8]) -> Result<CopcHeader> {
             Ok(VlrVisit::Continue)
         },
     )?;
+
+    let evlr_offset = read_u64(bytes, 235, "first EVLR offset")?;
+    let evlr_count = read_u32(bytes, 243, "number of EVLRs")? as usize;
+    if evlr_count > 0 {
+        if evlr_offset == 0 {
+            return Err(CopcError::new(
+                "invalid-header",
+                "LAS declares EVLRs without a valid first EVLR offset",
+            ));
+        }
+        let evlr_offset = usize::try_from(evlr_offset)
+            .map_err(|_| CopcError::new("unsupported-value", "EVLR offset is too large"))?;
+        for_each_evlr(
+            bytes,
+            evlr_offset,
+            evlr_count,
+            |record_user_id, record_id, payload| {
+                if record_user_id == "LASF_Projection" && record_id == 2112 {
+                    if wkt_record_found {
+                        return Ok(VlrVisit::Stop);
+                    }
+                    wkt_record_found = true;
+                    let end = payload
+                        .iter()
+                        .position(|byte| *byte == 0)
+                        .unwrap_or(payload.len());
+                    let value = String::from_utf8(payload[..end].to_vec()).map_err(|_| {
+                        CopcError::new("malformed-wkt", "WKT EVLR is not valid UTF-8")
+                    })?;
+                    if !value.is_empty() {
+                        wkt = Some(value);
+                    }
+                    return Ok(VlrVisit::Stop);
+                }
+                Ok(VlrVisit::Continue)
+            },
+        )?;
+    }
 
     let copc_info = copc_info.ok_or_else(|| {
         CopcError::new(
@@ -217,6 +260,38 @@ mod tests {
         bytes[offset..offset + 8].copy_from_slice(&value.to_le_bytes());
     }
 
+    fn append_wkt_vlr(bytes: Vec<u8>, wkt: &str) -> Vec<u8> {
+        let original_end = bytes.len();
+        let mut payload = wkt.as_bytes().to_vec();
+        payload.push(0);
+        let mut result = vec![0; original_end + 54 + payload.len()];
+        result[..original_end].copy_from_slice(&bytes);
+        result[original_end + 2..original_end + 2 + b"LASF_Projection".len()]
+            .copy_from_slice(b"LASF_Projection");
+        put_u16(&mut result, original_end + 18, 2112);
+        put_u16(&mut result, original_end + 20, payload.len() as u16);
+        result[original_end + 54..].copy_from_slice(&payload);
+        let point_data_offset = result.len() as u32;
+        put_u32(&mut result, 96, point_data_offset);
+        put_u32(&mut result, 100, 2);
+        result
+    }
+
+    fn append_wkt_evlr(mut bytes: Vec<u8>, wkt: &str) -> Vec<u8> {
+        let offset = bytes.len();
+        let mut payload = wkt.as_bytes().to_vec();
+        payload.push(0);
+        bytes.resize(offset + 60 + payload.len(), 0);
+        bytes[offset + 2..offset + 2 + b"LASF_Projection".len()]
+            .copy_from_slice(b"LASF_Projection");
+        put_u16(&mut bytes, offset + 18, 2112);
+        put_u64(&mut bytes, offset + 20, payload.len() as u64);
+        bytes[offset + 60..].copy_from_slice(&payload);
+        put_u64(&mut bytes, 235, offset as u64);
+        put_u32(&mut bytes, 243, 1);
+        bytes
+    }
+
     fn fixture_header(copc_length: u16) -> Vec<u8> {
         let header_size = 375usize;
         let copc_length = usize::from(copc_length);
@@ -259,6 +334,23 @@ mod tests {
             put_u64(&mut bytes, payload + 48, 64);
         }
         bytes
+    }
+
+    #[test]
+    fn reads_wkt_from_evlr_when_no_vlr_wkt_exists() {
+        let bytes = append_wkt_evlr(fixture_header(160), "GEOGCS[\"EVLR CRS\"]");
+        let header = parse_header(&bytes).unwrap();
+        assert_eq!(header.wkt.as_deref(), Some("GEOGCS[\"EVLR CRS\"]"));
+    }
+
+    #[test]
+    fn gives_wkt_vlr_precedence_over_a_conflicting_evlr() {
+        let bytes = append_wkt_evlr(
+            append_wkt_vlr(fixture_header(160), "GEOGCS[\"VLR CRS\"]"),
+            "PROJCS[\"EVLR CRS\"]",
+        );
+        let header = parse_header(&bytes).unwrap();
+        assert_eq!(header.wkt.as_deref(), Some("GEOGCS[\"VLR CRS\"]"));
     }
 
     #[test]

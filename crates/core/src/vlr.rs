@@ -1,7 +1,8 @@
-use crate::binary::{ensure_range, las_string, read_u16};
+use crate::binary::{ensure_range, las_string, read_u16, read_u64};
 use crate::error::{CopcError, Result};
 
 pub(crate) const VLR_HEADER_SIZE: usize = 54;
+pub(crate) const EVLR_HEADER_SIZE: usize = 60;
 
 pub(crate) enum VlrVisit {
     Continue,
@@ -37,6 +38,44 @@ where
             ));
         }
 
+        if matches!(
+            visit(
+                &record_user_id,
+                record_id,
+                &bytes[payload_start..payload_end],
+            )?,
+            VlrVisit::Stop
+        ) {
+            return Ok(());
+        }
+        position = payload_end;
+    }
+    Ok(())
+}
+
+pub(crate) fn for_each_evlr<F>(
+    bytes: &[u8],
+    start_offset: usize,
+    number_of_evlrs: usize,
+    mut visit: F,
+) -> Result<()>
+where
+    F: FnMut(&str, u16, &[u8]) -> Result<VlrVisit>,
+{
+    let mut position = start_offset;
+    for _ in 0..number_of_evlrs {
+        ensure_range(bytes, position, EVLR_HEADER_SIZE, "EVLR header")?;
+        let record_user_id = las_string(&bytes[position + 2..position + 18]);
+        let record_id = read_u16(bytes, position + 18, "EVLR record ID")?;
+        let record_length = usize::try_from(read_u64(bytes, position + 20, "EVLR record length")?)
+            .map_err(|_| CopcError::new("unsupported-value", "EVLR record is too large"))?;
+        let payload_start = position
+            .checked_add(EVLR_HEADER_SIZE)
+            .ok_or_else(|| CopcError::new("overflow", "EVLR payload offset overflows"))?;
+        ensure_range(bytes, payload_start, record_length, "EVLR payload")?;
+        let payload_end = payload_start
+            .checked_add(record_length)
+            .ok_or_else(|| CopcError::new("overflow", "EVLR payload end overflows"))?;
         if matches!(
             visit(
                 &record_user_id,

@@ -97,6 +97,40 @@ export function snapshotCopcMetadata(metadata: CopcMetadata): CopcMetadata {
     ...(metadata.offset
       ? { offset: Object.freeze({ ...metadata.offset }) }
       : {}),
+    ...(metadata.crsDiagnostic
+      ? {
+          crsDiagnostic: Object.freeze({
+            ...metadata.crsDiagnostic,
+            wkt: Object.freeze({ ...metadata.crsDiagnostic.wkt }),
+            horizontal: Object.freeze({
+              ...metadata.crsDiagnostic.horizontal,
+              ...(metadata.crsDiagnostic.horizontal.identity
+                ? { identity: Object.freeze({ ...metadata.crsDiagnostic.horizontal.identity }) }
+                : {}),
+              axisOrder: Object.freeze({ ...metadata.crsDiagnostic.horizontal.axisOrder }),
+              units: Object.freeze({ ...metadata.crsDiagnostic.horizontal.units }),
+            }),
+            vertical: Object.freeze({
+              ...metadata.crsDiagnostic.vertical,
+              ...(metadata.crsDiagnostic.vertical.identity
+                ? { identity: Object.freeze({ ...metadata.crsDiagnostic.vertical.identity }) }
+                : {}),
+              units: Object.freeze({ ...metadata.crsDiagnostic.vertical.units }),
+              heightKind: Object.freeze({ ...metadata.crsDiagnostic.vertical.heightKind }),
+            }),
+            evidence: Object.freeze(metadata.crsDiagnostic.evidence.map((item) => Object.freeze({ ...item }))),
+            reasons: Object.freeze(metadata.crsDiagnostic.reasons.map((item) => Object.freeze({ ...item }))),
+          }),
+        }
+      : {}),
+    ...(metadata.crsWktProvenance
+      ? {
+          crsWktProvenance: Object.freeze({
+            ...metadata.crsWktProvenance,
+            available: Object.freeze([...metadata.crsWktProvenance.available]),
+          }),
+        }
+      : {}),
   });
 }
 

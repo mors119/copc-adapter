@@ -36,6 +36,14 @@ function putVlr(bytes, offset, userId, recordId, payload) {
   return offset + 54 + payload.length;
 }
 
+function putEvlr(bytes, offset, userId, recordId, payload) {
+  const encodedUserId = new TextEncoder().encode(userId);
+  bytes.set(encodedUserId.subarray(0, 16), offset + 2);
+  putU16(bytes, offset + 18, recordId);
+  putU64(bytes, offset + 20, payload.length);
+  bytes.set(payload, offset + 60);
+}
+
 function putHierarchyEntry(
   bytes,
   offset,
@@ -55,7 +63,11 @@ function putHierarchyEntry(
  * error tests. It intentionally has no LASzip VLR or valid point chunks.
  * Point decoding is covered against the downloaded Autzen integration sample.
  */
-export function createDeterministicCopcFixture({ rootPageLength = 96 } = {}) {
+export function createDeterministicCopcFixture({
+  rootPageLength = 96,
+  wktVlr = 'PROJCS["Fixture CRS"]',
+  wktEvlr,
+} = {}) {
   const copcPayload = new Uint8Array(COPC_INFO_SIZE);
   putF64(copcPayload, 0, 50);
   putF64(copcPayload, 8, 60);
@@ -65,15 +77,24 @@ export function createDeterministicCopcFixture({ rootPageLength = 96 } = {}) {
   putU64(copcPayload, 40, ROOT_PAGE_OFFSET);
   putU64(copcPayload, 48, rootPageLength);
 
-  const wkt = new TextEncoder().encode('PROJCS["Fixture CRS"]\0');
-  const pointDataOffset = HEADER_SIZE + 54 + COPC_INFO_SIZE + 54 + wkt.length;
-  const bytes = new Uint8Array(CHILD_PAGE_OFFSET + 64);
+  const wkt = wktVlr === null
+    ? undefined
+    : new TextEncoder().encode(`${wktVlr}\0`);
+  const evlrWkt = wktEvlr === undefined
+    ? undefined
+    : new TextEncoder().encode(`${wktEvlr}\0`);
+  const pointDataOffset = HEADER_SIZE + 54 + COPC_INFO_SIZE + (wkt ? 54 + wkt.length : 0);
+  const pointDataEnd = CHILD_PAGE_OFFSET + 64;
+  const evlrOffset = evlrWkt ? pointDataEnd : 0;
+  const bytes = new Uint8Array(pointDataEnd + (evlrWkt ? 60 + evlrWkt.length : 0));
   bytes.set(new TextEncoder().encode("LASF"), 0);
   bytes[24] = 1;
   bytes[25] = 4;
   putU16(bytes, 94, HEADER_SIZE);
   putU32(bytes, 96, pointDataOffset);
-  putU32(bytes, 100, 2);
+  putU32(bytes, 100, wkt ? 2 : 1);
+  putU64(bytes, 235, evlrOffset);
+  putU32(bytes, 243, evlrWkt ? 1 : 0);
   bytes[104] = 0x86;
   putU16(bytes, 105, 30);
   putU64(bytes, 247, 42);
@@ -91,7 +112,8 @@ export function createDeterministicCopcFixture({ rootPageLength = 96 } = {}) {
   putF64(bytes, 219, 3);
 
   let nextVlr = putVlr(bytes, HEADER_SIZE, "copc", 1, copcPayload);
-  putVlr(bytes, nextVlr, "LASF_Projection", 2112, wkt);
+  if (wkt) putVlr(bytes, nextVlr, "LASF_Projection", 2112, wkt);
+  if (evlrWkt) putEvlr(bytes, evlrOffset, "LASF_Projection", 2112, evlrWkt);
 
   putHierarchyEntry(bytes, ROOT_PAGE_OFFSET, {
     level: 0,
@@ -153,6 +175,7 @@ export function createDeterministicCopcFixture({ rootPageLength = 96 } = {}) {
       pageLength: 64,
     },
     pointDataOffset,
+    evlrOffset,
   };
 }
 

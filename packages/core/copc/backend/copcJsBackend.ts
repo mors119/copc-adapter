@@ -40,6 +40,7 @@ import type {
 } from "./types";
 import { performanceNow, type CopcPerformanceObserver } from "../performance";
 import { CopcBackendError } from "../errors";
+import type { CopcCrsWktProvenance } from "../../coordinates/crs/copcCrsMetadata";
 
 const SOURCE_DIMENSIONS: Readonly<Record<CopcPointComponent, string>> = {
   x: "X",
@@ -161,6 +162,7 @@ class CopcJsSource implements CopcSource {
   private readonly sourceGetter: CopcRangeGetter;
   private readonly getter: CopcRangeGetter;
   private readonly copc: Copc;
+  private readonly crsWktProvenance: CopcCrsWktProvenance;
   private readonly extraDimensions?: CopcExtraDimensionSelection;
   private performanceObserver?: CopcPerformanceObserver;
 
@@ -168,12 +170,14 @@ class CopcJsSource implements CopcSource {
     source: string,
     getter: CopcRangeGetter,
     copc: Copc,
+    crsWktProvenance: CopcCrsWktProvenance,
     extraDimensions?: CopcExtraDimensionSelection,
   ) {
     this.source = source;
     this.sourceGetter = getter;
     this.getter = (begin, end) => this.readRange(begin, end);
     this.copc = copc;
+    this.crsWktProvenance = crsWktProvenance;
     this.extraDimensions = extraDimensions;
   }
 
@@ -227,7 +231,7 @@ class CopcJsSource implements CopcSource {
   }
 
   getMetadata(): CopcMetadata {
-    return toCopcMetadata(this.copc);
+    return toCopcMetadata(this.copc, this.crsWktProvenance);
   }
 
   getRootHierarchyPage(): CopcHierarchyPage {
@@ -385,6 +389,32 @@ class CopcJsSource implements CopcSource {
   }
 }
 
+async function inspectCrsWktProvenance(
+  copc: Copc,
+  getter: CopcRangeGetter,
+): Promise<CopcCrsWktProvenance> {
+  const records = copc.vlrs.filter(
+    (record) => record.userId === "LASF_Projection" && record.recordId === 2112,
+  );
+  if (records.length === 0) {
+    return { selected: "unknown", available: [], conflicting: false };
+  }
+
+  const decode = (bytes: Uint8Array): string => {
+    const end = bytes.indexOf(0);
+    return new TextDecoder().decode(end < 0 ? bytes : bytes.subarray(0, end));
+  };
+  const values = records.length === 1
+    ? [copc.wkt ?? ""]
+    : await Promise.all(records.map(async (record) => decode(await Las.Vlr.fetch(getter, record))));
+  const selectedValue = values[0] ?? "";
+  return {
+    selected: records[0].isExtended ? "evlr" : "vlr",
+    available: [...new Set(records.map((record) => record.isExtended ? "evlr" : "vlr"))],
+    conflicting: values.slice(1).some((value) => value !== selectedValue),
+  };
+}
+
 /** Options for the JavaScript COPC backend. */
 export type CopcJsBackendOptions = {
   /**
@@ -419,8 +449,15 @@ export class CopcJsBackend implements CopcBackend {
         maxConcurrentRangeRequests: options.maxConcurrentRangeRequests,
       });
       const copc = await Copc.create(getter);
+      const crsWktProvenance = await inspectCrsWktProvenance(copc, getter);
 
-      return new CopcJsSource(identity, getter, copc, this.extraDimensions);
+      return new CopcJsSource(
+        identity,
+        getter,
+        copc,
+        crsWktProvenance,
+        this.extraDimensions,
+      );
     } catch (error: unknown) {
       throw mapCopcJsError(getCopcSourceIdentity(source), error, "open");
     }

@@ -78,6 +78,7 @@ export function assertMetadataParity(rustMetadata, copcJsMetadata) {
     meaningfulWkt(rustMetadata.wkt),
     meaningfulWkt(copcJsMetadata.wkt),
   );
+  assert.deepEqual(rustMetadata.crsDiagnostic, copcJsMetadata.crsDiagnostic);
 }
 
 export async function assertRootHierarchyParity(rust, copcJs) {

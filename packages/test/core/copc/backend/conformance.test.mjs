@@ -92,6 +92,7 @@ test("shared backend contract covers deterministic metadata and hierarchy semant
           maxZ: 80,
         });
         assert.equal(metadata.wkt, 'PROJCS["Fixture CRS"]');
+        assert.equal(metadata.crsWktProvenance?.selected, "vlr");
         assertMetadataParity(metadata, copcJs.getMetadata());
 
         const { rustEntries } = await assertHierarchyParity(rust, copcJs);
@@ -151,6 +152,48 @@ test("shared backend contract covers deterministic metadata and hierarchy semant
       },
     });
   });
+});
+
+test("both backends prefer WKT VLRs, use EVLR WKT when needed, and report conflicts", async () => {
+  const wktVlr = 'GEOGCS["VLR CRS"]';
+  const wktEvlr = 'PROJCS["EVLR CRS"]';
+  await withFixture(async (fixture, fixturePath) => {
+    const { rust, copcJs } = await openBackendPair(fixturePath, fixture.bytes);
+    const rustMetadata = rust.getMetadata();
+    const copcJsMetadata = copcJs.getMetadata();
+    assert.equal(rustMetadata.wkt, wktVlr);
+    assert.equal(copcJsMetadata.wkt, wktVlr);
+    assert.equal(rustMetadata.crsWktProvenance?.selected, "vlr");
+    assert.deepEqual(rustMetadata.crsWktProvenance?.available, ["vlr", "evlr"]);
+    assert.equal(rustMetadata.crsWktProvenance?.conflicting, true);
+    assert.ok(rustMetadata.crsDiagnostic?.reasons.some((reason) => reason.code === "conflicting-source-wkt"));
+    assertMetadataParity(rustMetadata, copcJsMetadata);
+  }, { wktVlr, wktEvlr });
+
+  await withFixture(async (fixture, fixturePath) => {
+    const { rust, copcJs } = await openBackendPair(fixturePath, fixture.bytes);
+    const rustMetadata = rust.getMetadata();
+    const copcJsMetadata = copcJs.getMetadata();
+    assert.equal(rustMetadata.wkt, wktEvlr);
+    assert.equal(copcJsMetadata.wkt, wktEvlr);
+    assert.equal(rustMetadata.crsWktProvenance?.selected, "evlr");
+    assert.deepEqual(rustMetadata.crsWktProvenance?.available, ["evlr"]);
+    assert.equal(rustMetadata.crsWktProvenance?.conflicting, false);
+    assertMetadataParity(rustMetadata, copcJsMetadata);
+  }, { wktVlr: null, wktEvlr });
+});
+
+test("missing WKT stays unknown for both backends regardless of source bounds", async () => {
+  await withFixture(async (fixture, fixturePath) => {
+    const { rust, copcJs } = await openBackendPair(fixturePath, fixture.bytes);
+    for (const metadata of [rust.getMetadata(), copcJs.getMetadata()]) {
+      assert.equal(metadata.wkt, undefined);
+      assert.equal(metadata.crsDiagnostic?.wkt.metadataSupport, "missing");
+      assert.equal(metadata.crsDiagnostic?.vertical.heightKind.value, "local/unknown");
+      assert.ok(metadata.crsDiagnostic?.reasons.some((reason) => reason.code === "missing-wkt"));
+    }
+    assertMetadataParity(rust.getMetadata(), copcJs.getMetadata());
+  }, { wktVlr: null });
 });
 
 test("both built-in backends open Blob inputs with partial reads and matching metadata", async () => {
