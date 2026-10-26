@@ -269,7 +269,11 @@ export type VerifiedGeoidGridData = {
   latitudeOrigin: number;
   longitudeStep: number;
   latitudeStep: number;
-  values: Float32Array | Float64Array;
+  values?: Float32Array | Float64Array;
+  /** Read verified samples from an immutable model-specific backing store. */
+  readValue?: (row: number, column: number) => number;
+  /** Logical decoded sample bytes when `readValue` is backed by encoded bytes. */
+  decodedByteLength?: number;
   encodedByteLength: number;
   minimumUndulationMeters: number;
   maximumUndulationMeters: number;
@@ -279,8 +283,8 @@ export type VerifiedGeoidGridData = {
 const CREATE_VERIFIED_GRID = Symbol("create-verified-vertical-grid");
 
 /**
- * Immutable, decoded GTX geoid/vertical-shift grid. The grid values and file
- * bytes are private; one instance can be shared by all source and worker paths.
+ * Immutable, validated GTX geoid/vertical-shift grid. The grid values and
+ * backing bytes are private; one instance can be shared by all source and worker paths.
  */
 export class GtxGeoidGrid {
   readonly gridId: string;
@@ -299,7 +303,8 @@ export class GtxGeoidGrid {
   readonly decodedByteLength: number;
   readonly minimumUndulationMeters: number;
   readonly maximumUndulationMeters: number;
-  readonly #values: Float32Array | Float64Array;
+  readonly #values?: Float32Array | Float64Array;
+  readonly #readValue?: (row: number, column: number) => number;
   readonly #noDataValue?: number;
   readonly #metresPerGridUnit: number;
   readonly #globalLongitudeCoverage: "none" | "duplicated-seam" | "periodic";
@@ -314,11 +319,13 @@ export class GtxGeoidGrid {
     latitudeOrigin: number;
     longitudeStep: number;
     latitudeStep: number;
-    values: Float32Array | Float64Array;
     encodedByteLength: number;
     minimumUndulationMeters: number;
     maximumUndulationMeters: number;
     globalLongitudeCoverage: "none" | "duplicated-seam" | "periodic";
+    values?: Float32Array | Float64Array;
+    readValue?: (row: number, column: number) => number;
+    decodedByteLength?: number;
   }) {
     this.gridId = input.options.gridId.trim();
     this.sha256 = input.sha256;
@@ -332,6 +339,7 @@ export class GtxGeoidGrid {
     this.longitudeStep = input.longitudeStep;
     this.latitudeStep = input.latitudeStep;
     this.#values = input.values;
+    this.#readValue = input.readValue;
     this.#noDataValue = input.options.noDataValue === null
       ? undefined
       : input.values instanceof Float32Array
@@ -342,7 +350,7 @@ export class GtxGeoidGrid {
       input.options.sourceCoordinateEpoch !== undefined &&
       input.options.gridReferenceEpoch !== undefined;
     this.encodedByteLength = input.encodedByteLength;
-    this.decodedByteLength = input.values.byteLength;
+    this.decodedByteLength = input.decodedByteLength ?? input.values?.byteLength ?? 0;
     this.minimumUndulationMeters = input.minimumUndulationMeters;
     this.maximumUndulationMeters = input.maximumUndulationMeters;
     this.#globalLongitudeCoverage = input.globalLongitudeCoverage;
@@ -352,6 +360,23 @@ export class GtxGeoidGrid {
   static [CREATE_VERIFIED_GRID](input: VerifiedGeoidGridData): GtxGeoidGrid {
     const options = { ...input.options };
     validateOptions(options);
+    if ((input.values === undefined) === (input.readValue === undefined)) {
+      fail(
+        "invalid-grid-metadata",
+        "Provide exactly one verified geoid sample store",
+        options.gridId,
+      );
+    }
+    if (
+      input.values === undefined &&
+      (!Number.isSafeInteger(input.decodedByteLength) || input.decodedByteLength! <= 0)
+    ) {
+      fail(
+        "invalid-grid-metadata",
+        "A verified geoid sample reader must provide its decoded byte length",
+        options.gridId,
+      );
+    }
     return new GtxGeoidGrid({ ...input, options });
   }
 
@@ -717,7 +742,9 @@ export class GtxGeoidGrid {
 
   private valueAt(row: number, column: number): number {
     const index = row * this.width + column;
-    const value = this.#values[index];
+    const value = this.#readValue
+      ? this.#readValue(row, column)
+      : this.#values![index];
     if (
       !Number.isFinite(value) ||
       (this.#noDataValue !== undefined && value === this.#noDataValue)
