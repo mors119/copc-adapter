@@ -144,6 +144,18 @@ export type {
   GeographicPointBuffer,
 } from "./core/copc/types/copc";
 export { resolveCopcCrsMetadata } from "./core/coordinates/crs/copcCrsMetadata";
+export {
+  createCoordinateTransformPlan,
+  getCoordinateTransformPlan,
+} from "./core/coordinates/transform/coordinateTransformPlan";
+export type {
+  CoordinateTransformCrsReference,
+  CoordinateTransformGridProvenance,
+  CoordinateTransformPlan,
+  CoordinateTransformPlanOperation,
+  CoordinateTransformPlanOptions,
+  CoordinateTransformPlanReason,
+} from "./core/coordinates/transform/coordinateTransformPlan";
 export type {
   CopcCrsDiagnosticReason,
   CopcCrsDiagnosticReasonCode,
@@ -171,6 +183,9 @@ export type {
 export {
   transformPointBufferToPointData,
   transformPointBufferToPreparedPointData,
+} from "./core/coordinates/transform/createPointTransformer";
+export type {
+  PlannedCoordinateTransformer,
 } from "./core/coordinates/transform/createPointTransformer";
 export {
   assertPreparedPointData,

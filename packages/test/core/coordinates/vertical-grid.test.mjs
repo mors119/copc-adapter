@@ -387,6 +387,7 @@ test("source WKT, grid units, manual offset, inverse query and ECEF agree", asyn
   assert.deepEqual([...prepared.source.coordinates], [0.5, 0.5, 100]);
   assert.deepEqual([...sourceCoordinates], [0.5, 0.5, 100]);
   assert.equal(prepared.geographic.coordinates[2], 130);
+  assert.strictEqual(applyPreparedPointVerticalGrid(prepared, grid), prepared);
   const expectedEcef = geographicToEcef(transformed);
   assert.deepEqual([...prepared.world.coordinates], [expectedEcef.x, expectedEcef.y, expectedEcef.z]);
 
@@ -406,6 +407,20 @@ test("source WKT, grid units, manual offset, inverse query and ECEF agree", asyn
   const correctedPrepared = applyPreparedPointVerticalGrid(rustLikePrepared, grid);
   assert.deepEqual([...correctedPrepared.geographic.coordinates], [...prepared.geographic.coordinates]);
   assert.deepEqual([...correctedPrepared.world.coordinates], [...prepared.world.coordinates]);
+
+  const canonicallyPrepared = applyPreparedPointVerticalGrid(
+    rustLikePrepared,
+    grid,
+    {
+      alreadyAppliedHeightOffsetMeters: 5,
+      targetHeightOffsetMeters: 5,
+    },
+  );
+  assert.deepEqual(
+    [...canonicallyPrepared.geographic.coordinates],
+    [...prepared.geographic.coordinates],
+  );
+  assert.deepEqual([...rustLikePrepared.geographic.coordinates], [0.5, 0.5, 105]);
 });
 
 test("grid transforms use the strict vertical unit scale in both directions and bounds", async () => {

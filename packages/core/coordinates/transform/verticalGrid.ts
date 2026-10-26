@@ -293,6 +293,15 @@ export class GtxGeoidGrid {
   readonly targetVerticalCrs: "EPSG:4979";
   readonly valueUnit: VerticalGridValueUnit;
   readonly interpolation = "bilinear" as const;
+  /** Longitude coverage behavior recorded from the verified GTX dimensions. */
+  readonly globalLongitudeCoverage: "none" | "duplicated-seam" | "periodic";
+  /** Validated horizontal CRS used to sample this grid. */
+  readonly horizontalCrs = "EPSG:4326" as const;
+  /** Validated ellipsoid and shift sign convention for grid values. */
+  readonly referenceEllipsoid = "WGS84" as const;
+  readonly valueConvention = "ellipsoidal-minus-orthometric" as const;
+  /** Effective NoData sentinel; null means no sentinel was declared. */
+  readonly noDataValue: number | null;
   readonly width: number;
   readonly height: number;
   readonly longitudeOrigin: number;
@@ -303,6 +312,10 @@ export class GtxGeoidGrid {
   readonly decodedByteLength: number;
   readonly minimumUndulationMeters: number;
   readonly maximumUndulationMeters: number;
+  /** Source coordinate epoch supplied with the grid operation, when applicable. */
+  readonly sourceCoordinateEpoch?: number;
+  /** Grid reference epoch supplied with the grid operation, when applicable. */
+  readonly gridReferenceEpoch?: number;
   readonly #values?: Float32Array | Float64Array;
   readonly #readValue?: (row: number, column: number) => number;
   readonly #noDataValue?: number;
@@ -332,6 +345,7 @@ export class GtxGeoidGrid {
     this.sourceVerticalCrs = input.options.sourceVerticalCrs.trim();
     this.targetVerticalCrs = WGS84_ELLIPSOIDAL_CRS;
     this.valueUnit = input.options.valueUnit;
+    this.globalLongitudeCoverage = input.globalLongitudeCoverage;
     this.width = input.width;
     this.height = input.height;
     this.longitudeOrigin = input.longitudeOrigin;
@@ -340,11 +354,12 @@ export class GtxGeoidGrid {
     this.latitudeStep = input.latitudeStep;
     this.#values = input.values;
     this.#readValue = input.readValue;
-    this.#noDataValue = input.options.noDataValue === null
-      ? undefined
+    this.noDataValue = input.options.noDataValue === null
+      ? null
       : input.values instanceof Float32Array
         ? Math.fround(input.options.noDataValue)
         : input.options.noDataValue;
+    this.#noDataValue = this.noDataValue === null ? undefined : this.noDataValue;
     this.#metresPerGridUnit = METRES_PER_UNIT[input.options.valueUnit];
     this.#hasMatchedEpoch =
       input.options.sourceCoordinateEpoch !== undefined &&
@@ -353,7 +368,9 @@ export class GtxGeoidGrid {
     this.decodedByteLength = input.decodedByteLength ?? input.values?.byteLength ?? 0;
     this.minimumUndulationMeters = input.minimumUndulationMeters;
     this.maximumUndulationMeters = input.maximumUndulationMeters;
-    this.#globalLongitudeCoverage = input.globalLongitudeCoverage;
+    this.sourceCoordinateEpoch = input.options.sourceCoordinateEpoch;
+    this.gridReferenceEpoch = input.options.gridReferenceEpoch;
+    this.#globalLongitudeCoverage = this.globalLongitudeCoverage;
     Object.freeze(this);
   }
 
