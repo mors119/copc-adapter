@@ -16,6 +16,7 @@ const CONTRADICTORY_IDENTIFIERS = 'PROJCS["Conflicting identifiers",GEOGCS["WGS 
 const WGS84_3D = 'GEOGCRS["WGS 84",DATUM["World Geodetic System 1984",ELLIPSOID["WGS 84",6378137,298.257223563,LENGTHUNIT["metre",1]],ID["EPSG",6326]],CS[ellipsoidal,3],AXIS["geodetic latitude (Lat)",north,ORDER[1],ANGLEUNIT["degree",0.0174532925199433]],AXIS["geodetic longitude (Lon)",east,ORDER[2],ANGLEUNIT["degree",0.0174532925199433]],AXIS["ellipsoidal height (h)",up,ORDER[3],LENGTHUNIT["metre",1]],ID["EPSG",4979]]';
 const CONTRADICTORY_UNIT = 'PROJCS["Conflicting unit",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],UNIT["US survey foot",0.3048]]';
 const PARTIAL_AXIS_UNIT = 'PROJCRS["Partial axis unit",BASEGEOGCRS["WGS 84",DATUM["WGS 84",ELLIPSOID["WGS 84",6378137,298.257223563,LENGTHUNIT["metre",1]]],PRIMEM["Greenwich",0],ANGLEUNIT["degree",0.0174532925199433]],CONVERSION["test",METHOD["Transverse Mercator"]],CS[Cartesian,2],AXIS["Easting",east,ORDER[1],LENGTHUNIT["metre",1]],AXIS["Northing",north,ORDER[2],LENGTHUNIT["bad",0]]]';
+const CONFLICTING_VERTICAL_UNIT = 'VERTCRS["Gravity-related height",VDATUM["Test datum"],CS[vertical,1],AXIS["gravity-related height",up,LENGTHUNIT["metre",1]],LENGTHUNIT["foot",0.3048]]';
 
 test("reports source CRS identities, explicit axes, and distinct foot definitions", () => {
   const autzen = auditFixtures.find((fixture) => fixture.id === "autzen-wkt1-compound-lcc");
@@ -90,6 +91,13 @@ test("leaves horizontal units unknown when any declared axis unit is unresolvabl
   assert.ok(diagnostic.reasons.some((reason) => reason.code === "unsupported-horizontal-unit"));
 });
 
+test("rejects a vertical axis unit that conflicts with the CRS-level unit", () => {
+  const diagnostic = resolveCopcCrsMetadata(CONFLICTING_VERTICAL_UNIT);
+
+  assert.equal(diagnostic.vertical.units.kind, "unknown");
+  assert.ok(diagnostic.reasons.some((reason) => reason.code === "conflicting-axis-units"));
+});
+
 test("unknown WKT2 vertical systems remain unknown even with an explicit unit", () => {
   const fixture = auditFixtures.find((entry) => entry.id === "utm11-wkt2-projcrs");
   assert.ok(fixture);
@@ -119,6 +127,8 @@ test("marks only an explicit three-dimensional EPSG:4979 source as ellipsoidal",
   assert.equal(explicit3d.vertical.heightKind.value, "ellipsoidal");
   assert.equal(explicit3d.vertical.heightKind.certainty, "explicit");
   assert.equal(explicit3d.vertical.units.standard, "metre");
+  assert.equal(explicit3d.horizontal.units.standard, "degree");
+  assert.ok(!explicit3d.reasons.some((reason) => reason.code === "unsupported-horizontal-unit"));
   assert.equal(geographic2d.vertical.heightKind.value, "local/unknown");
 });
 

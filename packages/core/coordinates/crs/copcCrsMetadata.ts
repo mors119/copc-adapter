@@ -350,25 +350,45 @@ function unresolvedUnit(keywords: readonly string[]): ParsedUnit {
   };
 }
 
-function declaredUnit(section: string, keyword: string, axis?: string): ParsedUnit | undefined {
+function declaredUnit(
+  section: string,
+  keyword: string,
+  axis?: string,
+  horizontalAxesOnly = false,
+): ParsedUnit | undefined {
   const isGeographic = ["GEOGCS", "GEOGCRS", "GEODCRS"].includes(keyword);
   const targets = isGeographic ? ["ANGLEUNIT", "UNIT"] : ["LENGTHUNIT", "UNIT"];
-  if (axis) {
-    const axisUnit = parseUnit(axis, targets);
-    if (axisUnit) return axisUnit;
-    if (allSections(axis).some(({ keyword: child }) => targets.includes(child))) {
-      return unresolvedUnit(targets);
-    }
+  const direct = directSections(section).filter(({ keyword: child }) => targets.includes(child));
+  const directUnits = direct.map(({ text }) => parseUnit(text, targets));
+  if (directUnits.some((unit) => unit === undefined)) return unresolvedUnit(targets);
+  const normalizedDirectUnits = directUnits as ParsedUnit[];
+  const directUnit = normalizedDirectUnits[0];
+  if (normalizedDirectUnits.some((unit) =>
+    unit.kind !== directUnit?.kind ||
+    Math.abs(unit.toSi - directUnit!.toSi) > Math.max(1e-14, directUnit!.toSi * 1e-12),
+  )) {
+    return { ...directUnit!, name: "__conflicting_units__" };
   }
-  const axes = directSections(section).filter(({ keyword: child }) => child === "AXIS");
+
+  let axes = axis
+    ? [{ keyword: "AXIS", text: axis }]
+    : directSections(section).filter(({ keyword: child }) => child === "AXIS");
+  if (horizontalAxesOnly && isGeographic) {
+    axes = axes.filter(({ text }) => {
+      const parsed = parseAxis(text);
+      return !parsed || (
+        parsed.direction !== "UP" &&
+        parsed.direction !== "DOWN" &&
+        !/\b(?:height|vertical)\b/i.test(parsed.name)
+      );
+    });
+  }
   const axisDeclarations = axes.map(({ text }) => ({
     hasUnit: allSections(text).some(({ keyword: child }) => targets.includes(child)),
     unit: parseUnit(text, targets),
   }));
-  const direct = directSections(section).filter(({ keyword: child }) => targets.includes(child));
-  const directUnit = direct.length > 0 ? parseUnit(direct[0].text, targets) : undefined;
   if (!axisDeclarations.some(({ hasUnit }) => hasUnit)) {
-    return direct.length > 0 ? directUnit ?? unresolvedUnit(targets) : undefined;
+    return directUnit;
   }
   if (axisDeclarations.some(({ hasUnit, unit }) => !hasUnit || !unit)) {
     return unresolvedUnit(targets);
@@ -380,12 +400,8 @@ function declaredUnit(section: string, keyword: string, axis?: string): ParsedUn
     Math.abs(unit.toSi - first.toSi) > Math.max(1e-14, first.toSi * 1e-12),
   );
   if (inconsistentAxisUnits) return { ...first, name: "__conflicting_units__" };
-  if (direct.length > 0) {
-    if (!directUnit) return unresolvedUnit(targets);
-    if (
-      directUnit.kind !== first.kind ||
-      Math.abs(directUnit.toSi - first.toSi) > Math.max(1e-14, first.toSi * 1e-12)
-    ) {
+  if (directUnit) {
+    if (directUnit.kind !== first.kind || Math.abs(directUnit.toSi - first.toSi) > Math.max(1e-14, first.toSi * 1e-12)) {
       return { ...first, name: "__conflicting_units__" };
     }
   }
@@ -490,7 +506,7 @@ export function resolveCopcCrsMetadata(
     const axes = directSections(horizontal.text).filter(({ keyword }) => keyword === "AXIS").map(({ text }) => parseAxis(text)).filter((axis): axis is { name: string; direction: string } => axis !== undefined);
     diagnostic.horizontal.axisOrder = axisOrder(axes);
     if (diagnostic.horizontal.axisOrder.certainty === "explicit") diagnostic.evidence.push({ field: "axis-order", source: "wkt", value: axes.slice(0, 2).map(({ direction }) => direction.toLowerCase()).join(","), certainty: "explicit" });
-    const horizontalUnit = declaredUnit(horizontal.text, horizontal.keyword);
+    const horizontalUnit = declaredUnit(horizontal.text, horizontal.keyword, undefined, true);
     if (horizontalUnit?.name === "__conflicting_units__") {
       addReason(diagnostic, "conflicting-axis-units", "Horizontal coordinate axes declare inconsistent units.");
     } else if (horizontalUnit?.name === "__unsupported_units__") {
