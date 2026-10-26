@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./ci-diagnostic-fixtures";
 import { createServer } from "node:http";
 
 type ProbeResult = {

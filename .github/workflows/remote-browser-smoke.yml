@@ -1,0 +1,96 @@
+name: Remote Browser Smoke
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  remote-browser-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            packages/package-lock.json
+            apps/dev-viewer/package-lock.json
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install adapter dependencies
+        run: npm ci --prefix packages
+
+      - name: Install viewer dependencies
+        run: npm ci --prefix apps/dev-viewer
+
+      - name: Prepare Rust/WASM asset
+        run: npm --prefix packages run prepare-copc-adapter-wasm
+
+      - name: Install Chromium for direct browser requests
+        run: npx --prefix apps/dev-viewer playwright install --with-deps chromium
+
+      - name: Probe public sources from Chromium
+        env:
+          CI: "true"
+          COPC_ADAPTER_WASM_PREPARED: "1"
+          COPC_REMOTE_SMOKE: "1"
+        run: npm --prefix apps/dev-viewer run test:e2e -- e2e/remote-source-smoke.spec.ts --workers=1
+
+      - name: Summarize PASS, FAIL, and LIMITED sources
+        if: always()
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const reportPath = 'apps/dev-viewer/test-results/remote-smoke/results.json';
+          const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+          let results = [];
+          if (fs.existsSync(reportPath)) {
+            try {
+              results = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+            } catch {
+              results = [];
+            }
+          }
+          const rows = results.map(({ label, host, state, reason }) =>
+            `| ${label} | ${host} | ${state} | ${reason} |`,
+          );
+          const body = rows.length
+            ? ['| Source | Host | State | Evidence |', '| --- | --- | --- | --- |', ...rows].join('\n')
+            : 'No source result was produced. State: LIMITED / UNAVAILABLE.';
+          fs.appendFileSync(summaryPath, `## Direct remote browser smoke\n\n${body}\n\n`);
+          for (const result of results) {
+            console.log(`${result.state}: ${result.label} (${result.host}) — ${result.reason}`);
+          }
+          if (results.some((result) => result.state === 'LIMITED')) {
+            console.log('One or more sources were LIMITED; this is not recorded as a source PASS.');
+          }
+          NODE
+
+      - name: Upload bounded remote smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: remote-browser-smoke-evidence
+          path: |
+            apps/dev-viewer/test-results/remote-smoke/results.json
+            apps/dev-viewer/test-results/results.json
+          if-no-files-found: ignore
+          retention-days: 14
