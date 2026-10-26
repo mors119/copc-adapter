@@ -1,7 +1,11 @@
 # Issue #244: Vertical CRS and geoid-grid decision
 
-**Status:** Generic offline GTX conversion and opt-in support for the exact NGA EGM2008 2.5-minute grid implemented; no survey/control-point accuracy claim.
-**Reviewed:** 2026-10-22.
+**Status:** Caller-supplied offline GTX conversion and the pinned NGA EGM2008
+2.5-minute profile are implemented. The profile matches official grid-node
+and bilinear reference values, but no independent survey/control-point
+accuracy is claimed. KNGeoid24 remains unsupported pending verified file,
+CRS/frame, interpolation, numerical-reference, and reuse evidence.
+**Reviewed:** 2026-10-27.
 **Scope:** Explicit orthometric-to-ellipsoidal conversion for COPC point heights.
 
 Issue [#244](https://github.com/mors119/copc-adapter/issues/244) asks whether
@@ -116,7 +120,15 @@ README, and model PDF inspected for this work contain no explicit grid
 redistribution or modification licence. Free public download alone is not
 treated as permission for COPC Adapter to bundle or redistribute it.
 
-### Official access and metadata findings (reviewed 2026-10-22)
+### Official access and metadata findings (reviewed 2026-10-22; rechecked 2026-10-27)
+
+**Rechecked 2026-10-27:** NGA's current page still lists the 2.5-minute
+interpolation archive and GeoGRAV service. NGII's 2025 English brochure
+confirms that KNGeoid24 was developed in 2024, but does not publish the model
+file or its technical CRS metadata. The accessible Public Data Portal record
+is specifically for KNGEOID18 (modified 2025-06-21); its Type 3 terms do not
+establish KNGeoid24 reuse rights. The exact KNGeoid24 file and its terms remain
+unverified.
 
 - **KNGeoid24:** the MOLIT release says the model is available free through
   the National Land Information Platform, but the release does not link the
@@ -768,6 +780,7 @@ depend on a developer-specific path or require an external grid download.
 
 - [NGS: Converting GPS Height into NAVD88 Elevation with the GEOID96 Geoid Height Model](https://www.ngs.noaa.gov/PUBS_LIB/gislis96.html)
 - [MOLIT / NGII: 2024 National Geoid Model announcement](https://www.molit.go.kr/USR/NEWS/m_71/dtl.jsp?id=95090271&lcmspage=52)
+- [NGII: 2025 English brochure, including KNGeoid24 overview](https://www.ngii.go.kr/lib/file/2025_ENG-%EA%B5%AD%ED%86%A0%EC%A7%80%EB%A6%AC%EC%A0%95%EB%B3%B4%EC%9B%90%20%EB%B8%8C%EB%A1%9C%EC%8A%88%EC%96%B4.pdf)
 - [Public Data Portal: NGII KNGeoid18 grid record and terms](https://www.data.go.kr/data/15122553/fileData.do)
 - [NGA Office of Geomatics: EGM2008 data and grid](https://earth-info.nga.mil/index.php?action=geoid&dir=wgs84)
 - [NGA official EGM2008 interpolation ZIP](https://earth-info.nga.mil/php/download.php?file=egm-08interpolation)
