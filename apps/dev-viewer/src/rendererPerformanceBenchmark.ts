@@ -5,7 +5,11 @@ import type {
   CopcPointBuffer,
 } from "../../../packages/core/copc/types/copc";
 import { performanceNow } from "../../../packages/core/copc/performance";
-import { transformPointBufferToPreparedPointData } from "../../../packages/core/coordinates/transform/createPointTransformer";
+import {
+  applyPreparedPointHeightOffset,
+  transformPointBufferToPreparedPointData,
+} from "../../../packages/core/coordinates/transform/createPointTransformer";
+import { writeEcefForEllipsoidalHeightOffset } from "../../../packages/core/coordinates/transform/ellipsoidalHeightOffset";
 import { createCompactEPointCacheNode } from "../../../packages/core/point/compactEPointCache";
 import {
   ThreePointRenderer,
@@ -27,6 +31,26 @@ export type BenchmarkRange = {
   minMs: number;
   medianMs: number;
   maxMs: number;
+};
+
+export type BenchmarkPercentiles = {
+  p50Ms: number;
+  p95Ms: number;
+};
+
+export type EllipsoidalHeightOffsetBenchmark = {
+  pointCount: number;
+  warmups: number;
+  repetitions: number;
+  baselineOffsetMeters: number;
+  targetOffsetMeters: number;
+  fullPointPreparation: BenchmarkPercentiles;
+  preparedPointReposition: BenchmarkPercentiles;
+  ecefNormalUpdate: BenchmarkPercentiles;
+  additionalEcefBufferBytes: number;
+  additionalEcefBufferBytesPerPoint: number;
+  maximumReferenceErrorMeters: number;
+  scope: "CPU coordinate buffers only; excludes renderer updates, GPU uploads, network, and decode";
 };
 
 export type RendererPerformanceBenchmarkRow = {
@@ -139,6 +163,120 @@ function summarize(values: number[]): BenchmarkRange {
     minMs: sorted[0] ?? 0,
     medianMs: sorted[Math.floor(sorted.length / 2)] ?? 0,
     maxMs: sorted[sorted.length - 1] ?? 0,
+  };
+}
+
+function summarizePercentiles(values: number[]): BenchmarkPercentiles {
+  if (values.length === 0) return { p50Ms: 0, p95Ms: 0 };
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  const p50Ms =
+    sorted.length % 2 === 0
+      ? ((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2
+      : (sorted[middle] ?? 0);
+  const p95Index = Math.max(0, Math.ceil(sorted.length * 0.95) - 1);
+  return { p50Ms, p95Ms: sorted[p95Index] ?? 0 };
+}
+
+/**
+ * Compare full coordinate preparation, the existing cached geographic-height
+ * update, and the baseline-relative WGS84-normal ECEF prototype. This is a
+ * coordinate-buffer CPU comparison only; it does not update a live renderer,
+ * measure GPU uploads, or establish that a layer-level fast path is safe.
+ */
+export function runSyntheticEllipsoidalHeightOffsetBenchmark(options: {
+  pointCount?: number;
+  repetitions?: number;
+  warmups?: number;
+  baselineOffsetMeters?: number;
+  targetOffsetMeters?: number;
+} = {}): EllipsoidalHeightOffsetBenchmark {
+  const pointCount = Math.max(1, Math.floor(options.pointCount ?? 100_000));
+  const repetitions = Math.max(1, Math.floor(options.repetitions ?? 7));
+  const warmups = Math.max(0, Math.floor(options.warmups ?? 2));
+  const baselineOffsetMeters = options.baselineOffsetMeters ?? 0;
+  const targetOffsetMeters = options.targetOffsetMeters ?? 150;
+  if (
+    !Number.isFinite(baselineOffsetMeters) ||
+    !Number.isFinite(targetOffsetMeters)
+  ) {
+    throw new RangeError("Benchmark height offsets must be finite numbers");
+  }
+
+  const fullPreparationSamples: number[] = [];
+  const preparedRepositionSamples: number[] = [];
+  const ecefNormalUpdateSamples: number[] = [];
+  let maximumReferenceErrorMeters = 0;
+  let additionalEcefBufferBytes = 0;
+
+  for (let repetition = 0; repetition < warmups + repetitions; repetition += 1) {
+    const pointBuffer = createDeterministicPointBuffer(pointCount);
+    const baseline = transformPointBufferToPreparedPointData(
+      SYNTHETIC_METADATA,
+      pointBuffer,
+      baselineOffsetMeters,
+    );
+    const fastOutput = new Float64Array(pointCount * 3);
+
+    const fullPreparationStartedAt = performanceNow();
+    transformPointBufferToPreparedPointData(
+      SYNTHETIC_METADATA,
+      pointBuffer,
+      targetOffsetMeters,
+    );
+    const fullPreparationDuration = performanceNow() - fullPreparationStartedAt;
+
+    const preparedRepositionStartedAt = performanceNow();
+    const reference = applyPreparedPointHeightOffset(
+      baseline,
+      targetOffsetMeters - baselineOffsetMeters,
+    );
+    const preparedRepositionDuration =
+      performanceNow() - preparedRepositionStartedAt;
+
+    const ecefNormalUpdateStartedAt = performanceNow();
+    writeEcefForEllipsoidalHeightOffset(
+      baseline.world.coordinates,
+      baseline.geographic.coordinates,
+      baselineOffsetMeters,
+      targetOffsetMeters,
+      fastOutput,
+    );
+    const ecefNormalUpdateDuration =
+      performanceNow() - ecefNormalUpdateStartedAt;
+
+    for (let index = 0; index < fastOutput.length; index += 3) {
+      const dx = fastOutput[index] - reference.world.coordinates[index];
+      const dy = fastOutput[index + 1] - reference.world.coordinates[index + 1];
+      const dz = fastOutput[index + 2] - reference.world.coordinates[index + 2];
+      maximumReferenceErrorMeters = Math.max(
+        maximumReferenceErrorMeters,
+        Math.hypot(dx, dy, dz),
+      );
+    }
+
+    if (repetition >= warmups) {
+      fullPreparationSamples.push(fullPreparationDuration);
+      preparedRepositionSamples.push(preparedRepositionDuration);
+      ecefNormalUpdateSamples.push(ecefNormalUpdateDuration);
+      additionalEcefBufferBytes = fastOutput.byteLength;
+    }
+  }
+
+  return {
+    pointCount,
+    warmups,
+    repetitions,
+    baselineOffsetMeters,
+    targetOffsetMeters,
+    fullPointPreparation: summarizePercentiles(fullPreparationSamples),
+    preparedPointReposition: summarizePercentiles(preparedRepositionSamples),
+    ecefNormalUpdate: summarizePercentiles(ecefNormalUpdateSamples),
+    additionalEcefBufferBytes,
+    additionalEcefBufferBytesPerPoint: additionalEcefBufferBytes / pointCount,
+    maximumReferenceErrorMeters,
+    scope:
+      "CPU coordinate buffers only; excludes renderer updates, GPU uploads, network, and decode",
   };
 }
 

@@ -1,7 +1,14 @@
 import * as Cesium from "cesium";
 
+export type DevTerrainFixtureProvider = Cesium.TerrainProvider & {
+  setHeightMeters(heightMeters: number): void;
+};
+
 /** Deterministic browser-test provider with the same public sampling contract. */
-export function createDevTerrainFixture(heightMeters: number): Cesium.TerrainProvider {
+export function createDevTerrainFixture(
+  heightMeters: number,
+): DevTerrainFixtureProvider {
+  let currentHeightMeters = heightMeters;
   const tilingScheme = new Cesium.GeographicTilingScheme();
   const maximumLevel = 6;
   const availability = new Cesium.TileAvailability(
@@ -47,7 +54,7 @@ export function createDevTerrainFixture(heightMeters: number): Cesium.TerrainPro
     requestTileGeometry(): Promise<Cesium.HeightmapTerrainData> {
       return Promise.resolve(
         new Cesium.HeightmapTerrainData({
-          buffer: new Float32Array(16 * 16).fill(heightMeters),
+          buffer: new Float32Array(16 * 16).fill(currentHeightMeters),
           width: 16,
           height: 16,
           childTileMask: 15,
@@ -59,5 +66,13 @@ export function createDevTerrainFixture(heightMeters: number): Cesium.TerrainPro
   Object.defineProperty(provider, "constructor", {
     value: { name: "ControlledTerrainProvider" },
   });
-  return provider as unknown as Cesium.TerrainProvider;
+  Object.defineProperty(provider, "setHeightMeters", {
+    value(nextHeightMeters: number): void {
+      if (!Number.isFinite(nextHeightMeters)) {
+        throw new RangeError("Terrain fixture height must be finite");
+      }
+      currentHeightMeters = nextHeightMeters;
+    },
+  });
+  return provider as unknown as DevTerrainFixtureProvider;
 }
