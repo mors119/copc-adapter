@@ -2,7 +2,10 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "./ci-diagnostic-fixtures";
-import { readBoundedBodyLength } from "./remote-smoke-utils";
+import {
+  readBoundedBodyLength,
+  withAbortDeadline,
+} from "./remote-smoke-utils";
 
 const packageEntryUrl = `/@fs/${fileURLToPath(
   new URL("../../../packages/index.ts", import.meta.url),
@@ -11,6 +14,7 @@ const smokeUtilsUrl = `/@fs/${fileURLToPath(
   new URL("./remote-smoke-utils.ts", import.meta.url),
 )}`;
 const viewerRoot = fileURLToPath(new URL("..", import.meta.url));
+const SOURCE_READ_DEADLINE_MS = 15_000;
 
 const remoteSources = [
   {
@@ -68,9 +72,16 @@ test("classifies direct browser Range reads for public COPC sources", async ({
   const results: SmokeResult[] = [];
   for (const source of remoteSources) {
     const result = await page.evaluate(
-      async ({ moduleUrl, smokeUtilsUrl, sourceUrl, label }) => {
+      async ({
+        moduleUrl,
+        smokeUtilsUrl,
+        sourceUrl,
+        label,
+        sourceReadDeadlineMs,
+      }) => {
         type RequestEvidence = SmokeResult["requests"][number];
         const requests: RequestEvidence[] = [];
+        const helpers = await import(/* @vite-ignore */ smokeUtilsUrl);
         const nativeFetch = window.fetch.bind(window);
         const fetchWithEvidence: typeof window.fetch = async (input, init) => {
           const range = new Headers(init?.headers).get("Range") ?? undefined;
@@ -85,7 +96,6 @@ test("classifies direct browser Range reads for public COPC sources", async ({
                 : undefined;
             let bodyLength: number | undefined;
             try {
-              const helpers = await import(/* @vite-ignore */ smokeUtilsUrl);
               bodyLength = await helpers.readBoundedBodyLength(response, 257);
             } catch {
               // The direct browser request can be readable while the body is
@@ -118,8 +128,14 @@ test("classifies direct browser Range reads for public COPC sources", async ({
         });
         let bytes: Uint8Array | undefined;
         let adapterError: string | undefined;
+        let sourceTimedOut = false;
         try {
-          bytes = await byteSource.readRange(0, 256);
+          const read = await helpers.withAbortDeadline(
+            (signal: AbortSignal) => byteSource.readRange(0, 256, { signal }),
+            sourceReadDeadlineMs,
+          );
+          sourceTimedOut = read.timedOut;
+          if (!read.timedOut) bytes = read.value;
         } catch (error) {
           const candidate = error as { code?: string; name?: string };
           adapterError = candidate.code ?? candidate.name ?? "read failed";
@@ -127,6 +143,15 @@ test("classifies direct browser Range reads for public COPC sources", async ({
 
         const get = requests.find((request) => request.method === "GET");
         const host = new URL(sourceUrl).hostname;
+        if (sourceTimedOut) {
+          return {
+            label,
+            host,
+            state: "LIMITED" as const,
+            reason: `browser Range read exceeded the ${sourceReadDeadlineMs / 1000}-second deadline and was aborted`,
+            requests,
+          };
+        }
         if (!get || get.status !== 206) {
           return {
             label,
@@ -210,6 +235,7 @@ test("classifies direct browser Range reads for public COPC sources", async ({
         smokeUtilsUrl,
         sourceUrl: source.url,
         label: source.label,
+        sourceReadDeadlineMs: SOURCE_READ_DEADLINE_MS,
       },
     );
     results.push(result);
@@ -262,4 +288,20 @@ test("does not wait for an unconsumed response clone to cancel", async () => {
     if (timeout) clearTimeout(timeout);
     await response.body?.cancel();
   }
+});
+
+test("aborts an individual source read when its deadline expires", async () => {
+  let observedSignal: AbortSignal | undefined;
+  const read = withAbortDeadline(
+    (signal) => {
+      observedSignal = signal;
+      return new Promise<never>(() => {
+        signal.addEventListener("abort", () => undefined, { once: true });
+      });
+    },
+    20,
+  );
+
+  await expect(read).resolves.toEqual({ timedOut: true });
+  expect(observedSignal?.aborted).toBe(true);
 });
