@@ -81,6 +81,22 @@ type VerticalGridIntegration = {
         longestMainThreadBlockingSectionMs?: number;
       };
     };
+    camera: {
+      longitude: number;
+      latitude: number;
+      height: number;
+      pitch: number;
+      heading: number;
+      position: { x: number; y: number; z: number };
+      direction: { x: number; y: number; z: number };
+    };
+    cameraEvents: {
+      changedCount: number;
+      moveEndCount: number;
+      postRenderFrameCount: number;
+      lastChangedAtMs?: number;
+      lastMoveEndAtMs?: number;
+    };
     selectedPoint?: Point;
     boundingSphere?: { x: number; y: number; z: number; radius: number };
     errors: string[];
@@ -135,6 +151,7 @@ declare global {
 }
 
 let syntheticCopc: Buffer | undefined;
+const browserErrorsByPage = new WeakMap<Page, string[]>();
 
 function asSyntheticWgs84Fixture(source: Buffer): Buffer {
   const copy = Buffer.from(source);
@@ -234,9 +251,15 @@ async function installSyntheticCopcRoute(page: Page): Promise<void> {
 }
 
 async function gotoFixture(page: Page): Promise<void> {
-  page.on("pageerror", (error) => console.error("vertical-grid pageerror:", error));
+  const browserErrors: string[] = [];
+  browserErrorsByPage.set(page, browserErrors);
+  page.on("pageerror", (error) => {
+    browserErrors.push(error.message);
+    console.error("vertical-grid pageerror:", error);
+  });
   page.on("console", (message) => {
     if (message.type() === "error") {
+      browserErrors.push(message.text());
       console.error("vertical-grid browser console:", message.text());
     }
   });
@@ -301,6 +324,48 @@ async function layerState(page: Page, id: string) {
     if (!window.__VERTICAL_GRID_INTEGRATION__) throw new Error("Fixture missing");
     return window.__VERTICAL_GRID_INTEGRATION__.getState(layerId);
   }, id);
+}
+
+async function expectCameraMoveUpdate(
+  page: Page,
+  id: string,
+  before: Awaited<ReturnType<typeof layerState>>,
+  phase: string,
+  hasCompletedSelection: (
+    state: Awaited<ReturnType<typeof layerState>>,
+  ) => boolean,
+): Promise<void> {
+  let latest: Awaited<ReturnType<typeof layerState>> | undefined;
+  try {
+    await expect
+      .poll(async () => {
+        latest = await layerState(page, id);
+        return hasCompletedSelection(latest);
+      })
+      .toBe(true);
+  } catch (error) {
+    const after = latest ?? await layerState(page, id);
+    const diagnostics = {
+      phase,
+      layerId: id,
+      before,
+      after,
+      browserErrors: browserErrorsByPage.get(page) ?? [],
+    };
+    const serialized = JSON.stringify(diagnostics, null, 2);
+    try {
+      await test.info().attach("vertical-grid-camera-diagnostics.json", {
+        body: serialized,
+        contentType: "application/json",
+      });
+    } catch {
+      // Keep the diagnostic in the assertion message if attachment is unavailable.
+    }
+    throw new Error(
+      `Camera move did not complete the expected streaming selection (${phase}):\n${serialized}`,
+      { cause: error },
+    );
+  }
 }
 
 async function grid(
@@ -949,14 +1014,21 @@ test("Cesium applies opt-in GTX correction once through streaming, reload, bound
     window.__VERTICAL_GRID_INTEGRATION__!.zoomTo("corrected"),
   );
   expect(zoomed).toBe(true);
-  const beforeCameraMove = (await layerState(page, "corrected")).snapshot;
+  const cameraMoveState = await layerState(page, "corrected");
+  const beforeCameraMove = cameraMoveState.snapshot;
   await page.evaluate(() =>
     window.__VERTICAL_GRID_INTEGRATION__!.setCamera(-123, 44, 18_000),
   );
-  await expect
-    .poll(async () => (await layerState(page, "corrected")).snapshot.streamingUpdateCount)
-    .toBeGreaterThan(beforeCameraMove.streamingUpdateCount);
-  const beforeLookingAway = (await layerState(page, "corrected")).snapshot;
+  await expectCameraMoveUpdate(
+    page,
+    "corrected",
+    cameraMoveState,
+    "move-to-18km",
+    (state) =>
+      state.snapshot.streamingUpdateCount > beforeCameraMove.streamingUpdateCount,
+  );
+  const lookingAwayState = await layerState(page, "corrected");
+  const beforeLookingAway = lookingAwayState.snapshot;
   await page.evaluate(() =>
     window.__VERTICAL_GRID_INTEGRATION__!.setCamera(
       -123,
@@ -965,13 +1037,15 @@ test("Cesium applies opt-in GTX correction once through streaming, reload, bound
       Math.PI / 2,
     ),
   );
-  await expect
-    .poll(async () => {
-      const snapshot = (await layerState(page, "corrected")).snapshot;
-      return snapshot.streamingUpdateCount > beforeLookingAway.streamingUpdateCount &&
-        (snapshot.performance?.frustumCulledCount ?? 0) > 0;
-    })
-    .toBe(true);
+  await expectCameraMoveUpdate(
+    page,
+    "corrected",
+    lookingAwayState,
+    "look-away-and-frustum-cull",
+    (state) =>
+      state.snapshot.streamingUpdateCount > beforeLookingAway.streamingUpdateCount &&
+      (state.snapshot.performance?.frustumCulledCount ?? 0) > 0,
+  );
   await expect.poll(() => screenPoint(page, "corrected")).toBeUndefined();
   const cacheHitsBeforeCameraRevisit =
     (await layerState(page, "corrected")).snapshot.pointCache.hits;
