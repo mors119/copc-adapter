@@ -411,29 +411,31 @@ test("switches renderer and backend, applies controls, and inspects a Three poin
   const selectedCanvas = page.locator(
     '#cesium-container canvas[aria-label="Interactive Three.js COPC point cloud"]',
   );
-  const selectedCanvasBounds = await selectedCanvas.boundingBox();
-  let nextPickPosition: { x: number; y: number } | undefined;
   await expect
     .poll(async () => {
-      nextPickPosition = await page.evaluate(() =>
+      return page.evaluate(() =>
         window.__COPC_DEV_VIEWER__?.getPickablePointScreenPosition(),
       );
-      return nextPickPosition;
     })
     .toBeTruthy();
-  if (!selectedCanvasBounds || !nextPickPosition)
-    throw new Error(
-      "No pickable Three.js point is available after backend reload.",
+  // Streaming can replace point buffers between projecting a candidate and
+  // dispatching the click. Refresh the candidate for each bounded retry.
+  let selectedPoint: ReturnType<DevViewerApi["getSelectedPoint"]>;
+  for (let attempt = 0; attempt < 5 && !selectedPoint; attempt += 1) {
+    const selectedCanvasBounds = await selectedCanvas.boundingBox();
+    const nextPickPosition = await page.evaluate(() =>
+      window.__COPC_DEV_VIEWER__?.getPickablePointScreenPosition(),
     );
-  await page.mouse.click(
-    selectedCanvasBounds.x + nextPickPosition.x,
-    selectedCanvasBounds.y + nextPickPosition.y,
-  );
-  await expect
-    .poll(async () =>
-      page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSelectedPoint()),
-    )
-    .toMatchObject({ pointIndex: expect.any(Number) });
+    if (!selectedCanvasBounds || !nextPickPosition) continue;
+    await page.mouse.click(
+      selectedCanvasBounds.x + nextPickPosition.x,
+      selectedCanvasBounds.y + nextPickPosition.y,
+    );
+    selectedPoint = await page.evaluate(() =>
+      window.__COPC_DEV_VIEWER__?.getSelectedPoint(),
+    );
+  }
+  expect(selectedPoint).toMatchObject({ pointIndex: expect.any(Number) });
   await expect(pointPopover).toBeVisible();
 
   await rendererGroup.getByRole("radio", { name: "Cesium" }).click();
