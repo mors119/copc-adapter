@@ -142,6 +142,30 @@ Cesium
 
 현재 conformance에는 Autzen/SoFi뿐 아니라 EPSG:5186 Korean Central Belt 2010 control도 포함되어 있습니다.
 
+### 좌표 변환 계획 v1
+
+`CoordinateTransformPlan`은 데이터셋 좌표 경로를 설명하는 불변 renderer-neutral 타입입니다. `createCoordinateTransformPlan`으로 진단용 스냅샷을 만들 수 있고, TypeScript 정방향/역방향 transformer의 `plan` 속성에서 실제 설정을 확인할 수 있습니다. Streaming core는 같은 메타데이터와 연산 입력에 대해 계획을 재사용하고 Rust 준비 결과의 후처리를 조정합니다.
+
+논리적인 처리 순서는 다음과 같습니다.
+
+```text
+LAS scale/offset 디코드
+  → source 축과 단위 정규화
+  → 수평 기준계를 WGS 84 geographic으로 변환
+  → 설정된 검증 수직 격자를 한 번 적용
+  → 수동 타원체고 offset을 한 번 적용
+  → 별도로 승인된 terrain 배치 잔차를 viewer에서 적용
+  → WGS 84 ECEF 준비
+```
+
+Rust는 디코드, CRS/단위 변환, 수동 offset, ECEF 준비를 융합할 수 있습니다. 수직 격자가 설정되면 TypeScript는 Rust 결과에 이미 포함된 offset을 제거하고, 격자를 샘플링한 다음 요청된 offset을 적용해 ECEF를 다시 계산합니다. 이 작업은 공유 후처리 한 번으로 처리하며 source 좌표는 유지합니다. 격자가 없는 기존 경로는 높이를 그대로 전달하고, source CRS 진단이 알 수 없는 수직 기준계를 명시합니다. 계획의 confidence는 메타데이터 근거를 설명하며 실제 backend 변환 지원은 별도로 backend-dependent로 기록합니다.
+
+계획에는 source/target CRS, 축과 단위 근거, 수동 offset, WKT 선택 출처, 선택적 격자 ID와 SHA-256, 격자 범위와 극값, 격자 epoch, 역변환 요구사항, 미지원 사유가 포함됩니다. identity key는 source WKT와 선택 출처, source 범위와 LAS scale/offset, 격자 식별값/범위/epoch, height offset을 담은 정확한 JSON 튜플입니다. 이 값은 동일성 키이며 콘텐츠 checksum은 아닙니다.
+
+준비 데이터의 cache 수명은 나머지 동일성 범위를 관리합니다. Streaming core는 source generation 동안 하나의 변환 설정과 node cache를 사용합니다. reload 시 cache를 새로 만들고 기존 generation의 worker 결과는 거부합니다. 실험용 compact-E 항목은 source identity, WKT, transform generation, height offset, grid ID/hash도 보관합니다. 향후 TerrainProvider나 승인된 배치 잔차가 바뀌면 해당 layer generation을 갱신해야 합니다. Terrain 잔차는 지오데틱 계획 밖의 viewer 작업이며 datum 변환으로 기록하지 않습니다.
+
+역변환 계획은 지원되는 경우 수동 offset, 수직 격자, 수평 projection을 되돌려 camera/LoD bounds를 source 공간으로 계산합니다. 합성 query bounds는 인위적인 모서리를 샘플링하지 않고 격자의 보수적 극값을 사용합니다. 계획은 필요한 역변환 의미를 기록하고 backend 지원 실패는 안전하게 반환합니다.
+
 ## 7. Cesium renderer
 
 ```text

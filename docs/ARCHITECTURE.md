@@ -177,6 +177,59 @@ the backend-neutral renderer boundary. Rust/WASM returns the same contract
 directly from its fused decode/CRS/ECEF/statistics operation, while copc-js
 continues to use the TypeScript reference implementation.
 
+### Coordinate Transform Plan (version 1)
+
+`CoordinateTransformPlan` is the immutable, renderer-neutral description of a
+dataset's logical coordinate path. `createCoordinateTransformPlan` exposes a
+snapshot for diagnostics, and the TypeScript forward and inverse transformers
+carry the same plan on their `plan` property. The streaming core resolves the
+memoized plan once per metadata/operation input tuple and uses it to coordinate
+the Rust prepared-point post-processing path.
+
+The version 1 order is:
+
+```text
+decode LAS scale/offset
+  → normalize source axes and units
+  → transform horizontal reference to WGS 84 geographic
+  → apply a verified vertical grid once, when configured
+  → apply manual ellipsoidal height offset once
+  → apply separately approved terrain placement residual in the viewer
+  → prepare WGS 84 ECEF
+```
+
+Rust may fuse decode, source CRS conversion, unit conversion, the manual offset,
+and ECEF preparation. For a configured grid, TypeScript removes any offset
+already fused by Rust, samples the grid, then applies the requested offset and
+rebuilds ECEF in one shared post-processing pass. This preserves the plan order
+without an extra per-point allocation pass. Source coordinates remain intact.
+No-grid plans retain the existing height pass-through and record unknown
+vertical-reference reasons from the source CRS diagnostic. A plan's confidence
+describes metadata evidence; backend transform support remains
+backend-dependent.
+
+Each plan records source and target CRS identities, source axis/unit evidence,
+manual offset, WKT selection provenance, optional grid id and SHA-256, grid
+coverage/extrema, matched grid epochs, inverse-query requirements, and stable
+unsupported reasons. Its identity key is the exact JSON tuple of source WKT and
+selection, source bounds and LAS scale/offset, grid identity/extent/epochs, and
+height offset. The key is an identity value, not a content checksum.
+
+Prepared/cache lifetime supplies the remaining identity dimensions. A
+streaming core owns one transform configuration and node cache for a source
+generation; reload replaces that cache and stale worker results are rejected
+by the existing generation checks. Experimental compact-E cache entries also
+retain source identity, source WKT, transform generation, height offset, and
+grid id/hash. Any future TerrainProvider or approved placement-residual change
+must advance the owning layer generation. Terrain residuals stay outside the
+geodetic plan and are never represented as datum conversion.
+
+The inverse plan requires camera/LoD bounds to reverse manual offsets, vertical
+grid conversion, and horizontal projection when supported. Synthetic query
+bounds use conservative grid extrema rather than sampling artificial corners.
+The plan describes required inverse semantics; actual CRS inverse support is
+reported as backend-dependent and failures remain fail-closed.
+
 ## Future processing direction
 
 The current architecture above already provides the pure Rust processing core,

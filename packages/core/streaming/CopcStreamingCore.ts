@@ -28,6 +28,10 @@ import {
   createProjectPointTransformer,
   transformPointBufferToPreparedPointData,
 } from "../coordinates/transform/createPointTransformer";
+import {
+  getCoordinateTransformPlan,
+  type CoordinateTransformPlan,
+} from "../coordinates/transform/coordinateTransformPlan";
 import { resolveHeightOffsetMeters } from "../coordinates/transform/heightOffset";
 import { GtxGeoidGrid } from "../coordinates/transform/verticalGrid";
 import type {
@@ -37,6 +41,7 @@ import type {
 } from "../copc/types/copc";
 import {
   assertPreparedPointData,
+  recordPreparedCoordinateOperations,
   preparedPointDataToGeographicBuffer,
 } from "../point/preparedPoint";
 import {
@@ -1480,6 +1485,10 @@ class CopcStreamingCoreImplementation<TPointData> {
     performanceRecorder: StreamingPerformanceRecorder,
     loadGeneration: number,
   ): NodePointCache<CachedPointData> {
+    const coordinatePlan = getCoordinateTransformPlan(metadata, {
+      heightOffsetMeters: this.heightOffsetMeters,
+      verticalGrid: this.verticalGrid,
+    });
     return createNodePointCache(
       (nodeKey, signal, purpose) =>
         this.loadRenderableNodePoints(
@@ -1490,6 +1499,7 @@ class CopcStreamingCoreImplementation<TPointData> {
           nodeKey,
           signal,
           loadGeneration,
+          coordinatePlan,
           purpose,
         ),
       {
@@ -1507,6 +1517,7 @@ class CopcStreamingCoreImplementation<TPointData> {
     nodeKey: string,
     signal: AbortSignal,
     loadGeneration: number,
+    coordinatePlan: CoordinateTransformPlan,
     purpose: NodePointLoadPurpose = "current",
   ): Promise<CachedPointData> {
     const streamingNode = nodesRef.current.get(nodeKey);
@@ -1536,11 +1547,14 @@ class CopcStreamingCoreImplementation<TPointData> {
       }
       assertPreparedPointData(prepared);
       const alreadyAppliedOffset = context.preparedHeightOffsetMeters ?? 0;
-      const offsetPrepared = applyPreparedPointHeightOffset(
-        prepared,
-        this.heightOffsetMeters - alreadyAppliedOffset,
-      );
-      if (!this.verticalGrid) {
+      recordPreparedCoordinateOperations(prepared, {
+        manualHeightOffsetMeters: alreadyAppliedOffset,
+      });
+      if (!coordinatePlan.verticalGrid) {
+        const offsetPrepared = applyPreparedPointHeightOffset(
+          prepared,
+          coordinatePlan.manualHeightOffsetMeters - alreadyAppliedOffset,
+        );
         return this.toCacheRepresentation(
           offsetPrepared,
           nodeKey,
@@ -1549,12 +1563,26 @@ class CopcStreamingCoreImplementation<TPointData> {
           loadGeneration,
         );
       }
+      if (coordinatePlan.verticalGrid.compatibility !== "validated") {
+        throw new Error(
+          coordinatePlan.verticalGrid.compatibilityMessage ??
+            "Coordinate transform plan contains an unsupported vertical grid",
+        );
+      }
 
+      const verticalGrid = this.verticalGrid;
+      if (!verticalGrid) {
+        throw new Error("Coordinate transform plan requires a verified vertical grid");
+      }
       const gridTransformStartedAt =
         purpose === "prefetch" ? undefined : performanceNow();
       const gridCorrected = applyPreparedPointVerticalGrid(
-        offsetPrepared,
-        this.verticalGrid,
+        prepared,
+        verticalGrid,
+        {
+          alreadyAppliedHeightOffsetMeters: alreadyAppliedOffset,
+          targetHeightOffsetMeters: coordinatePlan.manualHeightOffsetMeters,
+        },
       );
       if (gridTransformStartedAt !== undefined) {
         performanceRecorder.recordStage(

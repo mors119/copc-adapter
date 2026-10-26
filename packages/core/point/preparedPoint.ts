@@ -15,6 +15,16 @@ type PreparedPointDataInput = {
   statistics?: PreparedPointStatistics;
 };
 
+/** Operations already reflected in one in-process prepared result. */
+export type PreparedCoordinateOperationState = Readonly<{
+  /** Net manual ellipsoidal-height offset currently included, when known. */
+  manualHeightOffsetMeters?: number;
+  /** Complete verified-grid operation identity currently included, when any. */
+  verticalGridIdentity?: string;
+}>;
+
+const preparedOperationStates = new WeakMap<object, PreparedCoordinateOperationState>();
+
 function assertPointCount(pointCount: number): void {
   if (!Number.isSafeInteger(pointCount) || pointCount < 0) {
     throw new RangeError(
@@ -213,6 +223,30 @@ export function createPreparedPointData(
     worldCoordinates: world.coordinates,
     worldCoordinateSystem: world.coordinateSystem,
   };
+}
+
+/** Record transformations at a prepared/cache boundary without changing the public data shape. */
+export function recordPreparedCoordinateOperations(
+  prepared: PreparedPointData,
+  state: PreparedCoordinateOperationState,
+): void {
+  if (
+    state.manualHeightOffsetMeters !== undefined &&
+    !Number.isFinite(state.manualHeightOffsetMeters)
+  ) {
+    throw new RangeError("Prepared manual height offset provenance must be finite");
+  }
+  preparedOperationStates.set(
+    prepared,
+    Object.freeze({ ...preparedOperationStates.get(prepared), ...state }),
+  );
+}
+
+/** Return operations recorded for this exact in-process prepared object. */
+export function getPreparedCoordinateOperations(
+  prepared: PreparedPointData,
+): PreparedCoordinateOperationState | undefined {
+  return preparedOperationStates.get(prepared);
 }
 
 /** Validate the stable contract at an internal cache/worker boundary. */
