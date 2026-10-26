@@ -71,6 +71,7 @@ type VerticalGridIntegration = {
       };
       transition: { activeReplacementGroupCount: number };
       performance?: {
+        selectedNodeCount?: number;
         candidatesBeforeCulling: number;
         frustumCulledCount: number;
         loadedNodeCount?: number;
@@ -1025,11 +1026,23 @@ test("Cesium applies opt-in GTX correction once through streaming, reload, bound
     "corrected",
     cameraMoveState,
     "move-to-18km",
-    (state) =>
-      state.snapshot.streamingUpdateCount > beforeCameraMove.streamingUpdateCount,
+    (state) => {
+      const beforeKeys = [...beforeCameraMove.selectedNodeKeys].sort();
+      const selectedKeys = [...state.snapshot.selectedNodeKeys].sort();
+      // Camera updates can supersede the core counter after the latest
+      // selection is committed, so verify the settled selection itself.
+      return (
+        state.cameraEvents.changedCount > cameraMoveState.cameraEvents.changedCount &&
+        Math.abs(state.camera.height - 18_000) < 1 &&
+        selectedKeys.join(",") !== beforeKeys.join(",") &&
+        state.snapshot.renderedPointCount > 0 &&
+        (state.snapshot.performance?.selectedNodeCount ?? 0) ===
+          selectedKeys.length &&
+        (state.snapshot.performance?.updateDurationMs ?? 0) > 0
+      );
+    },
   );
   const lookingAwayState = await layerState(page, "corrected");
-  const beforeLookingAway = lookingAwayState.snapshot;
   await page.evaluate(() =>
     window.__VERTICAL_GRID_INTEGRATION__!.setCamera(
       -123,
@@ -1043,9 +1056,16 @@ test("Cesium applies opt-in GTX correction once through streaming, reload, bound
     "corrected",
     lookingAwayState,
     "look-away-and-frustum-cull",
+    // A camera change can supersede the core update counter after its empty
+    // frustum selection has already removed the rendered points.
     (state) =>
-      state.snapshot.streamingUpdateCount > beforeLookingAway.streamingUpdateCount &&
-      (state.snapshot.performance?.frustumCulledCount ?? 0) > 0,
+      state.cameraEvents.changedCount > lookingAwayState.cameraEvents.changedCount &&
+      state.camera.pitch > 0 &&
+      state.snapshot.renderedPointCount === 0 &&
+      state.snapshot.selectedNodeKeys.length === 0 &&
+      state.snapshot.performance?.selectedNodeCount === 0 &&
+      (state.snapshot.performance?.frustumCulledCount ?? 0) > 0 &&
+      (state.snapshot.performance?.updateDurationMs ?? 0) > 0,
   );
   await expect.poll(() => screenPoint(page, "corrected")).toBeUndefined();
   const cacheHitsBeforeCameraRevisit =
