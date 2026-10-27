@@ -572,12 +572,12 @@ fn find_direct_sections<'a>(section: &'a str, keyword: &str) -> Vec<&'a str> {
             while bytes.get(open).is_some_and(u8::is_ascii_whitespace) {
                 open += 1;
             }
-            if bytes.get(open) == Some(&b'[') {
-                if let Some(axis) = find_section(&section[index..], keyword) {
-                    matches.push(axis);
-                    index += axis.len();
-                    continue;
-                }
+            if bytes.get(open) == Some(&b'[')
+                && let Some(axis) = find_section(&section[index..], keyword)
+            {
+                matches.push(axis);
+                index += axis.len();
+                continue;
             }
         }
 

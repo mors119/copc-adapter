@@ -123,7 +123,7 @@ The first prioritized validation target is the public Autzen COPC. The existing
 CRS fixture retains its real compound WKT, and now also records the values read
 from the LAS 1.4 header. The object is 81,123,042 bytes with SHA-256
 `db2d56cdfa058bffccdc5d6019dae2fc9c6a551df10a5523c06c76a3e25a27fa`, as
-declared in [`samples/datasets.json`](../../samples/datasets.json). An HTTP
+declared in the repository sample registry (`samples/datasets.json`). An HTTP
 Range response for bytes `0-65535` returned `206` with that total size.
 
 The header reports scale `0.01` for XYZ; Z offset `510.7`; and source Z bounds
@@ -133,7 +133,7 @@ GIC Lambert, international-foot projected axes) and vertical EPSG:6360
 explicit vertical unit factor to the header range gives `123.7917196`–
 `187.5316231` m. The values remain NAVD88 orthometric heights after unit
 conversion. The expanded header fixture is in
-[`crates/crs-audit/src/fixtures.json`](../../crates/crs-audit/src/fixtures.json).
+`crates/crs-audit/src/fixtures.json`.
 
 The source horizontal WKT identifies EPSG datum EPSG:6269 (generic NAD83); it
 does not identify a NAD83 realization or coordinate epoch. NOAA states that
