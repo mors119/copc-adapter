@@ -375,8 +375,9 @@ coverage is not implied.
 
 The current audit result is **RUST CRS READY WITH FOCUSED UPSTREAM/FOLLOW-UP**:
 Autzen and SoFi's extracted horizontal CRS paths pass differential validation,
-while full SoFi compound-WKT parsing and the current `PROJCS`-only adapter
-boundary remain explicit follow-up items. The production core uses a focused
+and the adapter now handles WKT2 `PROJCRS` plus a constrained WKT2 compound
+profile for the existing EGM2008 operation. Full SoFi compound-WKT parsing
+remains an explicit upstream follow-up. The production core uses a focused
 nested-`PROJCS` compatibility path for the SoFi parser gap and reports whether
 it was used. See
 [issue-171-proj4rs-compatibility.md](benchmarks/issue-171-proj4rs-compatibility.md)

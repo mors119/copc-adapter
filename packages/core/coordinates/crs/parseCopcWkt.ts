@@ -1,17 +1,20 @@
 export function extractHorizontalWkt(wkt: string): string {
-  const projected = findWktSectionWithOffset(wkt, "PROJCS[");
+  const projected =
+    findWktSectionWithOffset(wkt, "PROJCS[") ??
+    findWktSectionWithOffset(wkt, "PROJCRS[");
   if (!projected) {
     throw new Error("COPC WKT does not contain a projected horizontal CRS");
   }
   return projected.section;
 }
 
-/** Extract the horizontal WKT1 CRS, whether geographic or projected. */
+/** Extract the horizontal CRS component from supported WKT1 and WKT2 forms. */
 export function extractHorizontalCrsWkt(wkt: string): string {
   const rootStart = wkt.search(/\S/);
   const rootGeographic3d = findWktSectionWithOffset(wkt, "GEOGCRS[");
   const horizontal = [
     findWktSectionWithOffset(wkt, "PROJCS["),
+    findWktSectionWithOffset(wkt, "PROJCRS["),
     findWktSectionWithOffset(wkt, "GEOGCS["),
     rootGeographic3d?.start === rootStart ? rootGeographic3d : undefined,
   ]
@@ -21,6 +24,70 @@ export function extractHorizontalCrsWkt(wkt: string): string {
     throw new Error("COPC WKT does not contain a supported horizontal CRS");
   }
   return horizontal.section;
+}
+
+export type HorizontalAxisDirection = "east" | "west" | "north" | "south";
+export type HorizontalAxisDirections = readonly [
+  HorizontalAxisDirection,
+  HorizontalAxisDirection,
+];
+
+/**
+ * Read the first two horizontal axis directions in their declared CRS order.
+ *
+ * Missing axes retain the adapter's established X/Y tuple behavior. When axes
+ * are present, only one east/west and one north/south axis are transformable.
+ */
+export function getHorizontalAxisDirections(
+  wkt: string,
+): HorizontalAxisDirections | undefined {
+  const horizontalWkt = extractHorizontalCrsWkt(wkt);
+  const axes = findDirectWktSections(horizontalWkt, ["AXIS["]);
+  if (axes.length === 0) return undefined;
+  if (axes.length < 2) {
+    throw new Error("COPC horizontal CRS must declare two transformable axes");
+  }
+  const orderedAxes = axes
+    .map(({ section }, index) => {
+      const orderSection = findDirectWktSections(section, ["ORDER["])[0]?.section;
+      const orderMatch = orderSection?.match(/^ORDER\s*\[\s*(\d+)\s*\]/i);
+      if (orderSection && !orderMatch) {
+        throw new Error("COPC horizontal CRS declares invalid axis order");
+      }
+      const direction = section
+        .match(/^AXIS\s*\[\s*"(?:""|[^"])*"\s*,\s*"?([A-Z]+)"?/i)?.[1]
+        ?.toLowerCase();
+      return {
+        order: orderMatch ? Number(orderMatch[1]) : index + 1,
+        direction,
+      };
+    })
+    .sort((left, right) => left.order - right.order);
+  if (
+    orderedAxes.some((axis, index) => !Number.isSafeInteger(axis.order) || axis.order < 1 ||
+      (index > 0 && axis.order === orderedAxes[index - 1].order))
+  ) {
+    throw new Error("COPC horizontal CRS declares invalid axis order");
+  }
+  const directions = orderedAxes.slice(0, 2).map(({ direction }) => direction);
+  const supported = new Set(["east", "west", "north", "south"]);
+  const [first, second] = directions;
+  if (
+    !first ||
+    !second ||
+    !supported.has(first) ||
+    !supported.has(second)
+  ) {
+    throw new Error("COPC horizontal CRS declares an unsupported axis direction");
+  }
+  const horizontalDirections = [first, second] as HorizontalAxisDirections;
+  if (
+    horizontalDirections.filter((direction) => direction === "east" || direction === "west").length !== 1 ||
+    horizontalDirections.filter((direction) => direction === "north" || direction === "south").length !== 1
+  ) {
+    throw new Error("COPC horizontal CRS axes must contain one east/west and one north/south direction");
+  }
+  return horizontalDirections;
 }
 
 export function extractHorizontalUnitScale(wkt: string): number {
@@ -104,19 +171,24 @@ export function extractHorizontalUnitScale(wkt: string): number {
     throw new Error("COPC geographic WKT does not declare an angular unit");
   }
 
+  if (/^PROJCRS\s*\[/i.test(horizontalWkt)) {
+    const axisUnits = findDirectWktSections(horizontalWkt, ["AXIS["])
+      .map(({ section }) => findDirectWktSections(section, ["LENGTHUNIT["])[0]?.section);
+    if (axisUnits.length === 0 || axisUnits.some((unit) => unit === undefined)) {
+      throw new Error("COPC projected WKT2 does not declare a length unit for every axis");
+    }
+    const factors = axisUnits.map((unit) => parseLengthUnitFactor(unit!, "LENGTHUNIT"));
+    if (factors.some((factor) => Math.abs(factor - factors[0]) > Math.max(1e-14, factors[0] * 1e-12))) {
+      throw new Error("COPC projected WKT2 declares conflicting axis units");
+    }
+    return factors[0];
+  }
+
   return 1;
 }
 
 export function extractVerticalUnitScale(wkt: string): number {
-  const match = wkt.match(
-    /VERT_CS\[[\s\S]*?UNIT\["[^"]+",([0-9.]+(?:e-?\d+)?)(?:,AUTHORITY|\])/i,
-  );
-
-  if (!match) {
-    return 1;
-  }
-
-  return Number(match[1]);
+  return extractExplicitVerticalUnitScale(wkt) ?? 1;
 }
 
 export type VerticalCrsIdentity = {
@@ -387,24 +459,47 @@ export function getRootCrsIdentity(wkt: string): RootCrsIdentity | undefined {
 }
 
 /**
- * Return the explicitly declared WKT1 vertical unit scale in metres.
+ * Return the explicitly declared WKT1/WKT2 vertical unit scale in metres.
  *
  * The legacy `extractVerticalUnitScale` keeps its metre fallback for existing
  * rendering behavior. A requested datum conversion must use this strict
  * helper instead so an absent or malformed unit is never assumed to be metres.
  */
 export function extractExplicitVerticalUnitScale(wkt: string): number | undefined {
-  const section = findWktSection(wkt, "VERT_CS[");
+  const wkt1 = findWktSection(wkt, "VERT_CS[");
+  const section = wkt1 ?? findWktSection(wkt, "VERTCRS[");
   if (!section) return undefined;
-  const unit = findDirectWktSections(section, ["UNIT["])[0]?.section;
-  if (!unit) return undefined;
-  const match = unit.match(
-    /^UNIT\s*\[\s*"[^"]+"\s*,\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)(?=\s*(?:,|\]))/i,
+  const unitKeyword = wkt1 ? "UNIT[" : "LENGTHUNIT[";
+  const unitName = wkt1 ? "UNIT" : "LENGTHUNIT";
+  const rootUnits = findDirectWktSections(section, [unitKeyword])
+    .map(({ section: unit }) => parseLengthUnitFactor(unit, unitName));
+  const axes = findDirectWktSections(section, ["AXIS["]);
+  const axisUnits = axes.map(({ section: axis }) =>
+    findDirectWktSections(axis, [unitKeyword])[0]?.section,
   );
-  if (!match) throw new Error("COPC vertical WKT has an invalid unit");
-  const scale = Number(match[1]);
-  if (!Number.isFinite(scale) || scale <= 0) {
-    throw new Error("COPC vertical WKT unit scale must be finite and positive");
+  if (axisUnits.some((unit) => unit === undefined) && axisUnits.some((unit) => unit !== undefined)) {
+    throw new Error("COPC vertical WKT must declare a unit for every axis");
   }
-  return scale;
+  const factors = [
+    ...rootUnits,
+    ...axisUnits.filter((unit): unit is string => unit !== undefined)
+      .map((unit) => parseLengthUnitFactor(unit, unitName)),
+  ];
+  if (factors.length === 0) return undefined;
+  if (factors.some((factor) => Math.abs(factor - factors[0]) > Math.max(1e-14, factors[0] * 1e-12))) {
+    throw new Error("COPC vertical WKT declares conflicting units");
+  }
+  return factors[0];
+}
+
+function parseLengthUnitFactor(unit: string, keyword: "UNIT" | "LENGTHUNIT"): number {
+  const match = unit.match(
+    new RegExp(`^${keyword}\\s*\\[\\s*"(?:""|[^"])*"\\s*,\\s*([+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:e[+-]?\\d+)?)(?=\\s*(?:,|\\]))`, "i"),
+  );
+  if (!match) throw new Error("COPC WKT has an invalid linear unit declaration");
+  const factor = Number(match[1]);
+  if (!Number.isFinite(factor) || factor <= 0) {
+    throw new Error("COPC WKT linear unit scale must be finite and positive");
+  }
+  return factor;
 }

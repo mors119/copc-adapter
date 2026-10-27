@@ -75,6 +75,14 @@ const layer = new CopcCesiumLayer({
 원본 좌표는 바뀌지 않습니다. 정밀한 수직 datum 변환을 요청하는 앱은 source metadata가
 부족하거나 호환되지 않을 때 실패하는 기존 명시적 변환 경로를 사용해야 합니다.
 
+현재 명시적 그리드 변환은 지원되는 WKT1 `COMPD_CS`와 WKT2 `COMPOUNDCRS` 일부를
+처리합니다. WKT2에서는 `VERTCRS`의 축 단위를 읽고, 명시된 동/서 및 북/남 축 순서를
+투영 입력 순서로 정규화합니다. 이 지원 범위는 임의의 WKT2, 기준계 또는 epoch 변환을
+포함하지 않습니다. Autzen의 EPSG:6360 NAVD88과 NOAA GEOID18은 source realization과
+좌표 epoch가 확인되기 전까지 변환하지 않습니다. 자세한 근거는
+[수직 CRS 및 GEOID18 검증 기록](../proposals/issue-244-vertical-crs-geoid-grid.md)을
+참조하세요.
+
 ## Lifecycle
 
 ```ts

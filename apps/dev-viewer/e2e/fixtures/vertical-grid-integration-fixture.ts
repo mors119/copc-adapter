@@ -3,6 +3,7 @@ import {
   CopcJsBackend,
   CopcCesiumLayer,
   RustCopcBackend,
+  RustCrsTransformer,
   VerticalTransformError,
   createCopcPointFieldSelection,
   loadGtxGeoidGrid,
@@ -11,7 +12,11 @@ import {
   type CopcPointInspection,
   type GtxGeoidGrid,
 } from "@frillab/copc-adapter/cesium";
-import { applyPreparedPointVerticalGrid } from "../../../../packages/core/coordinates/transform/createPointTransformer";
+import {
+  applyPreparedPointVerticalGrid,
+  createPointTransformer,
+  createProjectPointTransformer,
+} from "../../../../packages/core/coordinates/transform/createPointTransformer";
 
 type LayerOptions = {
   id: string;
@@ -67,6 +72,15 @@ type VerticalGridIntegration = {
     sourceVerticalCrs?: string,
     shape?: GridShape,
   ): Promise<string>;
+  transformWkt2Control(input: {
+    wkt: string;
+    point: { x: number; y: number; z: number };
+    gridId: string;
+  }): Promise<{
+    geographic: { longitude: number; latitude: number; height: number };
+    projected: { x: number; y: number; z: number };
+    rustGeographic: [number, number, number];
+  }>;
   getGridInfo(id: string): {
     width: number;
     height: number;
@@ -346,6 +360,48 @@ integrationWindow.__VERTICAL_GRID_INTEGRATION__ = {
     grids.set(gridId, grid);
     gridLoadDurationMs.set(gridId, performance.now() - loadStartedAt);
     return gridId;
+  },
+  async transformWkt2Control({ wkt, point, gridId }) {
+    const verticalGrid = grids.get(gridId);
+    if (!verticalGrid) throw new Error(`Unknown vertical grid: ${gridId}`);
+    const metadata = {
+      pointCount: 1,
+      wkt,
+      bounds: {
+        minX: point.x,
+        minY: point.y,
+        maxX: point.x,
+        maxY: point.y,
+        minZ: point.z,
+        maxZ: point.z,
+      },
+      cube: {
+        minX: point.x,
+        minY: point.y,
+        maxX: point.x,
+        maxY: point.y,
+        minZ: point.z,
+        maxZ: point.z,
+      },
+    };
+    const geographic = createPointTransformer(metadata, 0, verticalGrid)(point);
+    const rustTransformer = await RustCrsTransformer.fromMetadata(metadata);
+    try {
+      const rust = rustTransformer.transform(
+        new Float64Array([point.x, point.y, point.z]),
+      );
+      return {
+        geographic,
+        projected: createProjectPointTransformer(metadata, 0, verticalGrid)(geographic),
+        rustGeographic: [
+          rust.geographicCoordinates[0],
+          rust.geographicCoordinates[1],
+          rust.geographicCoordinates[2],
+        ],
+      };
+    } finally {
+      rustTransformer.dispose();
+    }
   },
   getGridInfo(id) {
     const grid = grids.get(id);

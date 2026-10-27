@@ -1,6 +1,7 @@
 import {
   extractExplicitVerticalUnitScale,
   extractHorizontalCrsWkt,
+  getHorizontalAxisDirections,
   getVerticalCrsIdentity,
   type VerticalCrsIdentity,
 } from "../crs/parseCopcWkt";
@@ -621,7 +622,7 @@ export class GtxGeoidGrid {
     if (verticalUnitScale === undefined) {
       fail(
         "unsupported-crs-pair",
-        "The requested vertical conversion requires a WKT1 VERT_CS with an explicit vertical unit; no unit is assumed",
+        "The requested vertical conversion requires a WKT1 VERT_CS or WKT2 VERTCRS with an explicit vertical unit; no unit is assumed",
         this.gridId,
       );
     }
@@ -653,15 +654,24 @@ export class GtxGeoidGrid {
     } catch {
       fail("incompatible-reference-frame", "COPC WKT must declare a supported horizontal CRS for grid sampling", this.gridId);
     }
-    const horizontalDatum = horizontalWkt.match(/DATUM\s*\[\s*"([^"]+)"/i)?.[1];
+    try {
+      getHorizontalAxisDirections(wkt);
+    } catch (error) {
+      fail(
+        "incompatible-reference-frame",
+        `COPC horizontal axes are not supported for grid sampling: ${error instanceof Error ? error.message : String(error)}`,
+        this.gridId,
+      );
+    }
+    const horizontalDatum = horizontalWkt.match(/(?:DATUM|ENSEMBLE)\s*\[\s*"([^"]+)"/i)?.[1];
     const horizontalEllipsoid = horizontalWkt.match(
-      /SPHEROID\s*\[\s*"[^"]+"\s*,\s*([+-]?[\d.]+(?:e[+-]?\d+)?)\s*,\s*([+-]?[\d.]+(?:e[+-]?\d+)?)/i,
+      /(?:SPHEROID|ELLIPSOID)\s*\[\s*"[^"]+"\s*,\s*([+-]?[\d.]+(?:e[+-]?\d+)?)\s*,\s*([+-]?[\d.]+(?:e[+-]?\d+)?)/i,
     );
     const semiMajorAxis = horizontalEllipsoid ? Number(horizontalEllipsoid[1]) : NaN;
     const inverseFlattening = horizontalEllipsoid ? Number(horizontalEllipsoid[2]) : NaN;
     if (
       !horizontalDatum ||
-      !/^(?:WGS_1984|D_WGS_1984|WGS 84|World Geodetic System 1984)$/i.test(
+      !/^(?:WGS_1984|D_WGS_1984|WGS 84|World Geodetic System 1984(?: ensemble)?)$/i.test(
         horizontalDatum,
       ) ||
       !near(semiMajorAxis, 6378137, 1e-6) ||

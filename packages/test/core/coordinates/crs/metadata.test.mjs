@@ -39,6 +39,15 @@ test("reports source CRS identities, explicit axes, and distinct foot definition
   assert.equal(diagnostic.vertical.heightKind.value, "gravity-related/orthometric");
   assert.equal(diagnostic.vertical.heightKind.certainty, "explicit");
   assert.ok(diagnostic.evidence.some((item) => item.value === "EPSG:2992"));
+  assert.deepEqual(autzen.las_header.bounds, {
+    min: [635577.79, 848882.15, 406.14],
+    max: [639003.73, 853537.66, 615.26],
+  });
+  assert.deepEqual(autzen.las_header.scale, [0.01, 0.01, 0.01]);
+  assert.equal(autzen.las_header.offset[2], 510.7);
+  assert.equal(autzen.las_header.vertical_unit, "US survey foot");
+  assert.equal(autzen.las_header.vertical_unit_to_metres, 0.304800609601219);
+  assert.equal(/FRAMEEPOCH|DYNAMIC\s*\[/i.test(autzen.wkt), false);
 });
 
 test("records WKT2 compound metadata while keeping transform support backend-dependent", () => {

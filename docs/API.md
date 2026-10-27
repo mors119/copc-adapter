@@ -215,9 +215,11 @@ derived from the nodes currently selected or rendered. The getter returns a
 clone, so mutating it does not change the cached value.
 
 The implementation supports inferred geographic bounds without WKT, WKT1
-geographic/projected coordinate systems, and root WKT2 `GEOGCRS` definitions
-through the existing `proj4` transformation. Projected bounds are accepted up to 2,000 km on each
-horizontal axis, with up to 1,000 km vertical span. The bounds algorithm
+geographic/projected coordinate systems, root WKT2 `GEOGCRS`/`PROJCRS`
+definitions, and the supported WKT2 compound subset used by explicit vertical
+grid conversion. Declared east/west and north/south horizontal axes are
+normalized before projection. Projected bounds are accepted up to 2,000 km on
+each horizontal axis, with up to 1,000 km vertical span. The bounds algorithm
 samples grid edges and cell interiors and pads the sampled sphere by cell
 spacing and observed curvature residual. It rejects invalid values, sampled
 transform discontinuities, unsupported CRS data, and larger extents. This is
@@ -1038,12 +1040,15 @@ Replace the example metadata with values verified for the exact grid file.
 The loader verifies the file SHA-256, GTX structure, geographic extent, memory
 budget, finite values, and the declared NoData sentinel. It cannot prove that
 the caller's CRS, sign, unit, epoch, license, or model label is true. The COPC
-WKT must be a supported WKT1 compound definition with a `GEOGCS` or `PROJCS`
-horizontal CRS and an explicit `VERT_CS` source vertical CRS. The horizontal
-component must declare a supported WGS 84 datum name and the exact WGS 84
-ellipsoid parameters; this includes ESRI's `D_WGS_1984` spelling. Other
-horizontal reference frames fail until a verified frame transformation is
-available. When the WKT declares an outer EPSG vertical authority, the
+WKT must be a supported WKT1 `COMPD_CS` or WKT2 `COMPOUNDCRS` with a
+`GEOGCS`/`PROJCS` or `GEOGCRS`/`PROJCRS` horizontal component and an explicit
+`VERT_CS`/`VERTCRS` source vertical CRS. WKT2 vertical units are read from the
+declared axis units. Explicit east/west and north/south axes are normalized to
+the projection engine's coordinate order; unsupported directions fail closed.
+The horizontal component must declare a supported WGS 84 datum name and the
+exact WGS 84 ellipsoid parameters; this includes ESRI's `D_WGS_1984` spelling.
+Other horizontal reference frames fail until a verified frame transformation
+is available. When the WKT declares an outer EPSG vertical authority, the
 configured source must use that EPSG code; names are accepted only when the
 WKT has no outer authority. Other authority namespaces are not configurable.
 Any explicitly declared vertical axis must point `UP`. The rendering target is

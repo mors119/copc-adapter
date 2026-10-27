@@ -35,6 +35,15 @@ type VerticalGridIntegration = {
     sourceVerticalCrs?: string,
     shape?: { width: number; height: number },
   ): Promise<string>;
+  transformWkt2Control(input: {
+    wkt: string;
+    point: { x: number; y: number; z: number };
+    gridId: string;
+  }): Promise<{
+    geographic: { longitude: number; latitude: number; height: number };
+    projected: { x: number; y: number; z: number };
+    rustGeographic: [number, number, number];
+  }>;
   getGridInfo(id: string): {
     width: number;
     height: number;
@@ -1119,6 +1128,46 @@ test("Cesium applies opt-in GTX correction once through streaming, reload, bound
     id);
   }
   await page.evaluate(() => window.__VERTICAL_GRID_INTEGRATION__!.dispose());
+});
+
+test("browser WKT2 compound axes and EGM2008 grid match the offline CRS control", async ({ page }) => {
+  await page.goto("/e2e/fixtures/vertical-grid-integration.html");
+  await expect
+    .poll(() => page.evaluate(() => Boolean(window.__VERTICAL_GRID_INTEGRATION__)))
+    .toBe(true);
+  const audit = JSON.parse(
+    await readFile(
+      new URL("../../../crates/crs-audit/src/fixtures.json", import.meta.url),
+      "utf8",
+    ),
+  ) as {
+    fixtures: Array<{
+      id: string;
+      wkt: string;
+      points: Array<{ x: number; y: number; z: number }>;
+      expected: Array<{ longitude: number; latitude: number; height: number }>;
+    }>;
+  };
+  const fixture = audit.fixtures.find(
+    (candidate) => candidate.id === "utm11-egm2008-wkt2-compound",
+  );
+  expect(fixture).toBeTruthy();
+  const point = fixture!.points[0];
+  const gridId = await grid(page, 10, false, "EPSG:3855", { width: 361, height: 181 });
+  const result = await page.evaluate(
+    ({ wkt, point, gridId }) =>
+      window.__VERTICAL_GRID_INTEGRATION__!.transformWkt2Control({ wkt, point, gridId }),
+    { wkt: fixture!.wkt, point, gridId },
+  );
+  expectNear(result.geographic.longitude, fixture!.expected[0].longitude, 1e-7);
+  expectNear(result.geographic.latitude, fixture!.expected[0].latitude, 1e-7);
+  expectNear(result.geographic.height, 110, 1e-9);
+  expectNear(result.rustGeographic[0], fixture!.expected[0].longitude, 1e-7);
+  expectNear(result.rustGeographic[1], fixture!.expected[0].latitude, 1e-7);
+  expectNear(result.rustGeographic[2], point.z, 1e-9);
+  expectNear(result.projected.x, point.x, 1e-6);
+  expectNear(result.projected.y, point.y, 1e-6);
+  expectNear(result.projected.z, point.z, 1e-9);
 });
 
 test("Cesium Rust/WASM Worker and non-Worker paths match JavaScript correction", async ({ page }) => {

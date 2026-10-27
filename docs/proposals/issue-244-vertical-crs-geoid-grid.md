@@ -1,10 +1,13 @@
 # Issue #244: Vertical CRS and geoid-grid decision
 
 **Status:** Caller-supplied offline GTX conversion and the pinned NGA EGM2008
-2.5-minute profile are implemented. The profile matches official grid-node
-and bilinear reference values, but no independent survey/control-point
-accuracy is claimed. KNGeoid24 remains unsupported pending verified file,
-CRS/frame, interpolation, numerical-reference, and reuse evidence.
+2.5-minute profile are implemented for the supported WKT1/WKT2 compound
+subset. WKT2 compound CRS behavior has a TypeScript/Rust differential fixture.
+The profile matches official grid-node and bilinear reference values, but no
+independent survey/control-point accuracy is claimed. GEOID18 is not applied to
+Autzen because its source frame and coordinate epoch are unspecified;
+KNGeoid24 remains unsupported pending verified file, CRS/frame, interpolation,
+numerical-reference, and reuse evidence.
 **Reviewed:** 2026-10-27.
 **Scope:** Explicit orthometric-to-ellipsoidal conversion for COPC point heights.
 
@@ -28,14 +31,19 @@ declaration, and interpolation rule. A separate model-specific loader accepts
 only the exact NGA EGM2008 2.5-minute small-endian file identified by a pinned
 SHA-256. That profile fixes EGM2008 height EPSG:3855 to WGS 84 ellipsoidal
 height EPSG:4979, samples WGS 84 longitude/latitude, and uses bilinear
-interpolation. Both paths require a WKT1
-compound source CRS with WGS 84 horizontal datum/ellipsoid and an explicit
-`VERT_CS`, and targets ellipsoidal height EPSG:4979. WKT2 horizontal
-transformation is not supported by the current coordinate path. The library
-does not bundle or download EGM2008 or a Korean NGII grid. The caller must
-obtain the EGM2008 file from NGA and extract it locally. A requested conversion
-fails on missing or ambiguous CRS metadata, a missing/invalid grid, NoData, or
-a coordinate outside coverage; it never renders that point as uncorrected.
+interpolation. Both paths require a supported compound source CRS with WGS 84
+horizontal datum/ellipsoid and an explicit vertical CRS, and target ellipsoidal
+height EPSG:4979. Supported shapes include WKT1 `COMPD_CS` with `GEOGCS` or
+`PROJCS` plus `VERT_CS`, and WKT2 `COMPOUNDCRS` with `GEOGCRS` or `PROJCRS`
+plus `VERTCRS`. WKT2 units are read from the declared coordinate axes, and
+explicit east/west and north/south axis order is normalized before projection.
+This is a constrained subset, not general WKT2 or PROJ support. Unknown axis
+directions, incompatible frames, unsupported projections, missing epochs, and
+unrecognized syntax fail closed. The library does not bundle or download
+EGM2008 or a Korean NGII grid. The caller must obtain the EGM2008 file from
+NGA and extract it locally. A requested conversion fails on missing or
+ambiguous CRS metadata, a missing/invalid grid, NoData, or a coordinate
+outside coverage; it never renders that point as uncorrected.
 
 An eventual `auto` mode may select a registered operation only when the input
 compound CRS identifies a supported vertical CRS and the exact operation,
@@ -93,6 +101,75 @@ evidence for this vertical CRS conversion.
 | EGM2008 | EGM2008 gravity-related height (EPSG:3855) | WGS 84 ellipsoidal height (height component of EPSG:4979) | Implemented only for the pinned NGA 2.5-minute WGS84 Tide-Free small-endian grid. The source compound WKT must identify EPSG:3855 and a supported WGS 84 horizontal CRS. The adapter does no frame or epoch propagation and is not Korea's national height datum. |
 | KNGeoid24 | Korean national orthometric height represented by the NGII model | The ellipsoidal height/frame used by the corresponding GNSS observations and model | NGII confirms the model converts GNSS ellipsoidal heights to Korean elevations and publishes KNGeoid24 as its current model. The accessible product metadata does not establish the exact file's CRS identifier, ellipsoid/frame realization, epoch, grid encoding, interpolation rule, or redistribution terms. Do not claim an EPSG pair or apply it to arbitrary WGS 84-labelled heights until those details are verified with the model file and NGII documentation. |
 | KNGeoid18 | Historic Korean national orthometric height represented by KNGeoid18 | The ellipsoidal height/frame used by that model | Treat as an explicitly versioned legacy operation. NGII's current release recommends its latest model for new surveys. The public data record also restricts third-party transfer without permission and marks the data Attribution-NoDerivatives; it is not approved for bundling or conversion into distributed derivative grids. |
+
+## Issue #322: Autzen NAVD88 validation gate (checked 2026-10-27)
+
+The reviewed source-shape and operation support is:
+
+| Source shape or operation | Metadata / horizontal path | Vertical conversion | Evidence and status |
+| --- | --- | --- | --- |
+| Real Autzen WKT1 `COMPD_CS`: EPSG:2992 + EPSG:6360 NAVD88 | Parsed; offline Rust and TypeScript horizontal controls agree | GEOID18 is not registered for this source | Unsupported pending realization and epoch evidence; header Z range and US survey-foot unit are recorded below |
+| WKT2 standalone `PROJCRS` for UTM zone 11N | Parsed and transformed with east/north axes | None | Offline Rust/TypeScript control fixture passes |
+| Synthetic WKT2 `COMPOUNDCRS`: north/east `PROJCRS` + EPSG:3855 `VERTCRS` | Axis order, declared linear units, and compound horizontal component are parsed | Existing EGM2008 operation with a synthetic 10 m grid | Native Rust, TypeScript, and browser Rust/WASM horizontal controls agree; browser also checks the TypeScript synthetic-grid forward/inverse round trip |
+| EPSG:5186 KGD2002 / Central Belt 2010 | Existing horizontal transform fixture passes | Height datum remains local/unknown without a vertical CRS | Horizontal support only; no Korean vertical operation is registered |
+| WKT2 axes outside east/west and north/south cardinal pairs | Rejected | Rejected before grid sampling | Structured unsupported-axis error; no axis direction is guessed |
+| KNGeoid24 | Metadata and exact source frame remain unverified | No operation registered | Deferred; no EPSG pair or distributable grid is claimed |
+
+The synthetic WKT2 grid row validates the conversion pipeline, axis handling,
+and browser/runtime parity; it is not a model accuracy check. The existing
+NGA EGM2008 profile retains its separate official-grid control evidence.
+
+The first prioritized validation target is the public Autzen COPC. The existing
+CRS fixture retains its real compound WKT, and now also records the values read
+from the LAS 1.4 header. The object is 81,123,042 bytes with SHA-256
+`db2d56cdfa058bffccdc5d6019dae2fc9c6a551df10a5523c06c76a3e25a27fa`, as
+declared in [`samples/datasets.json`](../../samples/datasets.json). An HTTP
+Range response for bytes `0-65535` returned `206` with that total size.
+
+The header reports scale `0.01` for XYZ; Z offset `510.7`; and source Z bounds
+`406.14`–`615.26`. The real WKT declares horizontal EPSG:2992 (NAD83 / Oregon
+GIC Lambert, international-foot projected axes) and vertical EPSG:6360
+(NAVD88 height, US survey foot, unit factor `0.304800609601219`). Applying that
+explicit vertical unit factor to the header range gives `123.7917196`–
+`187.5316231` m. The values remain NAVD88 orthometric heights after unit
+conversion. The expanded header fixture is in
+[`crates/crs-audit/src/fixtures.json`](../../crates/crs-audit/src/fixtures.json).
+
+The source horizontal WKT identifies EPSG datum EPSG:6269 (generic NAD83); it
+does not identify a NAD83 realization or coordinate epoch. NOAA states that
+GEOID18 must be used with NAD83(2011) epoch 2010.0 ellipsoidal coordinates and
+that other NAD83 realizations are incompatible without conversion. Therefore,
+the metadata is not enough to establish the required GEOID18 input frame or
+the horizontal conversion into the grid's sampling frame. No source survey
+epoch or independent Autzen control point was found in the COPC header/WKT.
+
+The official NOAA GEOID18 `g2018u1.bin` grid is obtainable and covers Autzen's
+region. The downloaded file was 4,933,728 bytes, SHA-256
+`92d8960a11a6867903a34ab079883071f2c69798cbb8c8bd9249623bb78e48d3`. Its
+official readme describes a little-endian float32 grid with header
+`(40, 230, 1/60, 1/60, 1081 rows, 1141 columns, kind 1)`, ordered from the
+southwest corner eastward then northward. At the official grid-check node
+45°13′N, 122°46′W, local decoding returns `−23.0760002` m; NOAA's published
+check value is `−23.076` m. This verifies the downloaded file's node
+orientation and sample value at that control, but it does not prove that the
+Autzen source is in the required NAD83(2011) frame.
+
+The NGS Geoid API returns `−23.342` m with an `error` field of `0.034` m at the
+Autzen location computed from the existing projection fixture
+(`44.0563024781°N, 123.0664124403°W`). This location-only response is retained
+as a reference query, not as a valid source-to-grid operation or an independent
+survey comparison: its input coordinate frame is not established by the
+Autzen WKT. Applying `h = H + N` to Autzen now would silently assume that the
+source coordinates match GEOID18's required NAD83(2011) epoch 2010.0 input.
+
+**Decision:** keep NAVD88 unsupported for Autzen until its source realization
+and coordinate epoch, or a documented transformation from them to NAD83(2011)
+epoch 2010.0, is established and validated. Do not substitute WGS 84 or the
+current adapter output label for that frame operation. The GEOID18 grid is
+available; the unresolved item is a verified compatible source/target pair
+and the required horizontal frame conversion. The WKT2 work in this change
+expands parsing and transform coverage for the already supported EGM2008
+profile; it does not add GEOID18 or KNGeoid24 to the runtime operation registry.
 
 NGII identifies Korea's national elevation as height above Incheon mean sea
 level. Its 2024 release names KNGeoid24 as the latest model, reports an average
@@ -789,6 +866,12 @@ depend on a developer-specific path or require an external grid download.
 - [EPSG:3855 EGM2008 height CRS](https://epsg.org/crs_3855/EGM2008-height.html)
 - [EPSG method 1025: Geographic3D to GravityRelatedHeight (EGM2008)](https://epsg.org/coord-operation-method_1025/Geographic3D-to-GravityRelatedHeight-EGM2008.html)
 - [EPSG:4979 WGS 84 geographic 3D CRS](https://epsg.org/crs_4979/WGS-84.html)
+- [NGS GEOID18 technical details and NAD83(2011) epoch requirement](https://www.ngs.noaa.gov/GEOID/GEOID18/geoid18_tech_details.shtml)
+- [NGS GEOID18 downloads and binary grid definitions](https://www.ngs.noaa.gov/GEOID/GEOID18/downloads.shtml)
+- [NGS GEOID18 readme](https://www.ngs.noaa.gov/GEOID/GEOID18/files/geoid18_readme.txt)
+- [NGS GEOID18 official grid check points](https://www.ngs.noaa.gov/GEOID/GEOID18/files/geoid18_grid_check_points.pdf)
+- [NGS Geoid Height Service API](https://www.ngs.noaa.gov/web_services/geoid.shtml)
+- [NGS GEOID18 coordinate computation and coverage](https://www.ngs.noaa.gov/GEOID/GEOID18/computation.html)
 - [GDAL GTX driver documentation](https://gdal.org/en/stable/drivers/raster/gtx.html)
 - [GDAL GTX reader implementation](https://raw.githubusercontent.com/OSGeo/gdal/master/frmts/raw/gtxdataset.cpp)
 - [PROJ: vertical grid shift operation and supported grid formats](https://proj.org/en/stable/operations/transformations/vgridshift.html)
