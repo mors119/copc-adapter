@@ -9,7 +9,10 @@ import type {
   CopcLayerErrorEvent,
   CopcViewCancellationReason,
 } from "../../core/events/layerEventLifecycle";
-import type { CopcColorMode } from "../../core/copc/points/fieldSelection";
+import type {
+  CopcColorMode,
+  CopcPointFieldSelection,
+} from "../../core/copc/points/fieldSelection";
 import type { CopcBackendSelection } from "../../core/copc/backend/selection";
 import type { CopcPointDecoder } from "../../core/copc/points/types";
 import type { CopcHierarchyDiagnostics } from "../../core/copc/hierarchy/types";
@@ -97,6 +100,19 @@ export type CopcCesiumLayerOptions = {
   maxPointSize?: number;
   /** Point color mapping. Defaults to the backward-compatible fixed cyan. */
   colorMode?: CopcColorMode;
+  /**
+   * Standard LAS attributes to retain. Defaults to `all` for synchronous
+   * runtime restyling. `required` keeps initial color-mode fields, classification
+   * for an initial filter, and any fields in `pointFields`.
+   */
+  attributeLoading?: "all" | "required";
+  /** Optional classification filter applied from the first rendered view. */
+  classificationFilter?: CopcCesiumPointStyle["classificationFilter"];
+  /**
+   * Additional standard LAS fields to retain explicitly, including in
+   * `required` mode. Extra schema dimensions are configured separately.
+   */
+  pointFields?: CopcPointFieldSelection;
   /** Retained point-coordinate layout. Defaults to compact E; choose A to retain exact Source and Geographic arrays. */
   coordinateCacheLayout?: "A" | "E";
   /** Manual additive correction in metres applied to ellipsoidal point height. Defaults to 0. */

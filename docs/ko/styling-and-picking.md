@@ -14,8 +14,28 @@ COPC Adapter는 현재 다음 색상 모드를 지원합니다.
 const layer = new CopcCesiumLayer({
   url,
   colorMode: 'rgb',
+  attributeLoading: 'required',
 });
 ```
+
+Cesium은 기본적으로 `attributeLoading: 'all'`로 동작하며 RGB, intensity,
+classification을 cache에 유지합니다. `required`는 초기 `colorMode`에 필요한
+standard LAS attribute만 유지합니다. `fixed`와 `elevation`은 추가 attribute가
+필요하지 않습니다. 초기 classification filter를 사용한다면 색상 모드와 관계없이
+classification도 유지합니다.
+
+```ts
+const layer = new CopcCesiumLayer({
+  url,
+  colorMode: 'rgb',
+  attributeLoading: 'required',
+  classificationFilter: { include: [2, 6] },
+  pointFields: new Set(['intensity']),
+});
+```
+
+`pointFields`는 초기 style에 더해 inspection용 standard attribute를 명시적으로
+유지합니다. Extra LAS dimension을 요청하지는 않습니다.
 
 ## 실행 중 변경
 
@@ -75,6 +95,21 @@ classification code는 `0`부터 `255`까지의 정수입니다.
 - LAZ decode
 
 즉 **같은 점 데이터를 다시 다운로드하지 않고 표현만 변경**할 수 있습니다.
+
+`required` 모드에서 초기 선택에 없는 attribute가 필요한 style/filter를 적용하면
+동기식 오류가 발생하고 이전 style과 selection을 유지합니다. 해당 attribute를
+초기 `colorMode` 또는 `classificationFilter`에서 요청하거나 `pointFields`에
+추가하세요. 모든 style field가 필요하면 `attributeLoading: 'all'`을 사용해
+layer를 다시 만드세요.
+source에 실제 attribute가 없는 경우에는 기존 cyan fallback을 유지합니다.
+단, `required`에서 요청하지 않은 attribute는 source에 있는지 검사되지 않으므로
+오류 메시지가 source availability를 확인하지 않았음을 구분해 안내합니다.
+
+`required`는 준비된 point buffer와 cache의 attribute 메모리를 줄입니다. Rust/WASM
+backend는 선택되지 않은 LAS attribute의 decompression도 건너뜁니다. copc-js backend는
+완전한 point view를 먼저 decode하므로 준비 및 보관 메모리는 줄지만 LAZ attribute
+decompression은 줄지 않습니다. Picking은 계속 가능하지만 보관하지 않은 attribute는
+point inspection 결과에 포함되지 않습니다.
 
 다만 현재 보이는 node의 decoded buffer가 cache에서 이미 제거된 상태라면, `setStyle()`이 몰래 다시 다운로드하는 대신 오류를 발생시키는 것이 현재 계약입니다.
 

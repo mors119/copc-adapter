@@ -165,7 +165,11 @@ function getLayerPointCollection(viewer, layerIndex = 0) {
   return viewer.addedCollections[layerIndex].get(0);
 }
 
-function createBackend({ onFields, metadata: metadataOverride } = {}) {
+function createBackend({
+  onFields,
+  metadata: metadataOverride,
+  sourceFields = ["position", "intensity", "classification", "rgb"],
+} = {}) {
   const node = {
     key: "0-0-0-0",
     level: 0,
@@ -236,9 +240,12 @@ function createBackend({ onFields, metadata: metadataOverride } = {}) {
           async loadPointDataView(_node, fields) {
             pointChunkRequestCount += 1;
             onFields?.([...fields]);
+            const availableFields = new Set(
+              [...fields].filter((field) => sourceFields.includes(field)),
+            );
             return {
               pointCount: node.pointCount,
-              availableFields: fields,
+              availableFields,
               getter() {
                 return () => 0;
               },
@@ -251,17 +258,25 @@ function createBackend({ onFields, metadata: metadataOverride } = {}) {
       },
     },
     decoder: {
-      async decode() {
+      async decode(view) {
         decodeCount += 1;
         return {
           pointCount: 2,
           coordinates: new Float64Array([-122.6, 44.4, 12, -122.4, 44.6, 18]),
           attributes: {
-            intensity: new Uint16Array([100, 500]),
-            classification: new Uint8Array([2, 6]),
-            red: new Uint16Array([255, 128]),
-            green: new Uint16Array([0, 128]),
-            blue: new Uint16Array([0, 255]),
+            ...(view.availableFields.has("intensity")
+              ? { intensity: new Uint16Array([100, 500]) }
+              : {}),
+            ...(view.availableFields.has("classification")
+              ? { classification: new Uint8Array([2, 6]) }
+              : {}),
+            ...(view.availableFields.has("rgb")
+              ? {
+                  red: new Uint16Array([255, 128]),
+                  green: new Uint16Array([0, 128]),
+                  blue: new Uint16Array([0, 255]),
+                }
+              : {}),
           },
         };
       },
@@ -333,6 +348,217 @@ test("CopcCesiumLayer delegates source and streaming work to the shared core", a
   layer.destroy();
   assert.equal(source.destroyCount, 1);
   assert.equal(viewer.destroyed, false);
+});
+
+test("Cesium attributeLoading defaults to all and required selects initial style fields", async () => {
+  const cases = [
+    { name: "fixed", options: {}, fields: ["position"], bytes: 64 },
+    {
+      name: "elevation",
+      options: { colorMode: "elevation" },
+      fields: ["position"],
+      bytes: 64,
+    },
+    {
+      name: "rgb",
+      options: { colorMode: "rgb" },
+      fields: ["position", "rgb"],
+      bytes: 76,
+    },
+    {
+      name: "intensity",
+      options: { colorMode: "intensity" },
+      fields: ["position", "intensity"],
+      bytes: 68,
+    },
+    {
+      name: "classification",
+      options: { colorMode: "classification" },
+      fields: ["position", "classification"],
+      bytes: 66,
+    },
+    {
+      name: "rgb with initial classification filter",
+      options: {
+        colorMode: "rgb",
+        classificationFilter: { include: [2] },
+      },
+      fields: ["position", "rgb", "classification"],
+      bytes: 78,
+    },
+    {
+      name: "rgb with expressly selected classification",
+      options: {
+        colorMode: "rgb",
+        pointFields: new Set(["classification"]),
+      },
+      fields: ["position", "rgb", "classification"],
+      bytes: 78,
+    },
+  ];
+
+  for (const scenario of cases) {
+    const requestedFields = [];
+    const source = createBackend({
+      onFields: (fields) => requestedFields.push(fields),
+    });
+    const layer = new CopcCesiumLayer({
+      url: `memory://required-fields-${scenario.name}.copc.laz`,
+      backend: source.backend,
+      decoder: source.decoder,
+      attributeLoading: "required",
+      ...scenario.options,
+    });
+    const viewer = createFakeViewer();
+
+    await layer.load();
+    layer.attachTo(viewer);
+    await waitFor(() => layer.getSnapshot().renderedPointCount > 0);
+
+    assert.deepEqual(requestedFields, [scenario.fields], scenario.name);
+    const cache = layer.getPointCacheDiagnostics();
+    assert.equal(cache.currentCacheBytes, scenario.bytes, scenario.name);
+    assert.equal(cache.cacheByteBudget, 256 * 1024 * 1024, scenario.name);
+    assert.equal(source.decodeCount, 1, scenario.name);
+    layer.destroy();
+  }
+
+  const requestedFields = [];
+  const source = createBackend({
+    onFields: (fields) => requestedFields.push(fields),
+  });
+  const layer = new CopcCesiumLayer({
+    url: "memory://required-explicit-fields.copc.laz",
+    backend: source.backend,
+    decoder: source.decoder,
+    attributeLoading: "required",
+    colorMode: "rgb",
+    pointFields: new Set(["classification"]),
+  });
+  const viewer = createFakeViewer();
+  await layer.load();
+  layer.attachTo(viewer);
+  await waitFor(() => layer.getSnapshot().renderedPointCount > 0);
+  const requestCount = source.pointChunkRequestCount;
+  const decodeCount = source.decodeCount;
+  layer.setStyle({ colorMode: "classification" });
+  assert.equal(layer.getStyle().colorMode, "classification");
+  assert.deepEqual(requestedFields, [
+    ["position", "rgb", "classification"],
+  ]);
+  assert.equal(source.pointChunkRequestCount, requestCount);
+  assert.equal(source.decodeCount, decodeCount);
+  layer.destroy();
+
+  for (const attributeLoading of [undefined, "all"]) {
+    const requestedFields = [];
+    const source = createBackend({
+      onFields: (fields) => requestedFields.push(fields),
+    });
+    const layer = new CopcCesiumLayer({
+      url: `memory://all-fields-${attributeLoading ?? "omitted"}.copc.laz`,
+      backend: source.backend,
+      decoder: source.decoder,
+      ...(attributeLoading === undefined ? {} : { attributeLoading }),
+      colorMode: "rgb",
+    });
+    const viewer = createFakeViewer();
+
+    await layer.load();
+    layer.attachTo(viewer);
+    await waitFor(() => layer.getSnapshot().renderedPointCount > 0);
+
+    assert.deepEqual(requestedFields, [
+      ["position", "intensity", "classification", "rgb"],
+    ]);
+    assert.equal(layer.getPointCacheDiagnostics().currentCacheBytes, 82);
+    const requestCount = source.pointChunkRequestCount;
+    const decodeCount = source.decodeCount;
+    layer.setStyle({ colorMode: "classification" });
+    assert.equal(source.pointChunkRequestCount, requestCount);
+    assert.equal(source.decodeCount, decodeCount);
+    layer.destroy();
+  }
+});
+
+test("required attribute restyling rejects omitted fields without changing style or selection", async () => {
+  const source = createBackend();
+  const picked = [];
+  const layer = new CopcCesiumLayer({
+    url: "memory://required-style-transaction.copc.laz",
+    backend: source.backend,
+    decoder: source.decoder,
+    attributeLoading: "required",
+    colorMode: "rgb",
+    onPointPicked: (point) => picked.push(point),
+  });
+  const viewer = createFakeViewer();
+  const nodeKey = "0-0-0-0";
+
+  await layer.load();
+  layer.attachTo(viewer);
+  await waitFor(() => layer.getSnapshot().renderedPointCount === 2);
+  const controller = layer.controller;
+  viewer.scene.pick = () => ({
+    id: { nodeKey, pointIndex: 1, ownerId: controller.pointPicker.ownerId },
+  });
+  controller.pointPicker.pick(viewer, new Cesium.Cartesian2(10, 10));
+  const selectedBefore = layer.getSelectedPoint();
+  assert.ok(selectedBefore);
+
+  const requestsBefore = source.pointChunkRequestCount;
+  const decodesBefore = source.decodeCount;
+  const cacheBefore = layer.getPointCacheDiagnostics();
+  const styleBefore = layer.getStyle();
+  assert.throws(
+    () => layer.setStyle({ colorMode: "intensity" }),
+    /intensity was not requested.*source availability was not checked.*attributeLoading: "all"/,
+  );
+  assert.deepEqual(layer.getStyle(), styleBefore);
+  assert.deepEqual(layer.getSelectedPoint(), selectedBefore);
+  assert.equal(source.pointChunkRequestCount, requestsBefore);
+  assert.equal(source.decodeCount, decodesBefore);
+  assert.deepEqual(layer.getPointCacheDiagnostics(), cacheBefore);
+
+  layer.setStyle({ colorMode: "elevation" });
+  assert.equal(layer.getStyle().colorMode, "elevation");
+  assert.equal(layer.getSelectedPoint().pointIndex, selectedBefore.pointIndex);
+  assert.equal(source.pointChunkRequestCount, requestsBefore);
+  assert.equal(source.decodeCount, decodesBefore);
+
+  assert.equal(picked.at(-1).pointIndex, 1);
+  layer.destroy();
+});
+
+test("required mode distinguishes source-missing RGB from an attribute it did not load", async () => {
+  const source = createBackend({
+    sourceFields: ["position", "intensity", "classification"],
+  });
+  const layer = new CopcCesiumLayer({
+    url: "memory://required-source-missing-rgb.copc.laz",
+    backend: source.backend,
+    decoder: source.decoder,
+    attributeLoading: "required",
+    colorMode: "rgb",
+  });
+  const viewer = createFakeViewer();
+
+  await layer.load();
+  layer.attachTo(viewer);
+  await waitFor(() => layer.getSnapshot().renderedPointCount === 2);
+  const renderedColor = getLayerPointCollection(viewer).get(0).color;
+  assert.deepEqual(
+    [renderedColor.red, renderedColor.green, renderedColor.blue],
+    [0, 1, 1],
+  );
+  const requestsBefore = source.pointChunkRequestCount;
+  const decodesBefore = source.decodeCount;
+
+  assert.doesNotThrow(() => layer.setStyle({ colorMode: "rgb" }));
+  assert.equal(layer.getStyle().colorMode, "rgb");
+  assert.equal(source.pointChunkRequestCount, requestsBefore);
+  assert.equal(source.decodeCount, decodesBefore);
+  layer.destroy();
 });
 
 test("Cesium layer point-budget defaults and top-level precedence match Core", () => {

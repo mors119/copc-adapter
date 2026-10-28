@@ -282,6 +282,120 @@ test("validates the packed Rust backend in an external Vite consumer", async ({
   ).toBe(false);
 });
 
+test("packed Cesium required mode retains requested attributes and rejects unavailable restyles", async ({
+  page,
+}) => {
+  const pageErrors = [];
+  page.on("pageerror", (error) => pageErrors.push(error));
+  let allRustCacheBytes;
+  let allRustCacheBudget;
+  let allRustRenderedNodeKeys;
+  let allRustRenderedPointCount;
+
+  for (const backend of ["rust", "copc-js"]) {
+    if (backend === "rust") {
+      await page.goto("/?backend=rust&mode=rgb");
+      await expect
+        .poll(() => state(page))
+        .toMatchObject({
+          backend: "rust",
+          attributeLoading: "all",
+          lifecycle: "ready",
+        });
+      await expect
+        .poll(async () => (await state(page)).renderedPointCount)
+        .toBeGreaterThan(0);
+      const allRust = await waitForStableRendering(page);
+      allRustCacheBytes = allRust.pointCache.currentCacheBytes;
+      allRustCacheBudget = allRust.pointCache.cacheByteBudget;
+      allRustRenderedNodeKeys = allRust.renderedNodeKeys;
+      allRustRenderedPointCount = allRust.renderedPointCount;
+    }
+
+    await page.goto(
+      `/?backend=${backend}&mode=rgb&attributeLoading=required`,
+    );
+    await expect
+      .poll(() => state(page))
+      .toMatchObject({
+        backend,
+        attributeLoading: "required",
+        lifecycle: "ready",
+      });
+    await expect
+      .poll(async () => (await state(page)).renderedPointCount)
+      .toBeGreaterThan(0);
+    const required = await waitForStableRendering(page);
+    expect(required.pointCache.currentCacheBytes).toBeGreaterThan(0);
+
+    if (backend === "rust") {
+      expect(required.pointCache.cacheByteBudget).toBe(allRustCacheBudget);
+      expect(required.renderedNodeKeys).toEqual(allRustRenderedNodeKeys);
+      expect(required.renderedPointCount).toBe(allRustRenderedPointCount);
+      expect(required.pointCache.currentCacheBytes).toBeLessThan(
+        allRustCacheBytes,
+      );
+    }
+
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          window.__PACKED_CONSUMER__.getPointPrimitivePickTarget(),
+        ),
+      )
+      .toBeDefined();
+    const pickTarget = await page.evaluate(() =>
+      window.__PACKED_CONSUMER__.getPointPrimitivePickTarget(),
+    );
+    const canvasBounds = await page
+      .locator("#cesium-container canvas")
+      .first()
+      .boundingBox();
+    expect(canvasBounds).not.toBeNull();
+    await page.mouse.click(
+      (canvasBounds?.x ?? 0) + pickTarget.screenPosition.x,
+      (canvasBounds?.y ?? 0) + pickTarget.screenPosition.y,
+    );
+    await expect
+      .poll(async () => (await state(page)).selectedPoint?.pointIndex)
+      .toBe(pickTarget.pointIndex);
+    const selectedBefore = (await state(page)).selectedPoint;
+    expect(selectedBefore).not.toHaveProperty("intensity");
+    expect(selectedBefore).not.toHaveProperty("classification");
+
+    const beforeStyle = await state(page);
+    const failedUpdate = await page.evaluate(() =>
+      window.__PACKED_CONSUMER__.trySetStyle({ colorMode: "intensity" }),
+    );
+    expect(failedUpdate.success).toBe(false);
+    expect(failedUpdate.error).toMatch(/intensity was not requested/);
+    const afterStyle = await state(page);
+    expect(afterStyle.style).toEqual({ colorMode: "rgb" });
+    expect(afterStyle.selectedPoint).toEqual(selectedBefore);
+    expect(afterStyle.rangeRequests.requested).toBe(
+      beforeStyle.rangeRequests.requested,
+    );
+    expect(afterStyle.performance.decodeDurationMs).toBe(
+      beforeStyle.performance.decodeDurationMs,
+    );
+    expect(afterStyle.pointCache).toEqual(beforeStyle.pointCache);
+
+    console.log(
+      JSON.stringify({
+        scenario: "issue-330-required-attributes",
+        backend,
+        currentCacheBytes: required.pointCache.currentCacheBytes,
+        cacheByteBudget: required.pointCache.cacheByteBudget,
+        ...(backend === "rust"
+          ? { allAttributeCacheBytes: allRustCacheBytes }
+          : {}),
+      }),
+    );
+  }
+
+  expect(pageErrors).toEqual([]);
+});
+
 test("loads the packed opt-in batched Cesium renderer without changing the default", async ({
   page,
 }) => {

@@ -23,7 +23,11 @@ import {
 } from "../../core/events/layerEventLifecycle";
 import {
   allCopcPointFields,
+  createCopcPointFieldSelection,
+  getCopcPointFieldSelection,
   type CopcColorMode,
+  type CopcPointField,
+  type CopcPointFieldSelection,
 } from "../../core/copc/points/fieldSelection";
 import type {
   CopcBackendName,
@@ -99,6 +103,12 @@ export type CopcLayerOptions = {
   /** Upper attenuated point diameter in CSS pixels. Defaults to 12; maximum is 64. */
   maxPointSize?: number;
   colorMode?: CopcColorMode;
+  /** Source fields retained for point rendering. Defaults to all standard fields. */
+  attributeLoading?: "all" | "required";
+  /** Additional standard fields to retain explicitly, including in required mode. */
+  pointFields?: CopcPointFieldSelection;
+  /** Optional classification filter applied from the first rendered view. */
+  classificationFilter?: CopcClassificationFilter;
   coordinateCacheLayout?: "A" | "E";
   /** Manual additive correction in metres applied to ellipsoidal point height. Defaults to 0. */
   heightOffsetMeters?: number;
@@ -319,6 +329,7 @@ export class CesiumLayerController {
   private readonly core: LayerStreamingCore;
   private readonly eventLifecycle = new CopcLayerEventLifecycle();
   private readonly options: CopcLayerOptions;
+  private readonly pointFields: CopcPointFieldSelection;
   private readonly pointRenderer: CesiumPointRenderer;
   private readonly pointPicker: CesiumPointPicker;
   private activeTerrainEstimate?: {
@@ -382,6 +393,13 @@ export class CesiumLayerController {
       throw new TypeError('pointSizeMode must be "fixed" or "attenuated"');
     }
     if (
+      options.attributeLoading !== undefined &&
+      options.attributeLoading !== "all" &&
+      options.attributeLoading !== "required"
+    ) {
+      throw new TypeError('attributeLoading must be "all" or "required"');
+    }
+    if (
       !Number.isFinite(minPointSize) ||
       minPointSize <= 0 ||
       !Number.isFinite(maxPointSize) ||
@@ -393,7 +411,17 @@ export class CesiumLayerController {
       );
     }
     this.options = options;
-    this.style = { colorMode: options.colorMode ?? "fixed" };
+    this.style = {
+      colorMode: options.colorMode ?? "fixed",
+      ...(options.classificationFilter === undefined
+        ? {}
+        : {
+            classificationFilter: cloneClassificationFilter(
+              options.classificationFilter,
+            ),
+          }),
+    };
+    this.pointFields = this.getInitialPointFields(this.style);
     this.pointRenderer = options.renderer ?? new PointPrimitiveRenderer();
     this.rendererPerformance.setConfiguredPointBudget(
       this.getMaxRenderedPoints(),
@@ -410,9 +438,9 @@ export class CesiumLayerController {
       rangeValidation: options.rangeValidation,
       maxRangeBytes: options.maxRangeBytes,
       maxConcurrentRangeRequests: options.maxConcurrentRangeRequests,
-      // Keep all supported style attributes in the decoded point cache so
-      // runtime restyling can reuse the initial point-chunk read and decode.
-      pointFields: allCopcPointFields(),
+      // All remains the compatibility default. Required mode retains only
+      // fields used by the initial style and any initial classification filter.
+      pointFields: this.pointFields,
       streaming: options.streaming,
     }, options.coordinateCacheLayout ?? "E");
     this.pointPicker = new CesiumPointPicker({
@@ -971,6 +999,8 @@ export class CesiumLayerController {
       );
     }
 
+    this.assertStyleFieldsWereLoaded(nextStyle);
+
     const renderedNodes = this.pointRenderer
       .getRenderedNodeKeys()
       .map((nodeKey) => {
@@ -1025,6 +1055,47 @@ export class CesiumLayerController {
     }
     this.rendererPerformance.setActiveRenderedPointCount(
       this.getRenderedPointCount(),
+    );
+  }
+
+  private getInitialPointFields(
+    style: CopcCesiumPointStyle,
+  ): CopcPointFieldSelection {
+    if ((this.options.attributeLoading ?? "all") === "all") {
+      return allCopcPointFields();
+    }
+    const fields = new Set<CopcPointField>(
+      getCopcPointFieldSelection(style.colorMode),
+    );
+    for (const field of this.options.pointFields ?? []) {
+      fields.add(field);
+    }
+    if (style.classificationFilter !== undefined) {
+      fields.add("classification");
+    }
+    return createCopcPointFieldSelection(fields);
+  }
+
+  private assertStyleFieldsWereLoaded(style: CopcCesiumPointStyle): void {
+    if ((this.options.attributeLoading ?? "all") !== "required") {
+      return;
+    }
+    const requiredFields = new Set<CopcPointField>(
+      getCopcPointFieldSelection(style.colorMode),
+    );
+    if (style.classificationFilter !== undefined) {
+      requiredFields.add("classification");
+    }
+    const missingFields = [...requiredFields].filter(
+      (field) => field !== "position" && !this.pointFields.has(field),
+    );
+    if (missingFields.length === 0) {
+      return;
+    }
+    const names = missingFields.join(", ");
+    throw new Error(
+      `Cannot apply this style because ${names} ${missingFields.length === 1 ? "was" : "were"} not requested under attributeLoading: "required"; source availability was not checked. ` +
+        `Recreate the layer with attributeLoading: "all" or include the required field in the initial colorMode, classificationFilter, or pointFields.`,
     );
   }
 

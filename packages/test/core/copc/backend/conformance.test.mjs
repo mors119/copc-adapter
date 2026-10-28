@@ -583,6 +583,23 @@ test(
     assert.equal(rustBuffer.attributes.green.length, rootNode.pointCount);
     assert.equal(rustBuffer.attributes.blue.length, rootNode.pointCount);
 
+    const rgbOnlyFields = new Set(["position", "rgb"]);
+    const rustRgbOnly = await rust.loadPointDataBuffer(
+      rootNode,
+      rgbOnlyFields,
+    );
+    const copcJsRgbOnly = await copcJs.loadPointDataBuffer(
+      rootNode,
+      rgbOnlyFields,
+    );
+    for (const buffer of [rustRgbOnly, copcJsRgbOnly]) {
+      assert.equal(buffer.attributes.red.length, rootNode.pointCount);
+      assert.equal(buffer.attributes.green.length, rootNode.pointCount);
+      assert.equal(buffer.attributes.blue.length, rootNode.pointCount);
+      assert.equal(buffer.attributes.intensity, undefined);
+      assert.equal(buffer.attributes.classification, undefined);
+    }
+
     const rustInspection = inspectCopcPoint(
       { nodeKey: rootNode.key, pointIndex: 0 },
       rootNode,
