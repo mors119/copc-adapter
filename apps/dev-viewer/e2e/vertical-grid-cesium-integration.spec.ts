@@ -1168,6 +1168,26 @@ test("browser WKT2 compound axes and EGM2008 grid match the offline CRS control"
   expectNear(result.projected.x, point.x, 1e-6);
   expectNear(result.projected.y, point.y, 1e-6);
   expectNear(result.projected.z, point.z, 1e-9);
+
+  const geographicFixture = audit.fixtures.find(
+    (candidate) => candidate.id === "wgs84-egm2008-wkt2-geographic-compound",
+  );
+  expect(geographicFixture).toBeTruthy();
+  const geographicPoint = geographicFixture!.points[0];
+  const geographicResult = await page.evaluate(
+    ({ wkt, point, gridId }) =>
+      window.__VERTICAL_GRID_INTEGRATION__!.transformWkt2Control({ wkt, point, gridId }),
+    { wkt: geographicFixture!.wkt, point: geographicPoint, gridId },
+  );
+  expectNear(geographicResult.geographic.longitude, geographicFixture!.expected[0].longitude, 1e-10);
+  expectNear(geographicResult.geographic.latitude, geographicFixture!.expected[0].latitude, 1e-10);
+  expectNear(geographicResult.geographic.height, 110, 1e-9);
+  expectNear(geographicResult.rustGeographic[0], geographicFixture!.expected[0].longitude, 1e-10);
+  expectNear(geographicResult.rustGeographic[1], geographicFixture!.expected[0].latitude, 1e-10);
+  expectNear(geographicResult.rustGeographic[2], geographicPoint.z, 1e-9);
+  expectNear(geographicResult.projected.x, geographicPoint.x, 1e-10);
+  expectNear(geographicResult.projected.y, geographicPoint.y, 1e-10);
+  expectNear(geographicResult.projected.z, geographicPoint.z, 1e-9);
 });
 
 test("Cesium Rust/WASM Worker and non-Worker paths match JavaScript correction", async ({ page }) => {

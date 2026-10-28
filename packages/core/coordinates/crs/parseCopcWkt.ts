@@ -11,12 +11,22 @@ export function extractHorizontalWkt(wkt: string): string {
 /** Extract the horizontal CRS component from supported WKT1 and WKT2 forms. */
 export function extractHorizontalCrsWkt(wkt: string): string {
   const rootStart = wkt.search(/\S/);
+  const rootCompound = findWktSectionWithOffset(wkt, "COMPOUNDCRS[");
+  const compoundGeographic = rootCompound
+    ? findDirectWktSections(rootCompound.section, ["GEOGCRS["])[0]?.section
+    : undefined;
   const rootGeographic3d = findWktSectionWithOffset(wkt, "GEOGCRS[");
   const horizontal = [
     findWktSectionWithOffset(wkt, "PROJCS["),
     findWktSectionWithOffset(wkt, "PROJCRS["),
     findWktSectionWithOffset(wkt, "GEOGCS["),
     rootGeographic3d?.start === rootStart ? rootGeographic3d : undefined,
+    rootCompound && compoundGeographic
+      ? {
+          start: rootCompound.start + rootCompound.section.indexOf(compoundGeographic),
+          section: compoundGeographic,
+        }
+      : undefined,
   ]
     .filter((match): match is WktSectionMatch => match !== undefined)
     .sort((left, right) => left.start - right.start)[0];

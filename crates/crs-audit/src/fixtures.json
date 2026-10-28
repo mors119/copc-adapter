@@ -138,6 +138,34 @@
       ]
     },
     {
+      "id": "wgs84-egm2008-wkt2-geographic-compound",
+      "source": "synthetic WKT2 COMPOUNDCRS using WGS 84 geographic coordinates and EPSG:3855; no COPC binary or vertical model values are implied",
+      "wkt_family": "WKT2 COMPOUNDCRS",
+      "wkt": "COMPOUNDCRS[\"WGS 84 + EGM2008 height\",GEOGCRS[\"WGS 84\",DATUM[\"World Geodetic System 1984\",ELLIPSOID[\"WGS 84\",6378137,298.257223563,LENGTHUNIT[\"metre\",1]]],PRIMEM[\"Greenwich\",0,ANGLEUNIT[\"degree\",0.0174532925199433]],CS[ellipsoidal,2],AXIS[\"latitude\",north,ORDER[1],ANGLEUNIT[\"degree\",0.0174532925199433]],AXIS[\"longitude\",east,ORDER[2],ANGLEUNIT[\"degree\",0.0174532925199433]],ID[\"EPSG\",4326]],VERTCRS[\"EGM2008 height\",VDATUM[\"EGM2008 geoid\"],CS[vertical,1],AXIS[\"Gravity-related height (H)\",up,LENGTHUNIT[\"metre\",1]],ID[\"EPSG\",3855]]]",
+      "horizontal_wkt": "GEOGCRS[\"WGS 84\",DATUM[\"World Geodetic System 1984\",ELLIPSOID[\"WGS 84\",6378137,298.257223563,LENGTHUNIT[\"metre\",1]]],PRIMEM[\"Greenwich\",0,ANGLEUNIT[\"degree\",0.0174532925199433]],CS[ellipsoidal,2],AXIS[\"latitude\",north,ORDER[1],ANGLEUNIT[\"degree\",0.0174532925199433]],AXIS[\"longitude\",east,ORDER[2],ANGLEUNIT[\"degree\",0.0174532925199433]],ID[\"EPSG\",4326]]",
+      "vertical_unit_scale": 1,
+      "points": [
+        { "x": 33.95374438756227, "y": -118.33772305286695, "z": 100 }
+      ],
+      "expected": [
+        {
+          "longitude": -118.33772305286695,
+          "latitude": 33.95374438756227,
+          "height": 100
+        }
+      ],
+      "provenance": "Synthetic axis-order control using the known geographic coordinates from utm11-egm2008-wkt2-compound. The source axes are latitude then longitude; the vertical grid application is tested separately with an in-memory synthetic grid.",
+      "tolerance": {
+        "longitude_degrees": 1e-7,
+        "latitude_degrees": 1e-7,
+        "height_meters": 1e-9
+      },
+      "source_axis_directions": [
+        "north",
+        "east"
+      ]
+    },
+    {
       "id": "epsg-5186-korean-central-belt-2010",
       "source": "EPSG:5186 KGD2002 / Central Belt 2010; canonical definition: https://epsg.org/crs_5186/KGD2002-Central-Belt-2010.html; WKT1_GDAL exported from EPSG Dataset v12.029 by PROJ 9.8.1",
       "wkt_family": "WKT1 PROJCS",

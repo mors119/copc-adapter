@@ -44,6 +44,9 @@ const auditFixtures = JSON.parse(fs.readFileSync(
 const WKT2_EGM2008_COMPOUND = auditFixtures.find(
   (fixture) => fixture.id === "utm11-egm2008-wkt2-compound",
 ).wkt;
+const WKT2_EGM2008_GEOGRAPHIC_COMPOUND = auditFixtures.find(
+  (fixture) => fixture.id === "wgs84-egm2008-wkt2-geographic-compound",
+).wkt;
 
 function encodeGtx({
   latitudeOrigin = 0,
@@ -695,6 +698,45 @@ test("WKT2 compound CRS transforms use projected axes, explicit units and vertic
     z: 100,
   });
   assert.ok(Math.abs(unitOnly.height - 100 * 0.304800609601219) < 1e-12);
+});
+
+test("WKT2 geographic compound CRS supports nested GEOGCRS axes and grid transforms", async () => {
+  const bytes = encodeGtx({
+    longitudeOrigin: -119,
+    latitudeOrigin: 33,
+    rows: 2,
+    columns: 2,
+    values: [10, 10, 10, 10],
+  });
+  const grid = await loadGrid(bytes, { sourceVerticalCrs: "EPSG:3855" });
+  const metadata = createMetadata({ wkt: WKT2_EGM2008_GEOGRAPHIC_COMPOUND });
+  const sourcePoint = {
+    x: 33.95374438756227,
+    y: -118.33772305286695,
+    z: 100,
+  };
+
+  assert.match(
+    extractHorizontalCrsWkt(WKT2_EGM2008_GEOGRAPHIC_COMPOUND),
+    /^GEOGCRS\s*\[/,
+  );
+  const expectedAngularUnitScale = 0.0174532925199433 * 6_400_000;
+  assert.ok(
+    Math.abs(
+      extractHorizontalUnitScale(WKT2_EGM2008_GEOGRAPHIC_COMPOUND) -
+        expectedAngularUnitScale,
+    ) < 1e-8,
+  );
+
+  const geographic = createPointTransformer(metadata, 0, grid)(sourcePoint);
+  assert.ok(Math.abs(geographic.longitude - sourcePoint.y) < 1e-10);
+  assert.ok(Math.abs(geographic.latitude - sourcePoint.x) < 1e-10);
+  assert.equal(geographic.height, 110);
+
+  const restored = createProjectPointTransformer(metadata, 0, grid)(geographic);
+  assert.ok(Math.abs(restored.x - sourcePoint.x) < 1e-10);
+  assert.ok(Math.abs(restored.y - sourcePoint.y) < 1e-10);
+  assert.equal(restored.z, sourcePoint.z);
 });
 
 test("only a vertical CRS authority on the outer WKT section can satisfy an EPSG source", async () => {
