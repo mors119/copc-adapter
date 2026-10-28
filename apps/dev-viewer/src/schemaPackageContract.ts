@@ -41,12 +41,16 @@ type StreamingCompatibilityExclusions =
   | "maxRenderedPoints"
   | "maxPointsPerBatch";
 // These stay public for host integration or compatibility but are not ordinary
-// Workbench controls (logging, custom decoder injection, and callbacks).
+// Workbench controls (logging, custom decoder injection, callbacks, and the
+// Cesium constructor's attribute-selection policy).
 type LayerCompatibilityExclusions =
   | "debug"
   | "decoder"
   | "onPointPicked"
-  | "coordinateCacheLayout";
+  | "coordinateCacheLayout"
+  | "attributeLoading"
+  | "classificationFilter"
+  | "pointFields";
 
 // Dev Viewer is compiled against workspace declarations through its tsconfig
 // aliases, so adding a new public option exposes schema drift in this build.
