@@ -603,6 +603,28 @@ test("cancellation before the first iterator next settles and closes the query",
   unloaded.core.destroy();
 });
 
+test("pointsReturned counts only batches delivered before a sparse scan is cancelled", async () => {
+  const records = [
+    [0.5, 0.5, 0.5],
+    ...Array.from({ length: 8_999 }, () => [3, 3, 3]),
+  ];
+  const backend = rootOnlyBackend(records);
+  const core = createCore(backend.backend);
+  await core.load();
+
+  const query = core.queryPoints(queryOptions());
+  const iterator = query[Symbol.asyncIterator]();
+  const pendingNext = iterator.next();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  query.cancel();
+
+  const summary = await settlesWithin(query.result);
+  assert.equal(summary.status, "cancelled");
+  assert.equal(summary.pointsReturned, 0);
+  assert.deepEqual(await settlesWithin(pendingNext), { value: undefined, done: true });
+  core.destroy();
+});
+
 test("hierarchy cancellation and timeout detach without cancelling shared page reads", async () => {
   const runScenario = async (kind) => {
     const root = createNode(ROOT_KEY, 1);

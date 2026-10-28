@@ -687,12 +687,16 @@ export class RustCopcReader {
     );
     throwIfPointLoadAborted(options.signal);
     if (this.decodeWorkerPool) {
-      const decoded = await this.decodeWorkerPool.submit({
-        nodeKey: node.key,
-        pointCount,
-        requestedFields: getRustPointFieldMask(fields),
-        chunk: chunkBytes,
-      }, options.workload ?? "view");
+      const decoded = await this.decodeWorkerPool.submit(
+        {
+          nodeKey: node.key,
+          pointCount,
+          requestedFields: getRustPointFieldMask(fields),
+          chunk: chunkBytes,
+        },
+        options.workload ?? "view",
+        options.signal,
+      );
       this.resolvePerformanceObserver(options.performanceObserver)?.({
         stage: "decode",
         durationMs: decoded.decodeDurationMs,
@@ -752,6 +756,7 @@ export class RustCopcReader {
       const result = await this.decodeWorkerPool.submitPrepared(
         request,
         options.workload ?? "view",
+        options.signal,
       );
       this.resolvePerformanceObserver(options.performanceObserver)?.({
         stage: "decode",

@@ -284,6 +284,9 @@ test("queued Rust decode work can be superseded while active work finishes", asy
   });
   pool.setMetadata(new Uint8Array([1]));
   const active = pool.submit(request("active"));
+  while (harness.stats().order.length === 0) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
   const queued = pool.submit(request("obsolete"));
   pool.cancelQueued();
 
@@ -325,6 +328,65 @@ test("view invalidation preserves queued spatial-query decode jobs", async () =>
   assert.equal((await query).pointCount, 1);
   assert.deepEqual(harness.stats().order, ["active-view", "spatial-query"]);
   pool.destroy();
+});
+
+test("query abort removes queued decodes and detaches active worker waits", async () => {
+  const queuedHarness = createFakeWorkerHarness({ delay: 40 });
+  const queuedPool = new RustCopcDecodeWorkerPool({
+    workerCount: 1,
+    workerFactory: queuedHarness.factory,
+  });
+  queuedPool.setMetadata(new Uint8Array([1]));
+  const activeView = queuedPool.submit(request("active-view"));
+  while (queuedHarness.stats().order.length === 0) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  const queuedController = new AbortController();
+  const queuedQuery = queuedPool.submit(
+    request("queued-query"),
+    "spatial-query",
+    queuedController.signal,
+  );
+  queuedController.abort("query-deadline");
+  await assert.rejects(
+    queuedQuery,
+    (error) =>
+      error instanceof RustCopcWorkerError &&
+      error.workerCode === "worker-cancelled",
+  );
+  assert.equal(queuedPool.getDiagnostics().queuedCount, 0);
+  await activeView;
+  assert.deepEqual(queuedHarness.stats().order, ["active-view"]);
+  queuedPool.destroy();
+
+  const activeHarness = createFakeWorkerHarness({ delay: 250 });
+  const activePool = new RustCopcDecodeWorkerPool({
+    workerCount: 1,
+    workerFactory: activeHarness.factory,
+  });
+  activePool.setMetadata(new Uint8Array([1]));
+  const activeController = new AbortController();
+  const activeQuery = activePool.submit(
+    request("active-query"),
+    "spatial-query",
+    activeController.signal,
+  );
+  while (activeHarness.stats().order.length === 0) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  activeController.abort("query-time-limit");
+  await assert.rejects(
+    activeQuery,
+    (error) =>
+      error instanceof RustCopcWorkerError &&
+      error.workerCode === "worker-cancelled",
+  );
+  assert.equal(activePool.getDiagnostics().activeCount, 1);
+
+  const followingView = activePool.submit(request("following-view"));
+  await followingView;
+  assert.deepEqual(activeHarness.stats().order, ["active-query", "following-view"]);
+  activePool.destroy();
 });
 
 test("worker failures are structured and include the node key", async () => {

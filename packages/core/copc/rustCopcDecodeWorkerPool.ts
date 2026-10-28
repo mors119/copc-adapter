@@ -83,6 +83,8 @@ type QueueEntry = {
   id: number;
   request: RustCopcWorkerJobRequest;
   workload: RustCopcDecodeWorkload;
+  signal?: AbortSignal;
+  abortListener?: () => void;
   resolve: (result: RustCopcWorkerResult) => void;
   reject: (error: unknown) => void;
 };
@@ -173,39 +175,46 @@ export class RustCopcDecodeWorkerPool {
   submit(
     request: RustCopcDecodeRequest,
     workload: RustCopcDecodeWorkload = "view",
+    signal?: AbortSignal,
   ): Promise<RustCopcDecodedResult> {
-    return this.enqueue({ ...request, type: "decode" }, workload).then((result) => {
-      if ("prepared" in result) {
-        throw new RustCopcWorkerError(
-          "worker-message",
-          "Rust COPC worker returned prepared data for a decode request",
-          { nodeKey: request.nodeKey },
-        );
-      }
-      return result;
-    });
+    return this.enqueue({ ...request, type: "decode" }, workload, signal).then(
+      (result) => {
+        if ("prepared" in result) {
+          throw new RustCopcWorkerError(
+            "worker-message",
+            "Rust COPC worker returned prepared data for a decode request",
+            { nodeKey: request.nodeKey },
+          );
+        }
+        return result;
+      },
+    );
   }
 
   /** Submit fused decode, CRS transformation, and ECEF preparation. */
   submitPrepared(
     request: RustCopcDecodeRequest,
     workload: RustCopcDecodeWorkload = "view",
+    signal?: AbortSignal,
   ): Promise<RustCopcPreparedResult> {
-    return this.enqueue({ ...request, type: "prepare" }, workload).then((result) => {
-      if (!("prepared" in result)) {
-        throw new RustCopcWorkerError(
-          "worker-message",
-          "Rust COPC worker returned decoded data for a preparation request",
-          { nodeKey: request.nodeKey },
-        );
-      }
-      return result;
-    });
+    return this.enqueue({ ...request, type: "prepare" }, workload, signal).then(
+      (result) => {
+        if (!("prepared" in result)) {
+          throw new RustCopcWorkerError(
+            "worker-message",
+            "Rust COPC worker returned decoded data for a preparation request",
+            { nodeKey: request.nodeKey },
+          );
+        }
+        return result;
+      },
+    );
   }
 
   private enqueue(
     request: RustCopcWorkerJobRequest,
     workload: RustCopcDecodeWorkload,
+    signal?: AbortSignal,
   ): Promise<RustCopcWorkerResult> {
     if (this.destroyed) {
       return Promise.reject(
@@ -224,45 +233,77 @@ export class RustCopcDecodeWorkerPool {
         ),
       );
     }
+    if (signal?.aborted) {
+      return Promise.reject(
+        this.createQueuedCancellationError(request.nodeKey, signal.reason),
+      );
+    }
     return new Promise((resolve, reject) => {
       const entry: QueueEntry = {
         id: this.nextId++,
         request,
         workload,
+        signal,
         resolve,
         reject,
       };
       this.submittedCount += 1;
       this.queue.push(entry);
       this.entries.set(entry.id, entry);
+      if (signal) {
+        entry.abortListener = () => {
+          if (
+            this.removePendingEntry(
+              entry,
+              this.createQueuedCancellationError(
+                entry.request.nodeKey,
+                signal.reason,
+              ),
+            )
+          ) {
+            this.dispatch();
+            return;
+          }
+
+          // Active WASM jobs cannot be interrupted safely. Reject only this
+          // caller's wait; keep the pool entry until the worker response arrives.
+          if (this.entries.has(entry.id)) {
+            this.clearAbortListener(entry);
+            entry.reject(
+              this.createQueuedCancellationError(
+                entry.request.nodeKey,
+                signal.reason,
+              ),
+            );
+          }
+        };
+        signal.addEventListener("abort", entry.abortListener, { once: true });
+        if (signal.aborted) entry.abortListener();
+      }
       this.recordPeaks();
       this.dispatch();
     });
   }
 
-  /** Remove queued jobs matching a request and ownership predicate. */
+  /**
+   * Remove queued or initializing jobs matching a request and ownership
+   * predicate.
+   */
   cancelQueued(
     predicate: (
       request: RustCopcDecodeRequest,
       workload: RustCopcDecodeWorkload,
     ) => boolean = () => true,
   ): void {
-    for (let index = this.queue.length - 1; index >= 0; index -= 1) {
-      const entry = this.queue[index];
-      if (!predicate(entry.request, entry.workload)) continue;
-      this.queue.splice(index, 1);
-      this.entries.delete(entry.id);
-      this.cancelledCount += 1;
-      entry.reject(
-        new RustCopcWorkerError(
-          "worker-cancelled",
-          "Queued Rust COPC decode was superseded",
-          {
-            nodeKey: entry.request.nodeKey,
-          },
-        ),
-      );
+    for (const entry of [...this.queue, ...this.creatingEntries]) {
+      if (predicate(entry.request, entry.workload)) {
+        this.removePendingEntry(
+          entry,
+          this.createQueuedCancellationError(entry.request.nodeKey),
+        );
+      }
     }
+    this.dispatch();
   }
 
   /** Optional priority hook; the default queue remains deterministic FIFO. */
@@ -304,16 +345,19 @@ export class RustCopcDecodeWorkerPool {
     );
     for (const entry of this.queue.splice(0)) {
       this.entries.delete(entry.id);
+      this.clearAbortListener(entry);
       entry.reject(error);
     }
     for (const entry of this.creatingEntries) {
       this.entries.delete(entry.id);
+      this.clearAbortListener(entry);
       entry.reject(error);
     }
     this.creatingEntries.clear();
     for (const slot of this.workers.splice(0)) {
       if (slot.current) {
         this.entries.delete(slot.current.id);
+        this.clearAbortListener(slot.current);
         slot.current.reject(error);
       }
       void slot.worker.terminate();
@@ -336,8 +380,9 @@ export class RustCopcDecodeWorkerPool {
           .then((createdSlot) => {
             this.creatingSlots -= 1;
             this.creatingEntries.delete(entry);
-            if (this.destroyed) {
+            if (this.destroyed || !this.entries.has(entry.id)) {
               void createdSlot.worker.terminate();
+              this.dispatch();
               return;
             }
             this.workers.push(createdSlot);
@@ -349,7 +394,12 @@ export class RustCopcDecodeWorkerPool {
           .catch((error: unknown) => {
             this.creatingSlots -= 1;
             this.creatingEntries.delete(entry);
+            if (!this.entries.has(entry.id)) {
+              this.dispatch();
+              return;
+            }
             this.entries.delete(entry.id);
+            this.clearAbortListener(entry);
             entry.reject(
               new RustCopcWorkerError(
                 "worker-failure",
@@ -368,6 +418,39 @@ export class RustCopcDecodeWorkerPool {
       this.recordPeaks();
       void this.initializeSlot(slot, entry);
     }
+  }
+
+  private createQueuedCancellationError(
+    nodeKey: string,
+    reason?: unknown,
+  ): RustCopcWorkerError {
+    return new RustCopcWorkerError(
+      "worker-cancelled",
+      reason === undefined
+        ? "Queued Rust COPC decode was superseded"
+        : "Queued Rust COPC decode was cancelled",
+      { nodeKey },
+    );
+  }
+
+  private clearAbortListener(entry: QueueEntry): void {
+    if (entry.signal && entry.abortListener) {
+      entry.signal.removeEventListener("abort", entry.abortListener);
+    }
+    entry.abortListener = undefined;
+  }
+
+  private removePendingEntry(entry: QueueEntry, error: Error): boolean {
+    const queueIndex = this.queue.indexOf(entry);
+    const isCreating = this.creatingEntries.has(entry);
+    if (queueIndex < 0 && !isCreating) return false;
+    if (queueIndex >= 0) this.queue.splice(queueIndex, 1);
+    this.creatingEntries.delete(entry);
+    this.entries.delete(entry.id);
+    this.clearAbortListener(entry);
+    this.cancelledCount += 1;
+    entry.reject(error);
+    return true;
   }
 
   private async initializeSlot(
@@ -451,6 +534,7 @@ export class RustCopcDecodeWorkerPool {
     if (response.type === "error" && response.id === undefined && entry) {
       slot.current = undefined;
       this.entries.delete(entry.id);
+      this.clearAbortListener(entry);
       this.failedCount += 1;
       entry.reject(
         new RustCopcWorkerError("worker-failure", response.error.message, {
@@ -473,6 +557,7 @@ export class RustCopcDecodeWorkerPool {
     }
     slot.current = undefined;
     this.entries.delete(entry.id);
+    this.clearAbortListener(entry);
     this.completedCount += 1;
     if (response.type === "error") {
       this.failedCount += 1;
@@ -622,6 +707,7 @@ export class RustCopcDecodeWorkerPool {
     slot.current = undefined;
     if (entry) {
       this.entries.delete(entry.id);
+      this.clearAbortListener(entry);
       this.failedCount += 1;
       entry.reject(
         new RustCopcWorkerError("worker-failure", message, {

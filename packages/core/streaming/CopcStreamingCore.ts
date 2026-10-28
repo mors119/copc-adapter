@@ -440,8 +440,8 @@ async function* scanPointQueryNode(
       z >= region.min.z && z <= region.max.z
     ) {
       batch.push({ x, y, z, nodeKey, pointIndex });
-      accounting.pointsReturned += 1;
       if (batch.length >= DEFAULT_SPATIAL_POINT_QUERY_LIMITS.batchSize) {
+        accounting.pointsReturned += batch.length;
         yield batch;
         batch = [];
       }
@@ -454,7 +454,10 @@ async function* scanPointQueryNode(
     }
   }
   throwIfPointQueryAborted(signal);
-  if (batch.length > 0) yield batch;
+  if (batch.length > 0) {
+    accounting.pointsReturned += batch.length;
+    yield batch;
+  }
 }
 
 type SettledPointQueryLoad =
