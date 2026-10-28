@@ -261,14 +261,27 @@ test("loadCopcMetadata supports a shared context", async () => {
 });
 
 test("createCopcContext wraps source failures and preserves their cause", async () => {
-  const missingPath = path.resolve(__dirname, "missing.copc.laz");
+  const source = {
+    source: "memory://unavailable-copc",
+    async readRange() {
+      throw new Error("fixture source is unavailable");
+    },
+    async readRanges(ranges) {
+      return Promise.all(
+        ranges.map(({ offset, length }) => this.readRange(offset, length)),
+      );
+    },
+    async size() {
+      return undefined;
+    },
+  };
 
   await assert.rejects(
-    () => createCopcContext(missingPath),
+    () => createCopcContext(source),
     (error) => {
       assert.ok(error instanceof CopcSourceError);
       assert.equal(error.stage, "source");
-      assert.equal(error.source, missingPath);
+      assert.equal(error.source, source.source);
       assert.ok(error.cause);
       assert.match(error.message, /Failed to create COPC source context/);
       assert.match(error.message, /range requests and CORS/);

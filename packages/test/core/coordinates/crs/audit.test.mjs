@@ -19,13 +19,20 @@ const fixturePath = path.resolve(
 );
 const fixtures = JSON.parse(fs.readFileSync(fixturePath, "utf8")).fixtures;
 
-test("CRS audit projected fixtures match the current horizontal WKT boundary", () => {
+test("CRS audit fixtures match the current horizontal WKT boundaries", () => {
   for (const fixture of fixtures.filter((entry) => entry.horizontal_wkt)) {
     assert.equal(
-      extractHorizontalWkt(fixture.wkt),
+      extractHorizontalCrsWkt(fixture.wkt),
       fixture.horizontal_wkt,
       fixture.id,
     );
+    if (/^(?:PROJCS|PROJCRS)\s*\[/i.test(fixture.horizontal_wkt)) {
+      assert.equal(
+        extractHorizontalWkt(fixture.wkt),
+        fixture.horizontal_wkt,
+        fixture.id,
+      );
+    }
     assert.equal(
       extractVerticalUnitScale(fixture.wkt),
       fixture.vertical_unit_scale,
