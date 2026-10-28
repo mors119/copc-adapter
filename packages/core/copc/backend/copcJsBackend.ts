@@ -80,9 +80,12 @@ function mapCopcJsError(
 
   const message = error instanceof Error ? error.message : String(error);
   if (operation === "open") {
-    const metadataFailure = /header|signature|version|VLR|COPC info|WKT/i.test(
-      message,
-    );
+    const sourceAccessFailure =
+      /\b(?:ENOENT|EACCES|EPERM|ENOTDIR|EISDIR)\b|no such file or directory|permission denied|not a directory/i.test(
+        message,
+      );
+    const metadataFailure = !sourceAccessFailure &&
+      /header|signature|version|VLR|COPC info|WKT/i.test(message);
     return new CopcBackendError(
       source,
       metadataFailure ? "metadata" : "source",

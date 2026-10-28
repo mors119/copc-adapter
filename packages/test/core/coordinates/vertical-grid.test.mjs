@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   applyPreparedPointHeightOffset,
@@ -33,6 +36,17 @@ import {
 
 const ORTHOMETRIC_WKT =
   'COMPD_CS["WGS 84 + Local orthometric height",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],VERT_CS["Local orthometric height",VERT_DATUM["Local vertical datum",2005],UNIT["metre",1],AXIS["Gravity-related height",UP]]]';
+const testDirectory = path.dirname(fileURLToPath(import.meta.url));
+const auditFixtures = JSON.parse(fs.readFileSync(
+  path.resolve(testDirectory, "../../../../crates/crs-audit/src/fixtures.json"),
+  "utf8",
+)).fixtures;
+const WKT2_EGM2008_COMPOUND = auditFixtures.find(
+  (fixture) => fixture.id === "utm11-egm2008-wkt2-compound",
+).wkt;
+const WKT2_EGM2008_GEOGRAPHIC_COMPOUND = auditFixtures.find(
+  (fixture) => fixture.id === "wgs84-egm2008-wkt2-geographic-compound",
+).wkt;
 
 function encodeGtx({
   latitudeOrigin = 0,
@@ -601,6 +615,128 @@ test("hierarchy bounds use grid extrema without sampling padded cube corners", a
     [frame.origin.x, frame.origin.y, frame.origin.z],
     [expectedOrigin.x, expectedOrigin.y, expectedOrigin.z],
   );
+});
+
+test("WKT2 compound CRS transforms use projected axes, explicit units and vertical identity", async () => {
+  const bytes = encodeGtx({
+    longitudeOrigin: -119,
+    latitudeOrigin: 33,
+    rows: 2,
+    columns: 2,
+    values: [10, 10, 10, 10],
+  });
+  const grid = await loadGrid(bytes, { sourceVerticalCrs: "EPSG:3855" });
+  const metadata = createMetadata({ wkt: WKT2_EGM2008_COMPOUND });
+  const sourcePoint = { x: 3757833.2855, y: 376392.9975, z: 100 };
+  assert.match(extractHorizontalCrsWkt(WKT2_EGM2008_COMPOUND), /^PROJCRS\s*\[/);
+  assert.equal(extractHorizontalUnitScale(WKT2_EGM2008_COMPOUND), 1);
+
+  const geographic = createPointTransformer(metadata, 0, grid)(sourcePoint);
+  assert.ok(Math.abs(geographic.longitude + 118.33772305286695) < 1e-7);
+  assert.ok(Math.abs(geographic.latitude - 33.95374438756227) < 1e-7);
+  assert.equal(geographic.height, 110);
+  const projected = createProjectPointTransformer(metadata, 0, grid)(geographic);
+  assert.ok(Math.abs(projected.x - sourcePoint.x) < 1e-6);
+  assert.ok(Math.abs(projected.y - sourcePoint.y) < 1e-6);
+  assert.equal(projected.z, sourcePoint.z);
+
+  const reorderedAxisDeclarations = WKT2_EGM2008_COMPOUND.replace(
+    'AXIS["(N)",north,ORDER[1],LENGTHUNIT["metre",1]],AXIS["(E)",east,ORDER[2],LENGTHUNIT["metre",1]]',
+    'AXIS["(E)",east,ORDER[2],LENGTHUNIT["metre",1]],AXIS["(N)",north,ORDER[1],LENGTHUNIT["metre",1]]',
+  );
+  assert.notEqual(reorderedAxisDeclarations, WKT2_EGM2008_COMPOUND);
+  const reorderedDeclarationGeographic = createPointTransformer(
+    createMetadata({ wkt: reorderedAxisDeclarations }),
+    0,
+    grid,
+  )(sourcePoint);
+  assert.ok(Math.abs(reorderedDeclarationGeographic.longitude - geographic.longitude) < 1e-10);
+  assert.ok(Math.abs(reorderedDeclarationGeographic.latitude - geographic.latitude) < 1e-10);
+
+  const eastNorthWkt = WKT2_EGM2008_COMPOUND
+    .replace('AXIS["(N)",north,ORDER[1]', 'AXIS["(E)",east,ORDER[1]')
+    .replace('AXIS["(E)",east,ORDER[2]', 'AXIS["(N)",north,ORDER[2]');
+  const eastNorthMetadata = createMetadata({ wkt: eastNorthWkt });
+  const eastNorthSourcePoint = {
+    x: sourcePoint.y,
+    y: sourcePoint.x,
+    z: sourcePoint.z,
+  };
+  const eastNorthGeographic = createPointTransformer(
+    eastNorthMetadata,
+    0,
+    grid,
+  )(eastNorthSourcePoint);
+  assert.ok(Math.abs(eastNorthGeographic.longitude - geographic.longitude) < 1e-10);
+  assert.ok(Math.abs(eastNorthGeographic.latitude - geographic.latitude) < 1e-10);
+  const eastNorthProjected = createProjectPointTransformer(
+    eastNorthMetadata,
+    0,
+    grid,
+  )(eastNorthGeographic);
+  assert.ok(Math.abs(eastNorthProjected.x - eastNorthSourcePoint.x) < 1e-6);
+  assert.ok(Math.abs(eastNorthProjected.y - eastNorthSourcePoint.y) < 1e-6);
+
+  const unsupportedAxisWkt = WKT2_EGM2008_COMPOUND.replace(
+    'north,ORDER[1]',
+    'geocentricX,ORDER[1]',
+  );
+  assert.throws(
+    () => createPointTransformer(createMetadata({ wkt: unsupportedAxisWkt }), 0, grid),
+    (error) =>
+      error instanceof VerticalTransformError &&
+      error.code === "incompatible-reference-frame",
+  );
+
+  const navd88Wkt = WKT2_EGM2008_COMPOUND
+    .replace("EGM2008 height", "NAVD88 height")
+    .replace('VDATUM["EGM2008 geoid",ID["EPSG",2008]]', 'VDATUM["North American Vertical Datum 1988",ID["EPSG",5103]]')
+    .replace('LENGTHUNIT["metre",1]],ID["EPSG",3855]', 'LENGTHUNIT["US survey foot",0.304800609601219]],ID["EPSG",6360]');
+  const unitOnly = createPointTransformer(createMetadata({ wkt: navd88Wkt }))({
+    x: sourcePoint.x,
+    y: sourcePoint.y,
+    z: 100,
+  });
+  assert.ok(Math.abs(unitOnly.height - 100 * 0.304800609601219) < 1e-12);
+});
+
+test("WKT2 geographic compound CRS supports nested GEOGCRS axes and grid transforms", async () => {
+  const bytes = encodeGtx({
+    longitudeOrigin: -119,
+    latitudeOrigin: 33,
+    rows: 2,
+    columns: 2,
+    values: [10, 10, 10, 10],
+  });
+  const grid = await loadGrid(bytes, { sourceVerticalCrs: "EPSG:3855" });
+  const metadata = createMetadata({ wkt: WKT2_EGM2008_GEOGRAPHIC_COMPOUND });
+  const sourcePoint = {
+    x: 33.95374438756227,
+    y: -118.33772305286695,
+    z: 100,
+  };
+
+  assert.match(
+    extractHorizontalCrsWkt(WKT2_EGM2008_GEOGRAPHIC_COMPOUND),
+    /^GEOGCRS\s*\[/,
+  );
+  const expectedAngularUnitScale = 0.0174532925199433 * 6_400_000;
+  assert.ok(
+    Math.abs(
+      extractHorizontalUnitScale(WKT2_EGM2008_GEOGRAPHIC_COMPOUND) -
+        expectedAngularUnitScale,
+    ) < 1e-8,
+  );
+
+  const geographic = createPointTransformer(metadata, 0, grid)(sourcePoint);
+  assert.ok(Math.abs(geographic.longitude - sourcePoint.y) < 1e-10);
+  assert.ok(Math.abs(geographic.latitude - sourcePoint.x) < 1e-10);
+  assert.equal(geographic.height, 110);
+
+  const restored = createProjectPointTransformer(metadata, 0, grid)(geographic);
+  assert.ok(Math.abs(restored.x - sourcePoint.x) < 1e-10);
+  assert.ok(Math.abs(restored.y - sourcePoint.y) < 1e-10);
+  assert.equal(restored.z, sourcePoint.z);
 });
 
 test("only a vertical CRS authority on the outer WKT section can satisfy an EPSG source", async () => {

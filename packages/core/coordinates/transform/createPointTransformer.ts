@@ -18,6 +18,7 @@ import { geographicToEcef } from "./worldCoordinates";
 import {
   extractHorizontalCrsWkt,
   extractVerticalUnitScale,
+  getHorizontalAxisDirections,
 } from "../crs/parseCopcWkt";
 import { resolveHeightOffsetMeters } from "./heightOffset";
 import type { GtxGeoidGrid } from "./verticalGrid";
@@ -74,6 +75,40 @@ function hasGeographicBounds(metadata: CopcMetadata): boolean {
   return minX >= -180 && maxX <= 180 && minY >= -90 && maxY <= 90;
 }
 
+type HorizontalAxisDirections = NonNullable<ReturnType<typeof getHorizontalAxisDirections>>;
+
+function sourceAxesToProjectionTuple(
+  first: number,
+  second: number,
+  directions: HorizontalAxisDirections | undefined,
+): [number, number] {
+  if (!directions) return [first, second];
+  let eastOrLongitude = Number.NaN;
+  let northOrLatitude = Number.NaN;
+  directions.forEach((direction, index) => {
+    const coordinate = index === 0 ? first : second;
+    const sign = direction === "west" || direction === "south" ? -1 : 1;
+    if (direction === "east" || direction === "west") eastOrLongitude = coordinate * sign;
+    else northOrLatitude = coordinate * sign;
+  });
+  return [eastOrLongitude, northOrLatitude];
+}
+
+function projectionTupleToSourceAxes(
+  eastOrLongitude: number,
+  northOrLatitude: number,
+  directions: HorizontalAxisDirections | undefined,
+): [number, number] {
+  if (!directions) return [eastOrLongitude, northOrLatitude];
+  const coordinateFor = (direction: HorizontalAxisDirections[number]): number => {
+    const value = direction === "east" || direction === "west"
+      ? eastOrLongitude
+      : northOrLatitude;
+    return direction === "west" || direction === "south" ? -value : value;
+  };
+  return [coordinateFor(directions[0]), coordinateFor(directions[1])];
+}
+
 /**
  * Create a source-XYZ to WGS84 geographic transform for one dataset.
  *
@@ -123,10 +158,16 @@ export function createPointTransformer(
   }
 
   const horizontalWkt = extractHorizontalCrsWkt(metadata.wkt);
+  const sourceAxisDirections = getHorizontalAxisDirections(metadata.wkt);
   const projection = proj4(horizontalWkt, "WGS84");
 
   return withPlan((point: CopcPoint): GeographicPoint => {
-    const [longitude, latitude] = projection.forward([point.x, point.y]);
+    const [projectionX, projectionY] = sourceAxesToProjectionTuple(
+      point.x,
+      point.y,
+      sourceAxisDirections,
+    );
+    const [longitude, latitude] = projection.forward([projectionX, projectionY]);
     const convertedHeight = point.z * verticalUnitScale;
     const verticalHeight =
       verticalGrid && sampleVerticalGrid
@@ -191,10 +232,16 @@ export function createProjectPointTransformer(
   }
 
   const horizontalWkt = extractHorizontalCrsWkt(metadata.wkt);
+  const sourceAxisDirections = getHorizontalAxisDirections(metadata.wkt);
   const projection = proj4(horizontalWkt, "WGS84");
 
   return withPlan((point: GeographicPoint): CopcPoint => {
-    const [x, y] = projection.inverse([point.longitude, point.latitude]);
+    const [projectionX, projectionY] = projection.inverse([point.longitude, point.latitude]);
+    const [x, y] = projectionTupleToSourceAxes(
+      projectionX,
+      projectionY,
+      sourceAxisDirections,
+    );
     const offsetRemovedHeight = point.height - heightOffset;
     const sourceVerticalHeight =
       verticalGrid && sampleVerticalGrid

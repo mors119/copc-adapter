@@ -25,15 +25,37 @@ function sourceWkt(fixture) {
 }
 
 function adapterIntegrationStatus(fixture) {
-  return fixture.horizontal_wkt || fixture.wkt_family === "WKT1 PROJCS"
+  return fixture.horizontal_wkt || [
+    "WKT1 GEOGCS",
+    "WKT1 PROJCS",
+    "WKT2 PROJCRS",
+    "WKT2 COMPOUNDCRS",
+  ].includes(fixture.wkt_family)
     ? "PASS"
     : "ADAPTER INTEGRATION ISSUE";
+}
+
+function sourceProjectionTuple(fixture, point) {
+  const directions = fixture.source_axis_directions;
+  if (!directions) return [point.x, point.y];
+  let east = Number.NaN;
+  let north = Number.NaN;
+  directions.forEach((direction, index) => {
+    const coordinate = index === 0 ? point.x : point.y;
+    const sign = direction === "west" || direction === "south" ? -1 : 1;
+    if (direction === "east" || direction === "west") east = coordinate * sign;
+    else if (direction === "north" || direction === "south") north = coordinate * sign;
+  });
+  if (!Number.isFinite(east) || !Number.isFinite(north)) {
+    throw new Error(`Unsupported source axis directions in fixture ${fixture.id}`);
+  }
+  return [east, north];
 }
 
 function referencePoints(fixture) {
   const transform = proj4(sourceWkt(fixture), "WGS84");
   return fixture.points.map((point) => {
-    const [longitude, latitude] = transform.forward([point.x, point.y]);
+    const [longitude, latitude] = transform.forward(sourceProjectionTuple(fixture, point));
     return {
       longitude,
       latitude,
@@ -165,8 +187,7 @@ function benchmarkJavaScript(fixture) {
     for (let iteration = 0; iteration < iterations; iteration += 1) {
       output = points.map((point) => {
         const [longitude, latitude] = initializedTransform.forward([
-          point.x,
-          point.y,
+          ...sourceProjectionTuple(fixture, point),
         ]);
         return [longitude, latitude, point.z * fixture.vertical_unit_scale];
       });

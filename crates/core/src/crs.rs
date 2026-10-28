@@ -58,6 +58,28 @@ pub struct CrsTransform {
     height_offset_meters: f64,
     source_is_geographic: bool,
     used_horizontal_fallback: bool,
+    source_horizontal_axes: Option<[HorizontalAxisDirection; 2]>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HorizontalAxisDirection {
+    East,
+    West,
+    North,
+    South,
+}
+
+impl HorizontalAxisDirection {
+    fn is_east_west(self) -> bool {
+        matches!(self, Self::East | Self::West)
+    }
+
+    fn sign(self) -> f64 {
+        match self {
+            Self::East | Self::North => 1.0,
+            Self::West | Self::South => -1.0,
+        }
+    }
 }
 
 impl fmt::Debug for CrsTransform {
@@ -77,17 +99,17 @@ impl CrsTransform {
     /// Initialize a transform from a COPC WKT definition.
     ///
     /// The complete WKT is handed to `proj4wkt` first. If the complete
-    /// definition is a compound WKT1 value that the current upstream parser
-    /// cannot consume, the nested `PROJCS` definition is used as a focused,
-    /// removable compatibility path. Vertical units are still read from the
-    /// original WKT and applied separately, matching the existing adapter
-    /// semantics.
+    /// definition is a compound WKT1 or WKT2 value that the current upstream
+    /// parser cannot consume, the nested projected CRS definition is used as
+    /// a focused compatibility path. Vertical units and axis order are still
+    /// read from the original WKT and applied separately.
     pub fn from_wkt(wkt: &str) -> Result<Self> {
         if wkt.trim().is_empty() {
             return Err(CopcError::new("missing-wkt", "CRS WKT must not be empty"));
         }
 
         let vertical_unit_scale = extract_vertical_unit_scale(wkt)?;
+        let source_horizontal_axes = extract_horizontal_axis_directions(wkt)?;
         let (source_proj_string, used_horizontal_fallback) = match wkt_to_projstring(wkt) {
             Ok(proj_string) => (proj_string, false),
             Err(full_error) => {
@@ -111,13 +133,14 @@ impl CrsTransform {
             source_proj_string,
             vertical_unit_scale,
             used_horizontal_fallback,
+            source_horizontal_axes,
         )
     }
 
     /// Initialize the identity geographic path used when COPC metadata has no
     /// WKT but its source bounds are already longitude/latitude values.
     pub fn from_geographic() -> Result<Self> {
-        Self::from_proj_string_with_scale(WGS84_PROJ.to_owned(), 1.0, false)
+        Self::from_proj_string_with_scale(WGS84_PROJ.to_owned(), 1.0, false, None)
     }
 
     /// Initialize from optional COPC metadata while preserving the current
@@ -146,6 +169,7 @@ impl CrsTransform {
         source_proj_string: String,
         vertical_unit_scale: f64,
         used_horizontal_fallback: bool,
+        source_horizontal_axes: Option<[HorizontalAxisDirection; 2]>,
     ) -> Result<Self> {
         if !vertical_unit_scale.is_finite() || vertical_unit_scale <= 0.0 {
             return Err(CopcError::new(
@@ -183,6 +207,7 @@ impl CrsTransform {
             vertical_unit_scale,
             height_offset_meters: 0.0,
             used_horizontal_fallback,
+            source_horizontal_axes,
         })
     }
 
@@ -221,10 +246,16 @@ impl CrsTransform {
 
         // proj4rs uses radians for geographic coordinates. COPC's geographic
         // boundary and the TypeScript reference use degrees.
+        let [first_horizontal, second_horizontal] =
+            normalize_horizontal_axes(source[0], source[1], self.source_horizontal_axes);
         let mut transformed = if self.source_is_geographic {
-            (source[0].to_radians(), source[1].to_radians(), 0.0)
+            (
+                first_horizontal.to_radians(),
+                second_horizontal.to_radians(),
+                0.0,
+            )
         } else {
-            (source[0], source[1], 0.0)
+            (first_horizontal, second_horizontal, 0.0)
         };
         transform(&self.source, &self.target, &mut transformed).map_err(|error| {
             CopcError::new(
@@ -372,7 +403,197 @@ fn validate_axis(axis: &[u8; 3], label: &str) -> Result<()> {
 }
 
 fn extract_projected_wkt(wkt: &str) -> Option<String> {
-    find_section(wkt, "PROJCS[").map(str::to_owned)
+    find_section(wkt, "PROJCS[")
+        .or_else(|| find_section(wkt, "PROJCRS["))
+        .map(str::to_owned)
+}
+
+fn normalize_horizontal_axes(
+    first: f64,
+    second: f64,
+    axes: Option<[HorizontalAxisDirection; 2]>,
+) -> [f64; 2] {
+    let Some(axes) = axes else {
+        return [first, second];
+    };
+
+    let mut east = 0.0;
+    let mut north = 0.0;
+    for (value, direction) in [(first, axes[0]), (second, axes[1])] {
+        if direction.is_east_west() {
+            east = value * direction.sign();
+        } else {
+            north = value * direction.sign();
+        }
+    }
+    [east, north]
+}
+
+fn extract_horizontal_axis_directions(wkt: &str) -> Result<Option<[HorizontalAxisDirection; 2]>> {
+    let horizontal_crs = ["PROJCS[", "PROJCRS[", "GEOGCS[", "GEOGCRS["]
+        .into_iter()
+        .filter_map(|keyword| find_keyword(wkt, keyword).map(|position| (position, keyword)))
+        .min_by_key(|(position, _)| *position)
+        .and_then(|(_, keyword)| find_section(wkt, keyword));
+    let Some(horizontal_crs) = horizontal_crs else {
+        return Ok(None);
+    };
+
+    let mut axes = find_direct_sections(horizontal_crs, "AXIS[")
+        .into_iter()
+        .enumerate()
+        .map(|(index, axis)| Ok((parse_axis_order(axis)?.unwrap_or(index + 1), axis)))
+        .collect::<Result<Vec<_>>>()?;
+    if axes.is_empty() {
+        return Ok(None);
+    }
+    axes.sort_by_key(|(order, _)| *order);
+    if axes.len() < 2 || axes.windows(2).any(|pair| pair[0].0 == pair[1].0) {
+        return Err(CopcError::new(
+            "unsupported-axis",
+            "horizontal CRS must declare two ordered horizontal axes",
+        ));
+    }
+
+    let first = parse_axis_direction(axes[0].1)?;
+    let second = parse_axis_direction(axes[1].1)?;
+    if first.is_east_west() == second.is_east_west() {
+        return Err(CopcError::new(
+            "unsupported-axis",
+            "horizontal CRS axes must contain one east/west and one north/south direction",
+        ));
+    }
+    Ok(Some([first, second]))
+}
+
+fn parse_axis_direction(axis: &str) -> Result<HorizontalAxisDirection> {
+    let bytes = axis.as_bytes();
+    let mut in_string = false;
+    let mut comma = None;
+    let mut index = 0usize;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'"' if in_string && bytes.get(index + 1) == Some(&b'"') => {
+                index += 2;
+                continue;
+            }
+            b'"' => in_string = !in_string,
+            b',' if !in_string => {
+                comma = Some(index + 1);
+                break;
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    let Some(mut start) = comma else {
+        return Err(CopcError::new(
+            "malformed-wkt",
+            "horizontal CRS axis direction is missing",
+        ));
+    };
+    while bytes.get(start).is_some_and(u8::is_ascii_whitespace) {
+        start += 1;
+    }
+    let mut end = start;
+    while bytes
+        .get(end)
+        .is_some_and(|byte| byte.is_ascii_alphabetic())
+    {
+        end += 1;
+    }
+    let direction = axis[start..end].to_ascii_lowercase();
+    match direction.as_str() {
+        "east" => Ok(HorizontalAxisDirection::East),
+        "west" => Ok(HorizontalAxisDirection::West),
+        "north" => Ok(HorizontalAxisDirection::North),
+        "south" => Ok(HorizontalAxisDirection::South),
+        _ => Err(CopcError::new(
+            "unsupported-axis",
+            format!("horizontal CRS axis direction {direction:?} is unsupported"),
+        )),
+    }
+}
+
+fn parse_axis_order(axis: &str) -> Result<Option<usize>> {
+    let Some(order) = find_section(axis, "ORDER[") else {
+        return Ok(None);
+    };
+    let open = order
+        .find('[')
+        .ok_or_else(|| CopcError::new("malformed-wkt", "horizontal CRS axis order is malformed"))?;
+    let close = order
+        .rfind(']')
+        .ok_or_else(|| CopcError::new("malformed-wkt", "horizontal CRS axis order is malformed"))?;
+    let value = order[open + 1..close]
+        .trim()
+        .parse::<usize>()
+        .map_err(|_| CopcError::new("malformed-wkt", "horizontal CRS axis order is invalid"))?;
+    if value == 0 {
+        return Err(CopcError::new(
+            "malformed-wkt",
+            "horizontal CRS axis order must be positive",
+        ));
+    }
+    Ok(Some(value))
+}
+
+fn find_direct_sections<'a>(section: &'a str, keyword: &str) -> Vec<&'a str> {
+    let Some(root_open) = section.find('[') else {
+        return Vec::new();
+    };
+    let bytes = section.as_bytes();
+    let keyword_name = keyword.strip_suffix('[').unwrap_or(keyword).as_bytes();
+    let mut matches = Vec::new();
+    let mut index = root_open + 1;
+    let mut depth = 1usize;
+    let mut in_string = false;
+
+    while index < bytes.len() {
+        match bytes[index] {
+            b'"' if in_string && bytes.get(index + 1) == Some(&b'"') => {
+                index += 2;
+                continue;
+            }
+            b'"' => in_string = !in_string,
+            _ => {}
+        }
+        if in_string {
+            index += 1;
+            continue;
+        }
+
+        if depth == 1
+            && index + keyword_name.len() <= bytes.len()
+            && bytes[index..index + keyword_name.len()].eq_ignore_ascii_case(keyword_name)
+            && (index == 0 || !bytes[index - 1].is_ascii_alphanumeric() && bytes[index - 1] != b'_')
+        {
+            let mut open = index + keyword_name.len();
+            while bytes.get(open).is_some_and(u8::is_ascii_whitespace) {
+                open += 1;
+            }
+            if bytes.get(open) == Some(&b'[')
+                && let Some(axis) = find_section(&section[index..], keyword)
+            {
+                matches.push(axis);
+                index += axis.len();
+                continue;
+            }
+        }
+
+        match bytes[index] {
+            b'[' => depth += 1,
+            b']' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    break;
+                }
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    matches
 }
 
 fn extract_vertical_unit_scale(wkt: &str) -> Result<f64> {
@@ -507,7 +728,10 @@ fn find_keyword(wkt: &str, keyword: &str) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
-    use super::{CrsTransform, GeographicPoint, geographic_to_ecef};
+    use super::{
+        CrsTransform, GeographicPoint, HorizontalAxisDirection, extract_horizontal_axis_directions,
+        geographic_to_ecef,
+    };
 
     const WGS84_GEOGRAPHIC_WKT: &str = "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]]";
     const UTM_WKT: &str = "PROJCS[\"WGS 84 / UTM zone 11N\",GEOGCS[\"WGS 84\",DATUM[\"WGS84\",SPHEROID[\"WGS84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]],PROJECTION[\"Transverse_Mercator\"],PARAMETER[\"latitude_of_origin\",0],PARAMETER[\"central_meridian\",-117],PARAMETER[\"scale_factor\",0.9996],PARAMETER[\"false_easting\",500000],PARAMETER[\"false_northing\",0],UNIT[\"metre\",1]]";
@@ -537,6 +761,30 @@ mod tests {
         assert!((first.latitude - 33.95374438756227).abs() < 1e-7);
         assert_eq!(first.height, 545.1945);
         assert!((second.longitude + 118.34443846366064).abs() < 1e-7);
+    }
+
+    #[test]
+    fn orders_horizontal_axes_by_wkt_order_fields() {
+        let wkt = "PROJCRS[\"axis order\",CS[Cartesian,2],AXIS[\"northing\",north,ORDER[2]],AXIS[\"easting\",east,ORDER[1]]]";
+        assert_eq!(
+            extract_horizontal_axis_directions(wkt).unwrap(),
+            Some([
+                HorizontalAxisDirection::East,
+                HorizontalAxisDirection::North
+            ])
+        );
+    }
+
+    #[test]
+    fn ignores_a_third_vertical_axis_when_mapping_geographic_coordinates() {
+        let wkt = "GEOGCRS[\"WGS 84\",CS[ellipsoidal,3],AXIS[\"latitude\",north,ORDER[1]],AXIS[\"longitude\",east,ORDER[2]],AXIS[\"height\",up,ORDER[3]]]";
+        assert_eq!(
+            extract_horizontal_axis_directions(wkt).unwrap(),
+            Some([
+                HorizontalAxisDirection::North,
+                HorizontalAxisDirection::East
+            ])
+        );
     }
 
     #[test]

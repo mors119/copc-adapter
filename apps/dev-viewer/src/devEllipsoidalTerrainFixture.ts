@@ -3,27 +3,28 @@ import type {
   CopcPointDecoder,
 } from "@frillab/copc-adapter/cesium";
 
+// EPSG:4979 declares latitude, longitude, height axis order in the WKT below.
 const sourceCoordinates = new Float64Array([
-  -122.5, 44.5, 100,
-  -122.49, 44.51, 101,
+  44.5, -122.5, 100,
+  44.51, -122.49, 101,
 ]);
 
 const metadata = {
   pointCount: 2,
   bounds: {
-    minX: -122.5,
-    minY: 44.5,
+    minX: 44.5,
+    minY: -122.5,
     minZ: 100,
-    maxX: -122.49,
-    maxY: 44.51,
+    maxX: 44.51,
+    maxY: -122.49,
     maxZ: 101,
   },
   cube: {
-    minX: -122.5,
-    minY: 44.5,
+    minX: 44.5,
+    minY: -122.5,
     minZ: 100,
-    maxX: -122.49,
-    maxY: 44.51,
+    maxX: 44.51,
+    maxY: -122.49,
     maxZ: 101,
   },
   wkt: 'GEOGCRS["WGS 84",DATUM["World Geodetic System 1984",ELLIPSOID["WGS 84",6378137,298.257223563,LENGTHUNIT["metre",1]],ID["EPSG",6326]],CS[ellipsoidal,3],AXIS["geodetic latitude (Lat)",north,ORDER[1],ANGLEUNIT["degree",0.0174532925199433]],AXIS["geodetic longitude (Lon)",east,ORDER[2],ANGLEUNIT["degree",0.0174532925199433]],AXIS["ellipsoidal height (h)",up,ORDER[3],LENGTHUNIT["metre",1]],ID["EPSG",4979]]',

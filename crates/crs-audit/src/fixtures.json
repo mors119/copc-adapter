@@ -5,6 +5,36 @@
       "id": "autzen-wkt1-compound-lcc",
       "source": "real COPC metadata: autzen-classified.copc.laz",
       "wkt_family": "WKT1 COMPD_CS",
+      "las_header": {
+        "version": "1.4",
+        "point_format_byte": 135,
+        "point_record_length": 36,
+        "scale": [
+          0.01,
+          0.01,
+          0.01
+        ],
+        "offset": [
+          637290.75,
+          851209.9,
+          510.7
+        ],
+        "bounds": {
+          "min": [
+            635577.79,
+            848882.15,
+            406.14
+          ],
+          "max": [
+            639003.73,
+            853537.66,
+            615.26
+          ]
+        },
+        "vertical_unit": "US survey foot",
+        "vertical_unit_to_metres": 0.304800609601219,
+        "provenance": "LAS 1.4 public Autzen COPC header, bytes 0-375; source object size and digest are recorded in samples/datasets.json"
+      },
       "wkt": "COMPD_CS[\"NAD83 / Oregon GIC Lambert (ft) + NAVD88 height (ftUS)\",PROJCS[\"NAD83 / Oregon GIC Lambert (ft)\",GEOGCS[\"NAD83\",DATUM[\"North_American_Datum_1983\",SPHEROID[\"GRS 1980\",6378137,298.257222101,AUTHORITY[\"EPSG\",\"7019\"]],AUTHORITY[\"EPSG\",\"6269\"]],PRIMEM[\"Greenwich\",0,AUTHORITY[\"EPSG\",\"8901\"]],UNIT[\"degree\",0.0174532925199433,AUTHORITY[\"EPSG\",\"9122\"]],AUTHORITY[\"EPSG\",\"4269\"]],PROJECTION[\"Lambert_Conformal_Conic_2SP\"],PARAMETER[\"latitude_of_origin\",41.75],PARAMETER[\"central_meridian\",-120.5],PARAMETER[\"standard_parallel_1\",43],PARAMETER[\"standard_parallel_2\",45.5],PARAMETER[\"false_easting\",1312335.958],PARAMETER[\"false_northing\",0],UNIT[\"foot\",0.3048,AUTHORITY[\"EPSG\",\"9002\"]],AXIS[\"Easting\",EAST],AXIS[\"Northing\",NORTH],AUTHORITY[\"EPSG\",\"2992\"]],VERT_CS[\"NAVD88 height (ftUS)\",VERT_DATUM[\"North American Vertical Datum 1988\",2005,AUTHORITY[\"EPSG\",\"5103\"]],UNIT[\"US survey foot\",0.304800609601219,AUTHORITY[\"EPSG\",\"9003\"]],AXIS[\"Gravity-related height\",UP],AUTHORITY[\"EPSG\",\"6360\"]]]",
       "horizontal_wkt": "PROJCS[\"NAD83 / Oregon GIC Lambert (ft)\",GEOGCS[\"NAD83\",DATUM[\"North_American_Datum_1983\",SPHEROID[\"GRS 1980\",6378137,298.257222101,AUTHORITY[\"EPSG\",\"7019\"]],AUTHORITY[\"EPSG\",\"6269\"]],PRIMEM[\"Greenwich\",0,AUTHORITY[\"EPSG\",\"8901\"]],UNIT[\"degree\",0.0174532925199433,AUTHORITY[\"EPSG\",\"9122\"]],AUTHORITY[\"EPSG\",\"4269\"]],PROJECTION[\"Lambert_Conformal_Conic_2SP\"],PARAMETER[\"latitude_of_origin\",41.75],PARAMETER[\"central_meridian\",-120.5],PARAMETER[\"standard_parallel_1\",43],PARAMETER[\"standard_parallel_2\",45.5],PARAMETER[\"false_easting\",1312335.958],PARAMETER[\"false_northing\",0],UNIT[\"foot\",0.3048,AUTHORITY[\"EPSG\",\"9002\"]],AXIS[\"Easting\",EAST],AXIS[\"Northing\",NORTH],AUTHORITY[\"EPSG\",\"2992\"]]",
       "vertical_unit_scale": 0.304800609601219,
@@ -74,6 +104,66 @@
         "latitude_degrees": 1e-7,
         "height_meters": 1e-9
       }
+    },
+    {
+      "id": "utm11-egm2008-wkt2-compound",
+      "source": "synthetic WKT2 COMPOUNDCRS using WGS 84 / UTM zone 11N projection parameters, north/east axis order, and EPSG:3855; no COPC binary or vertical model values are implied",
+      "wkt_family": "WKT2 COMPOUNDCRS",
+      "wkt": "COMPOUNDCRS[\"WGS 84 / UTM zone 11N + EGM2008 height\",PROJCRS[\"WGS 84 / UTM zone 11N\",BASEGEODCRS[\"WGS 84\",DATUM[\"World Geodetic System 1984\",ELLIPSOID[\"WGS 84\",6378137,298.257223563,LENGTHUNIT[\"metre\",1]]]],CONVERSION[\"UTM zone 11N\",METHOD[\"Transverse Mercator\",ID[\"EPSG\",9807]],PARAMETER[\"Latitude of natural origin\",0,ANGLEUNIT[\"degree\",0.0174532925199433],ID[\"EPSG\",8801]],PARAMETER[\"Longitude of natural origin\",-117,ANGLEUNIT[\"degree\",0.0174532925199433],ID[\"EPSG\",8802]],PARAMETER[\"Scale factor at natural origin\",0.9996,SCALEUNIT[\"unity\",1],ID[\"EPSG\",8805]],PARAMETER[\"False easting\",500000,LENGTHUNIT[\"metre\",1],ID[\"EPSG\",8806]],PARAMETER[\"False northing\",0,LENGTHUNIT[\"metre\",1],ID[\"EPSG\",8807]]],CS[Cartesian,2],AXIS[\"(N)\",north,ORDER[1],LENGTHUNIT[\"metre\",1]],AXIS[\"(E)\",east,ORDER[2],LENGTHUNIT[\"metre\",1]]],VERTCRS[\"EGM2008 height\",VDATUM[\"EGM2008 geoid\"],CS[vertical,1],AXIS[\"Gravity-related height (H)\",up,LENGTHUNIT[\"metre\",1]],ID[\"EPSG\",3855]]]",
+      "horizontal_wkt": "PROJCRS[\"WGS 84 / UTM zone 11N\",BASEGEODCRS[\"WGS 84\",DATUM[\"World Geodetic System 1984\",ELLIPSOID[\"WGS 84\",6378137,298.257223563,LENGTHUNIT[\"metre\",1]]]],CONVERSION[\"UTM zone 11N\",METHOD[\"Transverse Mercator\",ID[\"EPSG\",9807]],PARAMETER[\"Latitude of natural origin\",0,ANGLEUNIT[\"degree\",0.0174532925199433],ID[\"EPSG\",8801]],PARAMETER[\"Longitude of natural origin\",-117,ANGLEUNIT[\"degree\",0.0174532925199433],ID[\"EPSG\",8802]],PARAMETER[\"Scale factor at natural origin\",0.9996,SCALEUNIT[\"unity\",1],ID[\"EPSG\",8805]],PARAMETER[\"False easting\",500000,LENGTHUNIT[\"metre\",1],ID[\"EPSG\",8806]],PARAMETER[\"False northing\",0,LENGTHUNIT[\"metre\",1],ID[\"EPSG\",8807]]],CS[Cartesian,2],AXIS[\"(N)\",north,ORDER[1],LENGTHUNIT[\"metre\",1]],AXIS[\"(E)\",east,ORDER[2],LENGTHUNIT[\"metre\",1]]]",
+      "vertical_unit_scale": 1,
+      "points": [
+        {
+          "x": 3757833.2855,
+          "y": 376392.9975,
+          "z": 100
+        }
+      ],
+      "expected": [
+        {
+          "longitude": -118.33772305286695,
+          "latitude": 33.95374438756227,
+          "height": 100
+        }
+      ],
+      "provenance": "The expected geographic point matches the existing UTM zone 11N control. The declared horizontal axis order is north/east, so the source tuple is northing/easting; this fixture checks axis normalization plus vertical-unit parsing only. The vertical grid application is tested separately with an in-memory synthetic grid.",
+      "tolerance": {
+        "longitude_degrees": 1e-7,
+        "latitude_degrees": 1e-7,
+        "height_meters": 1e-9
+      },
+      "source_axis_directions": [
+        "north",
+        "east"
+      ]
+    },
+    {
+      "id": "wgs84-egm2008-wkt2-geographic-compound",
+      "source": "synthetic WKT2 COMPOUNDCRS using WGS 84 geographic coordinates and EPSG:3855; no COPC binary or vertical model values are implied",
+      "wkt_family": "WKT2 COMPOUNDCRS",
+      "wkt": "COMPOUNDCRS[\"WGS 84 + EGM2008 height\",GEOGCRS[\"WGS 84\",DATUM[\"World Geodetic System 1984\",ELLIPSOID[\"WGS 84\",6378137,298.257223563,LENGTHUNIT[\"metre\",1]]],PRIMEM[\"Greenwich\",0,ANGLEUNIT[\"degree\",0.0174532925199433]],CS[ellipsoidal,2],AXIS[\"latitude\",north,ORDER[1],ANGLEUNIT[\"degree\",0.0174532925199433]],AXIS[\"longitude\",east,ORDER[2],ANGLEUNIT[\"degree\",0.0174532925199433]],ID[\"EPSG\",4326]],VERTCRS[\"EGM2008 height\",VDATUM[\"EGM2008 geoid\"],CS[vertical,1],AXIS[\"Gravity-related height (H)\",up,LENGTHUNIT[\"metre\",1]],ID[\"EPSG\",3855]]]",
+      "horizontal_wkt": "GEOGCRS[\"WGS 84\",DATUM[\"World Geodetic System 1984\",ELLIPSOID[\"WGS 84\",6378137,298.257223563,LENGTHUNIT[\"metre\",1]]],PRIMEM[\"Greenwich\",0,ANGLEUNIT[\"degree\",0.0174532925199433]],CS[ellipsoidal,2],AXIS[\"latitude\",north,ORDER[1],ANGLEUNIT[\"degree\",0.0174532925199433]],AXIS[\"longitude\",east,ORDER[2],ANGLEUNIT[\"degree\",0.0174532925199433]],ID[\"EPSG\",4326]]",
+      "vertical_unit_scale": 1,
+      "points": [
+        { "x": 33.95374438756227, "y": -118.33772305286695, "z": 100 }
+      ],
+      "expected": [
+        {
+          "longitude": -118.33772305286695,
+          "latitude": 33.95374438756227,
+          "height": 100
+        }
+      ],
+      "provenance": "Synthetic axis-order control using the known geographic coordinates from utm11-egm2008-wkt2-compound. The source axes are latitude then longitude; the vertical grid application is tested separately with an in-memory synthetic grid.",
+      "tolerance": {
+        "longitude_degrees": 1e-7,
+        "latitude_degrees": 1e-7,
+        "height_meters": 1e-9
+      },
+      "source_axis_directions": [
+        "north",
+        "east"
+      ]
     },
     {
       "id": "epsg-5186-korean-central-belt-2010",
