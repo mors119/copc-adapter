@@ -34,8 +34,10 @@ compact URL examples below omit options that already have a usable default.
 | `url` | `CopcInputSource`, required | Required | Yes | Yes | Yes | Accepts a URL, browser `Blob`/`File`, or `RandomAccessByteSource`. A local source must still contain COPC hierarchy metadata; ordinary LAS/LAZ is unsupported. Keep. |
 | `backend` | `CopcBackendSelection`, optional | `copc-js` | Yes | Yes | Yes | `rust` is explicit opt-in; a selected backend failure is surfaced without silent fallback. Custom backends remain supported. Keep and document. |
 | `decoder` | `CopcPointDecoder`, optional | Built-in WASM decoder only when a source returns point views instead of direct buffers | Yes | Yes | Yes | Direct-buffer backends can bypass the decoder. An injected decoder is used for view-backed sources. Keep advanced. |
-| `pointFields` | `CopcPointFieldSelection`, optional | `position` | Yes | No | No | Core callers can request optional `rgb`, `intensity`, and `classification`. Cesium layers retain all supported fields for restyling and picking; Three requests fields required by `colorMode`. Keep. |
+| `pointFields` | `CopcPointFieldSelection`, optional | `position` in Core; see `attributeLoading` in Cesium | Yes | Yes | No | Core callers and Cesium can request standard `rgb`, `intensity`, and `classification` fields. In Cesium required mode these fields are retained alongside the initial style requirements. Three requests fields required by `colorMode`. Extra dimensions remain separately explicit. |
 | `colorMode` | `CopcColorMode`, optional | `fixed` (cyan fallback) | No | Yes | Yes | Other modes are `elevation`, `rgb`, `intensity`, and `classification`. A missing source attribute falls back to fixed cyan. Keep. |
+| `attributeLoading` | `'all'` or `'required'`, optional | `all` for Cesium | No | Yes | No | `all` preserves synchronous runtime restyling by retaining all standard fields. `required` retains the initial color mode's fields, classification for an initial filter, and any explicit `pointFields`. Changing to a mode that needs an unretained field throws before changing style or selection. |
+| `classificationFilter` | `CopcClassificationFilter`, optional | No filter | No | Yes | No | Initial filter applied from the first rendered view. Classification is retained in `required` mode even when the initial color mode is different. |
 | `coordinateCacheLayout` | `'A' | 'E'`, optional | `E` for Cesium/Three layers; direct `CopcStreamingCore` remains A-shaped | No | Yes | Yes | E retains ECEF F64 XYZ plus prepared-height F64 (32 coordinate bytes/point). Select A to retain exact Source and Geographic triples for synchronous inspection. E derives longitude/latitude from ECEF when Geographic is absent and omits source XYZ when Source is absent. |
 | `pointSize` | `number`, optional | `3` pixels | No | Yes | Yes | Cesium uses CSS-pixel diameter; Three uses screen-facing pixel size. Keep. |
 | `heightOffsetMeters` | `number`, optional | `0` | Yes | Yes | Yes | Manual additive correction to ellipsoidal height after source unit conversion; no automatic datum correction. Keep. |
@@ -57,9 +59,14 @@ and `maxRenderDistanceMeters`.
 
 `decoder`, `pointFields`, range limits, height offsets, and validation policy
 are passed through the layer adapters to the shared core. `colorMode: 'rgb'`,
-`'intensity'`, or `'classification'` also controls which point attributes the
-Three adapter requests; Cesium keeps all supported fields so later style
-changes can reuse cached point data.
+`'intensity'`, or `'classification'` controls which point attributes the Three
+adapter requests. Cesium defaults to all standard style fields; set
+`attributeLoading: 'required'` to retain only fields needed by its initial
+style and optional initial classification filter. This reduces retained
+attribute buffers and, with the Rust backend, skips unrequested LAS attribute
+decompression. The copc-js backend still decodes a complete point view, so its
+required-only mode reduces prepared and retained attribute buffers but does
+not skip LAZ attribute decompression.
 
 ### Streaming selection options
 
@@ -173,8 +180,27 @@ layer.show = true;
 ```
 
 This uses the current defaults: fixed cyan points at 3 pixels, the `copc-js`
-backend, and the shared streaming limits. `url` also accepts a browser `File`
-or `Blob`; local sources are read in slices and are not uploaded.
+backend, all standard point attributes for synchronous restyling, and the
+shared streaming limits. `url` also accepts a browser `File` or `Blob`; local
+sources are read in slices and are not uploaded.
+
+To retain only fields used by the initial style, opt in explicitly. An initial
+classification filter also retains classification even when another color
+mode is selected:
+
+```ts
+const layer = new CopcCesiumLayer({
+  url: '/data/area.copc.laz',
+  colorMode: 'rgb',
+  attributeLoading: 'required',
+  classificationFilter: { include: [2, 6] },
+  pointFields: new Set(['intensity']),
+});
+```
+
+`pointFields` explicitly retains additional standard attributes such as
+intensity for inspection while required mode is active. It does not request
+extra LAS dimensions.
 
 ### CRS metadata diagnostics
 
@@ -302,6 +328,15 @@ a separately defined and tested contract.
   values above `64` are rejected.
 - `colorMode`: `'fixed' | 'elevation' | 'rgb' | 'intensity' |
   'classification'`. Default: `'fixed'`.
+- `attributeLoading`: `'all' | 'required'`. Default: `'all'`. `all` retains
+  RGB, intensity, and classification for synchronous runtime restyling.
+  `required` retains only the initial color mode's attributes and
+  classification when `classificationFilter` is supplied.
+- `classificationFilter`: optional initial classification visibility filter.
+  A filter supplied here is active from the first rendered view.
+- `pointFields`: optional `CopcPointFieldSelection` of additional standard
+  attributes to retain. These are additive to required mode's initial style
+  fields; extra LAS dimensions are not included.
 - `coordinateCacheLayout`: `'E' | 'A'`. Default: `'E'`. E keeps the decoded
   CPU cache at 32 coordinate/height bytes per point before attributes. Point
   inspection returns exact cached height and ECEF; it derives longitude and
@@ -522,11 +557,15 @@ No node geometry is recreated for camera-only changes. CPU point picking
 applies the same per-point projected footprint. Other renderers retain the
 fixed-size path unless they explicitly advertise shader support.
 
-The Cesium layer retains the supported standard style attributes (intensity,
-classification, and RGB) in its decoded point buffers so the color mode can be
-changed later without requesting the point chunk again. This increases retained
-decoded attribute data; `maxPointCacheBytes` still bounds the point-buffer
-cache.
+The Cesium layer defaults to retaining the supported standard style
+attributes (intensity, classification, and RGB) in its decoded point buffers
+so the color mode can be changed later without requesting the point chunk
+again. `attributeLoading: 'required'` is an opt-in alternative that retains
+only the initial color mode's fields and classification when an initial
+classification filter is supplied. Fixed and elevation modes need no standard
+LAS attributes. Picking remains available, but inspection omits attributes
+that were not retained. The cache-byte limit still applies to the resulting
+point buffers.
 
 ### Runtime styling
 
@@ -553,11 +592,17 @@ effect. An empty filter object has no effect. Codes absent from the source
 simply match no points. Points without a classification value are hidden while
 an include or exclude filter is active.
 Color modes that lack their required source attribute use the existing fixed
-cyan fallback. Restyling requires each currently rendered node's decoded buffer
-to still be cached; if a buffer is no longer retained, `setStyle()` throws
-instead of fetching or decoding it again. Point picking keeps the original
-source point index after filtering, and selection is cleared if its point is
-hidden by the new filter.
+cyan fallback when the initial style requested an attribute that the source
+does not provide. In `attributeLoading: 'required'` mode, a later style that
+needs an unrequested field makes `setStyle()` throw an actionable error before
+changing the current style or selection; the error states that source
+availability was not checked because the field was not requested. Recreate the
+layer with `attributeLoading: 'all'` or include the needed field in the initial
+color mode/filter or `pointFields`. Restyling also requires each currently
+rendered node's decoded buffer to still be cached; `setStyle()` never fetches
+or decodes again. Point picking keeps the original source point index after
+filtering, and selection is cleared if its point is hidden by a successful
+filter update.
 
 ### Lifecycle
 

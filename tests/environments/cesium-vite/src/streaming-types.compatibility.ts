@@ -20,6 +20,10 @@ declare const viewer: import("cesium").Viewer;
 const layerOptions: CopcCesiumLayerOptions = {
   url: "https://example.com/data.copc.laz",
   coordinateCacheLayout: "A",
+  colorMode: "rgb",
+  attributeLoading: "required",
+  classificationFilter: { include: [2, 6] },
+  pointFields: new Set(["intensity"]),
   maxRenderedPoints: 200_000,
   streaming: {
     maxRenderedPoints: 100_000,

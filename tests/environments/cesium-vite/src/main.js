@@ -20,6 +20,8 @@ const datasetUrl =
   terrainFixture?.sourceUrl ?? "/samples/autzen.copc.laz";
 const backend = params.get("backend") === "copc-js" ? "copc-js" : "rust";
 const colorMode = params.get("mode") ?? "rgb";
+const attributeLoading =
+  params.get("attributeLoading") === "required" ? "required" : "all";
 const pointSizeMode =
   params.get("pointSizeMode") === "attenuated" ? "attenuated" : "fixed";
 const maxRenderDistanceMeters =
@@ -53,6 +55,7 @@ const layer = new CopcCesiumLayer({
   backend: terrainFixture?.backend ?? backend,
   ...(terrainFixture ? { decoder: terrainFixture.decoder } : {}),
   colorMode,
+  attributeLoading,
   pointSizeMode,
   minPointSize: 1,
   maxPointSize: 8,
@@ -257,9 +260,12 @@ function getState() {
     lifecycle: snapshot.lifecycle,
     backend: snapshot.backend,
     colorMode,
+    attributeLoading,
+    style: layer.getStyle(),
     datasetUrl: snapshot.datasetUrl,
     metadata,
     hierarchy: layer.getHierarchyDiagnostics(),
+    pointCache: snapshot.pointCache,
     selectedPoint: layer.getSelectedPoint(),
     selectedNodeKeys: snapshot.selectedNodeKeys,
     renderedNodeKeys: snapshot.renderedNodeKeys,
@@ -481,6 +487,17 @@ window.__PACKED_CONSUMER__ = {
     typeof BatchedGeometryPointRenderer === "function",
   getLastErrorStack: () => lastErrorStack,
   getState,
+  trySetStyle(update) {
+    try {
+      layer.setStyle(update);
+      return { success: true };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  },
   getPointSizeDiagnostics() {
     if (!renderer) return undefined;
     return [...renderer.nodes.entries()].map(([nodeKey, node]) => ({
