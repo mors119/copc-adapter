@@ -298,6 +298,35 @@ test("queued Rust decode work can be superseded while active work finishes", asy
   pool.destroy();
 });
 
+test("view invalidation preserves queued spatial-query decode jobs", async () => {
+  const harness = createFakeWorkerHarness({ delay: 20 });
+  const pool = new RustCopcDecodeWorkerPool({
+    workerCount: 1,
+    workerFactory: harness.factory,
+  });
+  pool.setMetadata(new Uint8Array([1]));
+
+  const activeView = pool.submit(request("active-view"));
+  while (harness.stats().order.length === 0) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  const query = pool.submit(request("spatial-query"), "spatial-query");
+  const staleView = pool.submit(request("stale-view"));
+
+  pool.cancelQueued((_request, workload) => workload === "view");
+  await assert.rejects(
+    staleView,
+    (error) =>
+      error instanceof RustCopcWorkerError &&
+      error.workerCode === "worker-cancelled",
+  );
+  assert.equal(pool.getDiagnostics().queuedCount, 1);
+  assert.equal((await activeView).pointCount, 1);
+  assert.equal((await query).pointCount, 1);
+  assert.deepEqual(harness.stats().order, ["active-view", "spatial-query"]);
+  pool.destroy();
+});
+
 test("worker failures are structured and include the node key", async () => {
   const harness = createFakeWorkerHarness({ fail: true });
   const pool = new RustCopcDecodeWorkerPool({

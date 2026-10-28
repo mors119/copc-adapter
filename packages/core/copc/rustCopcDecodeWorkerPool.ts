@@ -42,6 +42,9 @@ export type RustCopcDecodeRequest = {
   chunk: Uint8Array;
 };
 
+/** Ownership category used to preserve independent query jobs on view changes. */
+export type RustCopcDecodeWorkload = "view" | "spatial-query";
+
 export type RustCopcPreparedResult = {
   prepared: PreparedPointData;
   durationMs: number;
@@ -79,6 +82,7 @@ export class RustCopcWorkerError extends Error {
 type QueueEntry = {
   id: number;
   request: RustCopcWorkerJobRequest;
+  workload: RustCopcDecodeWorkload;
   resolve: (result: RustCopcWorkerResult) => void;
   reject: (error: unknown) => void;
 };
@@ -166,8 +170,11 @@ export class RustCopcDecodeWorkerPool {
   }
 
   /** Submit a worker-side decode and return source-space coordinates and attributes. */
-  submit(request: RustCopcDecodeRequest): Promise<RustCopcDecodedResult> {
-    return this.enqueue({ ...request, type: "decode" }).then((result) => {
+  submit(
+    request: RustCopcDecodeRequest,
+    workload: RustCopcDecodeWorkload = "view",
+  ): Promise<RustCopcDecodedResult> {
+    return this.enqueue({ ...request, type: "decode" }, workload).then((result) => {
       if ("prepared" in result) {
         throw new RustCopcWorkerError(
           "worker-message",
@@ -182,8 +189,9 @@ export class RustCopcDecodeWorkerPool {
   /** Submit fused decode, CRS transformation, and ECEF preparation. */
   submitPrepared(
     request: RustCopcDecodeRequest,
+    workload: RustCopcDecodeWorkload = "view",
   ): Promise<RustCopcPreparedResult> {
-    return this.enqueue({ ...request, type: "prepare" }).then((result) => {
+    return this.enqueue({ ...request, type: "prepare" }, workload).then((result) => {
       if (!("prepared" in result)) {
         throw new RustCopcWorkerError(
           "worker-message",
@@ -197,6 +205,7 @@ export class RustCopcDecodeWorkerPool {
 
   private enqueue(
     request: RustCopcWorkerJobRequest,
+    workload: RustCopcDecodeWorkload,
   ): Promise<RustCopcWorkerResult> {
     if (this.destroyed) {
       return Promise.reject(
@@ -219,6 +228,7 @@ export class RustCopcDecodeWorkerPool {
       const entry: QueueEntry = {
         id: this.nextId++,
         request,
+        workload,
         resolve,
         reject,
       };
@@ -230,13 +240,16 @@ export class RustCopcDecodeWorkerPool {
     });
   }
 
-  /** Remove queued work that is no longer relevant to the current view. */
+  /** Remove queued jobs matching a request and ownership predicate. */
   cancelQueued(
-    predicate: (request: RustCopcDecodeRequest) => boolean = () => true,
+    predicate: (
+      request: RustCopcDecodeRequest,
+      workload: RustCopcDecodeWorkload,
+    ) => boolean = () => true,
   ): void {
     for (let index = this.queue.length - 1; index >= 0; index -= 1) {
       const entry = this.queue[index];
-      if (!predicate(entry.request)) continue;
+      if (!predicate(entry.request, entry.workload)) continue;
       this.queue.splice(index, 1);
       this.entries.delete(entry.id);
       this.cancelledCount += 1;

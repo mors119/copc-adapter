@@ -1306,7 +1306,11 @@ class CopcStreamingCoreImplementation<TPointData> {
           const pointView = await state.context.loadPointDataView(
             node,
             positionFields,
-            { signal: pointWorkSignal, performanceObserver },
+            {
+              signal: pointWorkSignal,
+              performanceObserver,
+              workload: "spatial-query",
+            },
           );
           return { ok: true, pointView };
         } catch (error: unknown) {

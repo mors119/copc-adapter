@@ -692,7 +692,7 @@ export class RustCopcReader {
         pointCount,
         requestedFields: getRustPointFieldMask(fields),
         chunk: chunkBytes,
-      });
+      }, options.workload ?? "view");
       this.resolvePerformanceObserver(options.performanceObserver)?.({
         stage: "decode",
         durationMs: decoded.decodeDurationMs,
@@ -749,7 +749,10 @@ export class RustCopcReader {
       chunk: chunkBytes,
     };
     if (this.decodeWorkerPool) {
-      const result = await this.decodeWorkerPool.submitPrepared(request);
+      const result = await this.decodeWorkerPool.submitPrepared(
+        request,
+        options.workload ?? "view",
+      );
       this.resolvePerformanceObserver(options.performanceObserver)?.({
         stage: "decode",
         durationMs: result.decodeDurationMs,
@@ -846,9 +849,11 @@ export class RustCopcReader {
     return { metadataBytes, chunkBytes, pointCount };
   }
 
-  /** Cancel queued decode jobs; an already running worker job may finish. */
+  /** Cancel queued render-view jobs while preserving independent spatial queries. */
   cancelPendingPointJobs(): void {
-    this.decodeWorkerPool?.cancelQueued();
+    this.decodeWorkerPool?.cancelQueued(
+      (_request, workload) => workload === "view",
+    );
   }
 
   /** Return worker queue counters, or `undefined` when no worker pool is available. */

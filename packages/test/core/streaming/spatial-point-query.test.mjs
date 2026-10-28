@@ -678,7 +678,8 @@ test("point-read concurrency is independently bounded and preserves node order",
       [first.key, [[0.5, 0.5, 0.5]]],
       [second.key, [[1.5, 1.5, 1.5]]],
     ]),
-    gatePointRead: async () => {
+    gatePointRead: async (_node, options) => {
+      assert.equal(options.workload, "spatial-query");
       startedCount += 1;
       if (startedCount === 2) notifyBothStarted();
       await readsReleased;
