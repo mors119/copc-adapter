@@ -19,7 +19,8 @@ export class StreamingWorkConcurrencyLimiter {
   /** Configured maximum number of active load operations. */
   readonly maxConcurrentNodeLoads: number;
   private activeCount = 0;
-  private readonly waiters = new Set<() => void>();
+  private readonly foregroundWaiters = new Set<() => void>();
+  private readonly backgroundWaiters = new Set<() => void>();
 
   /**
    * Create a shared limiter with a positive integer slot limit.
@@ -57,7 +58,8 @@ export class StreamingWorkConcurrencyLimiter {
   tryAcquirePrefetchSlot(): boolean {
     if (
       this.maxConcurrentNodeLoads <= 1 ||
-      this.activeCount >= this.maxConcurrentNodeLoads - 1
+      this.activeCount >= this.maxConcurrentNodeLoads - 1 ||
+      this.foregroundWaiters.size > 0
     ) {
       return false;
     }
@@ -69,22 +71,45 @@ export class StreamingWorkConcurrencyLimiter {
   async acquire(shouldContinue: () => boolean): Promise<boolean> {
     while (this.activeCount >= this.maxConcurrentNodeLoads) {
       if (!shouldContinue()) {
+        this.wakeNextWaiter();
         return false;
       }
-
-      await new Promise<void>((resolve) => {
-        const waiter = (): void => {
-          this.waiters.delete(waiter);
-          resolve();
-        };
-        this.waiters.add(waiter);
-      });
+      await this.waitForSlot(this.foregroundWaiters);
     }
 
     if (!shouldContinue()) {
+      this.wakeNextWaiter();
       return false;
     }
 
+    this.activeCount += 1;
+    return true;
+  }
+
+  /**
+   * Acquire a lower-priority point-query slot. One slot stays available for
+   * current-view work when the manager has multiple slots; with one slot, a
+   * query may run only while no foreground load is active or waiting.
+   */
+  async acquirePointQuerySlot(
+    shouldContinue: () => boolean,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    const backgroundLimit = Math.max(1, this.maxConcurrentNodeLoads - 1);
+    while (
+      this.activeCount >= backgroundLimit ||
+      this.foregroundWaiters.size > 0
+    ) {
+      if (!shouldContinue() || signal?.aborted) {
+        this.wakeNextWaiter();
+        return false;
+      }
+      await this.waitForSlot(this.backgroundWaiters, signal);
+    }
+    if (!shouldContinue() || signal?.aborted) {
+      this.wakeNextWaiter();
+      return false;
+    }
     this.activeCount += 1;
     return true;
   }
@@ -96,14 +121,49 @@ export class StreamingWorkConcurrencyLimiter {
     }
 
     this.activeCount -= 1;
-    this.notifyWaiters();
+    this.wakeNextWaiter();
   }
 
   /** Wake stale schedulers waiting for a slot so they can observe invalidation. */
   notifyWaiters(): void {
-    for (const waiter of [...this.waiters]) {
-      waiter();
-    }
+    this.wakeWaiters(this.foregroundWaiters);
+    this.wakeWaiters(this.backgroundWaiters);
+  }
+
+  private waitForSlot(
+    waiters: Set<() => void>,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    return new Promise<void>((resolve) => {
+      let settled = false;
+      const finish = (): void => {
+        if (settled) return;
+        settled = true;
+        waiters.delete(finish);
+        signal?.removeEventListener("abort", finish);
+        resolve();
+      };
+      waiters.add(finish);
+      if (signal?.aborted) {
+        finish();
+      } else {
+        signal?.addEventListener("abort", finish, { once: true });
+      }
+    });
+  }
+
+  private wakeWaiters(waiters: Set<() => void>): void {
+    for (const waiter of [...waiters]) waiter();
+  }
+
+  /** Wake one waiter, preserving foreground priority and avoiding slot races. */
+  private wakeNextWaiter(): void {
+    const waiters =
+      this.foregroundWaiters.size > 0
+        ? this.foregroundWaiters
+        : this.backgroundWaiters;
+    const next = waiters.values().next().value as (() => void) | undefined;
+    next?.();
   }
 }
 

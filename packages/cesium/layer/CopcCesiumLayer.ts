@@ -28,6 +28,10 @@ import type {
 } from "../terrain/terrainHeightAlignment";
 import type { NodePointCacheDiagnostics } from "../../core/streaming/createNodePointCache";
 import type {
+  CopcPointQuery,
+  CopcPointQueryOptions,
+} from "../../core/streaming/spatialPointQuery";
+import type {
   RefinementAlgorithm,
   RefinementFocus,
 } from "../../core/streaming/refinementStrategies";
@@ -115,6 +119,8 @@ export type CopcCesiumLayerOptions = {
   pointFields?: CopcPointFieldSelection;
   /** Retained point-coordinate layout. Defaults to compact E; choose A to retain exact Source and Geographic arrays. */
   coordinateCacheLayout?: "A" | "E";
+  /** Keep exact source XYZ in compact E cache entries for cache-only queries. Defaults to `false` and adds 24 bytes per cached point. */
+  retainSourceCoordinatesForQueries?: boolean;
   /** Manual additive correction in metres applied to ellipsoidal point height. Defaults to 0. */
   heightOffsetMeters?: number;
   /** Explicit user-loaded GTX grid. Omitted keeps the existing no-conversion behavior. */
@@ -297,6 +303,18 @@ export class CopcCesiumLayer {
   /** Return loaded COPC metadata, or `undefined` before loading or after unloading. */
   getMetadata(): CopcMetadata | undefined {
     return this.controller.getMetadata();
+  }
+
+  /**
+   * Stream source XYZ points from an inclusive source-coordinate AABB.
+   * Querying does not move the camera or change the layer's rendered selection.
+   *
+   * @param options Explicit query mode, maximum depth, region, and finite resource budgets.
+   * @returns One-shot batches and a terminal status promise.
+   * @throws If the layer is not loaded or the region/limits are invalid.
+   */
+  queryPoints(options: CopcPointQueryOptions): CopcPointQuery {
+    return this.controller.queryPoints(options);
   }
 
   /** Return hierarchy page-request/cache counters after the source has opened. */

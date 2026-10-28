@@ -48,6 +48,7 @@ import {
   assertLegacyCoordinatesAvailable,
   cachedPointDataToRenderablePointData,
   createCompactEPointCacheNode,
+  isCompactEPointCacheNode,
   type CachedPointData,
   type CompactECoordinateRetention,
   type CompactEPointProvenance,
@@ -64,6 +65,18 @@ import {
 } from "./createNodePointCache";
 import { DEFAULT_MAX_RENDERED_POINTS, NodeSelector } from "./NodeSelector";
 import { StreamingManager } from "./StreamingManager";
+import {
+  createCopcPointQuery,
+  DEFAULT_SPATIAL_POINT_QUERY_LIMITS,
+  normalizeCopcPointQueryOptions,
+  yieldSpatialPointQuery,
+  type CopcPointQueryAccounting,
+  type CopcPointQueryBatch,
+  type CopcPointQueryOptions,
+  type CopcPointQueryPartialReason,
+  type CopcPointQuery,
+  type NormalizedCopcPointQueryOptions,
+} from "./spatialPointQuery";
 import { AdaptiveViewDistancePolicy, createStreamingViewBounds } from "./view";
 import type { AdaptiveViewDistanceDiagnostics } from "./view";
 import type {
@@ -348,6 +361,109 @@ const MAX_PREFETCH_POINTS_PER_UPDATE = 25_000;
 const MAX_PREFETCH_POINT_RANGE_BYTES_PER_UPDATE = 8 * 1024 * 1024;
 const MAX_PREFETCH_HIERARCHY_PAGES_PER_UPDATE = 1;
 const ESTIMATED_PREPARED_BYTES_PER_POINT = 96;
+const MAX_CONCURRENT_SPATIAL_POINT_QUERIES = 2;
+
+function intersectsSourceBounds(
+  left: CopcHierarchyBounds,
+  right: CopcHierarchyBounds,
+): boolean {
+  return (
+    left.minX <= right.maxX &&
+    left.maxX >= right.minX &&
+    left.minY <= right.maxY &&
+    left.maxY >= right.minY &&
+    left.minZ <= right.maxZ &&
+    left.maxZ >= right.minZ
+  );
+}
+
+function cachedSourceCoordinates(
+  value: CachedPointData,
+): Float64Array | undefined {
+  if (isCompactEPointCacheNode(value)) {
+    return value.sourceCoordinates;
+  }
+  return value.source.coordinateSystem === "copc-source"
+    ? value.source.coordinates
+    : undefined;
+}
+
+function pointQueryAbortError(signal: AbortSignal): Error {
+  const error = new Error("COPC point query was cancelled", {
+    cause: signal.reason,
+  });
+  error.name = "AbortError";
+  return error;
+}
+
+function throwIfPointQueryAborted(signal: AbortSignal): void {
+  if (signal.aborted) throw pointQueryAbortError(signal);
+}
+
+function addPointQueryReason(
+  accounting: CopcPointQueryAccounting,
+  reason: CopcPointQueryPartialReason,
+): void {
+  accounting.reasonCodes.add(reason);
+}
+
+async function* scanPointQueryNode(
+  nodeKey: string,
+  pointCount: number,
+  maxPointsToScan: number,
+  readCoordinate: (pointIndex: number, axis: 0 | 1 | 2) => number,
+  region: CopcPointQueryOptions["region"],
+  signal: AbortSignal,
+  accounting: CopcPointQueryAccounting,
+): AsyncGenerator<CopcPointQueryBatch> {
+  let batch = [] as Array<{
+    x: number;
+    y: number;
+    z: number;
+    nodeKey: string;
+    pointIndex: number;
+  }>;
+  const scanCount = Math.min(pointCount, maxPointsToScan);
+  for (let pointIndex = 0; pointIndex < scanCount; pointIndex += 1) {
+    if (pointIndex % DEFAULT_SPATIAL_POINT_QUERY_LIMITS.batchSize === 0) {
+      throwIfPointQueryAborted(signal);
+    }
+    const x = readCoordinate(pointIndex, 0);
+    const y = readCoordinate(pointIndex, 1);
+    const z = readCoordinate(pointIndex, 2);
+    accounting.pointsScanned += 1;
+    if (![x, y, z].every(Number.isFinite)) {
+      addPointQueryReason(accounting, "invalid-point-coordinate");
+    } else if (
+      x >= region.min.x && x <= region.max.x &&
+      y >= region.min.y && y <= region.max.y &&
+      z >= region.min.z && z <= region.max.z
+    ) {
+      batch.push({ x, y, z, nodeKey, pointIndex });
+      accounting.pointsReturned += 1;
+      if (batch.length >= DEFAULT_SPATIAL_POINT_QUERY_LIMITS.batchSize) {
+        yield batch;
+        batch = [];
+      }
+    }
+    if (
+      pointIndex > 0 &&
+      pointIndex % DEFAULT_SPATIAL_POINT_QUERY_LIMITS.batchSize === 0
+    ) {
+      await yieldSpatialPointQuery();
+    }
+  }
+  throwIfPointQueryAborted(signal);
+  if (batch.length > 0) yield batch;
+}
+
+type SettledPointQueryLoad =
+  | {
+      ok: true;
+      pointView: Awaited<ReturnType<CopcSource["loadPointDataView"]>>;
+    }
+  | { ok: false; error: unknown }
+  | { ok: false; reason: "query-concurrency-limit" };
 
 /** Detached counters for the optional bounded future-view preparation path. */
 export type PredictivePrefetchDiagnostics = {
@@ -525,6 +641,7 @@ class CopcStreamingCoreImplementation<TPointData> {
   private loadGeneration = 0;
   private viewGeneration = 0;
   private streamingUpdateCount = 0;
+  private activeSpatialPointQueries = 0;
   private selectedNodeKeys = new Set<string>();
   private currentView?: StreamingView;
   private readonly adaptiveViewDistancePolicy =
@@ -919,6 +1036,386 @@ class CopcStreamingCoreImplementation<TPointData> {
       this.streamingState?.minimumDatasetHeightMeters,
     );
     return this.createHierarchyQuery(adaptiveView);
+  }
+
+  /**
+   * Stream source XYZ records in one bounded AABB query.
+   *
+   * `maxDepth` starts at root depth zero. The query emits the deepest known
+   * non-overlapping frontier up to that depth; a parent sample is omitted
+   * where relevant child samples replace it. A complete summary therefore
+   * describes that frontier, not every point record in the COPC resource.
+   *
+   * Batches contain at most 4,096 matching points. Consume the stream once and
+   * await `result` afterward to learn whether the requested frontier completed.
+   * Breaking iteration early or aborting the signal produces a cancelled summary.
+   *
+   * `cache-only` reads resolved hierarchy and point-cache data only. Compact E
+   * entries without retained source XYZ count as missing. `fetch-missing` reads
+   * only the required hierarchy pages and point chunks and yields to current-view
+   * node work through the shared low-priority scheduler.
+   *
+   * @throws `TypeError` or `RangeError` for invalid regions or resource limits.
+   * @throws If the core is not loaded or has been destroyed.
+   * @example
+   * ```ts
+   * const query = core.queryPoints({
+   *   region: {
+   *     coordinateSystem: "copc-source",
+   *     min: { x: 100, y: 200, z: 0 },
+   *     max: { x: 120, y: 240, z: 30 },
+   *   },
+   *   mode: "fetch-missing",
+   *   maxDepth: 4,
+   * });
+   * for await (const batch of query) consume(batch);
+   * const summary = await query.result;
+   * ```
+   */
+  queryPoints(options: CopcPointQueryOptions): CopcPointQuery {
+    const normalized = normalizeCopcPointQueryOptions(options);
+    const state = this.streamingState;
+    if (!state || this.lifecycle !== "ready") {
+      throw new Error("COPC streaming controller is not loaded");
+    }
+    const loadGeneration = this.loadGeneration;
+    return createCopcPointQuery(
+      normalized,
+      (signal, accounting) =>
+        this.executeSpatialPointQuery(
+          state,
+          loadGeneration,
+          normalized,
+          signal,
+          accounting,
+        ),
+      this.lifecycleAbortController?.signal,
+    );
+  }
+
+  private async *executeSpatialPointQuery(
+    state: StreamingState,
+    loadGeneration: number,
+    options: NormalizedCopcPointQueryOptions,
+    signal: AbortSignal,
+    accounting: CopcPointQueryAccounting,
+  ): AsyncGenerator<CopcPointQueryBatch> {
+    if (this.activeSpatialPointQueries >= MAX_CONCURRENT_SPATIAL_POINT_QUERIES) {
+      addPointQueryReason(accounting, "query-concurrency-limit");
+      return;
+    }
+    this.activeSpatialPointQueries += 1;
+
+    const regionBounds: CopcHierarchyBounds = {
+      minX: options.region.min.x,
+      minY: options.region.min.y,
+      minZ: options.region.min.z,
+      maxX: options.region.max.x,
+      maxY: options.region.max.y,
+      maxZ: options.region.max.z,
+    };
+    const hierarchyQuery: CopcHierarchyQuery = {
+      bounds: { ...regionBounds, coordinateSystem: "copc-source" },
+      maxLevel: options.maxDepth,
+    };
+    let hierarchyPageLimitHit = options.maxHierarchyPages === 0;
+    let byteLimitHit = false;
+    let reservedRangeBytes = 0;
+    const performanceObserver: CopcPerformanceObserver = (event) => {
+      if (
+        event.stage === "rangeFetch" &&
+        event.bytes !== undefined &&
+        Number.isSafeInteger(event.bytes) &&
+        event.bytes >= 0
+      ) {
+        accounting.bytesRead += event.bytes;
+      }
+    };
+
+    try {
+      throwIfPointQueryAborted(signal);
+      let hierarchy: ReturnType<HierarchyLoader["queryCached"]>;
+      if (options.mode === "cache-only" || options.maxHierarchyPages === 0) {
+        hierarchy = state.hierarchyLoader.queryCached(hierarchyQuery);
+      } else {
+        hierarchy = await state.hierarchyLoader.query(hierarchyQuery, {
+          maxPages: options.maxHierarchyPages,
+          maxConcurrentPageLoads: 1,
+          signal,
+          performanceObserver,
+          onPageVisited: (_cached, _page) => {
+            accounting.hierarchyPagesVisited += 1;
+          },
+          canLoadPage: (page, cached) => {
+            if (cached) return true;
+            const nextTotal = reservedRangeBytes + page.pageLength;
+            if (nextTotal > options.maxBytes) {
+              byteLimitHit = true;
+              return false;
+            }
+            reservedRangeBytes = nextTotal;
+            accounting.bytesRequested = nextTotal;
+            return true;
+          },
+          onPageSkipped: (reason) => {
+            if (reason === "max-pages") hierarchyPageLimitHit = true;
+            if (reason === "query-budget") byteLimitHit = true;
+          },
+        });
+      }
+      throwIfPointQueryAborted(signal);
+      if (!this.isCurrentLoad(loadGeneration) || this.streamingState !== state) {
+        throw pointQueryAbortError(signal);
+      }
+
+      const nodesByKey = new Map(hierarchy.nodes.map((node) => [node.key, node]));
+      const nodeBounds = new Map<string, CopcHierarchyBounds>();
+      const intersectsRegion = (nodeKey: string): boolean => {
+        let bounds = nodeBounds.get(nodeKey);
+        if (!bounds) {
+          bounds = state.hierarchyLoader.getNodeBounds(nodeKey);
+          nodeBounds.set(nodeKey, bounds);
+        }
+        return intersectsSourceBounds(bounds, regionBounds);
+      };
+      const selectedNodes: typeof hierarchy.nodes = [];
+      const root = nodesByKey.get("0-0-0-0");
+      const visit = (node: (typeof hierarchy.nodes)[number]): void => {
+        if (!intersectsRegion(node.key)) return;
+        if (node.level >= options.maxDepth) {
+          selectedNodes.push(node);
+          return;
+        }
+        if (node.childrenComplete !== true) {
+          addPointQueryReason(accounting, "missing-hierarchy");
+          if (hierarchyPageLimitHit) {
+            addPointQueryReason(accounting, "hierarchy-page-limit");
+          }
+          if (byteLimitHit) addPointQueryReason(accounting, "byte-limit");
+        }
+        const relevantChildren = (node.children ?? [])
+          .map((key) => nodesByKey.get(key))
+          .filter(
+            (child): child is (typeof hierarchy.nodes)[number] =>
+              child !== undefined && intersectsRegion(child.key),
+          );
+        if (relevantChildren.length === 0) {
+          if (node.childrenComplete === true) selectedNodes.push(node);
+          return;
+        }
+        for (const child of relevantChildren) visit(child);
+      };
+      if (root) {
+        visit(root);
+      } else {
+        addPointQueryReason(accounting, "missing-hierarchy");
+      }
+      selectedNodes.sort((left, right) =>
+        left.key < right.key ? -1 : left.key > right.key ? 1 : 0,
+      );
+
+      const positionFields = createCopcPointFieldSelection(["position"]);
+      const nodePlans: Array<{
+        cachedCoordinates?: Float64Array;
+        scanCount?: number;
+        loadPointData?: boolean;
+      }> = selectedNodes.map((node) => {
+        if (
+          !Number.isSafeInteger(node.pointCount) ||
+          node.pointCount < 0 ||
+          !Number.isSafeInteger(node.pointDataLength) ||
+          node.pointDataLength < 0
+        ) {
+          throw new Error(`Invalid point range metadata for COPC node ${node.key}`);
+        }
+        const cached = state.cache.get(node.key);
+        return { cachedCoordinates: cached ? cachedSourceCoordinates(cached) : undefined };
+      });
+      let reservedPointCount = 0;
+      let pointSchedulingStopped = false;
+      for (let nodeIndex = 0; nodeIndex < selectedNodes.length; nodeIndex += 1) {
+        const node = selectedNodes[nodeIndex];
+        const plan = nodePlans[nodeIndex];
+        if (node.pointCount === 0) {
+          plan.scanCount = 0;
+          continue;
+        }
+        if (pointSchedulingStopped) continue;
+        if (options.mode === "cache-only" && !plan.cachedCoordinates) {
+          addPointQueryReason(accounting, "missing-nodes");
+          continue;
+        }
+
+        const remainingPointBudget = options.maxPoints - reservedPointCount;
+        if (remainingPointBudget <= 0) {
+          addPointQueryReason(accounting, "point-limit");
+          pointSchedulingStopped = true;
+          continue;
+        }
+        if (node.pointCount > remainingPointBudget) {
+          addPointQueryReason(accounting, "point-limit");
+          pointSchedulingStopped = true;
+          continue;
+        }
+        plan.scanCount = node.pointCount;
+        reservedPointCount += plan.scanCount;
+        if (plan.cachedCoordinates) continue;
+        if (reservedRangeBytes + node.pointDataLength > options.maxBytes) {
+          addPointQueryReason(accounting, "byte-limit");
+          reservedPointCount -= plan.scanCount;
+          plan.scanCount = undefined;
+          continue;
+        }
+        reservedRangeBytes += node.pointDataLength;
+        plan.loadPointData = true;
+      }
+
+      const pointLoads = new Map<number, Promise<SettledPointQueryLoad>>();
+      let nextNodeToSchedule = 0;
+      let activePointLoads = 0;
+      const pointWorkController = new AbortController();
+      const forwardAbort = (): void =>
+        pointWorkController.abort(signal.reason);
+      if (signal.aborted) {
+        forwardAbort();
+      } else {
+        signal.addEventListener("abort", forwardAbort, { once: true });
+      }
+      const pointWorkSignal = pointWorkController.signal;
+
+      const loadPointView = async (
+        node: (typeof selectedNodes)[number],
+      ): Promise<SettledPointQueryLoad> => {
+        let ownsPointSlot = false;
+        try {
+          ownsPointSlot = await state.manager.acquirePointQuerySlot(
+            () =>
+              this.isCurrentLoad(loadGeneration) &&
+              this.streamingState === state &&
+              !pointWorkSignal.aborted,
+            pointWorkSignal,
+          );
+          if (!ownsPointSlot) {
+            throwIfPointQueryAborted(signal);
+            if (pointWorkSignal.aborted) {
+              return { ok: false, error: pointQueryAbortError(pointWorkSignal) };
+            }
+            return { ok: false, reason: "query-concurrency-limit" };
+          }
+          accounting.bytesRequested += node.pointDataLength;
+          const pointView = await state.context.loadPointDataView(
+            node,
+            positionFields,
+            { signal: pointWorkSignal, performanceObserver },
+          );
+          return { ok: true, pointView };
+        } catch (error: unknown) {
+          return { ok: false, error };
+        } finally {
+          if (ownsPointSlot) state.manager.releasePointQuerySlot();
+          activePointLoads = Math.max(0, activePointLoads - 1);
+        }
+      };
+
+      const schedulePointLoads = (): void => {
+        while (
+          !signal.aborted &&
+          activePointLoads < options.maxConcurrentPointReads &&
+          nextNodeToSchedule < selectedNodes.length
+        ) {
+          const nodeIndex = nextNodeToSchedule;
+          nextNodeToSchedule += 1;
+          const plan = nodePlans[nodeIndex];
+          if (!plan.loadPointData) continue;
+          const node = selectedNodes[nodeIndex];
+          activePointLoads += 1;
+          pointLoads.set(nodeIndex, loadPointView(node));
+        }
+      };
+
+      try {
+        for (let nodeIndex = 0; nodeIndex < selectedNodes.length; nodeIndex += 1) {
+          throwIfPointQueryAborted(signal);
+          if (!this.isCurrentLoad(loadGeneration) || this.streamingState !== state) {
+            throw pointQueryAbortError(signal);
+          }
+          schedulePointLoads();
+          const node = selectedNodes[nodeIndex];
+          const plan = nodePlans[nodeIndex];
+          if (node.pointCount === 0) {
+            accounting.nodesProcessed += 1;
+            continue;
+          }
+          const scanCount = plan.scanCount;
+          if (scanCount === undefined || scanCount === 0) continue;
+
+          if (plan.cachedCoordinates) {
+            if (plan.cachedCoordinates.length !== node.pointCount * 3) {
+              throw new Error(`Cached source XYZ length mismatch for COPC node ${node.key}`);
+            }
+            yield* scanPointQueryNode(
+              node.key,
+              node.pointCount,
+              scanCount,
+              (pointIndex, axis) =>
+                plan.cachedCoordinates![pointIndex * 3 + axis],
+              options.region,
+              signal,
+              accounting,
+            );
+            accounting.nodesProcessed += 1;
+            continue;
+          }
+
+          const pendingPointLoad = pointLoads.get(nodeIndex);
+          if (!pendingPointLoad) continue;
+          const loadResult = await pendingPointLoad;
+          throwIfPointQueryAborted(signal);
+          if (!loadResult.ok) {
+            if ("reason" in loadResult) {
+              addPointQueryReason(accounting, loadResult.reason);
+              continue;
+            }
+            throw loadResult.error;
+          }
+          const pointView = loadResult.pointView;
+          if (!pointView.availableFields.has("position")) {
+            addPointQueryReason(accounting, "unsupported-backend");
+            continue;
+          }
+          if (pointView.pointCount !== node.pointCount) {
+            throw new Error(`Decoded point count mismatch for COPC node ${node.key}`);
+          }
+          const readX = pointView.getter("x");
+          const readY = pointView.getter("y");
+          const readZ = pointView.getter("z");
+          yield* scanPointQueryNode(
+            node.key,
+            pointView.pointCount,
+            scanCount,
+            (pointIndex, axis) =>
+              axis === 0
+                ? readX(pointIndex)
+                : axis === 1
+                  ? readY(pointIndex)
+                  : readZ(pointIndex),
+            options.region,
+            signal,
+            accounting,
+          );
+          accounting.nodesProcessed += 1;
+        }
+      } finally {
+        pointWorkController.abort("query-work-finished");
+        signal.removeEventListener("abort", forwardAbort);
+        await Promise.all(pointLoads.values());
+      }
+    } finally {
+      this.activeSpatialPointQueries = Math.max(
+        0,
+        this.activeSpatialPointQueries - 1,
+      );
+    }
   }
 
   private createHierarchyQuery(view: StreamingView): CopcHierarchyQuery {

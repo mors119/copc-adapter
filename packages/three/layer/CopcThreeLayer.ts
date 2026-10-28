@@ -3,6 +3,10 @@ import type { CopcMetadata } from "../../core/copc/types/copc";
 import type { CopcHierarchyDiagnostics } from "../../core/copc/hierarchy/types";
 import type { CopcPointInspection } from "../../core/copc/points/pointInspection";
 import type { NodePointCacheDiagnostics } from "../../core/streaming/createNodePointCache";
+import type {
+  CopcPointQuery,
+  CopcPointQueryOptions,
+} from "../../core/streaming/spatialPointQuery";
 import type { DatasetLocalFrame } from "../../core/coordinates/types";
 import type {
   CopcThreeLayerEventMap,
@@ -153,6 +157,18 @@ export class CopcThreeLayer {
   /** Return source metadata after {@link load} has completed. */
   getMetadata(): CopcMetadata | undefined {
     return this.controller.getMetadata();
+  }
+
+  /**
+   * Stream source XYZ points from an inclusive source-coordinate AABB.
+   * Querying leaves the camera and rendered node selection unchanged.
+   *
+   * @param options Explicit query mode, depth, region, and resource budgets.
+   * @returns One-shot batches and a terminal status promise.
+   * @throws If the layer is not loaded or the region/limits are invalid.
+   */
+  queryPoints(options: CopcPointQueryOptions): CopcPointQuery {
+    return this.controller.queryPoints(options);
   }
 
   /** Return hierarchy request and page-cache counters when available. */

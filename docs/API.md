@@ -39,6 +39,7 @@ compact URL examples below omit options that already have a usable default.
 | `attributeLoading` | `'all'` or `'required'`, optional | `all` for Cesium | No | Yes | No | `all` preserves synchronous runtime restyling by retaining all standard fields. `required` retains the initial color mode's fields, classification for an initial filter, and any explicit `pointFields`. Changing to a mode that needs an unretained field throws before changing style or selection. |
 | `classificationFilter` | `CopcClassificationFilter`, optional | No filter | No | Yes | No | Initial filter applied from the first rendered view. Classification is retained in `required` mode even when the initial color mode is different. |
 | `coordinateCacheLayout` | `'A' | 'E'`, optional | `E` for Cesium/Three layers; direct `CopcStreamingCore` remains A-shaped | No | Yes | Yes | E retains ECEF F64 XYZ plus prepared-height F64 (32 coordinate bytes/point). Select A to retain exact Source and Geographic triples for synchronous inspection. E derives longitude/latitude from ECEF when Geographic is absent and omits source XYZ when Source is absent. |
+| `retainSourceCoordinatesForQueries` | `boolean`, optional | `false` | No | Yes | Yes | With compact E, retains exact source XYZ in the shared point cache for `cache-only` queries. Adds 24 CPU-cache bytes per point and counts toward `maxPointCacheBytes`. No effect with coordinate layout A. |
 | `pointSize` | `number`, optional | `3` pixels | No | Yes | Yes | Cesium uses CSS-pixel diameter; Three uses screen-facing pixel size. Keep. |
 | `heightOffsetMeters` | `number`, optional | `0` | Yes | Yes | Yes | Manual additive correction to ellipsoidal height after source unit conversion; no automatic datum correction. Keep. |
 | `verticalTransform` | `GtxGeoidGrid`, optional | Omitted; no vertical datum conversion | Yes | Yes | Yes | Requires a caller-loaded and verified grid; no grid is selected or bundled automatically. Keep opt-in. |
@@ -345,6 +346,10 @@ a separately defined and tested contract.
   This changes retained cache storage; decoders still prepare the full A-shaped
   result first, so it does not reduce Worker transfer or transient preparation
   memory. The public `CopcStreamingCore` retains its A-shaped API contract.
+- `retainSourceCoordinatesForQueries`: optional boolean, default `false`.
+  With E, retain source XYZ in the shared point cache so later `cache-only`
+  queries can use already-decoded nodes. This adds 24 bytes per cached point
+  and is included in `maxPointCacheBytes`; it does not change renderer output.
 - `heightOffsetMeters`: manual additive correction in metres applied after
   source vertical-unit conversion and horizontal reprojection, before ECEF
   preparation. Default: `0`.
@@ -788,6 +793,84 @@ The core lifecycle is `idle | loading | ready | destroyed`. It provides
 `getPointCacheDiagnostics()`, `getCurrentSelection()`, `getCurrentView()`,
 `getHierarchyNode()`, `getCachedPointBuffer()`, and `getTransitionState()`, as
 well as `unload()`, `reload()`, and `destroy()`.
+
+### Bounded spatial point queries
+
+`queryPoints()` is available on `CopcStreamingCore`, `CopcCesiumLayer`, and
+`CopcThreeLayer`. It reads exact decoded source XYZ from a 3D inclusive AABB;
+region coordinates use the COPC source CRS axes and units. The query does not
+apply display-height offsets or geoid conversion, and it does not change camera
+state, rendered selection, styles, or picking state.
+
+```ts
+const query = layer.queryPoints({
+  region: {
+    coordinateSystem: 'copc-source',
+    min: { x: 100, y: 200, z: 0 },
+    max: { x: 120, y: 240, z: 30 },
+  },
+  mode: 'fetch-missing',
+  maxDepth: 4,
+});
+
+for await (const batch of query) {
+  for (const point of batch) {
+    consume(point.x, point.y, point.z, point.nodeKey, point.pointIndex);
+  }
+}
+const summary = await query.result;
+```
+
+The query is one-shot and yields batches of at most 4,096 matching points.
+Each point includes its exact source `x`, `y`, `z`, `nodeKey`, and zero-based
+`pointIndex`. Results are ordered by node key and then point index. The
+`maxDepth` frontier uses root depth zero: it descends through relevant known
+children and selects a parent only when that node has no relevant children and
+its hierarchy coverage is complete. It never returns a parent together with
+its selected descendants. A missing relevant child page makes the result
+partial; the query does not silently substitute the parent.
+
+`summary.complete` means all matching records in this non-overlapping
+frontier up to `maxDepth` were processed. It does not mean all original COPC
+records or all detail below that depth were returned. Await `query.result`
+after iteration. A summary reports `complete`, `partial`, `cancelled`, or
+`failed`; a failed iteration also throws its source error, while `result`
+resolves with its structured error details. Budget and coverage partial
+reasons are listed in `reasonCodes`.
+
+Partial reason codes are explicit: `missing-hierarchy` means a relevant child
+page was unavailable; `missing-nodes` means a selected node lacked source XYZ
+in cache-only mode; `hierarchy-page-limit`, `point-limit`, and `byte-limit`
+identify the exhausted budget; `time-limit` identifies deadline expiry;
+`invalid-point-coordinate` means a non-finite source record was excluded;
+`unsupported-backend` means the backend did not expose positions; and
+`query-concurrency-limit` means this core already has its maximum two spatial
+query streams active. A cancelled summary uses `cancelReason: 'aborted'` for
+`cancel()` or the caller's signal, `'source-unloaded'` for source lifecycle
+changes, and `'consumer-stopped'` when iteration ends early.
+
+| Query limit | Default | Hard maximum | Meaning |
+| --- | ---: | ---: | --- |
+| `maxPoints` | 100,000 | 1,000,000 | Source records scanned, including points outside the box. `fetch-missing` skips a node before reading its chunk when that chunk's full point count exceeds the remaining budget, and reports `point-limit`. |
+| `maxBytes` | 64 MiB | 256 MiB | Query-reserved hierarchy page and point-chunk range bytes. Cached data does not consume this budget. |
+| `maxHierarchyPages` | 64 | 1,024 | Relevant child pages considered by this query. The already-loaded root page is excluded. |
+| `maxConcurrentPointReads` | 1 | 4 | Active point range/decode operations for this query. The shared streaming manager can impose a lower effective limit and gives current-view work priority. |
+| `maxDurationMs` | 30,000 ms | 300,000 ms | Wall time after iteration starts. Expiry produces a partial `time-limit` summary. |
+
+`cache-only` reads parsed hierarchy and resolved point-cache entries only; it
+starts no hierarchy-page or point-data reads. Compact E caches omit source XYZ
+by default, so enable `retainSourceCoordinatesForQueries: true` on a Cesium or
+Three layer if cache-only queries must reuse already-decoded E entries. The
+option adds 24 bytes per cached point and remains within the existing point
+cache byte budget. The core's A-shaped cache already retains source XYZ.
+
+`fetch-missing` loads only required hierarchy pages and selected point chunks
+through the existing backend. It requests only the position field, ignores
+renderer filters/styles, and uses the raw COPC coordinates. Both built-in
+backends use the same point-view contract; if a backend cannot provide
+position, the query reports `unsupported-backend` as partial without a hidden
+backend fallback. Abort signals, source unload/reload, and early iterator exit
+cancel query work; early exit drains only already-started bounded reads.
 
 ## Backend and point contracts
 

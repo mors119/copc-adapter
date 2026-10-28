@@ -37,6 +37,8 @@ export type CopcThreeLayerOptions = {
   colorMode?: CopcColorMode;
   /** Retained point-coordinate layout. Defaults to compact E; choose A to retain exact Source and Geographic arrays. */
   coordinateCacheLayout?: "A" | "E";
+  /** Keep exact source XYZ in compact E cache entries for cache-only queries. Defaults to `false` and adds 24 bytes per cached point. */
+  retainSourceCoordinatesForQueries?: boolean;
   /** Manual additive correction in metres applied to ellipsoidal point height. Defaults to 0. */
   heightOffsetMeters?: number;
   /** Explicit user-loaded GTX grid; absent means no vertical datum conversion. */

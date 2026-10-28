@@ -45,10 +45,19 @@ type HierarchyLoaderOptions = {
 export type HierarchyQueryOptions = {
   /** Maximum relevant child pages visited; omitted for an ordinary current-view query. */
   maxPages?: number;
+  /** Maximum child pages loaded concurrently by this query; shared across the loader. */
+  maxConcurrentPageLoads?: number;
   /** Stops expanding a stale speculative traversal after its active page reads settle. */
   signal?: AbortSignal;
   /** Reports relevant page visits and whether the page was already cached. */
-  onPageVisited?: (cached: boolean) => void;
+  onPageVisited?: (cached: boolean, page?: CopcHierarchyPage) => void;
+  /** Allows a caller to refuse an uncached page before its range read starts. */
+  canLoadPage?: (page: CopcHierarchyPage, cached: boolean) => boolean;
+  /** Reports a relevant page omitted by a query-local hard limit. */
+  onPageSkipped?: (
+    reason: "max-pages" | "query-budget",
+    page: CopcHierarchyPage,
+  ) => void;
   /** Override source-side measurements for page reads started by this query. */
   performanceObserver?: CopcPerformanceObserver | null;
 };
@@ -154,7 +163,14 @@ function pageBounds(
   page: CopcHierarchyPage,
   cube: CopcHierarchyBounds,
 ): CopcHierarchyBounds {
-  const { level, x, y, z } = parseHierarchyKey(page.key);
+  return pageBoundsForKey(page.key, cube);
+}
+
+function pageBoundsForKey(
+  key: string,
+  cube: CopcHierarchyBounds,
+): CopcHierarchyBounds {
+  const { level, x, y, z } = parseHierarchyKey(key);
   const divisor = 2 ** level;
   const sideX = (cube.maxX - cube.minX) / divisor;
   const sideY = (cube.maxY - cube.minY) / divisor;
@@ -274,6 +290,27 @@ export class HierarchyLoader {
   }
 
   /**
+   * Return a hierarchy snapshot using only pages already parsed into memory.
+   * Unloaded page references remain marked incomplete; this method never
+   * waits for or starts a hierarchy range read.
+   */
+  queryCached(query: CopcHierarchyQuery): CopcHierarchyTree {
+    assertQuery(query);
+    return finalizeHierarchyTree(
+      this.tree,
+      query.maxLevel,
+      this.loadedPageKeys,
+      query.bounds,
+      this.cubeBounds,
+    );
+  }
+
+  /** Return one loaded node's conservative source-coordinate octree bounds. */
+  getNodeBounds(nodeKey: string): CopcHierarchyBounds {
+    return pageBoundsForKey(nodeKey, this.cubeBounds);
+  }
+
+  /**
    * Load pages intersecting the requested project-coordinate bounds up to the
    * requested hierarchy level. Previously loaded pages are returned from the
    * per-loader cache and remain available for later view movement.
@@ -292,6 +329,16 @@ export class HierarchyLoader {
       ) {
         throw new CopcHierarchyError(
           "Hierarchy query maxPages must be a positive safe integer",
+        );
+      }
+      if (
+        options.maxConcurrentPageLoads !== undefined &&
+        (!Number.isSafeInteger(options.maxConcurrentPageLoads) ||
+          options.maxConcurrentPageLoads < 1 ||
+          options.maxConcurrentPageLoads > this.maxConcurrentPageLoads)
+      ) {
+        throw new CopcHierarchyError(
+          "Hierarchy query concurrency must be a positive safe integer no greater than the loader limit",
         );
       }
       await this.loadPage(
@@ -356,10 +403,16 @@ export class HierarchyLoader {
               options.maxPages !== undefined &&
               visitedPageCount >= options.maxPages
             ) {
+              options.onPageSkipped?.("max-pages", page);
               continue;
             }
             visitedPageCount += 1;
-            options.onPageVisited?.(this.pageCache.has(cacheKey));
+            const cached = this.pageCache.has(cacheKey);
+            options.onPageVisited?.(cached, page);
+            if (options.canLoadPage && !options.canLoadPage(page, cached)) {
+              options.onPageSkipped?.("query-budget", page);
+              continue;
+            }
             if (options.signal?.aborted) {
               continue;
             }
@@ -388,6 +441,7 @@ export class HierarchyLoader {
 
       const workerCount = Math.min(
         this.maxConcurrentPageLoads,
+        options.maxConcurrentPageLoads ?? Number.POSITIVE_INFINITY,
         options.maxPages ?? Number.POSITIVE_INFINITY,
         Math.max(1, pendingPages.length),
       );

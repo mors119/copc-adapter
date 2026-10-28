@@ -22,6 +22,7 @@ function createBackend({ pointCount = 2 } = {}) {
   let openCount = 0;
   let destroyCount = 0;
   let hierarchyRequestCount = 0;
+  let pointReadCount = 0;
   let lastOpenOptions;
 
   return {
@@ -33,6 +34,9 @@ function createBackend({ pointCount = 2 } = {}) {
     },
     get hierarchyRequestCount() {
       return hierarchyRequestCount;
+    },
+    get pointReadCount() {
+      return pointReadCount;
     },
     get lastOpenOptions() {
       return lastOpenOptions;
@@ -72,6 +76,7 @@ function createBackend({ pointCount = 2 } = {}) {
             return { nodes: [node], pages: [] };
           },
           async loadPointDataView(_node, fields) {
+            pointReadCount += 1;
             return {
               pointCount: node.pointCount,
               availableFields: fields,
@@ -138,7 +143,11 @@ function createDeferred() {
   return { promise, resolve };
 }
 
-async function createLoadedLayer(renderer, coordinateCacheLayout = "E") {
+async function createLoadedLayer(
+  renderer,
+  coordinateCacheLayout = "E",
+  retainSourceCoordinatesForQueries = false,
+) {
   const source = createBackend();
   const layer = new CopcThreeLayer({
     url: "memory://three-layer.copc.laz",
@@ -146,6 +155,7 @@ async function createLoadedLayer(renderer, coordinateCacheLayout = "E") {
     decoder: source.decoder,
     colorMode: "rgb",
     coordinateCacheLayout,
+    retainSourceCoordinatesForQueries,
     streaming: {
       maxNodes: 1,
       maxDepth: 0,
@@ -713,6 +723,54 @@ test("Three layers default to compact E point-cache storage", async () => {
   const { layer } = await createLoadedLayer();
   assert.equal(layer.getPointCacheDiagnostics().currentCacheBytes, 76);
   layer.destroy();
+});
+
+test("cache-only queries reuse compact E source XYZ only when opted in", async () => {
+  const retained = await createLoadedLayer(undefined, "E", true);
+  assert.equal(retained.layer.getPointCacheDiagnostics().currentCacheBytes, 124);
+  const pointReadCount = retained.source.pointReadCount;
+  const selectionBefore = retained.layer.getCurrentSelection();
+  const query = retained.layer.queryPoints({
+    region: {
+      coordinateSystem: "copc-source",
+      min: { x: 9.999, y: 19.999, z: 99 },
+      max: { x: 10.001, y: 20.001, z: 101 },
+    },
+    mode: "cache-only",
+    maxDepth: 0,
+  });
+  const retainedPoints = [];
+  for await (const batch of query) retainedPoints.push(...batch);
+  const retainedSummary = await query.result;
+  assert.deepEqual(
+    retainedPoints.map(({ x, y, z }) => [x, y, z]),
+    [[10, 20, 100], [10.0001, 20.0001, 100.5]],
+  );
+  assert.equal(retainedSummary.status, "complete");
+  assert.equal(retainedSummary.bytesRead, 0);
+  assert.equal(retained.source.pointReadCount, pointReadCount);
+  assert.deepEqual(retained.layer.getCurrentSelection(), selectionBefore);
+  retained.layer.destroy();
+
+  const omitted = await createLoadedLayer();
+  const omittedPointReadCount = omitted.source.pointReadCount;
+  const omittedQuery = omitted.layer.queryPoints({
+    region: {
+      coordinateSystem: "copc-source",
+      min: { x: 9.999, y: 19.999, z: 99 },
+      max: { x: 10.001, y: 20.001, z: 101 },
+    },
+    mode: "cache-only",
+    maxDepth: 0,
+  });
+  const omittedPoints = [];
+  for await (const batch of omittedQuery) omittedPoints.push(...batch);
+  const omittedSummary = await omittedQuery.result;
+  assert.deepEqual(omittedPoints, []);
+  assert.equal(omittedSummary.status, "partial");
+  assert.ok(omittedSummary.reasonCodes.includes("missing-nodes"));
+  assert.equal(omitted.source.pointReadCount, omittedPointReadCount);
+  omitted.layer.destroy();
 });
 
 test("destroy releases layer resources without disposing the application scene or renderer", async () => {

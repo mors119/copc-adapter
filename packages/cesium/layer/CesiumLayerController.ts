@@ -75,6 +75,10 @@ import {
 import { StreamingPerformanceRecorder } from "../../core/streaming/performance";
 import { MOTION_LOOKAHEAD_DECAY_MS } from "../../core/streaming/motionLookahead";
 import type { NodePointCacheDiagnostics } from "../../core/streaming/createNodePointCache";
+import type {
+  CopcPointQuery,
+  CopcPointQueryOptions,
+} from "../../core/streaming/spatialPointQuery";
 import type { AdaptiveViewDistanceDiagnostics } from "../../core/streaming/view";
 import type { RangeRequestDiagnostics } from "../../core/copc/range/requestDiagnostics";
 import type { RangeValidationPolicy } from "../../core/copc/range/types";
@@ -110,6 +114,8 @@ export type CopcLayerOptions = {
   /** Optional classification filter applied from the first rendered view. */
   classificationFilter?: CopcClassificationFilter;
   coordinateCacheLayout?: "A" | "E";
+  /** Keep exact source XYZ in compact E cache entries so cache-only point queries can use rendered nodes. Defaults to `false`. */
+  retainSourceCoordinatesForQueries?: boolean;
   /** Manual additive correction in metres applied to ellipsoidal point height. Defaults to 0. */
   heightOffsetMeters?: number;
   /** Explicit user-loaded GTX grid; absent means no vertical datum conversion. */
@@ -442,7 +448,9 @@ export class CesiumLayerController {
       // fields used by the initial style and any initial classification filter.
       pointFields: this.pointFields,
       streaming: options.streaming,
-    }, options.coordinateCacheLayout ?? "E");
+    }, options.coordinateCacheLayout ?? "E", {
+      sourceCoordinates: options.retainSourceCoordinatesForQueries === true,
+    });
     this.pointPicker = new CesiumPointPicker({
       inspectPoint: (pickId) => {
         const node = this.core.getHierarchyNode(pickId.nodeKey);
@@ -848,6 +856,11 @@ export class CesiumLayerController {
 
   getMetadata(): CopcMetadata | undefined {
     return this.core.getMetadata();
+  }
+
+  /** Stream source-coordinate points from an inclusive AABB without changing the current render selection. */
+  queryPoints(options: CopcPointQueryOptions): CopcPointQuery {
+    return this.core.queryPoints(options);
   }
 
   /** Return the selected point while its node and decoded buffer are live. */

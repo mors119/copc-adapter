@@ -10,6 +10,8 @@ import type {
   StreamingView,
   PreparedPointData,
   CopcStreamingControllerOptions,
+  CopcPointQueryOptions,
+  CopcPointQuerySummary,
 } from "@frillab/copc-adapter/cesium";
 
 declare const core: CopcStreamingCore;
@@ -20,6 +22,7 @@ declare const viewer: import("cesium").Viewer;
 const layerOptions: CopcCesiumLayerOptions = {
   url: "https://example.com/data.copc.laz",
   coordinateCacheLayout: "A",
+  retainSourceCoordinatesForQueries: true,
   colorMode: "rgb",
   attributeLoading: "required",
   classificationFilter: { include: [2, 6] },
@@ -59,6 +62,21 @@ const oldCallbackShape: CopcStreamingProgressHandler = (
 
 const oldResultShape: Promise<StreamingUpdateResult | undefined> =
   core.updateView(view, oldCallbackShape);
+
+const pointQueryOptions: CopcPointQueryOptions = {
+  region: {
+    coordinateSystem: "copc-source",
+    min: { x: 100, y: 200, z: 0 },
+    max: { x: 120, y: 240, z: 30 },
+  },
+  mode: "cache-only",
+  maxDepth: 4,
+};
+const pointQuery = core.queryPoints(pointQueryOptions);
+const pointQuerySummary: Promise<CopcPointQuerySummary> = pointQuery.result;
+void pointQuerySummary;
+const layerPointQuery = minimalLayer.queryPoints(pointQueryOptions);
+void layerPointQuery;
 
 async function consumeOldResultShape(): Promise<void> {
   const result = await oldResultShape;
