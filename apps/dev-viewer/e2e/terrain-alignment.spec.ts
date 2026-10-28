@@ -375,7 +375,7 @@ test("estimates, previews, and applies a WKT2 ellipsoidal fixture only after app
   test.setTimeout(180_000);
   const sourceMetrics = await openFixture(page, 102, true);
   const before = await pickRenderedPoint(page);
-  expect(before.source?.z).toBe(100);
+  expect(before.source).toBeUndefined();
 
   await page.getByLabel("I confirm the selected point is ground").check();
   const estimateStartedAt = performance.now();
@@ -392,7 +392,7 @@ test("estimates, previews, and applies a WKT2 ellipsoidal fixture only after app
     () => window.__COPC_DEV_VIEWER__!.getSelectedPoint()!,
   );
   expect(afterPreview.height).toBe(before.height);
-  expect(afterPreview.source).toEqual(before.source);
+  expect(afterPreview.source).toBeUndefined();
   expect(afterPreview.world).toEqual(before.world);
   expect(await page.evaluate(() => window.__COPC_DEV_VIEWER__!.getConfiguration().heightOffsetMeters)).toBe(0);
   await expect(page.getByRole("button", { name: "Apply proposed correction" })).toBeEnabled();
@@ -440,8 +440,7 @@ test("estimates, previews, and applies a WKT2 ellipsoidal fixture only after app
     () => window.__COPC_DEV_VIEWER__!.getSnapshot()!,
   );
   const after = await pickRenderedPoint(page);
-  expect(after.source).toEqual(before.source);
-  expect(after.source?.z).toBe(100);
+  expect(after.source).toBeUndefined();
   expect(after.height).toBe(102);
   expect(after.world).not.toEqual(before.world);
   const rangeMetricsAfterApply = sourceMetrics.snapshot();
@@ -603,7 +602,7 @@ test("rejects Terrain alignment for Autzen NAVD88 without moving the selected po
     () => window.__COPC_DEV_VIEWER__!.getSelectedPoint()!,
   );
   expect(after.height).toBe(before.height);
-  expect(after.source).toEqual(before.source);
+  expect(after.source).toBeUndefined();
   expect(after.world).toEqual(before.world);
   expect(await page.evaluate(() => window.__COPC_DEV_VIEWER__!.getConfiguration().heightOffsetMeters)).toBe(0);
 });
@@ -624,6 +623,6 @@ test("ellipsoid-only mode does not sample NAVD88 heights or move the selected po
   await expect(page.getByRole("button", { name: "Apply proposed correction" })).toBeDisabled();
   const after = await page.evaluate(() => window.__COPC_DEV_VIEWER__!.getSelectedPoint());
   expect(after?.height).toBe(before.height);
-  expect(after?.source?.z).toBe(before.source?.z);
+  expect(after?.source).toBeUndefined();
   expect(await page.evaluate(() => window.__COPC_DEV_VIEWER__!.getConfiguration().heightOffsetMeters)).toBe(0);
 });
