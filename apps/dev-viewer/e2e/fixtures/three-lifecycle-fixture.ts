@@ -12,6 +12,16 @@ export type ThreeLifecycleState = {
   pointObjectCount: number;
   rendererGeometryCount: number;
   rendererTextureCount: number;
+  rendererInfo: {
+    calls: number;
+    points: number;
+    triangles: number;
+    geometries: number;
+    textures: number;
+    programs: number;
+  };
+  positionBufferBytes: number;
+  colorBufferBytes: number;
   uniqueMaterialCount: number;
   canvasCount: number;
   contextLost: boolean;
@@ -28,6 +38,7 @@ export type ThreeLifecycleFixture = {
   attach(): void;
   update(): Promise<void>;
   setCameraDistance(distance: number): void;
+  setCameraPosition(position: { x: number; y: number; z: number }): void;
   detach(): void;
   unload(): void;
   reload(): Promise<void>;
@@ -44,6 +55,15 @@ declare global {
 
 const params = new URLSearchParams(window.location.search);
 const source = params.get("source") ?? "/samples/autzen.copc.laz";
+const requestedBackend = params.get("backend");
+if (
+  requestedBackend &&
+  requestedBackend !== "copc-js" &&
+  requestedBackend !== "rust"
+) {
+  throw new Error(`Unsupported Three.js lifecycle backend: ${requestedBackend}`);
+}
+const backend = requestedBackend ?? "rust";
 const container = document.querySelector<HTMLElement>("#viewer");
 if (!container) throw new Error("Three.js lifecycle container is missing");
 
@@ -92,7 +112,7 @@ window.__COPC_THREE_LIFECYCLE__ = {
     errors.length = 0;
     layer = new CopcThreeLayer({
       url: source,
-      backend: "rust",
+      backend,
       colorMode: "elevation",
       pointSize: 2,
       maxRenderedPoints: 250_000,
@@ -122,6 +142,11 @@ window.__COPC_THREE_LIFECYCLE__ = {
     camera.lookAt(0, 0, 0);
     camera.updateMatrixWorld(true);
   },
+  setCameraPosition(position): void {
+    camera.position.set(position.x, position.y, position.z);
+    camera.lookAt(0, 0, 0);
+    camera.updateMatrixWorld(true);
+  },
   detach: () => requireLayer().detachFrom(),
   unload: () => requireLayer().unload(),
   async reload(): Promise<void> {
@@ -135,9 +160,15 @@ window.__COPC_THREE_LIFECYCLE__ = {
     const snapshot = activeLayer.getSnapshot();
     let pointObjectCount = 0;
     const materials = new Set<THREE.Material>();
+    let positionBufferBytes = 0;
+    let colorBufferBytes = 0;
     scene.traverse((object) => {
       if (!(object instanceof THREE.Points)) return;
       pointObjectCount += 1;
+      positionBufferBytes +=
+        object.geometry.getAttribute("position").array.byteLength;
+      colorBufferBytes +=
+        object.geometry.getAttribute("color").array.byteLength;
       if (Array.isArray(object.material)) {
         for (const material of object.material) materials.add(material);
       } else {
@@ -152,6 +183,16 @@ window.__COPC_THREE_LIFECYCLE__ = {
       pointObjectCount,
       rendererGeometryCount: renderer.info.memory.geometries,
       rendererTextureCount: renderer.info.memory.textures,
+      rendererInfo: {
+        calls: renderer.info.render.calls,
+        points: renderer.info.render.points,
+        triangles: renderer.info.render.triangles,
+        geometries: renderer.info.memory.geometries,
+        textures: renderer.info.memory.textures,
+        programs: renderer.info.programs?.length ?? 0,
+      },
+      positionBufferBytes,
+      colorBufferBytes,
       uniqueMaterialCount: materials.size,
       canvasCount: container.querySelectorAll("canvas").length,
       contextLost: renderer.getContext().isContextLost(),
