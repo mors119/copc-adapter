@@ -140,6 +140,13 @@ export default defineConfig({
         find: /^@frillab\/copc-adapter\/three$/,
         replacement: path.resolve(packageSourceDirectory, "three.ts"),
       },
+      {
+        find: /^laz-perf$/,
+        replacement: path.resolve(
+          packageSourceDirectory,
+          "core/wasm/lazPerf.ts",
+        ),
+      },
     ],
   },
   server: {

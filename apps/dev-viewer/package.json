@@ -14,6 +14,7 @@
     "test:e2e": "playwright test",
     "test:functional": "playwright test e2e/functional-validation.spec.ts --reporter=line",
     "benchmark:streaming": "playwright test e2e/streaming-performance.spec.ts --reporter=line",
+    "benchmark:three-renderer": "COPC_RUN_THREE_PROFILE=1 playwright test e2e/three-renderer-performance-profile.spec.ts --workers=1 --reporter=line",
     "benchmark:first-visible": "playwright test e2e/streaming-performance.spec.ts --grep 'records first-visible startup latency' --reporter=line",
     "benchmark:vertical-grid": "COPC_VERTICAL_GRID_BENCHMARK=1 playwright test e2e/vertical-grid-cesium-integration.spec.ts --grep 'measures Cesium vertical-grid streaming costs' --workers=1 --reporter=line",
     "test:soak": "COPC_RUN_STREAMING_SOAK=1 playwright test e2e/copc-streaming-soak.spec.ts --workers=1 --reporter=line",
@@ -21,7 +22,7 @@
     "test:soak:three": "COPC_RUN_THREE_LIFECYCLE=1 playwright test e2e/three-layer-lifecycle-validation.spec.ts --workers=1 --reporter=line",
     "preview": "vite preview",
     "prepare-assets": "npm --prefix ../../packages run prepare-copc-adapter-wasm && npm run prepare-laz-perf",
-    "prepare-laz-perf": "cp ../../packages/node_modules/laz-perf/lib/laz-perf.wasm public/laz-perf.wasm"
+    "prepare-laz-perf": "cp ../../packages/node_modules/laz-perf/lib/web/laz-perf.wasm ../../packages/core/wasm/laz-perf.wasm && cp ../../packages/node_modules/laz-perf/lib/web/laz-perf.wasm public/laz-perf.wasm"
   },
   "devDependencies": {
     "@frillab/copc-adapter": "file:../../packages",
