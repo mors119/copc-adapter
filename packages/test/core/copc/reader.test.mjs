@@ -261,6 +261,7 @@ test("loadCopcMetadata supports a shared context", async () => {
 });
 
 test("createCopcContext wraps source failures and preserves their cause", async () => {
+  const missingPath = path.resolve(__dirname, "missing.copc.laz");
   const source = {
     source: "memory://unavailable-copc",
     async readRange() {
@@ -276,18 +277,22 @@ test("createCopcContext wraps source failures and preserves their cause", async 
     },
   };
 
-  await assert.rejects(
-    () => createCopcContext(source),
-    (error) => {
-      assert.ok(error instanceof CopcSourceError);
-      assert.equal(error.stage, "source");
-      assert.equal(error.source, source.source);
-      assert.ok(error.cause);
-      assert.match(error.message, /Failed to create COPC source context/);
-      assert.match(error.message, /range requests and CORS/);
-      return true;
-    },
-  );
+  const assertWrappedSourceFailure = async (input, identity) =>
+    assert.rejects(
+      () => createCopcContext(input),
+      (error) => {
+        assert.ok(error instanceof CopcSourceError);
+        assert.equal(error.stage, "source");
+        assert.equal(error.source, identity);
+        assert.ok(error.cause);
+        assert.match(error.message, /Failed to create COPC source context/);
+        assert.match(error.message, /range requests and CORS/);
+        return true;
+      },
+    );
+
+  await assertWrappedSourceFailure(missingPath, missingPath);
+  await assertWrappedSourceFailure(source, source.source);
 });
 
 test("source errors do not expose URL credentials, query values, or fragments", () => {
