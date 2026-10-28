@@ -463,8 +463,8 @@ test("internal E streaming path emits compact render data and reuses it without 
   assert.equal("source" in compact, false);
   assert.equal("geographic" in compact, false);
   assert.equal("sourceCoordinates" in compact, false);
-  assert.throws(() => core.getCachedPreparedPointData(ROOT_KEY), /unavailable for experimental E/);
-  assert.throws(() => core.getCachedPointBuffer(ROOT_KEY), /unavailable for experimental E/);
+  assert.throws(() => core.getCachedPreparedPointData(ROOT_KEY), /unavailable for E cache entries/);
+  assert.throws(() => core.getCachedPointBuffer(ROOT_KEY), /unavailable for E cache entries/);
   assert.equal(core.getSnapshot().pointCache.currentCacheBytes, 32);
 
   const addedCollections = [];
@@ -563,7 +563,7 @@ test("internal E preparation retains exact Source only for its explicit policy",
   assert.equal(core.getSnapshot().pointCache.currentCacheBytes, 56);
   assert.throws(
     () => core.getCachedPreparedPointData(ROOT_KEY),
-    /unavailable for experimental E/,
+    /unavailable for E cache entries/,
   );
   core.destroy();
 });
@@ -598,7 +598,7 @@ test("experimental E keeps height and ECEF synchronized across positive and nega
     assert.ok(compact.height instanceof Float64Array);
     assert.equal(compact.height[0], expectedHeight);
     assert.deepEqual([...compact.ecef], [expectedWorld.x, expectedWorld.y, expectedWorld.z]);
-    assert.throws(() => core.getCachedPreparedPointData(ROOT_KEY), /unavailable for experimental E/);
+    assert.throws(() => core.getCachedPreparedPointData(ROOT_KEY), /unavailable for E cache entries/);
     core.destroy();
     assert.equal(core.getCachedPreparedPointData(ROOT_KEY), undefined);
   }
@@ -655,7 +655,7 @@ test("experimental E applies an opt-in geoid correction once after backend heigh
   });
   assert.equal(compact.height[0], 180);
   assert.deepEqual([...compact.ecef], [expectedWorld.x, expectedWorld.y, expectedWorld.z]);
-  assert.throws(() => core.getCachedPreparedPointData(ROOT_KEY), /unavailable for experimental E/);
+  assert.throws(() => core.getCachedPreparedPointData(ROOT_KEY), /unavailable for E cache entries/);
   core.destroy();
 });
 
@@ -728,7 +728,7 @@ test("experimental E preserves A selection, replacement, and cache reuse across 
   }
   assert.throws(
     () => coreE.getCachedPreparedPointData(coreE.getCurrentSelection()[0]),
-    /unavailable for experimental E/,
+    /unavailable for E cache entries/,
   );
   coreA.destroy();
   coreE.destroy();

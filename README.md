@@ -196,6 +196,15 @@ Cesium, or GPU memory:
 console.log(layer.getPointCacheDiagnostics());
 ```
 
+Cesium and Three layers default to compact E retained storage: 32 bytes of
+ECEF and prepared-height coordinates per point, before requested attributes.
+Picked points derive longitude/latitude from ECEF and omit source XYZ. Set
+`coordinateCacheLayout: 'A'` to retain the exact Source and Geographic arrays
+for synchronous inspection. The public `CopcStreamingCore` keeps its existing
+A-shaped contract. E reduces retained cache bytes; current decoders still
+prepare A-shaped coordinates before the layer compacts them, so Worker transfer
+and transient preparation memory are unchanged.
+
 The compatibility renderer uses Cesium's default `scene.pick` window. The
 opt-in batched renderer requests a 1×1 pick sample so CPU refinement uses the
 same deterministic pixel rather than Cesium's undocumented 3×3 traversal

@@ -108,12 +108,12 @@ test("re-estimating after applying a correction does not add the correction twic
   assert.equal(second.effectiveProposedHeightOffsetMeters, 14);
 });
 
-test("rejects missing, foreign, malformed, and non-ground anchors", async () => {
+test("accepts compact anchors and rejects foreign, malformed, and non-ground anchors", async () => {
   const missing = await estimateWithTerrainHeight(110, { anchor: undefined });
   const foreign = await estimateWithTerrainHeight(110, {
     anchor: { ...createInput().anchor, ownerId: "another-layer" },
   });
-  const missingSource = await estimateWithTerrainHeight(110, {
+  const compactCacheAnchor = await estimateWithTerrainHeight(110, {
     anchor: { ...createInput().anchor, source: undefined },
   });
   const invalidLongitude = await estimateWithTerrainHeight(110, {
@@ -129,10 +129,13 @@ test("rejects missing, foreign, malformed, and non-ground anchors", async () => 
     anchor: { ...createInput().anchor, classification: 6 },
   });
 
-  for (const result of [missing, foreign, missingSource, invalidLongitude, nonFiniteZ]) {
+  for (const result of [missing, foreign, invalidLongitude, nonFiniteZ]) {
     assert.equal(result.actionable, false);
     assert.equal(result.terrainSamplingCalls, 0);
   }
+  assert.equal(compactCacheAnchor.actionable, true);
+  assert.equal(compactCacheAnchor.anchor.source, undefined);
+  assert.equal(compactCacheAnchor.proposedOffsetMeters, 10);
   assert.equal(unconfirmed.status, "uncertain");
   assert.match(unconfirmed.rejectionReason, /Confirm explicitly/);
 });

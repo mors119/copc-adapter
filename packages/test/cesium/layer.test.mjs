@@ -321,6 +321,7 @@ test("CopcCesiumLayer delegates source and streaming work to the shared core", a
 
   layer.attachTo(viewer);
   await waitFor(() => layer.getSnapshot().renderedPointCount === 2);
+  assert.equal(layer.getPointCacheDiagnostics().currentCacheBytes, 82);
 
   assert.deepEqual(requestedFields, [
     ["position", "intensity", "classification", "rgb"],
@@ -1681,6 +1682,7 @@ test("terrain alignment estimates use the selected layer-owned point and invalid
     decoder: source.decoder,
     heightOffsetMeters: 5,
     verticalTransform,
+    coordinateCacheLayout: "A",
   });
   const viewer = createFakeViewer();
   const provider = createTerrainSamplingProvider(65);
@@ -1731,6 +1733,7 @@ test("terrain alignment estimates use the selected layer-owned point and invalid
     decoder: source.decoder,
     heightOffsetMeters: approvedOffset,
     verticalTransform,
+    coordinateCacheLayout: "A",
   });
   const appliedViewer = createFakeViewer();
   appliedViewer.terrainProvider = createTerrainSamplingProvider(66);
@@ -1792,7 +1795,7 @@ test("terrain alignment estimates use the selected layer-owned point and invalid
   assert.equal("geographic" in ePointData, false);
   assert.throws(
     () => experimentalCore.getCachedPreparedPointData("0-0-0-0"),
-    /unavailable for experimental E/,
+    /unavailable for E cache entries/,
   );
   experimentalCore.destroy();
 });
@@ -1849,6 +1852,7 @@ test("terrain estimates stay independent for multiple layers on one Viewer", asy
     decoder: firstSource.decoder,
     heightOffsetMeters: 2,
     verticalTransform,
+    coordinateCacheLayout: "A",
   });
   const secondLayer = new CopcCesiumLayer({
     url: "memory://terrain-second-layer.copc.laz",
@@ -1856,6 +1860,7 @@ test("terrain estimates stay independent for multiple layers on one Viewer", asy
     decoder: secondSource.decoder,
     heightOffsetMeters: -3,
     verticalTransform,
+    coordinateCacheLayout: "A",
   });
   const viewer = createFakeViewer();
   viewer.terrainProvider = createTerrainSamplingProvider(65);

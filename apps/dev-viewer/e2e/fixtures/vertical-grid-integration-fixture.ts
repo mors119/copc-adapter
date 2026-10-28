@@ -439,6 +439,9 @@ integrationWindow.__VERTICAL_GRID_INTEGRATION__ = {
       startedAt,
       layer: new CopcCesiumLayer({
         url: options.source,
+        // This fixture asserts exact source-Z conversion across grid paths.
+        // Other browser coverage exercises the default compact E layout.
+        coordinateCacheLayout: "A",
         backend: options.backend ?? "copc-js",
         ...(options.gridId
           ? { verticalTransform: grids.get(options.gridId) }

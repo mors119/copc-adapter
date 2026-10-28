@@ -19,6 +19,7 @@ declare const viewer: import("cesium").Viewer;
 
 const layerOptions: CopcCesiumLayerOptions = {
   url: "https://example.com/data.copc.laz",
+  coordinateCacheLayout: "A",
   maxRenderedPoints: 200_000,
   streaming: {
     maxRenderedPoints: 100_000,
@@ -34,8 +35,8 @@ await minimalLayer.load();
 minimalLayer.attachTo(viewer);
 minimalLayer.destroy();
 
-// The public constructor is bound to A; E selection stays on its internal
-// factory.
+// The public core keeps its A contract; Cesium layers can opt into A
+// compatibility while defaulting to E retained storage.
 // @ts-expect-error The production controller cannot claim an arbitrary point layout.
 const forgedLayoutCore = new CopcStreamingCore<{ invented: true }>(options);
 void forgedLayoutCore;

@@ -21,7 +21,7 @@ export type TerrainHeightAlignmentEstimate = {
   status: TerrainHeightAlignmentStatus;
   /** True only when both the anchor and height references passed validation. */
   actionable: boolean;
-  /** Selected point identity and preserved COPC source XYZ. */
+  /** Selected point identity and retained COPC source XYZ, when available. */
   anchor?: {
     ownerId?: string;
     nodeKey: string;
@@ -271,6 +271,9 @@ function createEstimate(
 }
 
 function isFiniteAnchor(anchor: CopcPointInspection): boolean {
+  const sourceIsFinite =
+    anchor.source === undefined ||
+    [anchor.source.x, anchor.source.y, anchor.source.z].every(Number.isFinite);
   return (
     Number.isFinite(anchor.longitude) &&
     anchor.longitude >= -180 &&
@@ -279,8 +282,7 @@ function isFiniteAnchor(anchor: CopcPointInspection): boolean {
     anchor.latitude >= -90 &&
     anchor.latitude <= 90 &&
     Number.isFinite(anchor.height) &&
-    anchor.source !== undefined &&
-    [anchor.source.x, anchor.source.y, anchor.source.z].every(Number.isFinite)
+    sourceIsFinite
   );
 }
 
@@ -353,7 +355,7 @@ export async function estimateTerrainHeightAlignment(
     return createEstimate(
       input,
       "unavailable",
-      "The selected point must have finite longitude, latitude, displayed height, and source XYZ coordinates.",
+      "The selected point must have finite longitude, latitude, displayed height, and any retained source XYZ coordinates.",
       verticalReference,
       warnings,
       providerSummary,

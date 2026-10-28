@@ -402,13 +402,9 @@ test("estimates against the consumer TerrainProvider and rejects ellipsoid-only 
   expect(before).toMatchObject({
     classification: 2,
     height: expect.any(Number),
-    source: {
-      x: expect.any(Number),
-      y: expect.any(Number),
-      z: expect.any(Number),
-    },
     world: { coordinateSystem: "wgs84-ecef-meters" },
   });
+  expect(before).not.toHaveProperty("source");
   expect(
     await page.evaluate(() =>
       window.__PACKED_CONSUMER__.usesTerrainFixtureProvider(),
@@ -440,7 +436,7 @@ test("estimates against the consumer TerrainProvider and rejects ellipsoid-only 
 
   const afterPreview = (await state(page)).selectedPoint;
   expect(afterPreview.height).toBe(before.height);
-  expect(afterPreview.source).toEqual(before.source);
+  expect(afterPreview.source).toBeUndefined();
   expect(afterPreview.world).toEqual(before.world);
   expect(
     await page.evaluate(() =>

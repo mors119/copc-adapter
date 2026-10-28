@@ -138,13 +138,14 @@ function createDeferred() {
   return { promise, resolve };
 }
 
-async function createLoadedLayer(renderer) {
+async function createLoadedLayer(renderer, coordinateCacheLayout = "E") {
   const source = createBackend();
   const layer = new CopcThreeLayer({
     url: "memory://three-layer.copc.laz",
     backend: source.backend,
     decoder: source.decoder,
     colorMode: "rgb",
+    coordinateCacheLayout,
     streaming: {
       maxNodes: 1,
       maxDepth: 0,
@@ -680,7 +681,7 @@ test("detach and unload preserve application objects and reload the source", asy
 });
 
 test("ray hits resolve the current node and point index, while unrelated objects are ignored", async () => {
-  const { layer, scene, camera } = await createLoadedLayer();
+  const { layer, scene, camera } = await createLoadedLayer(undefined, "A");
   const picked = layer.pick({ x: 0, y: 0 });
 
   assert.equal(picked.nodeKey, "0-0-0-0");
@@ -706,6 +707,12 @@ test("ray hits resolve the current node and point index, while unrelated objects
 
   layer.destroy();
   assert.equal(camera.parent, null);
+});
+
+test("Three layers default to compact E point-cache storage", async () => {
+  const { layer } = await createLoadedLayer();
+  assert.equal(layer.getPointCacheDiagnostics().currentCacheBytes, 76);
+  layer.destroy();
 });
 
 test("destroy releases layer resources without disposing the application scene or renderer", async () => {

@@ -691,7 +691,7 @@ test("manual height offset keeps picked points aligned with the globe shown or h
     });
   const visibleState = await getCompletedDebugState(page);
   const visiblePoint = visibleState.selectedPoint;
-  expect(visiblePoint?.source?.z).toBeDefined();
+  expect(visiblePoint?.source).toBeUndefined();
   expect(visiblePoint?.world).toBeDefined();
   expect(visibleState.renderedPointCount).toBeGreaterThan(0);
 
@@ -699,7 +699,7 @@ test("manual height offset keeps picked points aligned with the globe shown or h
   const hiddenState = await getCompletedDebugState(page);
   expect(hiddenState.renderedPointCount).toBeGreaterThan(0);
   expect(hiddenState.selectedPoint?.height).toBe(visiblePoint?.height);
-  expect(hiddenState.selectedPoint?.source?.z).toBe(visiblePoint?.source?.z);
+  expect(hiddenState.selectedPoint?.source).toBeUndefined();
   expect(hiddenState.selectedPoint?.world).toEqual(visiblePoint?.world);
 
   await page.evaluate(() => {
@@ -707,7 +707,7 @@ test("manual height offset keeps picked points aligned with the globe shown or h
   });
   const restyledPoint = (await getDebugState(page)).selectedPoint;
   expect(restyledPoint?.height).toBe(visiblePoint?.height);
-  expect(restyledPoint?.source?.z).toBe(visiblePoint?.source?.z);
+  expect(restyledPoint?.source).toBeUndefined();
   expect(restyledPoint?.world).toEqual(visiblePoint?.world);
 
   await page.evaluate(() => window.__COPC_DEBUG__?.setGlobeVisible(true));

@@ -42,7 +42,11 @@ type StreamingCompatibilityExclusions =
   | "maxPointsPerBatch";
 // These stay public for host integration or compatibility but are not ordinary
 // Workbench controls (logging, custom decoder injection, and callbacks).
-type LayerCompatibilityExclusions = "debug" | "decoder" | "onPointPicked";
+type LayerCompatibilityExclusions =
+  | "debug"
+  | "decoder"
+  | "onPointPicked"
+  | "coordinateCacheLayout";
 
 // Dev Viewer is compiled against workspace declarations through its tsconfig
 // aliases, so adding a new public option exposes schema drift in this build.

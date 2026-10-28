@@ -1,8 +1,24 @@
 # Issues #324 and #326: ECEF cache layout measurement report
 
+## Issue #326 adoption follow-up — 2026-10-28
+
+The standard Cesium and Three layer caches now default to E. Set
+`coordinateCacheLayout: "A"` to retain the exact Source and Geographic arrays
+for synchronous legacy inspection. The public `CopcStreamingCore` continues to
+use its existing A-shaped contract.
+
+This adopts the retained-cache storage reduction measured below: E uses 32
+coordinate/height bytes per point versus A's 72, before attributes. It does not
+reduce worker transfer or transient preparation memory: current decoders still
+produce A-shaped prepared data before the layer cache creates E. The earlier
+recommendation to defer adoption reflected that the browser layer still used A;
+the recommendation is superseded for retained Cesium/Three layer cache storage
+by this explicit default and A compatibility option. The worker limitation
+remains a separate performance boundary.
+
 ## Task 3 measurement run — 2026-10-23
 
-### Recommendation
+### Recommendation at measurement time
 
 **DEFER default adoption; keep A as the production default.** E retains 32
 coordinate bytes per point instead of A's 72, and the measured outputs preserve
