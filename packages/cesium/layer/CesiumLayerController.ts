@@ -34,11 +34,7 @@ import {
   inspectCopcPoint,
   type CopcPointInspection,
 } from "../../core/copc/points/pointInspection";
-import type {
-  CopcMetadata,
-  PreparedPointData,
-} from "../../core/copc/types/copc";
-import type { RenderablePointData } from "../../core/point/compactEPointCache";
+import type { CopcMetadata } from "../../core/copc/types/copc";
 import type { GtxGeoidGrid } from "../../core/coordinates/transform/verticalGrid";
 import {
   createUnavailableTerrainHeightAlignmentEstimate,
@@ -53,7 +49,8 @@ import {
   getDatasetElevationRange,
 } from "../../core/point/style/pointStyle";
 import {
-  CopcStreamingCore,
+  createLayerStreamingCore,
+  getCachedRenderablePointDataForAdapter,
   type CopcStreamingPerformanceSnapshot,
   type PredictivePrefetchDiagnostics,
   type CopcStreamingProgressHandler,
@@ -65,6 +62,7 @@ import type {
   StreamingProgress,
   StreamingSelectionOptions,
 } from "../../core/streaming/types";
+import type { RenderablePointData } from "../../core/point/compactEPointCache";
 import { DEFAULT_MAX_RENDERED_POINTS } from "../../core/streaming/NodeSelector";
 import {
   normalizeRefinementFocus,
@@ -101,6 +99,7 @@ export type CopcLayerOptions = {
   /** Upper attenuated point diameter in CSS pixels. Defaults to 12; maximum is 64. */
   maxPointSize?: number;
   colorMode?: CopcColorMode;
+  coordinateCacheLayout?: "A" | "E";
   /** Manual additive correction in metres applied to ellipsoidal point height. Defaults to 0. */
   heightOffsetMeters?: number;
   /** Explicit user-loaded GTX grid; absent means no vertical datum conversion. */
@@ -122,6 +121,8 @@ export type CopcLayerOptions = {
   /** Maximum active HTTP ranges per source. Defaults to 4; any positive safe integer is accepted. */
   maxConcurrentRangeRequests?: number;
 };
+
+type LayerStreamingCore = ReturnType<typeof createLayerStreamingCore>;
 
 /** Lifecycle values included in the Cesium layer diagnostic snapshot. */
 export type CopcLayerLifecycleState =
@@ -315,7 +316,7 @@ export class CesiumLayerController {
   >();
   readonly error = new CopcCesiumEvent<[CopcLayerErrorEvent]>();
 
-  private readonly core: CopcStreamingCore;
+  private readonly core: LayerStreamingCore;
   private readonly eventLifecycle = new CopcLayerEventLifecycle();
   private readonly options: CopcLayerOptions;
   private readonly pointRenderer: CesiumPointRenderer;
@@ -397,7 +398,7 @@ export class CesiumLayerController {
     this.rendererPerformance.setConfiguredPointBudget(
       this.getMaxRenderedPoints(),
     );
-    this.core = new CopcStreamingCore({
+    this.core = createLayerStreamingCore({
       url: options.url,
       backend: options.backend,
       heightOffsetMeters: options.heightOffsetMeters,
@@ -413,11 +414,14 @@ export class CesiumLayerController {
       // runtime restyling can reuse the initial point-chunk read and decode.
       pointFields: allCopcPointFields(),
       streaming: options.streaming,
-    });
+    }, options.coordinateCacheLayout ?? "E");
     this.pointPicker = new CesiumPointPicker({
       inspectPoint: (pickId) => {
         const node = this.core.getHierarchyNode(pickId.nodeKey);
-        const points = this.core.getCachedPointBuffer(pickId.nodeKey);
+        const points = getCachedRenderablePointDataForAdapter(
+          this.core,
+          pickId.nodeKey,
+        );
         return node && points
           ? inspectCopcPoint(
               pickId,
@@ -970,7 +974,10 @@ export class CesiumLayerController {
     const renderedNodes = this.pointRenderer
       .getRenderedNodeKeys()
       .map((nodeKey) => {
-        const points = this.core.getCachedPreparedPointData(nodeKey);
+        const points = getCachedRenderablePointDataForAdapter(
+          this.core,
+          nodeKey,
+        );
         if (!points) {
           throw new Error(
             `Cannot restyle rendered node ${nodeKey}: its decoded point buffer is not cached; ` +
@@ -1001,7 +1008,8 @@ export class CesiumLayerController {
 
     const selectedPick = this.pointPicker.getSelectedPickId();
     if (selectedPick) {
-      const selectedPoints = this.core.getCachedPreparedPointData(
+      const selectedPoints = getCachedRenderablePointDataForAdapter(
+        this.core,
         selectedPick.nodeKey,
       );
       if (
@@ -1173,7 +1181,9 @@ export class CesiumLayerController {
     this.activeStreamingUpdate = activeStreamingUpdate;
     let lastQueuedNodeCount: number | undefined;
     let lastActiveNodeCount: number | undefined;
-    const onProgress: CopcStreamingProgressHandler = (progress) => {
+    const onProgress: CopcStreamingProgressHandler<RenderablePointData> = (
+      progress,
+    ) => {
       if (
         !this.isCurrentStreamingGeneration(streamingGeneration, viewer) ||
         !this.eventLifecycle.isActiveView(publicViewGeneration)
@@ -1213,7 +1223,7 @@ export class CesiumLayerController {
           }
         : undefined;
 
-    let update: Awaited<ReturnType<CopcStreamingCore["updateView"]>>;
+    let update: Awaited<ReturnType<LayerStreamingCore["updateView"]>>;
     try {
       update = await this.core.updateView(view, onProgress, onWorkProgress);
     } catch (error: unknown) {
@@ -1285,7 +1295,7 @@ export class CesiumLayerController {
 
   private applyStreamingProgress(
     viewer: Cesium.Viewer,
-    progress: StreamingProgress,
+    progress: StreamingProgress<RenderablePointData>,
     generation: number,
     viewGeneration: number,
   ): void {
@@ -1355,7 +1365,7 @@ export class CesiumLayerController {
 
   private updatePointCollectionStyle(
     nodeKey: string,
-    points: PreparedPointData,
+    points: RenderablePointData,
     style: CopcCesiumPointStyle,
   ): void {
     const rendererOptions = this.createPointRendererOptions(
@@ -1558,7 +1568,7 @@ export class CesiumLayerController {
   }
 
   private observeCurrentCameraMotion():
-    | ReturnType<CopcStreamingCore["observeCameraMotion"]>
+    | ReturnType<LayerStreamingCore["observeCameraMotion"]>
     | undefined {
     if (!this.viewer) {
       return undefined;

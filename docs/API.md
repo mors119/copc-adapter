@@ -36,6 +36,7 @@ compact URL examples below omit options that already have a usable default.
 | `decoder` | `CopcPointDecoder`, optional | Built-in WASM decoder only when a source returns point views instead of direct buffers | Yes | Yes | Yes | Direct-buffer backends can bypass the decoder. An injected decoder is used for view-backed sources. Keep advanced. |
 | `pointFields` | `CopcPointFieldSelection`, optional | `position` | Yes | No | No | Core callers can request optional `rgb`, `intensity`, and `classification`. Cesium layers retain all supported fields for restyling and picking; Three requests fields required by `colorMode`. Keep. |
 | `colorMode` | `CopcColorMode`, optional | `fixed` (cyan fallback) | No | Yes | Yes | Other modes are `elevation`, `rgb`, `intensity`, and `classification`. A missing source attribute falls back to fixed cyan. Keep. |
+| `coordinateCacheLayout` | `'A' | 'E'`, optional | `E` for Cesium/Three layers; direct `CopcStreamingCore` remains A-shaped | No | Yes | Yes | E retains ECEF F64 XYZ plus prepared-height F64 (32 coordinate bytes/point). Select A to retain exact Source and Geographic triples for synchronous inspection. E derives longitude/latitude from ECEF when Geographic is absent and omits source XYZ when Source is absent. |
 | `pointSize` | `number`, optional | `3` pixels | No | Yes | Yes | Cesium uses CSS-pixel diameter; Three uses screen-facing pixel size. Keep. |
 | `heightOffsetMeters` | `number`, optional | `0` | Yes | Yes | Yes | Manual additive correction to ellipsoidal height after source unit conversion; no automatic datum correction. Keep. |
 | `verticalTransform` | `GtxGeoidGrid`, optional | Omitted; no vertical datum conversion | Yes | Yes | Yes | Requires a caller-loaded and verified grid; no grid is selected or bundled automatically. Keep opt-in. |
@@ -301,6 +302,14 @@ a separately defined and tested contract.
   values above `64` are rejected.
 - `colorMode`: `'fixed' | 'elevation' | 'rgb' | 'intensity' |
   'classification'`. Default: `'fixed'`.
+- `coordinateCacheLayout`: `'E' | 'A'`. Default: `'E'`. E keeps the decoded
+  CPU cache at 32 coordinate/height bytes per point before attributes. Point
+  inspection returns exact cached height and ECEF; it derives longitude and
+  latitude from ECEF on demand and omits source XYZ. Choose A to retain exact
+  Source and Geographic triples and preserve the previous inspection values.
+  This changes retained cache storage; decoders still prepare the full A-shaped
+  result first, so it does not reduce Worker transfer or transient preparation
+  memory. The public `CopcStreamingCore` retains its A-shaped API contract.
 - `heightOffsetMeters`: manual additive correction in metres applied after
   source vertical-unit conversion and horizontal reprojection, before ECEF
   preparation. Default: `0`.
@@ -600,6 +609,8 @@ browser `File` or `Blob`. The application owns the scene, camera, renderer, and
 render loop.
 
 Current options include `url`, `pointSize` (default `3`), `colorMode`,
+`coordinateCacheLayout` (default `E`; choose `A` to retain exact source and
+geographic inspection coordinates),
 `heightOffsetMeters` (default `0`), `verticalTransform` (omitted by default),
 `maxRenderedPoints`, `streaming`, `backend`, `decoder`,
 `maxPointCacheBytes`, `debug`, `pickingThreshold` (default `1` scene unit),
@@ -613,9 +624,12 @@ scene, camera, WebGL renderer, controls, and loop.
 
 The loaded dataset uses a fixed local ENU frame in metres: +X east, +Y north,
 and +Z up. `pick({ x, y })` accepts normalized device coordinates and returns a
-`CopcPointInspection` or `undefined`. An optional `THREE.Raycaster` and
-threshold can be supplied. `detachFrom()`, `unload()`, `reload()`, and
-`destroy()` do not dispose application-owned Three.js resources.
+`CopcPointInspection` or `undefined`. With layout E, height/world are exact,
+longitude/latitude are derived from ECEF, and source XYZ is omitted; choose A
+for the previous exact coordinate inspection values. An optional
+`THREE.Raycaster` and threshold can be supplied. `detachFrom()`, `unload()`,
+`reload()`, and `destroy()` do not dispose application-owned Three.js
+resources.
 
 The default Three.js path keeps this local-coordinate workflow and does not
 require vertical CRS metadata or a geoid grid. It never selects or applies a
@@ -920,10 +934,12 @@ if (estimate.status === 'ready' && estimate.actionable) {
 ```
 
 An anchor must be the selected rendered point owned by this layer, include
-finite source XYZ and displayed coordinates, and be classified LAS/ASPRS class
-2 or explicitly confirmed by the caller. The estimate becomes stale when the
-selection, layer source generation, Viewer, or TerrainProvider changes. Keep
-`source` XYZ unchanged; `height` is the current displayed numeric height.
+finite displayed coordinates and any retained source XYZ, and be classified
+LAS/ASPRS class 2 or explicitly confirmed by the caller. Compact E inspection
+omits source XYZ by default; this does not prevent terrain sampling. The
+estimate becomes stale when the selection, layer source generation, Viewer, or
+TerrainProvider changes. Keep `source` XYZ unchanged; `height` is the current
+displayed numeric height.
 
 The result compares
 `terrainHeightMeters - anchor.displayedHeightMeters`. Both values must have a

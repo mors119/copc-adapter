@@ -50,7 +50,6 @@ import {
   createCompactEPointCacheNode,
   type CachedPointData,
   type CompactECoordinateRetention,
-  type CompactEPointCacheNode,
   type CompactEPointProvenance,
   type RenderablePointData,
 } from "../point/compactEPointCache";
@@ -318,13 +317,18 @@ type StreamingState = {
   manager: StreamingManager;
 };
 
-const EXPERIMENTAL_CACHE_LAYOUT = Symbol("experimentalPointCacheLayout");
+const INTERNAL_CACHE_LAYOUT = Symbol("internalPointCacheLayout");
 type InternalStreamingOptions = CopcStreamingControllerOptions & {
-  [EXPERIMENTAL_CACHE_LAYOUT]?: {
-    layout: "E";
+  [INTERNAL_CACHE_LAYOUT]?: {
+    layout: "A" | "E";
     retain: CompactECoordinateRetention;
   };
 };
+
+const cachedRenderablePointAccessors = new WeakMap<
+  object,
+  (nodeKey: string) => RenderablePointData | undefined
+>();
 
 const DEFAULT_STREAMING_OPTIONS: StreamingSelectionOptions = {
   maxNodes: 24,
@@ -551,16 +555,19 @@ class CopcStreamingCoreImplementation<TPointData> {
   private predictivePrefetchHierarchyPageCacheHitCount = 0;
 
   constructor(options: CopcStreamingControllerOptions) {
-    const experimentalCache = (options as InternalStreamingOptions)[
-      EXPERIMENTAL_CACHE_LAYOUT
+    const selectedCacheLayout = (options as InternalStreamingOptions)[
+      INTERNAL_CACHE_LAYOUT
     ];
-    this.cacheLayout = experimentalCache?.layout ?? "A";
+    this.cacheLayout = selectedCacheLayout?.layout ?? "A";
     this.compactECoordinateRetention = {
-      sourceCoordinates:
-        experimentalCache?.retain.sourceCoordinates === true,
+      sourceCoordinates: selectedCacheLayout?.retain.sourceCoordinates === true,
       geographicCoordinates:
-        experimentalCache?.retain.geographicCoordinates === true,
+        selectedCacheLayout?.retain.geographicCoordinates === true,
     };
+    cachedRenderablePointAccessors.set(this, (nodeKey) => {
+      const cached = this.streamingState?.cache.get(nodeKey);
+      return cached ? cachedPointDataToRenderablePointData(cached) : undefined;
+    });
     this.heightOffsetMeters = resolveHeightOffsetMeters(
       options.heightOffsetMeters,
     );
@@ -2020,19 +2027,37 @@ export class CopcStreamingCore
 export { CopcStreamingCore as CopcStreamingController };
 
 /**
- * Internal rollout seam for exercising E in focused tests and experiments.
- * Exact Source and Geographic buffers are omitted unless an internal consumer
- * policy explicitly requests either or both. This function is not re-exported
- * by any package entry point; normal core and renderer construction continues
- * to use production layout A.
+ * Create the renderer-layer core with its selected retained coordinate layout.
+ * Normal Cesium and Three layers use E; A remains available as an explicit
+ * compatibility path. The function is intentionally omitted from package
+ * entry points so the public `CopcStreamingCore` contract remains A-shaped.
  */
+export function createLayerStreamingCore(
+  options: CopcStreamingControllerOptions,
+  layout: "A" | "E" = "E",
+  retain: CompactECoordinateRetention = {},
+): CopcStreamingCoreImplementation<RenderablePointData> {
+  const internalOptions: InternalStreamingOptions = {
+    ...options,
+    [INTERNAL_CACHE_LAYOUT]: { layout, retain },
+  };
+  return new CopcStreamingCoreImplementation<RenderablePointData>(
+    internalOptions,
+  );
+}
+
+/** Read a layer core's renderer-ready cache value without widening public A APIs. */
+export function getCachedRenderablePointDataForAdapter(
+  core: object,
+  nodeKey: string,
+): RenderablePointData | undefined {
+  return cachedRenderablePointAccessors.get(core)?.(nodeKey);
+}
+
+/** Internal test seam retained for focused E-specific lifecycle coverage. */
 export function createExperimentalCompactEStreamingCore(
   options: CopcStreamingControllerOptions,
   retain: CompactECoordinateRetention = {},
-): CopcStreamingCoreImplementation<CompactEPointCacheNode> {
-  const internalOptions: InternalStreamingOptions = {
-    ...options,
-    [EXPERIMENTAL_CACHE_LAYOUT]: { layout: "E", retain },
-  };
-  return new CopcStreamingCoreImplementation(internalOptions);
+): CopcStreamingCoreImplementation<RenderablePointData> {
+  return createLayerStreamingCore(options, "E", retain);
 }

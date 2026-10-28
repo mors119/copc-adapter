@@ -7,7 +7,7 @@ import type {
 import type { VerticalGridValueUnit } from "../coordinates/transform/verticalGrid";
 import { assertPreparedPointData } from "./preparedPoint";
 
-/** Provenance retained with one experimental E cache entry. */
+/** Provenance retained with one compact E cache entry. */
 export type CompactEPointProvenance = {
   /** Source identity from the opened COPC resource. */
   sourceIdentity: string;
@@ -152,7 +152,7 @@ export function assertLegacyCoordinatesAvailable(
 ): asserts value is PreparedPointData {
   if (isCompactEPointCacheNode(value)) {
     throw new Error(
-      "The complete synchronous PreparedPointData contract is unavailable for experimental E cache entries; use the default A cache for legacy coordinate APIs.",
+      "The complete synchronous PreparedPointData contract is unavailable for E cache entries; use coordinateCacheLayout: 'A' for legacy coordinate APIs.",
     );
   }
 }

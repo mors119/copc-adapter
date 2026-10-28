@@ -35,6 +35,8 @@ export type CopcThreeLayerOptions = {
   pointSize?: number;
   /** Point color mapping. Defaults to the fixed cyan fallback. */
   colorMode?: CopcColorMode;
+  /** Retained point-coordinate layout. Defaults to compact E; choose A to retain exact Source and Geographic arrays. */
+  coordinateCacheLayout?: "A" | "E";
   /** Manual additive correction in metres applied to ellipsoidal point height. Defaults to 0. */
   heightOffsetMeters?: number;
   /** Explicit user-loaded GTX grid; absent means no vertical datum conversion. */

@@ -102,7 +102,7 @@ test("E retains only interleaved ECEF F64 and prepared-height F64 coordinates", 
   });
   assert.throws(
     () => assertLegacyCoordinatesAvailable(compact),
-    /unavailable for experimental E cache entries/,
+    /unavailable for E cache entries/,
   );
 });
 
@@ -239,7 +239,7 @@ test("E coordinate retention is independently opt-in and reuses exact buffers", 
     );
     assert.throws(
       () => assertLegacyCoordinatesAvailable(compact),
-      /unavailable for experimental E cache entries/,
+      /unavailable for E cache entries/,
     );
 
     const cache = createNodePointCache(async () => compact, {

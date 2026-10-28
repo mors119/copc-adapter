@@ -5,6 +5,9 @@ import {
   inspectCopcPoint,
   isCopcPointPickId,
 } from "../../../../core/copc/points/pointInspection.ts";
+import { createCompactEPointCacheNode } from "../../../../core/point/compactEPointCache.ts";
+import { createPreparedPointData } from "../../../../core/point/preparedPoint.ts";
+import { geographicToEcef } from "../../../../core/coordinates/transform/worldCoordinates.ts";
 
 function createPoints({ includeAttributes = true } = {}) {
   return {
@@ -58,6 +61,67 @@ test("picked inspection preserves the owning layer identity", () => {
   );
   assert.equal(inspection.ownerId, "layer-7");
   assert.deepEqual(inspection.source, { x: 100, y: 200, z: 300 });
+});
+
+test("compact E inspection uses exact cached height and only exposes retained coordinates", () => {
+  const geographic = new Float64Array([127.1234, 38.5678, 123.456789]);
+  const worldPoint = geographicToEcef({
+    longitude: geographic[0],
+    latitude: geographic[1],
+    height: geographic[2],
+  });
+  const prepared = createPreparedPointData({
+    pointCount: 1,
+    sourceCoordinates: new Float64Array([10.25, 20.5, 30.75]),
+    geographicCoordinates: geographic,
+    worldCoordinates: new Float64Array([
+      worldPoint.x,
+      worldPoint.y,
+      worldPoint.z,
+    ]),
+  });
+  const provenance = {
+    sourceIdentity: "memory://inspection.copc.laz",
+    transformGeneration: 1,
+    heightOffsetMeters: 0,
+    verticalDatum: { status: "no-validated-grid-correction" },
+  };
+  const compact = createCompactEPointCacheNode(prepared, {
+    nodeKey: "0-0-0-0",
+    provenance,
+  });
+  const inspection = inspectCopcPoint(
+    { nodeKey: compact.nodeKey, pointIndex: 0 },
+    { level: 0 },
+    compact,
+    "rust",
+  );
+
+  assert.equal(inspection.height, geographic[2]);
+  assert.equal(inspection.source, undefined);
+  assert.ok(Math.abs(inspection.longitude - geographic[0]) < 1e-10);
+  assert.ok(Math.abs(inspection.latitude - geographic[1]) < 1e-10);
+  assert.deepEqual(inspection.world, {
+    coordinateSystem: "wgs84-ecef-meters",
+    x: worldPoint.x,
+    y: worldPoint.y,
+    z: worldPoint.z,
+  });
+
+  const retainedCompact = createCompactEPointCacheNode(prepared, {
+    nodeKey: "0-0-0-0",
+    provenance,
+    retain: { sourceCoordinates: true, geographicCoordinates: true },
+  });
+  const retainedInspection = inspectCopcPoint(
+    { nodeKey: retainedCompact.nodeKey, pointIndex: 0 },
+    { level: 0 },
+    retainedCompact,
+    "rust",
+  );
+  assert.equal(retainedInspection.longitude, geographic[0]);
+  assert.equal(retainedInspection.latitude, geographic[1]);
+  assert.deepEqual(retainedInspection.source, { x: 10.25, y: 20.5, z: 30.75 });
 });
 
 test("unrequested fields remain unavailable and unknown classifications stay numeric", () => {

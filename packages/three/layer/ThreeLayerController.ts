@@ -4,14 +4,13 @@ import {
   inspectCopcPoint,
   type CopcPointInspection,
 } from "../../core/copc/points/pointInspection";
-import type {
-  CopcMetadata,
-} from "../../core/copc/types/copc";
+import type { CopcMetadata } from "../../core/copc/types/copc";
 import type { RenderablePointData } from "../../core/point/compactEPointCache";
 import { createDatasetLocalFrame } from "../../core/coordinates/transform/datasetLocalFrame";
 import type { DatasetLocalFrame } from "../../core/coordinates/types";
 import {
-  CopcStreamingCore,
+  createLayerStreamingCore,
+  getCachedRenderablePointDataForAdapter,
   type CopcStreamingProgressHandler,
   type CopcStreamingWorkProgressHandler,
 } from "../../core/streaming/CopcStreamingCore";
@@ -62,6 +61,8 @@ type ActiveStreamingUpdate = {
   progressApplied: boolean;
 };
 
+type LayerStreamingCore = ReturnType<typeof createLayerStreamingCore>;
+
 function createRendererPerformanceSnapshot(): CopcThreeRendererPerformanceSnapshot {
   return {
     worldToLocalDurationMs: 0,
@@ -80,7 +81,7 @@ function isFinitePositive(value: number): boolean {
 export class ThreeLayerController {
   private readonly eventDispatcher: CopcThreeLayerEventDispatcher;
   private readonly eventLifecycle = new CopcLayerEventLifecycle();
-  private readonly core: CopcStreamingCore;
+  private readonly core: LayerStreamingCore;
   private readonly options: CopcThreeLayerOptions;
   private readonly pointRenderer: CopcThreePointRenderer;
   private readonly pointPicker: ThreePointPicker;
@@ -130,7 +131,7 @@ export class ThreeLayerController {
     this.options = options;
     this.eventDispatcher = new CopcThreeLayerEventDispatcher(eventTarget);
     this.pointRenderer = options.renderer ?? new ThreePointRenderer();
-    this.core = new CopcStreamingCore({
+    this.core = createLayerStreamingCore({
       url: options.url,
       backend: options.backend,
       heightOffsetMeters: options.heightOffsetMeters,
@@ -144,12 +145,15 @@ export class ThreeLayerController {
       maxConcurrentRangeRequests: options.maxConcurrentRangeRequests,
       pointFields: getCopcPointFieldSelection(options.colorMode ?? "fixed"),
       streaming: options.streaming,
-    });
+    }, options.coordinateCacheLayout ?? "E");
     this.pointPicker = new ThreePointPicker({
       getRoot: () => this.pointRenderer.getRoot(),
       inspectPoint: (pickId) => {
         const node = this.core.getHierarchyNode(pickId.nodeKey);
-        const points = this.core.getCachedPointBuffer(pickId.nodeKey);
+        const points = getCachedRenderablePointDataForAdapter(
+          this.core,
+          pickId.nodeKey,
+        );
         return node && points
           ? inspectCopcPoint(
               pickId,
@@ -633,7 +637,9 @@ export class ThreeLayerController {
     let progressApplied = false;
     let lastQueuedNodeCount: number | undefined;
     let lastActiveNodeCount: number | undefined;
-    const onProgress: CopcStreamingProgressHandler = (progress) => {
+    const onProgress: CopcStreamingProgressHandler<RenderablePointData> = (
+      progress,
+    ) => {
       if (
         !this.isCurrentStreamingGeneration(generation, attachment) ||
         !this.eventLifecycle.isActiveView(publicViewGeneration)
@@ -668,7 +674,7 @@ export class ThreeLayerController {
           }
         : undefined;
 
-    let update: Awaited<ReturnType<CopcStreamingCore["updateView"]>>;
+    let update: Awaited<ReturnType<LayerStreamingCore["updateView"]>>;
     try {
       update = await this.core.updateView(view, onProgress, onWorkProgress);
     } catch (error: unknown) {
@@ -753,7 +759,7 @@ export class ThreeLayerController {
   }
 
   private applyStreamingProgress(
-    progress: StreamingProgress,
+    progress: StreamingProgress<RenderablePointData>,
     generation: number,
     viewGeneration: number,
   ): void {

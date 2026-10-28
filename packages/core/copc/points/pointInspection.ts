@@ -1,5 +1,10 @@
 import type { CopcBackendName } from "../backend/selection";
 import type { GeographicPointBuffer } from "../types/copc";
+import {
+  isCompactEPointCacheNode,
+  type RenderablePointData,
+} from "../../point/compactEPointCache";
+import { ecefToGeographic } from "../../coordinates/transform/worldCoordinates";
 
 /** Small project-owned reference carried by a rendered point. */
 export type CopcPointPickId = Readonly<{
@@ -21,9 +26,9 @@ export type CopcPointInspection = {
   level: number;
   /** Zero-based index within the selected node. */
   pointIndex: number;
-  /** WGS84 longitude in degrees. */
+  /** WGS84 longitude in degrees; compact E derives it from ECEF unless Geographic values are retained. */
   longitude: number;
-  /** WGS84 latitude in degrees. */
+  /** WGS84 latitude in degrees; compact E derives it from ECEF unless Geographic values are retained. */
   latitude: number;
   /** Corrected WGS84 ellipsoidal display height in metres. */
   height: number;
@@ -104,32 +109,63 @@ function getClassificationLabel(code: number): string | undefined {
 
 /**
  * Map a rendered point reference to the current project-owned point buffer.
- * Undefined fields intentionally mean unavailable or unrequested.
+ * Compact E reads height and ECEF directly and inverts only the selected
+ * point's longitude/latitude. Source coordinates remain absent unless the
+ * selected cache policy explicitly retained them.
  */
 export function inspectCopcPoint(
   pickId: CopcPointPickId,
   node: { level: number },
-  points: GeographicPointBuffer,
+  points: GeographicPointBuffer | RenderablePointData,
   backend: CopcBackendName | "custom",
 ): CopcPointInspection | undefined {
+  const compact = isCompactEPointCacheNode(points);
+  const offset = pickId.pointIndex * 3;
+  const hasCoordinates = compact
+    ? points.ecef.length >= offset + 3 &&
+      points.height.length > pickId.pointIndex
+    : points.coordinates.length >= offset + 3;
   if (
     !isCopcPointPickId(pickId) ||
     !Number.isSafeInteger(node.level) ||
     pickId.pointIndex >= points.pointCount ||
-    pickId.pointIndex * 3 + 2 >= points.coordinates.length
+    !hasCoordinates
   ) {
     return undefined;
   }
 
-  const offset = pickId.pointIndex * 3;
+  const inspectedCoordinates = compact
+    ? (() => {
+        const geographic = points.geographicCoordinates;
+        const position =
+          geographic && geographic.length >= offset + 3
+            ? {
+                longitude: geographic[offset],
+                latitude: geographic[offset + 1],
+              }
+            : ecefToGeographic({
+                x: points.ecef[offset],
+                y: points.ecef[offset + 1],
+                z: points.ecef[offset + 2],
+              });
+        return {
+          ...position,
+          height: points.height[pickId.pointIndex],
+        };
+      })()
+    : {
+        longitude: points.coordinates[offset],
+        latitude: points.coordinates[offset + 1],
+        height: points.coordinates[offset + 2],
+      };
   const inspection: CopcPointInspection = {
     ...(pickId.ownerId === undefined ? {} : { ownerId: pickId.ownerId }),
     nodeKey: pickId.nodeKey,
     level: node.level,
     pointIndex: pickId.pointIndex,
-    longitude: points.coordinates[offset],
-    latitude: points.coordinates[offset + 1],
-    height: points.coordinates[offset + 2],
+    longitude: inspectedCoordinates.longitude,
+    latitude: inspectedCoordinates.latitude,
+    height: inspectedCoordinates.height,
     backend,
   };
 
@@ -144,12 +180,13 @@ export function inspectCopcPoint(
     };
   }
 
-  if (points.worldCoordinates && points.worldCoordinates.length >= offset + 3) {
+  const worldCoordinates = compact ? points.ecef : points.worldCoordinates;
+  if (worldCoordinates && worldCoordinates.length >= offset + 3) {
     inspection.world = {
       coordinateSystem: "wgs84-ecef-meters",
-      x: points.worldCoordinates[offset],
-      y: points.worldCoordinates[offset + 1],
-      z: points.worldCoordinates[offset + 2],
+      x: worldCoordinates[offset],
+      y: worldCoordinates[offset + 1],
+      z: worldCoordinates[offset + 2],
     };
   }
 

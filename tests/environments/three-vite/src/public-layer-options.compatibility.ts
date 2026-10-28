@@ -7,6 +7,7 @@ import * as THREE from "three";
 
 const layerOptions: CopcThreeLayerOptions = {
   url: "https://example.com/data.copc.laz",
+  coordinateCacheLayout: "A",
   maxRenderedPoints: 200_000,
   streaming: {
     maxRenderedPoints: 100_000,
