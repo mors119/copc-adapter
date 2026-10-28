@@ -24,6 +24,7 @@ function createBackend({
   pages = new Map(),
   points = new Map(),
   preparedPoints = false,
+  gateHierarchyRead,
   gatePointRead,
 } = {}) {
   const rootSubtree = pages.get(ROOT_KEY) ?? { nodes: [], pages: [] };
@@ -56,6 +57,7 @@ function createBackend({
             page.key,
             (counts.hierarchyReads.get(page.key) ?? 0) + 1,
           );
+          if (gateHierarchyRead) await gateHierarchyRead(page, options);
           const bytes = page.pageLength;
           options.performanceObserver?.({
             stage: "rangeFetch",
@@ -167,6 +169,23 @@ async function collect(query) {
   const points = [];
   for await (const batch of query) points.push(...batch);
   return { points, summary: await query.result };
+}
+
+async function settlesWithin(promise, timeoutMs = 1_000) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`operation did not settle within ${timeoutMs}ms`)),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 test("fetch-missing applies an inclusive 3D AABB and preserves raw XYZ provenance", async () => {
@@ -539,6 +558,81 @@ test("timeout and cancellation settle while the consumer is paused on a batch", 
   assert.equal(cancelSummary.cancelReason, "aborted");
   assert.deepEqual(await cancelIterator.next(), { value: undefined, done: true });
   cancelCore.destroy();
+});
+
+test("hierarchy cancellation and timeout detach without cancelling shared page reads", async () => {
+  const runScenario = async (kind) => {
+    const root = createNode(ROOT_KEY, 1);
+    const child = createNode("1-0-0-0", 1);
+    let notifyHierarchyReadStarted;
+    const hierarchyReadStarted = new Promise((resolve) => {
+      notifyHierarchyReadStarted = resolve;
+    });
+    let releaseHierarchyRead;
+    const hierarchyReadReleased = new Promise((resolve) => {
+      releaseHierarchyRead = resolve;
+    });
+    const backend = createBackend({
+      pages: new Map([
+        [ROOT_KEY, {
+          nodes: [root],
+          pages: [{ key: child.key, pageOffset: 20, pageLength: 8 }],
+        }],
+        [child.key, { nodes: [child], pages: [] }],
+      ]),
+      points: new Map([[child.key, [[0.5, 0.5, 0.5]]]]),
+      gateHierarchyRead: async (page, options) => {
+        if (page.key !== child.key) return;
+        assert.equal(options.signal, undefined, "query abort must not reach a shared page read");
+        notifyHierarchyReadStarted();
+        await hierarchyReadReleased;
+      },
+    });
+    const core = createCore(backend.backend);
+    await core.load();
+
+    const abortController = new AbortController();
+    const query = core.queryPoints(queryOptions({
+      maxDepth: 1,
+      maxDurationMs: kind === "timeout" ? 50 : 1_000,
+      ...(kind === "abort" ? { signal: abortController.signal } : {}),
+    }));
+    const consuming = collect(query);
+    await hierarchyReadStarted;
+    if (kind === "abort") abortController.abort("test-cancelled");
+
+    const summary = await settlesWithin(query.result);
+    assert.equal(summary.status, kind === "timeout" ? "partial" : "cancelled");
+    if (kind === "timeout") {
+      assert.ok(summary.reasonCodes.includes("time-limit"));
+    } else {
+      assert.equal(summary.cancelReason, "aborted");
+    }
+    await settlesWithin(consuming);
+
+    // The first query has released its query slot. A second caller can wait on
+    // the same page promise and complete once the shared read resolves.
+    const followup = core.queryPoints(queryOptions({
+      maxDepth: 1,
+      maxDurationMs: 1_000,
+    }));
+    const followupTask = collect(followup);
+    const followupState = await Promise.race([
+      followup.result.then(() => "settled"),
+      new Promise((resolve) => setTimeout(() => resolve("waiting"), 10)),
+    ]);
+    assert.equal(followupState, "waiting");
+    assert.equal(backend.counts.hierarchyReads.get(child.key), 1);
+
+    releaseHierarchyRead();
+    const completed = await settlesWithin(followupTask);
+    assert.equal(completed.summary.status, "complete");
+    assert.equal(backend.counts.hierarchyReads.get(child.key), 1);
+    core.destroy();
+  };
+
+  await runScenario("abort");
+  await runScenario("timeout");
 });
 
 test("source unload cancels an in-flight query without stale output", async () => {

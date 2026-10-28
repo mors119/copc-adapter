@@ -50,7 +50,8 @@ type LayerCompatibilityExclusions =
   | "coordinateCacheLayout"
   | "attributeLoading"
   | "classificationFilter"
-  | "pointFields";
+  | "pointFields"
+  | "retainSourceCoordinatesForQueries";
 
 // Dev Viewer is compiled against workspace declarations through its tsconfig
 // aliases, so adding a new public option exposes schema drift in this build.

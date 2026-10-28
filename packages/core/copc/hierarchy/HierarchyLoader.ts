@@ -47,7 +47,7 @@ export type HierarchyQueryOptions = {
   maxPages?: number;
   /** Maximum child pages loaded concurrently by this query; shared across the loader. */
   maxConcurrentPageLoads?: number;
-  /** Stops expanding a stale speculative traversal after its active page reads settle. */
+  /** Detaches this query promptly; shared page reads already in progress continue. */
   signal?: AbortSignal;
   /** Reports relevant page visits and whether the page was already cached. */
   onPageVisited?: (cached: boolean, page?: CopcHierarchyPage) => void;
@@ -157,6 +157,53 @@ function intersects(
     left.minZ <= right.maxZ &&
     left.maxZ >= right.minZ
   );
+}
+
+function createQueryAbortError(signal: AbortSignal): Error {
+  const error = new Error("Hierarchy query was cancelled", {
+    cause: signal.reason,
+  });
+  error.name = "AbortError";
+  return error;
+}
+
+function throwIfQueryAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw createQueryAbortError(signal);
+}
+
+/**
+ * Stop one caller from waiting without aborting the cached shared page load.
+ * The rejection handler remains attached after an abort so a later page-read
+ * failure is still observed even though this query has already detached.
+ */
+function waitForQueryPage<T>(
+  pageLoad: Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> {
+  if (!signal) return pageLoad;
+  if (signal.aborted) return Promise.reject(createQueryAbortError(signal));
+
+  return new Promise<T>((resolve, reject) => {
+    const cleanup = (): void => {
+      signal.removeEventListener("abort", onAbort);
+    };
+    const onAbort = (): void => {
+      cleanup();
+      reject(createQueryAbortError(signal));
+    };
+
+    signal.addEventListener("abort", onAbort, { once: true });
+    pageLoad.then(
+      (value) => {
+        cleanup();
+        resolve(value);
+      },
+      (error: unknown) => {
+        cleanup();
+        reject(error);
+      },
+    );
+  });
 }
 
 function pageBounds(
@@ -341,9 +388,13 @@ export class HierarchyLoader {
           "Hierarchy query concurrency must be a positive safe integer no greater than the loader limit",
         );
       }
-      await this.loadPage(
-        this.source.getRootHierarchyPage(),
-        options.performanceObserver,
+      throwIfQueryAborted(options.signal);
+      await waitForQueryPage(
+        this.loadPage(
+          this.source.getRootHierarchyPage(),
+          options.performanceObserver,
+        ),
+        options.signal,
       );
       this.assertCurrentGeneration(generation);
 
@@ -417,7 +468,10 @@ export class HierarchyLoader {
               continue;
             }
 
-            await this.loadPage(page, options.performanceObserver);
+            await waitForQueryPage(
+              this.loadPage(page, options.performanceObserver),
+              options.signal,
+            );
             this.assertCurrentGeneration(generation);
             if (options.signal?.aborted) {
               continue;
