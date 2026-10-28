@@ -70,6 +70,8 @@ type DebugState = {
     misses: number;
     evictionCount: number;
     bytesEvicted: number;
+    prefetchUsefulHitCount?: number;
+    prefetchEvictedUnusedCount?: number;
   };
   rangeRequests: {
     requested: number;
@@ -80,6 +82,26 @@ type DebugState = {
     abortedLifecycle: number;
   };
   hierarchy: Record<string, unknown> & { activePageLoads: number };
+  predictivePrefetch?: {
+    enabled: boolean;
+    queuedNodeCount: number;
+    activeNodeCount: number;
+    completedNodeCount: number;
+    failedNodeCount: number;
+    cancelledNodeCount: number;
+    usefulCacheHitCount: number;
+    evictedUnusedNodeCount: number;
+    pointRangeRequestCount: number;
+    pointRangeBytesRequested: number;
+    hierarchyQueryCount: number;
+    hierarchyPageVisitCount: number;
+    hierarchyPageRequestCount: number;
+    hierarchyPageCacheHitCount: number;
+    maxNodesPerUpdate: number;
+    maxPointsPerUpdate: number;
+    maxPointRangeBytesPerUpdate: number;
+    maxHierarchyPagesPerUpdate: number;
+  };
   worker?: {
     workerCount: number;
     activeCount: number;
@@ -150,6 +172,16 @@ function summarizeRendererStages(
 type DebugAdapter = {
   getState(): DebugState;
   setCameraView(view: CameraView): void;
+  setRefinementFocus(
+    focus:
+      | {
+          type: "screen-circle";
+          center: { x: number; y: number };
+          radius: number;
+          detailBias: number;
+        }
+      | undefined,
+  ): void;
   probePublicBatchCpuPick?(
     offsetPx?: number,
     clickTolerancePx?: number,
@@ -322,6 +354,7 @@ function summarize(state: DebugState): Record<string, unknown> {
       evictionCount: state.pointCache.evictionCount,
       bytesEvicted: state.pointCache.bytesEvicted,
     },
+    predictivePrefetch: state.predictivePrefetch,
     rangeRequests: state.rangeRequests,
     hierarchy: {
       pageRequests: state.hierarchy.pageRequests,
@@ -424,12 +457,15 @@ test("records bounded SoFi multi-GB Cesium browser streaming", async ({
   });
 
   const sourceQuery = encodeURIComponent(SOFI_SOURCE);
+  const predictivePrefetchEnabled =
+    process.env.COPC_PREDICTIVE_PREFETCH === "1";
+  const prefetch = predictivePrefetchEnabled ? "&prefetch=true" : "";
   const renderer =
     process.env.COPC_RENDERER_VARIANT === "public-batched"
       ? "&renderer=public-batched"
       : "";
   await page.goto(
-    `/?scenario=issue68&backend=rust&debugPanel=false&budget=${POINT_BUDGET}&source=${sourceQuery}&refinementAlgorithm=${refinementAlgorithm}${renderer}`,
+    `/?scenario=issue68&backend=rust&debugPanel=false&budget=${POINT_BUDGET}&source=${sourceQuery}&refinementAlgorithm=${refinementAlgorithm}${prefetch}${renderer}`,
   );
   await expect
     .poll(
@@ -542,6 +578,47 @@ test("records bounded SoFi multi-GB Cesium browser streaming", async ({
     });
     return state;
   };
+
+  const moveFocus = async (
+    label: string,
+    centerX: number | undefined,
+  ): Promise<DebugState> => {
+    const before = await getState(page);
+    await page.evaluate((x) => {
+      window.__COPC_DEBUG__?.setRefinementFocus(
+        x === undefined
+          ? undefined
+          : {
+              type: "screen-circle",
+              center: { x, y: 0.5 },
+              radius: 0.16,
+              detailBias: 2,
+            },
+      );
+    }, centerX);
+    await expect
+      .poll(async () => (await getState(page)).streamingUpdateCount)
+      .toBeGreaterThan(before.streamingUpdateCount);
+    const state = await waitForIdle(page);
+    transitions.push({
+      label,
+      focusCenterX: centerX,
+      state: summarize(state),
+    });
+    return state;
+  };
+
+  const initialFocusLeft = await moveFocus("initial-focus-left", 0.2);
+  const initialFocusCenter = await moveFocus("initial-focus-center", 0.5);
+  const initialFocusRight = await moveFocus("initial-focus-right", 0.8);
+  const initialFocusLeftReturn = await moveFocus(
+    "initial-focus-left-return",
+    0.2,
+  );
+  const initialFocusCleared = await moveFocus(
+    "initial-focus-cleared",
+    undefined,
+  );
 
   const closeDownward = await view("close-downward", {
     ...SOFI_CENTER,
@@ -668,6 +745,7 @@ test("records bounded SoFi multi-GB Cesium browser streaming", async ({
           maxRenderDistanceMeters: 20_000,
           configuredPointBudget: POINT_BUDGET,
           decodedPointCacheByteBudget: initial.pointCache.cacheByteBudget,
+          predictivePrefetchEnabled,
         },
         firstUsefulVisiblePointMs,
         rangeTraffic: {
@@ -686,6 +764,23 @@ test("records bounded SoFi multi-GB Cesium browser streaming", async ({
         },
         initial: summarize(initial),
         transitions,
+      },
+      null,
+      2,
+    ),
+  );
+  console.log(
+    JSON.stringify(
+      {
+        scenario: "issue-127-sofi-prefetch-summary",
+        enabled: predictivePrefetchEnabled,
+        diagnostics: finalState.predictivePrefetch,
+        cache: {
+          currentBytes: finalState.pointCache.currentCacheBytes,
+          usefulPrefetchHits: finalState.pointCache.prefetchUsefulHitCount,
+          unusedPrefetchEvictions:
+            finalState.pointCache.prefetchEvictedUnusedCount,
+        },
       },
       null,
       2,
@@ -720,6 +815,11 @@ test("records bounded SoFi multi-GB Cesium browser streaming", async ({
     highOverview,
     oblique,
     areaA,
+    initialFocusLeft,
+    initialFocusCenter,
+    initialFocusRight,
+    initialFocusLeftReturn,
+    initialFocusCleared,
     areaB,
     areaAReturn,
     staleWork,
@@ -742,6 +842,53 @@ test("records bounded SoFi multi-GB Cesium browser streaming", async ({
       (state) => state.pointCache.currentCacheBytes <= CACHE_BUDGET_BYTES,
     ),
   ).toBe(true);
+  const focusStates = [
+    initialFocusLeft,
+    initialFocusCenter,
+    initialFocusRight,
+    initialFocusLeftReturn,
+  ];
+  expect(
+    focusStates.every((state) => state.performance.refinementFocusEnabled),
+  ).toBe(true);
+  expect(
+    focusStates.some(
+      (state) => (state.performance.focusCandidateCount ?? 0) > 0,
+    ),
+  ).toBe(true);
+  expect(
+    focusStates.some(
+      (state) => (state.performance.focusInfluencedRefinementCount ?? 0) > 0,
+    ),
+  ).toBe(true);
+  expect(
+    new Set(
+      focusStates.map((state) => [...state.selectedNodeKeys].sort().join("\0")),
+    ).size,
+  ).toBeGreaterThan(1);
+  expect(
+    [...initialFocusLeft.selectedNodeKeys].sort().join("\0"),
+  ).not.toBe([...initialFocusRight.selectedNodeKeys].sort().join("\0"));
+  expect(initialFocusCleared.performance.refinementFocusEnabled).toBe(false);
+  expect(initial.hierarchy.sourceOpenDurationMs).toEqual(expect.any(Number));
+  expect(initial.hierarchy.metadataLoadDurationMs).toEqual(expect.any(Number));
+  for (const state of [...focusStates, initialFocusCleared]) {
+    expect(state.renderedPointCount).toBeLessThanOrEqual(POINT_BUDGET);
+    expect(state.selectedNodeKeys.length).toBeLessThanOrEqual(32);
+    expect(state.performance.detailBiasMax).toBeLessThanOrEqual(2);
+    expect(state.cameraMoveEventCount).toBe(initial.cameraMoveEventCount);
+    expect(state.cameraHeadingDegrees).toBe(initial.cameraHeadingDegrees);
+    expect(state.cameraPitchDegrees).toBe(initial.cameraPitchDegrees);
+    expect(
+      state.selectedNodeKeys.every((key) => state.renderedNodeKeys.includes(key)),
+    ).toBe(true);
+    expect(state.hierarchy.sourceOpenDurationMs).toBe(
+      initial.hierarchy.sourceOpenDurationMs,
+    );
+    expect(state.hierarchy.metadataLoadDurationMs).toBe(
+      initial.hierarchy.metadataLoadDurationMs,
+    );
+  }
   expect(areaAReturn.pointCache.hits).toBeGreaterThan(areaB.pointCache.hits);
   expect(finalState.renderedPointCount).toBeLessThanOrEqual(POINT_BUDGET);
   expect(finalState.selectedNodeKeys.length).toBeLessThanOrEqual(32);
@@ -761,6 +908,28 @@ test("records bounded SoFi multi-GB Cesium browser streaming", async ({
     finalState.worker!.workerCount,
   );
   expect(finalState.worker!.queuedCount).toBe(0);
+  if (predictivePrefetchEnabled) {
+    const prefetch = finalState.predictivePrefetch;
+    expect(prefetch?.enabled).toBe(true);
+    expect(prefetch!.queuedNodeCount).toBeLessThanOrEqual(
+      prefetch!.maxNodesPerUpdate,
+    );
+    expect(prefetch!.activeNodeCount).toBeLessThanOrEqual(
+      finalState.worker!.workerCount,
+    );
+    expect(prefetch!.pointRangeBytesRequested).toBeLessThanOrEqual(
+      prefetch!.maxPointRangeBytesPerUpdate * prefetch!.hierarchyQueryCount,
+    );
+    expect(prefetch!.pointRangeRequestCount).toBeLessThanOrEqual(
+      prefetch!.maxNodesPerUpdate * prefetch!.hierarchyQueryCount,
+    );
+    expect(prefetch!.completedNodeCount).toBeLessThanOrEqual(
+      prefetch!.maxNodesPerUpdate * prefetch!.hierarchyQueryCount,
+    );
+    expect(prefetch!.hierarchyPageVisitCount).toBeLessThanOrEqual(
+      prefetch!.maxHierarchyPagesPerUpdate * prefetch!.hierarchyQueryCount,
+    );
+  }
   expect(staleWork.rangeRequests.abortedSuperseded).toBeGreaterThan(
     beforeSlowRange.rangeRequests.abortedSuperseded,
   );
