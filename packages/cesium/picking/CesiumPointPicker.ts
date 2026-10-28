@@ -6,6 +6,7 @@ import type {
 import { isCopcPointPickId } from "../../core/copc/points/pointInspection";
 
 type CesiumPointPickerOptions = {
+  canPick?: () => boolean;
   inspectPoint: (pickId: CopcPointPickId) => CopcPointInspection | undefined;
   hasNode: (nodeKey: string) => boolean;
   resolveBatchedPoint?: (
@@ -96,6 +97,10 @@ export class CesiumPointPicker {
 
   /** @internal Process one screen-space hit; exposed for the layer's test seam. */
   pick(viewer: Cesium.Viewer, position: Cesium.Cartesian2): void {
+    if (this.options.canPick?.() === false) {
+      this.clear();
+      return;
+    }
     // Public scene.pick defaults to a 3x3 pixel window, but returns no pixel
     // coordinate. Batched point refinement needs a deterministic pixel to
     // preserve the exact source identity, so use a 1x1 pick for that optional

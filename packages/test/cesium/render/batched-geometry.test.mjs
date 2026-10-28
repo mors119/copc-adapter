@@ -89,6 +89,7 @@ test("BatchedGeometryPointRenderer removes owned nodes and preserves scene primi
   assert.equal(renderer.getRenderedPointCount(), 2);
   assert.equal(rendererContainer.length, 1);
   const removedPrimitive = rendererContainer.get(0);
+  assert.equal(removedPrimitive.appearance.material.uniforms.u_layerOpacity, 1);
 
   renderer.removeNode("node-a");
   assert.equal(rendererContainer.length, 0);
@@ -108,6 +109,62 @@ test("BatchedGeometryPointRenderer removes owned nodes and preserves scene primi
   assert.equal(scenePrimitives.length, 1);
   assert.equal(scenePrimitives.get(0), applicationPrimitive);
   assert.equal(applicationPrimitive.isDestroyed(), false);
+  scenePrimitives.destroy();
+});
+
+test("BatchedGeometryPointRenderer updates layer alpha through its shared material uniform", () => {
+  const scenePrimitives = new Cesium.PrimitiveCollection();
+  const renderer = new BatchedGeometryPointRenderer();
+  renderer.attachTo({ scene: { primitives: scenePrimitives } });
+  renderer.addOrUpdateNode("node-a", createPreparedPoints(), {
+    pointSize: 2,
+    colorMode: "fixed",
+  });
+
+  const parent = scenePrimitives.get(0);
+  const primitive = parent.get(0);
+  const geometry = primitive.geometryInstances.geometry;
+  const material = primitive.appearance.material;
+  assert.equal(material.uniforms.u_layerOpacity, 1);
+  assert.equal(primitive.appearance.isTranslucent(), false);
+  assert.equal(primitive.appearance.getRenderState().depthMask, true);
+  assert.match(
+    primitive.appearance.getFragmentShaderSource(),
+    /czm_getMaterial\(czm_materialInput\(/,
+  );
+  assert.match(
+    primitive.appearance.getFragmentShaderSource(),
+    /opacityMaterial\.alpha/,
+  );
+
+  renderer.setOpacity(0.25);
+  assert.equal(material.uniforms.u_layerOpacity, 0.25);
+  assert.equal(primitive.appearance.isTranslucent(), true);
+  assert.equal(primitive.appearance.getRenderState().depthMask, false);
+
+  const otherRenderer = new BatchedGeometryPointRenderer();
+  otherRenderer.attachTo({ scene: { primitives: scenePrimitives } });
+  otherRenderer.setOpacity(0.75);
+  otherRenderer.addOrUpdateNode("other-node", createPreparedPoints(), {
+    pointSize: 2,
+    colorMode: "fixed",
+  });
+  const otherPrimitive = scenePrimitives.get(1).get(0);
+  assert.equal(otherPrimitive.appearance.material.uniforms.u_layerOpacity, 0.75);
+
+  renderer.setOpacity(0.5);
+  assert.equal(material.uniforms.u_layerOpacity, 0.5);
+  assert.equal(otherPrimitive.appearance.material.uniforms.u_layerOpacity, 0.75);
+  assert.equal(parent.get(0), primitive);
+  assert.equal(primitive.geometryInstances.geometry, geometry);
+
+  renderer.setOpacity(0);
+  assert.equal(parent.show, false);
+  renderer.setShow(false);
+  renderer.setOpacity(1);
+  assert.equal(parent.show, false);
+  renderer.destroy();
+  otherRenderer.destroy();
   scenePrimitives.destroy();
 });
 

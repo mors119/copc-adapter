@@ -126,6 +126,43 @@ test("PointPrimitiveRenderer forwards every supported style mode through the bou
   assert.equal(viewer.added[0].length, 5);
 });
 
+test("PointPrimitiveRenderer applies layer opacity to current and future points without changing RGB", () => {
+  const viewer = createViewer();
+  const renderer = new PointPrimitiveRenderer();
+  renderer.attachTo(viewer);
+  renderer.addOrUpdateNode("node-a", createPoints(), {
+    pointSize: 2,
+    colorMode: "fixed",
+  });
+  const parent = viewer.added[0];
+  const firstPoint = parent.get(0).get(0);
+  assert.equal(firstPoint.color.alpha, 0.9);
+  const originalRgb = [firstPoint.color.red, firstPoint.color.green, firstPoint.color.blue];
+
+  renderer.setOpacity(0.25);
+  assert.equal(firstPoint.color.alpha, 0.25);
+  assert.deepEqual(
+    [firstPoint.color.red, firstPoint.color.green, firstPoint.color.blue],
+    originalRgb,
+  );
+
+  renderer.setOpacity(0);
+  assert.equal(parent.show, false);
+  renderer.addOrUpdateNode("node-b", createPoints(), {
+    pointSize: 2,
+    colorMode: "fixed",
+  });
+  assert.equal(parent.get(1).get(0).color.alpha, 0);
+
+  renderer.setShow(false);
+  renderer.setOpacity(0.5);
+  assert.equal(parent.show, false);
+  renderer.setShow(true);
+  assert.equal(parent.show, true);
+  assert.equal(parent.get(0).get(0).color.alpha, 0.5);
+  renderer.destroy();
+});
+
 test("PointPrimitiveRenderer removes a partially prepared node on failure", () => {
   const viewer = createViewer();
   const renderer = new PointPrimitiveRenderer();

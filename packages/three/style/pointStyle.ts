@@ -46,16 +46,21 @@ export function prepareThreePointColorBuffer(
 /**
  * Explicit `THREE.PointsMaterial` settings for the MVP styling contract.
  * The shape intentionally avoids importing Three.js into the shared core.
+ *
+ * @param pointSize Screen-facing point size in pixels.
+ * @param opacity Uniform material alpha in `[0, 1]`; defaults to `0.9`.
+ * @returns Settings for one layer-owned `THREE.PointsMaterial`.
  */
 export function getThreePointsMaterialOptions(
   pointSize: number,
+  opacity = 0.9,
 ): CopcThreePointsMaterialOptions {
   return {
     size: pointSize,
     sizeAttenuation: THREE_POINT_SIZE_ATTENUATION,
     vertexColors: true,
     transparent: true,
-    opacity: 0.9,
+    opacity,
   };
 }
 

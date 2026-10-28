@@ -28,6 +28,7 @@ import type {
   CopcPointRenderer,
   CopcPointRendererOptions,
 } from "../../core/streaming/renderer";
+import { assertCopcLayerOpacity } from "../../core/streaming/renderer";
 
 /** Three renderer preparation stage reported with a duration in milliseconds. */
 export type ThreePointRendererPerformanceStage =
@@ -203,14 +204,14 @@ function deriveOrigin(
   };
 }
 
-function createMaterial(pointSize: number): THREE.PointsMaterial {
+function createMaterial(pointSize: number, opacity: number): THREE.PointsMaterial {
   if (!Number.isFinite(pointSize) || pointSize <= 0) {
     throw new Error("Three.js pointSize must be a positive finite number");
   }
 
   return new THREE.PointsMaterial({
     color: 0xffffff,
-    ...getThreePointsMaterialOptions(pointSize),
+    ...getThreePointsMaterialOptions(pointSize, opacity),
   });
 }
 
@@ -228,6 +229,7 @@ export class ThreePointRenderer implements CopcPointRenderer {
   private scene?: THREE.Scene;
   private localOrigin?: Wgs84EcefPoint;
   private localFrame?: DatasetLocalFrame;
+  private opacity = 0.9;
   private destroyed = false;
 
   constructor(options: ThreePointRendererConstructorOptions = {}) {
@@ -267,6 +269,16 @@ export class ThreePointRenderer implements CopcPointRenderer {
   /** Return the adapter-owned root for read-only application composition. */
   getRoot(): THREE.Group {
     return this.root;
+  }
+
+  /** Update current and future owned point materials without replacing geometry. */
+  setOpacity(opacity: number): void {
+    assertCopcLayerOpacity(opacity);
+    this.opacity = opacity;
+    for (const points of this.pointsByNode.values()) {
+      points.visible = opacity !== 0;
+      (points.material as THREE.PointsMaterial).opacity = opacity;
+    }
   }
 
   /** Return the stable ECEF origin used for local vertex positions. */
@@ -383,7 +395,7 @@ export class ThreePointRenderer implements CopcPointRenderer {
     const materialStartedAt = performanceNow();
     let material: THREE.PointsMaterial;
     try {
-      material = createMaterial(options.pointSize);
+      material = createMaterial(options.pointSize, this.opacity);
     } catch (error) {
       geometry.dispose();
       throw error;
@@ -395,6 +407,7 @@ export class ThreePointRenderer implements CopcPointRenderer {
     );
 
     const renderedPoints = new THREE.Points(geometry, material);
+    renderedPoints.visible = this.opacity !== 0;
     renderedPoints.name = nodeKey;
     renderedPoints.userData.copcNodeKey = nodeKey;
     renderedPoints.userData.nodeKey = nodeKey;
