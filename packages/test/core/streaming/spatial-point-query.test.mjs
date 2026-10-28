@@ -579,6 +579,19 @@ test("cancellation before the first iterator next settles and closes the query",
   assert.equal(callerCancelled.backend.counts.pointReads.size, 0);
   callerCancelled.core.destroy();
 
+  const consumerStopped = await makeCore();
+  const stoppedQuery = consumerStopped.core.queryPoints(queryOptions());
+  const stoppedIterator = stoppedQuery[Symbol.asyncIterator]();
+  assert.deepEqual(await stoppedIterator.return(), {
+    value: undefined,
+    done: true,
+  });
+  const stoppedSummary = await settlesWithin(stoppedQuery.result);
+  assert.equal(stoppedSummary.status, "cancelled");
+  assert.equal(stoppedSummary.cancelReason, "consumer-stopped");
+  assert.equal(consumerStopped.backend.counts.pointReads.size, 0);
+  consumerStopped.core.destroy();
+
   const signalCancelled = await makeCore();
   const abortController = new AbortController();
   const signalQuery = signalCancelled.core.queryPoints(

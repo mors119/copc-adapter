@@ -356,7 +356,22 @@ class CopcPointQueryImpl implements CopcPointQuery {
       throw new TypeError("COPC point query streams can only be consumed once");
     }
     this.iteratorClaimed = true;
-    this.iterator = this.iterate();
+    const generator = this.iterate();
+    this.iterator = {
+      next: (value) => generator.next(value),
+      return: (value) => {
+        if (!this.executionStarted && !this.settled) {
+          this.accounting.cancelReason ??= "consumer-stopped";
+          this.controller.abort("consumer-stopped");
+          this.finish("cancelled");
+        }
+        return generator.return(value);
+      },
+      throw: (error) => generator.throw(error),
+      [Symbol.asyncIterator]() {
+        return this;
+      },
+    };
     return this.iterator;
   }
 
