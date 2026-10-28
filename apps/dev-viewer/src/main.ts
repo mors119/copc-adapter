@@ -191,6 +191,7 @@ type CopcDebugAdapter = {
   getState(): CopcDebugState;
   getStyle(): CopcCesiumPointStyle;
   setStyle(update: CopcCesiumPointStyleUpdate): void;
+  setRefinementFocus(focus: RefinementFocus | undefined): void;
   getLastError(): string | undefined;
   setCameraHeight(height: number): void;
   setCameraPreset(preset: CameraPreset): void;
@@ -457,6 +458,9 @@ function installDebugAdapter(
     },
     setStyle(update: CopcCesiumPointStyleUpdate): void {
       layer.setStyle(update);
+    },
+    setRefinementFocus(focus: RefinementFocus | undefined): void {
+      layer.setRefinementFocus(focus);
     },
     getState(): CopcDebugState {
       const snapshot = layer.getSnapshot();
