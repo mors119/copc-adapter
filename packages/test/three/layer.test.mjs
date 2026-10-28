@@ -8,6 +8,43 @@ import {
   loadNgaEgm2008Grid,
 } from "../../three.ts";
 
+test("Three layer opacity accepts endpoints and rejects invalid values", () => {
+  for (const opacity of [0, 0.25, 0.5, 1]) {
+    const layer = new CopcThreeLayer({
+      url: "https://example.test/data.copc.laz",
+      opacity,
+    });
+    layer.setOpacity(opacity);
+    if (opacity === 0) {
+      assert.equal(layer.pick({ x: 0, y: 0 }), undefined);
+    }
+    layer.destroy();
+  }
+
+  for (const opacity of [Number.NaN, Number.POSITIVE_INFINITY, -0.01, 1.01]) {
+    assert.throws(
+      () =>
+        new CopcThreeLayer({
+          url: "https://example.test/data.copc.laz",
+          opacity,
+        }),
+      RangeError,
+    );
+  }
+});
+
+test("Three opacity is rejected when a custom renderer lacks layer support", () => {
+  assert.throws(
+    () =>
+      new CopcThreeLayer({
+        url: "https://example.test/data.copc.laz",
+        opacity: 0.5,
+        renderer: {},
+      }),
+    /does not support layer opacity/,
+  );
+});
+
 function createBackend({ pointCount = 2 } = {}) {
   const node = {
     key: "0-0-0-0",

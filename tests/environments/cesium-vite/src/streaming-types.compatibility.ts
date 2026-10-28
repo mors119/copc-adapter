@@ -21,6 +21,7 @@ declare const viewer: import("cesium").Viewer;
 
 const layerOptions: CopcCesiumLayerOptions = {
   url: "https://example.com/data.copc.laz",
+  opacity: 0.5,
   coordinateCacheLayout: "A",
   retainSourceCoordinatesForQueries: true,
   colorMode: "rgb",
@@ -38,6 +39,7 @@ void layerOptions;
 const minimalLayer = new CopcCesiumLayer({
   url: "https://example.com/data.copc.laz",
 });
+minimalLayer.setOpacity(0.5);
 await minimalLayer.load();
 minimalLayer.attachTo(viewer);
 minimalLayer.destroy();

@@ -75,7 +75,35 @@ test("adds one local THREE.Points object per active node", () => {
   assert.equal(points.userData.copcNodeKey, "node-a");
   assert.equal(points.material.size, 4);
   assert.equal(points.material.sizeAttenuation, false);
+  assert.equal(points.material.opacity, 0.9);
   assert.ok(points.geometry.boundingSphere);
+});
+
+test("ThreePointRenderer updates layer opacity without replacing geometry", () => {
+  const { renderer } = createRenderer();
+  renderer.addOrUpdateNode("node-a", createPoints(), options());
+  const points = renderer.getRoot().children[0];
+  const geometry = points.geometry;
+
+  renderer.setOpacity(0.25);
+  assert.equal(points.material.opacity, 0.25);
+  assert.equal(points.visible, true);
+  assert.equal(points.geometry, geometry);
+
+  renderer.setOpacity(0);
+  assert.equal(points.material.opacity, 0);
+  assert.equal(points.visible, false);
+  renderer.addOrUpdateNode("node-b", createPoints(), options());
+  const newPoints = renderer.getRoot().children.find((node) => node.name === "node-b");
+  assert.equal(newPoints.material.opacity, 0);
+  assert.equal(newPoints.visible, false);
+
+  renderer.setOpacity(1);
+  assert.equal(points.material.opacity, 1);
+  assert.equal(points.visible, true);
+  assert.equal(newPoints.material.opacity, 1);
+  assert.equal(newPoints.visible, true);
+  renderer.destroy();
 });
 test("updates a node without leaking its previous geometry or material", () => {
   const { renderer } = createRenderer();

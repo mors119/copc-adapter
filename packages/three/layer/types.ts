@@ -33,6 +33,8 @@ export type CopcThreeLayerOptions = {
   url: CopcInputSource;
   /** Three.js point size in screen-facing pixels. Defaults to 3. */
   pointSize?: number;
+  /** Uniform per-layer alpha in [0, 1]. Omitted preserves the existing 0.9 material opacity. */
+  opacity?: number;
   /** Point color mapping. Defaults to the fixed cyan fallback. */
   colorMode?: CopcColorMode;
   /** Retained point-coordinate layout. Defaults to compact E; choose A to retain exact Source and Geographic arrays. */
@@ -180,6 +182,8 @@ export interface CopcThreePointRenderer extends CopcPointRenderer {
   attachTo(scene: THREE.Scene): void;
   /** Remove the root group from its current scene without disposing the scene. */
   detachFrom(): void;
+  /** Apply alpha to renderer-owned materials and future nodes, when supported. */
+  setOpacity?(opacity: number): void;
   /** Return the renderer-owned root group for picking or application composition. */
   getRoot(): THREE.Group;
   /** Prepare or replace one node's renderable points using the layer's fixed local frame. */

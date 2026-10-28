@@ -23,6 +23,12 @@ const layer = new CopcCesiumLayer({
 있으며, 필요한 구간만 브라우저 안에서 읽습니다. 자세한 기본값과 precedence는
 [Public API](../API)의 defaults matrix를 참고하세요.
 
+`opacity`는 0부터 1까지의 layer 단위 alpha를 지정합니다. 생략하면 기존 renderer의
+표시를 유지합니다. Cesium point primitive은 스타일 색의 alpha를 유지하고 batched
+shader는 기존 불투명 alpha를 사용하며, Three.js material은 기존 기본값 `0.9`를
+사용합니다. 값을 지정하면 color mode와 분류 색상에 상관없이 해당 값이 최종 alpha가
+됩니다.
+
 `maxRenderedPoints`는 새 코드에서 top-level 위치를 권장합니다. 기존
 `streaming.maxRenderedPoints`도 사용할 수 있지만 top-level 값이 함께 지정되면 top-level
 값이 우선합니다.
@@ -326,6 +332,22 @@ layer.setStyle({
 ```ts
 const style = layer.getStyle();
 ```
+
+Cesium과 Three.js layer 모두 constructor의 `opacity`와 runtime
+`setOpacity(opacity)`를 지원합니다. 변경은 현재 layer가 소유한 renderer resource와 이후
+stream된 node에 적용되며 COPC point 데이터를 다시 읽거나 decode하지 않습니다. `0`은
+해당 layer의 point picking을 막고 현재 선택을 지웁니다. 다른 layer, imagery, terrain 또는
+application renderer의 전역 상태는 변경하지 않습니다.
+
+```ts
+const layer = new CopcThreeLayer({ url, opacity: 0.5 });
+layer.setOpacity(0.25);
+```
+
+투명도는 각 renderer의 일반 blending 및 depth 동작을 따릅니다. adapter는 투명 point 정렬,
+layer 사이 draw order 조정 또는 order-independent transparency를 구현하지 않으므로
+겹치는 layer와 terrain의 합성 결과는 renderer와 scene 순서에 따라 달라질 수 있습니다.
+사용자 정의 renderer에 opacity를 지정하려면 `setOpacity()`를 구현해야 합니다.
 
 ## Diagnostics
 

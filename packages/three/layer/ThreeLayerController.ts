@@ -14,6 +14,7 @@ import {
   type CopcStreamingProgressHandler,
   type CopcStreamingWorkProgressHandler,
 } from "../../core/streaming/CopcStreamingCore";
+import { assertCopcLayerOpacity } from "../../core/streaming/renderer";
 import { areStreamingViewsEquivalent } from "../../core/streaming/areStreamingViewsEquivalent";
 import { ReplacementTransitionManager } from "../../core/streaming/ReplacementTransitionManager";
 import type {
@@ -88,6 +89,7 @@ export class ThreeLayerController {
   private readonly core: LayerStreamingCore;
   private readonly options: CopcThreeLayerOptions;
   private readonly pointRenderer: CopcThreePointRenderer;
+  private opacity?: number;
   private readonly pointPicker: ThreePointPicker;
   private readonly pointStyleState = createCopcPointStyleState();
   private datasetElevationRange?: { min: number; max: number };
@@ -112,7 +114,7 @@ export class ThreeLayerController {
    * Create an unloaded layer for a browser-readable COPC resource.
    *
    * @param options Source URL, backend, streaming limits, renderer, and callbacks.
-   * @throws If the URL is empty or `pickingThreshold` is not positive and finite.
+   * @throws If the URL is empty, `pickingThreshold` is invalid, opacity is outside `[0, 1]`, or a custom renderer lacks opacity support.
    */
   constructor(options: CopcThreeLayerOptions, eventTarget: object) {
     if (
@@ -131,10 +133,22 @@ export class ThreeLayerController {
         "CopcThreeLayer pickingThreshold must be a positive finite number",
       );
     }
+    if (options.opacity !== undefined) {
+      assertCopcLayerOpacity(options.opacity);
+    }
 
     this.options = options;
+    this.opacity = options.opacity;
     this.eventDispatcher = new CopcThreeLayerEventDispatcher(eventTarget);
     this.pointRenderer = options.renderer ?? new ThreePointRenderer();
+    if (options.opacity !== undefined) {
+      if (!this.pointRenderer.setOpacity) {
+        throw new TypeError(
+          "Configured Three.js point renderer does not support layer opacity",
+        );
+      }
+      this.pointRenderer.setOpacity(options.opacity);
+    }
     this.core = createLayerStreamingCore({
       url: options.url,
       backend: options.backend,
@@ -539,6 +553,24 @@ export class ThreeLayerController {
     return this.pointRenderer.getRenderedPointCount();
   }
 
+  /** Update the layer's alpha without refetching or decoding point data. */
+  setOpacity(opacity: number): void {
+    if (this.isDestroyed()) {
+      throw new Error("CopcThreeLayer has been destroyed");
+    }
+    assertCopcLayerOpacity(opacity);
+    if (!this.pointRenderer.setOpacity) {
+      throw new TypeError(
+        "Configured Three.js point renderer does not support layer opacity",
+      );
+    }
+    this.pointRenderer.setOpacity(opacity);
+    this.opacity = opacity;
+    if (opacity === 0) {
+      this.pointPicker.clear();
+    }
+  }
+
   /** Return the selected point while its node and decoded buffer are live. */
   getSelectedPoint(): CopcPointInspection | undefined {
     return this.pointPicker.getSelectedPoint();
@@ -557,6 +589,10 @@ export class ThreeLayerController {
     position: CopcThreeLayerPickPosition,
     raycasterOrOptions?: THREE.Raycaster | CopcThreeLayerPickOptions,
   ): CopcPointInspection | undefined {
+    if (this.opacity === 0) {
+      this.pointPicker.clear();
+      return undefined;
+    }
     const attachment = this.attachment;
     if (!attachment || !this.localFrame) {
       this.pointPicker.clear();

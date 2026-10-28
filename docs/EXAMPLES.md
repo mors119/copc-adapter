@@ -36,6 +36,34 @@ layer.attachTo(viewer);
 The same `url` field accepts an HTTP(S) URL or a browser `File`/`Blob`.
 Omitting appearance options uses fixed cyan points at 3 pixels.
 
+## Per-layer Opacity
+
+Set the initial opacity in either layer constructor, then update only that
+layer at runtime. The value is the final alpha in `[0, 1]`; omitting it keeps
+the current renderer default.
+
+```ts
+import { CopcCesiumLayer } from '@frillab/copc-adapter/cesium';
+import { CopcThreeLayer } from '@frillab/copc-adapter/three';
+
+const cesiumOverlay = new CopcCesiumLayer({
+  url: '/samples/autzen.copc.laz',
+  opacity: 0.5,
+});
+cesiumOverlay.setOpacity(0.25);
+
+const threeOverlay = new CopcThreeLayer({
+  url: '/samples/autzen.copc.laz',
+  opacity: 0.5,
+});
+threeOverlay.setOpacity(0.25);
+```
+
+Opacity updates do not request or decode COPC data. Alpha zero disables picking
+for that layer. Blending and depth behavior remain renderer-specific; the
+adapter does not sort transparent points or implement order-independent
+transparency.
+
 ## Minimal Three.js Example
 
 ```ts

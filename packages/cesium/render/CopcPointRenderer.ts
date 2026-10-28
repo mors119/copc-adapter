@@ -11,6 +11,7 @@ import type {
   CopcPointRenderer,
   CopcPointRendererOptions as NeutralCopcPointRendererOptions,
 } from "../../core/streaming/renderer";
+import { assertCopcLayerOpacity } from "../../core/streaming/renderer";
 import { renderCopcPoints } from "./renderPoints";
 import { getPointColor } from "../style/pointStyle";
 import { resolveCopcPointStyleOptions } from "../../core/point/style/pointStyle";
@@ -77,6 +78,8 @@ export interface CesiumPointRenderer extends CopcPointRenderer {
   detachFrom(): void;
   /** Apply layer-level visibility when the renderer supports it. */
   setShow?(show: boolean): void;
+  /** Apply a uniform alpha to this renderer's owned points and future nodes. */
+  setOpacity?(opacity: number): void;
   /** Create or replace one node's point primitives. */
   addOrUpdateNode(
     nodeKey: string,
@@ -107,6 +110,7 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
   private viewer?: Cesium.Viewer;
   private primitiveCollection?: Cesium.PrimitiveCollection;
   private showState = true;
+  private opacity?: number;
   private readonly pointCollections = new Map<
     string,
     Cesium.PointPrimitiveCollection
@@ -122,7 +126,9 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
     this.detachFrom();
     this.viewer = viewer;
     this.primitiveCollection = viewer.scene.primitives.add(
-      new Cesium.PrimitiveCollection({ show: this.showState }),
+      new Cesium.PrimitiveCollection({
+        show: this.showState && this.opacity !== 0,
+      }),
     );
   }
 
@@ -140,7 +146,22 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
   setShow(show: boolean): void {
     this.showState = show;
     if (this.primitiveCollection) {
-      this.primitiveCollection.show = show;
+      this.primitiveCollection.show = show && this.opacity !== 0;
+    }
+  }
+
+  /** Set current and future point alpha without rebuilding node collections. */
+  setOpacity(opacity: number): void {
+    assertCopcLayerOpacity(opacity);
+    this.opacity = opacity;
+    if (this.primitiveCollection) {
+      this.primitiveCollection.show = this.showState && opacity !== 0;
+    }
+    for (const collection of this.pointCollections.values()) {
+      for (let index = 0; index < collection.length; index += 1) {
+        const point = collection.get(index);
+        point.color = point.color.withAlpha(opacity);
+      }
     }
   }
 
@@ -173,6 +194,12 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
       this.primitiveCollection,
     );
     this.pointCollections.set(nodeKey, collection);
+    if (this.opacity !== undefined) {
+      for (let index = 0; index < collection.length; index += 1) {
+        const point = collection.get(index);
+        point.color = point.color.withAlpha(this.opacity);
+      }
+    }
     let visiblePointCount = 0;
     for (let index = 0; index < collection.length; index += 1) {
       if (collection.get(index).show) {
@@ -211,12 +238,14 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
       const primitive = collection.get(index);
       const visible = options.pointFilter?.(index) ?? true;
       primitive.show = visible;
-      primitive.color = getPointColor(
+      const color = getPointColor(
         getPreparedPointHeight(points, index),
         styleOptions,
         points.attributes,
         index,
       );
+      primitive.color =
+        this.opacity === undefined ? color : color.withAlpha(this.opacity);
       if (visible) {
         visiblePointCount += 1;
       }

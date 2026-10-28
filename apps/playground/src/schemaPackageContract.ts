@@ -43,8 +43,13 @@ type StreamingCompatibilityExclusions =
   | "maxRenderedPoints"
   | "maxPointsPerBatch";
 // These stay public for host integration or compatibility but are not ordinary
-// Workbench controls (logging, custom decoder injection, and callbacks).
-type LayerCompatibilityExclusions = "debug" | "decoder" | "onPointPicked";
+// Workbench controls (logging, custom decoder injection, callbacks, and
+// layer-only opacity).
+type LayerCompatibilityExclusions =
+  | "debug"
+  | "decoder"
+  | "onPointPicked"
+  | "opacity";
 
 // Every declared user-facing npm 0.6.0 constructor path exists in its actual
 // published package types, and every public option is represented or is an

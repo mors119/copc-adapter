@@ -9,6 +9,7 @@ import * as THREE from "three";
 
 const layerOptions: CopcThreeLayerOptions = {
   url: "https://example.com/data.copc.laz",
+  opacity: 0.5,
   coordinateCacheLayout: "A",
   retainSourceCoordinatesForQueries: true,
   maxRenderedPoints: 200_000,
@@ -28,6 +29,7 @@ const attachment: CopcThreeLayerAttachment = {
 const minimalLayer = new CopcThreeLayer({
   url: "https://example.com/data.copc.laz",
 });
+minimalLayer.setOpacity(0.5);
 await minimalLayer.load();
 minimalLayer.attachTo(attachment);
 await minimalLayer.update();

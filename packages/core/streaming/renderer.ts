@@ -31,6 +31,18 @@ export type CopcPointRendererOptions = {
   pointFilter?: (pointIndex: number) => boolean;
 };
 
+/** Validate a uniform per-layer alpha value. */
+export function assertCopcLayerOpacity(opacity: number): void {
+  if (
+    typeof opacity !== "number" ||
+    !Number.isFinite(opacity) ||
+    opacity < 0 ||
+    opacity > 1
+  ) {
+    throw new RangeError("COPC layer opacity must be a finite number in [0, 1]");
+  }
+}
+
 /**
  * The smallest renderer contract required by shared streaming transitions.
  *

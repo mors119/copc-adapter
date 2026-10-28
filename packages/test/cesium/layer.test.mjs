@@ -6,10 +6,75 @@ import * as Cesium from "cesium";
 import { CopcCesiumLayer } from "../../index.ts";
 import { PointPrimitiveRenderer } from "../../cesium/render/CopcPointRenderer.ts";
 import { BatchedGeometryPointRenderer } from "../../cesium/render/BatchedGeometryPointRenderer.ts";
+import { CesiumPointPicker } from "../../cesium/picking/CesiumPointPicker.ts";
 import { createCesiumStreamingView } from "../../cesium/view/CesiumViewAdapter.ts";
 import { loadGtxGeoidGrid } from "../../core/coordinates/transform/verticalGrid.ts";
 import { createExperimentalCompactEStreamingCore } from "../../core/streaming/CopcStreamingCore.ts";
 import { isCompactEPointCacheNode } from "../../core/point/compactEPointCache.ts";
+
+test("Cesium layer opacity accepts endpoints and rejects invalid values", () => {
+  for (const opacity of [0, 0.25, 0.5, 1]) {
+    const layer = new CopcCesiumLayer({
+      url: "https://example.test/data.copc.laz",
+      opacity,
+    });
+    layer.setOpacity(opacity);
+    layer.destroy();
+  }
+
+  for (const opacity of [Number.NaN, Number.POSITIVE_INFINITY, -0.01, 1.01]) {
+    assert.throws(
+      () =>
+        new CopcCesiumLayer({
+          url: "https://example.test/data.copc.laz",
+          opacity,
+        }),
+      RangeError,
+    );
+  }
+});
+
+test("Cesium opacity is rejected when a custom renderer lacks layer support", () => {
+  assert.throws(
+    () =>
+      new CopcCesiumLayer({
+        url: "https://example.test/data.copc.laz",
+        opacity: 0.5,
+        renderer: {},
+      }),
+    /does not support layer opacity/,
+  );
+});
+
+test("Cesium point picker refuses to inspect a fully transparent layer", () => {
+  let opacity = 0;
+  let scenePickCount = 0;
+  const picker = new CesiumPointPicker({
+    canPick: () => opacity > 0,
+    inspectPoint: () => ({}),
+    hasNode: () => true,
+  });
+  const viewer = {
+    scene: {
+      pick() {
+        scenePickCount += 1;
+        return {
+          id: {
+            nodeKey: "node-a",
+            pointIndex: 0,
+            ownerId: picker.ownerId,
+          },
+        };
+      },
+    },
+  };
+
+  picker.pick(viewer, new Cesium.Cartesian2(0, 0));
+  assert.equal(scenePickCount, 0);
+  opacity = 0.25;
+  picker.pick(viewer, new Cesium.Cartesian2(0, 0));
+  assert.equal(scenePickCount, 1);
+});
 
 async function createSyntheticVerticalGrid() {
   const bytes = new ArrayBuffer(40 + 3 * 3 * 4);

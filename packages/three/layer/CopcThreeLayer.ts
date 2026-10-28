@@ -144,6 +144,19 @@ export class CopcThreeLayer {
     this.controller.destroy();
   }
 
+  /**
+   * Set uniform alpha for this layer and future streamed nodes.
+   *
+   * The update reuses existing geometry and decoded point buffers. Opacity
+   * zero disables point picking for this layer.
+   *
+   * @param opacity Finite alpha in the inclusive range [0, 1].
+   * @throws If opacity is invalid, the layer is destroyed, or a custom renderer does not support opacity.
+   */
+  setOpacity(opacity: number): void {
+    this.controller.setOpacity(opacity);
+  }
+
   /** Return the layer-owned root group for picking or application composition. */
   getRoot(): THREE.Group {
     return this.controller.getRoot();
