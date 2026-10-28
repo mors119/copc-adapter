@@ -51,6 +51,7 @@ type LayerCompatibilityExclusions =
   | "attributeLoading"
   | "classificationFilter"
   | "pointFields"
+  | "retainSourceCoordinatesForQueries"
   | "opacity";
 
 // Dev Viewer is compiled against workspace declarations through its tsconfig

@@ -17,6 +17,11 @@ export type CopcPointLoadOptions = {
   /** Cancels only this point-node read; shared hierarchy reads remain reusable. */
   signal?: AbortSignal;
   /**
+   * Identifies independent spatial-query decodes so render-view invalidation
+   * can cancel stale view jobs without cancelling query-owned work.
+   */
+  workload?: "view" | "spatial-query";
+  /**
    * Override the source-wide performance observer for this point read.
    * `null` suppresses reporting for the request; `undefined` uses the source observer.
    */
@@ -93,7 +98,10 @@ export interface CopcSource extends CopcHierarchySource {
    * Pass `undefined` to clear the observer.
    */
   setPerformanceObserver?(observer: CopcPerformanceObserver | undefined): void;
-  /** Drop queued decode work that cannot contribute to the current view. */
+  /**
+   * Drop queued render-view decode work that cannot contribute to the current
+   * view. Independent `spatial-query` workload jobs must remain queued.
+   */
   cancelPendingPointJobs?(): void;
   /** Optional decode-worker queue/concurrency diagnostics. */
   getWorkerDiagnostics?(): CopcWorkerDiagnostics | undefined;

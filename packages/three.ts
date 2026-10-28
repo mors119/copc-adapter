@@ -199,6 +199,16 @@ export type {
   CopcStreamingSnapshot,
   CopcStreamingTransitionState,
 } from "./core/streaming/CopcStreamingCore";
+export { DEFAULT_SPATIAL_POINT_QUERY_LIMITS } from "./core/streaming/spatialPointQuery";
+export type {
+  CopcPointQuery,
+  CopcPointQueryBatch,
+  CopcPointQueryOptions,
+  CopcPointQueryPartialReason,
+  CopcPointQueryPoint,
+  CopcPointQueryRegion,
+  CopcPointQuerySummary,
+} from "./core/streaming/spatialPointQuery";
 export type {
   CopcPointRenderer,
   CopcPointRendererOptions,

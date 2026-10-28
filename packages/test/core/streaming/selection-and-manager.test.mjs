@@ -193,6 +193,29 @@ test("speculative work reserves a slot for current-view demand and is disabled a
   singleSlotLimiter.release();
 });
 
+test("current-view waiters are woken before point-query work", async () => {
+  const limiter = new StreamingWorkConcurrencyLimiter(2);
+  assert.equal(await limiter.acquire(() => true), true);
+  assert.equal(await limiter.acquire(() => true), true);
+
+  let queryResolved = false;
+  const querySlot = limiter
+    .acquirePointQuerySlot(() => true)
+    .then((acquired) => {
+      queryResolved = true;
+      return acquired;
+    });
+  const foregroundSlot = limiter.acquire(() => true);
+
+  limiter.release();
+  assert.equal(await foregroundSlot, true);
+  assert.equal(queryResolved, false);
+  limiter.release();
+  limiter.release();
+  assert.equal(await querySlot, true);
+  limiter.release();
+});
+
 test("StreamingManager starts selected work in priority order with bounded concurrency", async () => {
   const hierarchy = new Map([
     ["0-a-priority", createWorkNode("0-a-priority", 10, 0)],

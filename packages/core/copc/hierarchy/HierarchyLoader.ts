@@ -45,10 +45,19 @@ type HierarchyLoaderOptions = {
 export type HierarchyQueryOptions = {
   /** Maximum relevant child pages visited; omitted for an ordinary current-view query. */
   maxPages?: number;
-  /** Stops expanding a stale speculative traversal after its active page reads settle. */
+  /** Maximum child pages loaded concurrently by this query; shared across the loader. */
+  maxConcurrentPageLoads?: number;
+  /** Detaches this query promptly; shared page reads already in progress continue. */
   signal?: AbortSignal;
   /** Reports relevant page visits and whether the page was already cached. */
-  onPageVisited?: (cached: boolean) => void;
+  onPageVisited?: (cached: boolean, page?: CopcHierarchyPage) => void;
+  /** Allows a caller to refuse an uncached page before its range read starts. */
+  canLoadPage?: (page: CopcHierarchyPage, cached: boolean) => boolean;
+  /** Reports a relevant page omitted by a query-local hard limit. */
+  onPageSkipped?: (
+    reason: "max-pages" | "query-budget",
+    page: CopcHierarchyPage,
+  ) => void;
   /** Override source-side measurements for page reads started by this query. */
   performanceObserver?: CopcPerformanceObserver | null;
 };
@@ -150,11 +159,65 @@ function intersects(
   );
 }
 
+function createQueryAbortError(signal: AbortSignal): Error {
+  const error = new Error("Hierarchy query was cancelled", {
+    cause: signal.reason,
+  });
+  error.name = "AbortError";
+  return error;
+}
+
+function throwIfQueryAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw createQueryAbortError(signal);
+}
+
+/**
+ * Stop one caller from waiting without aborting the cached shared page load.
+ * The rejection handler remains attached after an abort so a later page-read
+ * failure is still observed even though this query has already detached.
+ */
+function waitForQueryPage<T>(
+  pageLoad: Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> {
+  if (!signal) return pageLoad;
+  if (signal.aborted) return Promise.reject(createQueryAbortError(signal));
+
+  return new Promise<T>((resolve, reject) => {
+    const cleanup = (): void => {
+      signal.removeEventListener("abort", onAbort);
+    };
+    const onAbort = (): void => {
+      cleanup();
+      reject(createQueryAbortError(signal));
+    };
+
+    signal.addEventListener("abort", onAbort, { once: true });
+    pageLoad.then(
+      (value) => {
+        cleanup();
+        resolve(value);
+      },
+      (error: unknown) => {
+        cleanup();
+        reject(error);
+      },
+    );
+  });
+}
+
 function pageBounds(
   page: CopcHierarchyPage,
   cube: CopcHierarchyBounds,
 ): CopcHierarchyBounds {
-  const { level, x, y, z } = parseHierarchyKey(page.key);
+  return pageBoundsForKey(page.key, cube);
+}
+
+function pageBoundsForKey(
+  key: string,
+  cube: CopcHierarchyBounds,
+): CopcHierarchyBounds {
+  const { level, x, y, z } = parseHierarchyKey(key);
   const divisor = 2 ** level;
   const sideX = (cube.maxX - cube.minX) / divisor;
   const sideY = (cube.maxY - cube.minY) / divisor;
@@ -274,6 +337,27 @@ export class HierarchyLoader {
   }
 
   /**
+   * Return a hierarchy snapshot using only pages already parsed into memory.
+   * Unloaded page references remain marked incomplete; this method never
+   * waits for or starts a hierarchy range read.
+   */
+  queryCached(query: CopcHierarchyQuery): CopcHierarchyTree {
+    assertQuery(query);
+    return finalizeHierarchyTree(
+      this.tree,
+      query.maxLevel,
+      this.loadedPageKeys,
+      query.bounds,
+      this.cubeBounds,
+    );
+  }
+
+  /** Return one loaded node's conservative source-coordinate octree bounds. */
+  getNodeBounds(nodeKey: string): CopcHierarchyBounds {
+    return pageBoundsForKey(nodeKey, this.cubeBounds);
+  }
+
+  /**
    * Load pages intersecting the requested project-coordinate bounds up to the
    * requested hierarchy level. Previously loaded pages are returned from the
    * per-loader cache and remain available for later view movement.
@@ -294,9 +378,23 @@ export class HierarchyLoader {
           "Hierarchy query maxPages must be a positive safe integer",
         );
       }
-      await this.loadPage(
-        this.source.getRootHierarchyPage(),
-        options.performanceObserver,
+      if (
+        options.maxConcurrentPageLoads !== undefined &&
+        (!Number.isSafeInteger(options.maxConcurrentPageLoads) ||
+          options.maxConcurrentPageLoads < 1 ||
+          options.maxConcurrentPageLoads > this.maxConcurrentPageLoads)
+      ) {
+        throw new CopcHierarchyError(
+          "Hierarchy query concurrency must be a positive safe integer no greater than the loader limit",
+        );
+      }
+      throwIfQueryAborted(options.signal);
+      await waitForQueryPage(
+        this.loadPage(
+          this.source.getRootHierarchyPage(),
+          options.performanceObserver,
+        ),
+        options.signal,
       );
       this.assertCurrentGeneration(generation);
 
@@ -356,15 +454,24 @@ export class HierarchyLoader {
               options.maxPages !== undefined &&
               visitedPageCount >= options.maxPages
             ) {
+              options.onPageSkipped?.("max-pages", page);
               continue;
             }
             visitedPageCount += 1;
-            options.onPageVisited?.(this.pageCache.has(cacheKey));
+            const cached = this.pageCache.has(cacheKey);
+            options.onPageVisited?.(cached, page);
+            if (options.canLoadPage && !options.canLoadPage(page, cached)) {
+              options.onPageSkipped?.("query-budget", page);
+              continue;
+            }
             if (options.signal?.aborted) {
               continue;
             }
 
-            await this.loadPage(page, options.performanceObserver);
+            await waitForQueryPage(
+              this.loadPage(page, options.performanceObserver),
+              options.signal,
+            );
             this.assertCurrentGeneration(generation);
             if (options.signal?.aborted) {
               continue;
@@ -388,6 +495,7 @@ export class HierarchyLoader {
 
       const workerCount = Math.min(
         this.maxConcurrentPageLoads,
+        options.maxConcurrentPageLoads ?? Number.POSITIVE_INFINITY,
         options.maxPages ?? Number.POSITIVE_INFINITY,
         Math.max(1, pendingPages.length),
       );

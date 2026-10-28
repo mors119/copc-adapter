@@ -24,6 +24,10 @@ import type {
 import { DEFAULT_MAX_RENDERED_POINTS } from "../../core/streaming/NodeSelector";
 import { MOTION_LOOKAHEAD_DECAY_MS } from "../../core/streaming/motionLookahead";
 import type { NodePointCacheDiagnostics } from "../../core/streaming/createNodePointCache";
+import type {
+  CopcPointQuery,
+  CopcPointQueryOptions,
+} from "../../core/streaming/spatialPointQuery";
 import {
   ThreePointRenderer,
   type ThreePointRendererOptions,
@@ -159,7 +163,9 @@ export class ThreeLayerController {
       maxConcurrentRangeRequests: options.maxConcurrentRangeRequests,
       pointFields: getCopcPointFieldSelection(options.colorMode ?? "fixed"),
       streaming: options.streaming,
-    }, options.coordinateCacheLayout ?? "E");
+    }, options.coordinateCacheLayout ?? "E", {
+      sourceCoordinates: options.retainSourceCoordinatesForQueries === true,
+    });
     this.pointPicker = new ThreePointPicker({
       getRoot: () => this.pointRenderer.getRoot(),
       inspectPoint: (pickId) => {
@@ -515,6 +521,11 @@ export class ThreeLayerController {
   /** Return source metadata after {@link load} has completed. */
   getMetadata(): CopcMetadata | undefined {
     return this.core.getMetadata();
+  }
+
+  /** Stream source-coordinate points from an inclusive AABB without changing the current render selection. */
+  queryPoints(options: CopcPointQueryOptions): CopcPointQuery {
+    return this.core.queryPoints(options);
   }
 
   /** Return hierarchy request and page-cache counters when available. */

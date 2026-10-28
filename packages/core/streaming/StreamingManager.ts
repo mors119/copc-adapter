@@ -225,8 +225,21 @@ export class StreamingManager {
     return this.workLimiter.tryAcquirePrefetchSlot();
   }
 
+  /** Wait for one point-query slot while yielding capacity to current-view work. */
+  acquirePointQuerySlot(
+    shouldContinue: () => boolean,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    return this.workLimiter.acquirePointQuerySlot(shouldContinue, signal);
+  }
+
   /** Release a shared node-load slot acquired for predictive prefetch. */
   releasePrefetchSlot(): void {
+    this.workLimiter.release();
+  }
+
+  /** Release one point-query work slot. */
+  releasePointQuerySlot(): void {
     this.workLimiter.release();
   }
 
