@@ -560,6 +560,49 @@ test("timeout and cancellation settle while the consumer is paused on a batch", 
   cancelCore.destroy();
 });
 
+test("cancellation before the first iterator next settles and closes the query", async () => {
+  const makeCore = async () => {
+    const backend = rootOnlyBackend([[0.5, 0.5, 0.5]]);
+    const core = createCore(backend.backend);
+    await core.load();
+    return { core, backend };
+  };
+
+  const callerCancelled = await makeCore();
+  const directQuery = callerCancelled.core.queryPoints(queryOptions());
+  const directIterator = directQuery[Symbol.asyncIterator]();
+  directQuery.cancel();
+  const directSummary = await settlesWithin(directQuery.result);
+  assert.equal(directSummary.status, "cancelled");
+  assert.equal(directSummary.cancelReason, "aborted");
+  assert.deepEqual(await directIterator.next(), { value: undefined, done: true });
+  assert.equal(callerCancelled.backend.counts.pointReads.size, 0);
+  callerCancelled.core.destroy();
+
+  const signalCancelled = await makeCore();
+  const abortController = new AbortController();
+  const signalQuery = signalCancelled.core.queryPoints(
+    queryOptions({ signal: abortController.signal }),
+  );
+  const signalIterator = signalQuery[Symbol.asyncIterator]();
+  abortController.abort("before-first-next");
+  const signalSummary = await settlesWithin(signalQuery.result);
+  assert.equal(signalSummary.status, "cancelled");
+  assert.equal(signalSummary.cancelReason, "aborted");
+  assert.deepEqual(await signalIterator.next(), { value: undefined, done: true });
+  signalCancelled.core.destroy();
+
+  const unloaded = await makeCore();
+  const unloadQuery = unloaded.core.queryPoints(queryOptions());
+  const unloadIterator = unloadQuery[Symbol.asyncIterator]();
+  unloaded.core.unload();
+  const unloadSummary = await settlesWithin(unloadQuery.result);
+  assert.equal(unloadSummary.status, "cancelled");
+  assert.equal(unloadSummary.cancelReason, "source-unloaded");
+  assert.deepEqual(await unloadIterator.next(), { value: undefined, done: true });
+  unloaded.core.destroy();
+});
+
 test("hierarchy cancellation and timeout detach without cancelling shared page reads", async () => {
   const runScenario = async (kind) => {
     const root = createNode(ROOT_KEY, 1);

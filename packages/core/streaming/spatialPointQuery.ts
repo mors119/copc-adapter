@@ -294,7 +294,8 @@ class CopcPointQueryImpl implements CopcPointQuery {
     listener: () => void;
   }> = [];
   private resolveResult!: (summary: CopcPointQuerySummary) => void;
-  private started = false;
+  private iteratorClaimed = false;
+  private executionStarted = false;
   private settled = false;
   private timer?: ReturnType<typeof setTimeout>;
   private iterator?: AsyncGenerator<CopcPointQueryBatch>;
@@ -322,7 +323,7 @@ class CopcPointQueryImpl implements CopcPointQuery {
           ? "source-unloaded"
           : "aborted";
         this.controller.abort(reason);
-        if (!this.started) {
+        if (!this.executionStarted) {
           this.finish("cancelled");
         } else {
           this.closeIterator();
@@ -343,7 +344,7 @@ class CopcPointQueryImpl implements CopcPointQuery {
     if (this.settled) return;
     this.accounting.cancelReason ??= "aborted";
     this.controller.abort("caller-cancelled");
-    if (!this.started) {
+    if (!this.executionStarted) {
       this.finish("cancelled");
     } else {
       this.closeIterator();
@@ -351,15 +352,17 @@ class CopcPointQueryImpl implements CopcPointQuery {
   }
 
   [Symbol.asyncIterator](): AsyncIterator<CopcPointQueryBatch> {
-    if (this.started) {
+    if (this.iteratorClaimed) {
       throw new TypeError("COPC point query streams can only be consumed once");
     }
-    this.started = true;
+    this.iteratorClaimed = true;
     this.iterator = this.iterate();
     return this.iterator;
   }
 
   private async *iterate(): AsyncGenerator<CopcPointQueryBatch> {
+    this.executionStarted = true;
+    if (this.settled) return;
     this.timer = setTimeout(() => {
       if (this.settled) return;
       this.controller.abort(TIME_LIMIT_REASON);
