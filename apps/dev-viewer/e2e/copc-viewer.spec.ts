@@ -76,6 +76,7 @@ type CopcDebugAdapter = {
   getState(): CopcDebugState;
   getStyle(): CopcCesiumPointStyle;
   setStyle(update: CopcCesiumPointStyleUpdate): void;
+  setOpacity(opacity: number): void;
   getLastError(): string | undefined;
   setCameraHeight(height: number): void;
   setCameraPitch(pitchDegrees: number): void;
@@ -714,3 +715,103 @@ test("manual height offset keeps picked points aligned with the globe shown or h
   expect((await getDebugState(page)).renderedPointCount).toBeGreaterThan(0);
   expect(pageErrors).toEqual([]);
 });
+
+for (const renderer of ["point-primitive", "public-batched"] as const) {
+  test(`updates ${renderer} layer opacity without restarting streaming`, async ({
+    page,
+  }) => {
+    test.setTimeout(180_000);
+    const pageErrors: Error[] = [];
+    const consoleErrors: string[] = [];
+    page.on("pageerror", (error) => pageErrors.push(error));
+    page.on("console", (message) => {
+      if (message.type() === "error") consoleErrors.push(message.text());
+    });
+    const rendererQuery =
+      renderer === "public-batched" ? "&renderer=public-batched" : "";
+    await page.goto(`/?backend=rust&debugPanel=false${rendererQuery}`);
+    await expect
+      .poll(() => getDebugState(page), { timeout: 120_000 })
+      .toMatchObject({
+        viewerReady: true,
+        layerLoaded: true,
+        backend: "rust",
+      });
+    const initial = await getCompletedDebugState(page);
+    expect(initial.renderedPointCount).toBeGreaterThan(0);
+
+    if (renderer === "point-primitive") {
+      await expect
+        .poll(async () =>
+          page.evaluate(() =>
+            window.__COPC_DEBUG__?.getPickablePointScreenPosition(),
+          ),
+        )
+        .toBeTruthy();
+      const pointPosition = await page.evaluate(() =>
+        window.__COPC_DEBUG__?.getPickablePointScreenPosition(),
+      );
+      if (!pointPosition) {
+        throw new Error("No visible rendered COPC point was available for picking");
+      }
+      const canvasBounds = await page
+        .locator("#cesium-container canvas")
+        .first()
+        .boundingBox();
+      expect(canvasBounds).not.toBeNull();
+
+      const clickPoint = async (): Promise<void> => {
+        await page.mouse.click(
+          canvasBounds!.x + pointPosition.x,
+          canvasBounds!.y + pointPosition.y,
+        );
+      };
+
+      await clickPoint();
+      await expect
+        .poll(async () => (await getDebugState(page)).selectedPoint)
+        .toMatchObject({
+          nodeKey: expect.any(String),
+          pointIndex: expect.any(Number),
+        });
+
+      await page.evaluate(() => window.__COPC_DEBUG__?.setOpacity(0));
+      await expect
+        .poll(async () => (await getDebugState(page)).selectedPoint)
+        .toBeUndefined();
+      await clickPoint();
+      await expect
+        .poll(async () => (await getDebugState(page)).selectedPoint)
+        .toBeUndefined();
+
+      await page.evaluate(() => window.__COPC_DEBUG__?.setOpacity(0.35));
+      await clickPoint();
+      await expect
+        .poll(async () => (await getDebugState(page)).selectedPoint)
+        .toMatchObject({
+          nodeKey: expect.any(String),
+          pointIndex: expect.any(Number),
+        });
+    } else {
+      for (const opacity of [0.35, 0, 0.75]) {
+        await page.evaluate((value) => {
+          window.__COPC_DEBUG__?.setOpacity(value);
+        }, opacity);
+        await page.evaluate(
+          () =>
+            new Promise<void>((resolve) => {
+              requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+            }),
+        );
+      }
+    }
+
+    const updated = await getCompletedDebugState(page);
+    expect(updated.renderedPointCount).toBe(initial.renderedPointCount);
+    expect(updated.streamingUpdateCount).toBe(initial.streamingUpdateCount);
+    expect(updated.rangeRequests.requested).toBe(initial.rangeRequests.requested);
+    expect(updated.rangeRequests.completed).toBe(initial.rangeRequests.completed);
+    expect(pageErrors).toEqual([]);
+    expect(consoleErrors).toEqual([]);
+  });
+}

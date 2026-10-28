@@ -40,6 +40,7 @@ compact URL examples below omit options that already have a usable default.
 | `classificationFilter` | `CopcClassificationFilter`, optional | No filter | No | Yes | No | Initial filter applied from the first rendered view. Classification is retained in `required` mode even when the initial color mode is different. |
 | `coordinateCacheLayout` | `'A' | 'E'`, optional | `E` for Cesium/Three layers; direct `CopcStreamingCore` remains A-shaped | No | Yes | Yes | E retains ECEF F64 XYZ plus prepared-height F64 (32 coordinate bytes/point). Select A to retain exact Source and Geographic triples for synchronous inspection. E derives longitude/latitude from ECEF when Geographic is absent and omits source XYZ when Source is absent. |
 | `pointSize` | `number`, optional | `3` pixels | No | Yes | Yes | Cesium uses CSS-pixel diameter; Three uses screen-facing pixel size. Keep. |
+| `opacity` | `number`, optional | Omitted preserves each renderer's current appearance; Three defaults to `0.9` | No | Yes | Yes | Explicit values are the final uniform layer alpha in `[0, 1]`; runtime `setOpacity()` changes only this layer's rendered resources and does not fetch or decode point data. Alpha zero is not pickable. Keep opt-in. |
 | `heightOffsetMeters` | `number`, optional | `0` | Yes | Yes | Yes | Manual additive correction to ellipsoidal height after source unit conversion; no automatic datum correction. Keep. |
 | `verticalTransform` | `GtxGeoidGrid`, optional | Omitted; no vertical datum conversion | Yes | Yes | Yes | Requires a caller-loaded and verified grid; no grid is selected or bundled automatically. Keep opt-in. |
 | `maxRenderedPoints` | `number`, optional | `250,000` estimated points | Yes | Yes | Yes | **Canonical location for new code is top-level.** `streaming.maxRenderedPoints` remains compatible; top-level wins when both are set. Must be a positive safe integer and is a workload guard, not a GPU-memory cap. Keep both locations and precedence. |
@@ -144,7 +145,7 @@ defaults; references point to their detailed contract and example below.
 | `ThreePointRendererConstructorOptions` (`/three`) | Optional `localOrigin?: Wgs84EcefPoint` and `localFrame?: DatasetLocalFrame`; omitted direct-constructor origin is derived from the first nonempty node. | Three only | `CopcThreeLayer` supplies its dataset-local frame after metadata; see [Three.js API](#copcthreelayer). | Keep. |
 | `CopcThreeLayerPickOptions` (`/three`) | Optional `raycaster?: THREE.Raycaster`; optional `threshold?: number` defaults to layer `pickingThreshold`, then `1` scene unit. | Three only | Per-call pick control; see [Three.js API](#copcthreelayer). | Keep. |
 | `CopcPointStyleInput` / `CopcPointStyleOptions` (root, `/cesium`) | Input `colorMode?: CopcColorMode`, `elevationRange?: CopcElevationRange`, `intensityRange?: CopcValueRange`, and `rgbMax?: 255 \| 65535` are optional and infer from point buffers; resolved `CopcPointStyleOptions` fields are required. | Core styling helpers; not layer constructor options | Omitted color mode resolves to fixed cyan. See [Runtime styling](#runtime-styling). | Keep. |
-| `CopcThreePointStyleOptions`, `CopcThreePointsMaterialOptions` (root) | `CopcThreePointStyleOptions` requires `pointSize: number`; the material helper requires `pointSize: number` and returns opacity `0.9`, transparent vertex colors, and disabled size attenuation. | Root compatibility helpers only | No hidden layer override or precedence relationship. See [Runtime styling](#runtime-styling). | Keep. |
+| `CopcThreePointStyleOptions`, `CopcThreePointsMaterialOptions` (root) | `CopcThreePointStyleOptions` requires `pointSize: number`; the material helper requires `pointSize: number` and accepts optional `opacity` defaulting to `0.9`; it returns transparent vertex colors and disabled size attenuation. | Root compatibility helpers only | No hidden layer override or precedence relationship. See [Runtime styling](#runtime-styling). | Keep. |
 | `ThreeStreamingViewOptions` (`/three`) | Required `camera: THREE.Camera` and `frame: DatasetLocalFrame`; optional `renderer?: ThreeViewportSource` and `maxRenderDistanceMeters?: number`. A finite positive camera far plane wins; otherwise the option or `12,000` m is used. | Three view helper only | Here `renderer` is only a viewport-size source, as distinguished in the renderer table above. | Keep. |
 
 The packed consumers typecheck the minimal public `/cesium` and `/three`
@@ -320,6 +321,11 @@ a separately defined and tested contract.
 - `url`: COPC URL, browser `Blob`/`File`, or `RandomAccessByteSource`.
   HTTP URLs need byte Range support and appropriate CORS headers.
 - `pointSize`: Cesium point size in pixels. Default: `3`.
+- `opacity`: optional final uniform alpha from `0` through `1`. Omitted
+  preserves the selected renderer's current appearance: the compatibility
+  point-primitive path keeps its style color alpha and the batched shader keeps
+  its current opaque alpha. Explicit values replace point-style alpha with the
+  requested layer alpha.
 - `pointSizeMode`: `'fixed' | 'attenuated'`. Default: `'fixed'`. Attenuation
   requires a renderer that advertises shader support, such as the opt-in
   `BatchedGeometryPointRenderer`; unsupported renderers retain fixed sizing.
@@ -604,6 +610,31 @@ or decodes again. Point picking keeps the original source point index after
 filtering, and selection is cleared if its point is hidden by a successful
 filter update.
 
+### Layer opacity
+
+Both renderer APIs accept an optional constructor `opacity` and expose
+`setOpacity(opacity)` for runtime changes. The explicit value is the final
+uniform alpha in `[0, 1]`; it is independent of the layer's color mapping and
+classification colors. Omitted opacity preserves legacy defaults, which can
+differ between renderers. `setOpacity()` updates existing renderer resources
+and applies to future streamed nodes without reading or decoding COPC data.
+At zero, the layer is hidden from point picking and any selection is cleared.
+
+```ts
+const cesiumLayer = new CopcCesiumLayer({ url, opacity: 0.5 });
+cesiumLayer.setOpacity(0.25);
+
+const threeLayer = new CopcThreeLayer({ url, opacity: 0.5 });
+threeLayer.setOpacity(0.25);
+```
+
+Transparency uses each renderer's normal blending and depth behavior. The
+adapter does not sort translucent points, coordinate draw order across layers,
+or implement order-independent transparency, so overlapping translucent
+layers and terrain can composite differently by renderer and scene order. A
+custom renderer must implement its optional `setOpacity()` capability before
+the layer accepts an explicit opacity value.
+
 ### Lifecycle
 
 ```ts
@@ -654,6 +685,8 @@ browser `File` or `Blob`. The application owns the scene, camera, renderer, and
 render loop.
 
 Current options include `url`, `pointSize` (default `3`), `colorMode`,
+`opacity` (optional; omitted preserves the existing Three material default of
+`0.9`),
 `coordinateCacheLayout` (default `E`; choose `A` to retain exact source and
 geographic inspection coordinates),
 `heightOffsetMeters` (default `0`), `verticalTransform` (omitted by default),

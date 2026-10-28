@@ -88,6 +88,8 @@ export type CopcCesiumLayerOptions = {
   url: CopcInputSource;
   /** Cesium point primitive size in pixels. Defaults to 3. */
   pointSize?: number;
+  /** Uniform per-layer alpha in [0, 1]. Omitted preserves the selected renderer's current appearance. */
+  opacity?: number;
   /**
    * Point-size calculation mode. Defaults to `fixed` for compatibility.
    * `attenuated` needs a renderer with shader support, such as
@@ -347,5 +349,15 @@ export class CopcCesiumLayer {
    */
   setStyle(style: CopcCesiumPointStyleUpdate): void {
     this.controller.setStyle(style);
+  }
+
+  /**
+   * Set uniform alpha for this layer and future streamed nodes without reading or decoding COPC data.
+   *
+   * @param opacity Finite alpha in the inclusive range `[0, 1]`.
+   * @throws If the value is invalid, the layer is destroyed, or the custom renderer does not support opacity.
+   */
+  setOpacity(opacity: number): void {
+    this.controller.setOpacity(opacity);
   }
 }

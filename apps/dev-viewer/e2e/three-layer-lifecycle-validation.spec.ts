@@ -30,6 +30,7 @@ declare global {
       attach(): void;
       update(): Promise<void>;
       setCameraDistance(distance: number): void;
+      setOpacity(opacity: number): void;
       detach(): void;
       unload(): void;
       reload(): Promise<void>;
@@ -85,6 +86,64 @@ async function waitForIdle(
   );
 }
 
+test("updates Three.js layer opacity on existing materials without reloading", async ({
+  page,
+}) => {
+  const pageErrors: Error[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error));
+  await page.goto("/e2e/fixtures/three-lifecycle-fixture.html");
+  await page.evaluate(() => window.__COPC_THREE_LIFECYCLE__!.createLayer());
+  await page.evaluate(() => window.__COPC_THREE_LIFECYCLE__!.load());
+  await page.evaluate(async () => {
+    const fixture = window.__COPC_THREE_LIFECYCLE__!;
+    fixture.attach();
+    await fixture.update();
+  });
+
+  const initial = await waitForIdle(page);
+  expect(initial.pointObjectCount).toBeGreaterThan(0);
+  expect(initial.visiblePointObjectCount).toBeGreaterThan(0);
+  expect(initial.materialOpacities.length).toBeGreaterThan(0);
+  expect(initial.materialOpacities.every((opacity) => opacity === 0.9)).toBe(
+    true,
+  );
+  const initialGeometryCount = initial.rendererGeometryCount;
+
+  await page.evaluate(() =>
+    window.__COPC_THREE_LIFECYCLE__!.setOpacity(0.35),
+  );
+  const translucent = await getState(page);
+  expect(translucent.materialOpacities.every((opacity) => opacity === 0.35)).toBe(
+    true,
+  );
+  expect(translucent.rendererGeometryCount).toBe(initialGeometryCount);
+
+  await page.evaluate(() => window.__COPC_THREE_LIFECYCLE__!.setOpacity(0));
+  const hidden = await getState(page);
+  expect(hidden.visiblePointObjectCount).toBe(0);
+  expect(hidden.materialOpacities.every((opacity) => opacity === 0)).toBe(true);
+
+  await page.evaluate(() => window.__COPC_THREE_LIFECYCLE__!.setOpacity(0.75));
+  const restored = await getState(page);
+  expect(restored.visiblePointObjectCount).toBe(initial.pointObjectCount);
+  expect(restored.materialOpacities.every((opacity) => opacity === 0.75)).toBe(
+    true,
+  );
+  expect(restored.rendererGeometryCount).toBe(initialGeometryCount);
+  expect(restored.snapshot.streamingUpdateCount).toBe(
+    initial.snapshot.streamingUpdateCount,
+  );
+  expect(restored.snapshot.performance.rangeFetchBytes).toBe(
+    initial.snapshot.performance.rangeFetchBytes,
+  );
+  expect(restored.snapshot.performance.decodeDurationMs).toBe(
+    initial.snapshot.performance.decodeDurationMs,
+  );
+  expect(pageErrors).toEqual([]);
+
+  await page.evaluate(() => window.__COPC_THREE_LIFECYCLE__!.destroy());
+});
+
 function summarize(state: ThreeLifecycleState): Record<string, unknown> {
   return {
     lifecycle: state.snapshot.lifecycle,
@@ -98,9 +157,11 @@ function summarize(state: ThreeLifecycleState): Record<string, unknown> {
     hierarchy: state.hierarchy,
     sceneChildCount: state.sceneChildCount,
     pointObjectCount: state.pointObjectCount,
+    visiblePointObjectCount: state.visiblePointObjectCount,
     rendererGeometryCount: state.rendererGeometryCount,
     rendererTextureCount: state.rendererTextureCount,
     uniqueMaterialCount: state.uniqueMaterialCount,
+    materialOpacities: state.materialOpacities,
     canvasCount: state.canvasCount,
     contextLost: state.contextLost,
     layerRootAttached: state.layerRootAttached,

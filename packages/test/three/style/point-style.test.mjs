@@ -121,6 +121,7 @@ test("Three point material keeps pointSize in screen space deliberately", () => 
     transparent: true,
     opacity: 0.9,
   });
+  assert.equal(getThreePointsMaterialOptions(4, 0.25).opacity, 0.25);
 });
 
 test("Three styling accepts the same minimal field selection as the shared core", () => {

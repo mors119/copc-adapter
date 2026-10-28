@@ -15,6 +15,7 @@ import type {
   CopcCesiumPointRendererOptions,
   CesiumPointRenderer,
 } from "./CopcPointRenderer";
+import { assertCopcLayerOpacity } from "../../core/streaming/renderer";
 import { packRelativeEcef } from "./relativeEcef";
 import {
   DEFAULT_MAX_ATTENUATED_POINT_SIZE_CSS_PIXELS,
@@ -83,7 +84,19 @@ void main() {
   if (v_show < 0.5) discard;
   vec2 point = gl_PointCoord - vec2(0.5);
   if (dot(point, point) > 0.25) discard;
-  out_FragColor = vec4(v_color, 1.0);
+  czm_material opacityMaterial = czm_getMaterial(czm_materialInput(
+    0.0,
+    vec2(0.0),
+    vec3(0.0),
+    vec3(0.0),
+    mat3(0.0),
+    vec3(0.0),
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ));
+  out_FragColor = vec4(v_color, opacityMaterial.alpha);
 }`;
 
 type NodeRecord = {
@@ -238,6 +251,8 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
   private viewer?: Cesium.Viewer;
   private parent?: Cesium.PrimitiveCollection;
   private showState = true;
+  private opacity = 1;
+  private opacityMaterial?: Cesium.Material;
   private readonly nodes = new Map<string, NodeRecord>();
   private nextGeneration = 0;
 
@@ -247,7 +262,9 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
     this.detachFrom();
     this.viewer = viewer;
     this.parent = viewer.scene.primitives.add(
-      new Cesium.PrimitiveCollection({ show: this.showState }),
+      new Cesium.PrimitiveCollection({
+        show: this.showState && this.opacity !== 0,
+      }),
     );
   }
 
@@ -257,12 +274,26 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
     if (this.parent) this.viewer?.scene.primitives.remove(this.parent);
     this.parent = undefined;
     this.viewer = undefined;
+    this.opacityMaterial?.destroy();
+    this.opacityMaterial = undefined;
   }
 
   /** Set visibility for all node primitives. */
   setShow(show: boolean): void {
     this.showState = show;
-    if (this.parent) this.parent.show = show;
+    if (this.parent) this.parent.show = show && this.opacity !== 0;
+  }
+
+  /** Update the shared shader uniform without replacing node geometry. */
+  setOpacity(opacity: number): void {
+    assertCopcLayerOpacity(opacity);
+    this.opacity = opacity;
+    if (this.opacityMaterial) {
+      this.opacityMaterial.uniforms.u_layerOpacity = opacity;
+    }
+    if (this.parent) {
+      this.parent.show = this.showState && opacity !== 0;
+    }
   }
 
   /** Build or atomically replace the single point Geometry for one prepared node. */
@@ -464,6 +495,7 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
         },
       }),
       appearance: new Cesium.Appearance({
+        material: this.getOpacityMaterial(),
         vertexShaderSource:
           pointSizeMode === "attenuated"
             ? createAttenuatedVertexShader(minPointSize, maxPointSize)
@@ -471,10 +503,9 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
         fragmentShaderSource: FRAGMENT_SHADER,
         renderState: {
           depthTest: { enabled: true },
-          // Keep GPU visibility ordered by the same nearest-depth rule used
-          // by the CPU identity resolver for overlapping points in this node.
-          depthMask: true,
-          blending: Cesium.BlendingState.ALPHA_BLEND,
+          // Cesium Appearance resolves this translucent material to alpha
+          // blending with depth writes disabled. Picking remains conservative
+          // when overlapping point depths make the source identity ambiguous.
         },
       }),
       asynchronous: false,
@@ -1137,5 +1168,27 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
       ...(screen ? { screenPosition: { x: screen.x, y: screen.y } } : {}),
       worldPosition: [world.x, world.y, world.z],
     };
+  }
+
+  private getOpacityMaterial(): Cesium.Material {
+    if (!this.opacityMaterial) {
+      this.opacityMaterial = new Cesium.Material({
+        fabric: {
+          type: "CopcLayerOpacity",
+          uniforms: { u_layerOpacity: this.opacity },
+          source: `
+            czm_material czm_getMaterial(czm_materialInput materialInput) {
+              czm_material material = czm_getDefaultMaterial(materialInput);
+              material.alpha = u_layerOpacity;
+              return material;
+            }
+          `,
+        },
+        // Use Cesium's blended pass below full opacity. The adapter does not
+        // reorder this layer against other scene primitives.
+        translucent: () => this.opacity < 1,
+      });
+    }
+    return this.opacityMaterial;
   }
 }

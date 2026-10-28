@@ -10,6 +10,7 @@ export type ThreeLifecycleState = {
   hierarchy?: ReturnType<CopcThreeLayer["getHierarchyDiagnostics"]>;
   sceneChildCount: number;
   pointObjectCount: number;
+  visiblePointObjectCount: number;
   rendererGeometryCount: number;
   rendererTextureCount: number;
   rendererInfo: {
@@ -23,6 +24,7 @@ export type ThreeLifecycleState = {
   positionBufferBytes: number;
   colorBufferBytes: number;
   uniqueMaterialCount: number;
+  materialOpacities: number[];
   canvasCount: number;
   contextLost: boolean;
   layerRootAttached: boolean;
@@ -39,6 +41,7 @@ export type ThreeLifecycleFixture = {
   update(): Promise<void>;
   setCameraDistance(distance: number): void;
   setCameraPosition(position: { x: number; y: number; z: number }): void;
+  setOpacity(opacity: number): void;
   detach(): void;
   unload(): void;
   reload(): Promise<void>;
@@ -147,6 +150,7 @@ window.__COPC_THREE_LIFECYCLE__ = {
     camera.lookAt(0, 0, 0);
     camera.updateMatrixWorld(true);
   },
+  setOpacity: (opacity) => requireLayer().setOpacity(opacity),
   detach: () => requireLayer().detachFrom(),
   unload: () => requireLayer().unload(),
   async reload(): Promise<void> {
@@ -160,19 +164,30 @@ window.__COPC_THREE_LIFECYCLE__ = {
     const snapshot = activeLayer.getSnapshot();
     let pointObjectCount = 0;
     const materials = new Set<THREE.Material>();
+    const materialOpacities: number[] = [];
+    let visiblePointObjectCount = 0;
     let positionBufferBytes = 0;
     let colorBufferBytes = 0;
     scene.traverse((object) => {
       if (!(object instanceof THREE.Points)) return;
       pointObjectCount += 1;
+      if (object.visible) visiblePointObjectCount += 1;
       positionBufferBytes +=
         object.geometry.getAttribute("position").array.byteLength;
       colorBufferBytes +=
         object.geometry.getAttribute("color").array.byteLength;
       if (Array.isArray(object.material)) {
-        for (const material of object.material) materials.add(material);
+        for (const material of object.material) {
+          materials.add(material);
+          if (material instanceof THREE.PointsMaterial) {
+            materialOpacities.push(material.opacity);
+          }
+        }
       } else {
         materials.add(object.material);
+        if (object.material instanceof THREE.PointsMaterial) {
+          materialOpacities.push(object.material.opacity);
+        }
       }
     });
     return {
@@ -181,6 +196,7 @@ window.__COPC_THREE_LIFECYCLE__ = {
       hierarchy: activeLayer.getHierarchyDiagnostics(),
       sceneChildCount: scene.children.length,
       pointObjectCount,
+      visiblePointObjectCount,
       rendererGeometryCount: renderer.info.memory.geometries,
       rendererTextureCount: renderer.info.memory.textures,
       rendererInfo: {
@@ -194,6 +210,7 @@ window.__COPC_THREE_LIFECYCLE__ = {
       positionBufferBytes,
       colorBufferBytes,
       uniqueMaterialCount: materials.size,
+      materialOpacities,
       canvasCount: container.querySelectorAll("canvas").length,
       contextLost: renderer.getContext().isContextLost(),
       layerRootAttached: scene.children.includes(activeLayer.getRoot()),

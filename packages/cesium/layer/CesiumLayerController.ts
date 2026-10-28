@@ -60,6 +60,7 @@ import {
   type CopcStreamingProgressHandler,
   type CopcStreamingWorkProgressHandler,
 } from "../../core/streaming/CopcStreamingCore";
+import { assertCopcLayerOpacity } from "../../core/streaming/renderer";
 import { areStreamingViewsEquivalent } from "../../core/streaming/areStreamingViewsEquivalent";
 import { ReplacementTransitionManager } from "../../core/streaming/ReplacementTransitionManager";
 import type {
@@ -96,6 +97,8 @@ export type CopcLayerOptions = {
   url: CopcInputSource;
   /** Fixed CSS-pixel point diameter. Defaults to 3. */
   pointSize?: number;
+  /** Optional uniform alpha in [0, 1]; omitted preserves the selected renderer's existing appearance. */
+  opacity?: number;
   /** Fixed by default; attenuation requires renderer shader support. */
   pointSizeMode?: "fixed" | "attenuated";
   /** Lower attenuated point diameter in CSS pixels. Defaults to 1. */
@@ -345,6 +348,7 @@ export class CesiumLayerController {
   private datasetElevationRange?: { min: number; max: number };
   private viewer?: Cesium.Viewer;
   private showState = true;
+  private opacity?: number;
   private updateTimer?: number;
   private motionDecayTimer?: number;
   private scheduledUpdateShouldInvalidate = false;
@@ -377,6 +381,9 @@ export class CesiumLayerController {
   };
 
   constructor(options: CopcLayerOptions) {
+    if (options.opacity !== undefined) {
+      assertCopcLayerOpacity(options.opacity);
+    }
     const pointSize = options.pointSize ?? 3;
     const minPointSize =
       options.minPointSize ?? DEFAULT_MIN_ATTENUATED_POINT_SIZE_CSS_PIXELS;
@@ -423,6 +430,15 @@ export class CesiumLayerController {
     };
     this.pointFields = this.getInitialPointFields(this.style);
     this.pointRenderer = options.renderer ?? new PointPrimitiveRenderer();
+    this.opacity = options.opacity;
+    if (options.opacity !== undefined) {
+      if (!this.pointRenderer.setOpacity) {
+        throw new TypeError(
+          "Configured Cesium point renderer does not support layer opacity",
+        );
+      }
+      this.pointRenderer.setOpacity(options.opacity);
+    }
     this.rendererPerformance.setConfiguredPointBudget(
       this.getMaxRenderedPoints(),
     );
@@ -444,6 +460,7 @@ export class CesiumLayerController {
       streaming: options.streaming,
     }, options.coordinateCacheLayout ?? "E");
     this.pointPicker = new CesiumPointPicker({
+      canPick: () => this.opacity !== 0,
       inspectPoint: (pickId) => {
         const node = this.core.getHierarchyNode(pickId.nodeKey);
         const points = getCachedRenderablePointDataForAdapter(
@@ -524,6 +541,25 @@ export class CesiumLayerController {
     }
     this.showState = value;
     this.pointRenderer.setShow?.(value);
+  }
+
+  /** Update this layer's uniform alpha without reading or decoding COPC data. */
+  setOpacity(opacity: number): void {
+    if (this.lifecycle === "destroyed") {
+      throw new Error("CopcCesiumLayer has been destroyed");
+    }
+    assertCopcLayerOpacity(opacity);
+    if (!this.pointRenderer.setOpacity) {
+      throw new TypeError(
+        "Configured Cesium point renderer does not support layer opacity",
+      );
+    }
+    this.pointRenderer.setOpacity(opacity);
+    this.opacity = opacity;
+    if (opacity === 0) {
+      this.pointPicker.clear();
+    }
+    this.viewer?.scene.requestRender?.();
   }
 
   /** Full metadata extent transformed to WGS84 ECEF, when safely supported. */
