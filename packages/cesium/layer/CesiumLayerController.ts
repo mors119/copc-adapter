@@ -378,6 +378,7 @@ export class CesiumLayerController {
   private readonly pointStyleState = createCopcPointStyleState();
   private style: CopcCesiumPointStyle;
   private readonly extraDimensionNames: readonly string[];
+  private readonly backendLoadsAllExtraDimensions: boolean;
   private readonly rendererPerformance = new StreamingPerformanceRecorder();
   private datasetElevationRange?: { min: number; max: number };
   private viewer?: Cesium.Viewer;
@@ -468,8 +469,16 @@ export class CesiumLayerController {
         ? {}
         : { dimensionFilter: cloneCopcDimensionFilter(options.dimensionFilter) }),
     };
+    const configuredExtraDimensions =
+      options.backend !== undefined && typeof options.backend !== "string"
+        ? options.backend.configuredExtraDimensions
+        : undefined;
+    this.backendLoadsAllExtraDimensions = configuredExtraDimensions === "*";
     this.extraDimensionNames =
       resolveCopcExtraDimensionSelection(options.extraDimensions, [
+        ...(configuredExtraDimensions === undefined || configuredExtraDimensions === "*"
+          ? []
+          : configuredExtraDimensions),
         this.style.dimension?.name,
         this.style.dimensionFilter?.name,
       ]) ?? [];
@@ -1215,11 +1224,13 @@ export class CesiumLayerController {
       style.dimensionFilter?.name,
     ].filter((name): name is string => name !== undefined && name !== "Intensity");
     const unrequested = referencedNames.filter(
-      (name) => !this.extraDimensionNames.includes(name),
+      (name) =>
+        !this.backendLoadsAllExtraDimensions &&
+        !this.extraDimensionNames.includes(name),
     );
     if (unrequested.length > 0) {
       throw new Error(
-        `Cannot style dimension${unrequested.length === 1 ? "" : "s"} ${unrequested.join(", ")}: add ${unrequested.map((name) => `"${name}"`).join(", ")} to extraDimensions when creating the layer; style updates do not re-decode cached points.`,
+        `Cannot style dimension${unrequested.length === 1 ? "" : "s"} ${unrequested.join(", ")}: add ${unrequested.map((name) => `"${name}"`).join(", ")} to extraDimensions on the layer or backend when creating the layer; style updates do not re-decode cached points.`,
       );
     }
   }

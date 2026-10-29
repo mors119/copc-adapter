@@ -114,6 +114,11 @@ export interface CopcSource extends CopcHierarchySource {
 
 /** Opens COPC resources without exposing the library used to read them. */
 export interface CopcBackend {
+  /**
+   * Extra Bytes selection configured for every source opened by this backend.
+   * Layers use it to recognize dimensions already retained for cached restyling.
+   */
+  readonly configuredExtraDimensions?: CopcExtraDimensionSelection;
   /** Open a COPC source for metadata, hierarchy, and point reads. */
   open(
     source: CopcInputSource,

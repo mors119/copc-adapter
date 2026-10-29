@@ -236,6 +236,7 @@ function createBackend({
   sourceFields = ["position", "intensity", "classification", "rgb"],
   extraDimensionData,
   extraDimensionMetadata,
+  configuredExtraDimensions,
 } = {}) {
   const node = {
     key: "0-0-0-0",
@@ -270,6 +271,9 @@ function createBackend({
       return lastOpenOptions;
     },
     backend: {
+      ...(configuredExtraDimensions === undefined
+        ? {}
+        : { configuredExtraDimensions }),
       async open(source, options) {
         lastOpenOptions = options;
         openCount += 1;
@@ -1367,6 +1371,45 @@ test("dimension ramp, NoData filter, and picking reuse cached Extra Bytes", asyn
   assert.deepEqual(layer.getPointCacheDiagnostics(), cacheBefore);
   assert.deepEqual(layer.getHierarchyDiagnostics(), hierarchyBefore);
   assert.equal(layer.getSelectedPoint().dimensions.canopy_height, 20);
+  layer.destroy();
+});
+
+test("backend-configured Extra Bytes allow dimension restyling from cached points", async () => {
+  const source = createBackend({
+    extraDimensionData: {
+      canopy_height: new Float64Array([20, 40]),
+    },
+    extraDimensionMetadata: [
+      { name: "canopy_height", type: "float", length: 8 },
+    ],
+    configuredExtraDimensions: ["canopy_height"],
+  });
+  const layer = new CopcCesiumLayer({
+    url: "memory://backend-configured-dimension-style.copc.laz",
+    backend: source.backend,
+    decoder: source.decoder,
+    attributeLoading: "required",
+  });
+  const viewer = createFakeViewer();
+
+  await layer.load();
+  assert.deepEqual(source.lastOpenOptions.extraDimensions, ["canopy_height"]);
+  layer.attachTo(viewer);
+  await waitFor(() => layer.getSnapshot().renderedNodeKeys.length === 1);
+
+  const requestsBefore = source.pointChunkRequestCount;
+  const decodesBefore = source.decodeCount;
+  layer.setStyle({
+    colorMode: "dimension",
+    dimension: { name: "canopy_height", range: { min: 0, max: 100 } },
+    dimensionFilter: { name: "canopy_height", min: 10, max: 30 },
+  });
+
+  const collection = getLayerPointCollection(viewer);
+  assert.equal(collection.get(0).show, true);
+  assert.equal(collection.get(1).show, false);
+  assert.equal(source.pointChunkRequestCount, requestsBefore);
+  assert.equal(source.decodeCount, decodesBefore);
   layer.destroy();
 });
 

@@ -444,10 +444,10 @@ function mergeExtraDimensionSelections(
 
 /** Opens COPC resources through copc.js. */
 export class CopcJsBackend implements CopcBackend {
-  private readonly extraDimensions?: CopcExtraDimensionSelection;
+  readonly configuredExtraDimensions?: CopcExtraDimensionSelection;
 
   constructor(options: CopcJsBackendOptions = {}) {
-    this.extraDimensions = options.extraDimensions;
+    this.configuredExtraDimensions = options.extraDimensions;
   }
 
   /** Open a source through the JavaScript COPC reader and adapt it to project types. */
@@ -473,7 +473,7 @@ export class CopcJsBackend implements CopcBackend {
         copc,
         crsWktProvenance,
         mergeExtraDimensionSelections(
-          this.extraDimensions,
+          this.configuredExtraDimensions,
           options.extraDimensions,
         ),
       );
