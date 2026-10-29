@@ -661,8 +661,35 @@ export function prepareCopcPointColorBuffer(
   options: CopcPointStyleInput = {},
   state?: CopcPointStyleState,
 ): Float32Array {
+  return prepareCopcPointColorComponents(points, options, state, false);
+}
+
+/** Build an RGBA vertex-color buffer for GPU renderers that preserve point alpha. */
+export function prepareCopcPointColorBufferWithAlpha(
+  points: PointStyleData,
+  options: CopcPointStyleInput = {},
+  state?: CopcPointStyleState,
+  alphaOverride?: number,
+): Float32Array {
+  return prepareCopcPointColorComponents(
+    points,
+    options,
+    state,
+    true,
+    alphaOverride,
+  );
+}
+
+function prepareCopcPointColorComponents(
+  points: PointStyleData,
+  options: CopcPointStyleInput,
+  state: CopcPointStyleState | undefined,
+  includeAlpha: boolean,
+  alphaOverride?: number,
+): Float32Array {
   const styleOptions = resolveCopcPointStyleOptions(points, options, state);
-  const colors = new Float32Array(points.pointCount * 3);
+  const componentsPerColor = includeAlpha ? 4 : 3;
+  const colors = new Float32Array(points.pointCount * componentsPerColor);
   const compactHeights = getPreparedHeightBuffer(points);
 
   for (let index = 0; index < points.pointCount; index += 1) {
@@ -674,7 +701,7 @@ export function prepareCopcPointColorBuffer(
       points.attributes,
       index,
     );
-    const offset = index * 3;
+    const offset = index * componentsPerColor;
 
     colors[offset] = Number.isFinite(color.red)
       ? color.red
@@ -685,6 +712,12 @@ export function prepareCopcPointColorBuffer(
     colors[offset + 2] = Number.isFinite(color.blue)
       ? color.blue
       : FIXED_POINT_COLOR.blue;
+    if (includeAlpha) {
+      const alpha = alphaOverride ?? color.alpha;
+      colors[offset + 3] = Number.isFinite(alpha)
+        ? alpha
+        : FIXED_POINT_COLOR.alpha;
+    }
   }
 
   return colors;

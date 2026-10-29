@@ -9,7 +9,10 @@ import {
   type RenderablePointData,
 } from "../../core/point/compactEPointCache";
 import { performanceNow } from "../../core/copc/performance";
-import { prepareCopcPointColorBuffer } from "../../core/point/style/pointStyle";
+import {
+  prepareCopcPointColorBuffer,
+  prepareCopcPointColorBufferWithAlpha,
+} from "../../core/point/style/pointStyle";
 import type { CopcPointPickId } from "../../core/copc/points/pointInspection";
 import type {
   CopcCesiumPointRendererOptions,
@@ -29,10 +32,10 @@ type PointData = GeographicPointBuffer | PreparedPointData | RenderablePointData
 const FIXED_VERTEX_SHADER = `
 in vec3 position3DHigh;
 in vec3 position3DLow;
-in vec3 a_color;
+in vec4 a_color;
 in float a_pointSize;
 in float batchId;
-out vec3 v_color;
+out vec4 v_color;
 out float v_show;
 void main() {
   gl_Position = czm_modelViewProjectionRelativeToEye * czm_computePosition();
@@ -48,11 +51,11 @@ function createAttenuatedVertexShader(
   return `
 in vec3 position3DHigh;
 in vec3 position3DLow;
-in vec3 a_color;
+in vec4 a_color;
 in float a_pointSize;
 in float a_spacingMeters;
 in float batchId;
-out vec3 v_color;
+out vec4 v_color;
 out float v_show;
 void main() {
   vec4 position = czm_computePosition();
@@ -78,7 +81,7 @@ void main() {
 }
 
 const FRAGMENT_SHADER = `
-in vec3 v_color;
+in vec4 v_color;
 in float v_show;
 void main() {
   if (v_show < 0.5) discard;
@@ -96,7 +99,9 @@ void main() {
     0.0,
     0.0
   ));
-  out_FragColor = vec4(v_color, opacityMaterial.alpha);
+  float alpha =
+    opacityMaterial.diffuse.r > 0.5 ? opacityMaterial.alpha : v_color.a;
+  out_FragColor = vec4(v_color.rgb, alpha);
 }`;
 
 type NodeRecord = {
@@ -114,6 +119,7 @@ type NodeRecord = {
   pointSpacingMeters?: number;
   minPointSize: number;
   maxPointSize: number;
+  usesPointAlpha: boolean;
   ownerId?: string;
   generation: number;
   observer?: CopcCesiumPointRendererOptions["onPerformance"];
@@ -252,6 +258,7 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
   private parent?: Cesium.PrimitiveCollection;
   private showState = true;
   private opacity = 1;
+  private opacityOverride = false;
   private opacityMaterial?: Cesium.Material;
   private readonly nodes = new Map<string, NodeRecord>();
   private nextGeneration = 0;
@@ -288,8 +295,10 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
   setOpacity(opacity: number): void {
     assertCopcLayerOpacity(opacity);
     this.opacity = opacity;
+    this.opacityOverride = true;
     if (this.opacityMaterial) {
       this.opacityMaterial.uniforms.u_layerOpacity = opacity;
+      this.opacityMaterial.uniforms.u_overridePointAlpha = 1;
     }
     if (this.parent) {
       this.parent.show = this.showState && opacity !== 0;
@@ -375,12 +384,21 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
     );
 
     const styleStartedAt = performanceNow();
-    const colors = prepareCopcPointColorBuffer(points, {
+    const colorOptions = {
       colorMode: options.colorMode,
       elevationRange: options.elevationRange,
       rgbMax: options.rgbMax,
       dimension: options.dimension,
-    });
+    };
+    const usesPointAlpha = options.colorMode === "dimension";
+    const colors = usesPointAlpha
+      ? prepareCopcPointColorBufferWithAlpha(
+          points,
+          colorOptions,
+          undefined,
+          this.opacityOverride ? 1 : undefined,
+        )
+      : prepareCopcPointColorBuffer(points, colorOptions);
     const pointSizes = new Float32Array(points.pointCount);
     const pointSizeMode =
       options.pointSizeMode === "attenuated" &&
@@ -460,7 +478,7 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
     });
     attributes.a_color = new Cesium.GeometryAttribute({
       componentDatatype: Cesium.ComponentDatatype.FLOAT,
-      componentsPerAttribute: 3,
+      componentsPerAttribute: usesPointAlpha ? 4 : 3,
       values: colors,
     });
     attributes.a_pointSize = new Cesium.GeometryAttribute({
@@ -574,6 +592,7 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
         : {}),
       minPointSize,
       maxPointSize,
+      usesPointAlpha,
       ownerId,
       generation,
       observer: options.onPerformance,
@@ -1176,18 +1195,27 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
       this.opacityMaterial = new Cesium.Material({
         fabric: {
           type: "CopcLayerOpacity",
-          uniforms: { u_layerOpacity: this.opacity },
+          uniforms: {
+            u_layerOpacity: this.opacity,
+            u_overridePointAlpha: this.opacityOverride ? 1 : 0,
+          },
           source: `
             czm_material czm_getMaterial(czm_materialInput materialInput) {
               czm_material material = czm_getDefaultMaterial(materialInput);
               material.alpha = u_layerOpacity;
+              // The custom fragment shader emits vertex RGB, so diffuse.r can
+              // carry the layer-opacity override flag without affecting color.
+              material.diffuse = vec3(u_overridePointAlpha, 0.0, 0.0);
               return material;
             }
           `,
         },
         // Use Cesium's blended pass below full opacity. The adapter does not
         // reorder this layer against other scene primitives.
-        translucent: () => this.opacity < 1,
+        translucent: () =>
+          this.opacity < 1 ||
+          (!this.opacityOverride &&
+            [...this.nodes.values()].some((node) => node.usesPointAlpha)),
       });
     }
     return this.opacityMaterial;

@@ -326,10 +326,10 @@ a separately defined and tested contract.
   HTTP URLs need byte Range support and appropriate CORS headers.
 - `pointSize`: Cesium point size in pixels. Default: `3`.
 - `opacity`: optional final uniform alpha from `0` through `1`. Omitted
-  preserves the selected renderer's current appearance: the compatibility
-  point-primitive path keeps its style color alpha and the batched shader keeps
-  its current opaque alpha. Explicit values replace point-style alpha with the
-  requested layer alpha.
+  preserves the selected renderer's current appearance for other color modes.
+  Dimension ramps use their interpolated palette alpha in both the batched
+  shader and Three.js renderer. Explicit values replace point-style alpha with
+  the requested layer alpha.
 - `pointSizeMode`: `'fixed' | 'attenuated'`. Default: `'fixed'`. Attenuation
   requires a renderer that advertises shader support, such as the opt-in
   `BatchedGeometryPointRenderer`; unsupported renderers retain fixed sizing.
@@ -629,6 +629,8 @@ an include or exclude filter is active.
 Dimension ranges must be finite with `min < max`; filters allow `min <= max`
 and include both endpoints. Ramp colors use normalized `[0, 1]` components,
 with at least two strictly ordered stops spanning positions `0` through `1`.
+Stop alpha is interpolated with RGB and defaults to `0.9`; an explicit layer
+opacity overrides the palette alpha.
 Values below or above the color range clamp to the first or last stop. Missing,
 non-finite, and configured `missingValue` values use fixed cyan; a matching
 dimension filter hides them. A metadata NoData sentinel is used automatically

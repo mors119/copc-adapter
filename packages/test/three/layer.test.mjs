@@ -346,9 +346,10 @@ test("Three layer requests and colors its configured Extra Bytes dimension", asy
 
   assert.deepEqual(source.lastOpenOptions.extraDimensions, ["CanopyHeight"]);
   const points = layer.getRoot().children[0];
-  const colors = points.geometry.getAttribute("color").array;
-  assert.deepEqual(Array.from(colors.slice(0, 3)), [0, 0, 1]);
-  assert.deepEqual(Array.from(colors.slice(3, 6)), [1, 0, 0]);
+  const color = points.geometry.getAttribute("color");
+  assert.equal(color.itemSize, 4);
+  assert.deepEqual(Array.from(color.array.slice(0, 4)), [0, 0, 1, Math.fround(0.9)]);
+  assert.deepEqual(Array.from(color.array.slice(4, 8)), [1, 0, 0, Math.fround(0.9)]);
   layer.destroy();
 });
 

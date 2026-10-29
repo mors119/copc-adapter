@@ -24,9 +24,8 @@ const layer = new CopcCesiumLayer({
 [Public API](../API)의 defaults matrix를 참고하세요.
 
 `opacity`는 0부터 1까지의 layer 단위 alpha를 지정합니다. 생략하면 기존 renderer의
-표시를 유지합니다. Cesium point primitive은 스타일 색의 alpha를 유지하고 batched
-shader는 기존 불투명 alpha를 사용하며, Three.js material은 기존 기본값 `0.9`를
-사용합니다. 값을 지정하면 color mode와 분류 색상에 상관없이 해당 값이 최종 alpha가
+표시를 유지합니다. dimension ramp는 Cesium batched shader와 Three.js renderer에서
+palette alpha를 사용합니다. 값을 지정하면 palette alpha 대신 해당 값이 최종 alpha가
 됩니다.
 
 `maxRenderedPoints`는 새 코드에서 top-level 위치를 권장합니다. 기존
