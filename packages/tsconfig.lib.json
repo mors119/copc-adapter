@@ -9,6 +9,7 @@
   },
   "include": [
     "index.ts",
+    "core.ts",
     "cesium.ts",
     "three.ts",
     "core/**/*.ts",

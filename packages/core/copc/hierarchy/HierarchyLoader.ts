@@ -233,6 +233,20 @@ function pageBoundsForKey(
   };
 }
 
+/**
+ * Return the source-CRS octree cell for a hierarchy key.
+ *
+ * The bounds use the COPC cube axes and source CRS units. This function does
+ * not transform the cell into WGS84 or ECEF.
+ */
+export function getCopcHierarchyCellBounds(
+  key: string,
+  cube: CopcHierarchyBounds,
+): CopcHierarchyBounds {
+  assertBounds(cube, "COPC cube");
+  return pageBoundsForKey(key, cube);
+}
+
 function assertNoPageCycles(pageChildren: Map<string, string[]>): void {
   const states = new Map<string, "visiting" | "visited">();
 
@@ -319,11 +333,20 @@ export class HierarchyLoader {
   }
 
   /** Load only the root page and retain its child page references. */
-  async loadRoot(): Promise<CopcHierarchyTree> {
+  async loadRoot(
+    options: Pick<HierarchyQueryOptions, "signal" | "performanceObserver"> = {},
+  ): Promise<CopcHierarchyTree> {
     const startedAt = performanceNow();
     const generation = this.cacheGeneration;
     try {
-      await this.loadPage(this.source.getRootHierarchyPage());
+      await waitForQueryPage(
+        this.loadPage(
+          this.source.getRootHierarchyPage(),
+          options.performanceObserver,
+        ),
+        options.signal,
+      );
+      throwIfQueryAborted(options.signal);
     } finally {
       if (generation === this.cacheGeneration) {
         this.rootHierarchyLoadDurationMs = Math.max(

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -11,6 +11,10 @@ import {
   InMemoryByteSource,
   RustCopcBackend,
 } from "../../../../index.ts";
+import {
+  createCopcContext,
+  createCopcPointFieldSelection,
+} from "../../../../core.ts";
 import { HierarchyLoader } from "../../../../core/copc/hierarchy/HierarchyLoader.ts";
 import {
   createPointTransformer,
@@ -232,6 +236,32 @@ test("both built-in backends open Blob inputs with partial reads and matching me
   assert.ok(
     ranges.every(({ start }) => Number.isSafeInteger(start) && start >= 0),
   );
+});
+
+test("Rust reports LAS Extra Bytes as unsupported at open and node request boundaries", async () => {
+  await withFixture(async (fixture, fixturePath) => {
+    const configured = await captureError(() =>
+      new RustCopcBackend().open(fixturePath, {
+        extraDimensions: ["leg_id"],
+      }),
+    );
+    assert.deepEqual(configured, { stage: "decode", code: "unsupported" });
+
+    const rust = await new RustCopcBackend({
+      createByteSource: (source) => new InMemoryByteSource(fixture.bytes, source),
+    }).open(fixturePath);
+    const root = await rust.loadHierarchyPage(rust.getRootHierarchyPage());
+    await assert.rejects(
+      rust.loadPointDataBuffer(root.nodes[0], new Set(["position"]), {
+        extraDimensions: ["leg_id"],
+      }),
+      (error) =>
+        error instanceof CopcBackendError &&
+        error.stage === "decode" &&
+        error.code === "unsupported",
+    );
+    rust.destroy();
+  });
 });
 
 test("shared backend contract covers incremental hierarchy discovery from #41", async () => {
@@ -616,6 +646,56 @@ test(
       { ...rustInspection, backend: undefined },
       { ...copcJsInspection, backend: undefined },
     );
+  },
+);
+
+test(
+  "public Core prepares Autzen node data with both built-in backends",
+  {
+    skip: skipIntegration || !existsSync(samplePath),
+  },
+  async () => {
+    const bytes = await readFile(samplePath);
+    for (const backend of ["copc-js", "rust"]) {
+      const source = await createCopcContext(
+        new InMemoryByteSource(bytes, `memory://autzen-${backend}`),
+        backend,
+      );
+      try {
+        const hierarchy = new HierarchyLoader(source, source.getMetadata().cube);
+        const root = await hierarchy.loadRoot();
+        const node = root.nodes.find((entry) => entry.pointCount > 0);
+        assert.ok(node, `${backend} root hierarchy contains a point node`);
+
+        const result = await source.loadPreparedNodeData(
+          node,
+          createCopcPointFieldSelection(["position", "intensity"]),
+        );
+        const coordinates = result.pointData.world.coordinates;
+        assert.ok(coordinates instanceof Float64Array);
+        assert.equal(coordinates.length, node.pointCount * 3);
+        assert.ok(result.availableFields.has("position"));
+        assert.ok(result.availableFields.has("intensity"));
+        assert.equal(
+          result.transformPlan.target.worldCoordinateSystem,
+          "wgs84-ecef-meters",
+        );
+        assert.equal(result.sourceGeneration, source.sourceGeneration);
+        assert.equal(source.isCurrent(result.sourceGeneration), true);
+        assert.equal(result.ecefBoundsKind, "decoded-point-content");
+        assert.ok(result.ecefBounds);
+        for (let index = 0; index < coordinates.length; index += 3) {
+          assert.ok(coordinates[index] >= result.ecefBounds.minX);
+          assert.ok(coordinates[index] <= result.ecefBounds.maxX);
+          assert.ok(coordinates[index + 1] >= result.ecefBounds.minY);
+          assert.ok(coordinates[index + 1] <= result.ecefBounds.maxY);
+          assert.ok(coordinates[index + 2] >= result.ecefBounds.minZ);
+          assert.ok(coordinates[index + 2] <= result.ecefBounds.maxZ);
+        }
+      } finally {
+        source.close();
+      }
+    }
   },
 );
 

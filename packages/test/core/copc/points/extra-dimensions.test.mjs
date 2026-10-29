@@ -2,7 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { getCopcPointFieldSelection } from "../../../../index.ts";
-import { toCopcPointView } from "../../../../core/copc/backend/copcJsBackend.ts";
+import {
+  resolveCopcJsRequestExtraDimensions,
+  toCopcPointView,
+} from "../../../../core/copc/backend/copcJsBackend.ts";
 import {
   createExtraDimensionReaders,
   mapCopcExtraDimensionMetadata,
@@ -155,6 +158,41 @@ test("requested names missing from the schema are skipped and duplicates collaps
   );
 
   assert.deepEqual([...readers.keys()], ["ce"]);
+});
+
+test("per-node Extra Bytes requests are exact, configured, and source-schema checked", () => {
+  assert.deepEqual(
+    resolveCopcJsRequestExtraDimensions(
+      ["mission_id", "ce"],
+      ["ce", "mission_id", "ce"],
+      ["mission_id", "signed_id", "ce"],
+    ),
+    ["ce", "mission_id"],
+  );
+  assert.deepEqual(
+    resolveCopcJsRequestExtraDimensions("*", ["signed_id"], ["signed_id"]),
+    ["signed_id"],
+  );
+  assert.deepEqual(
+    resolveCopcJsRequestExtraDimensions(["mission_id"], undefined, []),
+    ["mission_id"],
+  );
+  assert.equal(
+    resolveCopcJsRequestExtraDimensions(["mission_id"], [], []),
+    undefined,
+  );
+  assert.throws(
+    () => resolveCopcJsRequestExtraDimensions(undefined, ["ce"], ["ce"]),
+    /configured when the source is opened/u,
+  );
+  assert.throws(
+    () => resolveCopcJsRequestExtraDimensions(["mission_id"], ["CE"], ["ce"]),
+    /not configured/u,
+  );
+  assert.throws(
+    () => resolveCopcJsRequestExtraDimensions("*", ["missing"], ["ce"]),
+    /not available/u,
+  );
 });
 
 test("64-bit integers that are scaled, or lack decoded records, use the numeric getter", () => {

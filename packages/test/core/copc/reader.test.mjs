@@ -1206,7 +1206,7 @@ test("CopcCesiumLayer point-cache diagnostics reset across unload, reload, and d
     z: 0,
     pointCount: 1,
     pointDataOffset: 0,
-    pointDataLength: 0,
+    pointDataLength: 1,
   };
   const backend = {
     async open(source) {

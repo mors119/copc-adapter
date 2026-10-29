@@ -646,19 +646,21 @@ export class RustCopcReader {
       pageOffset,
       pageLength,
       undefined,
-      undefined,
+      options.signal,
       options.performanceObserver,
     );
-    return toHierarchySubtree(
-      await parseWithRust(bytes, (wasm, pointer, length) =>
+    throwIfRangeAborted(options.signal);
+    const parsed = await parseWithRust<RustHierarchyValue>(
+      bytes,
+      (wasm, pointer, length) =>
         wasm.parse_root_hierarchy_with_limit_json(
           pointer,
           length,
           resolveWasmMaxRangeBytes(this.source, this.maxRangeBytes),
         ),
-      ),
-      this.maxRangeBytes,
-    );
+      );
+    throwIfRangeAborted(options.signal);
+    return toHierarchySubtree(parsed, this.maxRangeBytes);
   }
 
   /** Load the root page only; referenced child pages remain lazy. */
@@ -874,6 +876,15 @@ export class RustCopcReader {
     );
     this.decodeWorkerPool?.destroy();
   }
+}
+
+function throwIfRangeAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  const error = new Error("COPC hierarchy page load was cancelled", {
+    cause: signal.reason,
+  });
+  error.name = "AbortError";
+  throw error;
 }
 
 function throwIfPointLoadAborted(signal?: AbortSignal): void {

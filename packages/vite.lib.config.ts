@@ -18,6 +18,7 @@ export default defineConfig({
     lib: {
       entry: {
         index: "index.ts",
+        core: "core.ts",
         cesium: "cesium.ts",
         three: "three.ts",
       },

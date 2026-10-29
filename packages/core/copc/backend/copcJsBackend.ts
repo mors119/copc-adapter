@@ -74,9 +74,17 @@ function mapCopcJsError(
   error: unknown,
   operation: "open" | "hierarchy" | "point",
   nodeKey?: string,
-): CopcBackendError {
+): Error {
   if (error instanceof CopcBackendError) {
     return error;
+  }
+  if (
+    (error instanceof Error && error.name === "AbortError") ||
+    (typeof DOMException !== "undefined" &&
+      error instanceof DOMException &&
+      error.name === "AbortError")
+  ) {
+    return error as Error;
   }
 
   const message = error instanceof Error ? error.message : String(error);
@@ -164,7 +172,6 @@ export function toCopcPointView(
 class CopcJsSource implements CopcSource {
   readonly source: string;
   private readonly sourceGetter: CopcRangeGetter;
-  private readonly getter: CopcRangeGetter;
   private readonly copc: Copc;
   private readonly crsWktProvenance: CopcCrsWktProvenance;
   private readonly extraDimensions?: CopcExtraDimensionSelection;
@@ -179,7 +186,6 @@ class CopcJsSource implements CopcSource {
   ) {
     this.source = source;
     this.sourceGetter = getter;
-    this.getter = (begin, end) => this.readRange(begin, end);
     this.copc = copc;
     this.crsWktProvenance = crsWktProvenance;
     this.extraDimensions = extraDimensions;
@@ -253,22 +259,25 @@ class CopcJsSource implements CopcSource {
     options: CopcHierarchyPageLoadOptions = {},
   ): Promise<CopcHierarchySubtree> {
     try {
-      const getter =
-        options.performanceObserver === undefined
-          ? this.getter
-          : (begin: number, end: number) =>
-              this.readRange(
-                begin,
-                end,
-                undefined,
-                undefined,
-                undefined,
-                options.performanceObserver,
-              );
+      if (options.signal?.aborted) {
+        throw createCopcJsAbortError(options.signal);
+      }
+      const getter = (begin: number, end: number) =>
+        this.readRange(
+          begin,
+          end,
+          undefined,
+          undefined,
+          options.signal,
+          options.performanceObserver,
+        );
       const subtree = await Copc.loadHierarchyPage(getter, {
         pageOffset: page.pageOffset,
         pageLength: page.pageLength,
       });
+      if (options.signal?.aborted) {
+        throw createCopcJsAbortError(options.signal);
+      }
       const nodes: CopcHierarchySubtree["nodes"] = [];
       const pages: CopcHierarchySubtree["pages"] = [];
 
@@ -295,6 +304,9 @@ class CopcJsSource implements CopcSource {
     fields: CopcPointFieldSelection,
     options: CopcPointLoadOptions = {},
   ): Promise<CopcPointView> {
+    const requestedExtraDimensions = this.resolveRequestExtraDimensions(
+      options.extraDimensions,
+    );
     if (!fields.has("position")) {
       throw mapCopcJsError(
         this.source,
@@ -326,7 +338,7 @@ class CopcJsSource implements CopcSource {
       // reads, so decode and wrap it here the same way Copc.loadPointDataView
       // does; the default path is unchanged.
       const points =
-        this.extraDimensions === undefined
+        requestedExtraDimensions === undefined
           ? undefined
           : await Copc.loadPointDataBuffer(
               nodeGetter,
@@ -358,8 +370,8 @@ class CopcJsSource implements CopcSource {
         blocksMainThread: true,
       });
       const extraDimensions =
-        this.extraDimensions !== undefined && points !== undefined
-          ? createExtraDimensionReaders(view, this.extraDimensions, {
+        requestedExtraDimensions !== undefined && points !== undefined
+          ? createExtraDimensionReaders(view, requestedExtraDimensions, {
               data: points,
               header: this.copc.header,
               extraBytes: this.copc.eb,
@@ -370,6 +382,16 @@ class CopcJsSource implements CopcSource {
     } catch (error: unknown) {
       throw mapCopcJsError(this.source, error, "point", hierarchyNode.key);
     }
+  }
+
+  private resolveRequestExtraDimensions(
+    requested: readonly string[] | undefined,
+  ): CopcExtraDimensionSelection | undefined {
+    return resolveCopcJsRequestExtraDimensions(
+      this.extraDimensions,
+      requested,
+      this.copc.eb.map((dimension) => dimension.name),
+    );
   }
 
   async loadPointDataBuffer(
@@ -393,6 +415,14 @@ class CopcJsSource implements CopcSource {
   setPerformanceObserver(observer: CopcPerformanceObserver | undefined): void {
     this.performanceObserver = observer;
   }
+}
+
+function createCopcJsAbortError(signal: AbortSignal): Error {
+  const error = new Error("COPC operation was cancelled", {
+    cause: signal.reason,
+  });
+  error.name = "AbortError";
+  return error;
 }
 
 async function inspectCrsWktProvenance(
@@ -440,6 +470,46 @@ function mergeExtraDimensionSelections(
   if (configured === undefined) return requested;
   if (requested === undefined) return configured;
   return [...new Set([...configured, ...requested])];
+}
+
+/** Resolve an exact per-node Extra Bytes subset against source configuration and schema. */
+export function resolveCopcJsRequestExtraDimensions(
+  configuredSelection: CopcExtraDimensionSelection | undefined,
+  requested: readonly string[] | undefined,
+  availableNames: readonly string[],
+): CopcExtraDimensionSelection | undefined {
+  if (requested === undefined) return configuredSelection;
+  if (!Array.isArray(requested)) {
+    throw new TypeError("extraDimensions must be an array of exact names");
+  }
+  if (requested.length === 0) return undefined;
+  if (configuredSelection === undefined) {
+    throw new Error(
+      "COPC Extra Dimensions must be configured when the source is opened before they can be requested per node",
+    );
+  }
+
+  const configured = configuredSelection === "*"
+    ? undefined
+    : new Set(configuredSelection);
+  const available = new Set(availableNames);
+  const seen = new Set<string>();
+  for (const name of requested) {
+    if (typeof name !== "string" || name.trim().length === 0) {
+      throw new TypeError("Extra Dimension names must be non-empty strings");
+    }
+    if (seen.has(name)) continue;
+    seen.add(name);
+    if (configured && !configured.has(name)) {
+      throw new Error(
+        `COPC Extra Dimension was not configured when the source was opened: ${name}`,
+      );
+    }
+    if (!available.has(name)) {
+      throw new Error(`COPC Extra Dimension is not available: ${name}`);
+    }
+  }
+  return [...seen];
 }
 
 /** Opens COPC resources through copc.js. */

@@ -23,6 +23,12 @@ export type CopcPointLoadOptions = {
    */
   workload?: "view" | "spatial-query";
   /**
+   * Exact, case-sensitive subset of Extra Bytes configured when the source
+   * opened. Omit to use the source-wide selection. Rust/WASM does not support
+   * Extra Bytes and rejects non-empty requests.
+   */
+  extraDimensions?: readonly string[];
+  /**
    * Override the source-wide performance observer for this point read.
    * `null` suppresses reporting for the request; `undefined` uses the source observer.
    */
