@@ -105,10 +105,12 @@ export type {
   CopcPointField,
   CopcPointFieldSelection,
 } from "./core/copc/points/fieldSelection";
+export type { CopcExtraDimensionSelection } from "./core/copc/points/extraDimensions";
 export type {
   CopcMetadata,
   CopcPoint,
   CopcExtraDimensionValues,
+  CopcExtraDimensionMetadata,
   CopcPointAttributes,
   CopcPointBuffer,
   CopcPointData,
@@ -214,6 +216,10 @@ export type {
   CopcPointRendererOptions,
   CopcValueRange,
 } from "./core/streaming/renderer";
+export type {
+  CopcDimensionColorRampStop,
+  CopcDimensionStyle,
+} from "./core/point/style/pointStyle";
 export type {
   BoundingSphere,
   BoundingSphereInput,

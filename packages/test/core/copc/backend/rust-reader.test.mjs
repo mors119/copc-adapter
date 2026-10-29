@@ -26,6 +26,21 @@ const samplePath = path.resolve(
   "../../../../../samples/local/autzen.copc.laz",
 );
 
+test("Rust backend rejects Extra Bytes selection without falling back to copc-js", async () => {
+  const backend = new RustCopcBackend();
+  await assert.rejects(
+    () =>
+      backend.open("memory://rust-extra-dimensions.copc.laz", {
+        extraDimensions: ["canopy_height"],
+      }),
+    (error) =>
+      error instanceof CopcBackendError &&
+      error.stage === "decode" &&
+      error.code === "unsupported" &&
+      /Rust COPC backend does not decode LAS Extra Bytes/u.test(error.message),
+  );
+});
+
 function putU16(bytes, offset, value) {
   new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).setUint16(
     offset,

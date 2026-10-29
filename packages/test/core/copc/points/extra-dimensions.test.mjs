@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 
 import { getCopcPointFieldSelection } from "../../../../index.ts";
 import { toCopcPointView } from "../../../../core/copc/backend/copcJsBackend.ts";
-import { createExtraDimensionReaders } from "../../../../core/copc/points/extraDimensions.ts";
+import {
+  createExtraDimensionReaders,
+  mapCopcExtraDimensionMetadata,
+  resolveCopcExtraDimensionSelection,
+} from "../../../../core/copc/points/extraDimensions.ts";
 import { inspectCopcPoint } from "../../../../core/copc/points/pointInspection.ts";
 import { validateCopcPointBuffer } from "../../../../core/copc/points/loadPointData.ts";
 import { createPreparedPointData } from "../../../../core/point/preparedPoint.ts";
@@ -16,6 +20,44 @@ const MISSION_OFFSET = 36;
 const SIGNED_OFFSET = 44;
 const FLOAT_OFFSET = 52;
 const LARGE_ID = 10650350042228091829n; // above Number.MAX_SAFE_INTEGER
+
+test("dimension metadata preserves source descriptors and decoded NoData values", () => {
+  assert.deepEqual(
+    mapCopcExtraDimensionMetadata([
+      { name: "height", type: "signed", length: 2, scale: 0.01, offset: 4, nodata: -9999 },
+      { name: "raw", type: "float", length: 4 },
+      { name: "overflow", type: "float", length: 8, scale: Number.MAX_VALUE, nodata: 2 },
+    ]),
+    [
+      {
+        name: "height",
+        type: "signed",
+        length: 2,
+        scale: 0.01,
+        offset: 4,
+        noData: -9999 * 0.01 + 4,
+      },
+      { name: "raw", type: "float", length: 4 },
+      { name: "overflow", type: "float", length: 8, scale: Number.MAX_VALUE },
+    ],
+  );
+});
+
+test("required and explicit dimensions merge without making reads implicit", () => {
+  assert.deepEqual(
+    resolveCopcExtraDimensionSelection(["leg_id", "CanopyHeight", "leg_id"], ["CanopyHeight", "Intensity"]),
+    ["leg_id", "CanopyHeight"],
+  );
+  assert.equal(resolveCopcExtraDimensionSelection(undefined, ["Intensity"]), undefined);
+  assert.throws(
+    () => resolveCopcExtraDimensionSelection(["  "], []),
+    /non-empty names/u,
+  );
+  assert.throws(
+    () => resolveCopcExtraDimensionSelection("height", []),
+    /array of names/u,
+  );
+});
 
 const EXTRA_BYTES = [
   { name: "mission_id", type: "unsigned", length: 8 },

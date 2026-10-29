@@ -1,4 +1,5 @@
 import type { CopcColorMode } from "../copc/points/fieldSelection";
+import type { CopcDimensionStyle } from "../point/style/pointStyle";
 import type { RenderablePointData } from "../point/compactEPointCache";
 
 /** A project-owned numeric range used by renderer-independent styling. */
@@ -25,6 +26,8 @@ export type CopcPointRendererOptions = {
   elevationRange?: CopcValueRange;
   /** Dataset-stable source RGB display scale when RGB styling is active. */
   rgbMax?: 255 | 65535;
+  /** Numeric dimension ramp when `colorMode` is `dimension`. */
+  dimension?: CopcDimensionStyle;
   /** Optional project-owned identity retained by an engine's picking path. */
   pointId?: (pointIndex: number) => unknown;
   /** Whether the point should be visible while retaining its original identity. */

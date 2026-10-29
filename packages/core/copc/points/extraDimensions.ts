@@ -1,7 +1,57 @@
-import type { CopcExtraDimensionReader } from "../types/copc";
+import type {
+  CopcExtraDimensionMetadata,
+  CopcExtraDimensionReader,
+} from "../types/copc";
 
 /** Names of extra schema dimensions to read per point, or `'*'` for every non-standard one. */
 export type CopcExtraDimensionSelection = readonly string[] | "*";
+
+/** Convert copc.js descriptors to point-inspection value semantics. */
+export function mapCopcExtraDimensionMetadata(
+  descriptors: readonly {
+    name: string;
+    type?: "signed" | "unsigned" | "float";
+    length: number;
+    scale?: number;
+    offset?: number;
+    nodata?: number;
+  }[],
+): CopcExtraDimensionMetadata[] {
+  return descriptors.map((dimension) => {
+    const decodedNoData =
+      dimension.nodata === undefined
+        ? undefined
+        : dimension.nodata * (dimension.scale ?? 1) + (dimension.offset ?? 0);
+    return {
+      name: dimension.name,
+      ...(dimension.type === undefined ? {} : { type: dimension.type }),
+      length: dimension.length,
+      ...(dimension.scale === undefined ? {} : { scale: dimension.scale }),
+      ...(dimension.offset === undefined ? {} : { offset: dimension.offset }),
+      ...(decodedNoData === undefined || !Number.isFinite(decodedNoData)
+        ? {}
+        : { noData: decodedNoData }),
+    };
+  });
+}
+
+/** Merge explicit and style-required names without enabling implicit all-field reads. */
+export function resolveCopcExtraDimensionSelection(
+  explicit: readonly string[] | undefined,
+  requiredNames: readonly (string | undefined)[],
+): readonly string[] | undefined {
+  if (explicit !== undefined && !Array.isArray(explicit)) {
+    throw new TypeError("extraDimensions must be an array of names");
+  }
+  const names = [...(explicit ?? []), ...requiredNames.filter((name) => name !== undefined)];
+  for (const name of names) {
+    if (typeof name !== "string" || name.trim().length === 0) {
+      throw new TypeError("extraDimensions entries must be non-empty names");
+    }
+  }
+  const selected = [...new Set(names.filter((name) => name !== "Intensity"))];
+  return selected.length > 0 ? selected : undefined;
+}
 
 /** The point-view surface needed to read extra dimensions. */
 export type ExtraDimensionSourceView = {

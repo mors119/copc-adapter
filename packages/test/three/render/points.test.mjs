@@ -105,6 +105,48 @@ test("ThreePointRenderer updates layer opacity without replacing geometry", () =
   assert.equal(newPoints.visible, true);
   renderer.destroy();
 });
+
+test("ThreePointRenderer preserves dimension palette alpha unless layer opacity overrides it", () => {
+  const { renderer } = createRenderer();
+  const points = {
+    ...createPoints(),
+    attributes: {
+      extraDimensions: {
+        canopy_height: new Float64Array([0, 50]),
+      },
+    },
+  };
+  const dimensionOptions = {
+    ...options(),
+    colorMode: "dimension",
+    dimension: {
+      name: "canopy_height",
+      range: { min: 0, max: 50 },
+      palette: [
+        { position: 0, color: { red: 0, green: 0, blue: 1, alpha: 0 } },
+        { position: 1, color: { red: 1, green: 0, blue: 0, alpha: 0.8 } },
+      ],
+    },
+  };
+
+  renderer.addOrUpdateNode("node-a", points, dimensionOptions);
+  const renderedPoints = renderer.getRoot().children[0];
+  const colors = renderedPoints.geometry.getAttribute("color");
+  assert.equal(colors.itemSize, 4);
+  assert.deepEqual(Array.from(colors.array), [0, 0, 1, 0, 1, 0, 0, Math.fround(0.8)]);
+  assert.equal(renderedPoints.material.opacity, 1);
+
+  renderer.setOpacity(0.25);
+  assert.equal(renderedPoints.material.opacity, 0.25);
+  assert.deepEqual(Array.from(colors.array), [0, 0, 1, 1, 1, 0, 0, 1]);
+
+  renderer.addOrUpdateNode("node-b", points, dimensionOptions);
+  const newColors = renderer.getRoot().children.find((node) => node.name === "node-b")
+    .geometry.getAttribute("color");
+  assert.deepEqual(Array.from(newColors.array), [0, 0, 1, 1, 1, 0, 0, 1]);
+  renderer.destroy();
+});
+
 test("updates a node without leaking its previous geometry or material", () => {
   const { renderer } = createRenderer();
   renderer.addOrUpdateNode("node-a", createPoints(), options());

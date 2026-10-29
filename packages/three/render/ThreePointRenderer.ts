@@ -24,6 +24,7 @@ import {
   getThreePointsMaterialOptions,
   prepareThreePointColorBuffer,
 } from "../style/pointStyle";
+import { prepareCopcPointColorBufferWithAlpha } from "../../core/point/style/pointStyle";
 import type {
   CopcPointRenderer,
   CopcPointRendererOptions,
@@ -230,6 +231,7 @@ export class ThreePointRenderer implements CopcPointRenderer {
   private localOrigin?: Wgs84EcefPoint;
   private localFrame?: DatasetLocalFrame;
   private opacity = 0.9;
+  private opacityOverride = false;
   private destroyed = false;
 
   constructor(options: ThreePointRendererConstructorOptions = {}) {
@@ -275,9 +277,18 @@ export class ThreePointRenderer implements CopcPointRenderer {
   setOpacity(opacity: number): void {
     assertCopcLayerOpacity(opacity);
     this.opacity = opacity;
+    this.opacityOverride = true;
     for (const points of this.pointsByNode.values()) {
       points.visible = opacity !== 0;
       (points.material as THREE.PointsMaterial).opacity = opacity;
+      const color = points.geometry.getAttribute("color");
+      if (color?.itemSize === 4) {
+        const values = color.array as Float32Array;
+        for (let index = 3; index < values.length; index += 4) {
+          values[index] = 1;
+        }
+        color.needsUpdate = true;
+      }
     }
   }
 
@@ -373,16 +384,28 @@ export class ThreePointRenderer implements CopcPointRenderer {
     const geometryStartedAt = performanceNow();
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-    geometry.setAttribute(
-      "color",
-      new THREE.BufferAttribute(
-        prepareThreePointColorBuffer(points, {
+    const usesPointAlpha = options.colorMode === "dimension";
+    const colors = usesPointAlpha
+      ? prepareCopcPointColorBufferWithAlpha(
+          points,
+          {
+            colorMode: options.colorMode,
+            elevationRange: options.elevationRange,
+            rgbMax: options.rgbMax,
+            dimension: options.dimension,
+          },
+          undefined,
+          this.opacityOverride ? 1 : undefined,
+        )
+      : prepareThreePointColorBuffer(points, {
           colorMode: options.colorMode,
           elevationRange: options.elevationRange,
           rgbMax: options.rgbMax,
-        }),
-        3,
-      ),
+          dimension: options.dimension,
+        });
+    geometry.setAttribute(
+      "color",
+      new THREE.BufferAttribute(colors, usesPointAlpha ? 4 : 3),
     );
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
@@ -395,7 +418,10 @@ export class ThreePointRenderer implements CopcPointRenderer {
     const materialStartedAt = performanceNow();
     let material: THREE.PointsMaterial;
     try {
-      material = createMaterial(options.pointSize, this.opacity);
+      material = createMaterial(
+        options.pointSize,
+        usesPointAlpha && !this.opacityOverride ? 1 : this.opacity,
+      );
     } catch (error) {
       geometry.dispose();
       throw error;

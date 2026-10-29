@@ -462,6 +462,59 @@ test("BatchedGeometryPointRenderer preserves shared color modes and point filter
   scenePrimitives.destroy();
 });
 
+test("BatchedGeometryPointRenderer preserves dimension palette alpha unless layer opacity overrides it", () => {
+  const scenePrimitives = new Cesium.PrimitiveCollection();
+  const renderer = new BatchedGeometryPointRenderer();
+  renderer.attachTo({ scene: { primitives: scenePrimitives } });
+  const points = {
+    ...createPreparedPoints(),
+    attributes: {
+      extraDimensions: {
+        canopy_height: new Float64Array([0, 50]),
+      },
+    },
+  };
+  const options = {
+    pointSize: 2,
+    colorMode: "dimension",
+    dimension: {
+      name: "canopy_height",
+      range: { min: 0, max: 50 },
+      palette: [
+        { position: 0, color: { red: 0, green: 0, blue: 1, alpha: 0 } },
+        { position: 1, color: { red: 1, green: 0, blue: 0, alpha: 0.8 } },
+      ],
+    },
+  };
+  renderer.addOrUpdateNode("alpha-node", points, options);
+
+  const primitive = scenePrimitives.get(0).get(0);
+  const colorAttribute = primitive.geometryInstances.geometry.attributes.a_color;
+  const material = primitive.appearance.material;
+  assert.equal(colorAttribute.componentsPerAttribute, 4);
+  assert.deepEqual(
+    Array.from(colorAttribute.values),
+    [0, 0, 1, 0, 1, 0, 0, Math.fround(0.8)],
+  );
+  assert.equal(material.uniforms.u_layerOpacity, 1);
+  assert.equal(material.uniforms.u_overridePointAlpha, 0);
+  assert.equal(primitive.appearance.isTranslucent(), true);
+  assert.match(
+    primitive.appearance.getFragmentShaderSource(),
+    /opacityMaterial\.diffuse\.r > 0\.5 \? opacityMaterial\.alpha : v_color\.a/u,
+  );
+
+  renderer.setOpacity(0.25);
+  assert.equal(material.uniforms.u_layerOpacity, 0.25);
+  assert.equal(material.uniforms.u_overridePointAlpha, 1);
+  assert.equal(primitive.appearance.isTranslucent(), true);
+  renderer.setOpacity(1);
+  assert.equal(primitive.appearance.isTranslucent(), false);
+
+  renderer.destroy();
+  scenePrimitives.destroy();
+});
+
 test("BatchedGeometryPointRenderer consumes compact E buffers without geographic triples", () => {
   const scenePrimitives = new Cesium.PrimitiveCollection();
   const renderer = new BatchedGeometryPointRenderer();

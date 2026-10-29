@@ -234,6 +234,9 @@ function createBackend({
   onFields,
   metadata: metadataOverride,
   sourceFields = ["position", "intensity", "classification", "rgb"],
+  extraDimensionData,
+  extraDimensionMetadata,
+  configuredExtraDimensions,
 } = {}) {
   const node = {
     key: "0-0-0-0",
@@ -268,6 +271,9 @@ function createBackend({
       return lastOpenOptions;
     },
     backend: {
+      ...(configuredExtraDimensions === undefined
+        ? {}
+        : { configuredExtraDimensions }),
       async open(source, options) {
         lastOpenOptions = options;
         openCount += 1;
@@ -293,6 +299,9 @@ function createBackend({
                   maxY: 45,
                   maxZ: 20,
                 },
+                ...(extraDimensionMetadata === undefined
+                  ? {}
+                  : { extraDimensions: extraDimensionMetadata }),
               }
             );
           },
@@ -342,6 +351,9 @@ function createBackend({
                   blue: new Uint16Array([0, 255]),
                 }
               : {}),
+            ...(extraDimensionData === undefined
+              ? {}
+              : { extraDimensions: extraDimensionData }),
           },
         };
       },
@@ -1267,6 +1279,166 @@ test("runtime Cesium styling filters cached points without another point-chunk r
   assert.equal(layer.getSnapshot().streamingUpdateCount, streamingUpdateCount);
   assert.equal(viewer.addedCollections.length, 1);
   assert.equal(viewer.removedCollections.length, 0);
+  layer.destroy();
+});
+
+test("dimension ramp, NoData filter, and picking reuse cached Extra Bytes", async () => {
+  const source = createBackend({
+    extraDimensionData: {
+      canopy_height: new Float64Array([20, -9999]),
+    },
+    extraDimensionMetadata: [
+      {
+        name: "canopy_height",
+        type: "float",
+        length: 8,
+        noData: -9999,
+      },
+    ],
+  });
+  const picked = [];
+  const layer = new CopcCesiumLayer({
+    url: "memory://dimension-style.copc.laz",
+    backend: source.backend,
+    decoder: source.decoder,
+    attributeLoading: "required",
+    colorMode: "dimension",
+    dimension: {
+      name: "canopy_height",
+      range: { min: 0, max: 100 },
+      palette: [
+        { position: 0, color: { red: 0, green: 0, blue: 1 } },
+        { position: 1, color: { red: 1, green: 0, blue: 0 } },
+      ],
+    },
+    dimensionFilter: { name: "canopy_height", min: 10, max: 30 },
+    onPointPicked: (point) => picked.push(point),
+  });
+  const viewer = createFakeViewer();
+  const nodeKey = "0-0-0-0";
+
+  await layer.load();
+  assert.deepEqual(source.lastOpenOptions.extraDimensions, ["canopy_height"]);
+  assert.equal(layer.getStyle().dimension.missingValue, -9999);
+  assert.equal(layer.getStyle().dimensionFilter.missingValue, -9999);
+  layer.attachTo(viewer);
+  await waitFor(() => layer.getSnapshot().renderedNodeKeys.length === 1);
+
+  const collection = getLayerPointCollection(viewer);
+  assert.equal(collection.get(0).show, true);
+  assert.equal(collection.get(1).show, false);
+  assert.deepEqual(
+    [collection.get(0).color.red, collection.get(0).color.green, collection.get(0).color.blue],
+    [0.2, 0, 0.8],
+  );
+  assert.deepEqual(
+    [collection.get(1).color.red, collection.get(1).color.green, collection.get(1).color.blue],
+    [0, 1, 1],
+  );
+
+  const controller = layer.controller;
+  viewer.scene.pick = () => ({
+    id: { nodeKey, pointIndex: 0, ownerId: controller.pointPicker.ownerId },
+  });
+  controller.pointPicker.pick(viewer, new Cesium.Cartesian2(10, 10));
+  assert.equal(layer.getSelectedPoint().dimensions.canopy_height, 20);
+  assert.equal(picked.at(-1).dimensions.canopy_height, 20);
+
+  const requestsBefore = source.pointChunkRequestCount;
+  const decodesBefore = source.decodeCount;
+  const cacheBefore = layer.getPointCacheDiagnostics();
+  const hierarchyBefore = layer.getHierarchyDiagnostics();
+  layer.setStyle({
+    dimensionFilter: { name: "canopy_height", min: 20, max: 20 },
+    dimension: {
+      name: "canopy_height",
+      range: { min: 0, max: 100 },
+      palette: [
+        { position: 0, color: { red: 0, green: 1, blue: 0 } },
+        { position: 1, color: { red: 1, green: 1, blue: 0 } },
+      ],
+    },
+  });
+
+  assert.equal(collection.get(0).show, true);
+  assert.equal(collection.get(1).show, false);
+  assert.deepEqual(
+    [collection.get(0).color.red, collection.get(0).color.green, collection.get(0).color.blue],
+    [0.2, 1, 0],
+  );
+  assert.equal(source.pointChunkRequestCount, requestsBefore);
+  assert.equal(source.decodeCount, decodesBefore);
+  assert.deepEqual(layer.getPointCacheDiagnostics(), cacheBefore);
+  assert.deepEqual(layer.getHierarchyDiagnostics(), hierarchyBefore);
+  assert.equal(layer.getSelectedPoint().dimensions.canopy_height, 20);
+  layer.destroy();
+});
+
+test("backend-configured Extra Bytes allow dimension restyling from cached points", async () => {
+  const source = createBackend({
+    extraDimensionData: {
+      canopy_height: new Float64Array([20, 40]),
+    },
+    extraDimensionMetadata: [
+      { name: "canopy_height", type: "float", length: 8 },
+    ],
+    configuredExtraDimensions: ["canopy_height"],
+  });
+  const layer = new CopcCesiumLayer({
+    url: "memory://backend-configured-dimension-style.copc.laz",
+    backend: source.backend,
+    decoder: source.decoder,
+    attributeLoading: "required",
+  });
+  const viewer = createFakeViewer();
+
+  await layer.load();
+  assert.deepEqual(source.lastOpenOptions.extraDimensions, ["canopy_height"]);
+  layer.attachTo(viewer);
+  await waitFor(() => layer.getSnapshot().renderedNodeKeys.length === 1);
+
+  const requestsBefore = source.pointChunkRequestCount;
+  const decodesBefore = source.decodeCount;
+  layer.setStyle({
+    colorMode: "dimension",
+    dimension: { name: "canopy_height", range: { min: 0, max: 100 } },
+    dimensionFilter: { name: "canopy_height", min: 10, max: 30 },
+  });
+
+  const collection = getLayerPointCollection(viewer);
+  assert.equal(collection.get(0).show, true);
+  assert.equal(collection.get(1).show, false);
+  assert.equal(source.pointChunkRequestCount, requestsBefore);
+  assert.equal(source.decodeCount, decodesBefore);
+  layer.destroy();
+});
+
+test("64-bit Extra Bytes cannot be styled and failed restyling leaves style intact", async () => {
+  const source = createBackend({
+    extraDimensionData: { record_id: new BigUint64Array([12n, 42n]) },
+    extraDimensionMetadata: [
+      { name: "record_id", type: "unsigned", length: 8 },
+    ],
+  });
+  const layer = new CopcCesiumLayer({
+    url: "memory://integer-dimension-style.copc.laz",
+    backend: source.backend,
+    decoder: source.decoder,
+    colorMode: "rgb",
+    extraDimensions: ["record_id"],
+  });
+
+  await layer.load();
+  const before = layer.getStyle();
+  assert.throws(
+    () =>
+      layer.setStyle({
+        colorMode: "dimension",
+        dimension: { name: "record_id", range: { min: 0, max: 100 } },
+      }),
+    /not supported for numeric styling/u,
+  );
+  assert.deepEqual(layer.getStyle(), before);
   layer.destroy();
 });
 

@@ -111,6 +111,7 @@ export type {
   CopcPointField,
   CopcPointFieldSelection,
 } from "./core/copc/points/fieldSelection";
+export type { CopcExtraDimensionSelection } from "./core/copc/points/extraDimensions";
 export type {
   CopcCesiumLayerOptions,
   CopcCesiumLayerSnapshot,
@@ -135,6 +136,7 @@ export type {
   CopcMetadata,
   CopcPoint,
   CopcExtraDimensionValues,
+  CopcExtraDimensionMetadata,
   CopcPointAttributes,
   CopcPointBuffer,
   CopcPointData,
@@ -250,6 +252,9 @@ export {
   resolveCopcPointStyleOptions,
 } from "./core/point/style/pointStyle";
 export type {
+  CopcDimensionColorRampStop,
+  CopcDimensionFilter,
+  CopcDimensionStyle,
   CopcElevationRange,
   CopcNormalizedColor,
   CopcPointStyleInput,

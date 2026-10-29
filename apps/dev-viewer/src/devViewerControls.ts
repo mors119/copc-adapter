@@ -1,9 +1,9 @@
 import type {
   CopcBackendName,
-  CopcColorMode,
   RangeValidationPolicy,
   RefinementAlgorithm,
 } from "@frillab/copc-adapter";
+import type { WorkbenchColorMode } from "../../shared/workbench-config";
 import { mountSegmentedControl } from "../../shared/ui-controls";
 import { mountSchemaOptionPanel } from "../../shared/workbench/SchemaOptionPanel.ts";
 import { renderSharedSpecialControl } from "../../shared/workbench/specialControls.ts";
@@ -31,7 +31,7 @@ export type DevViewerControlsOptions = {
   ) => void;
   readonly onBackendSelected: (backend: CopcBackendName) => void;
   readonly onCameraPresetSelected: (preset: CameraPreset) => number;
-  readonly onColorModeSelected: (mode: CopcColorMode) => void;
+  readonly onColorModeSelected: (mode: WorkbenchColorMode) => void;
   readonly onRefinementAlgorithmSelected: (
     algorithm: RefinementAlgorithm,
   ) => void;
@@ -191,7 +191,7 @@ export function mountDevViewerControls(
         options.onBackendSelected(value as CopcBackendName);
         break;
       case "rendering.colorMode":
-        options.onColorModeSelected(value as CopcColorMode);
+        options.onColorModeSelected(value as WorkbenchColorMode);
         break;
       case "rendering.cesiumPointRenderer":
         options.onCesiumRendererSelected(value as CesiumPointRendererVariant);

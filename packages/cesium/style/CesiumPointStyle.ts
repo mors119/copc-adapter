@@ -1,4 +1,8 @@
 import type { CopcColorMode } from "../../core/copc/points/fieldSelection";
+import type {
+  CopcDimensionFilter,
+  CopcDimensionStyle,
+} from "../../core/point/style/pointStyle";
 
 /** Include and/or exclude LAS classification codes (unsigned byte values). */
 export type CopcClassificationFilter = {
@@ -14,6 +18,10 @@ export type CopcCesiumPointStyle = {
   colorMode: CopcColorMode;
   /** Optional LAS classification visibility filter. */
   classificationFilter?: CopcClassificationFilter;
+  /** Numeric dimension ramp used when `colorMode` is `dimension`. */
+  dimension?: CopcDimensionStyle;
+  /** Optional inclusive numeric visibility filter for a retained dimension. */
+  dimensionFilter?: CopcDimensionFilter;
 };
 
 /** Partial update accepted by `CopcCesiumLayer.setStyle()`. */
@@ -22,4 +30,8 @@ export type CopcCesiumPointStyleUpdate = {
   colorMode?: CopcColorMode;
   /** Pass `null` to clear the current classification filter. */
   classificationFilter?: CopcClassificationFilter | null;
+  /** New dimension ramp; pass `null` to remove the stored ramp. */
+  dimension?: CopcDimensionStyle | null;
+  /** Pass `null` to clear the current numeric dimension filter. */
+  dimensionFilter?: CopcDimensionFilter | null;
 };

@@ -6,6 +6,7 @@ import type {
 import type { CopcWorkerDiagnostics } from "../../core/copc/backend/types";
 import type { CopcPointInspection } from "../../core/copc/points/pointInspection";
 import type { CopcColorMode } from "../../core/copc/points/fieldSelection";
+import type { CopcDimensionStyle } from "../../core/point/style/pointStyle";
 import type {
   GeographicPointBuffer,
   PreparedPointData,
@@ -37,6 +38,10 @@ export type CopcThreeLayerOptions = {
   opacity?: number;
   /** Point color mapping. Defaults to the fixed cyan fallback. */
   colorMode?: CopcColorMode;
+  /** Numeric dimension ramp used with `colorMode: 'dimension'`. */
+  dimension?: CopcDimensionStyle;
+  /** Extra Bytes dimensions to retain for styling or point inspection. */
+  extraDimensions?: readonly string[];
   /** Retained point-coordinate layout. Defaults to compact E; choose A to retain exact Source and Geographic arrays. */
   coordinateCacheLayout?: "A" | "E";
   /** Keep exact source XYZ in compact E cache entries for cache-only queries. Defaults to `false` and adds 24 bytes per cached point. */

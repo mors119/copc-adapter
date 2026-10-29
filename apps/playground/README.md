@@ -64,6 +64,38 @@ Three.js renderer is pending and the selected renderer returns to the active
 Cesium layer, the Playground reconciles that color through `setStyle()` without
 replacing the layer.
 
+For a dataset with numeric Extra Bytes, select the dimension under **Extra
+Dimensions** before loading so its values are retained in the point cache. A
+Cesium layer can then color and filter those cached values without another
+point read:
+
+```ts
+const layer = new CopcCesiumLayer({
+  url: source,
+  extraDimensions: ["CanopyHeight"],
+});
+layer.attachTo(viewer);
+await layer.load();
+layer.setStyle({
+  colorMode: "dimension",
+  dimension: {
+    name: "CanopyHeight",
+    range: { min: 0, max: 50 },
+    palette: [
+      { position: 0, color: { red: 0.05, green: 0.2, blue: 0.65 } },
+      { position: 1, color: { red: 0.85, green: 0.1, blue: 0.05 } },
+    ],
+  },
+  dimensionFilter: { name: "CanopyHeight", min: 2, max: 40 },
+});
+```
+
+This example requires a scalar dimension supported by the selected backend.
+The JavaScript backend applies LAS scale and offset before styling. Missing
+values use the fixed fallback color, and a matching range filter hides them.
+64-bit integer dimensions remain exact in point inspection but are not
+converted to display numbers.
+
 **Reset to defaults** restores Playground settings without clearing the active
 source, including a local `File` already backing the active layer.
 Runtime-compatible Cesium styles are reset immediately; constructor changes remain Pending until

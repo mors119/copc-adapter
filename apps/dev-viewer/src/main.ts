@@ -1388,7 +1388,13 @@ async function main(): Promise<void> {
     motionLookahead: initialOptions.streaming?.motionLookahead ?? true,
     rangeValidation: initialOptions.rangeValidation ?? "head-fallback",
     source: configuredSource,
-    colorMode: initialOptions.colorMode ?? "rgb",
+    // The Dev Viewer schema exposes the five modes with complete Workbench
+    // controls. Dimension mode also needs a user-supplied range and ramp, so
+    // keep that new public API mode out of this host's legacy initial config.
+    colorMode:
+      initialOptions.colorMode === "dimension"
+        ? "rgb"
+        : initialOptions.colorMode ?? "rgb",
     pointSize: initialOptions.pointSize ?? 3,
     maxNodes: initialStreaming?.maxNodes ?? 24,
     maxRenderedPoints:

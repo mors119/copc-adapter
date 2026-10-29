@@ -112,6 +112,7 @@ import {
 import type { RangeRequestDiagnostics } from "../copc/range/requestDiagnostics";
 import type { RangeValidationPolicy } from "../copc/range/types";
 import type { CopcInputSource } from "../copc/range/types";
+import type { CopcExtraDimensionSelection } from "../copc/points/extraDimensions";
 import { getCopcSourceIdentity } from "../copc/getter/createCopcGetter";
 import {
   DEFAULT_REFINEMENT_ALGORITHM,
@@ -157,6 +158,8 @@ export type CopcStreamingControllerOptions = {
   decoder?: CopcPointDecoder;
   /** Fields requested from each backend point chunk. Defaults to position only. */
   pointFields?: CopcPointFieldSelection;
+  /** Extra Bytes fields requested explicitly from backends that support them. */
+  extraDimensions?: CopcExtraDimensionSelection;
   /** Maximum retained decoded CPU point-buffer bytes. Defaults to 256 MiB. */
   maxPointCacheBytes?: number;
   /** HTTP validation policy; defaults to `head-fallback`. Use `strict` to require readable Content-Range. */
@@ -763,6 +766,7 @@ class CopcStreamingCoreImplementation<TPointData> {
           maxRangeBytes: this.options.maxRangeBytes,
           maxConcurrentRangeRequests: this.options.maxConcurrentRangeRequests,
           heightOffsetMeters: this.heightOffsetMeters,
+          extraDimensions: this.options.extraDimensions,
         },
       );
       const sourceOpenDurationMs = Math.max(

@@ -43,7 +43,9 @@ export type CopcColorMode =
   /** Color by LAS intensity. */
   | "intensity"
   /** Color by LAS classification code. */
-  | "classification";
+  | "classification"
+  /** Color by one explicitly requested numeric dimension. */
+  | "dimension";
 
 const ALL_POINT_FIELDS: CopcPointField[] = [
   "position",
@@ -75,6 +77,8 @@ export function getCopcPointFieldSelection(
       return createCopcPointFieldSelection(["position", "intensity"]);
     case "classification":
       return createCopcPointFieldSelection(["position", "classification"]);
+    case "dimension":
+      return createCopcPointFieldSelection(["position"]);
     case "fixed":
     case "elevation":
       return createCopcPointFieldSelection(["position"]);
