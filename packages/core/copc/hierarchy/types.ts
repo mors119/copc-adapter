@@ -86,6 +86,8 @@ export type CopcHierarchySubtree = {
 
 /** Per-request controls for fetching one hierarchy page. */
 export type CopcHierarchyPageLoadOptions = {
+  /** Cancels this page request without affecting other source requests. */
+  signal?: AbortSignal;
   /**
    * Override the source-wide performance observer for this page read.
    * `null` suppresses reporting for the request; `undefined` uses the source observer.

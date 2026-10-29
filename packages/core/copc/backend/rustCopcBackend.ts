@@ -156,9 +156,31 @@ function mapRustError(
   error: unknown,
   operation: "open" | "hierarchy" | "point",
   nodeKey?: string,
-): CopcBackendError {
+): Error {
   if (error instanceof CopcBackendError) {
     return error;
+  }
+  if (error instanceof Error && /extra dimension/i.test(error.message)) {
+    return new CopcBackendError(
+      source,
+      "decode",
+      "unsupported",
+      error.message,
+      { cause: error, nodeKey },
+    );
+  }
+  if (
+    (error instanceof Error && error.name === "AbortError") ||
+    (typeof DOMException !== "undefined" &&
+      error instanceof DOMException &&
+      error.name === "AbortError") ||
+    (error instanceof RangeSourceError && error.code === "aborted")
+  ) {
+    const abortError = new Error("COPC operation was cancelled", {
+      cause: error,
+    });
+    abortError.name = "AbortError";
+    return abortError;
   }
 
   if (error instanceof RangeSourceError) {
@@ -265,6 +287,7 @@ class RustCopcSource implements CopcSource {
     options: CopcPointLoadOptions = {},
   ): Promise<CopcPointBuffer> {
     try {
+      assertRustExtraDimensionsUnsupported(options);
       return await this.reader.loadPointDataBuffer(node, fields, options);
     } catch (error: unknown) {
       throw mapRustError(this.source, error, "point", node.key);
@@ -277,6 +300,7 @@ class RustCopcSource implements CopcSource {
     options: CopcPointLoadOptions = {},
   ): Promise<PreparedPointData> {
     try {
+      assertRustExtraDimensionsUnsupported(options);
       return await this.reader.loadPreparedPointData(node, fields, options);
     } catch (error: unknown) {
       throw mapRustError(this.source, error, "point", node.key);
@@ -288,6 +312,7 @@ class RustCopcSource implements CopcSource {
     fields: CopcPointFieldSelection,
     options: CopcPointLoadOptions = {},
   ): Promise<CopcPointView> {
+    assertRustExtraDimensionsUnsupported(options);
     return toCopcPointView(
       await this.loadPointDataBuffer(node, fields, options),
       fields,
@@ -308,6 +333,16 @@ class RustCopcSource implements CopcSource {
 
   destroy(): void {
     this.reader.destroy();
+  }
+}
+
+function assertRustExtraDimensionsUnsupported(
+  options: CopcPointLoadOptions,
+): void {
+  if (options.extraDimensions && options.extraDimensions.length > 0) {
+    throw new Error(
+      "Rust/WASM does not support named COPC Extra Dimension requests",
+    );
   }
 }
 

@@ -9,6 +9,7 @@
     "download-samples": "tsx scripts/download-samples.ts",
     "audit:crs": "node scripts/crs-audit.mjs",
     "test:pack": "node scripts/pack-smoke-test.mjs",
+    "test:pack:core": "node scripts/pack-core-smoke-test.mjs",
     "test:pack:three": "node scripts/pack-three-smoke-test.mjs",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",

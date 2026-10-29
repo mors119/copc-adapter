@@ -7,6 +7,7 @@ import {
   preparedPointDataToGeographicBuffer,
   transformPointBufferToPreparedPointData,
 } from "../../../index.ts";
+import { getPreparedEcefBounds } from "../../../core/point/preparedPoint.ts";
 import { geographicToEcef } from "../../../core/streaming/view.ts";
 import { toCartesian3ArrayFromBuffer } from "../../../cesium/render/renderPoints.ts";
 import { ThreePointRenderer } from "../../../three/render/ThreePointRenderer.ts";
@@ -100,6 +101,78 @@ test("prepared geographic and world coordinates remain consistent", () => {
     [...prepared.world.coordinates.slice(3, 6)],
     [expected.x, expected.y, expected.z],
   );
+});
+
+test("prepared ECEF bounds tightly enclose all transformed node points", () => {
+  const prepared = fixture();
+  const bounds = getPreparedEcefBounds(prepared);
+
+  assert.equal(bounds.coordinateSystem, "wgs84-ecef-meters");
+  for (let index = 0; index < prepared.pointCount; index += 1) {
+    const offset = index * 3;
+    for (const axis of [0, 1, 2]) {
+      assert.ok(prepared.world.coordinates[offset + axis] >= [bounds.minX, bounds.minY, bounds.minZ][axis]);
+      assert.ok(prepared.world.coordinates[offset + axis] <= [bounds.maxX, bounds.maxY, bounds.maxZ][axis]);
+    }
+  }
+});
+
+test("prepared ECEF bounds handle antimeridian, polar, extreme-height, empty, and degenerate content", () => {
+  const globalMetadata = {
+    bounds: {
+      minX: -180,
+      minY: -90,
+      minZ: -1000,
+      maxX: 180,
+      maxY: 90,
+      maxZ: 1_000_000,
+    },
+    cube: {
+      minX: -180,
+      minY: -90,
+      minZ: -1000,
+      maxX: 180,
+      maxY: 90,
+      maxZ: 1_000_000,
+    },
+  };
+  const prepared = transformPointBufferToPreparedPointData(globalMetadata, {
+    pointCount: 3,
+    coordinateSystem: "copc-source",
+    coordinates: new Float64Array([
+      179.9, 0, 0,
+      -179.9, 89.999, 1_000_000,
+      0, -89.999, -1000,
+    ]),
+  });
+  const bounds = getPreparedEcefBounds(prepared);
+  assert.ok(bounds);
+  for (let index = 0; index < prepared.pointCount; index += 1) {
+    const offset = index * 3;
+    assert.ok(prepared.world.coordinates[offset] >= bounds.minX);
+    assert.ok(prepared.world.coordinates[offset] <= bounds.maxX);
+    assert.ok(prepared.world.coordinates[offset + 1] >= bounds.minY);
+    assert.ok(prepared.world.coordinates[offset + 1] <= bounds.maxY);
+    assert.ok(prepared.world.coordinates[offset + 2] >= bounds.minZ);
+    assert.ok(prepared.world.coordinates[offset + 2] <= bounds.maxZ);
+  }
+
+  const empty = transformPointBufferToPreparedPointData(globalMetadata, {
+    pointCount: 0,
+    coordinateSystem: "copc-source",
+    coordinates: new Float64Array(),
+  });
+  assert.equal(getPreparedEcefBounds(empty), undefined);
+
+  const single = transformPointBufferToPreparedPointData(globalMetadata, {
+    pointCount: 1,
+    coordinateSystem: "copc-source",
+    coordinates: new Float64Array([12, 34, 56]),
+  });
+  const singleBounds = getPreparedEcefBounds(single);
+  assert.equal(singleBounds.minX, singleBounds.maxX);
+  assert.equal(singleBounds.minY, singleBounds.maxY);
+  assert.equal(singleBounds.minZ, singleBounds.maxZ);
 });
 
 test("Cesium and Three adapters consume the same prepared fixture", () => {

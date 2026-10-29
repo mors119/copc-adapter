@@ -8,12 +8,15 @@ integrations may import the explicit renderer paths:
 @frillab/copc-adapter         → Cesium-compatible root
 @frillab/copc-adapter/cesium  → Cesium API
 @frillab/copc-adapter/three   → Three.js API
+@frillab/copc-adapter/core    → renderer-neutral COPC source API
 ```
 
 `cesium` and `three` are optional peer dependencies. Install the renderer used
-by the application. The internal point-processing implementation is not part
-of the public API contract; its placement may change between TypeScript and
-Rust/WASM while these interfaces remain compatible.
+by the application. The `/core` entrypoint does not import either renderer and
+is intended for consumers that provide their own scheduling and output
+formats. The internal point-processing implementation is not part of the
+public API contract; its placement may change between TypeScript and Rust/WASM
+while these interfaces remain compatible.
 
 The issue #239 API and event semantics are summarized in the
 [layer API semantics matrix](proposals/issue-239-layer-api.md).
@@ -1007,6 +1010,82 @@ backends use the same point-view contract; if a backend cannot provide
 position, the query reports `unsupported-backend` as partial without a hidden
 backend fallback. Abort signals, source unload/reload, and early iterator exit
 cancel query work; early exit drains only already-started bounded reads.
+
+## COPC Tiles compatibility audit
+
+This audit records the published `@frillab/copc-adapter@0.6.0` baseline checked
+for [issue #383](https://github.com/mors119/copc-adapter/issues/383). That
+published artifact exposes `.`, `./cesium`, and `./three`; the root remains the
+backwards-compatible Cesium entrypoint. This source change adds `./core` for
+consumers of builds that include it. The npm 0.6.0 artifact predates this API.
+
+| Capability | Existing implementation | Public API after this change | Scope and limitation |
+| --- | --- | --- | --- |
+| Open HTTP and File/Blob sources | Existing `CopcBackend`, `CopcContext`, and Range sources | `createCopcContext()` returns `CopcNodeSource` from `@frillab/copc-adapter/core` | Built-in `copc-js` and opt-in Rust/WASM backends; caller-owned random access is supported |
+| Traverse root and lazy hierarchy pages | Existing `CopcSource`, parser, and `HierarchyLoader` | `CopcContext` page methods plus `HierarchyLoader` | Page queries accept a hard `maxPages`; unresolved children remain `childrenComplete: false` |
+| Load one node and select fields | Existing point view, buffer, and prepared paths | `loadPreparedNodeData(node, fields, options)` | Position is required; standard fields report actual availability; named Extra Bytes must be configured at open and may be narrowed per request |
+| Prepare WGS84 ECEF Float64 | Rust fused preparation and existing JS transform pipeline | `CopcPreparedNodeData.pointData` | Returns the A-shaped `PreparedPointData` buffers without Direct layer cache conversion |
+| ECEF bounds | Existing source-space cells and transformed point buffers | `CopcPreparedNodeData.ecefBounds` or `getPreparedEcefBounds()` | Tight conservative bounds over decoded node points; no ECEF bound is claimed for an undecoded source octree cell |
+| CRS and vertical provenance | Existing immutable `CoordinateTransformPlan` and transform pipeline | `transformPlan` on the context and prepared-node result | A transform change requires opening a new context; its generation differs |
+| Cancellation and invalidation | Range signals, Rust worker cancellation, Direct core generations | Request signals, `CopcContext.close()`, and `isCurrent()` | HTTP and Rust workers can stop supported in-flight work; started Blob reads and synchronous JS decode may finish, but stale results are rejected |
+| A/E cache compatibility | A-shaped `PreparedPointData`; Direct layer caches can use E | Source reads return the A contract | This API does not expose or rehydrate Direct E cache entries and does not change Direct defaults |
+| Renderer/package isolation | Core implementations are renderer-neutral | `@frillab/copc-adapter/core` | The entrypoint imports neither CesiumJS nor Three.js |
+
+The bounds distinction is intentional: `getNodeCellBounds()` returns a cell in
+COPC source coordinates. `ecefBounds` encloses every decoded, transformed point
+for the node and can therefore bound its point content conservatively. No
+transformed source-cell ECEF bound is offered for arbitrary nonlinear CRS or
+vertical-grid operations because transformed corners alone cannot prove one.
+
+### Renderer-neutral source usage
+
+```ts
+import {
+  createCopcContext,
+  createCopcPointFieldSelection,
+  HierarchyLoader,
+} from '@frillab/copc-adapter/core';
+
+const source = await createCopcContext('/data/autzen.copc.laz', 'copc-js', {
+  extraDimensions: ['leg_id'],
+  heightOffsetMeters: 0,
+});
+const abortController = new AbortController();
+try {
+  const metadata = source.getMetadata();
+  const hierarchy = new HierarchyLoader(source, metadata.cube);
+  const root = await hierarchy.loadRoot({ signal: abortController.signal });
+  const node = root.nodes[0];
+  if (!node) throw new Error('The root hierarchy page contains no point node');
+
+  const result = await source.loadPreparedNodeData(
+    node,
+    createCopcPointFieldSelection(['position', 'rgb']),
+    { signal: abortController.signal, extraDimensions: ['leg_id'] },
+  );
+  console.log(result.pointData.world.coordinates, result.ecefBounds);
+  console.log(result.transformPlan, result.sourceGeneration, node.childrenComplete);
+} finally {
+  source.close();
+}
+```
+
+`HierarchyLoader.loadRoot()` reads only the root hierarchy page. Use its bounded
+`query()` method or `CopcContext.loadHierarchyPage()` to continue lazily. The
+loader derives available direct children and marks completeness only after
+relevant hierarchy pages have resolved. It does not invoke the Direct
+`NodeSelector`.
+
+The prepared result's typed arrays are owned JavaScript buffers, not views into
+WASM memory. Callers may retain and read them after closing the context, but
+must not mutate or transfer them. Source metadata is returned as an immutable
+snapshot, and the transform plan carries the evidence used to prepare the
+coordinates. Empty point nodes have no ECEF content bound.
+Standard fields absent from a source are omitted and listed as unavailable;
+attributes are never zero-filled. Extra Dimension names are case-sensitive.
+The `copc-js` path preserves unscaled 64-bit integer Extra Bytes as `bigint`
+arrays where the source descriptor allows exact reads. Rust/WASM currently
+rejects Extra Bytes requests explicitly.
 
 ## Backend and point contracts
 

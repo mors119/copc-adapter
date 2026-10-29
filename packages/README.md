@@ -29,6 +29,53 @@ await layer.load();
 layer.attachTo(viewer);
 ```
 
+## Renderer-neutral COPC source
+
+The `@frillab/copc-adapter/core` entrypoint opens HTTP, `File`, or `Blob`
+sources through `createCopcContext()`, which returns the `CopcNodeSource`
+contract. It loads hierarchy pages lazily and prepares selected node data as
+WGS84 ECEF `Float64Array` buffers. It has no CesiumJS or Three.js runtime
+dependency. A consumer such as COPC Tiles can own its node scheduler and output
+format while reusing the adapter's COPC, LAS, and coordinate operations. This
+entrypoint does not generate glTF, GLB, or 3D Tiles content.
+
+The `/core` subpath is introduced by this source change. The currently
+published `@frillab/copc-adapter@0.6.0` predates it; use a published release
+whose export map includes `./core`.
+
+```ts
+import {
+  createCopcContext,
+  createCopcPointFieldSelection,
+  HierarchyLoader,
+} from '@frillab/copc-adapter/core';
+
+const source = await createCopcContext('/data/autzen.copc.laz');
+try {
+  const hierarchy = new HierarchyLoader(source, source.getMetadata().cube);
+  const root = await hierarchy.loadRoot();
+  const node = root.nodes[0];
+  if (!node) throw new Error('COPC root page contains no point node');
+
+  const prepared = await source.loadPreparedNodeData(
+    node,
+    createCopcPointFieldSelection(['position', 'rgb']),
+  );
+  // prepared.pointData.world.coordinates is WGS84 ECEF Float64 XYZ.
+  // prepared.ecefBounds encloses these decoded points.
+} finally {
+  source.close();
+}
+```
+
+Hierarchy pages are fetched on demand; `HierarchyLoader.query()` accepts a
+page limit and reports incomplete child discovery. Returned typed arrays are
+caller-retained, read-only by contract, and remain readable after source close.
+The API exposes source-space octree cells and decoded-point ECEF bounds; it
+does not claim that transformed cell corners bound nonlinear CRS operations.
+See the [public API contract](https://mors119.github.io/copc-adapter/API#copc-tiles-compatibility-audit)
+for field availability, Extra Dimensions, provenance, and cancellation rules.
+
 The default appearance is fixed cyan at 3 pixels. `url` also accepts a local
 browser `File` or `Blob`; the adapter reads requested slices without uploading
 the file.

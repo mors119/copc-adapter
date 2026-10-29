@@ -4,7 +4,10 @@ import type {
   PreparedPointData,
   PreparedPointStatistics,
 } from "../copc/types/copc";
-import type { CoordinateBuffer } from "../coordinates/types";
+import type {
+  CoordinateBuffer,
+  Wgs84EcefBounds,
+} from "../coordinates/types";
 
 type PreparedPointDataInput = {
   pointCount: number;
@@ -247,6 +250,55 @@ export function getPreparedCoordinateOperations(
   prepared: PreparedPointData,
 ): PreparedCoordinateOperationState | undefined {
   return preparedOperationStates.get(prepared);
+}
+
+/**
+ * Calculate a tight axis-aligned ECEF bound from every prepared point.
+ *
+ * The result encloses this node's decoded point content, including any
+ * configured vertical-grid correction and height offset already present in
+ * `prepared`. It is not a transformed bound for the source-space octree cell.
+ * Empty nodes return `undefined`; degenerate nodes retain equal minima and
+ * maxima. No ECEF-to-geographic conversion or point-buffer copy is performed.
+ */
+export function getPreparedEcefBounds(
+  prepared: PreparedPointData,
+): Readonly<Wgs84EcefBounds> | undefined {
+  assertPreparedPointData(prepared);
+  if (prepared.pointCount === 0) return undefined;
+
+  const values = prepared.world.coordinates;
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let minZ = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  let maxZ = Number.NEGATIVE_INFINITY;
+  for (let index = 0; index < values.length; index += 3) {
+    if (
+      !Number.isFinite(values[index]) ||
+      !Number.isFinite(values[index + 1]) ||
+      !Number.isFinite(values[index + 2])
+    ) {
+      throw new RangeError("Prepared ECEF coordinates must be finite to calculate bounds");
+    }
+    minX = Math.min(minX, values[index]);
+    minY = Math.min(minY, values[index + 1]);
+    minZ = Math.min(minZ, values[index + 2]);
+    maxX = Math.max(maxX, values[index]);
+    maxY = Math.max(maxY, values[index + 1]);
+    maxZ = Math.max(maxZ, values[index + 2]);
+  }
+
+  return Object.freeze({
+    coordinateSystem: "wgs84-ecef-meters",
+    minX,
+    minY,
+    minZ,
+    maxX,
+    maxY,
+    maxZ,
+  });
 }
 
 /** Validate the stable contract at an internal cache/worker boundary. */

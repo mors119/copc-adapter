@@ -11,6 +11,12 @@ requests to load the hierarchy and selected point chunks, and renders them
 through the renderer adapter selected by the application. The application
 keeps ownership of its own viewer or scene.
 
+The `@frillab/copc-adapter/core` package subpath also exposes a renderer-neutral
+COPC source for applications that provide their own node scheduler and output
+format; it does not build 3D Tiles content. See the
+[source API](https://mors119.github.io/copc-adapter/API#copc-tiles-compatibility-audit)
+and check that the installed release exports `./core`.
+
 ![COPC Adapter demo](docs/assets/copc-main.gif)
 
 ## Documentation

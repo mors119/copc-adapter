@@ -126,6 +126,8 @@ try {
     "package/LICENSE",
     "package/dist/index.js",
     "package/dist/index.d.ts",
+    "package/dist/core.js",
+    "package/dist/core.d.ts",
     "package/dist/cesium.js",
     "package/dist/cesium.d.ts",
     "package/dist/copc_adapter_wasm.wasm",
@@ -297,7 +299,7 @@ try {
       installedLock,
     })} verified in the isolated Cesium consumer.`,
   );
-  for (const exportPath of [".", "./cesium", "./three"]) {
+  for (const exportPath of [".", "./core", "./cesium", "./three"]) {
     if (!installedPackage.exports?.[exportPath]) {
       throw new Error(
         `Clean consumer package is missing the ${exportPath} export`,
