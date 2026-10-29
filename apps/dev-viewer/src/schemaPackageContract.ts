@@ -50,6 +50,12 @@ type LayerCompatibilityExclusions =
   | "coordinateCacheLayout"
   | "attributeLoading"
   | "classificationFilter"
+  // The Extra Bytes selector has specialized constructor code generation.
+  | "extraDimensions"
+  // Dimension styling is a public constructor/runtime contract, but the
+  // current Workbench does not collect its explicit range and ramp inputs.
+  | "dimension"
+  | "dimensionFilter"
   | "pointFields"
   | "retainSourceCoordinatesForQueries"
   | "opacity";
@@ -146,10 +152,12 @@ type WorkspaceExtraDimensions = NonNullable<
 type WorkspaceRustBackend = import("@frillab/copc-adapter/cesium").RustCopcBackendOptions;
 type WorkspaceInputSource = import("@frillab/copc-adapter/cesium").CopcInputSource;
 
-export type WorkspaceColorModeChoicesMatch = AssertEqual<
+// Keep the Workbench's legacy controls in sync while the rich dimension style
+// stays an explicit API example rather than an incomplete color-mode control.
+export type WorkspaceColorModeChoicesMatch = Assert<AssertEqual<
   SchemaChoiceValues<"rendering.colorMode">,
-  WorkspaceColorMode
->;
+  Exclude<WorkspaceColorMode, "dimension">
+>>;
 export type WorkspacePointSizeChoicesMatch = AssertEqual<
   SchemaChoiceValues<"rendering.pointSizeMode">,
   WorkspacePointSizeMode
