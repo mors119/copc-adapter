@@ -324,6 +324,18 @@ export class RustCopcBackend implements CopcBackend {
     source: CopcInputSource,
     options: CopcBackendOpenOptions = {},
   ): Promise<CopcSource> {
+    if (
+      options.extraDimensions === "*" ||
+      (Array.isArray(options.extraDimensions) &&
+        options.extraDimensions.length > 0)
+    ) {
+      throw new CopcBackendError(
+        getCopcSourceIdentity(source),
+        "decode",
+        "unsupported",
+        "The Rust COPC backend does not decode LAS Extra Bytes dimensions; select copc-js to use extraDimensions.",
+      );
+    }
     let byteSource: RandomAccessByteSource;
     try {
       const identity = getCopcSourceIdentity(source);

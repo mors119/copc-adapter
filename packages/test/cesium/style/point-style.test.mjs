@@ -95,6 +95,68 @@ test("getPointColor keeps fixed cyan and selects distinct elevation colors", () 
   );
 });
 
+test("dimension ramps clamp numeric values and use fixed cyan for missing data", () => {
+  const options = {
+    colorMode: "dimension",
+    elevationRange,
+    dimension: {
+      name: "canopy_height",
+      range: { min: 0, max: 100 },
+      palette: [
+        { position: 0, color: { red: 0, green: 0, blue: 1 } },
+        { position: 1, color: { red: 1, green: 0, blue: 0 } },
+      ],
+      missingValue: -9999,
+    },
+  };
+  const attributes = {
+    extraDimensions: {
+      canopy_height: new Float64Array([-10, 50, 120, -9999, Number.NaN]),
+    },
+  };
+  const colors = [0, 1, 2, 3, 4].map((index) =>
+    getPointColor(0, options, attributes, index),
+  );
+
+  assert.deepEqual(
+    [colors[0].red, colors[0].green, colors[0].blue],
+    [0, 0, 1],
+  );
+  assert.deepEqual(
+    [colors[1].red, colors[1].green, colors[1].blue],
+    [0.5, 0, 0.5],
+  );
+  assert.deepEqual(
+    [colors[2].red, colors[2].green, colors[2].blue],
+    [1, 0, 0],
+  );
+  for (const color of colors.slice(3)) {
+    assert.deepEqual(
+      [color.red, color.green, color.blue, color.alpha],
+      [0, 1, 1, 0.9],
+    );
+  }
+});
+
+test("dimension ramps never coerce 64-bit integer values to Number", () => {
+  assert.throws(
+    () =>
+      getPointColor(
+        0,
+        {
+          colorMode: "dimension",
+          elevationRange,
+          dimension: {
+            name: "record_id",
+            range: { min: 0, max: 100 },
+          },
+        },
+        { extraDimensions: { record_id: new BigUint64Array([1n]) } },
+      ),
+    /64-bit integer.*cannot be styled/u,
+  );
+});
+
 test("renderCopcPoints applies an elevation color per transformed height", () => {
   const viewer = {
     scene: {

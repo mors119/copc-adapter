@@ -379,6 +379,7 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
       colorMode: options.colorMode,
       elevationRange: options.elevationRange,
       rgbMax: options.rgbMax,
+      dimension: options.dimension,
     });
     const pointSizes = new Float32Array(points.pointCount);
     const pointSizeMode =

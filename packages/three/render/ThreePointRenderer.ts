@@ -380,6 +380,7 @@ export class ThreePointRenderer implements CopcPointRenderer {
           colorMode: options.colorMode,
           elevationRange: options.elevationRange,
           rgbMax: options.rgbMax,
+          dimension: options.dimension,
         }),
         3,
       ),

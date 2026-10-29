@@ -112,6 +112,29 @@ test("elevation, intensity, and classification use shared mappings", () => {
   );
 });
 
+test("dimension ramps use the same cached numeric mapping in Three colors", () => {
+  const points = createPoints({
+    extraDimensions: {
+      CanopyHeight: new Float64Array([0, 25, 50]),
+    },
+  });
+  const colors = prepareThreePointColorBuffer(points, {
+    colorMode: "dimension",
+    dimension: {
+      name: "CanopyHeight",
+      range: { min: 0, max: 50 },
+      palette: [
+        { position: 0, color: { red: 0, green: 0, blue: 1 } },
+        { position: 1, color: { red: 1, green: 0, blue: 0 } },
+      ],
+    },
+  });
+
+  assert.deepEqual(colorAt(colors, 0), [0, 0, 1]);
+  assert.deepEqual(colorAt(colors, 1), [0.5, 0, 0.5]);
+  assert.deepEqual(colorAt(colors, 2), [1, 0, 0]);
+});
+
 test("Three point material keeps pointSize in screen space deliberately", () => {
   assert.equal(THREE_POINT_SIZE_ATTENUATION, false);
   assert.deepEqual(getThreePointsMaterialOptions(4), {
@@ -136,6 +159,7 @@ test("Three styling accepts the same minimal field selection as the shared core"
     [...getCopcPointFieldSelection("classification")],
     ["position", "classification"],
   );
+  assert.deepEqual([...getCopcPointFieldSelection("dimension")], ["position"]);
 });
 
 test("shared point colors remain finite for an invalid elevation value", () => {

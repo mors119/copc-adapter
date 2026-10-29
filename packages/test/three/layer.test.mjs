@@ -45,7 +45,11 @@ test("Three opacity is rejected when a custom renderer lacks layer support", () 
   );
 });
 
-function createBackend({ pointCount = 2 } = {}) {
+function createBackend({
+  pointCount = 2,
+  extraDimensionData,
+  extraDimensionMetadata,
+} = {}) {
   const node = {
     key: "0-0-0-0",
     level: 0,
@@ -103,6 +107,9 @@ function createBackend({ pointCount = 2 } = {}) {
                 maxY: 20.001,
                 maxZ: 101,
               },
+              ...(extraDimensionMetadata === undefined
+                ? {}
+                : { extraDimensions: extraDimensionMetadata }),
             };
           },
           getRootHierarchyPage() {
@@ -117,6 +124,19 @@ function createBackend({ pointCount = 2 } = {}) {
             return {
               pointCount: node.pointCount,
               availableFields: fields,
+              ...(extraDimensionData === undefined
+                ? {}
+                : {
+                    extraDimensions: new Map(
+                      Object.entries(extraDimensionData).map(([name, values]) => [
+                        name,
+                        {
+                          valueType: "float64",
+                          read: (index) => values[index],
+                        },
+                      ]),
+                    ),
+                  }),
               getter() {
                 return () => 0;
               },
@@ -141,6 +161,9 @@ function createBackend({ pointCount = 2 } = {}) {
             red: new Uint16Array(pointCount === 0 ? [] : [255, 64]),
             green: new Uint16Array(pointCount === 0 ? [] : [0, 128]),
             blue: new Uint16Array(pointCount === 0 ? [] : [0, 255]),
+            ...(extraDimensionData === undefined
+              ? {}
+              : { extraDimensions: extraDimensionData }),
           },
         };
       },
@@ -282,6 +305,50 @@ test("default Three local rendering needs no vertical CRS metadata or geoid grid
   assert.equal(source.hierarchyRequestCount, 1);
   assert.equal(layer.getSnapshot().streamingUpdateCount, 1);
 
+  layer.destroy();
+});
+
+test("Three layer requests and colors its configured Extra Bytes dimension", async () => {
+  const values = new Float64Array([0, 50]);
+  const source = createBackend({
+    extraDimensionData: { CanopyHeight: values },
+    extraDimensionMetadata: [
+      { name: "CanopyHeight", type: "float", length: 8 },
+    ],
+  });
+  const layer = new CopcThreeLayer({
+    url: "memory://three-dimension.copc.laz",
+    backend: source.backend,
+    decoder: source.decoder,
+    colorMode: "dimension",
+    dimension: {
+      name: "CanopyHeight",
+      range: { min: 0, max: 50 },
+      palette: [
+        { position: 0, color: { red: 0, green: 0, blue: 1 } },
+        { position: 1, color: { red: 1, green: 0, blue: 0 } },
+      ],
+    },
+    extraDimensions: ["CanopyHeight"],
+    streaming: {
+      maxNodes: 1,
+      maxDepth: 0,
+      maxRenderDistanceMeters: 2000,
+      maxRenderedPoints: 10,
+    },
+  });
+  const scene = new THREE.Scene();
+  const attachment = createAttachment(scene, createCamera());
+
+  await layer.load();
+  layer.attachTo(attachment);
+  await layer.update();
+
+  assert.deepEqual(source.lastOpenOptions.extraDimensions, ["CanopyHeight"]);
+  const points = layer.getRoot().children[0];
+  const colors = points.geometry.getAttribute("color").array;
+  assert.deepEqual(Array.from(colors.slice(0, 3)), [0, 0, 1]);
+  assert.deepEqual(Array.from(colors.slice(3, 6)), [1, 0, 0]);
   layer.destroy();
 });
 

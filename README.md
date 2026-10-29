@@ -74,7 +74,7 @@ data without a separate conversion step.
 - CesiumJS rendering through a caller-owned `Viewer`
 - Three.js rendering through a caller-owned scene and render loop
 - Stable `copc-js` backend and opt-in Rust/WASM backend
-- Fixed, RGB, elevation, intensity, and classification styling
+- Fixed, RGB, elevation, intensity, classification, and numeric dimension styling
 - Typed TypeScript API and explicit layer lifecycle
 - Public point picking with a compact node/index identity and demo inspector
 - Packed npm artifact with declarations and decoder runtime assets
@@ -336,14 +336,40 @@ The supported modes are:
 - `elevation`: transformed dataset height range
 - `intensity`: normalized intensity range
 - `classification`: categorical classification palette
+- `dimension`: an explicit numeric LAS dimension range and color ramp
 
 Attribute-based modes fall back to the fixed color when the required source
 attribute is unavailable. Cesium layers retain intensity, classification, and
-RGB attributes so `setStyle()` can switch modes or apply a classification
-include/exclude filter from cached point buffers without fetching point chunks
+RGB attributes so `setStyle()` can switch modes or apply classification and
+numeric range filters from cached point buffers without fetching point chunks
 again. Classification filters accept LAS codes from `0` through `255`; points
 without a classification value are hidden while a filter is active. Use
-`classificationFilter: null` to clear a filter.
+`classificationFilter: null` to clear a classification filter.
+
+Numeric dimension coloring accepts standard LAS `Intensity` on both built-in
+backends and supported scalar Extra Bytes through `copc-js`. Extra Bytes are
+opt-in and count toward the point cache:
+
+```ts
+const layer = new CopcCesiumLayer({
+  url: 'https://example.com/data.copc.laz',
+  colorMode: 'dimension',
+  dimension: {
+    name: 'CanopyHeight',
+    range: { min: 0, max: 50 },
+  },
+  dimensionFilter: { name: 'CanopyHeight', min: 2, max: 40 },
+});
+```
+
+The style's dimension is loaded automatically; add `extraDimensions` for
+additional fields you want to inspect or switch to later. Numeric values clamp
+to the ramp ends, NoData/non-finite values use fixed cyan, and a dimension
+filter hides missing or out-of-range values. `copc-js` supports scalar signed
+and unsigned 8-, 16-, and 32-bit integers plus 32-/64-bit floats for numeric
+styling. 64-bit integer values remain exact for picking but cannot be styled as
+JavaScript numbers. Rust supports standard `Intensity` but rejects Extra Bytes
+requests explicitly.
 
 ## Camera-Driven LoD and Streaming
 

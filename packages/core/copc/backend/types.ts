@@ -11,6 +11,7 @@ import type { CopcPerformanceObserver } from "../performance";
 import type { RangeRequestDiagnosticsRecorder } from "../range/requestDiagnostics";
 import type { RangeValidationPolicy } from "../range/types";
 import type { CopcInputSource } from "../range/types";
+import type { CopcExtraDimensionSelection } from "../points/extraDimensions";
 
 /** Cancellation options for one selected node's point-data operation. */
 export type CopcPointLoadOptions = {
@@ -42,6 +43,8 @@ export type CopcBackendOpenOptions = {
   maxConcurrentRangeRequests?: number;
   /** Manual additive ellipsoidal-height correction in metres; defaults to 0. */
   heightOffsetMeters?: number;
+  /** Extra Bytes names to retain per point; omitted keeps extra attributes opt-in. */
+  extraDimensions?: CopcExtraDimensionSelection;
 };
 
 /** Cumulative job and concurrency counters for a backend decode worker pool. */

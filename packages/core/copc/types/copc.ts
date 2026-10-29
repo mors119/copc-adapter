@@ -86,6 +86,24 @@ export type CopcMetadata = {
   crsDiagnostic?: CopcCrsMetadataDiagnostic;
   /** Where source CRS WKT was found and whether VLR/EVLR values conflicted. */
   crsWktProvenance?: CopcCrsWktProvenance;
+  /** Extra Bytes descriptors exposed by the selected backend, when available. */
+  extraDimensions?: readonly CopcExtraDimensionMetadata[];
+};
+
+/** LAS Extra Bytes descriptor details retained when the backend can parse them. */
+export type CopcExtraDimensionMetadata = {
+  /** Exact source dimension name. */
+  name: string;
+  /** Signed, unsigned, or floating point representation from the LAS descriptor. */
+  type?: "signed" | "unsigned" | "float";
+  /** Number of source bytes per point for this descriptor. */
+  length: number;
+  /** LAS scale applied by the backend's point reader, when declared. */
+  scale?: number;
+  /** LAS offset applied by the backend's point reader, when declared. */
+  offset?: number;
+  /** Decoded source value used as NoData, when it can be represented as a number. */
+  noData?: number;
 };
 
 /** One decoded point in the COPC source CRS; axis units are CRS-defined. */

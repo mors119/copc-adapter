@@ -97,6 +97,15 @@ export function snapshotCopcMetadata(metadata: CopcMetadata): CopcMetadata {
     ...(metadata.offset
       ? { offset: Object.freeze({ ...metadata.offset }) }
       : {}),
+    ...(metadata.extraDimensions
+      ? {
+          extraDimensions: Object.freeze(
+            metadata.extraDimensions.map((dimension) =>
+              Object.freeze({ ...dimension }),
+            ),
+          ),
+        }
+      : {}),
     ...(metadata.crsDiagnostic
       ? {
           crsDiagnostic: Object.freeze({

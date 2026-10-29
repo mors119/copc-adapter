@@ -1,5 +1,6 @@
 import type { CopcColorMode } from "../../copc/points/fieldSelection";
 import type {
+  CopcExtraDimensionMetadata,
   CopcMetadata,
   CopcPointAttributes,
   GeographicPointBuffer,
@@ -20,6 +21,38 @@ export type CopcValueRange = {
 
 /** WGS84 ellipsoidal-height range in metres. */
 export type CopcElevationRange = CopcValueRange;
+
+/** One normalized RGB(A) stop in a dimension color ramp. */
+export type CopcDimensionColorRampStop = {
+  /** Position in the normalized input range, from 0 to 1. */
+  position: number;
+  /** Normalized color components in [0, 1]. Omitted alpha defaults to 0.9. */
+  color: { red: number; green: number; blue: number; alpha?: number };
+};
+
+/** Color one retained numeric Extra Bytes dimension with a fixed value range. */
+export type CopcDimensionStyle = {
+  /** Exact LAS Extra Bytes name, or standard LAS `Intensity`. */
+  name: string;
+  /** Inclusive display range in the values returned by point inspection. */
+  range: CopcValueRange;
+  /** Optional ordered color stops. The default ramp runs blue, cyan, yellow, red. */
+  palette?: readonly CopcDimensionColorRampStop[];
+  /** Value to treat as missing; missing values use the fixed cyan fallback. */
+  missingValue?: number;
+};
+
+/** Inclusive numeric visibility range for a retained scalar dimension. */
+export type CopcDimensionFilter = {
+  /** Exact LAS Extra Bytes name, or standard LAS `Intensity`. */
+  name: string;
+  /** Inclusive minimum value in point inspection's source-value units. */
+  min: number;
+  /** Inclusive maximum value in point inspection's source-value units. */
+  max: number;
+  /** Optional source value to treat as missing and hide. */
+  missingValue?: number;
+};
 
 /**
  * Return dataset metadata's WGS84 ellipsoidal-height range in metres.
@@ -76,6 +109,8 @@ export type CopcPointStyleOptions = {
   intensityRange?: CopcValueRange;
   /** Source RGB precision. COPC RGB is retained as Uint16 until this step. */
   rgbMax?: 255 | 65535;
+  /** Dimension mapping used by the `dimension` color mode. */
+  dimension?: CopcDimensionStyle;
 };
 
 /** Partial style overrides; omitted values are inferred from the point buffer. */
@@ -135,6 +170,13 @@ const UNKNOWN_CLASSIFICATION_COLOR: CopcNormalizedColor = {
   alpha: 230 / 255,
 };
 
+const DEFAULT_DIMENSION_PALETTE: readonly CopcDimensionColorRampStop[] = [
+  { position: 0, color: { red: 0.05, green: 0.2, blue: 0.65 } },
+  { position: 1 / 3, color: { red: 0, green: 0.75, blue: 1 } },
+  { position: 2 / 3, color: { red: 1, green: 0.85, blue: 0.1 } },
+  { position: 1, color: { red: 0.85, green: 0.1, blue: 0.05 } },
+];
+
 function cloneColor(color: CopcNormalizedColor): CopcNormalizedColor {
   return { ...color };
 }
@@ -170,6 +212,126 @@ export function normalizeIntensity(
   range: CopcValueRange,
 ): number {
   return normalizeElevation(intensity, range);
+}
+
+/** Validate and detach the range, palette, and missing-value style settings. */
+export function cloneCopcDimensionStyle(
+  style: CopcDimensionStyle,
+): CopcDimensionStyle {
+  if (!style || typeof style !== "object") {
+    throw new TypeError("dimension style must be an object");
+  }
+  if (typeof style.name !== "string" || style.name.trim().length === 0) {
+    throw new TypeError("dimension style name must be a non-empty string");
+  }
+  assertFiniteRange(style.range, "dimension style range", true);
+  if (
+    style.missingValue !== undefined &&
+    !Number.isFinite(style.missingValue)
+  ) {
+    throw new RangeError("dimension style missingValue must be finite");
+  }
+
+  const palette = style.palette ?? DEFAULT_DIMENSION_PALETTE;
+  if (!Array.isArray(palette) || palette.length < 2) {
+    throw new RangeError("dimension style palette must contain at least two stops");
+  }
+  let previousPosition = -1;
+  const clonedPalette = palette.map((stop, index) => {
+    if (
+      !stop ||
+      !Number.isFinite(stop.position) ||
+      stop.position < 0 ||
+      stop.position > 1 ||
+      stop.position <= previousPosition
+    ) {
+      throw new RangeError(
+        `dimension style palette stop ${index} must have a strictly increasing position in [0, 1]`,
+      );
+    }
+    previousPosition = stop.position;
+    const { red, green, blue, alpha = 0.9 } = stop.color;
+    if (
+      ![red, green, blue, alpha].every(
+        (component) =>
+          Number.isFinite(component) && component >= 0 && component <= 1,
+      )
+    ) {
+      throw new RangeError(
+        `dimension style palette stop ${index} color components must be in [0, 1]`,
+      );
+    }
+    return {
+      position: stop.position,
+      color: { red, green, blue, alpha },
+    };
+  });
+  if (
+    clonedPalette[0].position !== 0 ||
+    clonedPalette.at(-1)?.position !== 1
+  ) {
+    throw new RangeError(
+      "dimension style palette must start at 0 and end at 1",
+    );
+  }
+
+  return {
+    name: style.name,
+    range: { ...style.range },
+    palette: clonedPalette,
+    ...(style.missingValue === undefined
+      ? {}
+      : { missingValue: style.missingValue }),
+  };
+}
+
+/** Validate and detach a dimension visibility range. */
+export function cloneCopcDimensionFilter(
+  filter: CopcDimensionFilter,
+): CopcDimensionFilter {
+  if (!filter || typeof filter !== "object") {
+    throw new TypeError("dimension filter must be an object");
+  }
+  if (typeof filter.name !== "string" || filter.name.trim().length === 0) {
+    throw new TypeError("dimension filter name must be a non-empty string");
+  }
+  assertFiniteRange(filter, "dimension filter", false);
+  if (
+    filter.missingValue !== undefined &&
+    !Number.isFinite(filter.missingValue)
+  ) {
+    throw new RangeError("dimension filter missingValue must be finite");
+  }
+  return { ...filter };
+}
+
+/** Return whether an Extra Bytes descriptor is a supported numeric scalar. */
+export function isCopcDimensionMetadataStyleable(
+  dimension: CopcExtraDimensionMetadata,
+): boolean {
+  if (dimension.type === "signed" || dimension.type === "unsigned") {
+    return [1, 2, 4].includes(dimension.length);
+  }
+  return dimension.type === "float" && [4, 8].includes(dimension.length);
+}
+
+function assertFiniteRange(
+  range: CopcValueRange,
+  label: string,
+  requireWidth: boolean,
+): void {
+  if (
+    !range ||
+    typeof range !== "object" ||
+    !Number.isFinite(range.min) ||
+    !Number.isFinite(range.max) ||
+    range.min > range.max ||
+    (requireWidth && range.min === range.max)
+  ) {
+    throw new RangeError(
+      `${label} must have finite bounds${requireWidth ? " with min < max" : " with min <= max"}`,
+    );
+  }
 }
 
 /** Return the prepared or measured WGS84 ellipsoidal-height range in metres. */
@@ -350,6 +512,57 @@ function getClassificationColor(
   );
 }
 
+function getDimensionValue(
+  attributes: CopcPointAttributes | undefined,
+  style: CopcDimensionStyle,
+  pointIndex: number,
+): number | undefined {
+  const value =
+    style.name === "Intensity"
+      ? attributes?.intensity?.[pointIndex]
+      : attributes?.extraDimensions?.[style.name]?.[pointIndex];
+  if (typeof value === "bigint") {
+    throw new TypeError(
+      `Dimension ${style.name} uses a 64-bit integer that cannot be styled as a JavaScript number`,
+    );
+  }
+  if (
+    value === undefined ||
+    !Number.isFinite(value) ||
+    (style.missingValue !== undefined && value === style.missingValue)
+  ) {
+    return undefined;
+  }
+  return value;
+}
+
+function getDimensionColor(
+  attributes: CopcPointAttributes | undefined,
+  pointIndex: number,
+  style: CopcDimensionStyle | undefined,
+): CopcNormalizedColor | undefined {
+  if (!style) return undefined;
+  const value = getDimensionValue(attributes, style, pointIndex);
+  if (value === undefined) return undefined;
+  const normalized = normalizeElevation(value, style.range);
+  const palette = style.palette ?? DEFAULT_DIMENSION_PALETTE;
+  for (let index = 1; index < palette.length; index += 1) {
+    const upper = palette[index];
+    if (normalized <= upper.position) {
+      const lower = palette[index - 1];
+      const amount =
+        (normalized - lower.position) / (upper.position - lower.position);
+      return interpolateColor(
+        { ...lower.color, alpha: lower.color.alpha ?? 0.9 },
+        { ...upper.color, alpha: upper.color.alpha ?? 0.9 },
+        amount,
+      );
+    }
+  }
+  const last = palette.at(-1)!.color;
+  return { ...last, alpha: last.alpha ?? 0.9 };
+}
+
 function interpolateColor(
   lower: CopcNormalizedColor,
   upper: CopcNormalizedColor,
@@ -398,6 +611,13 @@ export function getCopcPointColor(
     );
   }
 
+  if (options.colorMode === "dimension") {
+    return (
+      getDimensionColor(attributes, pointIndex, options.dimension) ??
+      cloneColor(FIXED_POINT_COLOR)
+    );
+  }
+
   const normalized = normalizeElevation(height, options.elevationRange);
   const scaled = normalized * (ELEVATION_COLOR_STOPS.length - 1);
   const lowerIndex = Math.floor(scaled);
@@ -426,6 +646,9 @@ export function resolveCopcPointStyleOptions(
       options.rgbMax ??
       state?.getRgbMax(points) ??
       getPointBufferRgbMax(points),
+    ...(options.dimension === undefined
+      ? {}
+      : { dimension: cloneCopcDimensionStyle(options.dimension) }),
   };
 }
 

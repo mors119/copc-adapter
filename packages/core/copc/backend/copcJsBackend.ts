@@ -30,6 +30,7 @@ import {
 } from "../points/fieldSelection";
 import {
   createExtraDimensionReaders,
+  mapCopcExtraDimensionMetadata,
   type CopcExtraDimensionSelection,
 } from "../points/extraDimensions";
 import type {
@@ -234,7 +235,9 @@ class CopcJsSource implements CopcSource {
   }
 
   getMetadata(): CopcMetadata {
-    return toCopcMetadata(this.copc, this.crsWktProvenance);
+    const metadata = toCopcMetadata(this.copc, this.crsWktProvenance);
+    const extraDimensions = mapCopcExtraDimensionMetadata(this.copc.eb);
+    return { ...metadata, extraDimensions };
   }
 
   getRootHierarchyPage(): CopcHierarchyPage {
@@ -429,6 +432,16 @@ export type CopcJsBackendOptions = {
   extraDimensions?: CopcExtraDimensionSelection;
 };
 
+function mergeExtraDimensionSelections(
+  configured: CopcExtraDimensionSelection | undefined,
+  requested: CopcExtraDimensionSelection | undefined,
+): CopcExtraDimensionSelection | undefined {
+  if (configured === "*" || requested === "*") return "*";
+  if (configured === undefined) return requested;
+  if (requested === undefined) return configured;
+  return [...new Set([...configured, ...requested])];
+}
+
 /** Opens COPC resources through copc.js. */
 export class CopcJsBackend implements CopcBackend {
   private readonly extraDimensions?: CopcExtraDimensionSelection;
@@ -459,7 +472,10 @@ export class CopcJsBackend implements CopcBackend {
         getter,
         copc,
         crsWktProvenance,
-        this.extraDimensions,
+        mergeExtraDimensionSelections(
+          this.extraDimensions,
+          options.extraDimensions,
+        ),
       );
     } catch (error: unknown) {
       throw mapCopcJsError(getCopcSourceIdentity(source), error, "open");

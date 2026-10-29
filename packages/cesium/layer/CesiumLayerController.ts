@@ -49,8 +49,11 @@ import {
 import { extractHorizontalUnitScale } from "../../core/coordinates/crs/parseCopcWkt";
 import { createPointTransformer } from "../../core/coordinates/transform/createPointTransformer";
 import {
+  cloneCopcDimensionFilter,
+  cloneCopcDimensionStyle,
   createCopcPointStyleState,
   getDatasetElevationRange,
+  isCopcDimensionMetadataStyleable,
 } from "../../core/point/style/pointStyle";
 import {
   createLayerStreamingCore,
@@ -84,6 +87,7 @@ import type { AdaptiveViewDistanceDiagnostics } from "../../core/streaming/view"
 import type { RangeRequestDiagnostics } from "../../core/copc/range/requestDiagnostics";
 import type { RangeValidationPolicy } from "../../core/copc/range/types";
 import type { CopcInputSource } from "../../core/copc/range/types";
+import { resolveCopcExtraDimensionSelection } from "../../core/copc/points/extraDimensions";
 import { getCopcSourceIdentity } from "../../core/copc/getter/createCopcGetter";
 import type {
   CopcCesiumPointStyle,
@@ -116,6 +120,10 @@ export type CopcLayerOptions = {
   pointFields?: CopcPointFieldSelection;
   /** Optional classification filter applied from the first rendered view. */
   classificationFilter?: CopcClassificationFilter;
+  dimension?: CopcCesiumPointStyle["dimension"];
+  dimensionFilter?: CopcCesiumPointStyle["dimensionFilter"];
+  /** Extra Bytes dimensions to retain for styling or point inspection. */
+  extraDimensions?: readonly string[];
   coordinateCacheLayout?: "A" | "E";
   /** Keep exact source XYZ in compact E cache entries so cache-only point queries can use rendered nodes. Defaults to `false`. */
   retainSourceCoordinatesForQueries?: boolean;
@@ -259,6 +267,7 @@ const SUPPORTED_COLOR_MODES = new Set<CopcColorMode>([
   "rgb",
   "intensity",
   "classification",
+  "dimension",
 ]);
 
 function cloneClassificationFilter(
@@ -299,23 +308,41 @@ function isPointVisibleForStyle(
   style: CopcCesiumPointStyle,
 ): boolean {
   const filter = style.classificationFilter;
-  if (
-    !filter ||
-    (filter.include === undefined && filter.exclude === undefined)
-  ) {
-    return true;
+  if (filter && (filter.include !== undefined || filter.exclude !== undefined)) {
+    const classification = points.attributes?.classification?.[pointIndex];
+    // A classification filter cannot match data that did not retain a
+    // classification value, so those points are hidden explicitly.
+    if (classification === undefined) {
+      return false;
+    }
+    if (filter.include && !filter.include.includes(classification)) {
+      return false;
+    }
+    if (filter.exclude?.includes(classification)) {
+      return false;
+    }
   }
 
-  const classification = points.attributes?.classification?.[pointIndex];
-  // A classification filter cannot match data that did not retain a
-  // classification value, so those points are hidden explicitly.
-  if (classification === undefined) {
+  const dimensionFilter = style.dimensionFilter;
+  if (!dimensionFilter) return true;
+  const value =
+    dimensionFilter.name === "Intensity"
+      ? points.attributes?.intensity?.[pointIndex]
+      : points.attributes?.extraDimensions?.[dimensionFilter.name]?.[pointIndex];
+  const styleMissingValue =
+    style.dimension?.name === dimensionFilter.name
+      ? style.dimension.missingValue
+      : undefined;
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    (dimensionFilter.missingValue !== undefined &&
+      value === dimensionFilter.missingValue) ||
+    (styleMissingValue !== undefined && value === styleMissingValue)
+  ) {
     return false;
   }
-  if (filter.include && !filter.include.includes(classification)) {
-    return false;
-  }
-  return !filter.exclude?.includes(classification);
+  return value >= dimensionFilter.min && value <= dimensionFilter.max;
 }
 
 /**
@@ -350,6 +377,7 @@ export class CesiumLayerController {
   };
   private readonly pointStyleState = createCopcPointStyleState();
   private style: CopcCesiumPointStyle;
+  private readonly extraDimensionNames: readonly string[];
   private readonly rendererPerformance = new StreamingPerformanceRecorder();
   private datasetElevationRange?: { min: number; max: number };
   private viewer?: Cesium.Viewer;
@@ -433,7 +461,19 @@ export class CesiumLayerController {
               options.classificationFilter,
             ),
           }),
+      ...(options.dimension === undefined
+        ? {}
+        : { dimension: cloneCopcDimensionStyle(options.dimension) }),
+      ...(options.dimensionFilter === undefined
+        ? {}
+        : { dimensionFilter: cloneCopcDimensionFilter(options.dimensionFilter) }),
     };
+    this.extraDimensionNames =
+      resolveCopcExtraDimensionSelection(options.extraDimensions, [
+        this.style.dimension?.name,
+        this.style.dimensionFilter?.name,
+      ]) ?? [];
+    this.assertDimensionStyleShape(this.style);
     this.pointFields = this.getInitialPointFields(this.style);
     this.pointRenderer = options.renderer ?? new PointPrimitiveRenderer();
     this.opacity = options.opacity;
@@ -463,6 +503,9 @@ export class CesiumLayerController {
       // All remains the compatibility default. Required mode retains only
       // fields used by the initial style and any initial classification filter.
       pointFields: this.pointFields,
+      ...(this.extraDimensionNames.length === 0
+        ? {}
+        : { extraDimensions: this.extraDimensionNames }),
       streaming: options.streaming,
     }, options.coordinateCacheLayout ?? "E", {
       sourceCoordinates: options.retainSourceCoordinatesForQueries === true,
@@ -719,6 +762,7 @@ export class CesiumLayerController {
       if (!metadata) {
         throw new Error("COPC layer loaded without metadata");
       }
+      this.normalizeAndValidateDimensionStyle(metadata, this.style);
       if (this.viewer) {
         // Source replacement resets the shared estimator while the layer may
         // remain attached; establish a fresh baseline before automatic framing.
@@ -1010,6 +1054,12 @@ export class CesiumLayerController {
               this.style.classificationFilter,
             ),
           }),
+      ...(this.style.dimension === undefined
+        ? {}
+        : { dimension: cloneCopcDimensionStyle(this.style.dimension) }),
+      ...(this.style.dimensionFilter === undefined
+        ? {}
+        : { dimensionFilter: cloneCopcDimensionFilter(this.style.dimensionFilter) }),
     };
   }
 
@@ -1031,6 +1081,12 @@ export class CesiumLayerController {
               this.style.classificationFilter,
             ),
           }),
+      ...(this.style.dimension === undefined
+        ? {}
+        : { dimension: cloneCopcDimensionStyle(this.style.dimension) }),
+      ...(this.style.dimensionFilter === undefined
+        ? {}
+        : { dimensionFilter: cloneCopcDimensionFilter(this.style.dimensionFilter) }),
     };
     if (update.colorMode !== undefined) {
       if (!SUPPORTED_COLOR_MODES.has(update.colorMode)) {
@@ -1047,8 +1103,25 @@ export class CesiumLayerController {
         update.classificationFilter,
       );
     }
+    if (update.dimension === null) {
+      delete nextStyle.dimension;
+    } else if (update.dimension !== undefined) {
+      nextStyle.dimension = cloneCopcDimensionStyle(update.dimension);
+    }
+    if (update.dimensionFilter === null) {
+      delete nextStyle.dimensionFilter;
+    } else if (update.dimensionFilter !== undefined) {
+      nextStyle.dimensionFilter = cloneCopcDimensionFilter(
+        update.dimensionFilter,
+      );
+    }
 
+    this.assertDimensionStyleShape(nextStyle);
     this.assertStyleFieldsWereLoaded(nextStyle);
+    const metadata = this.core.getMetadata();
+    if (metadata) {
+      this.normalizeAndValidateDimensionStyle(metadata, nextStyle);
+    }
 
     const renderedNodes = this.pointRenderer
       .getRenderedNodeKeys()
@@ -1122,18 +1195,93 @@ export class CesiumLayerController {
     if (style.classificationFilter !== undefined) {
       fields.add("classification");
     }
+    if (
+      style.dimension?.name === "Intensity" ||
+      style.dimensionFilter?.name === "Intensity"
+    ) {
+      fields.add("intensity");
+    }
     return createCopcPointFieldSelection(fields);
   }
 
-  private assertStyleFieldsWereLoaded(style: CopcCesiumPointStyle): void {
-    if ((this.options.attributeLoading ?? "all") !== "required") {
-      return;
+  private assertDimensionStyleShape(style: CopcCesiumPointStyle): void {
+    if (style.colorMode === "dimension" && style.dimension === undefined) {
+      throw new TypeError(
+        'colorMode "dimension" requires a dimension style with a name and range',
+      );
     }
+    const referencedNames = [
+      style.dimension?.name,
+      style.dimensionFilter?.name,
+    ].filter((name): name is string => name !== undefined && name !== "Intensity");
+    const unrequested = referencedNames.filter(
+      (name) => !this.extraDimensionNames.includes(name),
+    );
+    if (unrequested.length > 0) {
+      throw new Error(
+        `Cannot style dimension${unrequested.length === 1 ? "" : "s"} ${unrequested.join(", ")}: add ${unrequested.map((name) => `"${name}"`).join(", ")} to extraDimensions when creating the layer; style updates do not re-decode cached points.`,
+      );
+    }
+  }
+
+  private normalizeAndValidateDimensionStyle(
+    metadata: CopcMetadata,
+    style: CopcCesiumPointStyle,
+  ): void {
+    this.assertDimensionStyleShape(style);
+    for (const name of new Set(
+      [style.dimension?.name, style.dimensionFilter?.name].filter(
+        (value): value is string => value !== undefined && value !== "Intensity",
+      ),
+    )) {
+      const descriptor = metadata.extraDimensions?.find(
+        (dimension) => dimension.name === name,
+      );
+      if (!descriptor) {
+        const backend = this.options.backend === "rust" ? "Rust" : "selected";
+        throw new Error(
+          `The ${backend} COPC backend does not expose Extra Bytes dimension ${name}; use the copc-js backend for numeric Extra Bytes styling.`,
+        );
+      }
+      if (!isCopcDimensionMetadataStyleable(descriptor)) {
+        throw new Error(
+          `Extra Bytes dimension ${name} is not supported for numeric styling; supported types are signed/unsigned 8-, 16-, and 32-bit integers and 32-/64-bit floats.`,
+        );
+      }
+      if (descriptor.noData !== undefined) {
+        if (style.dimension?.name === name && style.dimension.missingValue === undefined) {
+          style.dimension = cloneCopcDimensionStyle({
+            ...style.dimension,
+            missingValue: descriptor.noData,
+          });
+        }
+        if (
+          style.dimensionFilter?.name === name &&
+          style.dimensionFilter.missingValue === undefined
+        ) {
+          style.dimensionFilter = cloneCopcDimensionFilter({
+            ...style.dimensionFilter,
+            missingValue: descriptor.noData,
+          });
+        }
+      }
+    }
+  }
+
+  private assertStyleFieldsWereLoaded(style: CopcCesiumPointStyle): void {
+    this.assertDimensionStyleShape(style);
+    if ((this.options.attributeLoading ?? "all") !== "required") return;
     const requiredFields = new Set<CopcPointField>(
       getCopcPointFieldSelection(style.colorMode),
     );
     if (style.classificationFilter !== undefined) {
       requiredFields.add("classification");
+    }
+    if (
+      style.dimension?.name === "Intensity" ||
+      style.dimensionFilter?.name === "Intensity"
+    ) {
+      requiredFields.add("intensity");
     }
     const missingFields = [...requiredFields].filter(
       (field) => field !== "position" && !this.pointFields.has(field),
@@ -1533,6 +1681,7 @@ export class CesiumLayerController {
         DEFAULT_MAX_ATTENUATED_POINT_SIZE_CSS_PIXELS,
       ...(pointSpacingMeters === undefined ? {} : { pointSpacingMeters }),
       colorMode: style.colorMode,
+      dimension: style.dimension,
       elevationRange: this.datasetElevationRange,
       rgbMax: this.pointStyleState.getRgbMax(points),
       pointFilter: (pointIndex: number) =>

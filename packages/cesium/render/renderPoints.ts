@@ -35,6 +35,8 @@ export type CopcPointRenderOptions = {
   elevationRange?: CopcElevationRange;
   /** Maximum expected source RGB channel value for normalization. */
   rgbMax?: 255 | 65535;
+  /** Numeric dimension ramp for `colorMode: 'dimension'`. */
+  dimension?: CopcPointStyleOptions["dimension"];
   /** Supplies the Cesium pick id for each zero-based point index. */
   pointId?: (pointIndex: number) => unknown;
   /** Controls whether each point primitive is shown. */
@@ -190,6 +192,7 @@ export function renderCopcPoints(
         colorMode: options.colorMode,
         elevationRange: options.elevationRange,
         rgbMax: options.rgbMax,
+        dimension: options.dimension,
       },
     );
 

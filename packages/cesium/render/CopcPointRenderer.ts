@@ -232,6 +232,7 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
       colorMode: options.colorMode,
       elevationRange: options.elevationRange,
       rgbMax: options.rgbMax,
+      dimension: options.dimension,
     });
     let visiblePointCount = 0;
     for (let index = 0; index < points.pointCount; index += 1) {

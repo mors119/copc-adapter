@@ -21,6 +21,7 @@ import type { CopcCesiumPointSizeMode } from "../render/CopcPointRenderer";
 import type { CopcPointInspection } from "../../core/copc/points/pointInspection";
 import type { RangeValidationPolicy } from "../../core/copc/range/types";
 import type { CopcInputSource } from "../../core/copc/range/types";
+import type { CopcDimensionFilter, CopcDimensionStyle } from "../../core/point/style/pointStyle";
 import type { GtxGeoidGrid } from "../../core/coordinates/transform/verticalGrid";
 import type {
   TerrainHeightAlignmentEstimate,
@@ -114,6 +115,12 @@ export type CopcCesiumLayerOptions = {
   attributeLoading?: "all" | "required";
   /** Optional classification filter applied from the first rendered view. */
   classificationFilter?: CopcCesiumPointStyle["classificationFilter"];
+  /** Numeric dimension ramp used with `colorMode: 'dimension'`. */
+  dimension?: CopcDimensionStyle;
+  /** Inclusive numeric range visibility filter applied from the first view. */
+  dimensionFilter?: CopcDimensionFilter;
+  /** Extra Bytes dimensions to retain for styling or point inspection. */
+  extraDimensions?: readonly string[];
   /**
    * Additional standard LAS fields to retain explicitly, including in
    * `required` mode. Extra schema dimensions are configured separately.

@@ -61,6 +61,12 @@ import type {
   CopcThreeRendererPerformanceSnapshot,
 } from "./types";
 import { getCopcSourceIdentity } from "../../core/copc/getter/createCopcGetter";
+import { resolveCopcExtraDimensionSelection } from "../../core/copc/points/extraDimensions";
+import {
+  cloneCopcDimensionStyle,
+  isCopcDimensionMetadataStyleable,
+} from "../../core/point/style/pointStyle";
+import { createCopcPointFieldSelection } from "../../core/copc/points/fieldSelection";
 
 type ActiveStreamingUpdate = {
   progressApplied: boolean;
@@ -88,6 +94,7 @@ export class ThreeLayerController {
   private readonly eventLifecycle = new CopcLayerEventLifecycle();
   private readonly core: LayerStreamingCore;
   private readonly options: CopcThreeLayerOptions;
+  private readonly extraDimensionNames: readonly string[];
   private readonly pointRenderer: CopcThreePointRenderer;
   private opacity?: number;
   private readonly pointPicker: ThreePointPicker;
@@ -136,8 +143,20 @@ export class ThreeLayerController {
     if (options.opacity !== undefined) {
       assertCopcLayerOpacity(options.opacity);
     }
+    if (options.colorMode === "dimension" && options.dimension === undefined) {
+      throw new TypeError(
+        'colorMode "dimension" requires a dimension style with a name and range',
+      );
+    }
+    if (options.dimension !== undefined) {
+      options = { ...options, dimension: cloneCopcDimensionStyle(options.dimension) };
+    }
 
     this.options = options;
+    this.extraDimensionNames =
+      resolveCopcExtraDimensionSelection(options.extraDimensions, [
+        options.dimension?.name,
+      ]) ?? [];
     this.opacity = options.opacity;
     this.eventDispatcher = new CopcThreeLayerEventDispatcher(eventTarget);
     this.pointRenderer = options.renderer ?? new ThreePointRenderer();
@@ -161,7 +180,16 @@ export class ThreeLayerController {
       rangeValidation: options.rangeValidation,
       maxRangeBytes: options.maxRangeBytes,
       maxConcurrentRangeRequests: options.maxConcurrentRangeRequests,
-      pointFields: getCopcPointFieldSelection(options.colorMode ?? "fixed"),
+      pointFields: (() => {
+        const fields = new Set(
+          getCopcPointFieldSelection(options.colorMode ?? "fixed"),
+        );
+        if (options.dimension?.name === "Intensity") fields.add("intensity");
+        return createCopcPointFieldSelection(fields);
+      })(),
+      ...(this.extraDimensionNames.length === 0
+        ? {}
+        : { extraDimensions: this.extraDimensionNames }),
       streaming: options.streaming,
     }, options.coordinateCacheLayout ?? "E", {
       sourceCoordinates: options.retainSourceCoordinatesForQueries === true,
@@ -318,6 +346,33 @@ export class ThreeLayerController {
       const metadata = this.core.getMetadata();
       if (!metadata) {
         throw new Error("COPC layer loaded without metadata");
+      }
+      const dimensionName = this.options.dimension?.name;
+      if (dimensionName && dimensionName !== "Intensity") {
+        const descriptor = metadata.extraDimensions?.find(
+          (dimension) => dimension.name === dimensionName,
+        );
+        if (!descriptor) {
+          const backend = this.options.backend === "rust" ? "Rust" : "selected";
+          throw new Error(
+            `The ${backend} COPC backend does not expose Extra Bytes dimension ${dimensionName}; use the copc-js backend for numeric Extra Bytes styling.`,
+          );
+        }
+        if (!isCopcDimensionMetadataStyleable(descriptor)) {
+          throw new Error(
+            `Extra Bytes dimension ${dimensionName} is not supported for numeric styling; supported types are signed/unsigned 8-, 16-, and 32-bit integers and 32-/64-bit floats.`,
+          );
+        }
+        if (
+          descriptor.noData !== undefined &&
+          this.options.dimension !== undefined &&
+          this.options.dimension.missingValue === undefined
+        ) {
+          this.options.dimension = cloneCopcDimensionStyle({
+            ...this.options.dimension,
+            missingValue: descriptor.noData,
+          });
+        }
       }
       this.localFrame = createDatasetLocalFrame(
         metadata,
@@ -863,6 +918,7 @@ export class ThreeLayerController {
     this.pointRenderer.addOrUpdateNode(nodeKey, points, {
       pointSize: this.options.pointSize ?? 3,
       colorMode: this.options.colorMode ?? "fixed",
+      dimension: this.options.dimension,
       elevationRange: this.datasetElevationRange,
       rgbMax: this.pointStyleState.getRgbMax(points),
       pointId: (pointIndex) => ({
