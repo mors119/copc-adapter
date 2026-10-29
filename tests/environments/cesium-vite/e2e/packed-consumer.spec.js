@@ -924,3 +924,23 @@ test("keeps elevation styling and the copc-js backend available to consumers", a
     ),
   ).toBe(true);
 });
+
+test("packed renderer-neutral Core prepares Autzen points in a browser", async ({
+  page,
+}) => {
+  const pageErrors = [];
+  page.on("pageerror", (error) => pageErrors.push(error));
+
+  await page.goto("/core.html");
+  await expect
+    .poll(() => page.evaluate(() => typeof window.__COPC_CORE_NODE_SOURCE__))
+    .toBe("function");
+  const result = await page.evaluate(() => window.__COPC_CORE_NODE_SOURCE__());
+
+  expect(result.pointCount).toBeGreaterThan(0);
+  expect(result.coordinateSystem).toBe("wgs84-ecef-meters");
+  expect(result.isFloat64).toBe(true);
+  expect(result.availableFields).toEqual(["intensity", "position"]);
+  expect(result.boundsEnclosePoints).toBe(true);
+  expect(pageErrors).toEqual([]);
+});

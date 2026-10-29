@@ -74,6 +74,14 @@ function sampleRangeMiddleware() {
 
 export default defineConfig({
   plugins: [sampleRangeMiddleware(), cesium()],
+  build: {
+    rollupOptions: {
+      input: [
+        path.resolve(process.cwd(), "index.html"),
+        path.resolve(process.cwd(), "core.html"),
+      ],
+    },
+  },
   resolve: {
     alias: {
       "@packed-adapter": adapterEntry,
