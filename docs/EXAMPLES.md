@@ -64,6 +64,46 @@ for that layer. Blending and depth behavior remain renderer-specific; the
 adapter does not sort transparent points or implement order-independent
 transparency.
 
+## Cesium Plane and Box Clipping
+
+Clipping uses WGS 84 ECEF metres after the source coordinates have been
+transformed. Use the batched renderer to clip in its fragment shader:
+
+```ts
+import * as Cesium from 'cesium';
+import {
+  BatchedGeometryPointRenderer,
+  CopcCesiumLayer,
+} from '@frillab/copc-adapter/cesium';
+
+const viewer = new Cesium.Viewer('cesium-container');
+const layer = new CopcCesiumLayer({
+  url: '/samples/autzen.copc.laz',
+  renderer: new BatchedGeometryPointRenderer(),
+});
+await layer.load();
+layer.attachTo(viewer);
+
+// After selecting a point, make a 50 m box around it.
+const point = layer.getSelectedPoint()?.world;
+if (!point) throw new Error('Pick a rendered point first');
+layer.setClippingVolume({
+  type: 'box',
+  coordinateSystem: 'wgs84-ecef-meters',
+  minimum: [point.x - 25, point.y - 25, point.z - 25],
+  maximum: [point.x + 25, point.y + 25, point.z + 25],
+});
+
+// Change the volume or clear it without reloading the COPC.
+layer.setClippingVolume(undefined);
+```
+
+`planes` volumes intersect one to six half-spaces; the non-negative side of
+each plane and each box face remains visible. Clipping composes with style
+filters and excludes clipped points from picking. It only filters rendering
+and picking, so it does not reduce hierarchy or point-range reads or alter
+other layers.
+
 ## Minimal Three.js Example
 
 ```ts

@@ -18,6 +18,7 @@ import type {
   CopcCesiumPointRendererOptions,
   CesiumPointRenderer,
 } from "./CopcPointRenderer";
+import type { CopcCesiumClippingPlane } from "../layer/clippingVolumes";
 import { assertCopcLayerOpacity } from "../../core/streaming/renderer";
 import { packRelativeEcef } from "./relativeEcef";
 import {
@@ -104,6 +105,30 @@ void main() {
   out_FragColor = vec4(v_color.rgb, alpha);
 }`;
 
+function withClippingPosition(source: string): string {
+  return source
+    .replace(
+      "out vec4 v_color;",
+      "in vec3 a_clippingPosition;\nout vec3 v_clippingPosition;\nout vec4 v_color;",
+    )
+    .replace(
+      "v_color = a_color;",
+      "v_clippingPosition = a_clippingPosition;\n  v_color = a_color;",
+    );
+}
+
+function createClippingFragmentShader(planeCount: number): string {
+  const checks = Array.from(
+    { length: planeCount },
+    (_, index) =>
+      `  vec4 clipPlane${index} = copcGetClipPlane${index}();\n  if (dot(clipPlane${index}.xyz, v_clippingPosition) < clipPlane${index}.w) discard;`,
+  ).join("\n");
+  return FRAGMENT_SHADER.replace(
+    "in vec4 v_color;",
+    "in vec3 v_clippingPosition;\nin vec4 v_color;",
+  ).replace("if (v_show < 0.5) discard;", `if (v_show < 0.5) discard;\n${checks}`);
+}
+
 type NodeRecord = {
   primitive: Cesium.Primitive;
   sphere?: Cesium.BoundingSphere;
@@ -120,6 +145,7 @@ type NodeRecord = {
   minPointSize: number;
   maxPointSize: number;
   usesPointAlpha: boolean;
+  clippingMaterial?: Cesium.Material;
   ownerId?: string;
   generation: number;
   observer?: CopcCesiumPointRendererOptions["onPerformance"];
@@ -300,6 +326,11 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
       this.opacityMaterial.uniforms.u_layerOpacity = opacity;
       this.opacityMaterial.uniforms.u_overridePointAlpha = 1;
     }
+    for (const node of this.nodes.values()) {
+      if (!node.clippingMaterial) continue;
+      node.clippingMaterial.uniforms.u_layerOpacity = opacity;
+      node.clippingMaterial.uniforms.u_overridePointAlpha = 1;
+    }
     if (this.parent) {
       this.parent.show = this.showState && opacity !== 0;
     }
@@ -391,6 +422,8 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
       dimension: options.dimension,
     };
     const usesPointAlpha = options.colorMode === "dimension";
+    const clippingPlanes = options.clippingPlanes ?? [];
+    const hasClipping = clippingPlanes.length > 0;
     const colors = usesPointAlpha
       ? prepareCopcPointColorBufferWithAlpha(
           points,
@@ -463,6 +496,7 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
       new Cesium.GeometryAttributes() as Cesium.GeometryAttributes & {
         a_color: Cesium.GeometryAttribute;
         a_pointSize: Cesium.GeometryAttribute;
+        a_clippingPosition?: Cesium.GeometryAttribute;
         a_spacingMeters?: Cesium.GeometryAttribute;
         batchId: Cesium.GeometryAttribute;
       };
@@ -486,6 +520,13 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
       componentsPerAttribute: 1,
       values: pointSizes,
     });
+    if (hasClipping) {
+      attributes.a_clippingPosition = new Cesium.GeometryAttribute({
+        componentDatatype: Cesium.ComponentDatatype.FLOAT,
+        componentsPerAttribute: 3,
+        values: positions,
+      });
+    }
     if (pointSpacingValues) {
       attributes.a_spacingMeters = new Cesium.GeometryAttribute({
         componentDatatype: Cesium.ComponentDatatype.FLOAT,
@@ -503,6 +544,15 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
       primitiveType: Cesium.PrimitiveType.POINTS,
       boundingSphere: new Cesium.BoundingSphere(origin, conservativeRadius),
     });
+    const clippingMaterial = hasClipping
+      ? this.createClippingMaterial(
+          clippingPlanes,
+          origin,
+          usesPointAlpha,
+          relative.radius,
+          relative.maxAbsoluteError,
+        )
+      : undefined;
     const primitive = new Cesium.Primitive({
       geometryInstances: new Cesium.GeometryInstance({
         geometry,
@@ -514,12 +564,19 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
         },
       }),
       appearance: new Cesium.Appearance({
-        material: this.getOpacityMaterial(),
-        vertexShaderSource:
-          pointSizeMode === "attenuated"
+        material: clippingMaterial ?? this.getOpacityMaterial(),
+        vertexShaderSource: hasClipping
+          ? withClippingPosition(
+              pointSizeMode === "attenuated"
+                ? createAttenuatedVertexShader(minPointSize, maxPointSize)
+                : FIXED_VERTEX_SHADER,
+            )
+          : pointSizeMode === "attenuated"
             ? createAttenuatedVertexShader(minPointSize, maxPointSize)
             : FIXED_VERTEX_SHADER,
-        fragmentShaderSource: FRAGMENT_SHADER,
+        fragmentShaderSource: hasClipping
+          ? createClippingFragmentShader(clippingPlanes.length)
+          : FRAGMENT_SHADER,
         renderState: {
           depthTest: { enabled: true },
           // Cesium Appearance resolves this translucent material to alpha
@@ -574,6 +631,9 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
       } else if (!primitive.isDestroyed()) {
         primitive.destroy();
       }
+      if (clippingMaterial && !clippingMaterial.isDestroyed()) {
+        clippingMaterial.destroy();
+      }
       throw error;
     }
     const committedNode: NodeRecord = {
@@ -593,6 +653,7 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
       minPointSize,
       maxPointSize,
       usesPointAlpha,
+      ...(clippingMaterial ? { clippingMaterial } : {}),
       ownerId,
       generation,
       observer: options.onPerformance,
@@ -601,6 +662,7 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
     if (previous) {
       const removalStartedAt = performanceNow();
       this.parent.remove(previous.primitive);
+      this.destroyNodeMaterial(previous);
       previous.observer?.(
         "nodeRemoval",
         performanceNow() - removalStartedAt,
@@ -634,6 +696,7 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
     if (!node) return;
     const startedAt = performanceNow();
     this.parent?.remove(node.primitive);
+    this.destroyNodeMaterial(node);
     this.nodes.delete(nodeKey);
     node.observer?.(
       "nodeRemoval",
@@ -1219,5 +1282,74 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
       });
     }
     return this.opacityMaterial;
+  }
+
+  private destroyNodeMaterial(node: NodeRecord): void {
+    if (node.clippingMaterial && !node.clippingMaterial.isDestroyed()) {
+      node.clippingMaterial.destroy();
+    }
+  }
+
+  private createClippingMaterial(
+    planes: readonly CopcCesiumClippingPlane[],
+    origin: Cesium.Cartesian3,
+    usesPointAlpha: boolean,
+    relativeRadius: number,
+    maxAbsolutePositionError: number,
+  ): Cesium.Material {
+    const uniforms: Record<string, unknown> = {
+      u_layerOpacity: this.opacity,
+      u_overridePointAlpha: this.opacityOverride ? 1 : 0,
+    };
+    for (let index = 0; index < planes.length; index += 1) {
+      const { normal, point } = planes[index];
+      // Both the point and node origin are kept in Float64 until after their
+      // subtraction. The shader only receives a small node-relative distance,
+      // so large ECEF offsets do not consume Float32 clipping precision.
+      const distance =
+        normal[0] * (point[0] - origin.x) +
+        normal[1] * (point[1] - origin.y) +
+        normal[2] * (point[2] - origin.z);
+      if (!Number.isFinite(distance)) {
+        throw new RangeError(
+          `Clipping plane ${index} is outside the finite renderer coordinate range`,
+        );
+      }
+      // Keep mathematically on-plane points through Float32 position packing,
+      // uniform conversion, and the shader's dot-product arithmetic. The
+      // layer's CPU filter applies the exact half-space predicate first.
+      const shaderPrecisionMargin =
+        maxAbsolutePositionError * Math.sqrt(3) +
+        16 * 2 ** -23 * Math.max(1, relativeRadius, Math.abs(distance));
+      uniforms[`u_clipPlane${index}`] = new Cesium.Cartesian4(
+        normal[0],
+        normal[1],
+        normal[2],
+        distance - shaderPrecisionMargin,
+      );
+    }
+    const clippingPlaneAccessors = planes
+      .map(
+        (_, index) =>
+          `vec4 copcGetClipPlane${index}() { return u_clipPlane${index}; }`,
+      )
+      .join("\n");
+    return new Cesium.Material({
+      fabric: {
+        type: "CopcLayerClipping",
+        uniforms,
+        source: `
+          ${clippingPlaneAccessors}
+          czm_material czm_getMaterial(czm_materialInput materialInput) {
+            czm_material material = czm_getDefaultMaterial(materialInput);
+            material.alpha = u_layerOpacity;
+            material.diffuse = vec3(u_overridePointAlpha, 0.0, 0.0);
+            return material;
+          }
+        `,
+      },
+      translucent: () =>
+        this.opacity < 1 || (!this.opacityOverride && usesPointAlpha),
+    });
   }
 }

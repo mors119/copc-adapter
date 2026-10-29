@@ -348,6 +348,49 @@ layer 사이 draw order 조정 또는 order-independent transparency를 구현�
 겹치는 layer와 terrain의 합성 결과는 renderer와 scene 순서에 따라 달라질 수 있습니다.
 사용자 정의 renderer에 opacity를 지정하려면 `setOpacity()`를 구현해야 합니다.
 
+## Cesium clipping volume
+
+`CopcCesiumLayer`는 application이 지정한 평면 교차 영역 또는 box로 점 표시와 picking을
+필터링할 수 있습니다. 좌표는 COPC source CRS가 아니라 변환이 끝난 WGS 84 ECEF XYZ
+미터입니다. projected source 좌표를 직접 전달하지 마세요. batched renderer는 node별
+Float64 ECEF origin을 먼저 빼고 작은 상대 좌표를 shader에 전달하므로 큰 ECEF offset에서도
+정밀도를 유지합니다. 평면 normal의 양수 방향이 표시 영역이며 평면과 box 면의 점은
+포함됩니다.
+
+```ts
+import * as Cesium from 'cesium';
+import {
+  BatchedGeometryPointRenderer,
+  CopcCesiumLayer,
+} from '@frillab/copc-adapter/cesium';
+
+const viewer = new Cesium.Viewer('cesium-container');
+const layer = new CopcCesiumLayer({
+  url: '/samples/area.copc.laz',
+  renderer: new BatchedGeometryPointRenderer(),
+});
+await layer.load();
+layer.attachTo(viewer);
+
+const selected = layer.getSelectedPoint();
+if (!selected?.world) throw new Error('먼저 점을 선택하세요');
+layer.setClippingVolume({
+  type: 'planes',
+  coordinateSystem: 'wgs84-ecef-meters',
+  planes: [{
+    normal: [1, 0, 0],
+    point: [selected.world.x, selected.world.y, selected.world.z],
+  }],
+});
+layer.setClippingVolume(undefined); // clipping 해제
+```
+
+`planes`에는 최대 6개의 평면을 교차할 수 있고, `box`는 ECEF XYZ 기준 축 정렬 상자입니다.
+constructor의 `clippingVolume`과 runtime `setClippingVolume()` 모두 사용할 수 있습니다.
+변경은 source를 다시 읽지 않고 현재 cache의 node와 이후 node에 적용됩니다. 숨겨진 점은
+picking할 수 없고 classification 및 다른 style filter는 함께 적용됩니다. 이 기능은 표시와
+picking만 필터링하며 hierarchy 또는 point range 네트워크 요청을 줄이지 않습니다.
+
 ## Diagnostics
 
 ```ts

@@ -8,6 +8,15 @@ import { packRelativeEcef } from "../../../cesium/render/relativeEcef.ts";
 
 import { BatchedGeometryPointRenderer } from "../../../cesium/render/BatchedGeometryPointRenderer.ts";
 
+for (const globalName of [
+  "HTMLCanvasElement",
+  "HTMLImageElement",
+  "ImageBitmap",
+  "OffscreenCanvas",
+]) {
+  globalThis[globalName] ??= class {};
+}
+
 function createPreparedPoints() {
   return {
     pointCount: 2,
@@ -635,6 +644,67 @@ test("BatchedGeometryPointRenderer keeps missing node spacing on the fixed-size 
     /a_spacingMeters/,
   );
 
+  renderer.destroy();
+  scenePrimitives.destroy();
+});
+
+test("BatchedGeometryPointRenderer clips against node-relative shader planes without large ECEF uniform offsets", () => {
+  const scenePrimitives = new Cesium.PrimitiveCollection();
+  const renderer = new BatchedGeometryPointRenderer();
+  renderer.attachTo({ scene: { primitives: scenePrimitives } });
+  const origin = 6_378_137;
+  const points = createPreparedWorldPoints([
+    origin,
+    0,
+    0,
+    origin + 0.25,
+    0,
+    0,
+    origin + 1,
+    0,
+    0,
+  ]);
+  renderer.addOrUpdateNode("clipped-node", points, {
+    pointSize: 2,
+    colorMode: "fixed",
+    clippingPlanes: [
+      {
+        normal: [1, 0, 0],
+        point: [origin + 0.25, 0, 0],
+      },
+    ],
+    pointFilter: (index) => index > 0,
+  });
+
+  const primitive = scenePrimitives.get(0).get(0);
+  const geometry = primitive.geometryInstances.geometry;
+  const material = primitive.appearance.material;
+  assert.deepEqual(
+    Array.from(geometry.attributes.a_clippingPosition.values),
+    [-0.5, 0, 0, -0.25, 0, 0, 0.5, 0, 0],
+  );
+  assert.equal(renderer.getRenderedNodePointCount("clipped-node"), 2);
+  assert.equal(material.uniforms.u_clipPlane0.x, 1);
+  assert.ok(material.uniforms.u_clipPlane0.w < -0.25);
+  assert.ok(material.uniforms.u_clipPlane0.w > -0.2501);
+  assert.match(primitive.appearance.vertexShaderSource, /v_clippingPosition = a_clippingPosition/u);
+  assert.match(
+    primitive.appearance.fragmentShaderSource,
+    /copcGetClipPlane0\(\)/u,
+  );
+
+  renderer.setOpacity(0.4);
+  assert.equal(material.uniforms.u_layerOpacity, 0.4);
+  renderer.updateNodeStyle("clipped-node", points, {
+    pointSize: 2,
+    colorMode: "fixed",
+  });
+  assert.equal(material.isDestroyed(), true);
+  assert.equal(
+    "a_clippingPosition" in
+      scenePrimitives.get(0).get(0).geometryInstances.geometry.attributes,
+    false,
+  );
   renderer.destroy();
   scenePrimitives.destroy();
 });

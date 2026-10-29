@@ -40,6 +40,7 @@ compact URL examples below omit options that already have a usable default.
 | `classificationFilter` | `CopcClassificationFilter`, optional | No filter | No | Yes | No | Initial filter applied from the first rendered view. Classification is retained in `required` mode even when the initial color mode is different. |
 | `dimension` | `CopcDimensionStyle`, optional | No dimension style | No | Yes | Yes | Requires an explicit dimension name and finite range. Supports LAS `Intensity` on both built-in backends and supported scalar Extra Bytes on `copc-js`. The named dimension is selected automatically. |
 | `dimensionFilter` | `CopcDimensionFilter`, optional | No filter | No | Yes | No | Inclusive numeric range visibility filter, including initial Cesium rendering. The named dimension is selected automatically; missing and non-finite values are hidden. |
+| `clippingVolume` | `CopcCesiumClippingVolume`, optional | No clipping | No | Yes | No | Renderer-space plane intersection (1–6 planes) or inclusive ECEF axis-aligned box. Coordinates are explicitly WGS 84 ECEF metres; clipping filters rendering and picking without reducing source reads. |
 | `extraDimensions` | `readonly string[]`, optional | Only dimensions needed by the initial dimension style/filter | Yes | Yes | Yes | Extra Bytes names to retain for picking or later cached Cesium restyling. Omitted names are not decoded; selection does not request every field. Rust rejects non-empty Extra Bytes selections. |
 | `coordinateCacheLayout` | `'A' | 'E'`, optional | `E` for Cesium/Three layers; direct `CopcStreamingCore` remains A-shaped | No | Yes | Yes | E retains ECEF F64 XYZ plus prepared-height F64 (32 coordinate bytes/point). Select A to retain exact Source and Geographic triples for synchronous inspection. E derives longitude/latitude from ECEF when Geographic is absent and omits source XYZ when Source is absent. |
 | `retainSourceCoordinatesForQueries` | `boolean`, optional | `false` | No | Yes | Yes | With compact E, retains exact source XYZ in the shared point cache for `cache-only` queries. Adds 24 CPU-cache bytes per point and counts toward `maxPointCacheBytes`. No effect with coordinate layout A. |
@@ -144,7 +145,7 @@ defaults; references point to their detailed contract and example below.
 | `NgaEgm2008GridOptions` (root, `/cesium`, `/three`) | Optional `maxGridBytes?: number`, default `256 MiB`, hard limit `512 MiB`. | Shared coordinate pipeline | Resource bound for the pinned NGA grid loader. See [NGA EGM2008 2.5-minute grid](#nga-egm2008-25-minute-grid). | Keep opt-in. |
 | `TerrainHeightAlignmentOptions` (root, `/cesium`) | Optional `groundConfirmed?: boolean` (defaults false), `terrainSourceId?: string`, `timeoutMs?: number` (defaults to 30 seconds, cap 60 seconds), and `signal?: AbortSignal`. | Cesium only | One-point opt-in diagnostic; no point correction is applied automatically. See [Explicit Cesium Terrain residual estimate](#explicit-cesium-terrain-residual-estimate). | Keep opt-in. |
 | `CopcPointRendererOptions` (root, `/cesium`, `/three`) | Required `pointSize: number`; optional `colorMode?: CopcColorMode`, `dimension?: CopcDimensionStyle`, `elevationRange?: CopcValueRange`, `rgbMax?: 255 \| 65535`, `pointId?: (pointIndex: number) => unknown`, and `pointFilter?: (pointIndex: number) => boolean`. | Shared renderer seam | Renderer call contract, not another layer configuration location. See [Three.js API](#copcthreelayer). | Keep. |
-| `CopcCesiumPointRendererOptions` (root, `/cesium`) | Extends shared per-node options; optional `pointSizeMode?: CopcCesiumPointSizeMode` defaults to `fixed`, `minPointSize?: number` / `maxPointSize?: number` default to `1` / `12` CSS pixels and cap at `64`, `pointSpacingMeters?: number`, `onPerformance?: callback`. | Cesium renderer extension | Renderer call contract, not another layer configuration location. See [CopcCesiumLayerOptions](#copccesiumlayeroptions). | Keep. |
+| `CopcCesiumPointRendererOptions` (root, `/cesium`) | Extends shared per-node options; optional `pointSizeMode?: CopcCesiumPointSizeMode` defaults to `fixed`, `minPointSize?: number` / `maxPointSize?: number` default to `1` / `12` CSS pixels and cap at `64`, `pointSpacingMeters?: number`, `clippingPlanes?: readonly CopcCesiumClippingPlane[]`, `onPerformance?: callback`. | Cesium renderer extension | Renderer call contract, not another layer configuration location. See [CopcCesiumLayerOptions](#copccesiumlayeroptions). | Keep. |
 | `ThreePointRendererOptions` (`/three`) | Extends shared per-node options; optional `onPerformance?: callback`. | Three renderer extension | Renderer call contract, not another layer configuration location. See [Three.js API](#copcthreelayer). | Keep. |
 | `ThreePointRendererConstructorOptions` (`/three`) | Optional `localOrigin?: Wgs84EcefPoint` and `localFrame?: DatasetLocalFrame`; omitted direct-constructor origin is derived from the first nonempty node. | Three only | `CopcThreeLayer` supplies its dataset-local frame after metadata; see [Three.js API](#copcthreelayer). | Keep. |
 | `CopcThreeLayerPickOptions` (`/three`) | Optional `raycaster?: THREE.Raycaster`; optional `threshold?: number` defaults to layer `pickingThreshold`, then `1` scene unit. | Three only | Per-call pick control; see [Three.js API](#copcthreelayer). | Keep. |
@@ -343,6 +344,16 @@ a separately defined and tested contract.
   backends; scalar Extra Bytes are available through `copc-js`.
 - `dimensionFilter`: optional inclusive numeric range filter for a named
   dimension. Non-finite and missing values are hidden.
+- `clippingVolume`: optional `CopcCesiumClippingVolume` in WGS 84 ECEF metres.
+  Use a `planes` volume with one to six half-spaces whose non-negative sides
+  remain visible, or a `box` with inclusive `minimum` and `maximum` ECEF XYZ
+  coordinates. Projected COPC source coordinates are transformed by the layer
+  before this filter; do not pass source CRS coordinates. Runtime
+  `setClippingVolume()` updates cached nodes and future streamed nodes without
+  reloading the source. It composes with style filters and excludes clipped
+  points from picking. It is a rendering/filter operation and does not reduce
+  hierarchy or point-range reads. `BatchedGeometryPointRenderer` applies the
+  volume in its fragment shader; other renderers apply the point filter.
 - `extraDimensions`: optional list of Extra Bytes names to retain in addition
   to names required by the initial style/filter. These values count toward the
   decoded CPU cache limit and are available through point inspection.
@@ -687,6 +698,50 @@ or implement order-independent transparency, so overlapping translucent
 layers and terrain can composite differently by renderer and scene order. A
 custom renderer must implement its optional `setOpacity()` capability before
 the layer accepts an explicit opacity value.
+
+### Cesium clipping volumes
+
+Clipping uses the renderer's prepared WGS 84 ECEF coordinates, not the COPC
+source CRS or an implicit local origin. The batched renderer subtracts each
+node's Float64 ECEF origin before sending plane distances to its Float32 shader
+uniforms. This preserves useful precision for projected datasets and large
+Earth-centered offsets. Plane normals point toward the visible side; each
+plane boundary and each box face is included.
+
+```ts
+import * as Cesium from 'cesium';
+import {
+  BatchedGeometryPointRenderer,
+  CopcCesiumLayer,
+} from '@frillab/copc-adapter/cesium';
+
+const viewer = new Cesium.Viewer('cesium-container');
+const layer = new CopcCesiumLayer({
+  url: '/samples/area.copc.laz',
+  renderer: new BatchedGeometryPointRenderer(),
+});
+await layer.load();
+layer.attachTo(viewer);
+
+// Pick a point first, then keep its positive-X side in ECEF coordinates.
+const selected = layer.getSelectedPoint();
+if (!selected?.world) throw new Error('Pick a point first');
+layer.setClippingVolume({
+  type: 'planes',
+  coordinateSystem: 'wgs84-ecef-meters',
+  planes: [{
+    normal: [1, 0, 0],
+    point: [selected.world.x, selected.world.y, selected.world.z],
+  }],
+});
+
+layer.setClippingVolume(undefined); // show all points again
+```
+
+The layer also accepts an axis-aligned ECEF `box`. Constructor clipping uses
+the same type. Clipped points cannot be selected, styles and classification
+filters still apply, and other layers retain their own clipping state. The
+volume does not reduce streaming or network work.
 
 ### Lifecycle
 

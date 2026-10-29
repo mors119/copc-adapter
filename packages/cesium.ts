@@ -133,6 +133,11 @@ export type {
   CopcClassificationFilter,
 } from "./cesium/layer/CopcCesiumLayer";
 export type {
+  CopcCesiumClippingPlane,
+  CopcCesiumClippingVolume,
+  CopcCesiumEcefPoint,
+} from "./cesium/layer/CopcCesiumLayer";
+export type {
   CopcMetadata,
   CopcPoint,
   CopcExtraDimensionValues,

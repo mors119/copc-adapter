@@ -58,7 +58,10 @@ type LayerCompatibilityExclusions =
   | "dimensionFilter"
   | "pointFields"
   | "retainSourceCoordinatesForQueries"
-  | "opacity";
+  | "opacity"
+  // Renderer-space clipping uses ECEF planes/boxes and has no structured
+  // Workbench input; keep it as an explicit layer API.
+  | "clippingVolume";
 
 // Dev Viewer is compiled against workspace declarations through its tsconfig
 // aliases, so adding a new public option exposes schema drift in this build.

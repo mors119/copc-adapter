@@ -34,6 +34,27 @@ test("Cesium layer opacity accepts endpoints and rejects invalid values", () => 
   }
 });
 
+test("Cesium clipping constructor options are validated and detached from caller data", () => {
+  const clippingVolume = {
+    type: "box",
+    coordinateSystem: "wgs84-ecef-meters",
+    minimum: [-10, -20, -30],
+    maximum: [10, 20, 30],
+  };
+  const layer = new CopcCesiumLayer({
+    url: "memory://initial-clipping.copc.laz",
+    clippingVolume,
+  });
+  clippingVolume.minimum[0] = -999;
+  assert.deepEqual(layer.getClippingVolume(), {
+    type: "box",
+    coordinateSystem: "wgs84-ecef-meters",
+    minimum: [-10, -20, -30],
+    maximum: [10, 20, 30],
+  });
+  layer.destroy();
+});
+
 test("Cesium opacity is rejected when a custom renderer lacks layer support", () => {
   assert.throws(
     () =>
@@ -1279,6 +1300,77 @@ test("runtime Cesium styling filters cached points without another point-chunk r
   assert.equal(layer.getSnapshot().streamingUpdateCount, streamingUpdateCount);
   assert.equal(viewer.addedCollections.length, 1);
   assert.equal(viewer.removedCollections.length, 0);
+  layer.destroy();
+});
+
+test("runtime clipping composes with style filters, clears clipped selection, and reuses cached points", async () => {
+  const source = createBackend();
+  const picked = [];
+  const layer = new CopcCesiumLayer({
+    url: "memory://runtime-clipping.copc.laz",
+    backend: source.backend,
+    decoder: source.decoder,
+    classificationFilter: { include: [6] },
+    onPointPicked: (point) => picked.push(point),
+  });
+  const viewer = createFakeViewer();
+  const nodeKey = "0-0-0-0";
+
+  await layer.load();
+  layer.attachTo(viewer);
+  await waitFor(() => layer.getSnapshot().renderedPointCount === 1);
+  const initialCollection = getLayerPointCollection(viewer);
+  const class2X = initialCollection.get(0).position.x;
+  const class6X = initialCollection.get(1).position.x;
+  const midpoint = (class2X + class6X) / 2;
+  const class6Normal = class6X > class2X ? [1, 0, 0] : [-1, 0, 0];
+  const class2Normal = class6X > class2X ? [-1, 0, 0] : [1, 0, 0];
+  const volume = (normal) => ({
+    type: "planes",
+    coordinateSystem: "wgs84-ecef-meters",
+    planes: [{ normal, point: [midpoint, 0, 0] }],
+  });
+  const requestCount = source.pointChunkRequestCount;
+  const decodeCount = source.decodeCount;
+  const cacheBefore = layer.getPointCacheDiagnostics();
+  const hierarchyBefore = layer.getHierarchyDiagnostics();
+  const streamingUpdateCount = layer.getSnapshot().streamingUpdateCount;
+
+  layer.setClippingVolume(volume(class6Normal));
+  assert.equal(layer.getSnapshot().renderedPointCount, 1);
+  const volumeSnapshot = layer.getClippingVolume();
+  assert.deepEqual(volumeSnapshot.planes[0].normal, class6Normal);
+  volumeSnapshot.planes[0].normal[0] = 0;
+  assert.deepEqual(layer.getClippingVolume().planes[0].normal, class6Normal);
+  const controller = layer.controller;
+  viewer.scene.pick = () => ({
+    id: { nodeKey, pointIndex: 1, ownerId: controller.pointPicker.ownerId },
+  });
+  controller.pointPicker.pick(viewer, new Cesium.Cartesian2(10, 10));
+  assert.equal(layer.getSelectedPoint().pointIndex, 1);
+
+  layer.setClippingVolume(volume(class2Normal));
+  assert.equal(layer.getSnapshot().renderedPointCount, 0);
+  assert.equal(layer.getSelectedPoint(), undefined);
+  assert.equal(picked.at(-1), undefined);
+  controller.pointPicker.pick(viewer, new Cesium.Cartesian2(10, 10));
+  assert.equal(layer.getSelectedPoint(), undefined);
+  assert.equal(picked.at(-1), undefined);
+  const clippedCollection = getLayerPointCollection(viewer);
+  assert.equal(clippedCollection.get(0).show, false);
+  assert.equal(clippedCollection.get(1).show, false);
+
+  layer.setClippingVolume(undefined);
+  assert.equal(layer.getClippingVolume(), undefined);
+  assert.equal(layer.getSnapshot().renderedPointCount, 1);
+  const restoredCollection = getLayerPointCollection(viewer);
+  assert.equal(restoredCollection.get(0).show, false);
+  assert.equal(restoredCollection.get(1).show, true);
+  assert.equal(source.pointChunkRequestCount, requestCount);
+  assert.equal(source.decodeCount, decodeCount);
+  assert.deepEqual(layer.getPointCacheDiagnostics(), cacheBefore);
+  assert.deepEqual(layer.getHierarchyDiagnostics(), hierarchyBefore);
+  assert.equal(layer.getSnapshot().streamingUpdateCount, streamingUpdateCount);
   layer.destroy();
 });
 

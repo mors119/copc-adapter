@@ -15,6 +15,7 @@ import { assertCopcLayerOpacity } from "../../core/streaming/renderer";
 import { renderCopcPoints } from "./renderPoints";
 import { getPointColor } from "../style/pointStyle";
 import { resolveCopcPointStyleOptions } from "../../core/point/style/pointStyle";
+import type { CopcCesiumClippingPlane } from "../layer/clippingVolumes";
 
 /** Cesium renderer preparation stage reported with a duration in milliseconds. */
 export type CopcCesiumPointRendererPerformanceStage =
@@ -50,6 +51,8 @@ export type CopcCesiumPointRendererOptions = NeutralCopcPointRendererOptions & {
   maxPointSize?: number;
   /** Local nominal point spacing for this node in metres. */
   pointSpacingMeters?: number;
+  /** Readonly ECEF half-spaces; shader renderers convert them to node-relative coordinates. */
+  clippingPlanes?: readonly CopcCesiumClippingPlane[];
   /** Receives the measured stage, elapsed milliseconds, and affected point count. */
   onPerformance?: (
     stage: CopcCesiumPointRendererPerformanceStage,

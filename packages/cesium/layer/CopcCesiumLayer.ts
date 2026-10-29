@@ -40,12 +40,18 @@ import type {
   CopcCesiumPointStyle,
   CopcCesiumPointStyleUpdate,
 } from "../style/CesiumPointStyle";
+import type { CopcCesiumClippingVolume } from "./clippingVolumes";
 
 export type {
   CopcCesiumPointStyle,
   CopcCesiumPointStyleUpdate,
   CopcClassificationFilter,
 } from "../style/CesiumPointStyle";
+export type {
+  CopcCesiumClippingPlane,
+  CopcCesiumClippingVolume,
+  CopcCesiumEcefPoint,
+} from "./clippingVolumes";
 export type {
   TerrainHeightAlignmentEstimate,
   TerrainHeightAlignmentOptions,
@@ -119,6 +125,8 @@ export type CopcCesiumLayerOptions = {
   dimension?: CopcDimensionStyle;
   /** Inclusive numeric range visibility filter applied from the first view. */
   dimensionFilter?: CopcDimensionFilter;
+  /** Optional renderer-space clip volume in WGS 84 ECEF metres. */
+  clippingVolume?: CopcCesiumClippingVolume;
   /** Extra Bytes dimensions to retain for styling or point inspection. */
   extraDimensions?: readonly string[];
   /**
@@ -374,6 +382,29 @@ export class CopcCesiumLayer {
    */
   setStyle(style: CopcCesiumPointStyleUpdate): void {
     this.controller.setStyle(style);
+  }
+
+  /** Return a detached copy of the active renderer-space clip volume. */
+  getClippingVolume(): CopcCesiumClippingVolume | undefined {
+    return this.controller.getClippingVolume();
+  }
+
+  /**
+   * Set or clear the application-defined point clip volume.
+   *
+   * Plane and box coordinates are WGS 84 ECEF metres. Plane normals keep the
+   * non-negative side; plane intersections and box boundaries are inclusive.
+   * Updates filter cached points immediately, preserve source and active LoD
+   * state, and apply to subsequently streamed nodes. Clipping only changes
+   * rendering and picking; it does not reduce hierarchy or point-range reads.
+   *
+   * @param volume A plane intersection or axis-aligned ECEF box, or `undefined` to clear clipping.
+   * @throws `TypeError` or `RangeError` for an invalid volume. Throws `Error`
+   * after destroy, when a rendered node buffer is unavailable, or when renderer
+   * replacement fails.
+   */
+  setClippingVolume(volume: CopcCesiumClippingVolume | undefined): void {
+    this.controller.setClippingVolume(volume);
   }
 
   /**
