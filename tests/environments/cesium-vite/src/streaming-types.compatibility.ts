@@ -4,6 +4,7 @@ import {
 } from "@frillab/copc-adapter/cesium";
 import type {
   CopcCesiumLayerOptions,
+  CopcCesiumClippingVolume,
   CopcStreamingProgressHandler,
   StreamingProgress,
   StreamingUpdateResult,
@@ -27,6 +28,11 @@ const layerOptions: CopcCesiumLayerOptions = {
   colorMode: "rgb",
   attributeLoading: "required",
   classificationFilter: { include: [2, 6] },
+  clippingVolume: {
+    type: "planes",
+    coordinateSystem: "wgs84-ecef-meters",
+    planes: [{ normal: [1, 0, 0], point: [6_378_137, 0, 0] }],
+  },
   pointFields: new Set(["intensity"]),
   maxRenderedPoints: 200_000,
   streaming: {
@@ -40,6 +46,17 @@ const minimalLayer = new CopcCesiumLayer({
   url: "https://example.com/data.copc.laz",
 });
 minimalLayer.setOpacity(0.5);
+const runtimeClipping: CopcCesiumClippingVolume = {
+  type: "box",
+  coordinateSystem: "wgs84-ecef-meters",
+  minimum: [-10, -10, -10],
+  maximum: [10, 10, 10],
+};
+minimalLayer.setClippingVolume(runtimeClipping);
+const clippingSnapshot: CopcCesiumClippingVolume | undefined =
+  minimalLayer.getClippingVolume();
+void clippingSnapshot;
+minimalLayer.setClippingVolume(undefined);
 await minimalLayer.load();
 minimalLayer.attachTo(viewer);
 minimalLayer.destroy();

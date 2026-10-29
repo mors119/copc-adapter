@@ -262,6 +262,7 @@ function getState() {
     colorMode,
     attributeLoading,
     style: layer.getStyle(),
+    clippingVolume: layer.getClippingVolume(),
     datasetUrl: snapshot.datasetUrl,
     metadata,
     hierarchy: layer.getHierarchyDiagnostics(),
@@ -497,6 +498,26 @@ window.__PACKED_CONSUMER__ = {
         error: error instanceof Error ? error.message : String(error),
       };
     }
+  },
+  setClippingVolume(volume) {
+    layer.setClippingVolume(volume);
+    viewer.scene.requestRender();
+  },
+  getClippingDiagnostics() {
+    if (!renderer) return undefined;
+    return [...renderer.nodes.entries()].map(([nodeKey, node]) => {
+      const appearance = node.primitive.appearance;
+      return {
+        nodeKey,
+        hasClippingAttribute: Boolean(
+          node.primitive.geometryInstances.geometry.attributes.a_clippingPosition,
+        ),
+        fragmentShaderSource: appearance.fragmentShaderSource,
+        clippingUniformNames: Object.keys(appearance.material.uniforms).filter(
+          (name) => name.startsWith("u_clipPlane"),
+        ),
+      };
+    });
   },
   getPointSizeDiagnostics() {
     if (!renderer) return undefined;

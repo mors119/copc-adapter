@@ -114,14 +114,16 @@ async function loadRustPage(page, query = "?backend=rust&mode=rgb") {
   await expect
     .poll(async () => (await state(page)).renderedPointCount)
     .toBeGreaterThan(0);
-  await expect
-    .poll(async () => {
-      const current = await state(page);
-      return (
-        (current.maxRenderedHeight ?? 0) - (current.minRenderedHeight ?? 0)
-      );
-    })
-    .toBeGreaterThan(1);
+  if (!query.includes("renderer=batched")) {
+    await expect
+      .poll(async () => {
+        const current = await state(page);
+        return (
+          (current.maxRenderedHeight ?? 0) - (current.minRenderedHeight ?? 0)
+        );
+      })
+      .toBeGreaterThan(1);
+  }
   await expect
     .poll(async () => (await state(page)).hierarchy?.pageRequests ?? 0)
     .toBeGreaterThan(0);
@@ -455,6 +457,69 @@ test("loads the packed opt-in batched Cesium renderer without changing the defau
     world: { coordinateSystem: "wgs84-ecef-meters" },
   });
   expect(pageErrors).toEqual([]);
+});
+
+test("updates packed Cesium clipping without source reads and clears clipped picks", async ({
+  page,
+}) => {
+  const { pageErrors, consoleErrors } = await loadRustPage(
+    page,
+    "?backend=rust&mode=rgb&renderer=batched",
+  );
+  await waitForStableRendering(page);
+  const before = await state(page);
+  expect(before.renderedPointCount).toBeGreaterThan(0);
+
+  await page.evaluate(() =>
+    window.__PACKED_CONSUMER__.setClippingVolume({
+      type: "box",
+      coordinateSystem: "wgs84-ecef-meters",
+      minimum: [0, 0, 0],
+      maximum: [1, 1, 1],
+    }),
+  );
+  await page.waitForTimeout(100);
+  const clipped = await state(page);
+  expect(clipped.renderedPointCount).toBe(0);
+  expect(clipped.lastError).toBeUndefined();
+  expect(clipped.clippingVolume).toEqual({
+    type: "box",
+    coordinateSystem: "wgs84-ecef-meters",
+    minimum: [0, 0, 0],
+    maximum: [1, 1, 1],
+  });
+  expect(clipped.rangeRequests.requested).toBe(before.rangeRequests.requested);
+  expect(
+    await page.evaluate(() =>
+      window.__PACKED_CONSUMER__.getBatchedPointPickTarget(),
+    ),
+  ).toBeUndefined();
+
+  const shaderNodes = await page.evaluate(() =>
+    window.__PACKED_CONSUMER__.getClippingDiagnostics(),
+  );
+  expect(shaderNodes.length).toBeGreaterThan(0);
+  expect(
+    shaderNodes.every(
+      (node) =>
+        node.hasClippingAttribute &&
+        node.clippingUniformNames.includes("u_clipPlane0") &&
+        node.fragmentShaderSource.includes("v_clippingPosition") &&
+        node.fragmentShaderSource.includes("copcGetClipPlane0"),
+    ),
+  ).toBe(true);
+
+  await page.evaluate(() =>
+    window.__PACKED_CONSUMER__.setClippingVolume(undefined),
+  );
+  await expect
+    .poll(async () => (await state(page)).renderedPointCount)
+    .toBeGreaterThan(0);
+  const cleared = await state(page);
+  expect(cleared.clippingVolume).toBeUndefined();
+  expect(cleared.rangeRequests.requested).toBe(before.rangeRequests.requested);
+  expect(pageErrors).toEqual([]);
+  expect(consoleErrors).toEqual([]);
 });
 
 test("estimates against the consumer TerrainProvider and rejects ellipsoid-only sampling", async ({

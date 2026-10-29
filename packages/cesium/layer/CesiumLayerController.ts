@@ -70,7 +70,10 @@ import type {
   StreamingProgress,
   StreamingSelectionOptions,
 } from "../../core/streaming/types";
-import type { RenderablePointData } from "../../core/point/compactEPointCache";
+import {
+  getPreparedWorldCoordinateBuffer,
+  type RenderablePointData,
+} from "../../core/point/compactEPointCache";
 import { DEFAULT_MAX_RENDERED_POINTS } from "../../core/streaming/NodeSelector";
 import {
   normalizeRefinementFocus,
@@ -94,6 +97,12 @@ import type {
   CopcCesiumPointStyleUpdate,
   CopcClassificationFilter,
 } from "../style/CesiumPointStyle";
+import {
+  isWorldPointInsideCopcCesiumClippingVolume,
+  normalizeCopcCesiumClippingVolume,
+  type CopcCesiumClippingVolume,
+  type NormalizedCopcCesiumClippingVolume,
+} from "./clippingVolumes";
 
 export type {
   CopcCesiumPointStyle,
@@ -122,6 +131,8 @@ export type CopcLayerOptions = {
   classificationFilter?: CopcClassificationFilter;
   dimension?: CopcCesiumPointStyle["dimension"];
   dimensionFilter?: CopcCesiumPointStyle["dimensionFilter"];
+  /** Optional renderer-space clip volume in WGS 84 ECEF metres. */
+  clippingVolume?: CopcCesiumClippingVolume;
   /** Extra Bytes dimensions to retain for styling or point inspection. */
   extraDimensions?: readonly string[];
   coordinateCacheLayout?: "A" | "E";
@@ -345,6 +356,25 @@ function isPointVisibleForStyle(
   return value >= dimensionFilter.min && value <= dimensionFilter.max;
 }
 
+function isPointVisibleForStyleAndClipping(
+  points: RenderablePointData,
+  pointIndex: number,
+  style: CopcCesiumPointStyle,
+  volume: NormalizedCopcCesiumClippingVolume | undefined,
+): boolean {
+  if (!isPointVisibleForStyle(points, pointIndex, style)) return false;
+  if (!volume) return true;
+  const worldCoordinates = getPreparedWorldCoordinateBuffer(points);
+  if (!worldCoordinates) return false;
+  return (
+    isWorldPointInsideCopcCesiumClippingVolume(
+      worldCoordinates,
+      pointIndex,
+      volume,
+    )
+  );
+}
+
 /**
  * Cesium adapter for the renderer-neutral COPC streaming core.
  *
@@ -377,6 +407,7 @@ export class CesiumLayerController {
   };
   private readonly pointStyleState = createCopcPointStyleState();
   private style: CopcCesiumPointStyle;
+  private clippingVolume?: NormalizedCopcCesiumClippingVolume;
   private readonly extraDimensionNames: readonly string[];
   private readonly backendLoadsAllExtraDimensions: boolean;
   private readonly rendererPerformance = new StreamingPerformanceRecorder();
@@ -453,6 +484,9 @@ export class CesiumLayerController {
       );
     }
     this.options = options;
+    this.clippingVolume = normalizeCopcCesiumClippingVolume(
+      options.clippingVolume,
+    );
     this.style = {
       colorMode: options.colorMode ?? "fixed",
       ...(options.classificationFilter === undefined
@@ -521,6 +555,21 @@ export class CesiumLayerController {
     });
     this.pointPicker = new CesiumPointPicker({
       canPick: () => this.opacity !== 0,
+      isPointVisible: (pickId) => {
+        const points = getCachedRenderablePointDataForAdapter(
+          this.core,
+          pickId.nodeKey,
+        );
+        return (
+          points !== undefined &&
+          isPointVisibleForStyleAndClipping(
+            points,
+            pickId.pointIndex,
+            this.style,
+            this.clippingVolume,
+          )
+        );
+      },
       inspectPoint: (pickId) => {
         const node = this.core.getHierarchyNode(pickId.nodeKey);
         const points = getCachedRenderablePointDataForAdapter(
@@ -1175,10 +1224,11 @@ export class CesiumLayerController {
       );
       if (
         !selectedPoints ||
-        !isPointVisibleForStyle(
+        !isPointVisibleForStyleAndClipping(
           selectedPoints,
           selectedPick.pointIndex,
           nextStyle,
+          this.clippingVolume,
         )
       ) {
         this.pointPicker.clear();
@@ -1187,6 +1237,93 @@ export class CesiumLayerController {
     this.rendererPerformance.setActiveRenderedPointCount(
       this.getRenderedPointCount(),
     );
+  }
+
+  /** Return a detached copy of the active ECEF clipping volume. */
+  getClippingVolume(): CopcCesiumClippingVolume | undefined {
+    const input = this.clippingVolume?.input;
+    if (!input) return undefined;
+    if (input.type === "box") {
+      return {
+        ...input,
+        minimum: [input.minimum[0], input.minimum[1], input.minimum[2]],
+        maximum: [input.maximum[0], input.maximum[1], input.maximum[2]],
+      };
+    }
+    return {
+      ...input,
+      planes: input.planes.map((plane) => ({
+        normal: [plane.normal[0], plane.normal[1], plane.normal[2]],
+        point: [plane.point[0], plane.point[1], plane.point[2]],
+      })),
+    };
+  }
+
+  /**
+   * Replace or clear the renderer-space clip volume using retained node data.
+   * This updates current nodes synchronously and applies to later streamed
+   * nodes without restarting source or hierarchy loading.
+   */
+  setClippingVolume(volume: CopcCesiumClippingVolume | undefined): void {
+    if (this.lifecycle === "destroyed") {
+      throw new Error("CopcCesiumLayer has been destroyed");
+    }
+    const nextVolume = normalizeCopcCesiumClippingVolume(volume);
+    const renderedNodes = this.pointRenderer
+      .getRenderedNodeKeys()
+      .map((nodeKey) => {
+        const points = getCachedRenderablePointDataForAdapter(
+          this.core,
+          nodeKey,
+        );
+        if (!points) {
+          throw new Error(
+            `Cannot update clipping for rendered node ${nodeKey}: its decoded point buffer is not cached.`,
+          );
+        }
+        return { nodeKey, points };
+      });
+
+    const previousVolume = this.clippingVolume;
+    this.clippingVolume = nextVolume;
+    try {
+      for (const { nodeKey, points } of renderedNodes) {
+        this.updatePointCollectionStyle(nodeKey, points, this.style);
+      }
+    } catch (error: unknown) {
+      this.clippingVolume = previousVolume;
+      for (const { nodeKey, points } of renderedNodes) {
+        try {
+          this.updatePointCollectionStyle(nodeKey, points, this.style);
+        } catch {
+          // Keep the original renderer error while restoring the other nodes.
+        }
+      }
+      throw error;
+    }
+
+    const selectedPick = this.pointPicker.getSelectedPickId();
+    if (selectedPick) {
+      const selectedPoints = getCachedRenderablePointDataForAdapter(
+        this.core,
+        selectedPick.nodeKey,
+      );
+      if (
+        !selectedPoints ||
+        !isPointVisibleForStyleAndClipping(
+          selectedPoints,
+          selectedPick.pointIndex,
+          this.style,
+          this.clippingVolume,
+        )
+      ) {
+        this.pointPicker.clear();
+      }
+    }
+    this.rendererPerformance.setActiveRenderedPointCount(
+      this.getRenderedPointCount(),
+    );
+    this.viewer?.scene.requestRender?.();
   }
 
   private getInitialPointFields(
@@ -1695,8 +1832,23 @@ export class CesiumLayerController {
       dimension: style.dimension,
       elevationRange: this.datasetElevationRange,
       rgbMax: this.pointStyleState.getRgbMax(points),
+      ...(this.clippingVolume
+        ? {
+            clippingPlanes: this.clippingVolume.planes.map(
+              ({ normal, point }) => ({
+                normal: [normal[0], normal[1], normal[2]],
+                point: [point[0], point[1], point[2]],
+              }),
+            ),
+          }
+        : {}),
       pointFilter: (pointIndex: number) =>
-        isPointVisibleForStyle(points, pointIndex, style),
+        isPointVisibleForStyleAndClipping(
+          points,
+          pointIndex,
+          style,
+          this.clippingVolume,
+        ),
       pointId: (pointIndex: number) => ({
         nodeKey,
         pointIndex,

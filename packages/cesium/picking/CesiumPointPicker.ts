@@ -7,6 +7,7 @@ import { isCopcPointPickId } from "../../core/copc/points/pointInspection";
 
 type CesiumPointPickerOptions = {
   canPick?: () => boolean;
+  isPointVisible?: (pickId: CopcPointPickId) => boolean;
   inspectPoint: (pickId: CopcPointPickId) => CopcPointInspection | undefined;
   hasNode: (nodeKey: string) => boolean;
   resolveBatchedPoint?: (
@@ -63,6 +64,10 @@ export class CesiumPointPicker {
       return undefined;
     }
     if (!this.options.hasNode(pickId.nodeKey)) {
+      this.clear();
+      return undefined;
+    }
+    if (this.options.isPointVisible?.(pickId) === false) {
       this.clear();
       return undefined;
     }
@@ -136,7 +141,11 @@ export class CesiumPointPicker {
     }
 
     const inspection = this.options.inspectPoint(pickId);
-    if (!inspection || !this.options.hasNode(pickId.nodeKey)) {
+    if (
+      !inspection ||
+      !this.options.hasNode(pickId.nodeKey) ||
+      this.options.isPointVisible?.(pickId) === false
+    ) {
       this.clear();
       return;
     }
