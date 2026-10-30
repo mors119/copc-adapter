@@ -1679,7 +1679,8 @@ async function main(): Promise<void> {
       pendingRevision: appliedCodeRevision,
     };
     const state = integrationCodePanel.getState();
-    const approvedTerrainAlignment = approvedTerrainAlignmentProvenance &&
+    const approvedTerrainAlignment = activeConfig.renderer === "cesium" &&
+        approvedTerrainAlignmentProvenance &&
         sameSource(approvedTerrainAlignmentProvenance.source, activeConfig.source) &&
         approvedTerrainAlignmentProvenance.terrainUrl === activeConfig.terrainUrl &&
         approvedTerrainAlignmentProvenance.finalHeightOffsetMeters === activeConfig.heightOffsetMeters
@@ -1711,6 +1712,8 @@ async function main(): Promise<void> {
         code: generated.code,
         warnings,
         source: activeConfig.source,
+        sensitiveSourceIncluded: typeof activeConfig.source === "string" &&
+          isPotentiallySensitiveSource(activeConfig.source) && state.includeExactSource,
         appliedStatus: {
           revision: generated.appliedRevision,
           pendingChanges: generated.pendingChanges || isLoading ||

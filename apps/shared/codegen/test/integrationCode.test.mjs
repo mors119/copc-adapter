@@ -6,7 +6,10 @@ import {
   generateWorkbenchIntegrationCode,
   isPotentiallySensitiveSource,
 } from "../integrationCode.ts";
-import { preserveLastSuccessfulIntegrationCode } from "../IntegrationCodePanel.ts";
+import {
+  canCopyIntegrationCode,
+  preserveLastSuccessfulIntegrationCode,
+} from "../IntegrationCodePanel.ts";
 import {
   NPM_0_6_CAPABILITIES,
   NPM_0_6_MANIFEST,
@@ -236,6 +239,22 @@ test("keeps the last successful copied snippet visible when generation fails", (
   assert.equal(failed.appliedStatus.codeOutOfDate, true);
   assert.match(failed.warnings.join(" "), /previous successful snippet is unchanged/u);
   assert.match(failed.warnings.join(" "), /unsupported/u);
+});
+
+test("blocks copying a retained snippet with an exact sensitive source after consent is withdrawn", () => {
+  const previous = {
+    code: "const sourceUrl = 'https://example.test/data.copc.laz?token=secret';",
+    source: "https://example.test/data.copc.laz?token=secret",
+    sensitiveSourceIncluded: true,
+  };
+  const retained = preserveLastSuccessfulIntegrationCode(previous, {
+    code: "",
+    warnings: ["The new renderer configuration is unsupported."],
+  });
+
+  assert.equal(retained.sensitiveSourceIncluded, true);
+  assert.equal(canCopyIntegrationCode(retained, false), false);
+  assert.equal(canCopyIntegrationCode(retained, true), true);
 });
 
 test("uses manifest defaults for minimal and explicit code without materializing omitted settings", () => {

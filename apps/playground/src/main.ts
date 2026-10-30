@@ -1389,11 +1389,12 @@ function updateIntegrationExample(): void {
     appliedRevision: appliedCodeRevision,
     pendingRevision: appliedCodeRevision,
   };
+  const panelState = integrationCodePanel.getState();
   try {
     const generated = generateIntegrationCodeResult({
       config,
-      includeExactSource: integrationCodePanel.getState().includeExactSource,
-      mode: integrationCodePanel.getState().mode,
+      includeExactSource: panelState.includeExactSource,
+      mode: panelState.mode,
       adapterVersion: __ADAPTER_VERSION__,
       appliedState,
       ...(appliedCodeAt === undefined ? {} : { appliedAt: appliedCodeAt }),
@@ -1411,6 +1412,8 @@ function updateIntegrationExample(): void {
       code: generated.code,
       warnings: generated.warnings,
       source: appliedSource,
+      sensitiveSourceIncluded: typeof appliedSource === "string" &&
+        isPotentiallySensitiveSource(appliedSource) && panelState.includeExactSource,
       installCommand: PLAYGROUND_INSTALL_COMMANDS[config.renderer],
       ...(appliedStatus ? { appliedStatus } : {}),
     });

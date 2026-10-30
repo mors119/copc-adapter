@@ -10,6 +10,8 @@ export type IntegrationCodePanelState = {
 export type IntegrationCodePanelContent = {
   readonly code: string;
   readonly source?: string | Blob;
+  /** The visible snippet contains a sensitive source from the last successful generation. */
+  readonly sensitiveSourceIncluded?: boolean;
   readonly warnings?: readonly string[];
   readonly installCommand?: string;
   readonly appliedStatus?: IntegrationCodeAppliedStatus;
@@ -76,6 +78,14 @@ export function preserveLastSuccessfulIntegrationCode(
       ...(next.warnings ?? []),
     ],
   };
+}
+
+export function canCopyIntegrationCode(
+  content: IntegrationCodePanelContent,
+  includeExactSource: boolean,
+): boolean {
+  return content.code.trim() !== "" &&
+    !(content.sensitiveSourceIncluded === true && !includeExactSource);
 }
 
 function formatCodeAge(appliedAt: number): string {
@@ -199,6 +209,7 @@ export function mountIntegrationCodePanel(options: {
     const hasSource = source !== undefined;
     const local = isLocalSource(source);
     const sensitive = typeof source === "string" && isPotentiallySensitiveSource(source);
+    const sensitiveSourceRetained = content.sensitiveSourceIncluded === true;
     const sourceIsHttpUrl = (): boolean => {
       if (typeof source !== "string") return false;
       try {
@@ -211,16 +222,21 @@ export function mountIntegrationCodePanel(options: {
     exactSourceOption.hidden = !hasSource || local;
     exactSourceInput.disabled = !hasSource || local;
     if (!hasSource || local) exactSourceInput.checked = false;
-    sourceCodeWarning.hidden = !sensitive;
-    sourceCodeWarning.textContent = sensitive
-      ? sourceIsHttpUrl()
-        ? exactSourceInput.checked
-          ? "This URL contains credentials, query parameters, or a fragment. The visible snippet includes it; copying requires confirmation."
-          : "This URL may contain credentials or tokens. The snippet uses a placeholder; enable the checkbox above to reveal and copy the exact URL."
-        : exactSourceInput.checked
-          ? "This source could not be verified as public. The visible snippet includes it; copying requires confirmation."
-          : "This source could not be verified as public. The snippet uses a placeholder; enable the checkbox above to reveal and copy the exact value."
-      : "";
+    sourceCodeWarning.hidden = !sensitive && !sensitiveSourceRetained;
+    sourceCodeWarning.textContent = sensitiveSourceRetained
+      ? exactSourceInput.checked
+        ? "The visible snippet contains an exact sensitive source from its last successful generation. Copying requires confirmation."
+        : "The retained snippet still contains an exact sensitive source. Copy is disabled until a placeholder version is generated."
+      : sensitive
+        ? sourceIsHttpUrl()
+          ? exactSourceInput.checked
+            ? "This URL contains credentials, query parameters, or a fragment. The visible snippet includes it; copying requires confirmation."
+            : "This URL may contain credentials or tokens. The snippet uses a placeholder; enable the checkbox above to reveal and copy the exact URL."
+          : exactSourceInput.checked
+            ? "This source could not be verified as public. The visible snippet includes it; copying requires confirmation."
+            : "This source could not be verified as public. The snippet uses a placeholder; enable the checkbox above to reveal and copy the exact value."
+        : "";
+    copyCodeButton.disabled = !canCopyIntegrationCode(content, exactSourceInput.checked);
 
     shareSourceOption.hidden = !hasSource;
     shareSourceInput.disabled = !hasSource || local || sensitive;
@@ -333,9 +349,14 @@ export function mountIntegrationCodePanel(options: {
   };
   const onCopyCode = async (): Promise<void> => {
     const source = content.source;
-    const sensitive = typeof source === "string" &&
-      isPotentiallySensitiveSource(source) &&
-      exactSourceInput.checked;
+    if (content.sensitiveSourceIncluded === true && !exactSourceInput.checked) {
+      setStatus("Copy is disabled until the snippet is regenerated without the exact source.");
+      return;
+    }
+    const sensitive = content.sensitiveSourceIncluded === true ||
+      (typeof source === "string" &&
+        isPotentiallySensitiveSource(source) &&
+        exactSourceInput.checked);
     if (sensitive && !window.confirm(
       "The visible code contains a source value that could include credentials or private path data. Copy it anyway?",
     )) {
