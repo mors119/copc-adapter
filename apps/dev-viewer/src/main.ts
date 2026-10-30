@@ -16,6 +16,9 @@ import {
   type CopcSourceProbeResult,
   type RangeValidationPolicy,
   type TerrainHeightAlignmentEstimate,
+  type TerrainHeightAlignmentBatchEstimate,
+  type TerrainHeightAlignmentBatchOptions,
+  type TerrainHeightAlignmentGroundCandidate,
   type TerrainHeightAlignmentOptions,
 } from "@frillab/copc-adapter";
 import type { CopcCesiumLayerSnapshot } from "@frillab/copc-adapter";
@@ -243,6 +246,16 @@ type CopcDebugAdapter = {
   setPublicBatchVisibility(show: boolean): void;
   clearPublicBatchNodes(): number;
   getPickablePointScreenPosition(): { x: number; y: number } | undefined;
+  getRenderedPointScreenPosition(pointIndex: number):
+    | { x: number; y: number }
+    | undefined;
+  estimateTerrainHeightAlignmentBatch?(
+    candidates: readonly TerrainHeightAlignmentGroundCandidate[],
+    options?: TerrainHeightAlignmentBatchOptions,
+  ): Promise<TerrainHeightAlignmentBatchEstimate>;
+  isTerrainHeightAlignmentBatchEstimateCurrent?(
+    estimate: TerrainHeightAlignmentBatchEstimate,
+  ): boolean;
   destroy(): void;
 };
 
@@ -261,6 +274,13 @@ type ViewerSession = {
   ): Promise<TerrainHeightAlignmentEstimate>;
   isTerrainHeightAlignmentEstimateCurrent?(
     estimate: TerrainHeightAlignmentEstimate,
+  ): boolean;
+  estimateTerrainHeightAlignmentBatch?(
+    candidates: readonly TerrainHeightAlignmentGroundCandidate[],
+    options?: TerrainHeightAlignmentBatchOptions,
+  ): Promise<TerrainHeightAlignmentBatchEstimate>;
+  isTerrainHeightAlignmentBatchEstimateCurrent?(
+    estimate: TerrainHeightAlignmentBatchEstimate,
   ): boolean;
   setCameraPreset(preset: CameraPreset): void;
   setCameraRenderDistance(distance: number): void;
@@ -319,6 +339,13 @@ declare global {
         | undefined;
       getSelectedPoint(): CopcPointInspection | undefined;
       getPickablePointScreenPosition(): { x: number; y: number } | undefined;
+      estimateTerrainHeightAlignmentBatch?(
+        candidates: readonly TerrainHeightAlignmentGroundCandidate[],
+        options?: TerrainHeightAlignmentBatchOptions,
+      ): Promise<TerrainHeightAlignmentBatchEstimate>;
+      isTerrainHeightAlignmentBatchEstimateCurrent?(
+        estimate: TerrainHeightAlignmentBatchEstimate,
+      ): boolean;
       getConfiguration(): Omit<Readonly<DevViewerConfig>, "source" | "terrainUrl"> & {
         source: string;
         terrainSource: string;
@@ -613,6 +640,27 @@ function installDebugAdapter(
       }
       window.__COPC_TEST_TERRAIN_HEIGHT__ = heightMeters;
       devTerrainProvider.setHeightMeters(heightMeters);
+    },
+    getRenderedPointScreenPosition(pointIndex):
+      | { x: number; y: number }
+      | undefined {
+      if (!Number.isSafeInteger(pointIndex) || pointIndex < 0) return undefined;
+      let renderedPointIndex = 0;
+      for (const collection of getPointPrimitiveCollections(
+        viewer.scene.primitives,
+      )) {
+        for (let index = 0; index < collection.length; index += 1) {
+          if (renderedPointIndex === pointIndex) {
+            const position = Cesium.SceneTransforms.worldToWindowCoordinates(
+              viewer.scene,
+              collection.get(index).position,
+            );
+            return position ? { x: position.x, y: position.y } : undefined;
+          }
+          renderedPointIndex += 1;
+        }
+      }
+      return undefined;
     },
     runSyntheticThreeCacheLayoutBenchmark: () =>
       runSyntheticThreeCacheLayoutBenchmark(),
@@ -1114,6 +1162,15 @@ async function createCesiumSession(
     getMetadata: () => layer.getMetadata(),
     getHierarchyDiagnostics: () => layer.getHierarchyDiagnostics(),
     getSelectedPoint: () => layer.getSelectedPoint(),
+    estimateTerrainHeightAlignmentBatch: (candidates, options = {}) =>
+      layer.estimateTerrainHeightAlignmentBatch(candidates, {
+        ...options,
+        terrainSourceId: config.terrainUrl.trim()
+          ? getSafeTerrainSourceLabel(config.terrainUrl, window.location.href)
+          : undefined,
+      }),
+    isTerrainHeightAlignmentBatchEstimateCurrent: (estimate) =>
+      layer.isTerrainHeightAlignmentBatchEstimateCurrent(estimate),
     estimateTerrainHeightAlignment: (anchor, options = {}) =>
       layer.estimateTerrainHeightAlignment(anchor, {
         ...options,
@@ -2460,6 +2517,15 @@ async function main(): Promise<void> {
         : undefined;
     },
     getSelectedPoint: () => activeSession?.getSelectedPoint(),
+    estimateTerrainHeightAlignmentBatch: (candidates, options) => {
+      const estimate = activeSession?.estimateTerrainHeightAlignmentBatch?.(
+        candidates,
+        options,
+      );
+      return estimate ?? Promise.reject(new Error("No active Cesium session"));
+    },
+    isTerrainHeightAlignmentBatchEstimateCurrent: (estimate) =>
+      activeSession?.isTerrainHeightAlignmentBatchEstimateCurrent?.(estimate) ?? false,
     getPickablePointScreenPosition: () =>
       activeSession?.getPickablePointScreenPosition(),
     getConfiguration: () => publicConfig(activeConfig),

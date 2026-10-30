@@ -196,6 +196,52 @@ if (estimate.status === 'ready' && estimate.actionable &&
 분류로 받아들이고, 다른 분류나 분류 누락은 호출자가 지면임을 직접 확인해야 합니다.
 선택, source generation, Viewer 또는 TerrainProvider가 바뀌면 결과는 stale 처리됩니다.
 
+### 여러 ground anchor의 Terrain 추정
+
+여러 점을 비교할 때는 현재 렌더링되고 이 layer에서 검사한 점을
+`estimateTerrainHeightAlignmentBatch()`에 전달합니다. 기본 최대값은 8개이고 hard limit은
+12개입니다. 각 anchor의 `nodeKey`, `pointIndex`, `ownerId`와 현재 point cache를 확인합니다.
+좌표 중복, 다른 layer 소유, stale point, ground 확인이 없는 class 누락/비-ground 분류는
+anchor별 이유와 함께 제외됩니다. 가장 낮은 점을 ground로 자동 선택하지 않습니다.
+
+```ts
+const candidates: TerrainHeightAlignmentGroundCandidate[] = inspectedPoints.map(
+  (anchor) => ({
+    anchor,
+    ...(anchor.classification === 2 ? {} : { groundConfirmed: true }),
+  }),
+);
+
+const batch = await layer.estimateTerrainHeightAlignmentBatch(candidates, {
+  maxAnchors: 8,
+  signal: estimateAbortController.signal,
+});
+
+if (
+  batch.status === 'ready' &&
+  batch.actionable &&
+  layer.isTerrainHeightAlignmentBatchEstimateCurrent(batch)
+) {
+  // 사용자가 별도 preview에서 승인한 후에만 layer를 재구성합니다.
+  const approvedHeightOffsetMeters = batch.proposedHeightOffsetMeters;
+}
+```
+
+모든 유효 위치는 Cesium의 public sampler 한 번으로 요청합니다. 두 개 이상의 유효한
+inlier가 있어야 batch proposal을 만들며, 각 잔차는
+`terrainHeightMeters - anchor.displayedHeightMeters`입니다. 중앙값과 MAD로 outlier를
+제외하고 robust spread는 `1.4826 × MAD`로 표시합니다. `highSpreadWarningMeters` 기본값
+2 m를 초과하면 중앙값 제안은 반환하지만 status는 `uncertain`, `actionable`은 `false`입니다.
+제안값은 기존 `heightOffsetMeters`에 잔차 중앙값을 한 번 더한 전체 값입니다.
+보존된 source XYZ는 바뀌지 않으며 compact E 검사 결과에는 source XYZ가 없을 수 있습니다.
+
+현재성 확인은 새 estimate, source/layer lifecycle 변경, TerrainProvider 교체, sampled point의
+변경/제거 뒤에 `false`를 반환합니다. 다른 layer의 estimate는 독립적으로 유지됩니다.
+취소, 불확실, stale 결과는 적용하지 않습니다. 브라우저 자동화는 로컬 fake TerrainProvider와
+작은 WKT2 fixture를 사용하며 실제 서비스에 연결하지 않습니다. 실제 Terrain smoke는
+application이 관리하는 provider로 명시적으로 실행할 수 있지만 survey/geoid 정확도를
+보증하지 않습니다.
+
 현재 표시 높이와 Terrain 높이는 모두 WGS 84 ellipsoidal-height 참조여야 합니다.
 NAVD88 높이는 단위를 미터로 바꾸어도 orthometric height이므로 호환되지 않습니다.
 유효한 #244 `verticalTransform`이 현재 source WKT와 일치하거나 source가 지원되는

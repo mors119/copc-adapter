@@ -25,6 +25,9 @@ import type { CopcDimensionFilter, CopcDimensionStyle } from "../../core/point/s
 import type { GtxGeoidGrid } from "../../core/coordinates/transform/verticalGrid";
 import type {
   TerrainHeightAlignmentEstimate,
+  TerrainHeightAlignmentBatchEstimate,
+  TerrainHeightAlignmentBatchOptions,
+  TerrainHeightAlignmentGroundCandidate,
   TerrainHeightAlignmentOptions,
 } from "../terrain/terrainHeightAlignment";
 import type { NodePointCacheDiagnostics } from "../../core/streaming/createNodePointCache";
@@ -54,6 +57,11 @@ export type {
 } from "./clippingVolumes";
 export type {
   TerrainHeightAlignmentEstimate,
+  TerrainHeightAlignmentBatchEstimate,
+  TerrainHeightAlignmentBatchOptions,
+  TerrainHeightAlignmentGroundCandidate,
+  TerrainHeightAlignmentGenerationIdentity,
+  TerrainHeightAlignmentAnchorResult,
   TerrainHeightAlignmentOptions,
   TerrainHeightAlignmentStatus,
 } from "../terrain/terrainHeightAlignment";
@@ -361,11 +369,38 @@ export class CopcCesiumLayer {
     return this.controller.estimateTerrainHeightAlignment(anchor, options);
   }
 
+  /**
+   * Estimate one uniform visual offset from a bounded set of inspected ground points.
+   * Every candidate must still exist in this layer's rendered cache when the
+   * method is called and when the result is checked for freshness.
+   * Estimation samples Cesium Terrain once and never changes point geometry.
+   *
+   * @param candidates Current point inspections; ASPRS class 2 is accepted as
+   * ground, otherwise set `groundConfirmed` only after independent confirmation.
+   * @param options Sampling deadline/cancellation, Terrain label, maximum
+   * candidates (default 8, hard limit 12), and high-spread threshold in metres.
+   * @returns Per-anchor diagnostics and a proposal. Apply only after explicit
+   * user approval and `isTerrainHeightAlignmentBatchEstimateCurrent()`.
+   */
+  estimateTerrainHeightAlignmentBatch(
+    candidates: readonly TerrainHeightAlignmentGroundCandidate[],
+    options?: TerrainHeightAlignmentBatchOptions,
+  ): Promise<TerrainHeightAlignmentBatchEstimate> {
+    return this.controller.estimateTerrainHeightAlignmentBatch(candidates, options);
+  }
+
   /** Return whether an estimate still belongs to this live layer selection. */
   isTerrainHeightAlignmentEstimateCurrent(
     estimate: TerrainHeightAlignmentEstimate,
   ): boolean {
     return this.controller.isTerrainHeightAlignmentEstimateCurrent(estimate);
+  }
+
+  /** Confirm that a batch estimate still belongs to this layer and its rendered anchors. */
+  isTerrainHeightAlignmentBatchEstimateCurrent(
+    estimate: TerrainHeightAlignmentBatchEstimate,
+  ): boolean {
+    return this.controller.isTerrainHeightAlignmentBatchEstimateCurrent(estimate);
   }
 
   /** Return the current runtime color mode and classification filter. */

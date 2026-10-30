@@ -4,11 +4,22 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 type SelectedPoint = {
+  ownerId?: string;
   nodeKey: string;
+  level: number;
   pointIndex: number;
+  longitude: number;
+  latitude: number;
   height: number;
+  classification?: number;
+  backend: "copc-js" | "rust" | "custom";
   source?: { x: number; y: number; z: number };
-  world?: { x: number; y: number; z: number };
+  world?: {
+    coordinateSystem: "wgs84-ecef-meters";
+    x: number;
+    y: number;
+    z: number;
+  };
 };
 
 type DevViewerApi = {
@@ -38,6 +49,29 @@ type DevViewerApi = {
     | undefined;
   getSelectedPoint(): SelectedPoint | undefined;
   getPickablePointScreenPosition(): { x: number; y: number } | undefined;
+  estimateTerrainHeightAlignmentBatch(
+    candidates: Array<{
+      anchor: SelectedPoint;
+      groundConfirmed?: boolean;
+    }>,
+    options?: { maxAnchors?: number; highSpreadWarningMeters?: number },
+  ): Promise<{
+    status: string;
+    actionable: boolean;
+    medianResidualMeters?: number;
+    robustSpreadMeters?: number;
+    proposedHeightOffsetMeters?: number;
+    terrainSamplingCalls: number;
+    coverage: {
+      sampledAnchorCount: number;
+      acceptedAnchorCount: number;
+    };
+  }>;
+  isTerrainHeightAlignmentBatchEstimateCurrent(estimate: {
+    status: string;
+    actionable: boolean;
+    terrainSamplingCalls: number;
+  }): boolean;
   getConfiguration(): { heightOffsetMeters: number; terrainSource: string };
   getLastApplyTrace(): Array<{ stage: string; elapsedMs: number }>;
 };
@@ -101,6 +135,9 @@ function summarizePercentiles(values: number[]): {
 declare global {
   interface Window {
     __COPC_DEV_VIEWER__?: DevViewerApi;
+    __COPC_BATCH_TERRAIN_ESTIMATE__?: Awaited<
+      ReturnType<DevViewerApi["estimateTerrainHeightAlignmentBatch"]>
+    >;
     __COPC_DEBUG__?: {
       runSyntheticEllipsoidalHeightOffsetBenchmark(pointCount?: number): {
         pointCount: number;
@@ -117,6 +154,9 @@ declare global {
         scope: string;
       };
       setTerrainFixtureHeight(heightMeters: number): void;
+      getRenderedPointScreenPosition(pointIndex: number):
+        | { x: number; y: number }
+        | undefined;
     };
     __COPC_APPLY_GL_PROFILE__?: ApplyGlProfile;
   }
@@ -369,13 +409,82 @@ async function pickRenderedPoint(page: Page): Promise<SelectedPoint> {
   return page.evaluate(() => window.__COPC_DEV_VIEWER__!.getSelectedPoint()!);
 }
 
+async function pickRenderedPointIndex(
+  page: Page,
+  pointIndex: number,
+): Promise<SelectedPoint> {
+  const position = await page.evaluate(
+    (index) =>
+      window.__COPC_DEBUG__?.getRenderedPointScreenPosition(index),
+    pointIndex,
+  );
+  expect(position).toBeDefined();
+  const canvasBounds = await page
+    .locator("#cesium-container canvas")
+    .first()
+    .boundingBox();
+  expect(canvasBounds).not.toBeNull();
+  await page.mouse.click(
+    canvasBounds!.x + position!.x,
+    canvasBounds!.y + position!.y,
+  );
+  await expect
+    .poll(() =>
+      page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSelectedPoint()),
+    )
+    .toMatchObject({ pointIndex });
+  return page.evaluate(() => window.__COPC_DEV_VIEWER__!.getSelectedPoint()!);
+}
+
 test("estimates, previews, and applies a WKT2 ellipsoidal fixture only after approval", async ({
   page,
 }) => {
   test.setTimeout(180_000);
   const sourceMetrics = await openFixture(page, 102, true);
-  const before = await pickRenderedPoint(page);
+  const before = await pickRenderedPointIndex(page, 0);
   expect(before.source).toBeUndefined();
+
+  const secondAnchor = await pickRenderedPointIndex(page, 1);
+  const batchEstimateStartedAt = performance.now();
+  const batchResult = await page.evaluate(
+    async ({ first, second }) => {
+      const api = window.__COPC_DEV_VIEWER__!;
+      const estimate = await api.estimateTerrainHeightAlignmentBatch([
+        { anchor: first },
+        { anchor: second },
+      ]);
+      window.__COPC_BATCH_TERRAIN_ESTIMATE__ = estimate;
+      return {
+        estimate,
+        current: api.isTerrainHeightAlignmentBatchEstimateCurrent(estimate),
+      };
+    },
+    { first: before, second: secondAnchor },
+  );
+  const batchEstimate = batchResult.estimate;
+  const batchEstimateLatencyMs = performance.now() - batchEstimateStartedAt;
+  expect(batchEstimate.status).toBe("ready");
+  expect(batchEstimate.actionable).toBe(true);
+  expect(batchEstimate.terrainSamplingCalls).toBe(1);
+  expect(batchEstimate.coverage.sampledAnchorCount).toBe(2);
+  expect(batchEstimate.coverage.acceptedAnchorCount).toBe(2);
+  expect(batchEstimate.medianResidualMeters).toBe(1.5);
+  expect(batchEstimate.proposedHeightOffsetMeters).toBe(1.5);
+  expect(batchResult.current).toBe(true);
+  expect(
+    await page.evaluate(() => window.__COPC_DEV_VIEWER__!.getConfiguration().heightOffsetMeters),
+  ).toBe(0);
+
+  await pickRenderedPointIndex(page, 0);
+  expect(
+    await page.evaluate(() =>
+      window.__COPC_DEV_VIEWER__!.isTerrainHeightAlignmentBatchEstimateCurrent(
+        window.__COPC_BATCH_TERRAIN_ESTIMATE__!,
+      ),
+    ),
+  ).toBe(false);
+  const onePointAnchor = await pickRenderedPointIndex(page, 0);
+  expect(onePointAnchor.height).toBe(before.height);
 
   await page.getByLabel("I confirm the selected point is ground").check();
   const estimateStartedAt = performance.now();
@@ -449,6 +558,15 @@ test("estimates, previews, and applies a WKT2 ellipsoidal fixture only after app
   expect(await page.locator("#cesium-container > .dev-session-mount").count()).toBe(1);
   console.info("WKT2 ellipsoidal Terrain fixture measurements", {
     sourceFixture: "two-point custom in-memory WKT2 ellipsoidal COPC backend",
+    batchEstimateLatencyMs,
+    batchEstimate: {
+      sampledAnchors: batchEstimate.coverage.sampledAnchorCount,
+      acceptedAnchors: batchEstimate.coverage.acceptedAnchorCount,
+      medianResidualMeters: batchEstimate.medianResidualMeters,
+      robustSpreadMeters: batchEstimate.robustSpreadMeters,
+      proposedHeightOffsetMeters: batchEstimate.proposedHeightOffsetMeters,
+      terrainSamplingCalls: batchEstimate.terrainSamplingCalls,
+    },
     estimateLatencyMs,
     ...applyTimingSamples[0],
     browser: {

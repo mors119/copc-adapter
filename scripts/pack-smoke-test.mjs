@@ -365,10 +365,16 @@ try {
   if (
     !cesiumDeclaration.includes("CopcStreamingOptions") ||
     !cesiumOptionsDeclaration.includes("motionLookahead?: boolean") ||
-    !cesiumOptionsDeclaration.includes("maxConcurrentNodeLoads?: number")
+    !cesiumOptionsDeclaration.includes("maxConcurrentNodeLoads?: number") ||
+    !cesiumDeclaration.includes("TerrainHeightAlignmentBatchEstimate") ||
+    !cesiumDeclaration.includes("TerrainHeightAlignmentGroundCandidate") ||
+    !cesiumOptionsDeclaration.includes("estimateTerrainHeightAlignmentBatch") ||
+    !cesiumOptionsDeclaration.includes(
+      "isTerrainHeightAlignmentBatchEstimateCurrent",
+    )
   ) {
     throw new Error(
-      "Cesium declarations do not expose the shared streaming controls",
+      "Cesium declarations do not expose the shared streaming controls and batch Terrain estimate contract",
     );
   }
   if (/(?:from|import)\s+['"][^'"]*three/u.test(cesiumDeclaration)) {

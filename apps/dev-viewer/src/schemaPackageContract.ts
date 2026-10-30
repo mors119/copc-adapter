@@ -125,6 +125,12 @@ export type WorkspaceClassificationFilterContract = Assert<
 export type WorkspaceTerrainAlignmentContract = Assert<
   HasMethod<CesiumLayer, "estimateTerrainHeightAlignment">
 >;
+export type WorkspaceTerrainBatchAlignmentContract = Assert<
+  HasMethod<CesiumLayer, "estimateTerrainHeightAlignmentBatch">
+>;
+export type WorkspaceTerrainBatchCurrentContract = Assert<
+  HasMethod<CesiumLayer, "isTerrainHeightAlignmentBatchEstimateCurrent">
+>;
 export type WorkspaceThreePickingContract = Assert<HasMethod<ThreeLayer, "pick">>;
 export type WorkspaceBatchedRendererContract = Assert<
   HasKey<CesiumApi, "BatchedGeometryPointRenderer">
