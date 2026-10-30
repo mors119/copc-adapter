@@ -78,5 +78,11 @@ origin. Public Pages uses an exact published npm version verified against its
 lockfile; workspace source and packed candidates have separate labels in
 development and candidate validation.
 
+The release and renderer coverage for every public layer option, host action,
+copy mapping, and share policy is recorded in the [Workbench capability
+coverage matrix](API.md#workbench-capability-coverage). It distinguishes the
+published npm profile from the current workspace profile and keeps workspace-only
+APIs out of public Playground code.
+
 For Playground setup, development, release-candidate validation, and local
 Pages builds, see the [Playground README](https://github.com/mors119/copc-adapter/blob/main/apps/playground/README.md).
