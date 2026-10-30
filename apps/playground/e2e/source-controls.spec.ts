@@ -625,7 +625,7 @@ test("Cesium color and classification styles use setStyle without replacing the 
   await applyFilter.press("Enter");
   await expect(page.locator("#classification-active")).toHaveText("Include [] · Exclude [7, 18]");
   await expect(page.locator("#integration-example")).toContainText(
-    "classificationFilter: { include: [], exclude: [7, 18] }",
+    "classificationFilter: { exclude: [7, 18], include: [] }",
   );
   await page.getByRole("button", { name: "Clear filter" }).click();
   await expect(page.locator("#classification-active")).toHaveText("No filter");
@@ -1144,7 +1144,15 @@ test("renderer, backend, and color controls stay keyboard-accessible without cha
   page,
 }) => {
   await page.goto("./");
+  await page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.useCameraResetLayerMock());
+  await page.locator("#copc-file").setInputFiles({
+    name: "keyboard-controls.copc.laz",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("local test source"),
+  });
+  await expect(page.locator("#source-status")).toHaveText("Loaded keyboard-controls.copc.laz");
   await page.getByRole("button", { name: "Explicit" }).click();
+  await expect(page.locator("#integration-example")).toContainText("CopcCesiumLayer");
   const renderer = page.getByRole("radiogroup", { name: "Renderer" });
   const cesium = renderer.getByRole("radio", { name: "Cesium" });
   const three = renderer.getByRole("radio", { name: "Three.js" });
@@ -1152,7 +1160,7 @@ test("renderer, backend, and color controls stay keyboard-accessible without cha
   await cesium.focus();
   await page.keyboard.press("ArrowRight");
   await expect(three).toHaveAttribute("aria-checked", "true");
-  await expect(page.locator("#viewer-heading")).toHaveText("Three.js");
+  await expect(page.locator("#viewer-heading")).toHaveText("Cesium");
   await expect(page.locator("#integration-example")).toContainText(
     "CopcCesiumLayer",
   );
