@@ -18,6 +18,8 @@ import {
   getOptionDefinition,
 } from "../../shared/schema/index.ts";
 import {
+  createWorkbenchConfigurationState,
+  getChangedWorkbenchOptionIds,
   normalizeWorkbenchOptionValues,
   transitionRendererOptionValues,
 } from "../../shared/config/index.ts";
@@ -494,6 +496,9 @@ const defaultIntegrationConfig: IntegrationCodeConfig = {
   },
 };
 let appliedConfig: IntegrationCodeConfig | undefined;
+let appliedCodeRevision = 0;
+let appliedCodeAt: number | undefined;
+let lastAppliedCodeValues: Readonly<Record<string, unknown>> | undefined;
 let activeProbeResult: CopcSourceProbeResult | undefined;
 let currentProbeSourceUrl: string | undefined;
 let currentProbeGeneration: number | undefined;
@@ -1030,6 +1035,7 @@ schemaPanel = mountSchemaOptionPanel({
   onValidationChange() {
     updateApplyState();
     updateRemoteLoadState();
+    updateIntegrationExample();
   },
 });
 updateColorChoices();
@@ -1121,6 +1127,7 @@ function updateApplyState(): void {
   }
   updateClassificationControls();
   updateRemoteLoadState();
+  updateIntegrationExample();
 }
 
 function sameClassificationFilter(
@@ -1198,6 +1205,7 @@ function applyCesiumStyle(
   } catch (error) {
     styleError.textContent = `Style was not applied. ${safeErrorText(error)} The active style and generated code are unchanged.`;
     styleError.hidden = false;
+    updateIntegrationExample();
     return false;
   }
 }
@@ -1342,27 +1350,69 @@ function effectiveRefinementFocus(
 }
 
 function updateIntegrationExample(): void {
-  const config = appliedConfig ?? defaultIntegrationConfig;
-  const focusConfig = config.refinementConfig;
-  const focus = effectiveRefinementFocus(
-    focusConfig.center,
-    config.renderer,
-    focusConfig,
-  );
+  const config = appliedConfig;
+  if (!config || !activeRuntimeReady || appliedSource === undefined) {
+    integrationCodePanel.setContent({
+      code: "",
+      warnings: ["Load a source successfully before copying code for applied settings."],
+      source: appliedSource,
+    });
+    return;
+  }
+  const valuesForCode = (sourceConfig: IntegrationCodeConfig): Record<string, unknown> => {
+    const values = playgroundOptionValues(sourceConfig);
+    values["source.url"] = appliedSource;
+    const focus = effectiveRefinementFocus(
+      sourceConfig.refinementConfig.center,
+      sourceConfig.renderer,
+      sourceConfig.refinementConfig,
+    );
+    if (focus) values["streaming.refinementFocus"] = focus;
+    else delete values["streaming.refinementFocus"];
+    return values;
+  };
+  const appliedValues = valuesForCode(config);
+  if (
+    lastAppliedCodeValues === undefined ||
+    getChangedWorkbenchOptionIds(lastAppliedCodeValues, appliedValues).length > 0
+  ) {
+    appliedCodeRevision += 1;
+    appliedCodeAt = Date.now();
+    lastAppliedCodeValues = createWorkbenchConfigurationState(
+      appliedValues,
+      appliedValues,
+    ).applied;
+  }
+  const pendingValues = valuesForCode(pendingConfig);
+  const appliedState = {
+    ...createWorkbenchConfigurationState(pendingValues, appliedValues),
+    appliedRevision: appliedCodeRevision,
+    pendingRevision: appliedCodeRevision,
+  };
   try {
     const generated = generateIntegrationCodeResult({
       config,
-      source: appliedSource,
       includeExactSource: integrationCodePanel.getState().includeExactSource,
       mode: integrationCodePanel.getState().mode,
       adapterVersion: __ADAPTER_VERSION__,
-      ...(focus ? { refinementFocus: focus } : {}),
+      appliedState,
+      ...(appliedCodeAt === undefined ? {} : { appliedAt: appliedCodeAt }),
     });
+    const appliedStatus = "appliedRevision" in generated
+      ? {
+          revision: generated.appliedRevision,
+          pendingChanges: generated.pendingChanges || activeLoadPending ||
+            invalidNumericInputs.size > 0 ||
+            (schemaPanel?.getValidationErrors().length ?? 0) > 0,
+          ...(generated.appliedAt === undefined ? {} : { appliedAt: generated.appliedAt }),
+        }
+      : undefined;
     integrationCodePanel.setContent({
       code: generated.code,
       warnings: generated.warnings,
       source: appliedSource,
       installCommand: PLAYGROUND_INSTALL_COMMANDS[config.renderer],
+      ...(appliedStatus ? { appliedStatus } : {}),
     });
   } catch (error) {
     integrationCodePanel.setContent({

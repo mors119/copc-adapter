@@ -598,6 +598,7 @@ test("normalizes share configuration, omits unsafe sources, and copies the visib
     buffer: Buffer.from("local test source"),
   });
   await expect(page.locator("#source-status")).toHaveText("Loaded copy-test.copc.laz");
+  await expect(page.locator("#integration-example")).toContainText("CopcCesiumLayer");
   await page.getByRole("button", { name: "Explicit" }).click();
   const visibleCode = await page.locator("#integration-example").textContent();
   expect(visibleCode).toContain("url: sourceFile");
@@ -605,7 +606,7 @@ test("normalizes share configuration, omits unsafe sources, and copies the visib
   await expect(page.getByRole("button", { name: "Copied" })).toBeVisible();
   expect(await page.evaluate(() => (window as Window & { __getCopiedText?: () => string }).__getCopiedText?.())).toBe(visibleCode);
   const installText = await page.locator("#install-command").textContent();
-  expect(installText).toBe("npm install @frillab/copc-adapter cesium");
+  expect(installText).toBe("npm install @frillab/copc-adapter@0.6.0 cesium@1.146.0");
   await page.locator("#copy-install").click();
   await expect(page.locator("#copy-install")).toHaveText("Copied");
   expect(await page.evaluate(() => (window as Window & { __getCopiedText?: () => string }).__getCopiedText?.())).toBe(installText);
@@ -656,6 +657,8 @@ test("generated code follows successful applies and ignores slider previews", as
   await expect(page.locator("#source-status")).toHaveText("Loaded active-config.copc.laz");
   await page.getByRole("button", { name: "Explicit" }).click();
   const initialCode = await page.locator("#integration-example").textContent();
+  const codeSummary = page.locator(".integration-code-panel .summary-state");
+  await expect(codeSummary).toContainText("up to date");
 
   await page.locator("#point-size").evaluate((element: HTMLInputElement) => {
     element.value = "7";
@@ -667,9 +670,11 @@ test("generated code follows successful applies and ignores slider previews", as
     element.dispatchEvent(new Event("change", { bubbles: true }));
   });
   await expect(page.locator("#integration-example")).toHaveText(initialCode!);
+  await expect(codeSummary).toContainText("pending edits");
   await page.getByRole("button", { name: "Apply changes" }).click();
   await expect(page.locator("#source-status")).toHaveText("Loaded active-config.copc.laz");
   await expect(page.locator("#integration-example")).toContainText("pointSize: 7");
+  await expect(codeSummary).toContainText("up to date");
 });
 
 test("warns before copying a sensitive active URL and excludes it from share links", async ({ page }) => {

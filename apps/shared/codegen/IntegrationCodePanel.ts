@@ -4,6 +4,7 @@ export type IntegrationCodePanelState = {
   readonly mode: "minimal" | "explicit";
   readonly includeExactSource: boolean;
   readonly includeShareSource: boolean;
+  readonly includeTerrainAlignmentRecipe: boolean;
 };
 
 export type IntegrationCodePanelContent = {
@@ -11,10 +12,22 @@ export type IntegrationCodePanelContent = {
   readonly source?: string | Blob;
   readonly warnings?: readonly string[];
   readonly installCommand?: string;
+  readonly appliedStatus?: IntegrationCodeAppliedStatus;
+};
+
+export type IntegrationCodeAppliedStatus = {
+  readonly revision: number;
+  readonly pendingChanges: boolean;
+  /** The latest applied state could not be rendered, so the visible snippet is older. */
+  readonly codeOutOfDate?: boolean;
+  /** Unix timestamp in milliseconds for the last successful Apply. */
+  readonly appliedAt?: number;
 };
 
 export type IntegrationCodePanelController = {
   setContent(content: IntegrationCodePanelContent): void;
+  setAppliedStatus(status: IntegrationCodeAppliedStatus): void;
+  setTerrainAlignmentRecipeAvailable(available: boolean): void;
   setStatus(message: string): void;
   setSourcePrivacySelection(
     source: string | Blob | undefined,
@@ -45,6 +58,44 @@ function copyText(text: string): Promise<void> {
     : Promise.reject(new Error("Clipboard access is unavailable."));
 }
 
+/** Keep a visible last-good snippet when a later generation attempt fails. */
+export function preserveLastSuccessfulIntegrationCode(
+  previous: IntegrationCodePanelContent,
+  next: IntegrationCodePanelContent,
+): IntegrationCodePanelContent {
+  if (next.code.trim() !== "" || !next.warnings?.length || !previous.code) {
+    return next;
+  }
+  return {
+    ...previous,
+    appliedStatus: previous.appliedStatus
+      ? { ...previous.appliedStatus, codeOutOfDate: true }
+      : undefined,
+    warnings: [
+      "A new snippet could not be generated. The previous successful snippet is unchanged.",
+      ...(next.warnings ?? []),
+    ],
+  };
+}
+
+function formatCodeAge(appliedAt: number): string {
+  const seconds = Math.max(0, Math.floor((Date.now() - appliedAt) / 1000));
+  if (seconds < 60) return "applied just now";
+  if (seconds < 60 * 60) return "applied " + Math.floor(seconds / 60) + " min ago";
+  if (seconds < 24 * 60 * 60) return "applied " + Math.floor(seconds / 3600) + " hr ago";
+  return "applied " + new Date(appliedAt).toLocaleString();
+}
+
+function assertAppliedStatus(status: IntegrationCodeAppliedStatus): void {
+  if (!Number.isSafeInteger(status.revision) || status.revision < 0) {
+    throw new TypeError("Applied code revision must be a non-negative safe integer.");
+  }
+  if (status.appliedAt !== undefined &&
+    (!Number.isFinite(status.appliedAt) || status.appliedAt < 0)) {
+    throw new TypeError("Applied code timestamp must be a non-negative finite millisecond value.");
+  }
+}
+
 /** Mount the shared Code tab controls and privacy/copy behavior in either app. */
 export function mountIntegrationCodePanel(options: {
   readonly target: HTMLElement;
@@ -65,6 +116,10 @@ export function mountIntegrationCodePanel(options: {
     "    <button id=\"code-mode-minimal\" type=\"button\" aria-pressed=\"true\">Minimal</button>",
     "    <button id=\"code-mode-explicit\" type=\"button\" aria-pressed=\"false\">Explicit</button>",
     "  </div>",
+    "  <label class=\"share-option terrain-alignment-recipe-option\" id=\"terrain-alignment-recipe-option\" for=\"include-terrain-alignment-recipe\" hidden>",
+    "    <input id=\"include-terrain-alignment-recipe\" type=\"checkbox\">",
+    "    Include Terrain estimate and approval recipe",
+    "  </label>",
     "  <button id=\"copy-code\" type=\"button\">Copy code</button>",
     "</div>",
     "<label class=\"share-option\" id=\"exact-source-option\" for=\"include-exact-source\">",
@@ -100,6 +155,8 @@ export function mountIntegrationCodePanel(options: {
   const modeExplicit = get<HTMLButtonElement>("code-mode-explicit");
   const exactSourceInput = get<HTMLInputElement>("include-exact-source");
   const shareSourceInput = get<HTMLInputElement>("include-share-source");
+  const terrainRecipeInput = get<HTMLInputElement>("include-terrain-alignment-recipe");
+  const terrainRecipeOption = get<HTMLLabelElement>("terrain-alignment-recipe-option");
   const exactSourceOption = get<HTMLLabelElement>("exact-source-option");
   const shareSourceOption = get<HTMLLabelElement>("share-source-option");
   const sourceCodeWarning = get<HTMLElement>("source-code-warning");
@@ -115,8 +172,10 @@ export function mountIntegrationCodePanel(options: {
   const status = get<HTMLElement>("share-status");
   let content: IntegrationCodePanelContent = { code: "" };
   let mode: IntegrationCodePanelState["mode"] = "minimal";
+  let appliedStatus: IntegrationCodeAppliedStatus | undefined;
   let disposed = false;
   const timers = new Set<number>();
+  let ageTimer: number | undefined;
 
   summary.textContent = options.summary;
   intro.textContent = options.intro ??
@@ -132,6 +191,7 @@ export function mountIntegrationCodePanel(options: {
     mode,
     includeExactSource: exactSourceInput.checked,
     includeShareSource: shareSourceInput.checked,
+    includeTerrainAlignmentRecipe: terrainRecipeInput.checked,
   });
   const notifyStateChange = (): void => options.onStateChange?.(state());
   const syncSourceControls = (): void => {
@@ -178,14 +238,43 @@ export function mountIntegrationCodePanel(options: {
     modeMinimal.setAttribute("aria-pressed", String(mode === "minimal"));
     modeExplicit.setAttribute("aria-pressed", String(mode === "explicit"));
   };
+  const updateAppliedStatus = (): void => {
+    const details = appliedStatus
+      ? [
+          "Applied #" + appliedStatus.revision,
+          appliedStatus.codeOutOfDate
+            ? "previous snippet shown"
+            : appliedStatus.pendingChanges
+              ? "pending edits"
+              : "up to date",
+          ...(appliedStatus.appliedAt === undefined
+            ? []
+            : [formatCodeAge(appliedStatus.appliedAt)]),
+        ]
+      : [];
+    summary.textContent = [options.summary, ...details].join(" · ");
+  };
+  const syncAppliedAgeTimer = (): void => {
+    if (ageTimer !== undefined) {
+      window.clearInterval(ageTimer);
+      ageTimer = undefined;
+    }
+    if (appliedStatus?.appliedAt !== undefined) {
+      ageTimer = window.setInterval(updateAppliedStatus, 30_000);
+    }
+  };
   const setContent = (next: IntegrationCodePanelContent): void => {
-    content = next;
-    codeElement.textContent = next.code;
-    codeWarning.hidden = !next.warnings?.length;
-    codeWarning.textContent = next.warnings?.join(" ") ?? "";
-    if (next.installCommand) {
+    const nextContent = preserveLastSuccessfulIntegrationCode(content, next);
+    if (nextContent.appliedStatus) assertAppliedStatus(nextContent.appliedStatus);
+    content = nextContent;
+    appliedStatus = content.appliedStatus;
+    codeElement.textContent = content.code;
+    copyCodeButton.disabled = content.code.trim() === "";
+    codeWarning.hidden = !content.warnings?.length;
+    codeWarning.textContent = content.warnings?.join(" ") ?? "";
+    if (content.installCommand) {
       installGuidance.hidden = false;
-      installCommand.textContent = next.installCommand;
+      installCommand.textContent = content.installCommand;
       copyInstallButton.hidden = false;
     } else {
       installGuidance.hidden = true;
@@ -194,6 +283,8 @@ export function mountIntegrationCodePanel(options: {
     }
     syncSourceControls();
     updateModeButtons();
+    updateAppliedStatus();
+    syncAppliedAgeTimer();
   };
   const setStatus = (message: string): void => {
     status.textContent = message;
@@ -237,6 +328,9 @@ export function mountIntegrationCodePanel(options: {
       ? "The active source URL will be included in the copied share link."
       : "The copied share link will contain settings only.");
   };
+  const onTerrainRecipeChange = (): void => {
+    notifyStateChange();
+  };
   const onCopyCode = async (): Promise<void> => {
     const source = content.source;
     const sensitive = typeof source === "string" &&
@@ -271,12 +365,28 @@ export function mountIntegrationCodePanel(options: {
   modeExplicit.addEventListener("click", onModeExplicit);
   exactSourceInput.addEventListener("change", onExactSourceChange);
   shareSourceInput.addEventListener("change", onShareSourceChange);
+  terrainRecipeInput.addEventListener("change", onTerrainRecipeChange);
   copyCodeButton.addEventListener("click", onCopyCode);
   copyInstallButton.addEventListener("click", onCopyInstall);
   copyShareButton.addEventListener("click", onCopyShare);
 
   return {
     setContent,
+    setAppliedStatus(status): void {
+      assertAppliedStatus(status);
+      appliedStatus = status;
+      content = { ...content, appliedStatus: status };
+      updateAppliedStatus();
+      syncAppliedAgeTimer();
+    },
+    setTerrainAlignmentRecipeAvailable(available): void {
+      terrainRecipeOption.hidden = !available;
+      terrainRecipeInput.disabled = !available;
+      if (!available && terrainRecipeInput.checked) {
+        terrainRecipeInput.checked = false;
+        notifyStateChange();
+      }
+    },
     setStatus,
     setSourcePrivacySelection(source, includeExactSource, includeShareSource = false): void {
       content = { ...content, source };
@@ -291,10 +401,12 @@ export function mountIntegrationCodePanel(options: {
       disposed = true;
       for (const timer of timers) window.clearTimeout(timer);
       timers.clear();
+      if (ageTimer !== undefined) window.clearInterval(ageTimer);
       modeMinimal.removeEventListener("click", onModeMinimal);
       modeExplicit.removeEventListener("click", onModeExplicit);
       exactSourceInput.removeEventListener("change", onExactSourceChange);
       shareSourceInput.removeEventListener("change", onShareSourceChange);
+      terrainRecipeInput.removeEventListener("change", onTerrainRecipeChange);
       copyCodeButton.removeEventListener("click", onCopyCode);
       copyInstallButton.removeEventListener("click", onCopyInstall);
       copyShareButton.removeEventListener("click", onCopyShare);

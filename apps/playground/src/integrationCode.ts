@@ -5,11 +5,14 @@ import {
   NPM_0_6_MANIFEST,
 } from "../../shared/schema/index.ts";
 import {
+  generateAppliedWorkbenchIntegrationCode,
   generateWorkbenchIntegrationCode,
   isPotentiallySensitiveSource,
-  type IntegrationCodeGenerationResult,
+  type AppliedIntegrationCodeGenerationResult,
+  type IntegrationCodeGenerationResult as SharedIntegrationCodeGenerationResult,
   type IntegrationCodeMode,
 } from "../../shared/codegen/integrationCode.ts";
+import type { WorkbenchConfigurationState } from "../../shared/config/index.ts";
 import type { PlaygroundConfig } from "./playgroundConfig";
 import type { PlaygroundRefinementConfig } from "./refinementConfig";
 
@@ -24,11 +27,17 @@ export type IntegrationCodeOptions = {
   readonly mode?: IntegrationCodeMode;
   readonly adapterVersion: string;
   readonly refinementFocus?: RefinementFocus;
+  /** When present, code comes from `state.applied`; pending values only drive status. */
+  readonly appliedState?: WorkbenchConfigurationState;
+  readonly appliedAt?: number;
 };
 
+export type IntegrationCodeGenerationResult = SharedIntegrationCodeGenerationResult |
+  AppliedIntegrationCodeGenerationResult;
+
 export const PLAYGROUND_INSTALL_COMMANDS: Readonly<Record<WorkbenchRenderer, string>> = {
-  cesium: "npm install @frillab/copc-adapter cesium",
-  three: "npm install @frillab/copc-adapter three",
+  cesium: `npm install @frillab/copc-adapter@${NPM_0_6_MANIFEST.version} cesium@1.146.0`,
+  three: `npm install @frillab/copc-adapter@${NPM_0_6_MANIFEST.version} three@0.186.1`,
 };
 
 export { isPotentiallySensitiveSource };
@@ -38,6 +47,18 @@ export function generateIntegrationCodeResult(
   options: IntegrationCodeOptions,
 ): IntegrationCodeGenerationResult {
   const config = options.config;
+  if (options.appliedState) {
+    return generateAppliedWorkbenchIntegrationCode({
+      state: options.appliedState,
+      ...(options.appliedAt === undefined ? {} : { appliedAt: options.appliedAt }),
+      includeExactSource: options.includeExactSource,
+      mode: options.mode,
+      manifest: NPM_0_6_MANIFEST,
+      runtimeCapabilities: NPM_0_6_CAPABILITIES,
+      adapterVersion: options.adapterVersion,
+      packageOriginLabel: "verified npm release",
+    });
+  }
   const values: Record<string, unknown> = {
     ...(config as unknown as Readonly<Record<string, unknown>>),
     ...(config.schemaOptionValues ?? {}),
