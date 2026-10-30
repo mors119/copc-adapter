@@ -39,7 +39,7 @@ import type { PointScreenPosition } from "../../shared/inspection/PointPopover.t
 export type PlaygroundRenderer = WorkbenchRenderer;
 export type PlaygroundBackend = WorkbenchLayerConfig["backend"];
 export type PlaygroundSource = string | File;
-export type PlaygroundColorMode = WorkbenchLayerConfig["colorMode"];
+export type PlaygroundColorMode = Exclude<WorkbenchLayerConfig["colorMode"], "dimension">;
 export type PlaygroundCameraView = WorkbenchCameraPreset;
 
 export type PlaygroundCameraState = {

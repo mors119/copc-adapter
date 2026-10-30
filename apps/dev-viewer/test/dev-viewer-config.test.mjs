@@ -188,6 +188,44 @@ test("restores schema-serialized settings from a share URL into host configurati
   assert.deepEqual(restored.warnings, []);
 });
 
+test("dimension share state restores exact Extra Bytes requests for the next layer load", () => {
+  const dimension = {
+    name: "CanopyHeight",
+    range: { min: 0, max: 50 },
+    palette: [
+      { position: 0, color: { red: 0, green: 0.2, blue: 1, alpha: 0.9 } },
+      { position: 1, color: { red: 1, green: 0.1, blue: 0, alpha: 0.9 } },
+    ],
+    missingValue: -9999,
+  };
+  const dimensionFilter = { name: "CanopyHeight", min: 2, max: 40, missingValue: -9999 };
+  const values = toWorkbenchOptionValues(createConfig({
+    colorMode: "dimension",
+    schemaOptionValues: {
+      "style.dimension": dimension,
+      "style.dimensionFilter": dimensionFilter,
+    },
+  }));
+  assert.deepEqual(values["attributes.extraDimensions"], ["CanopyHeight"]);
+
+  const params = serializeWorkbenchConfiguration(
+    createWorkbenchConfigurationState(values, values),
+    {
+      manifest: WORKSPACE_CURRENT_MANIFEST,
+      renderer: "cesium",
+      runtimeCapabilities: WORKSPACE_CURRENT_CAPABILITIES,
+    },
+    "applied",
+  );
+  const restored = restoreDevViewerShareConfiguration(params, createConfig());
+  assert.equal(restored.config.colorMode, "dimension");
+  assert.deepEqual(restored.config.schemaOptionValues?.["style.dimension"], dimension);
+  assert.deepEqual(restored.config.schemaOptionValues?.["style.dimensionFilter"], dimensionFilter);
+  assert.deepEqual(restored.config.schemaOptionValues?.["attributes.extraDimensions"], ["CanopyHeight"]);
+  assert.deepEqual(toWorkbenchOptionValues(restored.config)["attributes.extraDimensions"], ["CanopyHeight"]);
+  assert.deepEqual(restored.warnings, []);
+});
+
 test("uses the renderer alias and ignores unrelated developer URL parameters during share restore", () => {
   const params = new URLSearchParams(
     "renderer=public-batched&backend=rust&maxNodes=32&scenario=issue61&debugPanel=0&budget=123456",

@@ -3,6 +3,7 @@ import type {
   SchemaSpecialControl,
   SchemaSpecialControlOptions,
 } from "./SchemaOptionPanel.ts";
+import { renderDimensionSpecialControl } from "./dimensionControls.ts";
 
 function textInput(
   id: string,
@@ -166,6 +167,8 @@ function createFocusLensControl(
 export function renderSharedSpecialControl(
   options: SchemaSpecialControlOptions,
 ): SchemaSpecialControl | undefined {
+  const dimensionControl = renderDimensionSpecialControl(options);
+  if (dimensionControl) return dimensionControl;
   switch (options.option.control) {
     case "classification-filter":
       return createClassificationControl(options);

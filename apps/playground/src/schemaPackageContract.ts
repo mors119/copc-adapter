@@ -141,7 +141,7 @@ type NpmRustBackend = import("@frillab/copc-adapter/cesium").RustCopcBackendOpti
 type NpmInputSource = import("@frillab/copc-adapter/cesium").CopcInputSource;
 
 export type NpmColorModeChoicesMatch = AssertEqual<
-  SchemaChoiceValues<"rendering.colorMode">,
+  Exclude<SchemaChoiceValues<"rendering.colorMode">, "dimension">,
   NpmColorMode
 >;
 export type NpmPointSizeChoicesMatch = AssertEqual<

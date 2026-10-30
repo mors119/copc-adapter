@@ -7,6 +7,9 @@ import {
 import { OPTION_SCHEMA, isOptionConditionMet } from "./options.ts";
 import type {
   CapabilityContext,
+  SchemaDimensionColorStop,
+  SchemaDimensionFilter,
+  SchemaDimensionStyle,
   SchemaFocusLens,
   SchemaHostValidators,
   SchemaOption,
@@ -57,6 +60,7 @@ export function validateOptionValue(
   option: SchemaOption,
   value: unknown,
   hostValidators: SchemaHostValidators = {},
+  context?: CapabilityContext,
 ): string[] {
   if (value === undefined) {
     return option.optional ? [] : [option.label + " is required."];
@@ -181,6 +185,116 @@ export function validateOptionValue(
         }
       }
       break;
+    case "dimension-style": {
+      if (!isRecord(value)) {
+        errors.push(option.label + " must contain a field, finite range, and palette.");
+        break;
+      }
+      if (Object.keys(value).some((key) => !["name", "range", "palette", "missingValue"].includes(key))) {
+        errors.push(option.label + " contains an unsupported field.");
+      }
+      const style = value as unknown as SchemaDimensionStyle;
+      if (typeof style.name !== "string" || style.name.trim().length === 0) {
+        errors.push(option.label + " must select an exact numeric field name.");
+      } else if (context?.numericDimensions) {
+        const metadata = context.numericDimensions.find(({ name }) => name === style.name);
+        if (!metadata) {
+          errors.push(option.label + " field " + style.name + " is unavailable for the loaded source and backend.");
+        } else if (!metadata.styleable) {
+          errors.push(option.label + " field " + style.name + " is unsupported: " + (metadata.unsupportedReason ?? "unsupported numeric type") + ".");
+        }
+      }
+      if (!isRecord(style.range)) {
+        errors.push(option.label + " range must have numeric minimum and maximum values.");
+      } else if (
+        typeof style.range.min !== "number" ||
+        !Number.isFinite(style.range.min) ||
+        typeof style.range.max !== "number" ||
+        !Number.isFinite(style.range.max) ||
+        style.range.min >= style.range.max
+      ) {
+        errors.push(option.label + " range must have finite bounds with minimum less than maximum.");
+      }
+      if (style.missingValue !== undefined && !Number.isFinite(style.missingValue)) {
+        errors.push(option.label + " NoData value must be finite.");
+      }
+      if (style.palette !== undefined) {
+        if (!Array.isArray(style.palette) || style.palette.length < 2) {
+          errors.push(option.label + " palette must contain at least two stops.");
+        } else {
+          let previous = -1;
+          for (const [index, stopValue] of style.palette.entries()) {
+            if (!isRecord(stopValue)) {
+              errors.push(option.label + " palette stop " + index + " must be an object.");
+              continue;
+            }
+            const stop = stopValue as unknown as SchemaDimensionColorStop;
+            if (
+              typeof stop.position !== "number" ||
+              !Number.isFinite(stop.position) ||
+              stop.position < 0 ||
+              stop.position > 1 ||
+              stop.position <= previous
+            ) {
+              errors.push(option.label + " stop positions must increase strictly from 0 to 1.");
+            }
+            previous = typeof stop.position === "number" ? stop.position : previous;
+            if (!isRecord(stop.color)) {
+              errors.push(option.label + " palette stop " + index + " must have a color.");
+              continue;
+            }
+            const components = [stop.color.red, stop.color.green, stop.color.blue];
+            if (stop.color.alpha !== undefined) components.push(stop.color.alpha);
+            if (components.some((component) =>
+              typeof component !== "number" || !Number.isFinite(component) || component < 0 || component > 1
+            )) {
+              errors.push(option.label + " palette colors and alpha must be normalized values from 0 to 1.");
+            }
+          }
+          if (
+            style.palette[0]?.position !== 0 ||
+            style.palette.at(-1)?.position !== 1
+          ) {
+            errors.push(option.label + " palette must include endpoint stops at 0 and 1.");
+          }
+        }
+      }
+      break;
+    }
+    case "dimension-filter": {
+      if (!isRecord(value)) {
+        errors.push(option.label + " must contain an exact field name and inclusive numeric bounds.");
+        break;
+      }
+      if (Object.keys(value).some((key) => !["name", "min", "max", "missingValue"].includes(key))) {
+        errors.push(option.label + " contains an unsupported field.");
+      }
+      const filter = value as unknown as SchemaDimensionFilter;
+      if (typeof filter.name !== "string" || filter.name.trim().length === 0) {
+        errors.push(option.label + " must select an exact numeric field name.");
+      } else if (context?.numericDimensions) {
+        const metadata = context.numericDimensions.find(({ name }) => name === filter.name);
+        if (!metadata) {
+          errors.push(option.label + " field " + filter.name + " is unavailable for the loaded source and backend.");
+        } else if (!metadata.styleable) {
+          errors.push(option.label + " field " + filter.name + " is unsupported: " + (metadata.unsupportedReason ?? "unsupported numeric type") + ".");
+        }
+      }
+      if (
+        typeof filter.min !== "number" ||
+        !Number.isFinite(filter.min) ||
+        typeof filter.max !== "number" ||
+        !Number.isFinite(filter.max)
+      ) {
+        errors.push(option.label + " bounds must be finite numbers.");
+      } else if (filter.min > filter.max) {
+        errors.push(option.label + " minimum must not exceed maximum.");
+      }
+      if (filter.missingValue !== undefined && !Number.isFinite(filter.missingValue)) {
+        errors.push(option.label + " NoData value must be finite.");
+      }
+      break;
+    }
     case "focus-lens":
       if (!validateFocusLens(value)) {
         errors.push(
@@ -303,7 +417,7 @@ export function validateSchemaValues(
       }
       continue;
     }
-    errors.push(...validateOptionValue(option, value, hostValidators));
+    errors.push(...validateOptionValue(option, value, hostValidators, fullContext));
 
     if (
       typeof value === "string" &&
@@ -319,6 +433,13 @@ export function validateSchemaValues(
           " is unavailable in the active runtime.",
       );
     }
+  }
+
+  if (
+    values["rendering.colorMode"] === "dimension" &&
+    values["style.dimension"] === undefined
+  ) {
+    errors.push("Numeric Dimension Ramp is required when Numeric Dimension color mode is selected.");
   }
 
   for (const violation of getSchemaConstraintViolations(values, context, schema)) {

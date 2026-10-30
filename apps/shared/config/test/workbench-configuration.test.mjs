@@ -28,6 +28,16 @@ const cesiumContext = {
   renderer: "cesium",
   runtimeCapabilities: NPM_0_6_CAPABILITIES,
 };
+const workspaceCesiumContext = {
+  manifest: WORKSPACE_CURRENT_MANIFEST,
+  renderer: "cesium",
+  runtimeCapabilities: WORKSPACE_CURRENT_CAPABILITIES,
+};
+const workspaceThreeContext = {
+  manifest: WORKSPACE_CURRENT_MANIFEST,
+  renderer: "three",
+  runtimeCapabilities: WORKSPACE_CURRENT_CAPABILITIES,
+};
 
 const focus = {
   type: "screen-circle",
@@ -395,6 +405,64 @@ test("runtime style edits avoid layer recreation and reset nullable filters expl
   assert.deepEqual(calls, [{ colorMode: "intensity", classificationFilter: null }]);
   assert.equal(result.state.applied["rendering.colorMode"], "intensity");
   assert.equal(isWorkbenchConfigurationDirty(result.state), false);
+});
+
+test("numeric dimension palette and filter edits restyle cached Cesium points", async () => {
+  const oldDimension = {
+    name: "Intensity",
+    range: { min: 0, max: 65_535 },
+    palette: [
+      { position: 0, color: { red: 0, green: 0.2, blue: 1, alpha: 0.9 } },
+      { position: 1, color: { red: 1, green: 0.1, blue: 0, alpha: 0.9 } },
+    ],
+  };
+  const nextDimension = { ...oldDimension, range: { min: 5, max: 100 } };
+  const oldFilter = { name: "Intensity", min: 0, max: 65_535 };
+  const filter = { name: "Intensity", min: 10, max: 90 };
+  const current = validValues({
+    "rendering.colorMode": "dimension",
+    "style.dimension": oldDimension,
+    "style.dimensionFilter": oldFilter,
+  });
+  const changed = updateWorkbenchConfiguration(
+    createWorkbenchConfigurationState(current, current),
+    { "style.dimension": nextDimension, "style.dimensionFilter": filter },
+    workspaceCesiumContext,
+  );
+  assert.equal(changed.ok, true);
+
+  const styleCalls = [];
+  const runtime = { setStyle(value) { styleCalls.push(value); } };
+  let creations = 0;
+  const result = await applyWorkbenchConfiguration(changed.state, workspaceCesiumContext, {
+    getActiveRuntime: () => runtime,
+    async createRuntime() { creations += 1; return runtime; },
+    activateRuntime() {},
+    disposeRuntime() {},
+  });
+  assert.equal(result.replaced, false);
+  assert.equal(creations, 0);
+  assert.deepEqual(styleCalls, [{ dimension: nextDimension, dimensionFilter: filter }]);
+  assert.equal(isWorkbenchConfigurationDirty(result.state), false);
+});
+
+test("Three.js receives numeric dimension ramps as constructor options without runtime filters", () => {
+  const dimension = {
+    name: "height",
+    range: { min: 0, max: 100 },
+    palette: [
+      { position: 0, color: { red: 0, green: 0, blue: 1 } },
+      { position: 1, color: { red: 1, green: 0, blue: 0 } },
+    ],
+  };
+  const plan = buildSchemaApplicationPlan(validValues({
+    "renderer.engine": "three",
+    "rendering.colorMode": "dimension",
+    "style.dimension": dimension,
+  }), workspaceThreeContext);
+  assert.equal(plan.constructorOptions.colorMode, "dimension");
+  assert.deepEqual(plan.constructorOptions.dimension, dimension);
+  assert.deepEqual(plan.runtimeOperations, []);
 });
 
 test("runtime setter failure rolls back attempted operations and leaves applied state unchanged", async () => {

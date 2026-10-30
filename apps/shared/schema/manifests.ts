@@ -60,6 +60,8 @@ const npm06Capabilities = [
 
 const workspaceCapabilities = [
   ...npm06Capabilities,
+  "style.numeric-dimension",
+  "style.numeric-dimension-filter",
   "cesium.terrain-alignment",
   "vertical.gtx-grid",
 ] as const;

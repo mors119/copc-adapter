@@ -105,6 +105,55 @@ test("uses the same schema controls and default Workbench tabs as Playground", a
   expect(narrowLayout.viewportWidth).toBeGreaterThan(0);
 });
 
+test("colors cached Intensity with an editable numeric ramp and inclusive filter", async ({ page }) => {
+  test.setTimeout(180_000);
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  await page.goto("/?debugPanel=0");
+  await expect
+    .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.lifecycle))
+    .toBe("ready");
+
+  const colorMode = page.getByRole("radiogroup", { name: "Color mode" });
+  await colorMode.getByRole("radio", { name: "Numeric Dimension" }).click();
+  const ramp = page.locator('[data-option-id="style.dimension"]');
+  await expect(ramp).toBeVisible();
+  await expect(ramp.getByLabel("Numeric LAS field")).toHaveValue("Intensity");
+  await expect(ramp.locator(".dimension-ramp-legend")).toHaveAttribute("aria-label", /Intensity/u);
+  await expect(ramp).toContainText("raw LAS intensity (unitless)");
+
+  await ramp.getByLabel("Color range minimum").fill("10");
+  await ramp.getByLabel("Color range minimum").dispatchEvent("change");
+  await page.locator("#apply-settings").click();
+  await expect
+    .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.lifecycle))
+    .toBe("ready");
+  const code = page.locator("#integration-example");
+  await expect(code).toContainText("colorMode: 'dimension'");
+  await expect(code).toContainText("name: 'Intensity'");
+  await expect(code).toContainText("min: 10");
+
+  const filterSection = page.locator('.schema-control-section[data-section="filtering"]');
+  if (!(await filterSection.evaluate((element: HTMLDetailsElement) => element.open))) {
+    await filterSection.locator("summary").click();
+  }
+  const filter = page.locator('[data-option-id="style.dimensionFilter"]');
+  await expect(filter).toBeVisible();
+  await filter.getByLabel("Enable inclusive filter").check();
+  await filter.getByLabel("Inclusive filter minimum").fill("25");
+  await filter.getByLabel("Inclusive filter minimum").dispatchEvent("change");
+  await filter.getByLabel("Inclusive filter maximum").fill("500");
+  await filter.getByLabel("Inclusive filter maximum").dispatchEvent("change");
+  await page.locator("#apply-settings").click();
+  await expect
+    .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.lifecycle))
+    .toBe("ready");
+  await expect(code).toContainText("dimensionFilter");
+  await expect(code).toContainText("min: 25");
+  await expect(code).toContainText("max: 500");
+  expect(pageErrors).toEqual([]);
+});
+
 test("assigns source, runtime health, and dataset analysis to separate tabs", async ({
   page,
 }) => {

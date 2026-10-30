@@ -324,6 +324,128 @@
   width: 100%;
 }
 
+.schema-special-dimension,
+.schema-special-dimension-filter {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.schema-special-dimension .ui-field,
+.schema-special-dimension-filter .ui-field {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.schema-special-dimension input[type="number"],
+.schema-special-dimension select,
+.schema-special-dimension-filter input[type="number"],
+.schema-special-dimension-filter select {
+  box-sizing: border-box;
+  min-width: 0;
+  width: 100%;
+}
+
+.dimension-range-row {
+  display: grid;
+  gap: 0.45rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.dimension-ramp-legend {
+  border: 1px solid var(--workbench-border, #273442);
+  border-radius: 0.25rem;
+  height: 0.8rem;
+  margin-top: 0.2rem;
+}
+
+.dimension-ramp-legend + .field-help,
+.dimension-filter-legend {
+  color: var(--workbench-muted, #a8b5c3);
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.65rem;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.dimension-palette-details {
+  border: 1px solid var(--workbench-border, #273442);
+  border-radius: 0.25rem;
+  padding: 0.35rem 0.45rem;
+}
+
+.dimension-palette-details > summary {
+  color: var(--workbench-text, #edf4fb);
+  cursor: pointer;
+  font-size: 0.7rem;
+  font-weight: 620;
+  padding: 0.2rem 0;
+}
+
+.dimension-ramp-stops {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.45rem;
+}
+
+.dimension-ramp-stop {
+  align-items: end;
+  border-top: 1px solid var(--workbench-border, #273442);
+  display: grid;
+  gap: 0.35rem;
+  grid-template-columns: minmax(3.5rem, 0.8fr) minmax(3rem, 0.7fr) minmax(3.5rem, 0.8fr) auto;
+  padding-top: 0.35rem;
+}
+
+.dimension-ramp-stop .ui-field {
+  color: var(--workbench-muted, #a8b5c3);
+  display: grid;
+  font-size: 0.62rem;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.dimension-ramp-stop input[type="color"] {
+  height: 1.7rem;
+  min-width: 2.5rem;
+  padding: 0.1rem;
+  width: 100%;
+}
+
+.dimension-ramp-stop input[type="number"] {
+  font-size: 0.68rem;
+  min-width: 0;
+  padding: 0.3rem;
+  width: 100%;
+}
+
+.dimension-ramp-stop .schema-action {
+  font-size: 0.62rem;
+  margin: 0 0 0.05rem;
+}
+
+.dimension-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.dimension-editor-actions .schema-action {
+  margin: 0.35rem 0 0;
+}
+
+.dimension-missing-row {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.dimension-missing-row .ui-field--inline {
+  align-items: center;
+  display: flex;
+  font-size: 0.68rem;
+  gap: 0.4rem;
+}
+
 .schema-option__segmented {
   min-width: 0;
 }

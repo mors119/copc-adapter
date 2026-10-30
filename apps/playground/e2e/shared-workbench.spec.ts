@@ -42,6 +42,11 @@ test("uses the shared schema controls and four-tab Workbench shell", async ({
   await expect(page.getByRole("radiogroup", { name: "Renderer" })).toBeVisible();
   await expect(page.getByRole("radiogroup", { name: "COPC backend" })).toBeVisible();
   await expect(page.getByRole("radiogroup", { name: "Color mode" })).toBeVisible();
+  await expect(
+    page.getByRole("radiogroup", { name: "Color mode" }).getByRole("radio", { name: "Numeric Dimension" }),
+  ).toHaveCount(0);
+  await expect(page.locator('[data-option-id="style.dimension"]')).toHaveCount(0);
+  await expect(page.locator('[data-option-id="style.dimensionFilter"]')).toHaveCount(0);
   await expect(page.getByRole("slider", { name: "Point size" })).toBeVisible();
   await expect(
     page.locator('.schema-control-section[data-section="streaming"] summary'),

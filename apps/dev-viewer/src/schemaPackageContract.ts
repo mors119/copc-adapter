@@ -8,6 +8,8 @@ import type {
 } from "../../shared/schema/typeContracts.ts";
 import type {
   SchemaClassificationFilter,
+  SchemaDimensionFilter,
+  SchemaDimensionStyle,
   SchemaFocusLens,
 } from "../../shared/schema/types.ts";
 
@@ -52,9 +54,7 @@ type LayerCompatibilityExclusions =
   | "classificationFilter"
   // The Extra Bytes selector has specialized constructor code generation.
   | "extraDimensions"
-  // Dimension styling is a public constructor/runtime contract, but the
-  // current Workbench does not collect its explicit range and ramp inputs.
-  | "dimension"
+  // Dimension filtering is a runtime style option and not a constructor path.
   | "dimensionFilter"
   // Elevation range and palette are public layer APIs; the viewer keeps its
   // dataset-derived default and does not expose custom ramp controls yet.
@@ -126,6 +126,16 @@ export type WorkspaceFocusShapeContract = Assert<
 export type WorkspaceClassificationFilterContract = Assert<
   SchemaClassificationFilter extends WorkspaceStyleFilter ? true : false
 >;
+type WorkspaceDimensionStyle = import("@frillab/copc-adapter/cesium").CopcDimensionStyle;
+type WorkspaceDimensionFilter = NonNullable<
+  Parameters<CesiumLayer["setStyle"]>[0]["dimensionFilter"]
+>;
+export type WorkspaceDimensionStyleContract = Assert<
+  SchemaDimensionStyle extends WorkspaceDimensionStyle ? true : false
+>;
+export type WorkspaceDimensionFilterContract = Assert<
+  SchemaDimensionFilter extends WorkspaceDimensionFilter ? true : false
+>;
 export type WorkspaceTerrainAlignmentContract = Assert<
   HasMethod<CesiumLayer, "estimateTerrainHeightAlignment">
 >;
@@ -165,11 +175,9 @@ type WorkspaceExtraDimensions = NonNullable<
 type WorkspaceRustBackend = import("@frillab/copc-adapter/cesium").RustCopcBackendOptions;
 type WorkspaceInputSource = import("@frillab/copc-adapter/cesium").CopcInputSource;
 
-// Keep the Workbench's legacy controls in sync while the rich dimension style
-// stays an explicit API example rather than an incomplete color-mode control.
 export type WorkspaceColorModeChoicesMatch = Assert<AssertEqual<
   SchemaChoiceValues<"rendering.colorMode">,
-  Exclude<WorkspaceColorMode, "dimension">
+  WorkspaceColorMode
 >>;
 export type WorkspacePointSizeChoicesMatch = AssertEqual<
   SchemaChoiceValues<"rendering.pointSizeMode">,

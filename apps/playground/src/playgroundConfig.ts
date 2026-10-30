@@ -17,6 +17,7 @@ const MIB = 1024 * 1024;
 
 export type PlaygroundConfig = Omit<
   WorkbenchLayerConfig,
+  | "colorMode"
   | "maxPointCacheBytes"
   | "maxDepth"
   | "maxScreenSpaceError"
@@ -25,6 +26,8 @@ export type PlaygroundConfig = Omit<
   /** Schema-defined options without a legacy flat setting in this host. */
   readonly schemaOptionValues?: Readonly<Record<string, unknown>>;
   readonly renderer: WorkbenchRenderer;
+  /** The installed npm 0.6.0 package does not expose numeric dimensions. */
+  readonly colorMode: Exclude<WorkbenchLayerConfig["colorMode"], "dimension">;
   readonly maxPointCacheBytes: number;
   readonly maxDepth: number;
   readonly maxScreenSpaceError: number;

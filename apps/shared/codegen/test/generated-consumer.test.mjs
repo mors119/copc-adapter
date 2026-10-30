@@ -105,6 +105,14 @@ test("generated Cesium and Three snippets typecheck against the exact consumer p
     "source.maxRangeBytes": 2 * 1024 * 1024,
     "source.maxConcurrentRangeRequests": 3,
   };
+  const dimensionStyle = {
+    name: "scanAngle",
+    range: { min: -90, max: 90 },
+    palette: [
+      { position: 0, color: { red: 0, green: 0.2, blue: 1, alpha: 0.9 } },
+      { position: 1, color: { red: 1, green: 0.1, blue: 0, alpha: 0.9 } },
+    ],
+  };
   const threeOptionValues = {
     "attributes.extraDimensions": "*",
     "rendering.colorMode": "elevation",
@@ -142,13 +150,21 @@ test("generated Cesium and Three snippets typecheck against the exact consumer p
     "adapter.backend": "copc-js",
     ...cesiumOptionValues,
     ...(consumerProfile.manifest.origin === "workspace"
-      ? { "streaming.maxConcurrentNodeLoads": 3 }
+      ? {
+          "streaming.maxConcurrentNodeLoads": 3,
+          "rendering.colorMode": "dimension",
+          "style.dimension": dimensionStyle,
+          "style.dimensionFilter": { name: "scanAngle", min: -20, max: 30 },
+        }
       : {}),
   };
   assertSupportedOptionsCovered("cesium", cesiumMatrixValues);
   assertSupportedOptionsCovered("three", {
     "adapter.backend": "copc-js",
     ...threeOptionValues,
+    ...(consumerProfile.manifest.origin === "workspace"
+      ? { "rendering.colorMode": "dimension", "style.dimension": dimensionStyle }
+      : {}),
   });
 
   const cesium = generate("cesium", {
@@ -181,7 +197,12 @@ test("generated Cesium and Three snippets typecheck against the exact consumer p
   });
   const threeMatrix = generate("three", {
     backend: "copc-js",
-    schemaOptionValues: threeOptionValues,
+    schemaOptionValues: {
+      ...threeOptionValues,
+      ...(consumerProfile.manifest.origin === "workspace"
+        ? { "rendering.colorMode": "dimension", "style.dimension": dimensionStyle }
+        : {}),
+    },
   });
   const workspaceVerticalGrid = consumerProfile.manifest.origin === "workspace"
     ? { gridId: "validated-test-grid" }
@@ -226,7 +247,12 @@ test("generated Cesium and Three snippets typecheck against the exact consumer p
   assert.match(three.code, /controls\.removeEventListener\('change', updateLayer\)/u);
   assert.match(three.code, /cancelAnimationFrame\(animationFrame\)/u);
   assert.doesNotMatch(three.code, /layer\.setStyle\(/u);
-  assert.match(cesiumMatrix.code, /layer\.setStyle\(\{ classificationFilter: \{ include: \[2, 6\] \}, colorMode: 'intensity' \}\);/u);
+  if (consumerProfile.manifest.origin === "workspace") {
+    assert.match(cesiumMatrix.code, /layer\.setStyle\(\{ classificationFilter: \{ include: \[2, 6\] \}, colorMode: 'dimension', dimension: \{/u);
+    assert.match(cesiumMatrix.code, /dimensionFilter: \{ max: 30, min: -20, name: 'scanAngle' \}/u);
+  } else {
+    assert.match(cesiumMatrix.code, /layer\.setStyle\(\{ classificationFilter: \{ include: \[2, 6\] \}, colorMode: 'intensity' \}\);/u);
+  }
   assert.match(cesiumMatrix.code, /layer\.setRefinementFocus\(/u);
   assert.match(cesiumMatrix.code, /heightOffsetMeters: 1\.25/u);
   assert.match(cesiumMatrix.code, /maxConcurrentRangeRequests: 3/u);

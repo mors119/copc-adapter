@@ -19,6 +19,8 @@ import {
   WORKSPACE_CURRENT_CAPABILITIES,
   WORKSPACE_CURRENT_MANIFEST,
 } from "../../shared/schema/index.ts";
+import { requestedDimensionNames } from "../../shared/workbench/dimensionModel.ts";
+import type { SchemaDimensionFilter, SchemaDimensionStyle } from "../../shared/schema/types.ts";
 
 export type RenderingEngine = WorkbenchRenderer;
 export type CesiumPointRendererVariant = "point-primitive" | "batched-geometry";
@@ -64,6 +66,7 @@ function serializedSchemaKeys(): ReadonlySet<string> {
     switch (serialization.kind) {
       case "scalar":
       case "string-array":
+      case "json":
         keys.add(serialization.key);
         break;
       case "classification-filter":
@@ -318,6 +321,18 @@ export function toWorkbenchOptionValues(
   }
   Object.assign(values, config.schemaOptionValues ?? {});
   values["streaming.maxRenderDistanceMeters"] = config.maxRenderDistance;
+  const dimension = values["rendering.colorMode"] === "dimension"
+    ? values["style.dimension"] as SchemaDimensionStyle | undefined
+    : undefined;
+  const filter = values["style.dimensionFilter"] as SchemaDimensionFilter | null | undefined;
+  const selectedNames = requestedDimensionNames(dimension, filter);
+  const configuredNames = values["attributes.extraDimensions"];
+  if (configuredNames !== "*" && selectedNames.length > 0) {
+    const existing = Array.isArray(configuredNames)
+      ? configuredNames.filter((name): name is string => typeof name === "string")
+      : [];
+    values["attributes.extraDimensions"] = [...new Set([...existing, ...selectedNames])];
+  }
   return values;
 }
 

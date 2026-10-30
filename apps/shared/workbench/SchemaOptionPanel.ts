@@ -28,6 +28,7 @@ export type SchemaSpecialControlOptions = {
 export type SchemaSpecialControl = {
   readonly element: HTMLElement;
   setValue?(value: unknown): void;
+  setContext?(context: CapabilityContext): void;
   setChoices?(choices: readonly { readonly value: string; readonly label: string }[]): void;
   destroy?(): void;
 };
@@ -83,7 +84,7 @@ const SECTION_LABELS: Readonly<Record<SchemaSection, string>> = {
   streaming: "Streaming",
   lod: "LoD & Refinement",
   focus: "Focus Lens",
-  filtering: "Classification Filter",
+  filtering: "Filtering",
   attributes: "Attributes",
   coordinates: "Coordinates",
   performance: "Performance",
@@ -171,7 +172,7 @@ function mountGenericOption(
 
   const report = (next: unknown): void => {
     const context = getContext();
-    const localErrors = validateOptionValue(option, next, hostValidators);
+    const localErrors = validateOptionValue(option, next, hostValidators, context);
     const currentValues = { ...context.values, [option.id]: next };
     const groupErrors = validateSchemaValues(
       currentValues,
@@ -453,7 +454,7 @@ export function mountSchemaOptionPanel(options: SchemaOptionPanelOptions): Schem
           : resolveOptionDefault(option.id, context.manifest, new Set(), schema, values),
         context: controlContext,
         onChange: (value) => {
-          const localErrors = validateOptionValue(option, value, options.hostValidators);
+          const localErrors = validateOptionValue(option, value, options.hostValidators, context);
           const valuesWithChange = { ...context.values, [option.id]: value };
           const groupErrors = validateSchemaValues(
             valuesWithChange,
@@ -548,12 +549,13 @@ export function mountSchemaOptionPanel(options: SchemaOptionPanelOptions): Schem
       }
       const choices = choiceOverrides.get(id) ?? getAvailableChoices(control.option, context, schema);
       control.setChoices?.(choices);
+      control.specialized?.setContext?.({ ...context, values });
       control.setValue(values[id] !== undefined
         ? values[id]
         : resolveOptionDefault(id, context.manifest, new Set(), schema, values));
       const validationErrors = values[id] === undefined
         ? []
-        : validateOptionValue(control.option, values[id], options.hostValidators);
+        : validateOptionValue(control.option, values[id], options.hostValidators, { ...context, values });
       validationErrors.push(
         ...schemaValidationErrors.filter((message) =>
           message.startsWith(control.option.label + " ") ||

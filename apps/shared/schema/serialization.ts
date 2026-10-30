@@ -66,6 +66,7 @@ function serializationKeys(option: SchemaOption): readonly string[] {
   switch (serialization.kind) {
     case "scalar":
     case "string-array":
+    case "json":
       return [serialization.key];
     case "classification-filter":
       return [
@@ -123,6 +124,10 @@ function appendOption(
       params.set(serialization.clearKey, "true");
       return;
     }
+    if (serialization.kind === "json") {
+      params.set(serialization.key, "null");
+      return;
+    }
     throw new TypeError(option.label + " cannot be null in share state.");
   }
 
@@ -166,6 +171,17 @@ function appendOption(
       }
       return;
     }
+    case "json": {
+      const encoded = JSON.stringify(value);
+      if (encoded === undefined) {
+        throw new TypeError(option.label + " cannot be represented in share state.");
+      }
+      if (encoded.length > MAX_SCHEMA_SHARE_PARAMETER_LENGTH) {
+        throw new RangeError(option.label + " exceeds the bounded share-state size.");
+      }
+      params.set(serialization.key, encoded);
+      return;
+    }
     case "focus-lens": {
       const focus = value as SchemaFocusLens;
       params.set(serialization.keys.centerX, String(focus.center.x));
@@ -192,6 +208,18 @@ function parseCandidate(
         ? { present: true, valid: true, candidate: parseScalar(option, raw.value) }
         : { present: true, valid: false }
       : { present: false, valid: true };
+  }
+
+  if (serialization.kind === "json") {
+    const raw = readParameter(params, serialization.key, option.label, warnings);
+    if (!raw.present) return { present: false, valid: true };
+    if (!raw.valid) return { present: true, valid: false };
+    try {
+      return { present: true, valid: true, candidate: JSON.parse(raw.value) };
+    } catch {
+      warnings.push("Malformed " + option.label + " JSON share-state value; ignored.");
+      return { present: true, valid: false };
+    }
   }
 
   if (serialization.kind === "classification-filter") {
