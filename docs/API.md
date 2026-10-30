@@ -1015,11 +1015,12 @@ cancel query work; early exit drains only already-started bounded reads.
 
 This audit records the published `@frillab/copc-adapter@0.6.0` baseline checked
 for [issue #383](https://github.com/mors119/copc-adapter/issues/383). That
-published artifact exposes `.`, `./cesium`, and `./three`; the root remains the
-backwards-compatible Cesium entrypoint. This source change adds `./core` for
-consumers of builds that include it. The npm 0.6.0 artifact predates this API.
+artifact exposes `.`, `./cesium`, and `./three`; the root remains the
+backwards-compatible Cesium entrypoint. Version 0.7.0 adds `./core` for
+renderer-neutral COPC access and node preparation. The 0.6.0 artifact does not
+export this subpath.
 
-| Capability | Existing implementation | Public API after this change | Scope and limitation |
+| Capability | Existing implementation | Public API in 0.7.0 | Scope and limitation |
 | --- | --- | --- | --- |
 | Open HTTP and File/Blob sources | Existing `CopcBackend`, `CopcContext`, and Range sources | `createCopcContext()` returns `CopcNodeSource` from `@frillab/copc-adapter/core` | Built-in `copc-js` and opt-in Rust/WASM backends; caller-owned random access is supported |
 | Traverse root and lazy hierarchy pages | Existing `CopcSource`, parser, and `HierarchyLoader` | `CopcContext` page methods plus `HierarchyLoader` | Page queries accept a hard `maxPages`; unresolved children remain `childrenComplete: false` |
@@ -1030,6 +1031,7 @@ consumers of builds that include it. The npm 0.6.0 artifact predates this API.
 | Cancellation and invalidation | Range signals, Rust worker cancellation, Direct core generations | Request signals, `CopcContext.close()`, and `isCurrent()` | HTTP and Rust workers can stop supported in-flight work; started Blob reads and synchronous JS decode may finish, but stale results are rejected |
 | A/E cache compatibility | A-shaped `PreparedPointData`; Direct layer caches can use E | Source reads return the A contract | This API does not expose or rehydrate Direct E cache entries and does not change Direct defaults |
 | Renderer/package isolation | Core implementations are renderer-neutral | `@frillab/copc-adapter/core` | The entrypoint imports neither CesiumJS nor Three.js |
+| Tiles content generation | COPC parsing, hierarchy, and point preparation are reusable | Source and prepared-node APIs | The consumer owns scheduling, tile selection, serialization, and glTF/GLB/3D Tiles generation; this API is not a complete 3D Tiles integration |
 
 The bounds distinction is intentional: `getNodeCellBounds()` returns a cell in
 COPC source coordinates. `ecefBounds` encloses every decoded, transformed point
