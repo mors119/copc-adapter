@@ -52,7 +52,13 @@ import {
 import { estimateTerrainHeightAlignmentBatch } from "../terrain/terrainHeightAlignmentBatch";
 import { extractHorizontalUnitScale } from "../../core/coordinates/crs/parseCopcWkt";
 import { createPointTransformer } from "../../core/coordinates/transform/createPointTransformer";
+import type {
+  CopcElevationRange,
+  CopcElevationStyle,
+} from "../../core/point/style/pointStyle";
 import {
+  cloneCopcElevationRange,
+  cloneCopcElevationStyle,
   cloneCopcDimensionFilter,
   cloneCopcDimensionStyle,
   createCopcPointStyleState,
@@ -127,6 +133,10 @@ export type CopcLayerOptions = {
   /** Upper attenuated point diameter in CSS pixels. Defaults to 12; maximum is 64. */
   maxPointSize?: number;
   colorMode?: CopcColorMode;
+  /** Explicit WGS84 ellipsoidal-height range in metres used by elevation coloring; omitted uses dataset bounds. */
+  elevationRange?: CopcElevationRange;
+  /** Optional normalized color ramp for `colorMode: 'elevation'`. */
+  elevationStyle?: CopcElevationStyle;
   /** Source fields retained for point rendering. Defaults to all standard fields. */
   attributeLoading?: "all" | "required";
   /** Additional standard fields to retain explicitly, including in required mode. */
@@ -511,6 +521,12 @@ export class CesiumLayerController {
     );
     this.style = {
       colorMode: options.colorMode ?? "fixed",
+      ...(options.elevationRange === undefined
+        ? {}
+        : { elevationRange: cloneCopcElevationRange(options.elevationRange) }),
+      ...(options.elevationStyle === undefined
+        ? {}
+        : { elevationStyle: cloneCopcElevationStyle(options.elevationStyle) }),
       ...(options.classificationFilter === undefined
         ? {}
         : {
@@ -1323,6 +1339,12 @@ export class CesiumLayerController {
   getStyle(): CopcCesiumPointStyle {
     return {
       colorMode: this.style.colorMode,
+      ...(this.style.elevationRange === undefined
+        ? {}
+        : { elevationRange: { ...this.style.elevationRange } }),
+      ...(this.style.elevationStyle === undefined
+        ? {}
+        : { elevationStyle: cloneCopcElevationStyle(this.style.elevationStyle) }),
       ...(this.style.classificationFilter === undefined
         ? {}
         : {
@@ -1350,6 +1372,12 @@ export class CesiumLayerController {
 
     const nextStyle: CopcCesiumPointStyle = {
       colorMode: this.style.colorMode,
+      ...(this.style.elevationRange === undefined
+        ? {}
+        : { elevationRange: { ...this.style.elevationRange } }),
+      ...(this.style.elevationStyle === undefined
+        ? {}
+        : { elevationStyle: cloneCopcElevationStyle(this.style.elevationStyle) }),
       ...(this.style.classificationFilter === undefined
         ? {}
         : {
@@ -1371,6 +1399,16 @@ export class CesiumLayerController {
         );
       }
       nextStyle.colorMode = update.colorMode;
+    }
+    if (update.elevationRange === null) {
+      delete nextStyle.elevationRange;
+    } else if (update.elevationRange !== undefined) {
+      nextStyle.elevationRange = cloneCopcElevationRange(update.elevationRange);
+    }
+    if (update.elevationStyle === null) {
+      delete nextStyle.elevationStyle;
+    } else if (update.elevationStyle !== undefined) {
+      nextStyle.elevationStyle = cloneCopcElevationStyle(update.elevationStyle);
     }
     if (update.classificationFilter === null) {
       delete nextStyle.classificationFilter;
@@ -2047,8 +2085,9 @@ export class CesiumLayerController {
         DEFAULT_MAX_ATTENUATED_POINT_SIZE_CSS_PIXELS,
       ...(pointSpacingMeters === undefined ? {} : { pointSpacingMeters }),
       colorMode: style.colorMode,
+      elevationRange: style.elevationRange ?? this.datasetElevationRange,
+      elevationStyle: style.elevationStyle,
       dimension: style.dimension,
-      elevationRange: this.datasetElevationRange,
       rgbMax: this.pointStyleState.getRgbMax(points),
       ...(this.clippingVolume
         ? {

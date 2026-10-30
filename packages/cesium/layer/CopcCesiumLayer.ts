@@ -21,7 +21,12 @@ import type { CopcCesiumPointSizeMode } from "../render/CopcPointRenderer";
 import type { CopcPointInspection } from "../../core/copc/points/pointInspection";
 import type { RangeValidationPolicy } from "../../core/copc/range/types";
 import type { CopcInputSource } from "../../core/copc/range/types";
-import type { CopcDimensionFilter, CopcDimensionStyle } from "../../core/point/style/pointStyle";
+import type {
+  CopcDimensionFilter,
+  CopcDimensionStyle,
+  CopcElevationRange,
+  CopcElevationStyle,
+} from "../../core/point/style/pointStyle";
 import type { GtxGeoidGrid } from "../../core/coordinates/transform/verticalGrid";
 import type {
   TerrainHeightAlignmentEstimate,
@@ -121,6 +126,10 @@ export type CopcCesiumLayerOptions = {
   maxPointSize?: number;
   /** Point color mapping. Defaults to the backward-compatible fixed cyan. */
   colorMode?: CopcColorMode;
+  /** Explicit WGS84 ellipsoidal-height range in metres used by elevation coloring; omitted uses dataset bounds. */
+  elevationRange?: CopcElevationRange;
+  /** Optional normalized color ramp for `colorMode: 'elevation'`. */
+  elevationStyle?: CopcElevationStyle;
   /**
    * Standard LAS attributes to retain. Defaults to `all` for synchronous
    * runtime restyling. `required` keeps initial color-mode fields, classification

@@ -217,8 +217,11 @@ export type {
   CopcValueRange,
 } from "./core/streaming/renderer";
 export type {
+  CopcColorRampInterpolation,
   CopcDimensionColorRampStop,
   CopcDimensionStyle,
+  CopcElevationRange,
+  CopcElevationStyle,
 } from "./core/point/style/pointStyle";
 export type {
   BoundingSphere,

@@ -7,6 +7,7 @@ import {
   normalizeElevation,
   normalizeIntensity,
 } from "../../../cesium/style/pointStyle.ts";
+import { prepareThreePointColorBuffer } from "../../../three/style/pointStyle.ts";
 import {
   getPointBufferElevationRange,
   getPointBufferIntensityRange,
@@ -28,6 +29,52 @@ test("dataset elevation range remains stable and honors vertical units", () => {
     }),
     { min: 30.48, max: 60.96 },
   );
+});
+
+test("dataset elevation range includes the configured additive display-height offset", () => {
+  const metadata = {
+    bounds: { minZ: -20, maxZ: 80 },
+    wkt: 'VERT_CS["test",UNIT["metre",1]]',
+  };
+
+  assert.deepEqual(getDatasetElevationRange(metadata, 35), { min: 15, max: 115 });
+});
+
+test("Cesium and Three elevation colors share the same custom ramp values", () => {
+  const heights = [-20, 0, 25, 50, 80];
+  const points = {
+    pointCount: heights.length,
+    coordinates: new Float64Array(heights.flatMap((height) => [0, 0, height])),
+  };
+  const options = {
+    colorMode: "elevation",
+    elevationRange: { min: 0, max: 50 },
+    elevationStyle: {
+      interpolation: "linear",
+      palette: [
+        { position: 0, color: { red: 0, green: 0, blue: 0.3 } },
+        { position: 0.5, color: { red: 0, green: 0.8, blue: 0.3 } },
+        { position: 1, color: { red: 1, green: 0, blue: 0 } },
+      ],
+    },
+  };
+  const threeColors = prepareThreePointColorBuffer(points, options);
+
+  for (let index = 0; index < heights.length; index += 1) {
+    const cesiumColor = getPointColor(heights[index], {
+      ...options,
+      intensityRange: undefined,
+      rgbMax: undefined,
+    });
+    const offset = index * 3;
+    for (const [componentIndex, component] of [
+      cesiumColor.red,
+      cesiumColor.green,
+      cesiumColor.blue,
+    ].entries()) {
+      assert.ok(Math.abs(threeColors[offset + componentIndex] - component) < 1e-6);
+    }
+  }
 });
 
 test("prepared RGB statistics enter the layer-wide style state once", () => {

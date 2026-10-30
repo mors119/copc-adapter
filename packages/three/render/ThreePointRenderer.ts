@@ -384,13 +384,16 @@ export class ThreePointRenderer implements CopcPointRenderer {
     const geometryStartedAt = performanceNow();
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-    const usesPointAlpha = options.colorMode === "dimension";
+    const usesPointAlpha =
+      options.colorMode === "dimension" ||
+      (options.colorMode === "elevation" && options.elevationStyle !== undefined);
     const colors = usesPointAlpha
       ? prepareCopcPointColorBufferWithAlpha(
           points,
           {
             colorMode: options.colorMode,
             elevationRange: options.elevationRange,
+            elevationStyle: options.elevationStyle,
             rgbMax: options.rgbMax,
             dimension: options.dimension,
           },
@@ -400,6 +403,7 @@ export class ThreePointRenderer implements CopcPointRenderer {
       : prepareThreePointColorBuffer(points, {
           colorMode: options.colorMode,
           elevationRange: options.elevationRange,
+          elevationStyle: options.elevationStyle,
           rgbMax: options.rgbMax,
           dimension: options.dimension,
         });

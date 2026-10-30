@@ -274,6 +274,41 @@ test("Three layer point-budget defaults and top-level precedence match Core", ()
   assert.equal(effectiveSettings(overridden).configuredPointBudget, 120_000);
 });
 
+test("Three constructor elevation options color the prepared displayed heights", async () => {
+  const source = createBackend();
+  const layer = new CopcThreeLayer({
+    url: "memory://three-elevation-style.copc.laz",
+    backend: source.backend,
+    decoder: source.decoder,
+    colorMode: "elevation",
+    elevationRange: { min: 100, max: 101 },
+    elevationStyle: {
+      palette: [
+        { position: 0, color: { red: 0, green: 0, blue: 1, alpha: 0.2 } },
+        { position: 1, color: { red: 1, green: 0, blue: 0, alpha: 0.8 } },
+      ],
+    },
+    streaming: {
+      maxNodes: 1,
+      maxDepth: 0,
+      maxRenderDistanceMeters: 2000,
+      maxRenderedPoints: 10,
+    },
+  });
+  layer.attachTo(createAttachment(new THREE.Scene(), createCamera()));
+  await layer.load();
+  await layer.update();
+
+  const colors = layer.getRoot().children[0].geometry.getAttribute("color");
+  assert.equal(colors.itemSize, 4);
+  assert.deepEqual(
+    Array.from(colors.array),
+    [0, 0, 1, Math.fround(0.2), 0.5, 0, 0.5, Math.fround(0.5)],
+  );
+  assert.equal(source.pointReadCount, 1);
+  layer.destroy();
+});
+
 test("default Three local rendering needs no vertical CRS metadata or geoid grid", async () => {
   const { layer, source, scene, applicationMesh, attachment } =
     await createLoadedLayer();

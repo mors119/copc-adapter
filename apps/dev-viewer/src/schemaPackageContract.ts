@@ -56,6 +56,10 @@ type LayerCompatibilityExclusions =
   // current Workbench does not collect its explicit range and ramp inputs.
   | "dimension"
   | "dimensionFilter"
+  // Elevation range and palette are public layer APIs; the viewer keeps its
+  // dataset-derived default and does not expose custom ramp controls yet.
+  | "elevationRange"
+  | "elevationStyle"
   | "pointFields"
   | "retainSourceCoordinatesForQueries"
   | "opacity"

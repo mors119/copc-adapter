@@ -63,6 +63,8 @@ import type {
 import { getCopcSourceIdentity } from "../../core/copc/getter/createCopcGetter";
 import { resolveCopcExtraDimensionSelection } from "../../core/copc/points/extraDimensions";
 import {
+  cloneCopcElevationRange,
+  cloneCopcElevationStyle,
   cloneCopcDimensionStyle,
   isCopcDimensionMetadataStyleable,
 } from "../../core/point/style/pointStyle";
@@ -150,6 +152,18 @@ export class ThreeLayerController {
     }
     if (options.dimension !== undefined) {
       options = { ...options, dimension: cloneCopcDimensionStyle(options.dimension) };
+    }
+    if (options.elevationRange !== undefined) {
+      options = {
+        ...options,
+        elevationRange: cloneCopcElevationRange(options.elevationRange),
+      };
+    }
+    if (options.elevationStyle !== undefined) {
+      options = {
+        ...options,
+        elevationStyle: cloneCopcElevationStyle(options.elevationStyle),
+      };
     }
 
     this.options = options;
@@ -919,7 +933,8 @@ export class ThreeLayerController {
       pointSize: this.options.pointSize ?? 3,
       colorMode: this.options.colorMode ?? "fixed",
       dimension: this.options.dimension,
-      elevationRange: this.datasetElevationRange,
+      elevationRange: this.options.elevationRange ?? this.datasetElevationRange,
+      elevationStyle: this.options.elevationStyle,
       rgbMax: this.pointStyleState.getRgbMax(points),
       pointId: (pointIndex) => ({
         nodeKey,
