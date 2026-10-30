@@ -73,7 +73,7 @@ export type WorkspaceCesiumDefaultsMatchApiTypes = Assert<
     "cesium",
     WorkspaceManifest,
     CesiumOptions,
-    "workspace@0.6.0"
+    "workspace@0.7.0"
   >
 >;
 export type WorkspaceThreeDefaultsMatchApiTypes = Assert<
@@ -82,7 +82,7 @@ export type WorkspaceThreeDefaultsMatchApiTypes = Assert<
     "three",
     WorkspaceManifest,
     ThreeOptions,
-    "workspace@0.6.0"
+    "workspace@0.7.0"
   >
 >;
 export type WorkspaceCesiumLayerOptionCoverage = Assert<AssertEqual<

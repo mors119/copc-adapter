@@ -39,9 +39,8 @@ dependency. A consumer such as COPC Tiles can own its node scheduler and output
 format while reusing the adapter's COPC, LAS, and coordinate operations. This
 entrypoint does not generate glTF, GLB, or 3D Tiles content.
 
-The `/core` subpath is introduced by this source change. The currently
-published `@frillab/copc-adapter@0.6.0` predates it; use a published release
-whose export map includes `./core`.
+The `/core` subpath is available in version 0.7.0. The published
+`@frillab/copc-adapter@0.6.0` does not export `./core`.
 
 ```ts
 import {

@@ -6,6 +6,31 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Added the renderer-neutral `@frillab/copc-adapter/core` entrypoint.
+  `createCopcContext()` exposes the `CopcNodeSource` contract for HTTP,
+  `File`, and `Blob` inputs, lazy hierarchy access, and selected-node
+  preparation as A-shaped `PreparedPointData` with WGS84 ECEF `Float64Array`
+  coordinates.
+- Exposed `CoordinateTransformPlan`, source generation, and transform
+  provenance with prepared node results so consumers can inspect how
+  coordinates were prepared and detect stale results.
+
+### Compatibility and scope
+
+- Kept the existing root Cesium API and the `@frillab/copc-adapter/cesium` and
+  `@frillab/copc-adapter/three` Direct layer APIs compatible. The new `/core`
+  entrypoint is renderer-neutral and does not change those layer contracts.
+- Added building blocks for a COPC Tiles consumer to read hierarchy and
+  prepared node data. The consumer still owns scheduling, tile selection,
+  output serialization, and glTF/GLB/3D Tiles generation; this release does
+  not provide a complete 3D Tiles integration. Rust/WASM does not support
+  Extra Bytes requests yet.
+- `ecefBounds` encloses the decoded, transformed points in a prepared node.
+  It is not a conservative WGS84 ECEF bound for the full COPC octree cell
+  when that cell's points have not been decoded.
+
 ## [0.6.0] - 2026-10-20
 
 ### Added

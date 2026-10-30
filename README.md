@@ -13,9 +13,10 @@ keeps ownership of its own viewer or scene.
 
 The `@frillab/copc-adapter/core` package subpath also exposes a renderer-neutral
 COPC source for applications that provide their own node scheduler and output
-format; it does not build 3D Tiles content. See the
+format; it does not build 3D Tiles content. The `./core` export is available
+from version 0.7.0; version 0.6.0 does not include it. See the
 [source API](https://mors119.github.io/copc-adapter/API#copc-tiles-compatibility-audit)
-and check that the installed release exports `./core`.
+for its contract and limits.
 
 ![COPC Adapter demo](docs/assets/copc-main.gif)
 
