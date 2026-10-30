@@ -210,6 +210,9 @@ jobs:
       - name: Run packed Three.js artifact smoke test
         run: node scripts/pack-three-smoke-test.mjs "$PACKAGE_CANDIDATE"
 
+      - name: Run renderer-free strict NodeNext Core consumer test
+        run: node scripts/pack-core-smoke-test.mjs "$PACKAGE_CANDIDATE"
+
       - name: Upload verified package candidate
         uses: actions/upload-artifact@v7
         with:

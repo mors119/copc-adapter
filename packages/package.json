@@ -46,8 +46,8 @@
   "scripts": {
     "build": "npm run build:library",
     "clean:library": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
-    "build:library": "npm run clean:library && npm run prepare-library-assets && vite build --config vite.lib.config.ts && tsc -p tsconfig.lib.json && npm run finalize-library-assets",
-    "build:library:ci": "npm run clean:library && cp node_modules/laz-perf/lib/web/laz-perf.wasm core/wasm/laz-perf.wasm && vite build --config vite.lib.config.ts && tsc -p tsconfig.lib.json && npm run finalize-library-assets",
+    "build:library": "npm run clean:library && npm run prepare-library-assets && vite build --config vite.lib.config.ts && tsc -p tsconfig.lib.json && node scripts/fix-declaration-specifiers.mjs && npm run finalize-library-assets",
+    "build:library:ci": "npm run clean:library && cp node_modules/laz-perf/lib/web/laz-perf.wasm core/wasm/laz-perf.wasm && vite build --config vite.lib.config.ts && tsc -p tsconfig.lib.json && node scripts/fix-declaration-specifiers.mjs && npm run finalize-library-assets",
     "prepack": "npm run build:library",
     "typecheck": "tsc --noEmit",
     "benchmark:renderer": "node --import tsx scripts/renderer-performance-benchmark.mjs",

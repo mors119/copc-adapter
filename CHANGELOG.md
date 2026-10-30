@@ -17,6 +17,17 @@ and versions follow [Semantic Versioning](https://semver.org/).
   provenance with prepared node results so consumers can inspect how
   coordinates were prepared and detect stale results.
 
+### Fixed
+
+- Fixed published TypeScript declarations for strict NodeNext consumers.
+  Adapter 0.7.0 declarations retained extensionless relative imports from the
+  source build, causing TS2834/TS2835 when consumers checked the package with
+  `skipLibCheck: false`. The declaration build now writes Node ESM-resolvable
+  `.js` paths, including explicit `index.js` paths for directory modules.
+  Packed root, Core, Cesium, and Three entrypoints are checked with NodeNext;
+  Core also remains checked without either renderer installed. This changes no
+  runtime files or exports and is suitable for a patch release.
+
 ### Compatibility and scope
 
 - Kept the existing root Cesium API and the `@frillab/copc-adapter/cesium` and
