@@ -42,6 +42,69 @@ entrypoint does not generate glTF, GLB, or 3D Tiles content.
 The `/core` subpath is available in version 0.7.0. The published
 `@frillab/copc-adapter@0.6.0` does not export `./core`.
 
+Introduced in Adapter 0.7.1,
+`CopcConservativeNodeSource.getConservativeNodeEcefBounds(nodeKey)` is a
+synchronous, metadata-only operation for the full source-space octree cell. A supported
+result is a WGS 84 ECEF axis-aligned box in metres, tagged with source identity,
+source and transform generations, transform-plan identity, the source cell,
+height offset, and vertical-grid provenance. Its `coverage` includes all
+spatial descendant cells because COPC octree cells partition their parent
+cell. It does not certify hierarchy-page completeness or point-content
+availability; load the required hierarchy pages before declaring a Tiles leaf.
+The method reads no point chunks, makes no network requests, and retains no
+per-node bounds cache. Closing the context invalidates it with
+`CopcStaleSourceError`; as a synchronous metadata operation, it has no separate
+per-call cancellation signal.
+`CopcConservativeNodeSource` extends the existing `CopcNodeSource` contract;
+the original interface remains unchanged for structural implementations.
+
+The supported transform subset is intentionally narrow: explicit WGS 84
+geographic EPSG:4326 or EPSG:4979 coordinates in degrees with a declared
+longitude/latitude axis mapping. WKT1 EPSG:4326 without `AXIS` clauses follows
+the point transform's established X=longitude, Y=latitude convention. Source
+height must be explicitly ellipsoidal, or use a validated bilinear vertical
+grid with a matching vertical CRS, no declared NoData sentinel, and coverage of
+the full cell. The supported affine operations are axis permutation/sign
+normalization, declared source height-unit conversion, and uniform
+`heightOffsetMeters`. The WGS 84 geodetic equations are enclosed with outward
+interval arithmetic, including interior angular extrema; transformed corners
+and point samples are not used to derive the result. Projected sources such as
+EPSG:5186, EPSG:2992 (Autzen), and SoFi's EPSG:32611, unknown vertical
+references, unresolved epochs, inferred/no-WKT horizontal CRS, and unverifiable
+grid regions return an explicit `unsupported` result. WGS 84 datum ensembles
+are supported only when the source and ECEF target use that same ensemble, so
+the operation is direct geodetic-to-ECEF math with no frame or epoch shift. WKT
+that declares a dynamic CRS or an unresolved coordinate epoch is unsupported.
+A grid that declares a NoData sentinel is currently unsupported even when the
+sentinel may lie outside a particular cell.
+
+The returned cell bound is suitable as a conservative spatial volume for a
+Tiles hierarchy when the consumer also verifies child topology. It does not
+provide a content encoder's reconstruction-error padding or decide geometric
+error/refinement policy. `loadPreparedNodeData().ecefBounds` remains a bound
+over only the decoded points in that node and is not a replacement for a cell
+bound. The API does not make unsupported Autzen heights ellipsoidal: the real
+Autzen source declares EPSG:6360 NAVD88 height in US survey feet and the
+compatibility point transform has no configured geoid grid, so its vertical
+datum remains unreconciled with WGS 84 ellipsoidal height.
+
+```ts
+import { createCopcContext } from '@frillab/copc-adapter/core';
+
+const source = await createCopcContext('/data/source.copc.laz');
+try {
+  const bounds = source.getConservativeNodeEcefBounds('0-0-0-0');
+  if (bounds.status === 'unsupported') {
+    throw new Error(`${bounds.reasonCode}: ${bounds.reason}`);
+  }
+  // bounds.boundsEcef is a full source-cell bound in WGS 84 ECEF metres.
+  // Compare generations before combining it with points from another result.
+  console.log(bounds.transformPlanIdentity, bounds.boundsEcef);
+} finally {
+  source.close();
+}
+```
+
 ```ts
 import {
   createCopcContext,

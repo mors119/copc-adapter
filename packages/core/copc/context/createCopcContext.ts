@@ -49,6 +49,10 @@ import type { CopcPerformanceObserver } from "../performance";
 import type { CopcWorkerDiagnostics } from "../backend/types";
 import type { CopcInputSource } from "../range/types";
 import {
+  getConservativeNodeEcefBounds as evaluateConservativeNodeEcefBounds,
+} from "./getConservativeNodeEcefBounds";
+import type { CopcConservativeBoundsResult } from "./conservativeBounds";
+import {
   getCopcSourceIdentity,
   isBlobSource,
 } from "../getter/createCopcGetter";
@@ -107,6 +111,25 @@ export interface CopcNodeSource extends CopcHierarchySource {
   ): Promise<CopcPreparedNodeData>;
   /** Close the source and invalidate pending requests and results. */
   close(): void;
+}
+
+/** `CopcNodeSource` with the optional conservative source-cell bounds capability. */
+export interface CopcConservativeNodeSource extends CopcNodeSource {
+  /**
+   * Return a metadata-only conservative WGS 84 ECEF bound for the full source
+   * cell identified by `nodeKey`, or an explicit unsupported result.
+   *
+   * This synchronous operation reads no point payload and performs no network
+   * request. Supported bounds use ECEF metres and enclose the complete source
+   * cell plus its spatial octree descendants; the result identifies this
+   * context's source and immutable transform generations. Projected and other
+   * transformations without a proven region enclosure return `unsupported`.
+   * `getNodeCellBounds()` remains a COPC source CRS bound, while
+   * `loadPreparedNodeData().ecefBounds` remains a decoded-point content bound.
+   * Tile content encoders must add their own proven reconstruction-error
+   * padding. Closed contexts throw `CopcStaleSourceError`.
+   */
+  getConservativeNodeEcefBounds(nodeKey: string): CopcConservativeBoundsResult;
 }
 
 /** Raised when a result belongs to a closed or superseded source context. */
@@ -450,7 +473,7 @@ function allocateSourceGeneration(): number {
  * cancelled where their backend supports cancellation and stale results are
  * always rejected before they are returned.
  */
-export class CopcContext implements CopcSource, CopcNodeSource {
+export class CopcContext implements CopcSource, CopcConservativeNodeSource {
   private readonly delegate: CopcSource;
   private readonly metadata: CopcMetadata;
   private readonly lifecycleController: AbortController;
@@ -634,6 +657,46 @@ export class CopcContext implements CopcSource, CopcNodeSource {
   getNodeCellBounds(nodeKey: string): CopcHierarchyBounds {
     assertNodeKey(nodeKey);
     return Object.freeze(getCopcHierarchyCellBounds(nodeKey, this.metadata.cube));
+  }
+
+  /** @inheritdoc */
+  getConservativeNodeEcefBounds(nodeKey: string): CopcConservativeBoundsResult {
+    this.assertOpen();
+    assertNodeKey(nodeKey);
+    let sourceCellBounds: CopcHierarchyBounds;
+    try {
+      sourceCellBounds = getCopcHierarchyCellBounds(nodeKey, this.metadata.cube);
+    } catch (error: unknown) {
+      const fallbackBounds = this.metadata.cube;
+      return Object.freeze({
+        status: "unsupported",
+        nodeKey,
+        sourceCellBounds: Object.freeze({ ...fallbackBounds }),
+        sourceCoordinateSystem: "copc-source",
+        sourceIdentity: this.source,
+        sourceGeneration: this.sourceGeneration,
+        transformGeneration: this.transformGeneration,
+        transformPlanIdentity: this.transformPlan.identity.key,
+        heightOffsetMeters: this.transformPlan.manualHeightOffsetMeters,
+        ...(this.transformPlan.verticalGrid
+          ? { verticalGrid: this.transformPlan.verticalGrid }
+          : {}),
+        reasonCode: "invalid-source-cell",
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return evaluateConservativeNodeEcefBounds(
+      {
+        metadata: this.metadata,
+        sourceIdentity: this.source,
+        sourceGeneration: this.sourceGeneration,
+        transformGeneration: this.transformGeneration,
+        transformPlan: this.transformPlan,
+        verticalGrid: this.verticalGrid,
+      },
+      nodeKey,
+      sourceCellBounds,
+    );
   }
 
   /**

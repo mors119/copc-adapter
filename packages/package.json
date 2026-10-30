@@ -1,6 +1,6 @@
 {
   "name": "@frillab/copc-adapter",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "type": "module",
   "description": "Stream and visualize COPC point clouds directly in CesiumJS and Three.js.",
   "keywords": [
