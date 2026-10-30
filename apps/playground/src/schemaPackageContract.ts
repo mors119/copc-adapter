@@ -99,6 +99,15 @@ type HasMethod<Type, Key extends PropertyKey> = Key extends keyof Type
 type HasKey<Type, Key extends PropertyKey> = Key extends keyof Type ? true : false;
 export type NpmStyleSetterContract = Assert<HasMethod<CesiumLayer, "setStyle">>;
 export type NpmFocusSetterContract = Assert<HasMethod<CesiumLayer, "setRefinementFocus">>;
+export type NpmOpacitySetterAbsent = Assert<
+  Equal<HasMethod<CesiumLayer, "setOpacity">, false>
+>;
+export type NpmThreeOpacitySetterAbsent = Assert<
+  Equal<HasMethod<ThreeLayer, "setOpacity">, false>
+>;
+export type NpmCesiumClippingSetterAbsent = Assert<
+  Equal<HasMethod<CesiumLayer, "setClippingVolume">, false>
+>;
 type NpmFocusArgument = NonNullable<Parameters<CesiumLayer["setRefinementFocus"]>[0]>;
 type NpmStyleFilter = NonNullable<
   Parameters<CesiumLayer["setStyle"]>[0]["classificationFilter"]

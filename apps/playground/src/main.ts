@@ -24,6 +24,7 @@ import {
   transitionRendererOptionValues,
 } from "../../shared/config/index.ts";
 import { mountSchemaOptionPanel } from "../../shared/workbench/SchemaOptionPanel.ts";
+import { renderSharedSpecialControl } from "../../shared/workbench/specialControls.ts";
 import {
   mountWorkbenchLayout,
   mountWorkbenchRightTabs,
@@ -1031,6 +1032,7 @@ schemaPanel = mountSchemaOptionPanel({
     "rendering.cesiumPointRenderer",
     "coordinates.verticalTransform",
   ],
+  renderSpecialControl: renderSharedSpecialControl,
   onChange: handleSchemaOptionChange,
   onValidationChange() {
     updateApplyState();

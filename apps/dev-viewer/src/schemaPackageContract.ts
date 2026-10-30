@@ -113,6 +113,9 @@ type HasMethod<Type, Key extends PropertyKey> = Key extends keyof Type
   : false;
 type HasKey<Type, Key extends PropertyKey> = Key extends keyof Type ? true : false;
 export type WorkspaceStyleSetterContract = Assert<HasMethod<CesiumLayer, "setStyle">>;
+export type WorkspaceCesiumOpacitySetterContract = Assert<HasMethod<CesiumLayer, "setOpacity">>;
+export type WorkspaceThreeOpacitySetterContract = Assert<HasMethod<ThreeLayer, "setOpacity">>;
+export type WorkspaceCesiumClippingSetterContract = Assert<HasMethod<CesiumLayer, "setClippingVolume">>;
 export type WorkspaceFocusSetterContract = Assert<HasMethod<CesiumLayer, "setRefinementFocus">>;
 type WorkspaceFocusArgument = NonNullable<
   Parameters<CesiumLayer["setRefinementFocus"]>[0]

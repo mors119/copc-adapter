@@ -195,8 +195,8 @@ export interface CopcThreePointRenderer extends CopcPointRenderer {
   attachTo(scene: THREE.Scene): void;
   /** Remove the root group from its current scene without disposing the scene. */
   detachFrom(): void;
-  /** Apply alpha to renderer-owned materials and future nodes, when supported. */
-  setOpacity?(opacity: number): void;
+  /** Apply layer alpha, or restore renderer and per-point color alpha defaults. */
+  setOpacity?(opacity: number | undefined): void;
   /** Return the renderer-owned root group for picking or application composition. */
   getRoot(): THREE.Group;
   /** Prepare or replace one node's renderable points using the layer's fixed local frame. */

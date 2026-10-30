@@ -47,6 +47,17 @@ Cesium filter before switching to Three.js. The Cesium Focus Lens updates the
 active layer, while algorithm changes use Apply. The guide is visual only and
 does not crop the point cloud.
 
+The shared controls also define layer opacity and Cesium clipping. Opacity is a
+runtime setting from `0` to `1`; an explicit value replaces palette alpha, and
+`0` hides the layer and disables picking. Choosing **Use renderer defaults**
+restores palette alpha without reading or decoding COPC data. Clipping accepts
+an axis-aligned box or up to six intersecting planes in WGS 84 ECEF XYZ metres.
+It filters drawing and picking but does not reduce source reads. The internal
+Dev Viewer uses the workspace package and can apply these settings to the
+active runtime. Public Pages is pinned to npm `0.6.0`, whose declarations lack
+both methods, so its Workbench shows package-version guidance instead of
+controls that it cannot apply. Clipping is also unavailable in Three.js.
+
 During replacement, the Playground creates a hidden candidate runtime and
 keeps the active runtime visible until the candidate loads. A successful swap
 then disposes the previous runtime; a failed or superseded candidate is
@@ -82,7 +93,7 @@ The release and renderer coverage for every public layer option, host action,
 copy mapping, and share policy is recorded in the [Workbench capability
 coverage matrix](API.md#workbench-capability-coverage). It distinguishes the
 published npm profile from the current workspace profile and keeps workspace-only
-APIs out of public Playground code.
+API calls out of public Playground code when its pinned package lacks them.
 
 For Playground setup, development, release-candidate validation, and local
 Pages builds, see the [Playground README](https://github.com/mors119/copc-adapter/blob/main/apps/playground/README.md).

@@ -1,4 +1,8 @@
-import type { SchemaClassificationFilter, SchemaFocusLens } from "../schema/types.ts";
+import type {
+  SchemaClippingVolume,
+  SchemaClassificationFilter,
+  SchemaFocusLens,
+} from "../schema/types.ts";
 import type {
   SchemaSpecialControl,
   SchemaSpecialControlOptions,
@@ -162,15 +166,320 @@ function createFocusLensControl(
   };
 }
 
+function createOpacityControl(
+  options: SchemaSpecialControlOptions,
+): SchemaSpecialControl {
+  const root = document.createElement("div");
+  root.className = "schema-special-opacity";
+  const useDefault = document.createElement("input");
+  useDefault.type = "checkbox";
+  useDefault.id = "schema-opacity-use-default";
+  useDefault.checked = options.value === undefined;
+  const defaultLabel = document.createElement("label");
+  defaultLabel.className = "ui-field ui-field--inline";
+  defaultLabel.htmlFor = useDefault.id;
+  defaultLabel.append(useDefault, document.createTextNode("Use renderer defaults"));
+  const range = document.createElement("input");
+  range.type = "range";
+  range.id = "schema-opacity-slider";
+  range.min = "0";
+  range.max = "1";
+  range.step = "0.01";
+  range.setAttribute("aria-label", "Layer opacity slider");
+  const exact = document.createElement("input");
+  exact.type = "number";
+  exact.id = "schema-opacity-value";
+  exact.min = "0";
+  exact.max = "1";
+  exact.step = "any";
+  exact.inputMode = "decimal";
+  exact.setAttribute("aria-label", "Layer opacity");
+  const valueLabel = document.createElement("label");
+  valueLabel.className = "ui-field";
+  valueLabel.htmlFor = exact.id;
+  valueLabel.append(document.createTextNode("Opacity (0–1)"), exact);
+  const sliderLabel = document.createElement("label");
+  sliderLabel.className = "ui-field";
+  sliderLabel.htmlFor = range.id;
+  sliderLabel.append(document.createTextNode("Layer opacity"), range);
+  root.append(defaultLabel, sliderLabel, valueLabel);
+
+  let current = typeof options.value === "number" ? options.value : 1;
+  const syncDisabled = (): void => {
+    range.disabled = useDefault.checked;
+    exact.disabled = useDefault.checked;
+  };
+  const syncInputs = (value: number): void => {
+    current = value;
+    range.value = String(value);
+    exact.value = String(value);
+  };
+  const onDefaultChange = (): void => {
+    syncDisabled();
+    if (useDefault.checked) options.onChange(undefined);
+    else options.onChange(current);
+  };
+  const onRangeInput = (): void => {
+    exact.value = range.value;
+    options.onChange(Number(range.value));
+  };
+  const onExactChange = (): void => {
+    const value = exact.value.trim() === "" ? Number.NaN : Number(exact.value);
+    if (Number.isFinite(value) && value >= 0 && value <= 1) range.value = String(value);
+    options.onChange(value);
+  };
+  useDefault.addEventListener("change", onDefaultChange);
+  range.addEventListener("input", onRangeInput);
+  exact.addEventListener("change", onExactChange);
+
+  const setValue = (value: unknown): void => {
+    useDefault.checked = value === undefined;
+    if (typeof value === "number" && Number.isFinite(value)) syncInputs(value);
+    syncDisabled();
+  };
+  setValue(options.value);
+  return {
+    element: root,
+    setValue,
+    destroy() {
+      useDefault.removeEventListener("change", onDefaultChange);
+      range.removeEventListener("input", onRangeInput);
+      exact.removeEventListener("change", onExactChange);
+      root.remove();
+    },
+  };
+}
+
+type ClippingPlaneInputs = {
+  readonly element: HTMLFieldSetElement;
+  readonly normal: readonly HTMLInputElement[];
+  readonly point: readonly HTMLInputElement[];
+};
+
+function coordinateInput(
+  parent: HTMLElement,
+  id: string,
+  labelText: string,
+): HTMLInputElement {
+  const input = document.createElement("input");
+  input.type = "number";
+  input.step = "any";
+  input.inputMode = "decimal";
+  input.id = id;
+  input.dataset.ecefCoordinate = labelText;
+  input.setAttribute("aria-label", labelText);
+  const label = document.createElement("label");
+  label.className = "ui-field";
+  label.htmlFor = id;
+  label.append(document.createTextNode(labelText), input);
+  parent.append(label);
+  return input;
+}
+
+function inputPoint(inputs: readonly HTMLInputElement[]): readonly [number, number, number] {
+  return inputs.map((input) => input.value.trim() === "" ? Number.NaN : Number(input.value)) as [number, number, number];
+}
+
+function setPointInputs(
+  inputs: readonly HTMLInputElement[],
+  value: readonly [number, number, number],
+): void {
+  inputs.forEach((input, index) => { input.value = String(value[index]); });
+}
+
+function createClippingVolumeControl(
+  options: SchemaSpecialControlOptions,
+): SchemaSpecialControl {
+  const root = document.createElement("div");
+  root.className = "schema-special-clipping";
+  const enabled = document.createElement("input");
+  enabled.type = "checkbox";
+  enabled.id = "schema-clipping-enabled";
+  const enabledLabel = document.createElement("label");
+  enabledLabel.className = "ui-field ui-field--inline";
+  enabledLabel.htmlFor = enabled.id;
+  enabledLabel.append(enabled, document.createTextNode("Enable clipping volume"));
+  const coordinateHelp = document.createElement("p");
+  coordinateHelp.className = "schema-special-clipping__coordinates";
+  coordinateHelp.textContent = "Coordinates are WGS 84 Earth-centred, Earth-fixed (ECEF) XYZ metres from the Earth's centre; they are not longitude, latitude, or Three.js local coordinates.";
+  const type = document.createElement("select");
+  type.id = "schema-clipping-type";
+  type.setAttribute("aria-label", "Clipping volume type");
+  type.add(new Option("Axis-aligned ECEF box", "box"));
+  type.add(new Option("Plane intersection", "planes"));
+  const typeLabel = document.createElement("label");
+  typeLabel.className = "ui-field";
+  typeLabel.htmlFor = type.id;
+  typeLabel.append(document.createTextNode("Volume type"), type);
+  const editor = document.createElement("fieldset");
+  editor.id = "schema-clipping-editor";
+  const legend = document.createElement("legend");
+  legend.textContent = "Volume coordinates · metres";
+  editor.append(legend);
+  const boxEditor = document.createElement("div");
+  boxEditor.dataset.clippingEditor = "box";
+  const minimum = ["X", "Y", "Z"].map((axis) => coordinateInput(boxEditor, `schema-clipping-min-${axis.toLowerCase()}`, `Minimum ${axis} (ECEF metres)`));
+  const maximum = ["X", "Y", "Z"].map((axis) => coordinateInput(boxEditor, `schema-clipping-max-${axis.toLowerCase()}`, `Maximum ${axis} (ECEF metres)`));
+  editor.append(boxEditor);
+  const planesEditor = document.createElement("div");
+  planesEditor.dataset.clippingEditor = "planes";
+  const planes = document.createElement("div");
+  planesEditor.append(planes);
+  const addPlane = document.createElement("button");
+  addPlane.type = "button";
+  addPlane.id = "schema-clipping-add-plane";
+  addPlane.className = "schema-action";
+  addPlane.textContent = "Add plane (up to 6)";
+  planesEditor.append(addPlane);
+  editor.append(planesEditor);
+  const clear = document.createElement("button");
+  clear.type = "button";
+  clear.id = "schema-clipping-clear";
+  clear.className = "schema-action";
+  clear.textContent = "Clear clipping volume";
+  root.append(enabledLabel, coordinateHelp, typeLabel, editor, clear);
+
+  let planeInputs: ClippingPlaneInputs[] = [];
+  const createPlane = (index: number): ClippingPlaneInputs => {
+    const fieldset = document.createElement("fieldset");
+    fieldset.className = "schema-clipping-plane";
+    fieldset.dataset.planeIndex = String(index);
+    const legend = document.createElement("legend");
+    legend.textContent = `Plane ${index + 1} · non-negative side remains visible`;
+    fieldset.append(legend);
+    const normal = ["X", "Y", "Z"].map((axis) => coordinateInput(fieldset, `schema-clipping-plane-${index}-normal-${axis.toLowerCase()}`, `Plane ${index + 1} normal ${axis}`));
+    const point = ["X", "Y", "Z"].map((axis) => coordinateInput(fieldset, `schema-clipping-plane-${index}-point-${axis.toLowerCase()}`, `Plane ${index + 1} point ${axis} (ECEF metres)`));
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "schema-action";
+    remove.dataset.removePlane = String(index);
+    remove.textContent = "Remove plane";
+    fieldset.append(remove);
+    const record: ClippingPlaneInputs = { element: fieldset, normal, point };
+    const onRemove = (): void => {
+      planeInputs = planeInputs.filter((candidate) => candidate !== record);
+      rebuildPlaneList();
+      emit();
+    };
+    remove.addEventListener("click", onRemove);
+    return record;
+  };
+  const readEnabledVolume = (): SchemaClippingVolume => {
+    if (type.value === "box") {
+      return {
+        type: "box",
+        coordinateSystem: "wgs84-ecef-meters",
+        minimum: inputPoint(minimum),
+        maximum: inputPoint(maximum),
+      };
+    }
+    return {
+      type: "planes",
+      coordinateSystem: "wgs84-ecef-meters",
+      planes: planeInputs.map(({ normal, point }) => ({
+        normal: inputPoint(normal),
+        point: inputPoint(point),
+      })),
+    };
+  };
+  const updateEditor = (): void => {
+    editor.disabled = !enabled.checked;
+    type.disabled = !enabled.checked;
+    clear.disabled = !enabled.checked;
+    boxEditor.hidden = type.value !== "box";
+    planesEditor.hidden = type.value !== "planes";
+    addPlane.disabled = !enabled.checked || planeInputs.length >= 6;
+    for (const plane of planeInputs) {
+      for (const input of [...plane.normal, ...plane.point]) input.disabled = !enabled.checked;
+      const remove = plane.element.querySelector<HTMLButtonElement>("[data-remove-plane]");
+      if (remove) remove.disabled = !enabled.checked || planeInputs.length <= 1;
+    }
+  };
+  const emit = (): void => {
+    updateEditor();
+    options.onChange(enabled.checked ? readEnabledVolume() : undefined);
+  };
+  const rebuildPlaneList = (): void => {
+    planes.replaceChildren(...planeInputs.map(({ element }) => element));
+    updateEditor();
+  };
+  const onEnabledChange = (): void => emit();
+  const onTypeChange = (): void => emit();
+  const onAddPlane = (): void => {
+    if (planeInputs.length >= 6) return;
+    planeInputs = [...planeInputs, createPlane(planeInputs.length)];
+    rebuildPlaneList();
+    emit();
+  };
+  const onClear = (): void => {
+    enabled.checked = false;
+    type.value = "box";
+    setPointInputs(minimum, [Number.NaN, Number.NaN, Number.NaN]);
+    setPointInputs(maximum, [Number.NaN, Number.NaN, Number.NaN]);
+    planeInputs = [createPlane(0)];
+    rebuildPlaneList();
+    emit();
+  };
+  const onCoordinateChange = (event: Event): void => {
+    if (event.target instanceof HTMLInputElement && event.target.dataset.ecefCoordinate) emit();
+  };
+  root.addEventListener("change", onCoordinateChange);
+  enabled.addEventListener("change", onEnabledChange);
+  type.addEventListener("change", onTypeChange);
+  addPlane.addEventListener("click", onAddPlane);
+  clear.addEventListener("click", onClear);
+
+  const setValue = (value: unknown): void => {
+    const volume = value && typeof value === "object" ? value as SchemaClippingVolume : undefined;
+    enabled.checked = volume !== undefined;
+    if (volume?.type === "box") {
+      type.value = "box";
+      setPointInputs(minimum, volume.minimum);
+      setPointInputs(maximum, volume.maximum);
+      planeInputs = [createPlane(0)];
+    } else if (volume?.type === "planes") {
+      type.value = "planes";
+      planeInputs = volume.planes.map((_, index) => createPlane(index));
+      volume.planes.forEach(({ normal, point }, index) => {
+        setPointInputs(planeInputs[index].normal, normal);
+        setPointInputs(planeInputs[index].point, point);
+      });
+    } else {
+      type.value = "box";
+      setPointInputs(minimum, [Number.NaN, Number.NaN, Number.NaN]);
+      setPointInputs(maximum, [Number.NaN, Number.NaN, Number.NaN]);
+      planeInputs = [createPlane(0)];
+    }
+    rebuildPlaneList();
+  };
+  setValue(options.value);
+  return {
+    element: root,
+    setValue,
+    destroy() {
+      enabled.removeEventListener("change", onEnabledChange);
+      type.removeEventListener("change", onTypeChange);
+      addPlane.removeEventListener("click", onAddPlane);
+      clear.removeEventListener("click", onClear);
+      root.removeEventListener("change", onCoordinateChange);
+      root.remove();
+    },
+  };
+}
+
 /** Shared presentation for domain controls whose meaning is not a scalar input. */
 export function renderSharedSpecialControl(
   options: SchemaSpecialControlOptions,
 ): SchemaSpecialControl | undefined {
   switch (options.option.control) {
+    case "opacity":
+      return createOpacityControl(options);
     case "classification-filter":
       return createClassificationControl(options);
     case "focus-lens":
       return createFocusLensControl(options);
+    case "clipping-volume":
+      return createClippingVolumeControl(options);
     default:
       return undefined;
   }

@@ -80,10 +80,17 @@ test("generated Cesium and Three snippets typecheck against the exact consumer p
     "rendering.colorMode": "intensity",
     "rendering.pointSize": 4,
     "rendering.cesiumPointRenderer": "batched-geometry",
+    "rendering.opacity": 0.42,
     "rendering.pointSizeMode": "attenuated",
     "rendering.minPointSize": 2,
     "rendering.maxPointSize": 18,
     "style.classificationFilter": { include: [2, 6] },
+    "filtering.cesiumClippingVolume": {
+      type: "box",
+      coordinateSystem: "wgs84-ecef-meters",
+      minimum: [-1_000, -2_000, -3_000],
+      maximum: [1_000, 2_000, 3_000],
+    },
     "coordinates.heightOffsetMeters": 1.25,
     "performance.maxRenderedPoints": 400_000,
     "cache.maxPointCacheBytes": 128 * 1024 * 1024,
@@ -108,6 +115,7 @@ test("generated Cesium and Three snippets typecheck against the exact consumer p
   const threeOptionValues = {
     "attributes.extraDimensions": "*",
     "rendering.colorMode": "elevation",
+    "rendering.opacity": 0.65,
     "rendering.pointSize": 5,
     "coordinates.heightOffsetMeters": 2.5,
     "performance.maxRenderedPoints": 350_000,
@@ -228,6 +236,11 @@ test("generated Cesium and Three snippets typecheck against the exact consumer p
   assert.doesNotMatch(three.code, /layer\.setStyle\(/u);
   assert.match(cesiumMatrix.code, /layer\.setStyle\(\{ classificationFilter: \{ include: \[2, 6\] \}, colorMode: 'intensity' \}\);/u);
   assert.match(cesiumMatrix.code, /layer\.setRefinementFocus\(/u);
+  if (consumerProfile.manifest.origin === "workspace") {
+    assert.match(cesiumMatrix.code, /layer\.setOpacity\(0\.42\)/u);
+    assert.match(cesiumMatrix.code, /layer\.setClippingVolume\(/u);
+    assert.match(threeMatrix.code, /layer\.setOpacity\(0\.65\)/u);
+  }
   assert.match(cesiumMatrix.code, /heightOffsetMeters: 1\.25/u);
   assert.match(cesiumMatrix.code, /maxConcurrentRangeRequests: 3/u);
   assert.match(threeMatrix.code, /pickingThreshold: 1\.5/u);

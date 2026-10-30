@@ -517,6 +517,10 @@ window.__PACKED_CONSUMER__ = {
     layer.setClippingVolume(volume);
     viewer.scene.requestRender();
   },
+  setOpacity(opacity) {
+    layer.setOpacity(opacity);
+    viewer.scene.requestRender();
+  },
   getClippingDiagnostics() {
     if (!renderer) return undefined;
     return [...renderer.nodes.entries()].map(([nodeKey, node]) => {

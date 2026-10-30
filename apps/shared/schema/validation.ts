@@ -7,6 +7,7 @@ import {
 import { OPTION_SCHEMA, isOptionConditionMet } from "./options.ts";
 import type {
   CapabilityContext,
+  SchemaClippingVolume,
   SchemaFocusLens,
   SchemaHostValidators,
   SchemaOption,
@@ -50,6 +51,40 @@ function validateFocusLens(value: unknown): value is SchemaFocusLens {
     detailBias >= 1 &&
     detailBias <= 2
   );
+}
+
+function isFiniteEcefPoint(value: unknown): value is readonly [number, number, number] {
+  return Array.isArray(value) && value.length === 3 &&
+    value.every((coordinate) => typeof coordinate === "number" && Number.isFinite(coordinate));
+}
+
+function hasOnlyKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  return Object.keys(value).every((key) => keys.includes(key));
+}
+
+function validateClippingVolume(
+  value: unknown,
+  maximumPlanes: number,
+): value is SchemaClippingVolume {
+  if (!isRecord(value) || value.coordinateSystem !== "wgs84-ecef-meters") return false;
+  if (value.type === "box") {
+    if (!hasOnlyKeys(value, ["type", "coordinateSystem", "minimum", "maximum"])) return false;
+    const minimum = value.minimum;
+    const maximum = value.maximum;
+    if (!isFiniteEcefPoint(minimum) || !isFiniteEcefPoint(maximum)) return false;
+    return minimum.every((coordinate, axis) => coordinate <= maximum[axis]);
+  }
+  if (value.type !== "planes" || !hasOnlyKeys(value, ["type", "coordinateSystem", "planes"])) {
+    return false;
+  }
+  if (!Array.isArray(value.planes) || value.planes.length < 1 || value.planes.length > maximumPlanes) {
+    return false;
+  }
+  return value.planes.every((plane) => {
+    if (!isRecord(plane) || !hasOnlyKeys(plane, ["normal", "point"])) return false;
+    if (!isFiniteEcefPoint(plane.normal) || !isFiniteEcefPoint(plane.point)) return false;
+    return Math.hypot(...plane.normal) > 0;
+  });
 }
 
 /** Validate one UI value using schema constraints; adapter checks remain authoritative. */
@@ -186,6 +221,16 @@ export function validateOptionValue(
         errors.push(
           option.label +
             " must have a normalized screen-circle center, radius in (0, 1], and detail bias from 1 to 2.",
+        );
+      }
+      break;
+    case "clipping-volume":
+      if (!validateClippingVolume(value, validation.maximumPlanes)) {
+        errors.push(
+          option.label +
+            " must be a valid WGS 84 ECEF metres box or a 1–" +
+            validation.maximumPlanes +
+            " plane intersection with finite XYZ coordinates and nonzero normals.",
         );
       }
       break;

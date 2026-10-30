@@ -519,6 +519,10 @@ test("BatchedGeometryPointRenderer preserves dimension palette alpha unless laye
   assert.equal(primitive.appearance.isTranslucent(), true);
   renderer.setOpacity(1);
   assert.equal(primitive.appearance.isTranslucent(), false);
+  renderer.setOpacity(undefined);
+  assert.equal(material.uniforms.u_layerOpacity, 1);
+  assert.equal(material.uniforms.u_overridePointAlpha, 0);
+  assert.equal(primitive.appearance.isTranslucent(), true);
 
   renderer.destroy();
   scenePrimitives.destroy();

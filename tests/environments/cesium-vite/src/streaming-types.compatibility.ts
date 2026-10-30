@@ -46,6 +46,7 @@ const minimalLayer = new CopcCesiumLayer({
   url: "https://example.com/data.copc.laz",
 });
 minimalLayer.setOpacity(0.5);
+minimalLayer.setOpacity(undefined);
 const runtimeClipping: CopcCesiumClippingVolume = {
   type: "box",
   coordinateSystem: "wgs84-ecef-meters",

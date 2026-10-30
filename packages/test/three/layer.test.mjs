@@ -15,6 +15,7 @@ test("Three layer opacity accepts endpoints and rejects invalid values", () => {
       opacity,
     });
     layer.setOpacity(opacity);
+    layer.setOpacity(undefined);
     if (opacity === 0) {
       assert.equal(layer.pick({ x: 0, y: 0 }), undefined);
     }

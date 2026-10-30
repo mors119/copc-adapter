@@ -397,6 +397,69 @@ test("runtime style edits avoid layer recreation and reset nullable filters expl
   assert.equal(isWorkbenchConfigurationDirty(result.state), false);
 });
 
+test("opacity and Cesium clipping use runtime operations, including clear, without replacement", async () => {
+  const context = {
+    manifest: WORKSPACE_CURRENT_MANIFEST,
+    renderer: "cesium",
+    runtimeCapabilities: WORKSPACE_CURRENT_CAPABILITIES,
+  };
+  const clippingVolume = {
+    type: "box",
+    coordinateSystem: "wgs84-ecef-meters",
+    minimum: [-1_000, -2_000, -3_000],
+    maximum: [1_000, 2_000, 3_000],
+  };
+  const appliedValues = validValues({
+    "rendering.opacity": 0.6,
+    "filtering.cesiumClippingVolume": clippingVolume,
+  });
+  const plan = buildSchemaApplicationPlan(appliedValues, context);
+  assert.deepEqual(plan.runtimeOperations.slice(-2), [
+    {
+      method: "setOpacity",
+      kind: "argument",
+      argument: 0.6,
+      rollbackArgument: undefined,
+      optionIds: ["rendering.opacity"],
+    },
+    {
+      method: "setClippingVolume",
+      kind: "argument",
+      argument: clippingVolume,
+      rollbackArgument: undefined,
+      optionIds: ["filtering.cesiumClippingVolume"],
+    },
+  ]);
+
+  const state = createWorkbenchConfigurationState(appliedValues, appliedValues);
+  const changed = updateWorkbenchConfiguration(state, {
+    "rendering.opacity": 0.25,
+    "filtering.cesiumClippingVolume": undefined,
+  }, context);
+  assert.equal(changed.ok, true);
+  const calls = [];
+  const runtime = {
+    setOpacity(value) { calls.push(["setOpacity", value]); },
+    setClippingVolume(value) { calls.push(["setClippingVolume", value]); },
+  };
+  let replacements = 0;
+  const result = await applyWorkbenchConfiguration(changed.state, context, {
+    getActiveRuntime: () => runtime,
+    async createRuntime() { replacements += 1; throw new Error("runtime setters must reuse the active layer"); },
+    activateRuntime() {},
+    disposeRuntime() {},
+  });
+  assert.equal(result.replaced, false);
+  assert.equal(replacements, 0);
+  assert.deepEqual(calls, [
+    ["setOpacity", 0.25],
+    ["setClippingVolume", undefined],
+  ]);
+  assert.equal(result.state.applied["rendering.opacity"], 0.25);
+  assert.equal(Object.hasOwn(result.state.applied, "filtering.cesiumClippingVolume"), true);
+  assert.equal(result.state.applied["filtering.cesiumClippingVolume"], undefined);
+});
+
 test("runtime setter failure rolls back attempted operations and leaves applied state unchanged", async () => {
   const oldFocus = { ...focus, center: { x: 0.3, y: 0.7 } };
   const oldValues = validValues({ "streaming.refinementFocus": oldFocus });

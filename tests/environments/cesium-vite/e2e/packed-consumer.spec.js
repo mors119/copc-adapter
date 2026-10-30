@@ -522,6 +522,52 @@ test("updates packed Cesium clipping without source reads and clears clipped pic
   expect(consoleErrors).toEqual([]);
 });
 
+test("updates packed Cesium opacity without source reads and disables picking at zero", async ({
+  page,
+}) => {
+  const { pageErrors, consoleErrors } = await loadRustPage(page);
+  await waitForStableRendering(page);
+  const target = await page.evaluate(() =>
+    window.__PACKED_CONSUMER__.getPointPrimitivePickTarget(),
+  );
+  expect(target).toMatchObject({
+    nodeKey: expect.any(String),
+    pointIndex: expect.any(Number),
+    screenPosition: { x: expect.any(Number), y: expect.any(Number) },
+  });
+  const canvasBounds = await page.locator("#cesium-container canvas").first().boundingBox();
+  expect(canvasBounds).not.toBeNull();
+  const clickPoint = {
+    x: (canvasBounds?.x ?? 0) + (target?.screenPosition?.x ?? 0),
+    y: (canvasBounds?.y ?? 0) + (target?.screenPosition?.y ?? 0),
+  };
+  await page.mouse.click(clickPoint.x, clickPoint.y);
+  await expect.poll(async () => (await state(page)).selectedPoint?.pointIndex)
+    .toBe(target?.pointIndex);
+  await waitForStableRendering(page);
+  const before = await state(page);
+
+  await page.evaluate(() => window.__PACKED_CONSUMER__.setOpacity(0));
+  const hidden = await state(page);
+  expect(hidden.selectedPoint).toBeUndefined();
+  expect(hidden.rangeRequests.requested).toBe(before.rangeRequests.requested);
+  expect(hidden.performance.decodeDurationMs).toBe(before.performance.decodeDurationMs);
+  await page.mouse.click(clickPoint.x, clickPoint.y);
+  await page.waitForTimeout(100);
+  expect((await state(page)).selectedPoint).toBeUndefined();
+
+  await page.evaluate(() => window.__PACKED_CONSUMER__.setOpacity(undefined));
+  await expect.poll(async () => (await state(page)).rangeRequests.requested)
+    .toBe(before.rangeRequests.requested);
+  expect((await state(page)).performance.decodeDurationMs)
+    .toBe(before.performance.decodeDurationMs);
+  await page.mouse.click(clickPoint.x, clickPoint.y);
+  await expect.poll(async () => (await state(page)).selectedPoint?.pointIndex)
+    .toBe(target?.pointIndex);
+  expect(pageErrors).toEqual([]);
+  expect(consoleErrors).toEqual([]);
+});
+
 test("estimates against the consumer TerrainProvider and rejects ellipsoid-only sampling", async ({
   page,
 }) => {

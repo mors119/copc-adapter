@@ -103,6 +103,12 @@ test("ThreePointRenderer updates layer opacity without replacing geometry", () =
   assert.equal(points.visible, true);
   assert.equal(newPoints.material.opacity, 1);
   assert.equal(newPoints.visible, true);
+
+  renderer.setOpacity(undefined);
+  assert.equal(points.material.opacity, 0.9);
+  assert.equal(points.visible, true);
+  assert.equal(newPoints.material.opacity, 0.9);
+  assert.equal(newPoints.visible, true);
   renderer.destroy();
 });
 
@@ -144,6 +150,10 @@ test("ThreePointRenderer preserves dimension palette alpha unless layer opacity 
   const newColors = renderer.getRoot().children.find((node) => node.name === "node-b")
     .geometry.getAttribute("color");
   assert.deepEqual(Array.from(newColors.array), [0, 0, 1, 1, 1, 0, 0, 1]);
+  renderer.setOpacity(undefined);
+  assert.deepEqual(Array.from(colors.array), [0, 0, 1, 0, 1, 0, 0, Math.fround(0.8)]);
+  assert.deepEqual(Array.from(newColors.array), [0, 0, 1, 0, 1, 0, 0, Math.fround(0.8)]);
+  assert.equal(renderedPoints.material.opacity, 1);
   renderer.destroy();
 });
 
@@ -176,6 +186,9 @@ test("ThreePointRenderer keeps custom elevation alpha and lets layer opacity rep
   renderer.setOpacity(0.25);
   assert.deepEqual(Array.from(colors.array), [0, 0, 1, 1, 0.5, 0, 0.5, 1]);
   assert.equal(renderedPoints.material.opacity, 0.25);
+  renderer.setOpacity(undefined);
+  assert.deepEqual(Array.from(colors.array), [0, 0, 1, Math.fround(0.2), 0.5, 0, 0.5, 0.5]);
+  assert.equal(renderedPoints.material.opacity, 1);
   renderer.destroy();
 });
 
