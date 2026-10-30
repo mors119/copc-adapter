@@ -10,11 +10,16 @@ export {
   createCopcContext,
 } from "./core/copc/context/createCopcContext";
 export type {
+  CopcConservativeNodeSource,
   CopcContextInput,
   CopcContextOptions,
   CopcNodeSource,
   CopcPreparedNodeData,
 } from "./core/copc/context/createCopcContext";
+export type {
+  CopcConservativeBoundsResult,
+  CopcConservativeBoundsUnsupportedReasonCode,
+} from "./core/copc/context/conservativeBounds";
 
 export {
   CopcBackendError,

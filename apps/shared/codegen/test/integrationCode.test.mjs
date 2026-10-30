@@ -201,7 +201,7 @@ test("fails closed when a supplied adapter version has no matching verified prof
       manifest: WORKSPACE_CURRENT_MANIFEST,
       runtimeCapabilities: WORKSPACE_CURRENT_CAPABILITIES,
       packageOriginLabel: "workspace",
-      adapterVersion: "0.7.1",
+      adapterVersion: "0.7.2",
     }),
     /does not match the verified workspace manifest/u,
   );
@@ -226,7 +226,7 @@ test("a synthetic schema extension is discovered, validated, serialized, and gen
     serialization: { kind: "scalar", key: "syntheticQueueLimit" },
     defaults: {
       "npm@0.6.0": { kind: "value", value: 12 },
-      "workspace@0.7.0": { kind: "value", value: 12 },
+      "workspace@0.7.1": { kind: "value", value: 12 },
     },
   };
   const schema = [...OPTION_SCHEMA, option];

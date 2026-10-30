@@ -159,7 +159,7 @@ test("schema integrity: IDs, mappings, defaults, controls, references, and capab
       }
     }
     for (const profile of Object.keys(option.defaults)) {
-      assert.ok(["npm@0.6.0", "workspace@0.7.0"].includes(profile), option.id + " default profile " + profile);
+      assert.ok(["npm@0.6.0", "workspace@0.7.1"].includes(profile), option.id + " default profile " + profile);
       const entry = option.defaults[profile];
       assert.ok(["value", "omitted", "derived"].includes(entry.kind), option.id + " default kind");
       if (entry.kind === "value") assert.deepEqual(validateOptionValue(option, entry.value), [], option.id + " default value");
@@ -191,7 +191,7 @@ test("public release and workspace profiles resolve only known package versions"
   assert.equal(isKnownManifest(WORKSPACE_CURRENT_MANIFEST), true);
   assert.equal(getAdapterManifest("npm", "0.6.0"), NPM_0_6_MANIFEST);
   assert.equal(
-    getAdapterManifest("workspace", "0.7.0"),
+    getAdapterManifest("workspace", "0.7.1"),
     WORKSPACE_CURRENT_MANIFEST,
   );
   assert.equal(getAdapterManifest("workspace", "0.6.0"), undefined);

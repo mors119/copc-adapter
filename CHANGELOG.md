@@ -6,16 +6,16 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-30
+
 ### Added
 
-- Added the renderer-neutral `@frillab/copc-adapter/core` entrypoint.
-  `createCopcContext()` exposes the `CopcNodeSource` contract for HTTP,
-  `File`, and `Blob` inputs, lazy hierarchy access, and selected-node
-  preparation as A-shaped `PreparedPointData` with WGS84 ECEF `Float64Array`
-  coordinates.
-- Exposed `CoordinateTransformPlan`, source generation, and transform
-  provenance with prepared node results so consumers can inspect how
-  coordinates were prepared and detect stale results.
+- Added metadata-only `getConservativeNodeEcefBounds()` for the explicitly
+  supported WGS 84 geographic source subset. It returns a discriminated
+  supported/unsupported result, identifies source and transform generations,
+  and does not decode point chunks or make network requests.
+- Added a strict NodeNext packed-consumer regression for the public Core API
+  and conservative bounds contract.
 
 ### Fixed
 
@@ -26,7 +26,31 @@ and versions follow [Semantic Versioning](https://semver.org/).
   `.js` paths, including explicit `index.js` paths for directory modules.
   Packed root, Core, Cesium, and Three entrypoints are checked with NodeNext;
   Core also remains checked without either renderer installed. This changes no
-  runtime files or exports and is suitable for a patch release.
+  runtime files or exports.
+
+### Compatibility and scope
+
+- Conservative ECEF bounds cover full source-space octree cells and their
+  spatial descendant cells only when the transform has a proven enclosure.
+  Projected sources, including Autzen EPSG:2992 and SoFi EPSG:32611, and
+  unresolved vertical references return `unsupported`. Autzen's NAVD88 height
+  is not reconciled with WGS 84 ellipsoidal height. The API does not implement
+  a complete 3D Tiles hierarchy or content-encoder padding policy.
+- The conservative bounds API does not change `loadPreparedNodeData()`'s
+  `ecefBounds`, which encloses only decoded, transformed points for that node.
+
+## [0.7.0] - 2026-10-30
+
+### Added
+
+- Added the renderer-neutral `@frillab/copc-adapter/core` entrypoint.
+  `createCopcContext()` exposes the `CopcNodeSource` contract for HTTP,
+  `File`, and `Blob` inputs, lazy hierarchy access, and selected-node
+  preparation as A-shaped `PreparedPointData` with WGS84 ECEF `Float64Array`
+  coordinates.
+- Exposed `CoordinateTransformPlan`, source generation, and transform
+  provenance with prepared node results so consumers can inspect how
+  coordinates were prepared and detect stale results.
 
 ### Compatibility and scope
 
@@ -304,7 +328,9 @@ original asset-resolution behavior.
 - Added packed-artifact smoke coverage for an external Cesium/Vite consumer.
 - Published the typed ESM library with package-local decoder runtime assets.
 
-[Unreleased]: https://github.com/mors119/copc-adapter/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/mors119/copc-adapter/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/mors119/copc-adapter/compare/v0.7.0...v0.7.1
+[0.7.0]: https://github.com/mors119/copc-adapter/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/mors119/copc-adapter/compare/v0.5.3...v0.6.0
 [0.5.3]: https://github.com/mors119/copc-adapter/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/mors119/copc-adapter/compare/v0.5.1...v0.5.2

@@ -5,7 +5,7 @@ import type {
 } from "./types.ts";
 
 const NPM_0_6 = "npm@0.6.0";
-const WORKSPACE_0_7 = "workspace@0.7.0";
+const WORKSPACE_0_7 = "workspace@0.7.1";
 const BOTH_RENDERERS: readonly SchemaRenderer[] = ["cesium", "three"];
 
 function valueDefault<const Value>(value: Value) {

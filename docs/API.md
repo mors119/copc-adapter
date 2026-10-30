@@ -1017,27 +1017,38 @@ This audit records the published `@frillab/copc-adapter@0.6.0` baseline checked
 for [issue #383](https://github.com/mors119/copc-adapter/issues/383). That
 artifact exposes `.`, `./cesium`, and `./three`; the root remains the
 backwards-compatible Cesium entrypoint. Version 0.7.0 adds `./core` for
-renderer-neutral COPC access and node preparation. The 0.6.0 artifact does not
-export this subpath.
+renderer-neutral COPC access and node preparation. Version 0.7.1 adds
+conservative source-cell ECEF bounds for a strictly limited transform subset
+and fixes declarations for strict NodeNext consumers. The 0.6.0 artifact does
+not export this subpath.
 
-| Capability | Existing implementation | Public API in 0.7.0 | Scope and limitation |
+| Capability | Existing implementation | Public API in 0.7.1 | Scope and limitation |
 | --- | --- | --- | --- |
 | Open HTTP and File/Blob sources | Existing `CopcBackend`, `CopcContext`, and Range sources | `createCopcContext()` returns `CopcNodeSource` from `@frillab/copc-adapter/core` | Built-in `copc-js` and opt-in Rust/WASM backends; caller-owned random access is supported |
 | Traverse root and lazy hierarchy pages | Existing `CopcSource`, parser, and `HierarchyLoader` | `CopcContext` page methods plus `HierarchyLoader` | Page queries accept a hard `maxPages`; unresolved children remain `childrenComplete: false` |
 | Load one node and select fields | Existing point view, buffer, and prepared paths | `loadPreparedNodeData(node, fields, options)` | Position is required; standard fields report actual availability; named Extra Bytes must be configured at open and may be narrowed per request |
 | Prepare WGS84 ECEF Float64 | Rust fused preparation and existing JS transform pipeline | `CopcPreparedNodeData.pointData` | Returns the A-shaped `PreparedPointData` buffers without Direct layer cache conversion |
-| ECEF bounds | Existing source-space cells and transformed point buffers | `CopcPreparedNodeData.ecefBounds` or `getPreparedEcefBounds()` | Tight conservative bounds over decoded node points; no ECEF bound is claimed for an undecoded source octree cell |
+| Decoded-point ECEF bounds | Existing transformed point buffers | `CopcPreparedNodeData.ecefBounds` or `getPreparedEcefBounds()` | Encloses decoded, transformed points only; it does not bound an undecoded source cell |
+| Conservative source-cell ECEF bounds | Analytic WGS 84 geodetic interval enclosure | `CopcConservativeNodeSource.getConservativeNodeEcefBounds(nodeKey)` | Metadata-only; supported for explicit WGS 84 geographic EPSG:4326/4979 degree axes with explicit ellipsoidal height or a validated, covered vertical grid without a NoData sentinel. Projected CRS, unknown datums/heights, unresolved epochs, and unverifiable grids return `unsupported`. Covers the full source cell and its spatial descendants; content encoders still need proven reconstruction padding. |
 | CRS and vertical provenance | Existing immutable `CoordinateTransformPlan` and transform pipeline | `transformPlan` on the context and prepared-node result | A transform change requires opening a new context; its generation differs |
 | Cancellation and invalidation | Range signals, Rust worker cancellation, Direct core generations | Request signals, `CopcContext.close()`, and `isCurrent()` | HTTP and Rust workers can stop supported in-flight work; started Blob reads and synchronous JS decode may finish, but stale results are rejected |
 | A/E cache compatibility | A-shaped `PreparedPointData`; Direct layer caches can use E | Source reads return the A contract | This API does not expose or rehydrate Direct E cache entries and does not change Direct defaults |
 | Renderer/package isolation | Core implementations are renderer-neutral | `@frillab/copc-adapter/core` | The entrypoint imports neither CesiumJS nor Three.js |
 | Tiles content generation | COPC parsing, hierarchy, and point preparation are reusable | Source and prepared-node APIs | The consumer owns scheduling, tile selection, serialization, and glTF/GLB/3D Tiles generation; this API is not a complete 3D Tiles integration |
 
-The bounds distinction is intentional: `getNodeCellBounds()` returns a cell in
-COPC source coordinates. `ecefBounds` encloses every decoded, transformed point
-for the node and can therefore bound its point content conservatively. No
-transformed source-cell ECEF bound is offered for arbitrary nonlinear CRS or
-vertical-grid operations because transformed corners alone cannot prove one.
+The three bounds contracts are intentionally distinct. `getNodeCellBounds()`
+returns a cell in COPC source coordinates. `ecefBounds` encloses the decoded,
+transformed points for one node. `getConservativeNodeEcefBounds()` derives a
+WGS 84 ECEF bound for the full source-space octree cell and its spatial
+descendant cells, without reading point chunks, only when its transform
+preconditions can be verified. It returns `unsupported` for projected sources
+such as Autzen EPSG:2992 and SoFi EPSG:32611, and for unresolved vertical
+references or epochs. Autzen's NAVD88 US survey foot heights are not reconciled
+to WGS 84 ellipsoidal height by this API. A supported cell bound does not
+establish that hierarchy-page child discovery is complete, choose a leaf, or
+include content-encoder reconstruction error. Arbitrary nonlinear CRS and
+vertical operations remain unsupported; transformed corners alone cannot
+prove a conservative region enclosure.
 
 ### Renderer-neutral source usage
 
@@ -1060,11 +1071,25 @@ try {
   const node = root.nodes[0];
   if (!node) throw new Error('The root hierarchy page contains no point node');
 
+  const cellBounds = source.getConservativeNodeEcefBounds(node.key);
   const result = await source.loadPreparedNodeData(
     node,
     createCopcPointFieldSelection(['position', 'rgb']),
     { signal: abortController.signal, extraDimensions: ['leg_id'] },
   );
+  if (cellBounds.status === 'supported') {
+    if (
+      cellBounds.sourceIdentity !== result.sourceIdentity ||
+      cellBounds.sourceGeneration !== result.sourceGeneration ||
+      cellBounds.transformGeneration !== result.transformGeneration ||
+      cellBounds.transformPlanIdentity !== result.transformPlan.identity.key
+    ) {
+      throw new Error('Cell bounds and prepared points belong to different source or transform generations');
+    }
+    console.log(cellBounds.coverage, cellBounds.boundsEcef, cellBounds.encoderErrorPaddingRequired);
+  } else {
+    console.warn(`No conservative source-cell ECEF bound: ${cellBounds.reasonCode}: ${cellBounds.reason}`);
+  }
   console.log(result.pointData.world.coordinates, result.ecefBounds);
   console.log(result.transformPlan, result.sourceGeneration, node.childrenComplete);
 } finally {
