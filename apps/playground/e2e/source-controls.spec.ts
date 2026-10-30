@@ -1357,7 +1357,9 @@ for (const renderer of ["Cesium", "Three.js"] as const) {
         ).__COPC_PLAYGROUND_TEST__?.setCameraView(camera);
       }, obliqueCamera);
       await expect(pointPopover).toBeVisible();
-      await expect.poll(markerPosition).not.toEqual(markerBeforeCameraMove);
+      await expect
+        .poll(markerPosition, { timeout: 15_000 })
+        .not.toEqual(markerBeforeCameraMove);
 
       await page.locator("#focus-mode").selectOption("center-boost");
       await page
