@@ -218,6 +218,23 @@ try {
     cwd: consumerDirectory,
     stdio: "inherit",
   });
+  console.log("Checking the packed Three declarations with strict NodeNext...");
+  await run(npmCommand(), ["run", "typecheck:nodenext"], {
+    cwd: consumerDirectory,
+    stdio: "inherit",
+  });
+  await run(
+    process.execPath,
+    [
+      "--input-type=module",
+      "--eval",
+      `const resolved = import.meta.resolve("@frillab/copc-adapter/three");
+if (!resolved.endsWith("/dist/three.js")) {
+  throw new Error("Three package export resolved to an unexpected path: " + resolved);
+}`,
+    ],
+    { cwd: consumerDirectory, stdio: "inherit" },
+  );
   const consumerAssetEntries = await readdir(
     path.resolve(consumerDirectory, "dist/assets"),
   );

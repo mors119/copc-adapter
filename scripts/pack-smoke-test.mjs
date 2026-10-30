@@ -253,6 +253,34 @@ try {
     cwd: consumerDirectory,
     stdio: "inherit",
   });
+  console.log(
+    "Checking the packed root and Cesium declarations with strict NodeNext...",
+  );
+  await run(npmCommand(), ["run", "typecheck:nodenext"], {
+    cwd: consumerDirectory,
+    stdio: "inherit",
+  });
+  await run(npmCommand(), ["run", "typecheck:public-bundler"], {
+    cwd: consumerDirectory,
+    stdio: "inherit",
+  });
+  await run(
+    process.execPath,
+    [
+      "--input-type=module",
+      "--eval",
+      `for (const [specifier, suffix] of [
+  ["@frillab/copc-adapter", "/dist/index.js"],
+  ["@frillab/copc-adapter/cesium", "/dist/cesium.js"],
+]) {
+  const resolved = import.meta.resolve(specifier);
+  if (!resolved.endsWith(suffix)) {
+    throw new Error(specifier + " resolved to an unexpected path: " + resolved);
+  }
+}`,
+    ],
+    { cwd: consumerDirectory, stdio: "inherit" },
+  );
 
   const installedPackageDirectory = path.resolve(
     consumerDirectory,
