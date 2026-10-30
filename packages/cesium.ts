@@ -120,6 +120,11 @@ export type {
   CopcLayerErrorEvent,
   CopcViewCancellationReason,
   TerrainHeightAlignmentEstimate,
+  TerrainHeightAlignmentAnchorResult,
+  TerrainHeightAlignmentBatchEstimate,
+  TerrainHeightAlignmentBatchOptions,
+  TerrainHeightAlignmentGenerationIdentity,
+  TerrainHeightAlignmentGroundCandidate,
   TerrainHeightAlignmentOptions,
   TerrainHeightAlignmentStatus,
 } from "./cesium/layer/CopcCesiumLayer";

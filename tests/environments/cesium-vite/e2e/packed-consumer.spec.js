@@ -552,12 +552,12 @@ test("estimates against the consumer TerrainProvider and rejects ellipsoid-only 
   await expect
     .poll(() =>
       page.evaluate(() =>
-        window.__PACKED_CONSUMER__.getPointPrimitivePickTarget(),
+        window.__PACKED_CONSUMER__.getPointPrimitivePickTarget(0),
       ),
     )
     .toBeDefined();
   const target = await page.evaluate(() =>
-    window.__PACKED_CONSUMER__.getPointPrimitivePickTarget(),
+    window.__PACKED_CONSUMER__.getPointPrimitivePickTarget(0),
   );
   expect(target).toMatchObject({
     nodeKey: expect.any(String),
@@ -584,6 +584,64 @@ test("estimates against the consumer TerrainProvider and rejects ellipsoid-only 
     world: { coordinateSystem: "wgs84-ecef-meters" },
   });
   expect(before).not.toHaveProperty("source");
+
+  const secondTarget = await page.evaluate(() =>
+    window.__PACKED_CONSUMER__.getPointPrimitivePickTarget(1),
+  );
+  expect(secondTarget).toMatchObject({
+    nodeKey: target.nodeKey,
+    pointIndex: 1,
+    screenPosition: { x: expect.any(Number), y: expect.any(Number) },
+  });
+  await page.mouse.click(
+    (canvasBounds?.x ?? 0) + secondTarget.screenPosition.x,
+    (canvasBounds?.y ?? 0) + secondTarget.screenPosition.y,
+  );
+  await expect
+    .poll(async () => (await state(page)).selectedPoint?.pointIndex)
+    .toBe(1);
+  const secondAnchor = (await state(page)).selectedPoint;
+  expect(secondAnchor).toMatchObject({ classification: 2, height: 101 });
+
+  const batchResult = await page.evaluate(async ({ first, second }) => {
+    const estimate = await window.__PACKED_CONSUMER__.estimateTerrainHeightAlignmentBatch([
+      { anchor: first },
+      { anchor: second },
+    ]);
+    return {
+      estimate,
+      current: window.__PACKED_CONSUMER__.isTerrainHeightAlignmentBatchEstimateCurrent(),
+    };
+  }, { first: before, second: secondAnchor });
+  const batchEstimate = batchResult.estimate;
+  expect(batchEstimate).toMatchObject({
+    status: "ready",
+    actionable: true,
+    medianResidualMeters: 149.5,
+    proposedHeightOffsetMeters: 149.5,
+    terrainSamplingCalls: 1,
+    coverage: {
+      requestedAnchorCount: 2,
+      sampledAnchorCount: 2,
+      acceptedAnchorCount: 2,
+    },
+  });
+  expect(batchEstimate.robustSpreadMeters).toBeCloseTo(0.7413, 4);
+  expect(batchResult.current).toBe(true);
+  expect((await state(page)).selectedPoint?.height).toBe(101);
+  await page.mouse.click(
+    (canvasBounds?.x ?? 0) + target.screenPosition.x,
+    (canvasBounds?.y ?? 0) + target.screenPosition.y,
+  );
+  await expect
+    .poll(async () => (await state(page)).selectedPoint?.pointIndex)
+    .toBe(0);
+  expect(
+    await page.evaluate(() =>
+      window.__PACKED_CONSUMER__.isTerrainHeightAlignmentBatchEstimateCurrent(),
+    ),
+  ).toBe(false);
+
   expect(
     await page.evaluate(() =>
       window.__PACKED_CONSUMER__.usesTerrainFixtureProvider(),

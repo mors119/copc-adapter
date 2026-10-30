@@ -73,6 +73,7 @@ const layer = new CopcCesiumLayer({
 let lastError;
 let lastErrorStack;
 let lastTerrainEstimate;
+let lastTerrainBatchEstimate;
 let cameraMoveEventCount = 0;
 let cameraChangeCount = 0;
 let lastWheelInputAt;
@@ -152,7 +153,7 @@ function* getPointPrimitiveCollections(collection) {
   }
 }
 
-function getPointPrimitivePickTarget() {
+function getPointPrimitivePickTarget(targetPointIndex) {
   for (const collection of getPointPrimitiveCollections(
     viewer.scene.primitives,
   )) {
@@ -181,7 +182,8 @@ function getPointPrimitivePickTarget() {
       if (
         id &&
         typeof id.nodeKey === "string" &&
-        typeof id.pointIndex === "number"
+        typeof id.pointIndex === "number" &&
+        (targetPointIndex === undefined || id.pointIndex === targetPointIndex)
       ) {
         return {
           nodeKey: id.nodeKey,
@@ -471,6 +473,18 @@ window.__PACKED_CONSUMER__ = {
   isTerrainHeightAlignmentEstimateCurrent(estimate) {
     return layer.isTerrainHeightAlignmentEstimateCurrent(
       estimate ?? lastTerrainEstimate,
+    );
+  },
+  async estimateTerrainHeightAlignmentBatch(candidates, options) {
+    lastTerrainBatchEstimate = await layer.estimateTerrainHeightAlignmentBatch(
+      candidates,
+      options,
+    );
+    return lastTerrainBatchEstimate;
+  },
+  isTerrainHeightAlignmentBatchEstimateCurrent(estimate) {
+    return layer.isTerrainHeightAlignmentBatchEstimateCurrent(
+      estimate ?? lastTerrainBatchEstimate,
     );
   },
   getPointPrimitivePickTarget,

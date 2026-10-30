@@ -44,8 +44,12 @@ import {
   createUnavailableTerrainHeightAlignmentEstimate,
   estimateTerrainHeightAlignment as estimateTerrainHeightAlignmentForViewer,
   type TerrainHeightAlignmentEstimate,
+  type TerrainHeightAlignmentBatchEstimate,
+  type TerrainHeightAlignmentBatchOptions,
+  type TerrainHeightAlignmentGroundCandidate,
   type TerrainHeightAlignmentOptions,
 } from "../terrain/terrainHeightAlignment";
+import { estimateTerrainHeightAlignmentBatch } from "../terrain/terrainHeightAlignmentBatch";
 import { extractHorizontalUnitScale } from "../../core/coordinates/crs/parseCopcWkt";
 import { createPointTransformer } from "../../core/coordinates/transform/createPointTransformer";
 import {
@@ -403,7 +407,18 @@ export class CesiumLayerController {
     viewer: Cesium.Viewer;
     provider: Cesium.TerrainProvider;
     loadGeneration: number;
+    estimateGeneration: number;
     anchor: CopcPointInspection;
+  };
+  private activeTerrainBatchEstimate?: {
+    estimate: TerrainHeightAlignmentBatchEstimate;
+    viewer: Cesium.Viewer;
+    provider: Cesium.TerrainProvider;
+    loadGeneration: number;
+    estimateGeneration: number;
+    terrainProviderGeneration: number;
+    verticalTransform?: GtxGeoidGrid;
+    anchors: CopcPointInspection[];
   };
   private readonly pointStyleState = createCopcPointStyleState();
   private style: CopcCesiumPointStyle;
@@ -424,6 +439,13 @@ export class CesiumLayerController {
   private updatePending = false;
   private pendingForceSelection = false;
   private loadGeneration = 0;
+  private terrainEstimateGeneration = 0;
+  private terrainProviderGeneration = 0;
+  private observedTerrainProvider?: {
+    viewer: Cesium.Viewer;
+    provider: Cesium.TerrainProvider;
+    generation: number;
+  };
   private loadOperationGeneration?: number;
   private loadOperationViewErrorGeneration?: number;
   private firstVisibleLoadGeneration?: number;
@@ -591,7 +613,7 @@ export class CesiumLayerController {
             this.pointRenderer.resolvePointPick?.(scene, position, pickedObject)
         : undefined,
       onPointPicked: (point) => {
-        this.activeTerrainEstimate = undefined;
+        this.invalidateTerrainEstimates();
         options.onPointPicked?.(point);
       },
     });
@@ -773,7 +795,7 @@ export class CesiumLayerController {
   }
 
   private detachViewerResources(): void {
-    this.activeTerrainEstimate = undefined;
+    this.invalidateTerrainEstimates();
     if (this.viewer) {
       this.viewer.camera.moveEnd.removeEventListener(this.handleCameraMoveEnd);
       this.viewer.camera.changed?.removeEventListener(this.handleCameraChanged);
@@ -806,7 +828,7 @@ export class CesiumLayerController {
     }
 
     this.lifecycle = "loading";
-    this.activeTerrainEstimate = undefined;
+    this.invalidateTerrainEstimates();
     const loadGeneration = ++this.loadGeneration;
     this.loadOperationGeneration = loadGeneration;
     this.loadOperationViewErrorGeneration = undefined;
@@ -895,7 +917,7 @@ export class CesiumLayerController {
       return;
     }
     this.cancelCameraFlight();
-    this.activeTerrainEstimate = undefined;
+    this.invalidateTerrainEstimates();
 
     this.loadGeneration += 1;
     this.streamingGeneration += 1;
@@ -1006,6 +1028,96 @@ export class CesiumLayerController {
     return this.pointPicker.getSelectedPoint();
   }
 
+  private invalidateTerrainEstimates(): number {
+    this.terrainEstimateGeneration += 1;
+    this.activeTerrainEstimate = undefined;
+    this.activeTerrainBatchEstimate = undefined;
+    return this.terrainEstimateGeneration;
+  }
+
+  private getTerrainProviderGeneration(
+    viewer: Cesium.Viewer,
+    provider: Cesium.TerrainProvider,
+  ): number {
+    const observed = this.observedTerrainProvider;
+    if (observed?.viewer === viewer && observed.provider === provider) {
+      return observed.generation;
+    }
+    this.terrainProviderGeneration += 1;
+    this.observedTerrainProvider = {
+      viewer,
+      provider,
+      generation: this.terrainProviderGeneration,
+    };
+    return this.terrainProviderGeneration;
+  }
+
+  private snapshotTerrainCandidate(
+    candidate: TerrainHeightAlignmentGroundCandidate,
+  ): TerrainHeightAlignmentGroundCandidate {
+    return {
+      groundConfirmed: candidate.groundConfirmed,
+      anchor: {
+        ...candidate.anchor,
+        ...(candidate.anchor.source
+          ? { source: { ...candidate.anchor.source } }
+          : {}),
+      },
+    };
+  }
+
+  private isSameInspectedAnchor(
+    expected: CopcPointInspection,
+    actual: CopcPointInspection | undefined,
+  ): boolean {
+    return (
+      actual !== undefined &&
+      expected.ownerId === actual.ownerId &&
+      expected.nodeKey === actual.nodeKey &&
+      expected.pointIndex === actual.pointIndex &&
+      expected.longitude === actual.longitude &&
+      expected.latitude === actual.latitude &&
+      expected.height === actual.height &&
+      expected.source?.x === actual.source?.x &&
+      expected.source?.y === actual.source?.y &&
+      expected.source?.z === actual.source?.z &&
+      expected.classification === actual.classification
+    );
+  }
+
+  private isSameLiveTerrainAnchor(anchor: CopcPointInspection): boolean {
+    const ownerId = this.pointPicker.ownerId;
+    if (
+      !this.showState ||
+      this.opacity === 0 ||
+      anchor.ownerId !== ownerId ||
+      !this.pointRenderer.hasNode(anchor.nodeKey)
+    ) {
+      return false;
+    }
+    const node = this.core.getHierarchyNode(anchor.nodeKey);
+    const points = getCachedRenderablePointDataForAdapter(this.core, anchor.nodeKey);
+    if (
+      !node ||
+      !points ||
+      !isPointVisibleForStyleAndClipping(
+        points,
+        anchor.pointIndex,
+        this.style,
+        this.clippingVolume,
+      )
+    ) {
+      return false;
+    }
+    const actual = inspectCopcPoint(
+      { ownerId, nodeKey: anchor.nodeKey, pointIndex: anchor.pointIndex },
+      node.node,
+      points,
+      this.core.getSnapshot().backend,
+    );
+    return this.isSameInspectedAnchor(anchor, actual);
+  }
+
   /**
    * Compare one explicitly selected ground point with the active real Terrain
    * provider. The estimate never changes rendered positions.
@@ -1014,7 +1126,7 @@ export class CesiumLayerController {
     anchor: CopcPointInspection,
     options: TerrainHeightAlignmentOptions = {},
   ): Promise<TerrainHeightAlignmentEstimate> {
-    this.activeTerrainEstimate = undefined;
+    const estimateGeneration = this.invalidateTerrainEstimates();
     const metadata = this.core.getMetadata();
     const viewer = this.viewer;
     if (!metadata || !viewer || this.lifecycle !== "ready") {
@@ -1032,11 +1144,14 @@ export class CesiumLayerController {
 
     const provider = viewer.terrainProvider;
     const loadGeneration = this.loadGeneration;
+    const verticalTransform = this.options.verticalTransform;
     const isCurrent = (): boolean =>
       this.viewer === viewer &&
       !viewer.isDestroyed() &&
       this.lifecycle === "ready" &&
       this.loadGeneration === loadGeneration &&
+      this.terrainEstimateGeneration === estimateGeneration &&
+      this.options.verticalTransform === verticalTransform &&
       viewer.terrainProvider === provider &&
       this.isSameSelectedAnchor(anchor, this.pointPicker.getSelectedPoint());
 
@@ -1044,7 +1159,7 @@ export class CesiumLayerController {
       viewer,
       provider,
       metadata,
-      verticalTransform: this.options.verticalTransform,
+      verticalTransform,
       anchor,
       expectedOwnerId: this.pointPicker.ownerId,
       existingHeightOffsetMeters: this.options.heightOffsetMeters ?? 0,
@@ -1059,6 +1174,7 @@ export class CesiumLayerController {
         viewer,
         provider,
         loadGeneration,
+        estimateGeneration,
         anchor,
       };
     }
@@ -1077,8 +1193,122 @@ export class CesiumLayerController {
       !active.viewer.isDestroyed() &&
       active.provider === active.viewer.terrainProvider &&
       active.loadGeneration === this.loadGeneration &&
+      active.estimateGeneration === this.terrainEstimateGeneration &&
       this.lifecycle === "ready" &&
       this.isSameSelectedAnchor(active.anchor, this.pointPicker.getSelectedPoint())
+    );
+  }
+
+  /**
+   * Compare a bounded set of current rendered ground anchors with the active
+   * real Terrain provider. The estimate never changes rendered positions.
+   */
+  async estimateTerrainHeightAlignmentBatch(
+    candidates: readonly TerrainHeightAlignmentGroundCandidate[],
+    options: TerrainHeightAlignmentBatchOptions = {},
+  ): Promise<TerrainHeightAlignmentBatchEstimate> {
+    const estimateGeneration = this.invalidateTerrainEstimates();
+    const candidateSnapshots = candidates.map((candidate) =>
+      this.snapshotTerrainCandidate(candidate),
+    );
+    const metadata = this.core.getMetadata();
+    const viewer = this.viewer;
+    const liveViewer = viewer && !viewer.isDestroyed() ? viewer : undefined;
+    const provider = liveViewer?.terrainProvider;
+    const loadGeneration = this.loadGeneration;
+    const verticalTransform = this.options.verticalTransform;
+    const terrainProviderGeneration =
+      liveViewer && provider
+        ? this.getTerrainProviderGeneration(liveViewer, provider)
+        : this.terrainProviderGeneration;
+    const unavailableReason = !metadata
+      ? "The COPC layer must be loaded before estimating."
+      : !liveViewer
+        ? "Attach the COPC layer to a live Cesium Viewer before estimating."
+        : this.lifecycle !== "ready"
+          ? "The COPC layer must be ready before estimating."
+          : undefined;
+    const isCurrent = (): boolean =>
+      metadata !== undefined &&
+      liveViewer !== undefined &&
+      provider !== undefined &&
+      this.viewer === liveViewer &&
+      !liveViewer.isDestroyed() &&
+      this.lifecycle === "ready" &&
+      this.core.getMetadata() === metadata &&
+      this.loadGeneration === loadGeneration &&
+      this.terrainEstimateGeneration === estimateGeneration &&
+      this.options.verticalTransform === verticalTransform &&
+      liveViewer.terrainProvider === provider &&
+      this.getTerrainProviderGeneration(liveViewer, provider) ===
+        terrainProviderGeneration;
+
+    const estimate = await estimateTerrainHeightAlignmentBatch({
+      viewer: liveViewer,
+      provider,
+      metadata: metadata ?? { wkt: undefined },
+      verticalTransform,
+      candidates: candidateSnapshots,
+      expectedOwnerId: this.pointPicker.ownerId,
+      existingHeightOffsetMeters: this.options.heightOffsetMeters ?? 0,
+      generationIdentity: {
+        sourceGeneration: loadGeneration,
+        layerGeneration: estimateGeneration,
+        terrainProviderGeneration,
+        verticalTransformGeneration: 0,
+      },
+      sourceId: getCopcSourceIdentity(this.options.url),
+      terrainSourceId: options.terrainSourceId,
+      options,
+      unavailableReason,
+      isCurrent,
+      isAnchorCurrent: (anchor) => this.isSameLiveTerrainAnchor(anchor),
+    });
+
+    if (
+      estimate.terrainSamplingCalls > 0 &&
+      estimate.status !== "cancelled" &&
+      liveViewer &&
+      provider &&
+      isCurrent()
+    ) {
+      const sampledAnchors = candidateSnapshots.flatMap((candidate, index) =>
+        estimate.perAnchorResults[index]?.sampled ? [candidate.anchor] : [],
+      );
+      if (sampledAnchors.every((anchor) => this.isSameLiveTerrainAnchor(anchor))) {
+        this.activeTerrainBatchEstimate = {
+          estimate,
+          viewer: liveViewer,
+          provider,
+          loadGeneration,
+          estimateGeneration,
+          terrainProviderGeneration,
+          verticalTransform,
+          anchors: sampledAnchors,
+        };
+      }
+    }
+    return estimate;
+  }
+
+  /** Confirm that a batch proposal still belongs to this layer and its rendered anchors. */
+  isTerrainHeightAlignmentBatchEstimateCurrent(
+    estimate: TerrainHeightAlignmentBatchEstimate,
+  ): boolean {
+    const active = this.activeTerrainBatchEstimate;
+    return (
+      active !== undefined &&
+      active.estimate === estimate &&
+      active.viewer === this.viewer &&
+      !active.viewer.isDestroyed() &&
+      active.provider === active.viewer.terrainProvider &&
+      active.loadGeneration === this.loadGeneration &&
+      active.estimateGeneration === this.terrainEstimateGeneration &&
+      active.terrainProviderGeneration ===
+        this.getTerrainProviderGeneration(active.viewer, active.provider) &&
+      active.verticalTransform === this.options.verticalTransform &&
+      this.lifecycle === "ready" &&
+      active.anchors.every((anchor) => this.isSameLiveTerrainAnchor(anchor))
     );
   }
 
@@ -1086,19 +1316,7 @@ export class CesiumLayerController {
     expected: CopcPointInspection,
     selected: CopcPointInspection | undefined,
   ): boolean {
-    if (!selected) return false;
-    return (
-      expected.ownerId === selected.ownerId &&
-      expected.nodeKey === selected.nodeKey &&
-      expected.pointIndex === selected.pointIndex &&
-      expected.longitude === selected.longitude &&
-      expected.latitude === selected.latitude &&
-      expected.height === selected.height &&
-      expected.source?.x === selected.source?.x &&
-      expected.source?.y === selected.source?.y &&
-      expected.source?.z === selected.source?.z &&
-      expected.classification === selected.classification
-    );
+    return this.isSameInspectedAnchor(expected, selected);
   }
 
   /** Return a detached snapshot of the current Cesium presentation style. */

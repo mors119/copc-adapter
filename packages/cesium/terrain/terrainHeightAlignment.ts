@@ -7,6 +7,10 @@ import {
 import type { CopcMetadata } from "../../core/copc/types/copc";
 import type { CopcPointInspection } from "../../core/copc/points/pointInspection";
 import type { GtxGeoidGrid } from "../../core/coordinates/transform/verticalGrid";
+import {
+  acquireTerrainSamplingSlot,
+  releaseTerrainSamplingSlot,
+} from "./terrainSamplingLock";
 
 /** Result state for an explicitly requested Terrain height estimate. */
 export type TerrainHeightAlignmentStatus =
@@ -77,6 +81,81 @@ export type TerrainHeightAlignmentOptions = {
   signal?: AbortSignal;
 };
 
+/** One rendered point candidate and any explicit caller confirmation of ground status. */
+export type TerrainHeightAlignmentGroundCandidate = Readonly<{
+  /** Point inspection retained from the current layer selection or point cache. */
+  anchor: CopcPointInspection;
+  /** Required when classification is absent or is not ASPRS ground (class 2). */
+  groundConfirmed?: boolean;
+}>;
+
+/** Generation counters captured with a batch proposal for stale-result checks. */
+export type TerrainHeightAlignmentGenerationIdentity = Readonly<{
+  sourceGeneration: number;
+  layerGeneration: number;
+  terrainProviderGeneration: number;
+  verticalTransformGeneration: number;
+}>;
+
+/** Options for a bounded request that samples several ground candidates together. */
+export type TerrainHeightAlignmentBatchOptions = Omit<
+  TerrainHeightAlignmentOptions,
+  "groundConfirmed"
+> & {
+  /** Maximum candidate count to sample; defaults to 8 and cannot exceed 12. */
+  maxAnchors?: number;
+  /** Robust spread above which the proposal is returned as uncertain; defaults to 2 metres. */
+  highSpreadWarningMeters?: number;
+};
+
+/** Outcome and provenance for one submitted anchor candidate. */
+export type TerrainHeightAlignmentAnchorResult = {
+  anchor: NonNullable<TerrainHeightAlignmentEstimate["anchor"]>;
+  /** True only when this finite sample is an inlier used for batch statistics. */
+  accepted: boolean;
+  /** True when the anchor was included in the shared Cesium sampling request. */
+  sampled: boolean;
+  terrainHeightMeters?: number;
+  residualMeters?: number;
+  rejectionReason?: string;
+  warnings: string[];
+};
+
+/** Robust, opt-in proposal for one uniform height offset across several anchors. */
+export type TerrainHeightAlignmentBatchEstimate = {
+  status: TerrainHeightAlignmentStatus;
+  actionable: boolean;
+  perAnchorResults: TerrainHeightAlignmentAnchorResult[];
+  coverage: {
+    requestedAnchorCount: number;
+    sampledAnchorCount: number;
+    acceptedAnchorCount: number;
+    /** Accepted inliers divided by all submitted candidates. */
+    acceptedFraction: number;
+    /** Number of submitted candidates omitted from the response hard bound. */
+    notEvaluatedAnchorCount: number;
+  };
+  /** Median residual after robust outlier rejection, in metres. */
+  medianResidualMeters?: number;
+  /** Scaled MAD (1.4826 × median absolute deviation) of accepted residuals, in metres. */
+  robustSpreadMeters?: number;
+  /** Existing constructor-time manual offset, in metres. */
+  existingHeightOffsetMeters: number;
+  /** Existing offset plus the batch median residual, once. */
+  proposedHeightOffsetMeters?: number;
+  /** Height-frame provenance; only verified WGS 84 ellipsoidal heights are sampled. */
+  verticalReference: TerrainHeightAlignmentEstimate["verticalReference"];
+  generationIdentity: TerrainHeightAlignmentGenerationIdentity;
+  terrainProvider?: TerrainHeightAlignmentEstimate["terrainProvider"];
+  terrainSourceId?: string;
+  sourceId?: string;
+  /** One shared Cesium call for the bounded batch, or zero when rejected before sampling. */
+  terrainSamplingCalls: number;
+  samplingDurationMs?: number;
+  warnings: string[];
+  rejectionReason?: string;
+};
+
 type VerticalReferenceAssessment = TerrainHeightAlignmentEstimate["verticalReference"] & {
   verified: boolean;
   reason?: string;
@@ -99,7 +178,6 @@ type EstimateTerrainHeightAlignmentInput = {
   sampleTerrainMostDetailed?: typeof Cesium.sampleTerrainMostDetailed;
 };
 
-const activeViewerSamples = new WeakSet<Cesium.Viewer>();
 const DEFAULT_TERRAIN_SAMPLE_TIMEOUT_MS = 30_000;
 const MAX_TERRAIN_SAMPLE_TIMEOUT_MS = 60_000;
 const TERRAIN_SAMPLE_TIMEOUT = Symbol("terrain-sample-timeout");
@@ -407,16 +485,6 @@ export async function estimateTerrainHeightAlignment(
       providerSummary,
     );
   }
-  if (activeViewerSamples.has(input.viewer)) {
-    return createEstimate(
-      input,
-      "unavailable",
-      "Another Terrain estimate is already sampling this Viewer. Wait for it to finish before starting another.",
-      verticalReference,
-      warnings,
-      providerSummary,
-    );
-  }
   const timeoutMs = options.timeoutMs ?? DEFAULT_TERRAIN_SAMPLE_TIMEOUT_MS;
   if (
     !Number.isSafeInteger(timeoutMs) ||
@@ -433,7 +501,16 @@ export async function estimateTerrainHeightAlignment(
     );
   }
 
-  activeViewerSamples.add(input.viewer);
+  if (!acquireTerrainSamplingSlot(input.viewer)) {
+    return createEstimate(
+      input,
+      "unavailable",
+      "Another Terrain estimate is already sampling this Viewer. Wait for it to finish before starting another.",
+      verticalReference,
+      warnings,
+      providerSummary,
+    );
+  }
   const sample =
     input.sampleTerrainMostDetailed ?? Cesium.sampleTerrainMostDetailed;
   const position = Cesium.Cartographic.fromDegrees(
@@ -450,7 +527,7 @@ export async function estimateTerrainHeightAlignment(
   // Cesium's public sampler has no AbortSignal. Keep the per-Viewer lock until
   // its underlying requests settle, even if the caller times out or cancels.
   void samplingPromise
-    .finally(() => activeViewerSamples.delete(input.viewer))
+    .finally(() => releaseTerrainSamplingSlot(input.viewer))
     .catch(() => undefined);
   const boundedSamplingPromise = Promise.race([
     samplingPromise,

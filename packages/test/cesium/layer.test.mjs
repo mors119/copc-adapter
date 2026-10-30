@@ -2355,6 +2355,158 @@ test("terrain alignment estimates use the selected layer-owned point and invalid
   experimentalCore.destroy();
 });
 
+test("batch Terrain estimates accept live inspected anchors and invalidate after provider replacement", async () => {
+  const verticalTransform = await createSyntheticVerticalGrid();
+  const source = createBackend({
+    metadata: {
+      pointCount: 2,
+      bounds: {
+        minX: -123,
+        minY: 44,
+        minZ: 10,
+        maxX: -122,
+        maxY: 45,
+        maxZ: 20,
+      },
+      cube: {
+        minX: -123,
+        minY: 44,
+        minZ: 10,
+        maxX: -122,
+        maxY: 45,
+        maxZ: 20,
+      },
+      wkt: WGS84_ORTHOMETRIC_WKT,
+    },
+  });
+  const layer = new CopcCesiumLayer({
+    url: "memory://terrain-batch-estimate.copc.laz",
+    backend: source.backend,
+    decoder: source.decoder,
+    heightOffsetMeters: 5,
+    verticalTransform,
+    coordinateCacheLayout: "A",
+  });
+  const viewer = createFakeViewer();
+  viewer.terrainProvider = createTerrainSamplingProvider(65);
+
+  await layer.load();
+  layer.attachTo(viewer);
+  await waitFor(() => layer.getSnapshot().renderedPointCount === 2);
+  const originalBounds = layer.boundingSphere;
+  const controller = layer.controller;
+  const inspectPoint = (pointIndex) => {
+    viewer.scene.pick = () => ({
+      id: {
+        nodeKey: "0-0-0-0",
+        pointIndex,
+        ownerId: controller.pointPicker.ownerId,
+      },
+    });
+    controller.pointPicker.pick(viewer, new Cesium.Cartesian2(10, 10));
+    return layer.getSelectedPoint();
+  };
+  const ground = inspectPoint(0);
+  const building = inspectPoint(1);
+  const originalSource = [ground.source.z, building.source.z];
+  assert.equal(ground.classification, 2);
+  assert.equal(building.classification, 6);
+
+  const estimate = await layer.estimateTerrainHeightAlignmentBatch(
+    [
+      { anchor: ground },
+      { anchor: building, groundConfirmed: true },
+    ],
+    { highSpreadWarningMeters: 5 },
+  );
+
+  assert.equal(estimate.status, "ready");
+  assert.equal(estimate.actionable, true);
+  assert.equal(estimate.terrainSamplingCalls, 1);
+  assert.equal(estimate.coverage.acceptedAnchorCount, 2);
+  assert.equal(estimate.proposedHeightOffsetMeters, 25);
+  assert.deepEqual([ground.source.z, building.source.z], originalSource);
+  assert.equal(layer.isTerrainHeightAlignmentBatchEstimateCurrent(estimate), true);
+  const originalSelectedNodeKeys = layer.getSnapshot().selectedNodeKeys;
+
+  viewer.terrainProvider = createTerrainSamplingProvider(66);
+  assert.equal(layer.isTerrainHeightAlignmentBatchEstimateCurrent(estimate), false);
+  layer.destroy();
+
+  const appliedLayer = new CopcCesiumLayer({
+    url: "memory://terrain-batch-estimate.copc.laz",
+    backend: source.backend,
+    decoder: source.decoder,
+    heightOffsetMeters: estimate.proposedHeightOffsetMeters,
+    verticalTransform,
+    coordinateCacheLayout: "A",
+  });
+  const appliedViewer = createFakeViewer();
+  appliedViewer.terrainProvider = createTerrainSamplingProvider(65);
+  await appliedLayer.load();
+  appliedLayer.attachTo(appliedViewer);
+  await waitFor(() => appliedLayer.getSnapshot().renderedPointCount === 2);
+  const appliedBounds = appliedLayer.boundingSphere;
+  assert.ok(originalBounds && appliedBounds);
+  assert.notDeepEqual(appliedBounds.center, originalBounds.center);
+  assert.deepEqual(
+    appliedLayer.getSnapshot().selectedNodeKeys,
+    originalSelectedNodeKeys,
+  );
+  const appliedController = appliedLayer.controller;
+  const inspectAppliedPoint = (pointIndex) => {
+    appliedViewer.scene.pick = () => ({
+      id: {
+        nodeKey: "0-0-0-0",
+        pointIndex,
+        ownerId: appliedController.pointPicker.ownerId,
+      },
+    });
+    appliedController.pointPicker.pick(
+      appliedViewer,
+      new Cesium.Cartesian2(10, 10),
+    );
+    return appliedLayer.getSelectedPoint();
+  };
+  const appliedGround = inspectAppliedPoint(0);
+  const appliedBuilding = inspectAppliedPoint(1);
+  assert.equal(appliedGround.height, 62);
+  assert.equal(appliedBuilding.height, 68);
+  assert.equal(appliedBuilding.height - appliedGround.height, 6);
+  assert.equal(appliedGround.source.z, ground.source.z);
+  assert.equal(appliedBuilding.source.z, building.source.z);
+  assert.equal(appliedGround.pointIndex, 0);
+  assert.equal(appliedBuilding.pointIndex, 1);
+  const expectedGroundWorld = Cesium.Cartesian3.fromDegrees(
+    appliedGround.longitude,
+    appliedGround.latitude,
+    appliedGround.height,
+  );
+  assert.ok(appliedGround.world);
+  assert.ok(
+    Cesium.Cartesian3.distance(
+      expectedGroundWorld,
+      new Cesium.Cartesian3(
+        appliedGround.world.x,
+        appliedGround.world.y,
+        appliedGround.world.z,
+      ),
+    ) < 1e-5,
+  );
+
+  const repeatedEstimate = await appliedLayer.estimateTerrainHeightAlignmentBatch(
+    [
+      { anchor: appliedGround },
+      { anchor: appliedBuilding, groundConfirmed: true },
+    ],
+    { highSpreadWarningMeters: 5 },
+  );
+  assert.equal(repeatedEstimate.status, "ready");
+  assert.equal(repeatedEstimate.medianResidualMeters, 0);
+  assert.equal(repeatedEstimate.proposedHeightOffsetMeters, 25);
+  appliedLayer.destroy();
+});
+
 test("terrain estimates stay independent for multiple layers on one Viewer", async () => {
   const verticalTransform = await createSyntheticVerticalGrid();
   const firstSource = createBackend({
@@ -2428,20 +2580,20 @@ test("terrain estimates stay independent for multiple layers on one Viewer", asy
     waitFor(() => secondLayer.getSnapshot().renderedPointCount === 2),
   ]);
 
-  const pickFirstLayer = (layer) => {
+  const pickFromLayer = (layer, pointIndex) => {
     const controller = layer.controller;
     viewer.scene.pick = () => ({
       id: {
         nodeKey: "0-0-0-0",
-        pointIndex: 0,
+        pointIndex,
         ownerId: controller.pointPicker.ownerId,
       },
     });
     controller.pointPicker.pick(viewer, new Cesium.Cartesian2(10, 10));
     return layer.getSelectedPoint();
   };
-  const firstAnchor = pickFirstLayer(firstLayer);
-  const secondAnchor = pickFirstLayer(secondLayer);
+  const firstAnchor = pickFromLayer(firstLayer, 0);
+  const secondAnchor = pickFromLayer(secondLayer, 0);
   assert.notEqual(firstAnchor.ownerId, secondAnchor.ownerId);
   assert.equal(firstAnchor.height, 39);
   assert.equal(secondAnchor.height, 34);
@@ -2455,9 +2607,41 @@ test("terrain estimates stay independent for multiple layers on one Viewer", asy
   assert.equal(firstLayer.isTerrainHeightAlignmentEstimateCurrent(firstEstimate), true);
   assert.equal(secondLayer.isTerrainHeightAlignmentEstimateCurrent(secondEstimate), true);
 
+  const firstBuilding = pickFromLayer(firstLayer, 1);
+  const secondBuilding = pickFromLayer(secondLayer, 1);
+  const firstBatchEstimate =
+    await firstLayer.estimateTerrainHeightAlignmentBatch([
+      { anchor: firstAnchor },
+      { anchor: firstBuilding, groundConfirmed: true },
+    ], { highSpreadWarningMeters: 5 });
+  const secondBatchEstimate =
+    await secondLayer.estimateTerrainHeightAlignmentBatch([
+      { anchor: secondAnchor },
+      { anchor: secondBuilding, groundConfirmed: true },
+    ], { highSpreadWarningMeters: 5 });
+  assert.equal(firstBatchEstimate.actionable, true);
+  assert.equal(secondBatchEstimate.actionable, true);
+  assert.equal(firstBatchEstimate.terrainSamplingCalls, 1);
+  assert.equal(secondBatchEstimate.terrainSamplingCalls, 1);
+  assert.equal(
+    firstLayer.isTerrainHeightAlignmentBatchEstimateCurrent(firstBatchEstimate),
+    true,
+  );
+  assert.equal(
+    secondLayer.isTerrainHeightAlignmentBatchEstimateCurrent(secondBatchEstimate),
+    true,
+  );
+
   firstLayer.destroy();
   assert.equal(firstLayer.isTerrainHeightAlignmentEstimateCurrent(firstEstimate), false);
-  assert.equal(secondLayer.isTerrainHeightAlignmentEstimateCurrent(secondEstimate), true);
+  assert.equal(
+    firstLayer.isTerrainHeightAlignmentBatchEstimateCurrent(firstBatchEstimate),
+    false,
+  );
+  assert.equal(
+    secondLayer.isTerrainHeightAlignmentBatchEstimateCurrent(secondBatchEstimate),
+    true,
+  );
   secondLayer.destroy();
   assert.equal(viewer.destroyed, false);
 });
