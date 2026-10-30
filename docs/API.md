@@ -147,6 +147,8 @@ defaults; references point to their detailed contract and example below.
 | `GtxGeoidGridOptions` (root, `/cesium`, `/three`) | Required `gridId: string`, `sourceVerticalCrs: string`, `targetVerticalCrs: 'EPSG:4979'`, `horizontalCrs: 'EPSG:4326'`, `referenceEllipsoid: 'WGS84'`, `sha256: string`, `valueUnit: VerticalGridValueUnit`, `valueConvention: 'ellipsoidal-minus-orthometric'`, and `noDataValue: number \| null`. Optional `interpolation?: 'bilinear'` defaults to `bilinear`; `maxGridBytes?: number` defaults to `256 MiB` with `512 MiB` hard limit; `requiresMatchedEpoch?: boolean` defaults false; `sourceCoordinateEpoch?: number` and `gridReferenceEpoch?: number` are omitted unless applicable. | Shared coordinate pipeline | Caller assertions are verified against grid bytes and COPC WKT where possible; bad metadata or uncovered samples fail preparation. See [Explicit vertical CRS grid conversion](#explicit-vertical-crs-grid-conversion). | Keep opt-in. |
 | `NgaEgm2008GridOptions` (root, `/cesium`, `/three`) | Optional `maxGridBytes?: number`, default `256 MiB`, hard limit `512 MiB`. | Shared coordinate pipeline | Resource bound for the pinned NGA grid loader. See [NGA EGM2008 2.5-minute grid](#nga-egm2008-25-minute-grid). | Keep opt-in. |
 | `TerrainHeightAlignmentOptions` (root, `/cesium`) | Optional `groundConfirmed?: boolean` (defaults false), `terrainSourceId?: string`, `timeoutMs?: number` (defaults to 30 seconds, cap 60 seconds), and `signal?: AbortSignal`. | Cesium only | One-point opt-in diagnostic; no point correction is applied automatically. See [Explicit Cesium Terrain residual estimate](#explicit-cesium-terrain-residual-estimate). | Keep opt-in. |
+| `TerrainHeightAlignmentGroundCandidate` (`/cesium`) | Required current `anchor: CopcPointInspection`; optional per-anchor `groundConfirmed?: boolean`. | Cesium only | Class 2 is accepted as ground; every other or missing class requires caller confirmation. The point must still be visible in this layer's rendered cache. | Keep opt-in. |
+| `TerrainHeightAlignmentBatchOptions` / `TerrainHeightAlignmentBatchEstimate` (`/cesium`) | Optional `maxAnchors?: number` (defaults 8, hard cap 12), `highSpreadWarningMeters?: number` (defaults 2 m), `timeoutMs?: number` (defaults 30 seconds, cap 60 seconds), `signal?: AbortSignal`, and `terrainSourceId?: string`. | Cesium only | One shared Terrain sample request produces per-anchor reasons, robust median/MAD diagnostics, coverage and an explicitly gated uniform-offset proposal. | Keep opt-in. |
 | `CopcPointRendererOptions` (root, `/cesium`, `/three`) | Required `pointSize: number`; optional `colorMode?: CopcColorMode`, `dimension?: CopcDimensionStyle`, `elevationRange?: CopcValueRange`, `rgbMax?: 255 \| 65535`, `pointId?: (pointIndex: number) => unknown`, and `pointFilter?: (pointIndex: number) => boolean`. | Shared renderer seam | Renderer call contract, not another layer configuration location. See [Three.js API](#copcthreelayer). | Keep. |
 | `CopcCesiumPointRendererOptions` (root, `/cesium`) | Extends shared per-node options; optional `pointSizeMode?: CopcCesiumPointSizeMode` defaults to `fixed`, `minPointSize?: number` / `maxPointSize?: number` default to `1` / `12` CSS pixels and cap at `64`, `pointSpacingMeters?: number`, `clippingPlanes?: readonly CopcCesiumClippingPlane[]`, `onPerformance?: callback`. | Cesium renderer extension | Renderer call contract, not another layer configuration location. See [CopcCesiumLayerOptions](#copccesiumlayeroptions). | Keep. |
 | `ThreePointRendererOptions` (`/three`) | Extends shared per-node options; optional `onPerformance?: callback`. | Three renderer extension | Renderer call contract, not another layer configuration location. See [Three.js API](#copcthreelayer). | Keep. |
@@ -1344,6 +1346,69 @@ ellipsoidal, three-dimensional, and has an `UP` axis. A WKT1 `VERT_CS` section
 carrying EPSG:4979 is not accepted because EPSG:4979 identifies a 3D geographic
 CRS, not a standalone vertical CRS.
 
+### Bounded multi-anchor estimate
+
+Use `estimateTerrainHeightAlignmentBatch()` when several current rendered
+points have been inspected. The adapter verifies each `nodeKey + pointIndex +
+ownerId` against this layer's live rendered cache, including its current style
+and clipping visibility. Candidates from another layer, stale point buffers,
+duplicate longitude/latitude pairs and unconfirmed non-ground classes are
+rejected with a reason. It never chooses the lowest point as ground.
+
+The default sample bound is 8 anchors and the hard limit is 12. Candidates
+beyond `maxAnchors` are reported as rejected without sampling. All eligible
+positions are passed together to one public
+`sampleTerrainMostDetailed(provider, positions, true)` call. At least two finite
+inlier samples are required for a batch proposal. Each residual is
+`terrainHeightMeters - anchor.displayedHeightMeters`; the median and median
+absolute deviation (MAD) identify outliers. Outliers use a 3.5 modified-z
+cutoff, scaled by 1.4826, with a one-centimetre minimum cutoff. The reported
+`robustSpreadMeters` is `1.4826 × MAD` after outlier rejection. A spread above
+`highSpreadWarningMeters` returns `uncertain` and `actionable: false`, while
+retaining the median proposal for review.
+
+```ts
+const anchors: TerrainHeightAlignmentGroundCandidate[] = inspectedPoints.map(
+  (anchor) => ({
+    anchor,
+    // Set this only when ground status was independently confirmed.
+    ...(anchor.classification === 2 ? {} : { groundConfirmed: true }),
+  }),
+);
+
+const estimate = await layer.estimateTerrainHeightAlignmentBatch(anchors, {
+  maxAnchors: 8,
+  signal: estimateAbortController.signal,
+});
+
+if (
+  estimate.status === 'ready' &&
+  estimate.actionable &&
+  layer.isTerrainHeightAlignmentBatchEstimateCurrent(estimate)
+) {
+  // This is the existing total heightOffsetMeters value. Rebuild only after
+  // the application presents the proposal and the user explicitly approves.
+  const approvedHeightOffsetMeters = estimate.proposedHeightOffsetMeters;
+}
+```
+
+The proposal is `existingHeightOffsetMeters + medianResidualMeters` exactly
+once. Retained `source` XYZ remains unchanged; compact E inspection may omit
+source XYZ. `coverage` reports submitted, sampled and accepted counts;
+`generationIdentity` records the source, layer-estimate,
+TerrainProvider and vertical-transform generations used. The current-result
+check becomes false after a new estimate, source/layer lifecycle change,
+TerrainProvider replacement, transform change, or removal/change of any
+sampled point. Different layers keep independent estimates even when they
+share a Viewer. A status of `uncertain`, an unavailable result, cancellation,
+or a false current-result check must never be applied.
+
+The deterministic browser tests use a local fake `TerrainProvider` and a tiny
+two-point WKT2 ellipsoidal COPC fixture; they make no network Terrain request.
+An optional real-Terrain smoke can be run by configuring an application-owned
+Cesium `TerrainProvider` and calling the same method. That smoke is opt-in,
+provider-dependent and does not establish surveyed, geoid or datum accuracy.
+
 The returned effective offset is `existing heightOffsetMeters + proposed
 offset`. Recreating from the original COPC applies the validated vertical grid
 first, then this single total additive offset. Estimating again after approval
@@ -1353,9 +1418,10 @@ share one transform; it can repeat source Range reads, LAZ decoding, worker
 work, and renderer uploads. The dev-viewer stages a replacement session and
 keeps the previous one until the candidate is ready.
 
-One estimate samples at most one anchor. Only one in-flight estimate per
-Viewer is accepted, and the default caller wait deadline is 30 seconds (bounded
-to 60 seconds). Cesium’s sampler has no `AbortSignal`: cancelling or timing out
+The single-anchor method samples one anchor; the batch method samples at most
+12 anchors in one shared request. Only one in-flight estimate per Viewer is
+accepted, and the default caller wait deadline is 30 seconds (bounded to 60
+seconds). Cesium’s sampler has no `AbortSignal`: cancelling or timing out
 discards the result but cannot abort an already-issued Terrain request. The
 per-Viewer request lock remains until that request settles. Terrain LOD,
 coverage, source provenance and anchor quality limit confidence; this is not
