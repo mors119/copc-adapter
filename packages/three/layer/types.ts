@@ -6,7 +6,11 @@ import type {
 import type { CopcWorkerDiagnostics } from "../../core/copc/backend/types";
 import type { CopcPointInspection } from "../../core/copc/points/pointInspection";
 import type { CopcColorMode } from "../../core/copc/points/fieldSelection";
-import type { CopcDimensionStyle } from "../../core/point/style/pointStyle";
+import type {
+  CopcDimensionStyle,
+  CopcElevationRange,
+  CopcElevationStyle,
+} from "../../core/point/style/pointStyle";
 import type {
   GeographicPointBuffer,
   PreparedPointData,
@@ -38,6 +42,10 @@ export type CopcThreeLayerOptions = {
   opacity?: number;
   /** Point color mapping. Defaults to the fixed cyan fallback. */
   colorMode?: CopcColorMode;
+  /** Explicit WGS84 ellipsoidal-height range in metres used by elevation coloring; omitted uses dataset bounds. */
+  elevationRange?: CopcElevationRange;
+  /** Optional normalized color ramp for `colorMode: 'elevation'`. */
+  elevationStyle?: CopcElevationStyle;
   /** Numeric dimension ramp used with `colorMode: 'dimension'`. */
   dimension?: CopcDimensionStyle;
   /** Extra Bytes dimensions to retain for styling or point inspection. */

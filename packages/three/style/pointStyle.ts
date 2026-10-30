@@ -65,8 +65,11 @@ export function getThreePointsMaterialOptions(
 }
 
 export type {
+  CopcColorRampInterpolation,
   CopcDimensionColorRampStop,
   CopcDimensionStyle,
+  CopcElevationRange,
+  CopcElevationStyle,
   CopcPointStyleInput,
   CopcPointStyleState,
   CopcValueRange,

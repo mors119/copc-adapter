@@ -39,6 +39,8 @@ compact URL examples below omit options that already have a usable default.
 | `decoder` | `CopcPointDecoder`, optional | Built-in WASM decoder only when a source returns point views instead of direct buffers | Yes | Yes | Yes | Direct-buffer backends can bypass the decoder. An injected decoder is used for view-backed sources. Keep advanced. |
 | `pointFields` | `CopcPointFieldSelection`, optional | `position` in Core; see `attributeLoading` in Cesium | Yes | Yes | No | Core callers and Cesium can request standard `rgb`, `intensity`, and `classification` fields. In Cesium required mode these fields are retained alongside the initial style requirements. Three requests fields required by `colorMode`. Extra dimensions remain separately explicit. |
 | `colorMode` | `CopcColorMode`, optional | `fixed` (cyan fallback) | No | Yes | Yes | Other modes are `elevation`, `rgb`, `intensity`, `classification`, and `dimension`. Dimension mode requires a `dimension` style below. Keep. |
+| `elevationRange` | `CopcElevationRange`, optional | Full dataset elevation range | No | Yes | Yes | Inclusive finite WGS 84 ellipsoidal display-height range in metres; requires `min < max`. Cesium `setStyle({ elevationRange: null })` restores the dataset range. |
+| `elevationStyle` | `CopcElevationStyle`, optional | Existing five-stop elevation palette with linear interpolation | No | Yes | Yes | Uses the shared normalized RGB(A) stop model. Linear and step interpolation are supported; omitted alpha defaults to `0.9`. Cesium can update or clear it at runtime; Three takes it in the constructor. |
 | `attributeLoading` | `'all'` or `'required'`, optional | `all` for Cesium | No | Yes | No | `all` preserves synchronous runtime restyling by retaining all standard fields. `required` retains the initial color mode's fields, classification for an initial filter, and any explicit `pointFields`. Changing to a mode that needs an unretained field throws before changing style or selection. |
 | `classificationFilter` | `CopcClassificationFilter`, optional | No filter | No | Yes | No | Initial filter applied from the first rendered view. Classification is retained in `required` mode even when the initial color mode is different. |
 | `dimension` | `CopcDimensionStyle`, optional | No dimension style | No | Yes | Yes | Requires an explicit dimension name and finite range. Supports LAS `Intensity` on both built-in backends and supported scalar Extra Bytes on `copc-js`. The named dimension is selected automatically. |
@@ -342,6 +344,17 @@ a separately defined and tested contract.
   values above `64` are rejected.
 - `colorMode`: `'fixed' | 'elevation' | 'rgb' | 'intensity' |
   'classification' | 'dimension'`. Default: `'fixed'`.
+- `elevationRange`: optional finite WGS 84 ellipsoidal-height range in metres
+  for elevation colors. It must have `min < max`; by default the layer uses the
+  dataset bounds transformed into displayed ellipsoidal metres, including the
+  configured vertical transform and `heightOffsetMeters`.
+- `elevationStyle`: optional `{ palette, interpolation }` for elevation mode.
+  Palette stops use the same normalized RGB(A) model as numeric dimension
+  ramps, must be strictly ordered from position `0` through `1`, and default
+  alpha to `0.9`. Interpolation is `'linear'` or `'step'` (default `'linear'`).
+  A custom elevation palette uses the prepared displayed WGS 84 ellipsoidal
+  height in metres after vertical transformation and visual offset. It does
+  not represent dataset-relative or terrain height above ground.
 - `dimension`: `CopcDimensionStyle` for numeric dimension coloring. Required
   when `colorMode` is `'dimension'`. `Intensity` is available on both built-in
   backends; scalar Extra Bytes are available through `copc-js`.
@@ -613,6 +626,19 @@ chunks, or decode LAZ data. The current style is returned as a detached value by
 ```ts
 layer.setStyle({ colorMode: 'classification' });
 layer.setStyle({
+  colorMode: 'elevation',
+  elevationRange: { min: 20, max: 120 },
+  elevationStyle: {
+    interpolation: 'linear',
+    palette: [
+      { position: 0, color: { red: 0, green: 0, blue: 0.3 } },
+      { position: 0.5, color: { red: 0, green: 0.8, blue: 0.3, alpha: 0.7 } },
+      { position: 1, color: { red: 1, green: 0, blue: 0 } },
+    ],
+  },
+});
+layer.setStyle({ elevationStyle: null, elevationRange: null }); // restore defaults
+layer.setStyle({
   classificationFilter: { include: [2, 6] },
 });
 layer.setStyle({
@@ -651,6 +677,18 @@ dimension filter hides them. A metadata NoData sentinel is used automatically
 when the backend exposes it. A style change can use only dimensions selected
 when the layer was created, through the initial style/filter or
 `extraDimensions`.
+
+Elevation uses the prepared displayed WGS 84 ellipsoidal height in metres,
+after the configured vertical transform and `heightOffsetMeters`. An explicit
+`elevationRange` is interpreted in those same metres; otherwise the full
+transformed dataset bounds define the range. The default palette remains
+unchanged when `elevationStyle` is omitted. Custom stops share dimension ramp
+validation, clamp out-of-range heights to the end stops, and support `linear`
+or `step` interpolation. Step interpolation keeps each lower stop's color
+until the next stop position, then selects that stop. Non-finite heights map
+to the range midpoint. Stop alpha is interpolated, defaults to `0.9`, and is
+replaced by explicit layer opacity. This is absolute displayed elevation;
+dataset-relative and height above ground modes are separate semantics.
 
 LAS Extra Bytes styling supports signed/unsigned 8-, 16-, and 32-bit integers
 and 32-/64-bit floats through `copc-js`. Its point reader applies declared
@@ -796,6 +834,7 @@ browser `File` or `Blob`. The application owns the scene, camera, renderer, and
 render loop.
 
 Current options include `url`, `pointSize` (default `3`), `colorMode`,
+`elevationRange`, `elevationStyle`,
 `opacity` (optional; omitted preserves the existing Three material default of
 `0.9`),
 `coordinateCacheLayout` (default `E`; choose `A` to retain exact source and
@@ -810,6 +849,11 @@ does not render or schedule the application loop; equivalent views are not
 submitted repeatedly. The layer creates one root `THREE.Group` and owns the
 point objects, geometries, and materials below it. The application owns the
 scene, camera, WebGL renderer, controls, and loop.
+
+Three.js takes `elevationRange` and `elevationStyle` in the constructor. To
+change them, create a replacement layer with the updated options and reconnect
+it; Three has no runtime style setter. The palette colors use the same prepared
+displayed ellipsoidal heights and alpha rules as Cesium.
 
 The loaded dataset uses a fixed local ENU frame in metres: +X east, +Y north,
 and +Z up. `pick({ x, y })` accepts normalized device coordinates and returns a

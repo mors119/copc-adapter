@@ -10,6 +10,10 @@ import {
   THREE_POINT_SIZE_ATTENUATION,
 } from "../../../index.ts";
 import { getCopcPointFieldSelection } from "../../../core/copc/points/fieldSelection.ts";
+import {
+  cloneCopcElevationRange,
+  cloneCopcElevationStyle,
+} from "../../../core/point/style/pointStyle.ts";
 
 function createPoints(attributes = {}) {
   return {
@@ -110,6 +114,104 @@ test("elevation, intensity, and classification use shared mappings", () => {
   assert.ok(
     [...elevation, ...intensity, ...classification].every(Number.isFinite),
   );
+});
+
+test("elevation ramps share normalized stops, clamp heights, and interpolate alpha", () => {
+  const palette = [
+    { position: 0, color: { red: 0, green: 0, blue: 1, alpha: 0.2 } },
+    { position: 0.5, color: { red: 0, green: 1, blue: 0, alpha: 0.6 } },
+    { position: 1, color: { red: 1, green: 0, blue: 0, alpha: 1 } },
+  ];
+  const options = {
+    colorMode: "elevation",
+    elevationRange: { min: -100, max: 0 },
+    elevationStyle: { palette, interpolation: "linear" },
+  };
+  const colorAtHeight = (height) => getCopcPointColor(height, options);
+
+  assert.deepEqual(colorAtHeight(-100), {
+    red: 0,
+    green: 0,
+    blue: 1,
+    alpha: 0.2,
+  });
+  assert.deepEqual(colorAtHeight(-50), {
+    red: 0,
+    green: 1,
+    blue: 0,
+    alpha: 0.6,
+  });
+  assert.deepEqual(colorAtHeight(-75), {
+    red: 0,
+    green: 0.5,
+    blue: 0.5,
+    alpha: 0.4,
+  });
+  assert.deepEqual(colorAtHeight(-120), colorAtHeight(-100));
+  assert.deepEqual(colorAtHeight(20), colorAtHeight(0));
+  assert.deepEqual(colorAtHeight(Number.NaN), colorAtHeight(-50));
+
+  const stepOptions = {
+    ...options,
+    elevationStyle: { palette, interpolation: "step" },
+  };
+  assert.deepEqual(getCopcPointColor(-50.001, stepOptions), colorAtHeight(-100));
+  assert.deepEqual(getCopcPointColor(-50, stepOptions), colorAtHeight(-50));
+});
+
+test("default elevation colors preserve the existing five-stop palette", () => {
+  const options = {
+    colorMode: "elevation",
+    elevationRange: { min: 0, max: 100 },
+  };
+
+  assert.deepEqual(getCopcPointColor(0, options), {
+    red: 0.05,
+    green: 0.2,
+    blue: 0.65,
+    alpha: 0.9,
+  });
+  assert.deepEqual(getCopcPointColor(50, options), {
+    red: 0.15,
+    green: 0.75,
+    blue: 0.25,
+    alpha: 0.9,
+  });
+  assert.deepEqual(getCopcPointColor(100, options), {
+    red: 0.85,
+    green: 0.1,
+    blue: 0.05,
+    alpha: 0.9,
+  });
+});
+
+test("elevation palette and explicit range reject invalid inputs", () => {
+  assert.throws(
+    () => cloneCopcElevationStyle({ interpolation: "cubic" }),
+    /interpolation must be/,
+  );
+  assert.throws(
+    () =>
+      cloneCopcElevationStyle({
+        palette: [
+          { position: 0.2, color: { red: 0, green: 0, blue: 0 } },
+          { position: 1, color: { red: 1, green: 1, blue: 1 } },
+        ],
+      }),
+    /must start at 0 and end at 1/,
+  );
+  assert.throws(
+    () =>
+      cloneCopcElevationStyle({
+        palette: [
+          { position: 0, color: { red: 0, green: 0, blue: 0 } },
+          { position: 1, color: { red: 1, green: 1.1, blue: 1 } },
+        ],
+      }),
+    /color components must be in \[0, 1\]/,
+  );
+  assert.throws(() => cloneCopcElevationRange({ min: 2, max: 2 }), /min < max/);
+  assert.throws(() => cloneCopcElevationRange({ min: Number.NaN, max: 3 }), /finite bounds/);
 });
 
 test("dimension ramps use the same cached numeric mapping in Three colors", () => {

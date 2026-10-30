@@ -10,10 +10,12 @@ import {
 export type { CopcColorMode } from "../../core/copc/points/fieldSelection";
 
 export type {
+  CopcColorRampInterpolation,
   CopcDimensionColorRampStop,
   CopcDimensionFilter,
   CopcDimensionStyle,
   CopcElevationRange,
+  CopcElevationStyle,
   CopcPointStyleOptions,
   CopcValueRange,
 } from "../../core/point/style/pointStyle";

@@ -524,6 +524,39 @@ test("BatchedGeometryPointRenderer preserves dimension palette alpha unless laye
   scenePrimitives.destroy();
 });
 
+test("BatchedGeometryPointRenderer applies custom elevation palette alpha", () => {
+  const scenePrimitives = new Cesium.PrimitiveCollection();
+  const renderer = new BatchedGeometryPointRenderer();
+  renderer.attachTo({ scene: { primitives: scenePrimitives } });
+  const options = {
+    pointSize: 2,
+    colorMode: "elevation",
+    elevationRange: { min: 100, max: 101 },
+    elevationStyle: {
+      palette: [
+        { position: 0, color: { red: 0, green: 0, blue: 1, alpha: 0.2 } },
+        { position: 1, color: { red: 1, green: 0, blue: 0, alpha: 0.8 } },
+      ],
+    },
+  };
+  renderer.addOrUpdateNode("elevation-alpha-node", createPreparedPoints(), options);
+
+  const primitive = scenePrimitives.get(0).get(0);
+  const colorAttribute = primitive.geometryInstances.geometry.attributes.a_color;
+  assert.equal(colorAttribute.componentsPerAttribute, 4);
+  assert.deepEqual(
+    Array.from(colorAttribute.values),
+    [0, 0, 1, Math.fround(0.2), 1, 0, 0, Math.fround(0.8)],
+  );
+  assert.equal(primitive.appearance.material.uniforms.u_overridePointAlpha, 0);
+
+  renderer.setOpacity(0.25);
+  assert.equal(primitive.appearance.material.uniforms.u_layerOpacity, 0.25);
+  assert.equal(primitive.appearance.material.uniforms.u_overridePointAlpha, 1);
+  renderer.destroy();
+  scenePrimitives.destroy();
+});
+
 test("BatchedGeometryPointRenderer consumes compact E buffers without geographic triples", () => {
   const scenePrimitives = new Cesium.PrimitiveCollection();
   const renderer = new BatchedGeometryPointRenderer();

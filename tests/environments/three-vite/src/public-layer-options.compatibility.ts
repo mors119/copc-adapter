@@ -11,6 +11,15 @@ const layerOptions: CopcThreeLayerOptions = {
   url: "https://example.com/data.copc.laz",
   opacity: 0.5,
   coordinateCacheLayout: "A",
+  colorMode: "elevation",
+  elevationRange: { min: -20, max: 120 },
+  elevationStyle: {
+    interpolation: "step",
+    palette: [
+      { position: 0, color: { red: 0, green: 0, blue: 0.3 } },
+      { position: 1, color: { red: 1, green: 0, blue: 0 } },
+    ],
+  },
   retainSourceCoordinatesForQueries: true,
   maxRenderedPoints: 200_000,
   streaming: {

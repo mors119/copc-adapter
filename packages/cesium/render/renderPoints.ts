@@ -33,6 +33,8 @@ export type CopcPointRenderOptions = {
   colorMode?: CopcColorMode;
   /** Optional height range in metres used by elevation coloring. */
   elevationRange?: CopcElevationRange;
+  /** Optional palette and interpolation used by elevation coloring. */
+  elevationStyle?: CopcPointStyleOptions["elevationStyle"];
   /** Maximum expected source RGB channel value for normalization. */
   rgbMax?: 255 | 65535;
   /** Numeric dimension ramp for `colorMode: 'dimension'`. */
@@ -191,6 +193,7 @@ export function renderCopcPoints(
       {
         colorMode: options.colorMode,
         elevationRange: options.elevationRange,
+        elevationStyle: options.elevationStyle,
         rgbMax: options.rgbMax,
         dimension: options.dimension,
       },

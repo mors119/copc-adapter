@@ -55,6 +55,35 @@ test("Cesium clipping constructor options are validated and detached from caller
   layer.destroy();
 });
 
+test("Cesium constructor clones and validates elevation palette options", () => {
+  const elevationStyle = {
+    interpolation: "step",
+    palette: [
+      { position: 0, color: { red: 0, green: 0, blue: 1 } },
+      { position: 1, color: { red: 1, green: 0, blue: 0 } },
+    ],
+  };
+  const layer = new CopcCesiumLayer({
+    url: "memory://initial-elevation-style.copc.laz",
+    colorMode: "elevation",
+    elevationRange: { min: -20, max: 100 },
+    elevationStyle,
+  });
+  elevationStyle.palette[0].color.blue = 0;
+  assert.equal(layer.getStyle().elevationStyle.palette[0].color.blue, 1);
+  assert.deepEqual(layer.getStyle().elevationRange, { min: -20, max: 100 });
+  layer.destroy();
+
+  assert.throws(
+    () =>
+      new CopcCesiumLayer({
+        url: "memory://invalid-elevation-style.copc.laz",
+        elevationRange: { min: 10, max: 10 },
+      }),
+    /min < max/,
+  );
+});
+
 test("Cesium opacity is rejected when a custom renderer lacks layer support", () => {
   assert.throws(
     () =>
@@ -1300,6 +1329,76 @@ test("runtime Cesium styling filters cached points without another point-chunk r
   assert.equal(layer.getSnapshot().streamingUpdateCount, streamingUpdateCount);
   assert.equal(viewer.addedCollections.length, 1);
   assert.equal(viewer.removedCollections.length, 0);
+  layer.destroy();
+});
+
+test("runtime Cesium elevation ramps recolor prepared heights without reloading points", async () => {
+  const source = createBackend();
+  const layer = new CopcCesiumLayer({
+    url: "memory://runtime-elevation-ramp.copc.laz",
+    backend: source.backend,
+    decoder: source.decoder,
+    colorMode: "elevation",
+  });
+  const viewer = createFakeViewer();
+
+  await layer.load();
+  layer.attachTo(viewer);
+  await waitFor(() => layer.getSnapshot().renderedPointCount === 2);
+  const collection = getLayerPointCollection(viewer);
+  const firstPointId = collection.get(0).id;
+  const readsBefore = source.pointChunkRequestCount;
+  const decodesBefore = source.decodeCount;
+  const elevationStyle = {
+    interpolation: "linear",
+    palette: [
+      { position: 0, color: { red: 0, green: 0, blue: 1, alpha: 0.2 } },
+      { position: 0.5, color: { red: 0, green: 1, blue: 0, alpha: 0.6 } },
+      { position: 1, color: { red: 1, green: 0, blue: 0, alpha: 1 } },
+    ],
+  };
+
+  layer.setStyle({
+    colorMode: "elevation",
+    elevationRange: { min: 12, max: 24 },
+    elevationStyle,
+  });
+  assert.deepEqual(
+    [collection.get(0).color.red, collection.get(0).color.green, collection.get(0).color.blue, collection.get(0).color.alpha],
+    [0, 0, 1, 0.2],
+  );
+  assert.deepEqual(
+    [collection.get(1).color.red, collection.get(1).color.green, collection.get(1).color.blue, collection.get(1).color.alpha],
+    [0, 1, 0, 0.6],
+  );
+  assert.equal(collection.get(0).id, firstPointId);
+  assert.deepEqual(layer.getStyle().elevationRange, { min: 12, max: 24 });
+  assert.equal(layer.getStyle().elevationStyle.interpolation, "linear");
+  assert.equal(source.pointChunkRequestCount, readsBefore);
+  assert.equal(source.decodeCount, decodesBefore);
+
+  const currentStyle = layer.getStyle();
+  assert.throws(
+    () => layer.setStyle({ elevationStyle: { interpolation: "cubic" } }),
+    /interpolation must be/,
+  );
+  assert.deepEqual(layer.getStyle(), currentStyle);
+  layer.setStyle({ elevationStyle: null, elevationRange: null });
+  assert.equal("elevationStyle" in layer.getStyle(), false);
+  assert.equal("elevationRange" in layer.getStyle(), false);
+  for (const [pointIndex, expected] of [
+    [0, [0.01, 0.64, 0.93, 0.9]],
+    [1, [0.97, 0.7, 0.09, 0.9]],
+  ]) {
+    const color = collection.get(pointIndex).color;
+    const actual = [color.red, color.green, color.blue, color.alpha];
+    assert.ok(
+      actual.every((component, index) => Math.abs(component - expected[index]) < 1e-12),
+      `default elevation color ${pointIndex} should be restored`,
+    );
+  }
+  assert.equal(source.pointChunkRequestCount, readsBefore);
+  assert.equal(source.decodeCount, decodesBefore);
   layer.destroy();
 });
 

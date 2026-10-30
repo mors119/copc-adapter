@@ -418,10 +418,13 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
     const colorOptions = {
       colorMode: options.colorMode,
       elevationRange: options.elevationRange,
+      elevationStyle: options.elevationStyle,
       rgbMax: options.rgbMax,
       dimension: options.dimension,
     };
-    const usesPointAlpha = options.colorMode === "dimension";
+    const usesPointAlpha =
+      options.colorMode === "dimension" ||
+      (options.colorMode === "elevation" && options.elevationStyle !== undefined);
     const clippingPlanes = options.clippingPlanes ?? [];
     const hasClipping = clippingPlanes.length > 0;
     const colors = usesPointAlpha

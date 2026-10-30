@@ -234,6 +234,7 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
     const styleOptions = resolveCopcPointStyleOptions(points, {
       colorMode: options.colorMode,
       elevationRange: options.elevationRange,
+      elevationStyle: options.elevationStyle,
       rgbMax: options.rgbMax,
       dimension: options.dimension,
     });

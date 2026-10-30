@@ -147,6 +147,38 @@ test("ThreePointRenderer preserves dimension palette alpha unless layer opacity 
   renderer.destroy();
 });
 
+test("ThreePointRenderer keeps custom elevation alpha and lets layer opacity replace it", () => {
+  const { renderer } = createRenderer();
+  const points = createPoints();
+  points.coordinates = new Float64Array([
+    -123, 44, 100,
+    -123, 44, 150,
+  ]);
+  const elevationOptions = {
+    ...options(),
+    colorMode: "elevation",
+    elevationRange: { min: 100, max: 200 },
+    elevationStyle: {
+      palette: [
+        { position: 0, color: { red: 0, green: 0, blue: 1, alpha: 0.2 } },
+        { position: 1, color: { red: 1, green: 0, blue: 0, alpha: 0.8 } },
+      ],
+    },
+  };
+
+  renderer.addOrUpdateNode("node-elevation", points, elevationOptions);
+  const renderedPoints = renderer.getRoot().children[0];
+  const colors = renderedPoints.geometry.getAttribute("color");
+  assert.equal(colors.itemSize, 4);
+  assert.deepEqual(Array.from(colors.array), [0, 0, 1, Math.fround(0.2), 0.5, 0, 0.5, 0.5]);
+  assert.equal(renderedPoints.material.opacity, 1);
+
+  renderer.setOpacity(0.25);
+  assert.deepEqual(Array.from(colors.array), [0, 0, 1, 1, 0.5, 0, 0.5, 1]);
+  assert.equal(renderedPoints.material.opacity, 0.25);
+  renderer.destroy();
+});
+
 test("updates a node without leaking its previous geometry or material", () => {
   const { renderer } = createRenderer();
   renderer.addOrUpdateNode("node-a", createPoints(), options());

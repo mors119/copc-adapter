@@ -1,5 +1,8 @@
 import type { CopcColorMode } from "../copc/points/fieldSelection";
-import type { CopcDimensionStyle } from "../point/style/pointStyle";
+import type {
+  CopcDimensionStyle,
+  CopcElevationStyle,
+} from "../point/style/pointStyle";
 import type { RenderablePointData } from "../point/compactEPointCache";
 
 /** A project-owned numeric range used by renderer-independent styling. */
@@ -24,6 +27,8 @@ export type CopcPointRendererOptions = {
   colorMode?: CopcColorMode;
   /** WGS84 ellipsoidal-height range in metres for elevation coloring. */
   elevationRange?: CopcValueRange;
+  /** Optional palette and interpolation for elevation coloring. */
+  elevationStyle?: CopcElevationStyle;
   /** Dataset-stable source RGB display scale when RGB styling is active. */
   rgbMax?: 255 | 65535;
   /** Numeric dimension ramp when `colorMode` is `dimension`. */

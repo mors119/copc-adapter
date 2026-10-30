@@ -257,10 +257,12 @@ export {
   resolveCopcPointStyleOptions,
 } from "./core/point/style/pointStyle";
 export type {
+  CopcColorRampInterpolation,
   CopcDimensionColorRampStop,
   CopcDimensionFilter,
   CopcDimensionStyle,
   CopcElevationRange,
+  CopcElevationStyle,
   CopcNormalizedColor,
   CopcPointStyleInput,
   CopcPointStyleOptions,

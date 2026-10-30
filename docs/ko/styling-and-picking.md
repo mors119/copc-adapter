@@ -47,6 +47,30 @@ layer.setStyle({
 });
 ```
 
+고도 색상은 prepared display height(WGS 84 타원체 높이, 미터)를 기준으로 합니다.
+기본 범위는 vertical transform과 `heightOffsetMeters`를 반영한 전체 dataset 범위이며,
+`elevationRange`로 직접 지정할 수 있습니다. `elevationStyle`은 정규화된 RGB(A)
+palette와 `linear`/`step` 보간을 설정합니다.
+
+```ts
+layer.setStyle({
+  colorMode: 'elevation',
+  elevationRange: { min: 20, max: 120 },
+  elevationStyle: {
+    interpolation: 'step',
+    palette: [
+      { position: 0, color: { red: 0, green: 0, blue: 0.3 } },
+      { position: 0.5, color: { red: 0, green: 0.8, blue: 0.3 } },
+      { position: 1, color: { red: 1, green: 0, blue: 0 } },
+    ],
+  },
+});
+```
+
+Three.js는 같은 설정을 `CopcThreeLayer` constructor에 전달합니다. 스타일을 바꿀 때는
+layer를 새 설정으로 다시 만듭니다. 이 색상 의미는 absolute ellipsoidal display
+height이며 dataset-relative 또는 terrain height above ground는 포함하지 않습니다.
+
 현재 style 확인:
 
 ```ts

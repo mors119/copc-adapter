@@ -42,6 +42,21 @@ export type CopcDimensionStyle = {
   missingValue?: number;
 };
 
+/** Interpolation used between normalized numeric color-ramp stops. */
+export type CopcColorRampInterpolation =
+  /** Blend color components proportionally between neighboring stops. */
+  | "linear"
+  /** Keep the lower stop's color until the next stop position is reached. */
+  | "step";
+
+/** Palette and interpolation for absolute displayed elevation coloring. */
+export type CopcElevationStyle = {
+  /** Optional ordered normalized RGB(A) stops; defaults to the existing elevation palette. */
+  palette?: readonly CopcDimensionColorRampStop[];
+  /** Defaults to `linear`. */
+  interpolation?: CopcColorRampInterpolation;
+};
+
 /** Inclusive numeric visibility range for a retained scalar dimension. */
 export type CopcDimensionFilter = {
   /** Exact LAS Extra Bytes name, or standard LAS `Intensity`. */
@@ -105,6 +120,8 @@ export type CopcPointStyleOptions = {
   colorMode: CopcColorMode;
   /** Height range in metres used by elevation coloring. */
   elevationRange: CopcElevationRange;
+  /** Optional palette and interpolation used by elevation coloring. */
+  elevationStyle?: CopcElevationStyle;
   /** Source intensity range used by intensity coloring, when available. */
   intensityRange?: CopcValueRange;
   /** Source RGB precision. COPC RGB is retained as Uint16 until this step. */
@@ -133,12 +150,12 @@ const FIXED_POINT_COLOR: CopcNormalizedColor = {
   alpha: 0.9,
 };
 
-const ELEVATION_COLOR_STOPS: readonly CopcNormalizedColor[] = [
-  { red: 0.05, green: 0.2, blue: 0.65, alpha: 0.9 },
-  { red: 0, green: 0.75, blue: 1, alpha: 0.9 },
-  { red: 0.15, green: 0.75, blue: 0.25, alpha: 0.9 },
-  { red: 1, green: 0.85, blue: 0.1, alpha: 0.9 },
-  { red: 0.85, green: 0.1, blue: 0.05, alpha: 0.9 },
+const DEFAULT_ELEVATION_PALETTE: readonly CopcDimensionColorRampStop[] = [
+  { position: 0, color: { red: 0.05, green: 0.2, blue: 0.65 } },
+  { position: 0.25, color: { red: 0, green: 0.75, blue: 1 } },
+  { position: 0.5, color: { red: 0.15, green: 0.75, blue: 0.25 } },
+  { position: 0.75, color: { red: 1, green: 0.85, blue: 0.1 } },
+  { position: 1, color: { red: 0.85, green: 0.1, blue: 0.05 } },
 ];
 
 const CLASSIFICATION_COLORS: Readonly<Record<number, CopcNormalizedColor>> = {
@@ -214,6 +231,83 @@ export function normalizeIntensity(
   return normalizeElevation(intensity, range);
 }
 
+/** Validate and detach an explicit WGS84 ellipsoidal-height range in metres. */
+export function cloneCopcElevationRange(
+  range: CopcElevationRange,
+): CopcElevationRange {
+  assertFiniteRange(range, "elevation range", true);
+  return { ...range };
+}
+
+function cloneCopcColorRamp(
+  palette: readonly CopcDimensionColorRampStop[],
+  label: string,
+): CopcDimensionColorRampStop[] {
+  if (!Array.isArray(palette) || palette.length < 2) {
+    throw new RangeError(`${label} palette must contain at least two stops`);
+  }
+  let previousPosition = -1;
+  const clonedPalette = palette.map((stop, index) => {
+    if (
+      !stop ||
+      !Number.isFinite(stop.position) ||
+      stop.position < 0 ||
+      stop.position > 1 ||
+      stop.position <= previousPosition
+    ) {
+      throw new RangeError(
+        `${label} palette stop ${index} must have a strictly increasing position in [0, 1]`,
+      );
+    }
+    previousPosition = stop.position;
+    if (!stop.color || typeof stop.color !== "object") {
+      throw new TypeError(`${label} palette stop ${index} must have a color`);
+    }
+    const { red, green, blue, alpha = 0.9 } = stop.color;
+    if (
+      ![red, green, blue, alpha].every(
+        (component) =>
+          Number.isFinite(component) && component >= 0 && component <= 1,
+      )
+    ) {
+      throw new RangeError(
+        `${label} palette stop ${index} color components must be in [0, 1]`,
+      );
+    }
+    return {
+      position: stop.position,
+      color: { red, green, blue, alpha },
+    };
+  });
+  if (
+    clonedPalette[0].position !== 0 ||
+    clonedPalette.at(-1)?.position !== 1
+  ) {
+    throw new RangeError(`${label} palette must start at 0 and end at 1`);
+  }
+  return clonedPalette;
+}
+
+/** Validate and detach elevation palette settings; omitted fields use compatible defaults. */
+export function cloneCopcElevationStyle(
+  style: CopcElevationStyle,
+): CopcElevationStyle {
+  if (!style || typeof style !== "object") {
+    throw new TypeError("elevation style must be an object");
+  }
+  const interpolation = style.interpolation ?? "linear";
+  if (interpolation !== "linear" && interpolation !== "step") {
+    throw new RangeError('elevation style interpolation must be "linear" or "step"');
+  }
+  return {
+    palette: cloneCopcColorRamp(
+      style.palette ?? DEFAULT_ELEVATION_PALETTE,
+      "elevation style",
+    ),
+    interpolation,
+  };
+}
+
 /** Validate and detach the range, palette, and missing-value style settings. */
 export function cloneCopcDimensionStyle(
   style: CopcDimensionStyle,
@@ -232,48 +326,10 @@ export function cloneCopcDimensionStyle(
     throw new RangeError("dimension style missingValue must be finite");
   }
 
-  const palette = style.palette ?? DEFAULT_DIMENSION_PALETTE;
-  if (!Array.isArray(palette) || palette.length < 2) {
-    throw new RangeError("dimension style palette must contain at least two stops");
-  }
-  let previousPosition = -1;
-  const clonedPalette = palette.map((stop, index) => {
-    if (
-      !stop ||
-      !Number.isFinite(stop.position) ||
-      stop.position < 0 ||
-      stop.position > 1 ||
-      stop.position <= previousPosition
-    ) {
-      throw new RangeError(
-        `dimension style palette stop ${index} must have a strictly increasing position in [0, 1]`,
-      );
-    }
-    previousPosition = stop.position;
-    const { red, green, blue, alpha = 0.9 } = stop.color;
-    if (
-      ![red, green, blue, alpha].every(
-        (component) =>
-          Number.isFinite(component) && component >= 0 && component <= 1,
-      )
-    ) {
-      throw new RangeError(
-        `dimension style palette stop ${index} color components must be in [0, 1]`,
-      );
-    }
-    return {
-      position: stop.position,
-      color: { red, green, blue, alpha },
-    };
-  });
-  if (
-    clonedPalette[0].position !== 0 ||
-    clonedPalette.at(-1)?.position !== 1
-  ) {
-    throw new RangeError(
-      "dimension style palette must start at 0 and end at 1",
-    );
-  }
+  const clonedPalette = cloneCopcColorRamp(
+    style.palette ?? DEFAULT_DIMENSION_PALETTE,
+    "dimension style",
+  );
 
   return {
     name: style.name,
@@ -546,10 +602,24 @@ function getDimensionColor(
   if (value === undefined) return undefined;
   const normalized = normalizeElevation(value, style.range);
   const palette = style.palette ?? DEFAULT_DIMENSION_PALETTE;
+  return getRampColor(normalized, palette, "linear");
+}
+
+function getRampColor(
+  normalized: number,
+  palette: readonly CopcDimensionColorRampStop[],
+  interpolation: CopcColorRampInterpolation,
+): CopcNormalizedColor {
   for (let index = 1; index < palette.length; index += 1) {
     const upper = palette[index];
     if (normalized <= upper.position) {
       const lower = palette[index - 1];
+      if (normalized === upper.position) {
+        return { ...upper.color, alpha: upper.color.alpha ?? 0.9 };
+      }
+      if (interpolation === "step") {
+        return { ...lower.color, alpha: lower.color.alpha ?? 0.9 };
+      }
       const amount =
         (normalized - lower.position) / (upper.position - lower.position);
       return interpolateColor(
@@ -619,14 +689,11 @@ export function getCopcPointColor(
   }
 
   const normalized = normalizeElevation(height, options.elevationRange);
-  const scaled = normalized * (ELEVATION_COLOR_STOPS.length - 1);
-  const lowerIndex = Math.floor(scaled);
-  const upperIndex = Math.min(lowerIndex + 1, ELEVATION_COLOR_STOPS.length - 1);
-
-  return interpolateColor(
-    ELEVATION_COLOR_STOPS[lowerIndex],
-    ELEVATION_COLOR_STOPS[upperIndex],
-    scaled - lowerIndex,
+  const elevationStyle = options.elevationStyle;
+  return getRampColor(
+    normalized,
+    elevationStyle?.palette ?? DEFAULT_ELEVATION_PALETTE,
+    elevationStyle?.interpolation ?? "linear",
   );
 }
 
@@ -640,6 +707,9 @@ export function resolveCopcPointStyleOptions(
     colorMode: options.colorMode ?? "fixed",
     elevationRange:
       options.elevationRange ?? getPointBufferElevationRange(points),
+    ...(options.elevationStyle === undefined
+      ? {}
+      : { elevationStyle: cloneCopcElevationStyle(options.elevationStyle) }),
     intensityRange:
       options.intensityRange ?? getPointBufferIntensityRange(points),
     rgbMax:

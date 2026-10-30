@@ -332,6 +332,36 @@ layer.setStyle({
 const style = layer.getStyle();
 ```
 
+`elevationRange`는 표시된 WGS 84 타원체 높이의 유한한 미터 범위이며
+`min < max`여야 합니다. 생략하면 dataset bounds에 현재 vertical transform과
+`heightOffsetMeters`를 적용한 범위를 사용합니다. `elevationStyle`은 기존 dimension
+ramp와 같은 정규화 RGB(A) stop 형식을 사용하며 `linear` 또는 `step` 보간을
+지원합니다. stop alpha 기본값은 `0.9`이고, 명시적인 layer `opacity`가 alpha를
+대체합니다.
+
+```ts
+layer.setStyle({
+  colorMode: 'elevation',
+  elevationRange: { min: 20, max: 120 },
+  elevationStyle: {
+    interpolation: 'linear',
+    palette: [
+      { position: 0, color: { red: 0, green: 0, blue: 0.3 } },
+      { position: 0.5, color: { red: 0, green: 0.8, blue: 0.3, alpha: 0.7 } },
+      { position: 1, color: { red: 1, green: 0, blue: 0 } },
+    ],
+  },
+});
+layer.setStyle({ elevationStyle: null, elevationRange: null });
+```
+
+Cesium은 cached prepared point buffer에서 다시 색칠하므로 range/point chunk를
+다시 읽거나 LAZ를 다시 decode하지 않습니다. Three.js는 constructor에서 같은
+`elevationRange`와 `elevationStyle`을 받으며, 변경하려면 새 layer를 만들어 다시
+연결합니다. 색상 기준은 vertical transform과 offset 적용 후 준비된 절대
+ellipsoidal display height입니다. dataset-relative 또는 지면 기준 높이를 뜻하지
+않습니다.
+
 Cesium과 Three.js layer 모두 constructor의 `opacity`와 runtime
 `setOpacity(opacity)`를 지원합니다. 변경은 현재 layer가 소유한 renderer resource와 이후
 stream된 node에 적용되며 COPC point 데이터를 다시 읽거나 decode하지 않습니다. `0`은

@@ -314,6 +314,30 @@ test("E elevation colors match A at repeated narrow and palette-boundary ranges"
     })),
     { colorMode: "elevation", elevationRange: { min: 100, max: 100.001 } },
     { colorMode: "elevation", elevationRange: { min: -1, max: 1 } },
+    {
+      colorMode: "elevation",
+      elevationRange: { min: -150, max: 250 },
+      elevationStyle: {
+        interpolation: "linear",
+        palette: [
+          { position: 0, color: { red: 0, green: 0, blue: 1, alpha: 0.2 } },
+          { position: 0.5, color: { red: 0, green: 1, blue: 0, alpha: 0.6 } },
+          { position: 1, color: { red: 1, green: 0, blue: 0, alpha: 1 } },
+        ],
+      },
+    },
+    {
+      colorMode: "elevation",
+      elevationRange: { min: -150, max: 250 },
+      elevationStyle: {
+        interpolation: "step",
+        palette: [
+          { position: 0, color: { red: 0, green: 0, blue: 1 } },
+          { position: 0.5, color: { red: 0, green: 1, blue: 0 } },
+          { position: 1, color: { red: 1, green: 0, blue: 0 } },
+        ],
+      },
+    },
   ];
   for (const style of styles) {
     const colorsA = prepareCopcPointColorBuffer(prepared, style);

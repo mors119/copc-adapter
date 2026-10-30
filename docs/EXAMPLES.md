@@ -36,6 +36,34 @@ layer.attachTo(viewer);
 The same `url` field accepts an HTTP(S) URL or a browser `File`/`Blob`.
 Omitting appearance options uses fixed cyan points at 3 pixels.
 
+### Custom elevation colors
+
+Both renderer layers accept the same normalized elevation ramp. The default
+range is the transformed dataset elevation range; `elevationRange` can set an
+explicit displayed-height range in metres.
+
+```ts
+const layer = new CopcCesiumLayer({
+  url: '/samples/autzen.copc.laz',
+  colorMode: 'elevation',
+  elevationRange: { min: 20, max: 120 },
+  elevationStyle: {
+    interpolation: 'step',
+    palette: [
+      { position: 0, color: { red: 0, green: 0, blue: 0.3 } },
+      { position: 0.5, color: { red: 0, green: 0.8, blue: 0.3 } },
+      { position: 1, color: { red: 1, green: 0, blue: 0 } },
+    ],
+  },
+});
+```
+
+Cesium can update these values through `setStyle()` using cached prepared
+points. Three.js takes them in `CopcThreeLayer`'s constructor; create a
+replacement layer to change its style. Both use absolute displayed ellipsoidal
+height after configured vertical transformation and offset, not height above
+ground.
+
 ## Per-layer Opacity
 
 Set the initial opacity in either layer constructor, then update only that
