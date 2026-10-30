@@ -420,6 +420,46 @@ try {
     throw new Error("Cesium-only consumer unexpectedly installed Three.js");
   }
 
+  console.log(
+    "Installing the optional Three.js peer for packed-candidate cross-renderer code checks...",
+  );
+  await run(
+    npmCommand(),
+    [
+      "install",
+      "--no-save",
+      "--no-audit",
+      "--no-fund",
+      packagePath,
+      "three@0.186.1",
+      "@types/three@0.186.0",
+    ],
+    { cwd: consumerDirectory, stdio: "inherit" },
+  );
+  console.log(
+    "Generating Cesium and Three snippets and typechecking them against the packed candidate...",
+  );
+  await run(
+    process.execPath,
+    [
+      "--import",
+      "tsx",
+      "--test",
+      path.resolve(
+        repositoryDirectory,
+        "apps/shared/codegen/test/generated-consumer.test.mjs",
+      ),
+    ],
+    {
+      cwd: path.resolve(repositoryDirectory, "apps/dev-viewer"),
+      env: {
+        COPC_ADAPTER_CONSUMER_ROOT: consumerDirectory,
+        COPC_ADAPTER_CONSUMER_ORIGIN: "packed-candidate",
+      },
+      stdio: "inherit",
+    },
+  );
+
   let chromiumInstalled = false;
   const ensureChromium = async () => {
     if (chromiumInstalled) return;

@@ -1,6 +1,8 @@
 import {
   buildSchemaApplicationPlan,
+  isWorkbenchConfigurationDirty,
   normalizeWorkbenchOptionValues,
+  type WorkbenchConfigurationState,
   type SchemaApplicationPlan,
 } from "../config/index.ts";
 import {
@@ -15,6 +17,7 @@ import { isOptionConditionMet, OPTION_SCHEMA } from "../schema/options.ts";
 import type {
   AdapterManifest,
   CapabilityContext,
+  SchemaHostValidators,
   SchemaOption,
   SchemaRenderer,
 } from "../schema/types.ts";
@@ -27,18 +30,43 @@ export type IntegrationCodeGenerationOptions = {
   readonly values: Readonly<Record<string, unknown>>;
   readonly source?: string | Blob;
   readonly includeExactSource?: boolean;
+  /** Include the public Cesium Terrain estimate/approval recipe when supported. */
+  readonly includeTerrainAlignmentRecipe?: boolean;
+  /** Provenance for a Terrain estimate that the user explicitly approved. */
+  readonly approvedTerrainAlignment?: {
+    readonly residualMeters: number;
+    readonly finalHeightOffsetMeters: number;
+  };
   readonly mode?: IntegrationCodeMode;
   readonly manifest: AdapterManifest;
   readonly runtimeCapabilities?: readonly string[];
   readonly adapterVersion: string;
   /** Human-readable origin that truthfully identifies npm/workspace/candidate. */
   readonly packageOriginLabel: string;
+  /** Host checks for loaded resources represented in the applied snapshot. */
+  readonly hostValidators?: SchemaHostValidators;
   readonly schema?: readonly SchemaOption[];
 };
 
 export type IntegrationCodeGenerationResult = {
   readonly code: string;
   readonly warnings: readonly string[];
+};
+
+export type AppliedIntegrationCodeGenerationOptions = Omit<
+  IntegrationCodeGenerationOptions,
+  "values" | "source" | "renderer"
+> & {
+  /** The shared configuration state keeps pending edits separate from applied values. */
+  readonly state: WorkbenchConfigurationState;
+  /** Time of the last successful apply, when the host tracks it. */
+  readonly appliedAt?: number;
+};
+
+export type AppliedIntegrationCodeGenerationResult = IntegrationCodeGenerationResult & {
+  readonly appliedRevision: number;
+  readonly pendingChanges: boolean;
+  readonly appliedAt?: number;
 };
 
 type CodeExpression = { readonly __integrationCodeExpression: string };
@@ -92,6 +120,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return prototype === Object.prototype || prototype === null;
 }
 
+function compareKeys(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 function literal(value: unknown): string {
   if (isCodeExpression(value)) return value.__integrationCodeExpression;
   if (value === undefined) return "undefined";
@@ -106,7 +138,7 @@ function literal(value: unknown): string {
   if (typeof value === "boolean") return String(value);
   if (Array.isArray(value)) return "[" + value.map(literal).join(", ") + "]";
   if (isRecord(value)) {
-    const entries = Object.entries(value);
+    const entries = Object.entries(value).sort(([left], [right]) => compareKeys(left, right));
     if (entries.length === 0) return "{}";
     return "{ " + entries.map(([key, entry]) =>
       (/^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(key) ? key : quote(key)) +
@@ -117,21 +149,23 @@ function literal(value: unknown): string {
 }
 
 function runtimePatchLiteral(value: Readonly<Record<string, unknown>>): string {
-  const entries = Object.entries(value).map(([key, entry]) => {
-    return key + ": " + literal(entry);
-  });
+  const entries = Object.entries(value)
+    .sort(([left], [right]) => compareKeys(left, right))
+    .map(([key, entry]) => key + ": " + literal(entry));
   return "{ " + entries.join(", ") + " }";
 }
 
 function renderObject(value: Readonly<Record<string, unknown>>, depth = 0): string {
   const indent = "  ".repeat(depth);
   const childIndent = "  ".repeat(depth + 1);
-  const lines = Object.entries(value).map(([key, entry]) => {
-    const rendered = isRecord(entry) && !isCodeExpression(entry)
-      ? renderObject(entry, depth + 1)
-      : literal(entry);
-    return childIndent + key + ": " + rendered + ",";
-  });
+  const lines = Object.entries(value)
+    .sort(([left], [right]) => compareKeys(left, right))
+    .map(([key, entry]) => {
+      const rendered = isRecord(entry) && !isCodeExpression(entry)
+        ? renderObject(entry, depth + 1)
+        : literal(entry);
+      return childIndent + key + ": " + rendered + ",";
+    });
   if (lines.length === 0) return "{}";
   return "{\n" + lines.join("\n") + "\n" + indent + "}";
 }
@@ -473,6 +507,7 @@ export function generateIntegrationCodeFromPlan(options: {
   readonly sourceExpression: string;
   readonly sourceSetup?: readonly string[];
   readonly mode?: IntegrationCodeMode;
+  readonly includeTerrainAlignmentRecipe?: boolean;
   readonly packageOriginLabel: string;
   readonly adapterVersion: string;
   readonly schema: readonly SchemaOption[];
@@ -496,6 +531,34 @@ export function generateIntegrationCodeFromPlan(options: {
   const header = "// Generated against @frillab/copc-adapter v" +
     options.adapterVersion + " (" + options.packageOriginLabel + ").";
   const runtimeLines = buildRuntimeLines(plan, values, context, schema, mode);
+  const terrainRecipeLines = options.includeTerrainAlignmentRecipe
+    ? [
+        "",
+        "// Opt-in recipe: call this with an inspected point after explicitly confirming it is ground.",
+        "// The attached Cesium Viewer must use a real TerrainProvider; ellipsoid-only sampling is not an estimate.",
+        "// The returned number is a final visual heightOffsetMeters value. Recreate the layer with it only after approval.",
+        "type TerrainAlignmentAnchor = Parameters<CopcCesiumLayer['estimateTerrainHeightAlignment']>[0];",
+        "export async function estimateAndApproveTerrainPlacement(",
+        "  anchor: TerrainAlignmentAnchor,",
+        "  groundConfirmed: boolean,",
+        "): Promise<number | undefined> {",
+        "  if (groundConfirmed !== true) throw new Error('Confirm that the selected point represents ground first.');",
+        "  const estimate = await layer.estimateTerrainHeightAlignment(anchor, { groundConfirmed });",
+        "  if (!layer.isTerrainHeightAlignmentEstimateCurrent(estimate)) throw new Error('The Terrain estimate is stale; estimate again.');",
+        "  if (estimate.status !== 'ready' || !estimate.actionable || estimate.effectiveProposedHeightOffsetMeters === undefined || !Number.isFinite(estimate.effectiveProposedHeightOffsetMeters)) {",
+        "    throw new Error(estimate.rejectionReason ?? 'The Terrain estimate is unavailable or uncertain.');",
+        "  }",
+        "  const residualMeters = estimate.proposedOffsetMeters;",
+        "  const finalHeightOffsetMeters = estimate.effectiveProposedHeightOffsetMeters;",
+        "  const approved = window.confirm(",
+        "    `Terrain residual: ${residualMeters?.toFixed(3) ?? 'unavailable'} m\\n` +",
+        "    `Final heightOffsetMeters: ${finalHeightOffsetMeters.toFixed(3)} m\\n` +",
+        "    'This is visual placement, not geoid or vertical-datum correction. Apply this value?',",
+        "  );",
+        "  return approved ? finalHeightOffsetMeters : undefined;",
+        "}",
+      ]
+    : [];
   const renderedOptions = "const options = " + renderObject(constructor.options) +
     " satisfies " + typeName + ";";
   const setup = options.sourceSetup ?? [];
@@ -513,9 +576,23 @@ export function generateIntegrationCodeFromPlan(options: {
         "const viewer = new Cesium.Viewer('cesium-container');",
         renderedOptions,
         "const layer = new CopcCesiumLayer(options);",
-        "await layer.load();",
-        "layer.attachTo(viewer);",
+      "try {",
+      "  await layer.load();",
+      "  layer.attachTo(viewer);",
+      "} catch (error) {",
+      "  layer.destroy();",
+      "  viewer.destroy();",
+      "  throw error;",
+      "}",
         ...runtimeLines,
+        ...terrainRecipeLines,
+        "",
+        "function destroyExample(): void {",
+        "  window.removeEventListener('beforeunload', destroyExample);",
+        "  layer.destroy();",
+        "  viewer.destroy();",
+        "}",
+        "window.addEventListener('beforeunload', destroyExample, { once: true });",
       ].join("\n"),
       warnings: constructor.warnings,
     };
@@ -541,9 +618,18 @@ export function generateIntegrationCodeFromPlan(options: {
       renderedOptions,
       "const layer = new CopcThreeLayer(options);",
       "layer.attachTo({ scene, camera, renderer });",
-      "await layer.load();",
-      "await layer.update();",
-      "controls.addEventListener('change', () => { void layer.update(); });",
+      "try {",
+      "  await layer.load();",
+      "  await layer.update();",
+      "} catch (error) {",
+      "  layer.destroy();",
+      "  controls.dispose();",
+      "  renderer.dispose();",
+      "  renderer.domElement.remove();",
+      "  throw error;",
+      "}",
+      "const updateLayer = () => { void layer.update(); };",
+      "controls.addEventListener('change', updateLayer);",
       "const resize = () => {",
       "  camera.aspect = window.innerWidth / window.innerHeight;",
       "  camera.updateProjectionMatrix();",
@@ -551,13 +637,30 @@ export function generateIntegrationCodeFromPlan(options: {
       "  void layer.update();",
       "};",
       "window.addEventListener('resize', resize);",
+      "let animationFrame = 0;",
+      "let destroyed = false;",
       "const render = () => {",
-      "  requestAnimationFrame(render);",
+      "  if (destroyed) return;",
+      "  animationFrame = requestAnimationFrame(render);",
       "  controls.update();",
       "  renderer.render(scene, camera);",
       "};",
       "render();",
       ...runtimeLines,
+      ...terrainRecipeLines,
+      "",
+      "function destroyExample(): void {",
+      "  destroyed = true;",
+      "  window.removeEventListener('beforeunload', destroyExample);",
+      "  cancelAnimationFrame(animationFrame);",
+      "  controls.removeEventListener('change', updateLayer);",
+      "  window.removeEventListener('resize', resize);",
+      "  layer.destroy();",
+      "  controls.dispose();",
+      "  renderer.dispose();",
+      "  renderer.domElement.remove();",
+      "}",
+      "window.addEventListener('beforeunload', destroyExample, { once: true });",
     ].join("\n"),
     warnings: constructor.warnings,
   };
@@ -589,6 +692,33 @@ export function generateWorkbenchIntegrationCode(
       ? {}
       : { runtimeCapabilities: options.runtimeCapabilities }),
   };
+  const terrainAlignmentAvailable = options.renderer === "cesium" &&
+    (options.runtimeCapabilities ?? manifest.capabilities).includes("cesium.terrain-alignment");
+  if (options.includeTerrainAlignmentRecipe && !terrainAlignmentAvailable) {
+    throw new TypeError(
+      "The verified package and Cesium runtime do not support Terrain alignment code.",
+    );
+  }
+  if (options.approvedTerrainAlignment) {
+    const provenance = options.approvedTerrainAlignment;
+    const configuredHeightOffset = Object.hasOwn(values, "coordinates.heightOffsetMeters")
+      ? values["coordinates.heightOffsetMeters"]
+      : resolveOptionDefault(
+          "coordinates.heightOffsetMeters",
+          manifest,
+          new Set(),
+          schema,
+          values,
+        );
+    if (
+      !terrainAlignmentAvailable ||
+      !Number.isFinite(provenance.residualMeters) ||
+      !Number.isFinite(provenance.finalHeightOffsetMeters) ||
+      !Object.is(configuredHeightOffset, provenance.finalHeightOffsetMeters)
+    ) {
+      throw new TypeError("Terrain approval provenance must match a supported applied height offset.");
+    }
+  }
   if (mode === "explicit") fillExplicitDefaults(values, context, schema);
   const supportedIds = new Set(getSupportedOptions(context, schema).map(({ id }) => id));
   if (
@@ -600,22 +730,78 @@ export function generateWorkbenchIntegrationCode(
       "The installed Three.js layer has no public classification style setter; classification filters can only be generated for Cesium.",
     );
   }
-  const plan = buildSchemaApplicationPlan(values, context, undefined, schema);
+  const plan = buildSchemaApplicationPlan(
+    values,
+    context,
+    undefined,
+    schema,
+    options.hostValidators,
+  );
   const result = generateIntegrationCodeFromPlan({
     plan,
     values,
     sourceExpression: sourceSelection.expression,
     sourceSetup: sourceSelection.setup,
     mode,
+    ...(options.includeTerrainAlignmentRecipe
+      ? { includeTerrainAlignmentRecipe: true }
+      : {}),
     packageOriginLabel: options.packageOriginLabel,
     adapterVersion: options.adapterVersion,
     schema,
   });
   const warnings = [...result.warnings];
+  const code = options.approvedTerrainAlignment
+    ? result.code.replace(
+        "\n",
+        "\n// Terrain placement provenance: the user explicitly approved a Cesium Terrain residual of " +
+          literal(options.approvedTerrainAlignment.residualMeters) +
+          " m; the final heightOffsetMeters is " +
+          literal(options.approvedTerrainAlignment.finalHeightOffsetMeters) +
+          " m. This is visual placement, not a geoid or vertical-datum conversion.\n",
+      )
+    : result.code;
   if (
     typeof originalSource === "string" &&
     isPotentiallySensitiveSource(originalSource) &&
     options.includeExactSource !== true
   ) warnings.unshift("The source could not be verified as public; generated code uses a safe placeholder.");
-  return { code: result.code, warnings };
+  return { code, warnings };
+}
+
+/**
+ * Generate from the last committed Workbench snapshot. Pending values are used
+ * only to report whether the visible snippet is behind the editor state.
+ */
+export function generateAppliedWorkbenchIntegrationCode(
+  options: AppliedIntegrationCodeGenerationOptions,
+): AppliedIntegrationCodeGenerationResult {
+  const applied = options.state.applied;
+  const revision = options.state.appliedRevision;
+  if (!applied || revision === undefined) {
+    throw new TypeError("Integration code is available after a configuration has been successfully applied.");
+  }
+  if (!Number.isSafeInteger(revision) || revision < 0) {
+    throw new TypeError("Applied configuration revision must be a non-negative safe integer.");
+  }
+  if (options.appliedAt !== undefined &&
+    (!Number.isFinite(options.appliedAt) || options.appliedAt < 0)) {
+    throw new TypeError("Applied timestamp must be a non-negative finite millisecond value.");
+  }
+  const renderer = applied["renderer.engine"];
+  if (renderer !== "cesium" && renderer !== "three") {
+    throw new TypeError("Applied configuration has no supported renderer selection.");
+  }
+  const { state, appliedAt, ...generationOptions } = options;
+  const generated = generateWorkbenchIntegrationCode({
+    ...generationOptions,
+    renderer,
+    values: applied,
+  });
+  return {
+    ...generated,
+    appliedRevision: revision,
+    pendingChanges: isWorkbenchConfigurationDirty(state),
+    ...(appliedAt === undefined ? {} : { appliedAt }),
+  };
 }

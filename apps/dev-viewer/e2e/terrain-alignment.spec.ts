@@ -441,6 +441,9 @@ test("estimates, previews, and applies a WKT2 ellipsoidal fixture only after app
 }) => {
   test.setTimeout(180_000);
   const sourceMetrics = await openFixture(page, 102, true);
+  const integrationCode = page.locator("#integration-example");
+  await page.locator("#include-terrain-alignment-recipe").check();
+  await expect(integrationCode).toContainText("estimateAndApproveTerrainPlacement");
   const before = await pickRenderedPointIndex(page, 0);
   expect(before.source).toBeUndefined();
 
@@ -518,6 +521,10 @@ test("estimates, previews, and applies a WKT2 ellipsoidal fixture only after app
   await expect
     .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__!.getConfiguration().heightOffsetMeters))
     .toBe(2);
+  await expect(integrationCode).toContainText(
+    "Terrain placement provenance: the user explicitly approved a Cesium Terrain residual of 2 m; the final heightOffsetMeters is 2 m",
+  );
+  await expect(integrationCode).toContainText("not a geoid or vertical-datum conversion");
   await expect
     .poll(() =>
       page.evaluate(() =>

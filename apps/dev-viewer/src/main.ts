@@ -65,13 +65,14 @@ import {
   type PointScreenPosition,
 } from "../../shared/inspection/PointPopover.ts";
 import {
-  generateWorkbenchIntegrationCode,
+  generateAppliedWorkbenchIntegrationCode,
   isPotentiallySensitiveSource,
 } from "../../shared/codegen/integrationCode.ts";
 import {
   applySchemaRuntimeOperations,
   buildSchemaApplicationPlan,
   createWorkbenchConfigurationState,
+  getChangedWorkbenchOptionIds,
   resolveSchemaBackendSelection,
   serializeWorkbenchConfiguration,
 } from "../../shared/config/index.ts";
@@ -1480,6 +1481,9 @@ async function main(): Promise<void> {
   );
   let activeConfig = { ...activeInitialConfig };
   let pendingConfig = { ...activeConfig };
+  let appliedCodeRevision = 0;
+  let appliedCodeAt: number | undefined;
+  let lastAppliedCodeValues: Readonly<Record<string, unknown>> | undefined;
   let workbenchControls: ReturnType<typeof mountDevViewerControls> | undefined;
   let activeSession: ViewerSession | undefined;
   let activeMount: HTMLElement | undefined;
@@ -1598,6 +1602,12 @@ async function main(): Promise<void> {
   let terrainEstimate: TerrainHeightAlignmentEstimate | undefined;
   let terrainEstimateAbortController: AbortController | undefined;
   let terrainEstimateInFlight = false;
+  let approvedTerrainAlignmentProvenance: {
+    readonly source: string | File;
+    readonly terrainUrl: string;
+    readonly finalHeightOffsetMeters: number;
+    readonly residualMeters: number;
+  } | undefined;
   container.remove();
   viewportPanel.append(container);
   const pointPopover = mountPointPopover(viewportPanel);
@@ -1689,6 +1699,10 @@ async function main(): Promise<void> {
     return url.toString();
   };
   const refreshIntegrationCode = (): void => {
+    integrationCodePanel.setTerrainAlignmentRecipeAvailable(
+      activeConfig.renderer === "cesium" &&
+        WORKSPACE_CURRENT_CAPABILITIES.includes("cesium.terrain-alignment"),
+    );
     if (!sameSource(lastIntegrationCodeSource, activeConfig.source)) {
       lastIntegrationCodeSource = activeConfig.source;
       integrationCodePanel.setSourcePrivacySelection(
@@ -1698,14 +1712,47 @@ async function main(): Promise<void> {
       );
       return;
     }
-    const values = integrationValues(activeConfig);
-    const state = integrationCodePanel.getState();
-    try {
-      const generated = generateWorkbenchIntegrationCode({
-        renderer: activeConfig.renderer,
-        values,
+    if (!activeSession) {
+      integrationCodePanel.setContent({
+        code: "",
+        warnings: ["Load a source successfully before copying code for applied settings."],
         source: activeConfig.source,
+      });
+      return;
+    }
+    const values = integrationValues(activeConfig);
+    const pendingValues = integrationValues(pendingConfig);
+    if (
+      lastAppliedCodeValues === undefined ||
+      getChangedWorkbenchOptionIds(lastAppliedCodeValues, values).length > 0
+    ) {
+      appliedCodeRevision += 1;
+      appliedCodeAt = Date.now();
+      lastAppliedCodeValues = createWorkbenchConfigurationState(values, values).applied;
+    }
+    const appliedState = {
+      ...createWorkbenchConfigurationState(pendingValues, values),
+      appliedRevision: appliedCodeRevision,
+      pendingRevision: appliedCodeRevision,
+    };
+    const state = integrationCodePanel.getState();
+    const approvedTerrainAlignment = activeConfig.renderer === "cesium" &&
+        approvedTerrainAlignmentProvenance &&
+        sameSource(approvedTerrainAlignmentProvenance.source, activeConfig.source) &&
+        approvedTerrainAlignmentProvenance.terrainUrl === activeConfig.terrainUrl &&
+        approvedTerrainAlignmentProvenance.finalHeightOffsetMeters === activeConfig.heightOffsetMeters
+      ? {
+          residualMeters: approvedTerrainAlignmentProvenance.residualMeters,
+          finalHeightOffsetMeters: approvedTerrainAlignmentProvenance.finalHeightOffsetMeters,
+        }
+      : undefined;
+    try {
+      const generated = generateAppliedWorkbenchIntegrationCode({
+        state: appliedState,
+        ...(appliedCodeAt === undefined ? {} : { appliedAt: appliedCodeAt }),
         includeExactSource: state.includeExactSource,
+        includeTerrainAlignmentRecipe: state.includeTerrainAlignmentRecipe,
+        ...(approvedTerrainAlignment ? { approvedTerrainAlignment } : {}),
         mode: state.mode,
         manifest: WORKSPACE_CURRENT_MANIFEST,
         runtimeCapabilities: WORKSPACE_CURRENT_CAPABILITIES,
@@ -1722,6 +1769,15 @@ async function main(): Promise<void> {
         code: generated.code,
         warnings,
         source: activeConfig.source,
+        sensitiveSourceIncluded: typeof activeConfig.source === "string" &&
+          isPotentiallySensitiveSource(activeConfig.source) && state.includeExactSource,
+        appliedStatus: {
+          revision: generated.appliedRevision,
+          pendingChanges: generated.pendingChanges || isLoading ||
+            hasUnappliedSettings(activeConfig, pendingConfig) ||
+            (workbenchControls?.getValidationErrors().length ?? 0) > 0,
+          ...(generated.appliedAt === undefined ? {} : { appliedAt: generated.appliedAt }),
+        },
       });
     } catch (error) {
       integrationCodePanel.setContent({
@@ -1870,6 +1926,7 @@ async function main(): Promise<void> {
         control.disabled = isLoading;
       });
     updateTerrainAlignmentUi();
+    refreshIntegrationCode();
   };
   const showConfigurationError = (message: string): void => {
     configurationError = message;
@@ -1958,6 +2015,7 @@ async function main(): Promise<void> {
     lastError = safeErrorMessage(error);
     showConfigurationError(lastError);
     updateStatus(lastError, "error");
+    refreshIntegrationCode();
     debugPanel.refresh();
   };
   const reportProbeFailure = (
@@ -2370,17 +2428,37 @@ async function main(): Promise<void> {
       return;
     }
     const effectiveOffset = estimate.effectiveProposedHeightOffsetMeters!;
+    const previousActiveConfig = activeConfig;
+    const approvedProvenance = {
+      source: activeConfig.source,
+      terrainUrl: activeConfig.terrainUrl,
+      finalHeightOffsetMeters: effectiveOffset,
+      residualMeters: estimate.proposedOffsetMeters!,
+    };
     terrainEstimate = undefined;
     void runSession(
       { ...activeConfig, heightOffsetMeters: effectiveOffset },
       "alignment",
       applyTrace,
-    );
+    ).then(() => {
+      if (
+        activeConfig !== previousActiveConfig &&
+        activeConfig.renderer === "cesium" &&
+        sameSource(activeConfig.source, approvedProvenance.source) &&
+        activeConfig.terrainUrl === approvedProvenance.terrainUrl &&
+        activeConfig.heightOffsetMeters === approvedProvenance.finalHeightOffsetMeters
+      ) {
+        approvedTerrainAlignmentProvenance = approvedProvenance;
+        refreshIntegrationCode();
+      }
+    });
   });
 
   workbenchControls = mountDevViewerControls({
     initialConfig: pendingConfig,
-    onValidationChange: updateConfigurationState,
+    onValidationChange() {
+      updateConfigurationState();
+    },
     sourcePresets: new Map<string, string>([
       ["local-autzen", DEFAULT_COPC_URL],
       ["autzen-remote", AUTZEN_REMOTE_URL],

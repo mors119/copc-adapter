@@ -1,6 +1,7 @@
 import { expect, test } from "./ci-diagnostic-fixtures";
 
 type DevViewerFocusTestApi = {
+  getConfiguration(): { renderer: string };
   getSnapshot():
     | {
         lifecycle: string;
@@ -141,6 +142,7 @@ test("assigns source, runtime health, and dataset analysis to separate tabs", as
 test("generates shared Code tab output from applied workspace configuration", async ({
   page,
 }) => {
+  test.setTimeout(180_000);
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
   await page.goto("/");
@@ -149,8 +151,18 @@ test("generates shared Code tab output from applied workspace configuration", as
     .toBe("ready");
 
   const code = page.locator("#integration-example");
+  const codeSummary = page.locator("#workbench-panel-code .summary-state");
   await expect(code).toContainText("local workspace source; unpublished");
   await expect(code).toContainText("CopcCesiumLayer");
+  await expect(codeSummary).toContainText("up to date");
+  const terrainRecipe = page.locator("#include-terrain-alignment-recipe");
+  await expect(terrainRecipe).toBeVisible();
+  await expect(code).not.toContainText("estimateAndApproveTerrainPlacement");
+  await terrainRecipe.check();
+  await expect(code).toContainText("estimateAndApproveTerrainPlacement");
+  await expect(code).toContainText("window.confirm");
+  await terrainRecipe.uncheck();
+  await expect(code).not.toContainText("estimateAndApproveTerrainPlacement");
   const initialCode = await code.textContent();
 
   const pointSize = page.locator("#point-size-value");
@@ -158,22 +170,24 @@ test("generates shared Code tab output from applied workspace configuration", as
   await pointSize.dispatchEvent("change");
   await page.locator('.schema-control-section[data-section="performance"] summary').click();
   const maxPoints = page.locator("#max-points-value");
-  await maxPoints.fill("500000");
+  await maxPoints.fill("50000");
   await maxPoints.dispatchEvent("change");
 
   await page.locator('.schema-control-section[data-section="streaming"] summary').click();
   const maxNodes = page.locator("#max-nodes-value");
-  await maxNodes.fill("32");
+  await maxNodes.fill("8");
   await maxNodes.dispatchEvent("change");
   await expect(code).toHaveText(initialCode ?? "");
+  await expect(codeSummary).toContainText("pending edits");
 
   await page.locator("#apply-settings").click();
   await expect
     .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.lifecycle))
     .toBe("ready");
-  await expect(code).toContainText("maxNodes: 32");
+  await expect(code).toContainText("maxNodes: 8");
   await expect(code).toContainText("pointSize: 7");
-  await expect(code).toContainText("maxRenderedPoints: 500000");
+  await expect(code).toContainText("maxRenderedPoints: 50000");
+  await expect(codeSummary).toContainText("up to date");
   await expect(page.locator("#copy-code")).toBeVisible();
   await expect(page.locator("#copy-share-link")).toBeVisible();
   await expect(page.locator("#install-guidance-label")).toBeHidden();
@@ -194,8 +208,8 @@ test("generates shared Code tab output from applied workspace configuration", as
   expect(pageErrors).toEqual([]);
   expect(shareLink).toContain("backend=copc-js");
   expect(shareLink).toContain("pointSize=7");
-  expect(shareLink).toContain("maxNodes=32");
-  expect(shareLink).toContain("maxRenderedPoints=500000");
+  expect(shareLink).toContain("maxNodes=8");
+  expect(shareLink).toContain("maxRenderedPoints=50000");
   expect(shareLink).not.toContain("source=");
 
   await page.goto(shareLink ?? "/");
@@ -203,9 +217,44 @@ test("generates shared Code tab output from applied workspace configuration", as
     .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.lifecycle))
     .toBe("ready");
   await expect(page.locator("#point-size-value")).toHaveValue("7");
-  await expect(page.locator("#max-nodes-value")).toHaveValue("32");
-  await expect(page.locator("#max-points-value")).toHaveValue("500000");
-  await expect(page.locator("#integration-example")).toContainText("maxRenderedPoints: 500000");
+  await expect(page.locator("#max-nodes-value")).toHaveValue("8");
+  await expect(page.locator("#max-points-value")).toHaveValue("50000");
+  await expect(page.locator("#integration-example")).toContainText("maxRenderedPoints: 50000");
+
+  const rendererGroup = page.getByRole("radiogroup", { name: "Renderer", exact: true });
+  await rendererGroup.getByRole("radio", { name: "Three.js" }).click();
+  await expect(codeSummary).toContainText("pending edits");
+  await expect(code).toContainText("CopcCesiumLayer");
+  await page.locator("#apply-settings").click();
+  await expect
+    .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getConfiguration().renderer))
+    .toBe("three");
+  await expect(code).toContainText("CopcThreeLayer");
+  await expect(code).not.toContainText("CopcCesiumLayer");
+  await expect(codeSummary).toContainText("up to date");
+  expect(pageErrors).toEqual([]);
+});
+
+test("keeps the last successful snippet when applying an unreachable source fails", async ({
+  page,
+}) => {
+  await page.route("https://failed.example/**", (route) => route.abort());
+  await page.goto("/");
+  await expect
+    .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.lifecycle))
+    .toBe("ready");
+
+  const code = page.locator("#integration-example");
+  const previousCode = await code.textContent();
+  const codeSummary = page.locator("#workbench-panel-code .summary-state");
+  await page.locator("#source-selection").selectOption("custom");
+  await page.locator("#custom-source-url").fill("https://failed.example/broken.copc.laz");
+  await page.locator("#load-source").click();
+
+  await expect(page.locator("#configuration-error")).toBeVisible();
+  await expect(code).toHaveText(previousCode ?? "");
+  await expect(codeSummary).toContainText("pending edits");
+  await expect(page.locator("#copy-code")).toBeEnabled();
 });
 
 test("applies Focus Lens to the active Cesium session through its runtime operation", async ({
