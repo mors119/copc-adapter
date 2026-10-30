@@ -5,12 +5,14 @@ import type {
 } from "./types.ts";
 
 const NPM_0_6 = "npm@0.6.0";
+const NPM_0_7_1 = "npm@0.7.1";
 const WORKSPACE_0_7 = "workspace@0.7.1";
 const BOTH_RENDERERS: readonly SchemaRenderer[] = ["cesium", "three"];
 
 function valueDefault<const Value>(value: Value) {
   return {
     [NPM_0_6]: { kind: "value", value },
+    [NPM_0_7_1]: { kind: "value", value },
     [WORKSPACE_0_7]: { kind: "value", value },
   } as const satisfies Readonly<Record<string, SchemaDefault>>;
 }
@@ -18,6 +20,7 @@ function valueDefault<const Value>(value: Value) {
 function omittedDefault() {
   return {
     [NPM_0_6]: { kind: "omitted" },
+    [NPM_0_7_1]: { kind: "omitted" },
     [WORKSPACE_0_7]: { kind: "omitted" },
   } as const satisfies Readonly<Record<string, SchemaDefault>>;
 }

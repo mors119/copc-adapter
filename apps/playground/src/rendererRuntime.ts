@@ -9,6 +9,8 @@ import type {
   CopcMetadata,
   CopcPointInspection,
   RefinementFocus,
+  TerrainHeightAlignmentEstimate,
+  TerrainHeightAlignmentOptions,
 } from "@frillab/copc-adapter/cesium";
 import type {
   CopcThreeLayer,
@@ -31,8 +33,8 @@ import {
   resolveSchemaBackendSelection,
 } from "../../shared/config/index.ts";
 import {
-  NPM_0_6_CAPABILITIES,
-  NPM_0_6_MANIFEST,
+  PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES,
+  NPM_0_7_1_MANIFEST,
 } from "../../shared/schema/index.ts";
 import type { PointScreenPosition } from "../../shared/inspection/PointPopover.ts";
 
@@ -62,6 +64,15 @@ export type PlaygroundRuntime = {
   getDiagnostics(): PlaygroundLayerDiagnostics;
   getLatestRenderIntervalMs(): number | undefined;
   getSelectedPoint(): CopcPointInspection | undefined;
+  readonly terrainProviderAvailable?: boolean;
+  readonly terrainSourceStatus?: string;
+  estimateTerrainHeightAlignment?(
+    anchor: CopcPointInspection,
+    options?: TerrainHeightAlignmentOptions,
+  ): Promise<TerrainHeightAlignmentEstimate>;
+  isTerrainHeightAlignmentEstimateCurrent?(
+    estimate: TerrainHeightAlignmentEstimate,
+  ): boolean;
   getMetadata(): CopcMetadata | undefined;
   /** Present only for the public Cesium runtime style API. */
   getStyle?(): CopcCesiumPointStyle;
@@ -83,6 +94,7 @@ export type PlaygroundRuntimeOptions = WorkbenchLayerConfig & {
   readonly renderer: PlaygroundRenderer;
   readonly source: PlaygroundSource;
   readonly sourceName: string;
+  readonly terrainUrl: string;
   readonly classificationFilter?: CopcClassificationFilter;
   readonly container: HTMLElement;
   readonly onPointPicked: (point: CopcPointInspection | undefined) => void;
@@ -111,7 +123,24 @@ type CesiumLayer = Pick<
   | "zoomTo"
   | "boundingSphere"
   | "setRefinementFocus"
+  | "estimateTerrainHeightAlignment"
+  | "isTerrainHeightAlignmentEstimateCurrent"
 >;
+
+function safeTerrainSourceLabel(source: string): string {
+  try {
+    const url = new URL(source, globalThis.location?.href ?? "http://localhost/");
+    return `${url.hostname}${url.pathname}`;
+  } catch {
+    return "configured Terrain provider";
+  }
+}
+
+function getCesiumTerrainProviderUrl(source: string, baseUrl: string): string {
+  const url = new URL(source, baseUrl);
+  url.pathname = url.pathname.replace(/\/layer\.json\/?$/i, "") || "/";
+  return url.toString();
+}
 
 export type CesiumLayerFactory = (
   options: CopcCesiumLayerOptions,
@@ -382,9 +411,9 @@ export async function createPlaygroundRuntime(
     "source.url": options.source,
   });
   const applicationPlan = buildSchemaApplicationPlan(configurationValues, {
-    manifest: NPM_0_6_MANIFEST,
+    manifest: NPM_0_7_1_MANIFEST,
     renderer: options.renderer,
-    runtimeCapabilities: NPM_0_6_CAPABILITIES,
+    runtimeCapabilities: PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES,
   });
 
   if (options.renderer === "cesium") {
@@ -412,6 +441,29 @@ export async function createPlaygroundRuntime(
     viewer.camera.setView({
       destination: Cesium.Cartesian3.fromDegrees(-12, 24, 19_000_000),
     });
+
+    let terrainSourceStatus =
+      "WGS84 ellipsoid only · no real Terrain elevations are available.";
+    let terrainProviderAvailable = false;
+    if (options.terrainUrl.trim()) {
+      try {
+        const terrainProvider = await Cesium.CesiumTerrainProvider.fromUrl(
+          getCesiumTerrainProviderUrl(options.terrainUrl, window.location.href),
+        );
+        if (!options.isCurrent()) {
+          viewer.destroy();
+          return undefined;
+        }
+        viewer.terrainProvider = terrainProvider;
+        terrainProviderAvailable = terrainProvider.availability !== undefined;
+        terrainSourceStatus = terrainProviderAvailable
+          ? `Real Cesium Terrain · ${safeTerrainSourceLabel(options.terrainUrl)}`
+          : "Terrain provider loaded without tile availability; the public sampler cannot use it.";
+      } catch {
+        terrainSourceStatus =
+          "Terrain unavailable · the viewer is using the WGS84 ellipsoid. Check provider URL, network access, and CORS.";
+      }
+    }
 
     let selectedPoint: CopcPointInspection | undefined;
     const backend = resolveSchemaBackendSelection(
@@ -498,11 +550,22 @@ export async function createPlaygroundRuntime(
     return {
       renderer: "cesium",
       ready,
+      terrainProviderAvailable,
+      terrainSourceStatus,
       zoomTo: () => destroyed ? Promise.resolve(false) : layer.zoomTo(),
       getSnapshot: () => getDiagnostics().snapshot,
       getDiagnostics,
       getLatestRenderIntervalMs: () => latestRenderIntervalMs,
       getSelectedPoint: () => layer.getSelectedPoint(),
+      estimateTerrainHeightAlignment: (anchor, estimateOptions = {}) =>
+        layer.estimateTerrainHeightAlignment(anchor, {
+          ...estimateOptions,
+          terrainSourceId: options.terrainUrl.trim()
+            ? safeTerrainSourceLabel(options.terrainUrl)
+            : undefined,
+        }),
+      isTerrainHeightAlignmentEstimateCurrent: (estimate) =>
+        layer.isTerrainHeightAlignmentEstimateCurrent(estimate),
       getMetadata: () => layer.getMetadata(),
       getStyle: () => layer.getStyle(),
       setStyle: (update) => layer.setStyle(update),

@@ -25,10 +25,10 @@ export const ACTION_SCHEMA = [
   {
     id: "coordinates.terrainAlignment",
     label: "Estimate Terrain Alignment",
-    description: "Compare one selected point against the configured Cesium Terrain provider.",
+    description: "Compare validated ground anchors against the configured Cesium Terrain provider, preview the proposed visual offset, and apply it only with approval.",
     section: "coordinates",
     control: "terrain-alignment",
-    renderers: ["cesium"],
+    renderers: ["cesium", "three"],
     requiredCapabilities: ["cesium.terrain-alignment"],
     stability: "stable",
   },

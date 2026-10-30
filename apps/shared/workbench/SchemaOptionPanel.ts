@@ -48,6 +48,10 @@ export type SchemaOptionPanelOptions = {
     options: SchemaSpecialControlOptions,
   ) => SchemaSpecialControl | undefined;
   readonly onAction?: (action: SchemaActionDefinition) => void;
+  /** Replace a generic action button with its reusable command UI. */
+  readonly renderAction?: (
+    action: SchemaActionDefinition,
+  ) => SchemaSpecialControl | undefined;
   readonly actionSections?: readonly SchemaSection[];
   /** Host-owned workflows can sit beside the schema-generated options. */
   readonly excludeOptionIds?: readonly string[];
@@ -391,6 +395,10 @@ export function mountSchemaOptionPanel(options: SchemaOptionPanelOptions): Schem
   const mounted = new Map<string, MountedOption>();
   const invalidEditErrors = new Map<string, readonly string[]>();
   const actionButtons: Array<{ action: SchemaActionDefinition; button: HTMLButtonElement }> = [];
+  const actionControls: Array<{
+    readonly action: SchemaActionDefinition;
+    readonly control: SchemaSpecialControl;
+  }> = [];
   const choiceOverrides = new Map<string, readonly UiSegmentOption<string>[]>();
   let context: CapabilityContext = { ...options.context, values: options.values };
   let values = options.values;
@@ -513,6 +521,12 @@ export function mountSchemaOptionPanel(options: SchemaOptionPanelOptions): Schem
       section.append(summary);
       sections.set(action.section, section);
     }
+    const customControl = options.renderAction?.(action);
+    if (customControl) {
+      actionControls.push({ action, control: customControl });
+      section.append(customControl.element);
+      continue;
+    }
     if (!options.onAction) continue;
     const button = element("button", "schema-action");
     button.type = "button";
@@ -589,6 +603,10 @@ export function mountSchemaOptionPanel(options: SchemaOptionPanelOptions): Schem
     for (const { action, button } of actionButtons) {
       button.disabled = !getAvailableActions(context).some(({ id }) => id === action.id);
     }
+    for (const { action, control } of actionControls) {
+      const available = getAvailableActions(context).some(({ id }) => id === action.id);
+      control.element.hidden = !available;
+    }
     if (clearedHiddenEdit) options.onValidationChange?.();
   };
   refresh();
@@ -625,6 +643,7 @@ export function mountSchemaOptionPanel(options: SchemaOptionPanelOptions): Schem
     destroy() {
       for (const control of mounted.values()) control.clearListeners();
       for (const { button } of actionButtons) button.remove();
+      for (const { control } of actionControls) control.destroy?.();
       options.target.replaceChildren();
       mounted.clear();
       sections.clear();

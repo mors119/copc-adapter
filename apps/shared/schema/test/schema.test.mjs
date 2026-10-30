@@ -16,6 +16,8 @@ import {
   isKnownManifest,
   NPM_0_6_MANIFEST,
   NPM_0_6_CAPABILITIES,
+  NPM_0_7_1_MANIFEST,
+  PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES,
   OPTION_SCHEMA,
   resolveOptionDefault,
   serializeSchemaValues,
@@ -159,7 +161,7 @@ test("schema integrity: IDs, mappings, defaults, controls, references, and capab
       }
     }
     for (const profile of Object.keys(option.defaults)) {
-      assert.ok(["npm@0.6.0", "workspace@0.7.1"].includes(profile), option.id + " default profile " + profile);
+      assert.ok(["npm@0.6.0", "npm@0.7.1", "workspace@0.7.1"].includes(profile), option.id + " default profile " + profile);
       const entry = option.defaults[profile];
       assert.ok(["value", "omitted", "derived"].includes(entry.kind), option.id + " default kind");
       if (entry.kind === "value") assert.deepEqual(validateOptionValue(option, entry.value), [], option.id + " default value");
@@ -175,21 +177,30 @@ test("schema integrity: IDs, mappings, defaults, controls, references, and capab
   }
   assert.deepEqual(WORKSPACE_CURRENT_MANIFEST.supportedOptionIds, ids);
   assert.equal(new Set(NPM_0_6_MANIFEST.supportedOptionIds).size, NPM_0_6_MANIFEST.supportedOptionIds.length);
+  assert.equal(new Set(NPM_0_7_1_MANIFEST.supportedOptionIds).size, NPM_0_7_1_MANIFEST.supportedOptionIds.length);
   assert.ok(NPM_0_6_MANIFEST.supportedOptionIds.every((id) => ids.includes(id)));
   assert.ok(NPM_0_6_MANIFEST.supportedOptionIds.every((id) => NPM_0_6_MANIFEST.defaults[id]));
+  assert.ok(NPM_0_7_1_MANIFEST.supportedOptionIds.every((id) => NPM_0_7_1_MANIFEST.defaults[id]));
   assert.ok(ids.every((id) => WORKSPACE_CURRENT_MANIFEST.defaults[id]));
   assert.equal(new Set(NPM_0_6_MANIFEST.capabilities).size, NPM_0_6_MANIFEST.capabilities.length);
+  assert.equal(new Set(NPM_0_7_1_MANIFEST.capabilities).size, NPM_0_7_1_MANIFEST.capabilities.length);
   assert.equal(new Set(WORKSPACE_CURRENT_MANIFEST.capabilities).size, WORKSPACE_CURRENT_MANIFEST.capabilities.length);
   assert.ok(!NPM_0_6_MANIFEST.supportedOptionIds.includes("coordinates.verticalTransform"));
   assert.ok(!NPM_0_6_MANIFEST.capabilities.includes("vertical.gtx-grid"));
+  assert.ok(!NPM_0_6_MANIFEST.capabilities.includes("cesium.terrain-alignment"));
+  assert.ok(NPM_0_7_1_MANIFEST.capabilities.includes("cesium.terrain-alignment"));
+  assert.ok(NPM_0_7_1_MANIFEST.capabilities.includes("vertical.gtx-grid"));
+  assert.ok(!PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES.includes("vertical.gtx-grid"));
   assert.ok(WORKSPACE_CURRENT_MANIFEST.supportedOptionIds.includes("coordinates.verticalTransform"));
   assert.ok(WORKSPACE_CURRENT_MANIFEST.capabilities.includes("vertical.gtx-grid"));
 });
 
 test("public release and workspace profiles resolve only known package versions", () => {
   assert.equal(isKnownManifest(NPM_0_6_MANIFEST), true);
+  assert.equal(isKnownManifest(NPM_0_7_1_MANIFEST), true);
   assert.equal(isKnownManifest(WORKSPACE_CURRENT_MANIFEST), true);
   assert.equal(getAdapterManifest("npm", "0.6.0"), NPM_0_6_MANIFEST);
+  assert.equal(getAdapterManifest("npm", "0.7.1"), NPM_0_7_1_MANIFEST);
   assert.equal(
     getAdapterManifest("workspace", "0.7.1"),
     WORKSPACE_CURRENT_MANIFEST,
@@ -219,12 +230,12 @@ test("package profiles match the actual pinned and workspace package versions", 
 
   assert.equal(
     playground.devDependencies["@frillab/copc-adapter"],
-    NPM_0_6_MANIFEST.version,
+    NPM_0_7_1_MANIFEST.version,
   );
   assert.equal(workspace.version, WORKSPACE_CURRENT_MANIFEST.version);
   assert.equal(
     playgroundLock.packages["node_modules/@frillab/copc-adapter"].version,
-    NPM_0_6_MANIFEST.version,
+    NPM_0_7_1_MANIFEST.version,
   );
   assert.match(
     playgroundLock.packages["node_modules/@frillab/copc-adapter"].resolved,
@@ -236,8 +247,8 @@ test("package profiles match the actual pinned and workspace package versions", 
     "../../packages",
   );
   assert.equal(devViewerLock.packages["node_modules/@frillab/copc-adapter"].link, true);
-  for (const id of NPM_0_6_MANIFEST.supportedOptionIds) {
-    assert.ok(NPM_0_6_MANIFEST.defaults[id], "missing npm default manifest entry for " + id);
+  for (const id of NPM_0_7_1_MANIFEST.supportedOptionIds) {
+    assert.ok(NPM_0_7_1_MANIFEST.defaults[id], "missing npm default manifest entry for " + id);
   }
 });
 
@@ -352,6 +363,10 @@ test("capability projection filters renderer, release support, runtime capabilit
     ["source.probe", "source.load"],
   );
   assert.deepEqual(
+    getAvailableActions({ manifest: NPM_0_7_1_MANIFEST, renderer: "cesium" }).map(({ id }) => id),
+    ["source.probe", "source.load", "coordinates.terrainAlignment"],
+  );
+  assert.deepEqual(
     getAvailableActions({
       manifest: WORKSPACE_CURRENT_MANIFEST,
       renderer: "cesium",
@@ -363,6 +378,10 @@ test("capability projection filters renderer, release support, runtime capabilit
       ({ id }) => id,
     ),
     ["source.probe", "source.load"],
+  );
+  assert.deepEqual(
+    getAvailableActions({ manifest: NPM_0_7_1_MANIFEST, renderer: "three" }).map(({ id }) => id),
+    ["source.probe", "source.load", "coordinates.terrainAlignment"],
   );
 });
 
