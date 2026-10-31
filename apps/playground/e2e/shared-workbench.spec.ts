@@ -153,7 +153,7 @@ test("retains Cesium-only schema options across renderer changes without applyin
   await expect(pointSizeMode).toHaveValue("attenuated");
 });
 
-test("stashes options excluded by the installed package profile during renderer changes", async ({
+test("keeps options supported by the installed package profile across renderer changes", async ({
   page,
 }) => {
   await page.goto("./");
@@ -175,11 +175,10 @@ test("stashes options excluded by the installed package profile during renderer 
 
   await rendererGroup.getByRole("radio", { name: "Cesium" }).click();
   await expect.poll(() => page.evaluate(() =>
-    Object.hasOwn(
-      window.__COPC_PLAYGROUND_TEST__?.getPendingConfig().schemaOptionValues ?? {},
-      "streaming.maxConcurrentNodeLoads",
-    ),
-  )).toBe(false);
+    window.__COPC_PLAYGROUND_TEST__?.getPendingConfig().schemaOptionValues?.[
+      "streaming.maxConcurrentNodeLoads"
+    ],
+  )).toBe(7);
   await expect(page.locator("#config-validation")).not.toContainText("Concurrent Node Loads");
 
   await rendererGroup.getByRole("radio", { name: "Three.js" }).click();
