@@ -19,6 +19,7 @@ test("Cesium layer opacity accepts endpoints and rejects invalid values", () => 
       opacity,
     });
     layer.setOpacity(opacity);
+    layer.setOpacity(undefined);
     layer.destroy();
   }
 

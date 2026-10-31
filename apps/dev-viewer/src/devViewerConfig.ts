@@ -96,6 +96,10 @@ function serializedSchemaKeys(): ReadonlySet<string> {
         Object.values(serialization.keys).forEach((key) => keys.add(key));
         keys.add(serialization.clearKey);
         break;
+      case "clipping-volume":
+        keys.add(serialization.key);
+        keys.add(serialization.clearKey);
+        break;
     }
   }
   return keys;

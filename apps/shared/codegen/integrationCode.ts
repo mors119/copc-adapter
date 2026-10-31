@@ -14,6 +14,7 @@ import {
   resolveOptionDefault,
 } from "../schema/capabilities.ts";
 import { isOptionConditionMet, OPTION_SCHEMA } from "../schema/options.ts";
+import { NPM_0_7_1_OPACITY_RESET_VALUES } from "../schema/manifests.ts";
 import type {
   AdapterManifest,
   CapabilityContext,
@@ -511,6 +512,17 @@ function buildRuntimeLines(
       }
       if (Object.keys(patch).length === 0) continue;
       argument = patch;
+    }
+    if (
+      operation.method === "setOpacity" &&
+      operation.optionIds.includes("rendering.opacity") &&
+      argument === undefined &&
+      context.manifest.origin === "npm" &&
+      context.manifest.version === "0.7.1"
+    ) {
+      // The published 0.7.1 setter accepts only a number. Its built-in styles
+      // use opaque point colors, with Three's legacy material opacity at 0.9.
+      argument = NPM_0_7_1_OPACITY_RESET_VALUES[plan.renderer];
     }
     const renderedArgument = operation.kind === "patch" && isRecord(argument)
       ? runtimePatchLiteral(argument)

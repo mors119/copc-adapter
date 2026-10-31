@@ -623,11 +623,11 @@ export class ThreeLayerController {
   }
 
   /** Update the layer's alpha without refetching or decoding point data. */
-  setOpacity(opacity: number): void {
+  setOpacity(opacity: number | undefined): void {
     if (this.isDestroyed()) {
       throw new Error("CopcThreeLayer has been destroyed");
     }
-    assertCopcLayerOpacity(opacity);
+    if (opacity !== undefined) assertCopcLayerOpacity(opacity);
     if (!this.pointRenderer.setOpacity) {
       throw new TypeError(
         "Configured Three.js point renderer does not support layer opacity",

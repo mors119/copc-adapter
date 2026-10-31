@@ -317,22 +317,22 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
     if (this.parent) this.parent.show = show && this.opacity !== 0;
   }
 
-  /** Update the shared shader uniform without replacing node geometry. */
-  setOpacity(opacity: number): void {
-    assertCopcLayerOpacity(opacity);
-    this.opacity = opacity;
-    this.opacityOverride = true;
+  /** Update layer alpha, or restore the original per-point color alpha. */
+  setOpacity(opacity: number | undefined): void {
+    if (opacity !== undefined) assertCopcLayerOpacity(opacity);
+    this.opacity = opacity ?? 1;
+    this.opacityOverride = opacity !== undefined;
     if (this.opacityMaterial) {
-      this.opacityMaterial.uniforms.u_layerOpacity = opacity;
-      this.opacityMaterial.uniforms.u_overridePointAlpha = 1;
+      this.opacityMaterial.uniforms.u_layerOpacity = this.opacity;
+      this.opacityMaterial.uniforms.u_overridePointAlpha = this.opacityOverride ? 1 : 0;
     }
     for (const node of this.nodes.values()) {
       if (!node.clippingMaterial) continue;
-      node.clippingMaterial.uniforms.u_layerOpacity = opacity;
-      node.clippingMaterial.uniforms.u_overridePointAlpha = 1;
+      node.clippingMaterial.uniforms.u_layerOpacity = this.opacity;
+      node.clippingMaterial.uniforms.u_overridePointAlpha = this.opacityOverride ? 1 : 0;
     }
     if (this.parent) {
-      this.parent.show = this.showState && opacity !== 0;
+      this.parent.show = this.showState && this.opacity !== 0;
     }
   }
 
@@ -432,7 +432,6 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
           points,
           colorOptions,
           undefined,
-          this.opacityOverride ? 1 : undefined,
         )
       : prepareCopcPointColorBuffer(points, colorOptions);
     const pointSizes = new Float32Array(points.pointCount);

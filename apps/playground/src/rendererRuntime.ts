@@ -25,7 +25,6 @@ import {
   type WorkbenchRenderer,
 } from "../../shared/workbench-config";
 import {
-  applySchemaRuntimeOperations,
   buildSchemaApplicationPlan,
   materializeWorkbenchConstructorOptions,
   normalizeWorkbenchOptionValues,
@@ -36,6 +35,10 @@ import {
   NPM_0_7_1_MANIFEST,
 } from "../../shared/schema/index.ts";
 import type { PointScreenPosition } from "../../shared/inspection/PointPopover.ts";
+import {
+  applyNpmRuntimeOperations,
+  setNpmRuntimeOpacity,
+} from "./npmRuntimeOperations.ts";
 
 export type PlaygroundRenderer = WorkbenchRenderer;
 export type PlaygroundBackend = WorkbenchLayerConfig["backend"];
@@ -68,6 +71,11 @@ export type PlaygroundRuntime = {
   getStyle?(): CopcCesiumPointStyle;
   /** Present only for the public Cesium runtime style API. */
   setStyle?(update: CopcCesiumPointStyleUpdate): void;
+  setOpacity(opacity: number | undefined): void;
+  /** Present only for the public Cesium clipping API. */
+  setClippingVolume?(
+    volume: Parameters<CopcCesiumLayer["setClippingVolume"]>[0],
+  ): void;
   setCameraView(view: PlaygroundCameraView): Promise<void>;
   getCameraState(): PlaygroundCameraState;
   setCameraState(state: PlaygroundCameraState): void;
@@ -109,6 +117,8 @@ type CesiumLayer = Pick<
   | "getPointCacheDiagnostics"
   | "getStyle"
   | "setStyle"
+  | "setOpacity"
+  | "setClippingVolume"
   | "zoomTo"
   | "boundingSphere"
   | "setRefinementFocus"
@@ -436,7 +446,11 @@ export async function createPlaygroundRuntime(
     const layer = layerFactory
       ? layerFactory(layerOptions)
       : new adapter.CopcCesiumLayer(layerOptions);
-    await applySchemaRuntimeOperations(layer, applicationPlan.runtimeOperations);
+    await applyNpmRuntimeOperations(
+      layer,
+      "cesium",
+      applicationPlan.runtimeOperations,
+    );
     layer.attachTo(viewer);
     let destroyed = false;
     let lastPostRenderAt: number | undefined;
@@ -507,6 +521,8 @@ export async function createPlaygroundRuntime(
       getMetadata: () => layer.getMetadata(),
       getStyle: () => layer.getStyle(),
       setStyle: (update) => layer.setStyle(update),
+      setOpacity: (opacity) => setNpmRuntimeOpacity(layer, "cesium", opacity),
+      setClippingVolume: (volume) => layer.setClippingVolume(volume),
       async setCameraView(view) {
         if (destroyed) return;
         const radius = layer.boundingSphere?.radius ?? 1_000;
@@ -652,6 +668,11 @@ export async function createPlaygroundRuntime(
     },
   } as unknown as CopcThreeLayerOptions;
   const layer = new adapter.CopcThreeLayer(layerOptions);
+  await applyNpmRuntimeOperations(
+    layer,
+    "three",
+    applicationPlan.runtimeOperations,
+  );
   layer.addEventListener("error", (event) => {
     options.onError(
       event.error instanceof Error ? event.error.message : String(event.error),
@@ -781,6 +802,7 @@ export async function createPlaygroundRuntime(
     getLatestRenderIntervalMs: () => latestRenderIntervalMs,
     getSelectedPoint: () => layer.getSelectedPoint(),
     getMetadata: () => layer.getMetadata(),
+    setOpacity: (opacity) => setNpmRuntimeOpacity(layer, "three", opacity),
     async setCameraView(view) {
       if (destroyed) return;
       const distance =

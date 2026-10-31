@@ -149,6 +149,40 @@ test("runtime color changes preserve pending non-color schema edits", () => {
   );
 });
 
+test("opacity and clipping stay runtime-only, but the applied settings carry to a source switch", () => {
+  const box = {
+    type: "box",
+    coordinateSystem: "wgs84-ecef-meters",
+    minimum: [-1_000, -2_000, -3_000],
+    maximum: [1_000, 2_000, 3_000],
+  };
+  const applied = createConfig({
+    schemaOptionValues: {
+      "rendering.opacity": 0.6,
+      "filtering.cesiumClippingVolume": box,
+    },
+  });
+  const runtimeEdit = createConfig({
+    ...applied,
+    schemaOptionValues: {
+      "rendering.opacity": 0.25,
+      "filtering.cesiumClippingVolume": undefined,
+    },
+  });
+  assert.equal(hasUnappliedSettings(applied, runtimeEdit), true);
+  assert.equal(needsSessionRecreation(applied, runtimeEdit, true, true), false);
+
+  const switchedSource = createConfig({
+    ...runtimeEdit,
+    source: "https://example.test/chicago.copc.laz",
+  });
+  assert.equal(needsSessionRecreation(runtimeEdit, switchedSource, true, true), true);
+  const switchedValues = toWorkbenchOptionValues(switchedSource);
+  assert.equal(switchedValues["rendering.opacity"], 0.25);
+  assert.equal(Object.hasOwn(switchedValues, "filtering.cesiumClippingVolume"), true);
+  assert.equal(switchedValues["filtering.cesiumClippingVolume"], undefined);
+});
+
 test("only recreates a local File session for applicable constructor changes", () => {
   const localConfig = createConfig({
     source: new File(["COPC"], "local.copc.laz"),

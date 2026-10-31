@@ -76,6 +76,8 @@ function serializationKeys(option: SchemaOption): readonly string[] {
       ];
     case "focus-lens":
       return [...Object.values(serialization.keys), serialization.clearKey];
+    case "clipping-volume":
+      return [serialization.key, serialization.clearKey];
     case "none":
       return [];
   }
@@ -115,6 +117,8 @@ function appendOption(
 
   if (value === undefined) {
     if (serialization.kind === "focus-lens") {
+      params.set(serialization.clearKey, "true");
+    } else if (serialization.kind === "clipping-volume") {
       params.set(serialization.clearKey, "true");
     }
     return;
@@ -190,6 +194,9 @@ function appendOption(
       params.set(serialization.keys.detailBias, String(focus.detailBias));
       return;
     }
+    case "clipping-volume":
+      params.set(serialization.key, JSON.stringify(value));
+      return;
   }
 }
 
@@ -268,6 +275,34 @@ function parseCandidate(
       return { present: true, valid: true, candidate: JSON.parse(raw.value) };
     } catch {
       return { present: true, valid: true, candidate: raw.value };
+    }
+  }
+
+  if (serialization.kind === "clipping-volume") {
+    const raw = readParameter(params, serialization.key, option.label, warnings);
+    const clear = readParameter(params, serialization.clearKey, option.label, warnings);
+    if (!raw.present && !clear.present) return { present: false, valid: true };
+    if ([raw, clear].some((part) => part.present && !part.valid)) {
+      return { present: true, valid: false };
+    }
+    if (clear.present) {
+      if (clear.valid && clear.value === "true" && !raw.present) {
+        return { present: true, valid: true, candidate: undefined };
+      }
+      warnings.push("Conflicting or invalid " + option.label + " clear marker; value ignored.");
+      return { present: true, valid: false };
+    }
+    if (!raw.present) return { present: false, valid: true };
+    if (!raw.valid) return { present: true, valid: false };
+    try {
+      return {
+        present: true,
+        valid: true,
+        candidate: JSON.parse(raw.value),
+      };
+    } catch {
+      warnings.push("Malformed " + option.label + " share state; value ignored.");
+      return { present: true, valid: false };
     }
   }
 

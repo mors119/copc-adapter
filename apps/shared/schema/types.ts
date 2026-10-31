@@ -9,6 +9,26 @@ export type SchemaFocusLens = {
   readonly detailBias: number;
 };
 
+/** WGS 84 ECEF XYZ coordinate in metres. */
+export type SchemaEcefPoint = readonly [number, number, number];
+
+/** Public Cesium clipping input, expressed only in WGS 84 ECEF metres. */
+export type SchemaClippingVolume =
+  | {
+      readonly type: "planes";
+      readonly coordinateSystem: "wgs84-ecef-meters";
+      readonly planes: readonly {
+        readonly normal: SchemaEcefPoint;
+        readonly point: SchemaEcefPoint;
+      }[];
+    }
+  | {
+      readonly type: "box";
+      readonly coordinateSystem: "wgs84-ecef-meters";
+      readonly minimum: SchemaEcefPoint;
+      readonly maximum: SchemaEcefPoint;
+    };
+
 /** Public Cesium style filter shape accepted by `setStyle()`. */
 export type SchemaClassificationFilter = {
   readonly include?: readonly number[];
@@ -87,6 +107,7 @@ export type SchemaValueType =
   | "dimension-style"
   | "dimension-filter"
   | "focus-lens"
+  | "clipping-volume"
   | "vertical-grid";
 
 /** Control renderers registered by the shared Workbench. */
@@ -103,6 +124,8 @@ export type SchemaControl =
   | "dimension-style"
   | "dimension-filter"
   | "focus-lens"
+  | "opacity"
+  | "clipping-volume"
   | "vertical-grid"
   | "cesium-renderer"
   | "action"
@@ -153,6 +176,10 @@ export type SchemaValidation =
       readonly kind: "focus-lens";
     }
   | {
+      readonly kind: "clipping-volume";
+      readonly maximumPlanes: 6;
+    }
+  | {
       readonly kind: "vertical-grid";
     };
 
@@ -193,6 +220,12 @@ export type SchemaSerialization =
         detailBias: string;
       }>;
       /** Explicit marker for clearing the runtime focus lens. */
+      readonly clearKey: string;
+    }
+  | {
+      readonly kind: "clipping-volume";
+      readonly key: string;
+      /** Explicit marker for clearing the active volume. */
       readonly clearKey: string;
     }
   | {
@@ -276,6 +309,10 @@ export type SchemaOption = {
   readonly condition?: SchemaCondition;
   /** Unlike a visibility condition, this condition makes the value unsupported. */
   readonly availabilityCondition?: SchemaCondition;
+  /** Explanation shown when a declared option is unavailable in this host. */
+  readonly packageUnavailableMessage?: string;
+  /** Explanation shown when the selected renderer cannot apply this option. */
+  readonly rendererUnavailableMessage?: string;
   readonly stability: "stable" | "experimental";
   readonly applyMode:
     | SchemaApplyMode

@@ -10,6 +10,7 @@ import {
   type CopcJsBackendOptions,
   type CopcCesiumPointStyle,
   type CopcCesiumPointStyleUpdate,
+  type CopcCesiumClippingVolume,
   type CopcHierarchyDiagnostics,
   type CopcMetadata,
   type CopcPointInspection,
@@ -197,7 +198,7 @@ type CopcDebugAdapter = {
   getState(): CopcDebugState;
   getStyle(): CopcCesiumPointStyle;
   setStyle(update: CopcCesiumPointStyleUpdate): void;
-  setOpacity(opacity: number): void;
+  setOpacity(opacity: number | undefined): void;
   setRefinementFocus(focus: RefinementFocus | undefined): void;
   getLastError(): string | undefined;
   setCameraHeight(height: number): void;
@@ -292,6 +293,8 @@ type ViewerSession = {
   getPickablePointScreenPosition(): { x: number; y: number } | undefined;
   getStyle(): CopcCesiumPointStyle;
   setStyle?(update: CopcCesiumPointStyleUpdate): void;
+  setOpacity(opacity: number | undefined): void;
+  setClippingVolume?(volume: CopcCesiumClippingVolume | undefined): void;
   setRefinementFocus?(focus: RefinementFocus | undefined): void;
   destroy(): void;
 };
@@ -490,7 +493,7 @@ function installDebugAdapter(
     setStyle(update: CopcCesiumPointStyleUpdate): void {
       layer.setStyle(update);
     },
-    setOpacity(opacity: number): void {
+    setOpacity(opacity: number | undefined): void {
       layer.setOpacity(opacity);
     },
     setRefinementFocus(focus: RefinementFocus | undefined): void {
@@ -1231,6 +1234,8 @@ async function createCesiumSession(
       debugAdapter.getPickablePointScreenPosition(),
     getStyle: () => layer.getStyle(),
     setStyle: (update) => layer.setStyle(update),
+    setOpacity: (opacity) => layer.setOpacity(opacity),
+    setClippingVolume: (volume) => layer.setClippingVolume(volume),
     destroy() {
       if (selectedPoint) {
         selectedPoint = undefined;
@@ -1280,6 +1285,7 @@ function createThreeSession(
     container,
     sourceName: getSafeSourceLabel(config.source, window.location.href),
     layerOptions,
+    runtimeOperations: applicationPlan.runtimeOperations,
     cameraRenderDistance: config.cameraRenderDistance,
     onPointPicked,
     onPointPositionChanged,
@@ -1294,6 +1300,7 @@ function createThreeSession(
     getMetadata: () => viewer.getMetadata(),
     getHierarchyDiagnostics: () => viewer.getHierarchyDiagnostics(),
     getSelectedPoint: () => viewer.getSelectedPoint(),
+    setOpacity: (opacity) => viewer.setOpacity(opacity),
     setCameraPreset(preset) {
       viewer.setCameraPreset(preset);
     },

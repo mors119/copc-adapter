@@ -454,10 +454,10 @@ export class CopcCesiumLayer {
   /**
    * Set uniform alpha for this layer and future streamed nodes without reading or decoding COPC data.
    *
-   * @param opacity Finite alpha in the inclusive range `[0, 1]`.
+   * @param opacity Finite alpha in the inclusive range `[0, 1]`, or `undefined` to restore palette and renderer defaults.
    * @throws If the value is invalid, the layer is destroyed, or the custom renderer does not support opacity.
    */
-  setOpacity(opacity: number): void {
+  setOpacity(opacity: number | undefined): void {
     this.controller.setOpacity(opacity);
   }
 }

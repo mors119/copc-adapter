@@ -160,6 +160,10 @@ test("PointPrimitiveRenderer applies layer opacity to current and future points 
   renderer.setShow(true);
   assert.equal(parent.show, true);
   assert.equal(parent.get(0).get(0).color.alpha, 0.5);
+  renderer.setOpacity(undefined);
+  assert.equal(parent.show, true);
+  assert.ok(Math.abs(parent.get(0).get(0).color.alpha - 0.9) < 1e-6);
+  assert.ok(Math.abs(parent.get(1).get(0).color.alpha - 0.9) < 1e-6);
   renderer.destroy();
 });
 

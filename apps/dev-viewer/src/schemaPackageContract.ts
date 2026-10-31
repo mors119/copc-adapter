@@ -42,9 +42,8 @@ type StreamingCompatibilityExclusions =
   | "refineDistanceMultiplier"
   | "maxRenderedPoints"
   | "maxPointsPerBatch";
-// These stay public for host integration or compatibility but are not ordinary
-// Workbench controls (logging, custom decoder injection, callbacks, the
-// Cesium constructor's attribute-selection policy, and layer-only opacity).
+// This comparison covers schema-emitted constructor paths. Host setup and
+// runtime-setter options are checked through their separate contracts.
 type LayerCompatibilityExclusions =
   | "debug"
   | "decoder"
@@ -59,8 +58,6 @@ type LayerCompatibilityExclusions =
   | "elevationRange"
   | "elevationStyle"
   | "opacity"
-  // Renderer-space clipping uses ECEF planes/boxes and has no structured
-  // Workbench input; keep it as an explicit layer API.
   | "clippingVolume";
 
 // Dev Viewer is compiled against workspace declarations through its tsconfig
@@ -109,6 +106,9 @@ type HasMethod<Type, Key extends PropertyKey> = Key extends keyof Type
   : false;
 type HasKey<Type, Key extends PropertyKey> = Key extends keyof Type ? true : false;
 export type WorkspaceStyleSetterContract = Assert<HasMethod<CesiumLayer, "setStyle">>;
+export type WorkspaceCesiumOpacitySetterContract = Assert<HasMethod<CesiumLayer, "setOpacity">>;
+export type WorkspaceThreeOpacitySetterContract = Assert<HasMethod<ThreeLayer, "setOpacity">>;
+export type WorkspaceCesiumClippingSetterContract = Assert<HasMethod<CesiumLayer, "setClippingVolume">>;
 export type WorkspaceFocusSetterContract = Assert<HasMethod<CesiumLayer, "setRefinementFocus">>;
 type WorkspaceFocusArgument = NonNullable<
   Parameters<CesiumLayer["setRefinementFocus"]>[0]

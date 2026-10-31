@@ -60,7 +60,8 @@ const npm06Capabilities = [
 
 const npm071SupportedOptionIds = [
   ...npm06SupportedOptionIds,
-  "streaming.maxConcurrentNodeLoads",
+  "rendering.opacity",
+  "filtering.cesiumClippingVolume",
   "attributes.attributeLoading",
   "attributes.pointFields",
   "cache.coordinateCacheLayout",
@@ -69,14 +70,24 @@ const npm071SupportedOptionIds = [
 
 const npm071Capabilities = [
   ...npm06Capabilities,
+  "renderer.layer-opacity",
+  "cesium.clipping-volume",
   "cesium.attribute-loading",
   "cesium.point-fields",
   "cache.coordinate-layout",
   "cache.source-coordinate-retention",
 ] as const;
 
+/** Numeric reset values for npm 0.7.1, whose setter cannot clear an override. */
+export const NPM_0_7_1_OPACITY_RESET_VALUES = {
+  cesium: 1,
+  three: 0.9,
+} as const;
+
 const workspaceCapabilities = [
   ...npm06Capabilities,
+  "renderer.layer-opacity",
+  "cesium.clipping-volume",
   "cesium.attribute-loading",
   "cesium.point-fields",
   "cache.coordinate-layout",
@@ -138,7 +149,7 @@ export const NPM_0_6_MANIFEST = createManifest(
   { cesium: ["streaming.maxConcurrentNodeLoads"] },
 );
 
-/** Exact compatibility manifest for the published Playground package with cache policy APIs. */
+/** Exact compatibility manifest for the published Playground package with opacity, clipping, and cache policy APIs. */
 export const NPM_0_7_1_MANIFEST = createManifest(
   "npm",
   "0.7.1",

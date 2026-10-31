@@ -17,7 +17,7 @@ test("uses the shared schema controls and four-tab Workbench shell", async ({
   await page.goto("./");
 
   await expect(page.locator(".workbench-provenance")).toHaveText(
-    /^npm release \d+\.\d+\.\d+ \/ Playground$/,
+    "npm release 0.7.1 / Playground",
   );
   const tabs = page.getByRole("tablist", { name: "Workbench details" });
   await expect(tabs.getByRole("tab")).toHaveText([
@@ -48,6 +48,9 @@ test("uses the shared schema controls and four-tab Workbench shell", async ({
   await expect(page.locator('[data-option-id="style.dimension"]')).toHaveCount(0);
   await expect(page.locator('[data-option-id="style.dimensionFilter"]')).toHaveCount(0);
   await expect(page.getByRole("slider", { name: "Point size" })).toBeVisible();
+  await expect(page.locator("#schema-opacity-slider")).toBeVisible();
+  await page.locator('details[data-section="filtering"] summary').click();
+  await expect(page.locator("#schema-clipping-enabled")).toBeVisible();
   await expect(
     page.locator('.schema-control-section[data-section="streaming"] summary'),
   ).toHaveText("Streaming");
