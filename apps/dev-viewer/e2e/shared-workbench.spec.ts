@@ -152,6 +152,19 @@ test("colors cached Intensity with an editable numeric ramp and inclusive filter
   await expect(code).toContainText("min: 25");
   await expect(code).toContainText("max: 500");
 
+  const attributesSection = page.locator('.schema-control-section[data-section="attributes"]');
+  if (!(await attributesSection.evaluate((element: HTMLDetailsElement) => element.open))) {
+    await attributesSection.locator("summary").click();
+  }
+  await page.locator("#schema-attribute-loading").selectOption("required");
+  await page.locator("#apply-settings").click();
+  await expect
+    .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.lifecycle))
+    .toBe("ready");
+  await expect(code).toContainText("attributeLoading: 'required'");
+  await expect(code).toContainText("colorMode: 'dimension'");
+  await expect(code).toContainText("name: 'Intensity'");
+
   await filter.getByLabel("Inclusive filter maximum").fill("400");
   await filter.getByLabel("Inclusive filter maximum").dispatchEvent("change");
   await colorMode.getByRole("radio", { name: "Elevation" }).click();

@@ -158,12 +158,39 @@ test("retains Cesium-only schema options across renderer changes without applyin
   await expect(pointSizeMode).toHaveValue("attenuated");
 });
 
-test("stashes options excluded by the installed package profile during renderer changes", async ({
+test("stashes renderer-only options and preserves shared options across renderer changes", async ({
   page,
 }) => {
   await page.goto("./");
   const rendererGroup = page.getByRole("radiogroup", { name: "Renderer" });
+  const attributesSection = page.locator('details[data-section="attributes"]');
+  if (!(await attributesSection.evaluate((element: HTMLDetailsElement) => element.open))) {
+    await attributesSection.locator("summary").click();
+  }
+  const attributeLoading = page.locator("#schema-attribute-loading");
+  await attributeLoading.selectOption("required");
+  await expect.poll(() => page.evaluate(() =>
+    window.__COPC_PLAYGROUND_TEST__?.getPendingConfig().schemaOptionValues?.[
+      "attributes.attributeLoading"
+    ],
+  )).toBe("required");
+
   await rendererGroup.getByRole("radio", { name: "Three.js" }).click();
+  await expect.poll(() => page.evaluate(() =>
+    Object.hasOwn(
+      window.__COPC_PLAYGROUND_TEST__?.getPendingConfig().schemaOptionValues ?? {},
+      "attributes.attributeLoading",
+    ),
+  )).toBe(false);
+
+  await rendererGroup.getByRole("radio", { name: "Cesium" }).click();
+  await expect.poll(() => page.evaluate(() =>
+    window.__COPC_PLAYGROUND_TEST__?.getPendingConfig().schemaOptionValues?.[
+      "attributes.attributeLoading"
+    ],
+  )).toBe("required");
+  await expect(attributeLoading).toHaveValue("required");
+
   const streamingSection = page.locator('details[data-section="streaming"]');
   if (!(await streamingSection.evaluate((element: HTMLDetailsElement) => element.open))) {
     await streamingSection.locator("summary").click();
@@ -178,16 +205,14 @@ test("stashes options excluded by the installed package profile during renderer 
     ],
   )).toBe(7);
 
-  await rendererGroup.getByRole("radio", { name: "Cesium" }).click();
-  await expect.poll(() => page.evaluate(() =>
-    Object.hasOwn(
-      window.__COPC_PLAYGROUND_TEST__?.getPendingConfig().schemaOptionValues ?? {},
-      "streaming.maxConcurrentNodeLoads",
-    ),
-  )).toBe(false);
-  await expect(page.locator("#config-validation")).not.toContainText("Concurrent Node Loads");
-
   await rendererGroup.getByRole("radio", { name: "Three.js" }).click();
+  await expect.poll(() => page.evaluate(() =>
+    window.__COPC_PLAYGROUND_TEST__?.getPendingConfig().schemaOptionValues?.[
+      "streaming.maxConcurrentNodeLoads"
+    ],
+  )).toBe(7);
+
+  await rendererGroup.getByRole("radio", { name: "Cesium" }).click();
   await expect.poll(() => page.evaluate(() =>
     window.__COPC_PLAYGROUND_TEST__?.getPendingConfig().schemaOptionValues?.[
       "streaming.maxConcurrentNodeLoads"

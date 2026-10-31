@@ -948,10 +948,30 @@ test("Reset to defaults clears schema-only and inactive renderer settings before
 
   await renderer.getByRole("radio", { name: "Cesium" }).click();
   await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getPendingConfig().schemaOptionValues?.[
+        "streaming.maxConcurrentNodeLoads"
+      ],
+  )).toBe(7);
+
+  const attributesSection = page.locator('details[data-section="attributes"]');
+  if (!(await attributesSection.evaluate((element: HTMLDetailsElement) => element.open))) {
+    await attributesSection.locator("summary").click();
+  }
+  await page.locator("#schema-attribute-loading").selectOption("required");
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getPendingConfig().schemaOptionValues?.[
+        "attributes.attributeLoading"
+      ],
+  )).toBe("required");
+
+  await renderer.getByRole("radio", { name: "Three.js" }).click();
+  await expect.poll(() => page.evaluate(() =>
     Object.hasOwn(
       (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
         .__COPC_PLAYGROUND_TEST__?.getPendingConfig().schemaOptionValues ?? {},
-      "streaming.maxConcurrentNodeLoads",
+      "attributes.attributeLoading",
     ),
   )).toBe(false);
 
@@ -989,6 +1009,7 @@ test("Reset to defaults clears schema-only and inactive renderer settings before
       .__COPC_PLAYGROUND_TEST__?.getMockLayerSettings(),
   );
   expect(settings?.rangeValidation).toBeUndefined();
+  expect(settings?.attributeLoading).toBeUndefined();
   expect(settings?.streaming?.motionLookahead).toBeUndefined();
 });
 

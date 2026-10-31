@@ -236,6 +236,34 @@ test("materializes Cesium pointFields as a Set and replaces the layer for cache 
   );
 });
 
+test("seeds a required-loading Cesium Dimension ramp into constructor and runtime styles", () => {
+  const dimension = {
+    name: "scanAngle",
+    range: { min: -90, max: 90 },
+    palette: [
+      { position: 0, color: { red: 0, green: 0.2, blue: 1, alpha: 0.9 } },
+      { position: 1, color: { red: 1, green: 0.1, blue: 0, alpha: 0.9 } },
+    ],
+  };
+  const plan = buildSchemaApplicationPlan(validValues({
+    "rendering.colorMode": "dimension",
+    "style.dimension": dimension,
+    "attributes.extraDimensions": ["scanAngle"],
+    "attributes.attributeLoading": "required",
+  }), workspaceCesiumContext);
+
+  assert.equal(plan.constructorOptions.attributeLoading, "required");
+  assert.equal(plan.constructorOptions.colorMode, "dimension");
+  assert.deepEqual(plan.constructorOptions.dimension, dimension);
+  assert.deepEqual(plan.runtimeOperations, [{
+    method: "setStyle",
+    kind: "patch",
+    argument: { colorMode: "dimension", dimension },
+    rollbackArgument: { colorMode: undefined, dimension: undefined },
+    optionIds: ["rendering.colorMode", "style.dimension"],
+  }]);
+});
+
 test("conditional settings stay out of constructor options when their condition is false", () => {
   const plan = buildSchemaApplicationPlan(
     validValues({

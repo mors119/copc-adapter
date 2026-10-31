@@ -734,9 +734,9 @@ export function buildSchemaApplicationPlan(
   }
 
   // Required attribute loading must know the starting style before the first
-  // decode. Cesium exposes colorMode and classificationFilter as constructor
-  // options for this purpose, even though the Workbench also supports updating
-  // them through setStyle after a layer has loaded.
+  // decode. Cesium exposes colorMode, dimension, and classificationFilter as
+  // constructor options for this purpose, even though the Workbench also
+  // supports updating them through setStyle after a layer has loaded.
   const attributeLoadingOption = schema.find(
     ({ id }) => id === "attributes.attributeLoading",
   );
@@ -750,6 +750,18 @@ export function buildSchemaApplicationPlan(
       const colorMode = effectiveValue(colorModeOption, values, activeContext, schema);
       if (colorMode !== MISSING && colorModeOption.apiPath) {
         setApiPath(constructorOptions, colorModeOption.apiPath, colorMode, colorModeOption);
+      }
+    }
+
+    const dimensionOption = schema.find(({ id }) => id === "style.dimension");
+    if (
+      values["rendering.colorMode"] === "dimension" &&
+      dimensionOption &&
+      optionIsActive(dimensionOption, values, activeContext, schema)
+    ) {
+      const dimension = effectiveValue(dimensionOption, values, activeContext, schema);
+      if (dimension !== MISSING && dimensionOption.apiPath) {
+        setApiPath(constructorOptions, dimensionOption.apiPath, dimension, dimensionOption);
       }
     }
 
