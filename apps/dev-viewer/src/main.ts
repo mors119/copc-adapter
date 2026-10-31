@@ -81,6 +81,7 @@ import {
   WORKSPACE_CURRENT_MANIFEST,
 } from "../../shared/schema/index.ts";
 import {
+  commitRuntimeColorMode,
   getCesiumTerrainProviderUrl,
   getSafeSourceLabel,
   getSafeTerrainSourceLabel,
@@ -2516,7 +2517,7 @@ async function main(): Promise<void> {
       return nextDistance;
     },
     onColorModeSelected(value, dimension) {
-      const schemaOptionValues = {
+      const pendingSchemaOptionValues = {
         ...(pendingConfig.schemaOptionValues ?? {}),
         ...(value === "dimension" && dimension
           ? { "style.dimension": dimension }
@@ -2525,7 +2526,7 @@ async function main(): Promise<void> {
       pendingConfig = {
         ...pendingConfig,
         colorMode: value,
-        schemaOptionValues,
+        schemaOptionValues: pendingSchemaOptionValues,
       };
       if (activeSession?.renderer === "cesium") {
         try {
@@ -2536,11 +2537,7 @@ async function main(): Promise<void> {
             colorMode: value,
             ...(value === "dimension" && dimension ? { dimension } : {}),
           });
-          activeConfig = {
-            ...activeConfig,
-            colorMode: value,
-            schemaOptionValues,
-          };
+          activeConfig = commitRuntimeColorMode(activeConfig, value, dimension);
           refreshIntegrationCode();
           lastError = undefined;
           configurationError = undefined;

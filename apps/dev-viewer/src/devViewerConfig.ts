@@ -59,6 +59,24 @@ export type DevViewerShareRestoreResult = {
   readonly warnings: readonly string[];
 };
 
+/** Commit only the Cesium color mode and dimension ramp sent to setStyle(). */
+export function commitRuntimeColorMode(
+  applied: DevViewerConfig,
+  colorMode: DevViewerConfig["colorMode"],
+  dimension?: SchemaDimensionStyle,
+): DevViewerConfig {
+  return {
+    ...applied,
+    colorMode,
+    schemaOptionValues: {
+      ...(applied.schemaOptionValues ?? {}),
+      ...(colorMode === "dimension" && dimension
+        ? { "style.dimension": dimension }
+        : {}),
+    },
+  };
+}
+
 function serializedSchemaKeys(): ReadonlySet<string> {
   const keys = new Set<string>();
   for (const option of OPTION_SCHEMA) {

@@ -151,6 +151,14 @@ test("colors cached Intensity with an editable numeric ramp and inclusive filter
   await expect(code).toContainText("dimensionFilter");
   await expect(code).toContainText("min: 25");
   await expect(code).toContainText("max: 500");
+
+  await filter.getByLabel("Inclusive filter maximum").fill("400");
+  await filter.getByLabel("Inclusive filter maximum").dispatchEvent("change");
+  await colorMode.getByRole("radio", { name: "Elevation" }).click();
+  await expect(page.locator("#apply-settings")).toBeEnabled();
+  await expect(code).toContainText("colorMode: 'elevation'");
+  await expect(code).toContainText("max: 500");
+  await expect(code).not.toContainText("max: 400");
   expect(pageErrors).toEqual([]);
 });
 

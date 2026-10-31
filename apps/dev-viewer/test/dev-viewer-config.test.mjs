@@ -11,6 +11,7 @@ import {
 } from "../../shared/schema/index.ts";
 
 import {
+  commitRuntimeColorMode,
   getCesiumTerrainProviderUrl,
   getSafeSourceLabel,
   getSafeTerrainSourceLabel,
@@ -110,6 +111,41 @@ test("marks constructor-time settings pending and keeps Cesium color updates liv
       true,
     ),
     true,
+  );
+});
+
+test("runtime color changes preserve pending non-color schema edits", () => {
+  const appliedFilter = { name: "Intensity", min: 0, max: 65_535 };
+  const pendingFilter = { name: "Intensity", min: 25, max: 500 };
+  const applied = createConfig({
+    schemaOptionValues: {
+      "style.dimensionFilter": appliedFilter,
+      "attributes.extraDimensions": ["CanopyHeight"],
+    },
+  });
+  const dimension = {
+    name: "Intensity",
+    range: { min: 10, max: 60_000 },
+  };
+
+  const nextApplied = commitRuntimeColorMode(applied, "elevation");
+  const pending = createConfig({
+    colorMode: "elevation",
+    schemaOptionValues: {
+      ...applied.schemaOptionValues,
+      "style.dimensionFilter": pendingFilter,
+    },
+  });
+  assert.equal(nextApplied.colorMode, "elevation");
+  assert.deepEqual(nextApplied.schemaOptionValues, applied.schemaOptionValues);
+  assert.equal(hasUnappliedSettings(nextApplied, pending), true);
+
+  const nextDimension = commitRuntimeColorMode(applied, "dimension", dimension);
+  assert.deepEqual(nextDimension.schemaOptionValues["style.dimension"], dimension);
+  assert.deepEqual(nextDimension.schemaOptionValues["style.dimensionFilter"], appliedFilter);
+  assert.deepEqual(
+    nextDimension.schemaOptionValues["attributes.extraDimensions"],
+    ["CanopyHeight"],
   );
 });
 
