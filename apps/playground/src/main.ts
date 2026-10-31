@@ -37,6 +37,7 @@ import {
   describeVerticalGrid,
   getVerticalGridResourceDetails,
 } from "../../shared/workbench/verticalGridResource.ts";
+import { getCurrentTerrainAlignmentResidual } from "../../shared/workbench/terrainAlignmentProvenance.ts";
 import {
   mountTerrainAlignmentControl,
   type TerrainAlignmentControl,
@@ -1763,16 +1764,23 @@ function updateIntegrationExample(): void {
     pendingRevision: appliedCodeRevision,
   };
   const panelState = integrationCodePanel.getState();
-  const approvedTerrainAlignment = config.renderer === "cesium" &&
-      approvedTerrainAlignmentProvenance &&
-      sameSource(approvedTerrainAlignmentProvenance.source, appliedSource) &&
-      approvedTerrainAlignmentProvenance.terrainUrl === config.terrainUrl &&
-      approvedTerrainAlignmentProvenance.finalHeightOffsetMeters === config.heightOffsetMeters
-    ? {
-        residualMeters: approvedTerrainAlignmentProvenance.residualMeters,
-        finalHeightOffsetMeters: approvedTerrainAlignmentProvenance.finalHeightOffsetMeters,
-      }
+  const terrainResidual = config.renderer === "cesium"
+    ? getCurrentTerrainAlignmentResidual(
+        approvedTerrainAlignmentProvenance,
+        {
+          source: appliedSource,
+          terrainUrl: config.terrainUrl,
+          heightOffsetMeters: config.heightOffsetMeters,
+        },
+        sameSource,
+      )
     : undefined;
+  const approvedTerrainAlignment = terrainResidual === undefined
+    ? undefined
+    : {
+        residualMeters: terrainResidual,
+        finalHeightOffsetMeters: config.heightOffsetMeters,
+      };
   try {
     const generated = generateIntegrationCodeResult({
       config,
@@ -2260,10 +2268,16 @@ function updatePointVerticalReferenceContext(): void {
     return;
   }
   const values = playgroundOptionValues(appliedConfig);
-  const terrainResidual = approvedTerrainAlignmentProvenance && appliedSource &&
-      sameSource(approvedTerrainAlignmentProvenance.source, appliedSource) &&
-      approvedTerrainAlignmentProvenance.finalHeightOffsetMeters === appliedConfig.heightOffsetMeters
-    ? approvedTerrainAlignmentProvenance.residualMeters
+  const terrainResidual = appliedConfig.renderer === "cesium"
+    ? getCurrentTerrainAlignmentResidual(
+        approvedTerrainAlignmentProvenance,
+        {
+          source: appliedSource,
+          terrainUrl: appliedConfig.terrainUrl,
+          heightOffsetMeters: appliedConfig.heightOffsetMeters,
+        },
+        sameSource,
+      )
     : undefined;
   const verticalReference = createPointVerticalReferenceContext(
     activeRuntime.getMetadata(),
@@ -2303,10 +2317,16 @@ const renderDiagnosticsDashboard = (
     : {};
   const activeVerticalGrid = activeVerticalValues["coordinates.verticalTransform"];
   const activeVerticalDetails = getVerticalGridResourceDetails(activeVerticalGrid);
-  const activeTerrainResidual = appliedConfig && approvedTerrainAlignmentProvenance &&
-      appliedSource && sameSource(approvedTerrainAlignmentProvenance.source, appliedSource) &&
-      approvedTerrainAlignmentProvenance.finalHeightOffsetMeters === appliedConfig.heightOffsetMeters
-    ? approvedTerrainAlignmentProvenance.residualMeters
+  const activeTerrainResidual = appliedConfig?.renderer === "cesium"
+    ? getCurrentTerrainAlignmentResidual(
+        approvedTerrainAlignmentProvenance,
+        {
+          source: appliedSource,
+          terrainUrl: appliedConfig.terrainUrl,
+          heightOffsetMeters: appliedConfig.heightOffsetMeters,
+        },
+        sameSource,
+      )
     : undefined;
   const verticalReference = activeRuntime
     ? createPointVerticalReferenceContext(

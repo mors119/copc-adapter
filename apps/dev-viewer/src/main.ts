@@ -74,6 +74,7 @@ import {
   createNgaEgm2008ResourceRegistry,
   createPointVerticalReferenceContext,
 } from "../../shared/workbench/verticalGridResource.ts";
+import { getCurrentTerrainAlignmentResidual } from "../../shared/workbench/terrainAlignmentProvenance.ts";
 import {
   generateAppliedWorkbenchIntegrationCode,
   isPotentiallySensitiveSource,
@@ -1685,10 +1686,16 @@ async function main(): Promise<void> {
       return;
     }
     const values = toWorkbenchOptionValues(activeConfig);
-    const terrainResidual = approvedTerrainAlignmentProvenance &&
-        sameSource(approvedTerrainAlignmentProvenance.source, activeConfig.source) &&
-        approvedTerrainAlignmentProvenance.finalHeightOffsetMeters === activeConfig.heightOffsetMeters
-      ? approvedTerrainAlignmentProvenance.residualMeters
+    const terrainResidual = activeConfig.renderer === "cesium"
+      ? getCurrentTerrainAlignmentResidual(
+          approvedTerrainAlignmentProvenance,
+          {
+            source: activeConfig.source,
+            terrainUrl: activeConfig.terrainUrl,
+            heightOffsetMeters: activeConfig.heightOffsetMeters,
+          },
+          sameSource,
+        )
       : undefined;
     const reference = createPointVerticalReferenceContext(
       activeSession.getMetadata(),
@@ -1801,16 +1808,23 @@ async function main(): Promise<void> {
       pendingRevision: appliedCodeRevision,
     };
     const state = integrationCodePanel.getState();
-    const approvedTerrainAlignment = activeConfig.renderer === "cesium" &&
-        approvedTerrainAlignmentProvenance &&
-        sameSource(approvedTerrainAlignmentProvenance.source, activeConfig.source) &&
-        approvedTerrainAlignmentProvenance.terrainUrl === activeConfig.terrainUrl &&
-        approvedTerrainAlignmentProvenance.finalHeightOffsetMeters === activeConfig.heightOffsetMeters
-      ? {
-          residualMeters: approvedTerrainAlignmentProvenance.residualMeters,
-          finalHeightOffsetMeters: approvedTerrainAlignmentProvenance.finalHeightOffsetMeters,
-        }
+    const terrainResidual = activeConfig.renderer === "cesium"
+      ? getCurrentTerrainAlignmentResidual(
+          approvedTerrainAlignmentProvenance,
+          {
+            source: activeConfig.source,
+            terrainUrl: activeConfig.terrainUrl,
+            heightOffsetMeters: activeConfig.heightOffsetMeters,
+          },
+          sameSource,
+        )
       : undefined;
+    const approvedTerrainAlignment = terrainResidual === undefined
+      ? undefined
+      : {
+          residualMeters: terrainResidual,
+          finalHeightOffsetMeters: activeConfig.heightOffsetMeters,
+        };
     try {
       const generated = generateAppliedWorkbenchIntegrationCode({
         state: appliedState,
@@ -1984,10 +1998,16 @@ async function main(): Promise<void> {
     { source: sourcePanel, health: healthPanel, data: dataPanel },
     () => {
       const appliedValues = toWorkbenchOptionValues(activeConfig);
-      const terrainResidual = approvedTerrainAlignmentProvenance &&
-          sameSource(approvedTerrainAlignmentProvenance.source, activeConfig.source) &&
-          approvedTerrainAlignmentProvenance.finalHeightOffsetMeters === activeConfig.heightOffsetMeters
-        ? approvedTerrainAlignmentProvenance.residualMeters
+      const terrainResidual = activeConfig.renderer === "cesium"
+        ? getCurrentTerrainAlignmentResidual(
+            approvedTerrainAlignmentProvenance,
+            {
+              source: activeConfig.source,
+              terrainUrl: activeConfig.terrainUrl,
+              heightOffsetMeters: activeConfig.heightOffsetMeters,
+            },
+            sameSource,
+          )
         : undefined;
       return {
       snapshot: activeSnapshot(),
