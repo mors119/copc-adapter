@@ -10,7 +10,7 @@ import {
 } from "../scripts/package-provenance.mjs";
 
 function releaseFixture() {
-  const version = "0.6.0";
+  const version = "0.7.1";
   const integrity = "sha512-aGVsbG8=";
   const entry = {
     version,
@@ -38,13 +38,13 @@ function releaseFixture() {
 
 test("accepts an exact npm release matching both lockfiles and installed metadata", () => {
   const verified = assertReleasedAdapter(releaseFixture());
-  assert.equal(verified.version, "0.6.0");
+  assert.equal(verified.version, "0.7.1");
   assert.equal(verified.source, "npm release");
 });
 
 test("rejects a missing exact stable npm version pin", () => {
   const fixture = releaseFixture();
-  fixture.appManifest.devDependencies[ADAPTER_PACKAGE_NAME] = "^0.6.0";
+  fixture.appManifest.devDependencies[ADAPTER_PACKAGE_NAME] = "^0.7.1";
   assert.throws(() => assertReleasedAdapter(fixture), /exact stable npm version/u);
 });
 
@@ -65,22 +65,22 @@ test("rejects a mismatched package lock", () => {
 test("rejects a candidate tarball as the public Pages dependency", () => {
   const fixture = releaseFixture();
   fixture.appLock.packages["node_modules/@frillab/copc-adapter"].resolved =
-    "file:../../.ci-artifacts/copc-adapter-0.6.0.tgz";
+    "file:../../.ci-artifacts/copc-adapter-0.7.1.tgz";
   assert.throws(() => assertReleasedAdapter(fixture), /exact npm registry tarball/u);
 });
 
 test("labels workspace and candidate installs by their actual lockfile origin", () => {
   assert.equal(
     classifyAdapterSource(
-      { version: "0.6.0", resolved: "file:../../.ci-artifacts/copc-adapter-0.6.0.tgz" },
-      "0.6.0",
+      { version: "0.7.1", resolved: "file:../../.ci-artifacts/copc-adapter-0.7.1.tgz" },
+      "0.7.1",
     ),
     "Packed candidate",
   );
   assert.equal(
     classifyAdapterSource(
-      { version: "0.6.0", resolved: "file:../../packages", link: true },
-      "0.6.0",
+      { version: "0.7.1", resolved: "file:../../packages", link: true },
+      "0.7.1",
     ),
     "Workspace/local",
   );

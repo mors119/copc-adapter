@@ -255,10 +255,13 @@ test("generated Cesium and Three snippets typecheck against the exact consumer p
     : generate("three", {
         schemaOptionValues: { "coordinates.verticalTransform": workspaceVerticalGrid },
       }, verticalGridOptions);
-  const terrainAlignmentRecipe = consumerProfile.manifest.origin === "workspace"
+  const terrainAlignmentAvailable = consumerProfile.manifest.capabilities.includes(
+    "cesium.terrain-alignment",
+  );
+  const terrainAlignmentRecipe = terrainAlignmentAvailable
     ? generate("cesium", {}, { includeTerrainAlignmentRecipe: true })
     : undefined;
-  if (consumerProfile.manifest.origin === "npm") {
+  if (!terrainAlignmentAvailable) {
     assert.throws(
       () => generate("cesium", {}, { includeTerrainAlignmentRecipe: true }),
       /do not support Terrain alignment/u,

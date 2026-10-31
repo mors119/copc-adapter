@@ -21,6 +21,7 @@ test("URL settings round-trip every constructor, refinement, and classification 
     renderer: "three",
     backend: "rust",
     colorMode: "rgb",
+    heightOffsetMeters: 2.25,
     pointSize: 5.5,
     maxRenderedPoints: 420_000,
     maxPointCacheBytes: 13 * 1024 * 1024,
@@ -47,7 +48,7 @@ test("URL settings round-trip every constructor, refinement, and classification 
     center: { x: 0.23, y: 0.78 },
   });
   assert.deepEqual([...encoded.keys()], [
-    "renderer", "backend", "colorMode", "pointSize", "maxRenderedPoints",
+    "renderer", "backend", "colorMode", "heightOffsetMeters", "pointSize", "maxRenderedPoints",
     "maxPointCacheBytes", "maxNodes", "maxDepth", "maxScreenSpaceError",
     "maxRenderDistanceMeters", "classificationInclude", "classificationExclude",
     "refinementAlgorithm", "focusMode", "focusEnabled", "showFocusGuide",
@@ -58,6 +59,7 @@ test("URL settings round-trip every constructor, refinement, and classification 
 test("invalid numeric URL values normalize to documented defaults and unknown keys are ignored", () => {
   const decoded = readPlaygroundUrlConfig(new URLSearchParams([
     ["pointSize", "NaN"],
+    ["heightOffsetMeters", "NaN"],
     ["maxRenderedPoints", "-1"],
     ["maxPointCacheBytes", "Infinity"],
     ["maxNodes", "9007199254740992"],
@@ -67,6 +69,7 @@ test("invalid numeric URL values normalize to documented defaults and unknown ke
     ["unexpected", "value"],
   ]));
   assert.equal(decoded.config.pointSize, defaultPlaygroundUrlConfig.pointSize);
+  assert.equal(decoded.config.heightOffsetMeters, defaultPlaygroundUrlConfig.heightOffsetMeters);
   assert.equal(decoded.config.maxRenderedPoints, defaultPlaygroundUrlConfig.maxRenderedPoints);
   assert.equal(decoded.config.maxPointCacheBytes, defaultPlaygroundUrlConfig.maxPointCacheBytes);
   assert.equal(decoded.config.maxNodes, defaultPlaygroundUrlConfig.maxNodes);
@@ -134,6 +137,17 @@ test("constructor change detection distinguishes Cesium runtime color from Three
     true,
   );
   assert.equal(
+    hasConstructorChanges({ ...cesium, terrainUrl: "https://terrain.example/service" }, cesium),
+    true,
+  );
+  assert.equal(
+    hasConstructorChanges(
+      { ...cesium, renderer: "three", terrainUrl: "https://terrain.example/service" },
+      { ...cesium, renderer: "three" },
+    ),
+    false,
+  );
+  assert.equal(
     hasConstructorChanges(
       { ...cesium, renderer: "three", colorMode: "rgb" },
       { ...cesium, renderer: "three" },
@@ -147,7 +161,10 @@ test("constructor change detection distinguishes Cesium runtime color from Three
 });
 
 test("safe URL sharing excludes credentials, query strings, fragments, local paths, and File bytes", () => {
-  const config = { ...defaultPlaygroundUrlConfig };
+  const config = {
+    ...defaultPlaygroundUrlConfig,
+    terrainUrl: "https://user:secret@example.test/terrain?token=secret",
+  };
   for (const source of [
     "https://user:secret@example.test/data.copc.laz",
     "https://example.test/data.copc.laz?token=secret",
@@ -157,6 +174,7 @@ test("safe URL sharing excludes credentials, query strings, fragments, local pat
     const encoded = writePlaygroundUrlConfig(config, defaultPlaygroundRefinementConfig, source);
     assert.equal(encoded.has("sourceUrl"), false);
     assert.doesNotMatch(encoded.toString(), /secret|private/);
+    assert.equal(encoded.has("terrainUrl"), false);
   }
   const safe = writePlaygroundUrlConfig(config, defaultPlaygroundRefinementConfig, "https://example.test/data.copc.laz");
   assert.equal(safe.get("sourceUrl"), "https://example.test/data.copc.laz");

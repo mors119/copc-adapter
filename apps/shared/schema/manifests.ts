@@ -58,6 +58,10 @@ const npm06Capabilities = [
   "three.point-picking",
 ] as const;
 
+// Audited against the published 0.7.1 declarations. The release supports
+// opacity, clipping, single-anchor Terrain estimates, and Advanced
+// attribute/cache options. Batch Terrain estimates remain workspace-only;
+// Playground filters GTX resources because it does not load their grids.
 const npm071SupportedOptionIds = [
   ...npm06SupportedOptionIds,
   "rendering.opacity",
@@ -66,6 +70,7 @@ const npm071SupportedOptionIds = [
   "attributes.pointFields",
   "cache.coordinateCacheLayout",
   "cache.retainSourceCoordinatesForQueries",
+  "coordinates.verticalTransform",
 ] as const;
 
 const npm071Capabilities = [
@@ -76,6 +81,8 @@ const npm071Capabilities = [
   "cesium.point-fields",
   "cache.coordinate-layout",
   "cache.source-coordinate-retention",
+  "cesium.terrain-alignment",
+  "vertical.gtx-grid",
 ] as const;
 
 /** Numeric reset values for npm 0.7.1, whose setter cannot clear an override. */
@@ -198,4 +205,8 @@ export const NPM_0_6_SUPPORTED_OPTION_IDS = npm06SupportedOptionIds;
 export const NPM_0_6_CAPABILITIES = npm06Capabilities;
 export const NPM_0_7_1_SUPPORTED_OPTION_IDS = npm071SupportedOptionIds;
 export const NPM_0_7_1_CAPABILITIES = npm071Capabilities;
+/** The Playground does not load GTX resources even though the package supports them. */
+export const PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES = npm071Capabilities.filter(
+  (capability) => capability !== "vertical.gtx-grid",
+);
 export const WORKSPACE_CURRENT_CAPABILITIES = workspaceCapabilities;

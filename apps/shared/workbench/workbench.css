@@ -517,6 +517,138 @@
   margin: 0.4rem 0.3rem 0.4rem 0;
 }
 
+.terrain-alignment-command {
+  background: var(--workbench-surface, #111d29);
+  border: 1px solid var(--workbench-border, #273442);
+  border-radius: 0.35rem;
+  display: grid;
+  gap: 0.55rem;
+  margin: 0.5rem 0;
+  min-width: 0;
+  padding: 0.65rem;
+}
+
+.terrain-alignment-command > p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.terrain-alignment-command__provider,
+.terrain-alignment-command__selection,
+.terrain-alignment-command__message,
+.terrain-alignment-command__help,
+.terrain-alignment-command__warning {
+  color: var(--workbench-muted, #a8b5c3);
+  font-size: 0.68rem;
+  line-height: 1.4;
+}
+
+.terrain-alignment-command__warning {
+  color: #e7c67a;
+}
+
+.terrain-alignment-command__error {
+  color: #ffb6aa;
+  font-size: 0.7rem;
+}
+
+.terrain-alignment-command__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.terrain-alignment-command__actions .schema-action {
+  margin: 0;
+  max-width: 100%;
+}
+
+.terrain-alignment-command__actions .schema-action:disabled,
+.terrain-alignment-command__remove:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.terrain-alignment-command__secondary {
+  background: transparent;
+  border: 1px solid var(--workbench-border, #273442);
+  color: var(--workbench-muted, #a8b5c3);
+}
+
+.terrain-alignment-command__anchors,
+.terrain-alignment-command__results {
+  display: grid;
+  gap: 0.4rem;
+  list-style: none;
+  margin: 0;
+  min-width: 0;
+  padding: 0;
+}
+
+.terrain-alignment-command__anchor {
+  align-items: start;
+  border-bottom: 1px solid var(--workbench-border, #273442);
+  display: flex;
+  font-size: 0.68rem;
+  gap: 0.4rem;
+  justify-content: space-between;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding: 0.35rem 0;
+}
+
+.terrain-alignment-command__remove {
+  flex: 0 0 auto;
+  font-size: 0.64rem;
+}
+
+.terrain-alignment-command__preview {
+  background: rgba(4, 10, 16, 0.38);
+  border-radius: 0.25rem;
+  color: var(--workbench-text, #edf4fb);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.64rem;
+  line-height: 1.5;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding: 0.5rem;
+  white-space: pre-wrap;
+}
+
+.terrain-alignment-command__results {
+  border-top: 1px solid var(--workbench-border, #273442);
+  font-family: inherit;
+  margin-top: 0.4rem;
+  padding-top: 0.4rem;
+}
+
+.terrain-alignment-command__results li {
+  overflow-wrap: anywhere;
+}
+
+.terrain-alignment-command__adjustment {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-width: 0;
+}
+
+.terrain-alignment-command__adjustment input {
+  grid-column: 1 / -1;
+  min-width: 0;
+  width: 100%;
+}
+
+.terrain-alignment-command__adjustment-value {
+  color: var(--workbench-muted, #a8b5c3);
+  font-size: 0.68rem;
+  text-align: right;
+}
+
+.terrain-alignment-command [hidden] {
+  display: none !important;
+}
+
 .integration-code-panel {
   min-width: 0;
   padding: 0.75rem;

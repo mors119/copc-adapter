@@ -359,13 +359,11 @@ async function openFixture(
   }
   await page.goto(`/?${params.toString()}`);
   await expect(page.locator("#source-status")).toContainText("Ready");
-  const terrainSection = page
-    .locator(".dev-control-section")
-    .filter({ has: page.getByText("Terrain and height alignment", { exact: true }) })
-  if (!(await terrainSection.evaluate((element) => (element as HTMLDetailsElement).open))) {
-    await terrainSection.locator("summary").click();
+  const coordinates = page.locator('#shared-schema-controls details[data-section="coordinates"]');
+  if (!(await coordinates.evaluate((element) => (element as HTMLDetailsElement).open))) {
+    await coordinates.locator("summary").click();
   }
-  await expect(page.getByLabel("I confirm the selected point is ground")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Estimate Terrain" })).toBeVisible();
   await expect
     .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.renderedPointCount ?? 0))
     .toBeGreaterThan(0);
@@ -489,16 +487,37 @@ test("estimates, previews, and applies a WKT2 ellipsoidal fixture only after app
   const onePointAnchor = await pickRenderedPointIndex(page, 0);
   expect(onePointAnchor.height).toBe(before.height);
 
-  await page.getByLabel("I confirm the selected point is ground").check();
+  if (onePointAnchor.classification !== 2) {
+    await page.getByLabel("I confirm the selected point is ground").check();
+  }
+  await page.getByRole("button", { name: "Add selected anchor" }).click();
+  const secondUiAnchor = await pickRenderedPointIndex(page, 1);
+  if (secondUiAnchor.classification !== 2) {
+    await page.getByLabel("I confirm the selected point is ground").check();
+  }
+  await page.getByRole("button", { name: "Add selected anchor" }).click();
+  await page.getByRole("button", { name: "Estimate Terrain" }).click();
+  const preview = page.locator("#terrain-alignment-preview");
+  await expect(preview).toContainText("Estimate: ready · current");
+  await expect(preview).toContainText("2 accepted · 2 sampled · 0 rejected");
+  await expect(preview).toContainText("Robust median residual: 1.500 m");
+  await expect(page.getByRole("button", { name: "Approve and apply" })).toBeEnabled();
+  await page.getByRole("button", { name: "Reset anchors and estimate" }).click();
+  await expect(page.locator('[aria-label="Validated ground anchors"] li')).toHaveCount(0);
+  expect(await page.evaluate(() => window.__COPC_DEV_VIEWER__!.getConfiguration().heightOffsetMeters)).toBe(0);
+
+  const selectedForSingle = await pickRenderedPointIndex(page, 0);
+  if (selectedForSingle.classification !== 2) {
+    await page.getByLabel("I confirm the selected point is ground").check();
+  }
+  await page.getByRole("button", { name: "Add selected anchor" }).click();
   const estimateStartedAt = performance.now();
-  await page.getByRole("button", { name: "Estimate residual" }).click();
-  const preview = page.locator("#terrain-estimate-preview");
-  await expect(preview).toContainText("Estimate status: ready (current)");
-  await expect(preview).toContainText("ControlledTerrainProvider");
-  await expect(preview).toContainText("Current displayed COPC height: 100.000 m");
+  await page.getByRole("button", { name: "Estimate Terrain" }).click();
   await expect(preview).toContainText("Sampled Terrain height: 102.000 m");
-  await expect(preview).toContainText("Proposed adjustment (Terrain − COPC): 2.000 m");
+  await expect(preview).toContainText("Additional Terrain offset: 2.000 m");
+  await expect(preview).toContainText("Proposed total heightOffsetMeters: 2.000 m");
   await expect(preview).toContainText("Sampling: 1 call");
+  await expect(integrationCode).not.toContainText("Terrain placement provenance");
   const estimateLatencyMs = performance.now() - estimateStartedAt;
   const afterPreview = await page.evaluate(
     () => window.__COPC_DEV_VIEWER__!.getSelectedPoint()!,
@@ -507,7 +526,25 @@ test("estimates, previews, and applies a WKT2 ellipsoidal fixture only after app
   expect(afterPreview.source).toBeUndefined();
   expect(afterPreview.world).toEqual(before.world);
   expect(await page.evaluate(() => window.__COPC_DEV_VIEWER__!.getConfiguration().heightOffsetMeters)).toBe(0);
-  await expect(page.getByRole("button", { name: "Apply proposed correction" })).toBeEnabled();
+  await pickRenderedPointIndex(page, 1);
+  await expect(preview).toContainText("Estimate: ready · stale; estimate again");
+  await expect(page.getByRole("button", { name: "Approve and apply" })).toBeDisabled();
+  await pickRenderedPointIndex(page, 0);
+  await expect(preview).toContainText("Estimate: ready · stale; estimate again");
+  await expect(page.getByRole("button", { name: "Estimate Terrain" })).toBeEnabled();
+  await page.getByRole("button", { name: "Estimate Terrain" }).click();
+  await expect(preview).toContainText("Estimate: ready · current");
+  await expect(page.getByRole("button", { name: "Approve and apply" })).toBeEnabled();
+  const fineAdjustment = page.locator("#terrain-fine-adjustment");
+  await expect(fineAdjustment).toHaveAttribute("min", "-100");
+  await expect(fineAdjustment).toHaveAttribute("max", "100");
+  await fineAdjustment.evaluate((element) => {
+    const input = element as HTMLInputElement;
+    input.value = "25";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await expect(preview).toContainText("Fine adjustment: 25 cm");
+  await expect(preview).toContainText("Final heightOffsetMeters after approval: 2.250 m");
 
   const rangeMetricsBeforeApply = sourceMetrics.snapshot();
   const offsetFastPathPrototype = await page.evaluate(() =>
@@ -516,13 +553,13 @@ test("estimates, previews, and applies a WKT2 ellipsoidal fixture only after app
   expect(offsetFastPathPrototype).toBeDefined();
   expect(offsetFastPathPrototype!.maximumReferenceErrorMeters).toBeLessThan(0.000001);
   await page.evaluate(() => window.__COPC_APPLY_GL_PROFILE__?.start());
-  await page.getByRole("button", { name: "Apply proposed correction" }).click();
+  await page.getByRole("button", { name: "Approve and apply" }).click();
   await expect(page.locator("#source-status")).toContainText("Ready");
   await expect
     .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__!.getConfiguration().heightOffsetMeters))
-    .toBe(2);
+    .toBe(2.25);
   await expect(integrationCode).toContainText(
-    "Terrain placement provenance: the user explicitly approved a Cesium Terrain residual of 2 m; the final heightOffsetMeters is 2 m",
+    "Terrain placement provenance: the user explicitly approved a Cesium Terrain residual of 2 m; the final heightOffsetMeters is 2.25 m",
   );
   await expect(integrationCode).toContainText("not a geoid or vertical-datum conversion");
   await expect
@@ -548,7 +585,7 @@ test("estimates, previews, and applies a WKT2 ellipsoidal fixture only after app
   const applyTrace = await page.evaluate(
     () => window.__COPC_DEV_VIEWER__!.getLastApplyTrace(),
   );
-  const applyTimingSamples = [applyTimingSample(applyTrace, 2)];
+  const applyTimingSamples = [applyTimingSample(applyTrace, 2.25)];
   const applyGlEvents = await page.evaluate(
     () => window.__COPC_APPLY_GL_PROFILE__!.stop(),
   );
@@ -557,7 +594,7 @@ test("estimates, previews, and applies a WKT2 ellipsoidal fixture only after app
   );
   const after = await pickRenderedPoint(page);
   expect(after.source).toBeUndefined();
-  expect(after.height).toBe(102);
+  expect(after.height).toBe(102.25);
   expect(after.world).not.toEqual(before.world);
   const rangeMetricsAfterApply = sourceMetrics.snapshot();
   const uploadEvents = applyGlEvents.filter((event) => event.kind.startsWith("buffer"));
@@ -637,15 +674,18 @@ test("estimates, previews, and applies a WKT2 ellipsoidal fixture only after app
     }, targetHeight);
     const current = await pickRenderedPoint(page);
     expect(current.source).toEqual(before.source);
-    await page.getByLabel("I confirm the selected point is ground").check();
-    await page.getByRole("button", { name: "Estimate residual" }).click();
-    await expect(page.locator("#terrain-estimate-preview")).toContainText(
+    if (current.classification !== 2) {
+      await page.getByLabel("I confirm the selected point is ground").check();
+    }
+    await page.getByRole("button", { name: "Add selected anchor" }).click();
+    await page.getByRole("button", { name: "Estimate Terrain" }).click();
+    await expect(page.locator("#terrain-alignment-preview")).toContainText(
       `Sampled Terrain height: ${targetHeight.toFixed(3)} m`,
     );
-    await expect(page.locator("#terrain-estimate-preview")).toContainText(
-      `Effective offset after approval: ${(targetHeight - 100).toFixed(3)} m`,
+    await expect(page.locator("#terrain-alignment-preview")).toContainText(
+      `Final heightOffsetMeters after approval: ${(targetHeight - 100).toFixed(3)} m`,
     );
-    await page.getByRole("button", { name: "Apply proposed correction" }).click();
+    await page.getByRole("button", { name: "Approve and apply" }).click();
     await expect(page.locator("#source-status")).toContainText("Ready");
     await expect
       .poll(() =>
@@ -714,15 +754,17 @@ test("rejects Terrain alignment for Autzen NAVD88 without moving the selected po
   test.setTimeout(180_000);
   await openFixture(page, 250);
   const before = await pickRenderedPoint(page);
-  await page.getByLabel("I confirm the selected point is ground").check();
-  await page.getByRole("button", { name: "Estimate residual" }).click();
-  const preview = page.locator("#terrain-estimate-preview");
-  await expect(preview).toContainText("Estimate status: uncertain (current)");
-  await expect(preview).toContainText("ControlledTerrainProvider");
+  if (before.classification !== 2) {
+    await page.getByLabel("I confirm the selected point is ground").check();
+  }
+  await page.getByRole("button", { name: "Add selected anchor" }).click();
+  await page.getByRole("button", { name: "Estimate Terrain" }).click();
+  const preview = page.locator("#terrain-alignment-preview");
+  await expect(preview).toContainText("Estimate: uncertain · current");
   await expect(preview).toContainText("Vertical reference: EPSG:6360 → unverified");
   await expect(preview).toContainText("no validated transformation to WGS 84 ellipsoidal height");
   await expect(preview).toContainText("Sampling: 0 calls");
-  await expect(page.getByRole("button", { name: "Apply proposed correction" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Approve and apply" })).toBeDisabled();
   const after = await page.evaluate(
     () => window.__COPC_DEV_VIEWER__!.getSelectedPoint()!,
   );
@@ -732,20 +774,24 @@ test("rejects Terrain alignment for Autzen NAVD88 without moving the selected po
   expect(await page.evaluate(() => window.__COPC_DEV_VIEWER__!.getConfiguration().heightOffsetMeters)).toBe(0);
 });
 
-test("ellipsoid-only mode does not sample NAVD88 heights or move the selected point", async ({
+test("ellipsoid-only mode disables Terrain estimates without moving the selected point", async ({
   page,
 }) => {
   test.setTimeout(180_000);
   await openFixture(page);
   const before = await pickRenderedPoint(page);
-  await page.getByLabel("I confirm the selected point is ground").check();
-  await page.getByRole("button", { name: "Estimate residual" }).click();
-  const preview = page.locator("#terrain-estimate-preview");
-  await expect(preview).toContainText("Estimate status: uncertain (current)");
-  await expect(preview).toContainText("Vertical reference: EPSG:6360 → unverified");
-  await expect(preview).toContainText("Terrain provider: EllipsoidTerrainProvider");
-  await expect(preview).toContainText("Sampling: 0 calls");
-  await expect(page.getByRole("button", { name: "Apply proposed correction" })).toBeDisabled();
+  if (before.classification !== 2) {
+    await page.getByLabel("I confirm the selected point is ground").check();
+  }
+  await page.getByRole("button", { name: "Add selected anchor" }).click();
+  await expect(page.getByRole("button", { name: "Estimate Terrain" })).toBeDisabled();
+  await expect(page.locator(".terrain-alignment-command__provider")).toContainText(
+    "WGS84 ellipsoid only",
+  );
+  const preview = page.locator("#terrain-alignment-preview");
+  await expect(preview).toContainText("A single anchor uses the single-point estimate");
+  await expect(preview).not.toContainText("Sampled Terrain height");
+  await expect(page.getByRole("button", { name: "Approve and apply" })).toBeDisabled();
   const after = await page.evaluate(() => window.__COPC_DEV_VIEWER__!.getSelectedPoint());
   expect(after?.height).toBe(before.height);
   expect(after?.source).toBeUndefined();

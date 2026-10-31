@@ -5,7 +5,10 @@ import type {
 } from "@frillab/copc-adapter";
 import type { WorkbenchColorMode } from "../../shared/workbench-config";
 import { mountSegmentedControl } from "../../shared/ui-controls";
-import { mountSchemaOptionPanel } from "../../shared/workbench/SchemaOptionPanel.ts";
+import {
+  mountSchemaOptionPanel,
+  type SchemaOptionPanelOptions,
+} from "../../shared/workbench/SchemaOptionPanel.ts";
 import { renderSharedSpecialControl } from "../../shared/workbench/specialControls.ts";
 import {
   getAvailableChoices,
@@ -53,6 +56,7 @@ export type DevViewerControlsOptions = {
   readonly onRangeValidationSelected: (policy: RangeValidationPolicy) => void;
   readonly onPendingConfigChange: (update: Partial<DevViewerConfig>) => void;
   readonly onValidationChange: () => void;
+  readonly renderAction?: SchemaOptionPanelOptions["renderAction"];
   readonly onCameraDistanceSelected: (distance: number) => void;
   readonly onInvalidCameraDistance: () => void;
   readonly getCameraDistance: () => number;
@@ -365,7 +369,9 @@ export function mountDevViewerControls(
       cache: "Advanced · Cache",
     },
     excludeOptionIds: ["source.url", "coordinates.verticalTransform"],
+    openSections: ["source", "renderer", "backend", "style", "coordinates"],
     renderSpecialControl: renderSharedSpecialControl,
+    renderAction: options.renderAction,
     onChange: setOption,
     onValidationChange: options.onValidationChange,
   });

@@ -9,7 +9,7 @@ import {
   validateWorkbenchConfiguration,
 } from "../../shared/config/index.ts";
 import {
-  NPM_0_7_1_CAPABILITIES,
+  PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES,
   NPM_0_7_1_MANIFEST,
 } from "../../shared/schema/index.ts";
 
@@ -32,6 +32,10 @@ export type PlaygroundConfig = Omit<
   readonly maxDepth: number;
   readonly maxScreenSpaceError: number;
   readonly maxRenderDistanceMeters: number;
+  /** Optional consumer-owned Cesium quantized-mesh provider root URL. */
+  readonly terrainUrl: string;
+  /** Canonical manual or explicitly approved visual layer offset. */
+  readonly heightOffsetMeters: number;
   /** Cesium-only runtime style. Undefined means that no filter is active. */
   readonly classificationFilter?: CopcClassificationFilter;
 };
@@ -47,6 +51,8 @@ export const PLAYGROUND_DEFAULTS = {
   maxScreenSpaceError: 8,
   maxRenderDistanceMeters: 12_000,
   refinementAlgorithm: "foveated",
+  terrainUrl: "",
+  heightOffsetMeters: 0,
 } as const;
 
 /** Convert a displayed cache budget in MiB to the exact public API byte value. */
@@ -110,9 +116,22 @@ export function validatePlaygroundConfig(config: PlaygroundConfig): string[] {
   const validation = validateWorkbenchConfiguration(values, {
     manifest: NPM_0_7_1_MANIFEST,
     renderer: config.renderer,
-    runtimeCapabilities: NPM_0_7_1_CAPABILITIES,
+    runtimeCapabilities: PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES,
   });
   const errors = [...validation.errors];
+  if (config.terrainUrl.trim()) {
+    try {
+      const terrainUrl = new URL(config.terrainUrl, globalThis.location?.href ?? "http://localhost/");
+      if (
+        (terrainUrl.protocol !== "http:" && terrainUrl.protocol !== "https:") ||
+        terrainUrl.username || terrainUrl.password || terrainUrl.search || terrainUrl.hash
+      ) {
+        throw new Error("unsupported or sensitive URL");
+      }
+    } catch {
+      errors.push("Terrain provider URL must be HTTP(S) without credentials, a query string, or a fragment.");
+    }
+  }
   if (config.renderer === "three" && config.classificationFilter !== undefined) {
     errors.push(
       "Clear the Cesium classification filter before applying the Three.js renderer; Three.js has no public runtime style setter.",
@@ -126,6 +145,7 @@ export function hasConstructorChanges(
   pending: PlaygroundConfig,
   active: PlaygroundConfig,
 ): boolean {
+  if (pending.renderer === "cesium" && pending.terrainUrl !== active.terrainUrl) return true;
   try {
     const pendingValues = normalizeWorkbenchOptionValues(
       {
@@ -144,7 +164,7 @@ export function hasConstructorChanges(
       {
         manifest: NPM_0_7_1_MANIFEST,
         renderer: active.renderer,
-        runtimeCapabilities: NPM_0_7_1_CAPABILITIES,
+        runtimeCapabilities: PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES,
       },
       activeValues,
     ).requiresLayerReplacement;

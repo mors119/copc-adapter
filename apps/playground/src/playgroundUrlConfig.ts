@@ -171,8 +171,16 @@ export function readPlaygroundUrlConfig(params: URLSearchParams): {
   return {
     config: {
       renderer,
+      terrainUrl: defaults.terrainUrl,
       backend,
       colorMode,
+      heightOffsetMeters: readNumber(
+        params,
+        "heightOffsetMeters",
+        defaults.heightOffsetMeters,
+        Number.isFinite,
+        warnings,
+      ),
       pointSize: readNumber(
         params,
         "pointSize",
@@ -241,6 +249,7 @@ export function writePlaygroundUrlConfig(
   params.set("renderer", config.renderer);
   params.set("backend", config.backend);
   params.set("colorMode", config.colorMode);
+  params.set("heightOffsetMeters", String(config.heightOffsetMeters));
   params.set("pointSize", String(config.pointSize));
   params.set("maxRenderedPoints", String(config.maxRenderedPoints));
   params.set("maxPointCacheBytes", String(config.maxPointCacheBytes));
