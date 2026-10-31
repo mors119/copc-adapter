@@ -58,7 +58,7 @@ test("uses the same schema controls and default Workbench tabs as Playground", a
   ).not.toHaveAttribute("open", "");
   await expect(
     page.locator(".dev-control-section").filter({
-      has: page.getByText("Terrain and height alignment", { exact: true }),
+      has: page.getByText("Terrain provider", { exact: true }),
     }),
   ).not.toHaveAttribute("open", "");
 

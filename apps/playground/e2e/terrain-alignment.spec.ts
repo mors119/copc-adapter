@@ -7,6 +7,7 @@ type TerrainHooks = {
   getMockSelectedPoint(): CopcPointInspection | undefined;
   delayNextTerrainEstimate(): void;
   getAppliedConfig(): { heightOffsetMeters: number; terrainUrl: string } | undefined;
+  getMockLayerHeightOffsetMeters(): number | undefined;
 };
 
 test("explains Three.js and ellipsoid-only Terrain limits without enabling sampling", async ({
@@ -36,7 +37,8 @@ test("explains Three.js and ellipsoid-only Terrain limits without enabling sampl
 test("published single-anchor Terrain command cancels, previews, and copies only approved placement", async ({
   page,
 }) => {
-  await page.goto("./");
+  test.setTimeout(60_000);
+  await page.goto("./?heightOffsetMeters=0.5");
   await page.evaluate(() => {
     const hooks = (window as Window & { __COPC_PLAYGROUND_TEST__?: TerrainHooks })
       .__COPC_PLAYGROUND_TEST__;
@@ -49,6 +51,12 @@ test("published single-anchor Terrain command cancels, previews, and copies only
     buffer: Buffer.from("mock COPC source"),
   });
   await expect(page.locator("#source-status")).toHaveText("Loaded terrain-alignment.copc.laz");
+  await expect
+    .poll(() => page.evaluate(() =>
+      (window as Window & { __COPC_PLAYGROUND_TEST__?: TerrainHooks })
+        .__COPC_PLAYGROUND_TEST__?.getMockLayerHeightOffsetMeters(),
+    ))
+    .toBe(0.5);
 
   const point: CopcPointInspection = {
     ownerId: "fixture-owner",
@@ -110,30 +118,48 @@ test("published single-anchor Terrain command cancels, previews, and copies only
   await expect(preview).toContainText("Estimate: ready · current");
   await expect(preview).toContainText("FixtureTerrainProvider");
   await expect(preview).toContainText("Additional Terrain offset: 2.000 m");
-  await expect(preview).toContainText("Existing manual heightOffsetMeters: 0.000 m");
-  await expect(preview).toContainText("Proposed total heightOffsetMeters: 2.000 m");
+  await expect(preview).toContainText("Existing manual heightOffsetMeters: 0.500 m");
+  await expect(preview).toContainText("Proposed total heightOffsetMeters: 2.500 m");
   const adjustment = page.locator("#terrain-fine-adjustment");
   await adjustment.evaluate((element) => {
     const input = element as HTMLInputElement;
     input.value = "25";
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
-  await expect(preview).toContainText("Final heightOffsetMeters after approval: 2.250 m");
+  await expect(preview).toContainText("Final heightOffsetMeters after approval: 2.750 m");
 
   await page.locator("#include-terrain-alignment-recipe").check();
   await expect(page.locator("#integration-example")).not.toContainText(
     "Terrain placement provenance",
   );
-  await expect(page.locator("#integration-example")).not.toContainText("heightOffsetMeters: 2.25");
+  await expect(page.locator("#integration-example")).toContainText("heightOffsetMeters: 0.5");
+  await expect
+    .poll(() => page.evaluate(() =>
+      (window as Window & { __COPC_PLAYGROUND_TEST__?: TerrainHooks })
+        .__COPC_PLAYGROUND_TEST__?.getAppliedConfig()?.heightOffsetMeters,
+    ))
+    .toBe(0.5);
+  await expect
+    .poll(() => page.evaluate(() =>
+      (window as Window & { __COPC_PLAYGROUND_TEST__?: TerrainHooks })
+        .__COPC_PLAYGROUND_TEST__?.getMockLayerHeightOffsetMeters(),
+    ))
+    .toBe(0.5);
   await page.getByRole("button", { name: "Approve and apply" }).click();
   await expect
     .poll(() => page.evaluate(() =>
       (window as Window & { __COPC_PLAYGROUND_TEST__?: TerrainHooks })
         .__COPC_PLAYGROUND_TEST__?.getAppliedConfig()?.heightOffsetMeters,
     ))
-    .toBe(2.25);
+    .toBe(2.75);
+  await expect
+    .poll(() => page.evaluate(() =>
+      (window as Window & { __COPC_PLAYGROUND_TEST__?: TerrainHooks })
+        .__COPC_PLAYGROUND_TEST__?.getMockLayerHeightOffsetMeters(),
+    ))
+    .toBe(2.75);
   await expect(page.locator("#integration-example")).toContainText(
-    "Terrain placement provenance: the user explicitly approved a Cesium Terrain residual of 2 m; the final heightOffsetMeters is 2.25 m",
+    "Terrain placement provenance: the user explicitly approved a Cesium Terrain residual of 2 m; the final heightOffsetMeters is 2.75 m",
   );
   await expect(page.locator("#integration-example")).toContainText(
     "estimateAndApproveTerrainPlacement",

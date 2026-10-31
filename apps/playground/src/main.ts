@@ -654,6 +654,7 @@ declare global {
       getPendingConfig(): IntegrationCodeConfig;
       getPickablePointScreenPosition(): { x: number; y: number } | undefined;
       getMockLayerCreateCount(): number;
+      getMockLayerHeightOffsetMeters(): number | undefined;
       getMockLayerSettings(): {
         readonly rangeValidation?: string;
         readonly streaming?: {
@@ -683,6 +684,7 @@ if (import.meta.env.DEV) {
   let mockDestroyCount = 0;
   let mockZoomCount = 0;
   let mockLayerCreateCount = 0;
+  let mockLayerHeightOffsetMeters: number | undefined;
   let mockLayerSettings:
     | {
         rangeValidation?: string;
@@ -707,6 +709,7 @@ if (import.meta.env.DEV) {
     useCameraResetLayerMock(): void {
       layerFactory = (options) => {
         mockLayerCreateCount += 1;
+        mockLayerHeightOffsetMeters = options.heightOffsetMeters;
         mockLayerSettings = {
           rangeValidation: options.rangeValidation,
           streaming: {
@@ -934,6 +937,7 @@ if (import.meta.env.DEV) {
     getAppliedConfig: () => appliedConfig ? structuredClone(appliedConfig) : undefined,
     getPendingConfig: () => structuredClone(pendingConfig),
     getMockLayerCreateCount: () => mockLayerCreateCount,
+    getMockLayerHeightOffsetMeters: () => mockLayerHeightOffsetMeters,
     getMockLayerSettings: () =>
       mockLayerSettings ? structuredClone(mockLayerSettings) : undefined,
     getMockBackendExtraDimensions: () => mockBackendExtraDimensions,
@@ -2521,6 +2525,7 @@ const loadSource = async (
         source,
         sourceName,
         terrainUrl: loadConfig.terrainUrl,
+        heightOffsetMeters: loadConfig.heightOffsetMeters,
         colorMode: loadConfig.colorMode,
         pointSize: loadConfig.pointSize,
         maxNodes: loadConfig.maxNodes,

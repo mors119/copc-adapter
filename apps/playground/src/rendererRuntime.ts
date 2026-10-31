@@ -90,6 +90,7 @@ export type PlaygroundRuntime = {
 };
 
 export type PlaygroundRuntimeOptions = WorkbenchLayerConfig & {
+  readonly heightOffsetMeters: number;
   readonly schemaOptionValues?: Readonly<Record<string, unknown>>;
   readonly renderer: PlaygroundRenderer;
   readonly source: PlaygroundSource;
