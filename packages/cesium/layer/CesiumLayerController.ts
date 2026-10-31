@@ -691,11 +691,11 @@ export class CesiumLayerController {
   }
 
   /** Update this layer's uniform alpha without reading or decoding COPC data. */
-  setOpacity(opacity: number): void {
+  setOpacity(opacity: number | undefined): void {
     if (this.lifecycle === "destroyed") {
       throw new Error("CopcCesiumLayer has been destroyed");
     }
-    assertCopcLayerOpacity(opacity);
+    if (opacity !== undefined) assertCopcLayerOpacity(opacity);
     if (!this.pointRenderer.setOpacity) {
       throw new TypeError(
         "Configured Cesium point renderer does not support layer opacity",

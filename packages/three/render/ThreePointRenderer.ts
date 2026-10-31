@@ -227,6 +227,7 @@ function createMaterial(pointSize: number, opacity: number): THREE.PointsMateria
 export class ThreePointRenderer implements CopcPointRenderer {
   private readonly root = new THREE.Group();
   private readonly pointsByNode = new Map<string, THREE.Points>();
+  private readonly originalPointAlphas = new Map<string, Float32Array>();
   private scene?: THREE.Scene;
   private localOrigin?: Wgs84EcefPoint;
   private localFrame?: DatasetLocalFrame;
@@ -273,22 +274,27 @@ export class ThreePointRenderer implements CopcPointRenderer {
     return this.root;
   }
 
-  /** Update current and future owned point materials without replacing geometry. */
-  setOpacity(opacity: number): void {
-    assertCopcLayerOpacity(opacity);
-    this.opacity = opacity;
-    this.opacityOverride = true;
-    for (const points of this.pointsByNode.values()) {
+  /** Update current and future alpha, or restore renderer and per-point defaults. */
+  setOpacity(opacity: number | undefined): void {
+    if (opacity !== undefined) assertCopcLayerOpacity(opacity);
+    this.opacity = opacity ?? 0.9;
+    this.opacityOverride = opacity !== undefined;
+    for (const [nodeKey, points] of this.pointsByNode) {
       points.visible = opacity !== 0;
-      (points.material as THREE.PointsMaterial).opacity = opacity;
       const color = points.geometry.getAttribute("color");
       if (color?.itemSize === 4) {
         const values = color.array as Float32Array;
-        for (let index = 3; index < values.length; index += 4) {
-          values[index] = 1;
+        const original = this.originalPointAlphas.get(nodeKey);
+        for (let pointIndex = 0; pointIndex < color.count; pointIndex += 1) {
+          values[pointIndex * 4 + 3] = opacity === undefined
+            ? original?.[pointIndex] ?? values[pointIndex * 4 + 3]
+            : 1;
         }
         color.needsUpdate = true;
       }
+      (points.material as THREE.PointsMaterial).opacity = opacity === undefined
+        ? color?.itemSize === 4 ? 1 : 0.9
+        : opacity;
     }
   }
 
@@ -398,7 +404,6 @@ export class ThreePointRenderer implements CopcPointRenderer {
             dimension: options.dimension,
           },
           undefined,
-          this.opacityOverride ? 1 : undefined,
         )
       : prepareThreePointColorBuffer(points, {
           colorMode: options.colorMode,
@@ -411,6 +416,12 @@ export class ThreePointRenderer implements CopcPointRenderer {
       "color",
       new THREE.BufferAttribute(colors, usesPointAlpha ? 4 : 3),
     );
+    const originalAlphas = usesPointAlpha
+      ? Float32Array.from({ length: points.pointCount }, (_, index) => colors[index * 4 + 3])
+      : undefined;
+    if (this.opacityOverride && usesPointAlpha) {
+      for (let index = 3; index < colors.length; index += 4) colors[index] = 1;
+    }
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
     options.onPerformance?.(
@@ -452,6 +463,8 @@ export class ThreePointRenderer implements CopcPointRenderer {
 
     this.root.add(renderedPoints);
     this.pointsByNode.set(nodeKey, renderedPoints);
+    if (originalAlphas) this.originalPointAlphas.set(nodeKey, originalAlphas);
+    else this.originalPointAlphas.delete(nodeKey);
     options.onPerformance?.(
       "rendererPreparation",
       performanceNow() - rendererStartedAt,
@@ -532,6 +545,7 @@ export class ThreePointRenderer implements CopcPointRenderer {
     }
     if (this.pointsByNode.get(nodeKey) === points) {
       this.pointsByNode.delete(nodeKey);
+      this.originalPointAlphas.delete(nodeKey);
     }
   }
 }

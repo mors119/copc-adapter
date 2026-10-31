@@ -66,7 +66,9 @@ test("schema integrity: IDs, mappings, defaults, controls, references, and capab
   ]);
   const controls = new Set([
     "source", "renderer", "select", "attribute-selection", "number", "toggle",
-    "attribute-loading", "point-field-selection", "classification-filter", "focus-lens", "vertical-grid", "cesium-renderer",
+    "attribute-loading", "point-field-selection",
+    "classification-filter", "focus-lens", "opacity", "clipping-volume",
+    "vertical-grid", "cesium-renderer",
   ]);
   const validationByValueType = {
     "input-source": "source",
@@ -77,17 +79,19 @@ test("schema integrity: IDs, mappings, defaults, controls, references, and capab
     boolean: "boolean",
     "classification-filter": "classification-filter",
     "focus-lens": "focus-lens",
+    "clipping-volume": "clipping-volume",
     "vertical-grid": "vertical-grid",
   };
   const controlsByValueType = {
     "input-source": ["source"],
     enum: ["select", "renderer", "cesium-renderer", "attribute-loading"],
     "string-array": ["attribute-selection", "point-field-selection"],
-    number: ["number"],
+    number: ["number", "opacity"],
     integer: ["number"],
     boolean: ["toggle"],
     "classification-filter": ["classification-filter"],
     "focus-lens": ["focus-lens"],
+    "clipping-volume": ["clipping-volume"],
     "vertical-grid": ["vertical-grid"],
   };
   const serializationKeys = [];
@@ -156,6 +160,8 @@ test("schema integrity: IDs, mappings, defaults, controls, references, and capab
           ? [serialization.includeKey, serialization.excludeKey, serialization.clearKey]
           : serialization.kind === "focus-lens"
             ? [...Object.values(serialization.keys), serialization.clearKey]
+            : serialization.kind === "clipping-volume"
+              ? [serialization.key, serialization.clearKey]
             : []) {
         assert.ok(!serializationKeys.includes(key), "duplicate share key " + key);
         serializationKeys.push(key);
@@ -178,6 +184,7 @@ test("schema integrity: IDs, mappings, defaults, controls, references, and capab
   }
   assert.deepEqual(WORKSPACE_CURRENT_MANIFEST.supportedOptionIds, ids);
   assert.equal(new Set(NPM_0_6_MANIFEST.supportedOptionIds).size, NPM_0_6_MANIFEST.supportedOptionIds.length);
+  assert.equal(new Set(NPM_0_7_1_MANIFEST.supportedOptionIds).size, NPM_0_7_1_MANIFEST.supportedOptionIds.length);
   assert.ok(NPM_0_6_MANIFEST.supportedOptionIds.every((id) => ids.includes(id)));
   assert.ok(NPM_0_6_MANIFEST.supportedOptionIds.every((id) => NPM_0_6_MANIFEST.defaults[id]));
   assert.ok(NPM_0_7_1_MANIFEST.supportedOptionIds.every((id) => NPM_0_7_1_MANIFEST.defaults[id]));
@@ -259,6 +266,40 @@ test("package profiles match the actual pinned and workspace package versions", 
   for (const id of NPM_0_7_1_MANIFEST.supportedOptionIds) {
     assert.ok(NPM_0_7_1_MANIFEST.defaults[id], "missing npm default manifest entry for " + id);
   }
+});
+
+test("opacity and Cesium clipping support follows the verified package and renderer profiles", () => {
+  const opacity = getOptionDefinition("rendering.opacity");
+  const clipping = getOptionDefinition("filtering.cesiumClippingVolume");
+  assert.ok(opacity.packageUnavailableMessage);
+  assert.ok(clipping.packageUnavailableMessage);
+  assert.ok(clipping.rendererUnavailableMessage);
+  assert.ok(NPM_0_7_1_MANIFEST.supportedOptionIds.includes(opacity.id));
+  assert.ok(NPM_0_7_1_MANIFEST.supportedOptionIds.includes(clipping.id));
+  assert.ok(NPM_0_7_1_MANIFEST.capabilities.includes("renderer.layer-opacity"));
+  assert.ok(NPM_0_7_1_MANIFEST.capabilities.includes("cesium.clipping-volume"));
+  assert.ok(!NPM_0_6_MANIFEST.supportedOptionIds.includes(opacity.id));
+  assert.ok(!NPM_0_6_MANIFEST.supportedOptionIds.includes(clipping.id));
+  assert.ok(!NPM_0_6_MANIFEST.capabilities.includes("renderer.layer-opacity"));
+  assert.ok(!NPM_0_6_MANIFEST.capabilities.includes("cesium.clipping-volume"));
+
+  const npm071 = {
+    manifest: NPM_0_7_1_MANIFEST,
+    runtimeCapabilities: NPM_0_7_1_CAPABILITIES,
+  };
+  assert.ok(getSupportedOptions({ ...npm071, renderer: "cesium" }).some(({ id }) => id === opacity.id));
+  assert.ok(getSupportedOptions({ ...npm071, renderer: "three" }).some(({ id }) => id === opacity.id));
+  assert.ok(getSupportedOptions({ ...npm071, renderer: "cesium" }).some(({ id }) => id === clipping.id));
+  assert.ok(!getSupportedOptions({ ...npm071, renderer: "three" }).some(({ id }) => id === clipping.id));
+
+  const workspace = {
+    manifest: WORKSPACE_CURRENT_MANIFEST,
+    runtimeCapabilities: WORKSPACE_CURRENT_CAPABILITIES,
+  };
+  assert.ok(getSupportedOptions({ ...workspace, renderer: "cesium" }).some(({ id }) => id === opacity.id));
+  assert.ok(getSupportedOptions({ ...workspace, renderer: "three" }).some(({ id }) => id === opacity.id));
+  assert.ok(getSupportedOptions({ ...workspace, renderer: "cesium" }).some(({ id }) => id === clipping.id));
+  assert.ok(!getSupportedOptions({ ...workspace, renderer: "three" }).some(({ id }) => id === clipping.id));
 });
 
 test("capability projection filters renderer, release support, runtime capabilities, and conditions", () => {
@@ -651,6 +692,37 @@ test("schema validation handles numeric constraints, enums, arrays, and cross-fi
   );
 });
 
+test("opacity and ECEF clipping values validate without clamping", () => {
+  const opacity = getOptionDefinition("rendering.opacity");
+  assert.deepEqual(validateOptionValue(opacity, 0), []);
+  assert.deepEqual(validateOptionValue(opacity, 0.45), []);
+  assert.deepEqual(validateOptionValue(opacity, 1), []);
+  assert.match(validateOptionValue(opacity, -0.01)[0], /at least 0/);
+  assert.match(validateOptionValue(opacity, 1.01)[0], /at most 1/);
+  assert.match(validateOptionValue(opacity, Number.NaN)[0], /finite/);
+
+  const clipping = getOptionDefinition("filtering.cesiumClippingVolume");
+  const box = {
+    type: "box",
+    coordinateSystem: "wgs84-ecef-meters",
+    minimum: [-10, -20, -30],
+    maximum: [10, 20, 30],
+  };
+  const plane = {
+    type: "planes",
+    coordinateSystem: "wgs84-ecef-meters",
+    planes: [{ normal: [0, 0, 1], point: [0, 0, 0] }],
+  };
+  assert.deepEqual(validateOptionValue(clipping, box), []);
+  assert.deepEqual(validateOptionValue(clipping, plane), []);
+  assert.match(validateOptionValue(clipping, { ...box, minimum: [11, 0, 0] })[0], /valid WGS 84 ECEF/);
+  assert.match(validateOptionValue(clipping, { ...box, coordinateSystem: "wgs84-lla-degrees" })[0], /valid WGS 84 ECEF/);
+  assert.match(validateOptionValue(clipping, { ...box, maximum: [Infinity, 0, 0] })[0], /valid WGS 84 ECEF/);
+  assert.match(validateOptionValue(clipping, { ...plane, planes: [{ normal: [0, 0, 0], point: [0, 0, 0] }] })[0], /nonzero normals/);
+  assert.match(validateOptionValue(clipping, { ...plane, planes: [] })[0], /1–6 plane/);
+  assert.match(validateOptionValue(clipping, { ...plane, planes: Array.from({ length: 7 }, () => plane.planes[0]) })[0], /1–6 plane/);
+});
+
 test("an injected schema option is discoverable, validated, serialized, and carries codegen metadata", () => {
   const fixture = {
     id: "test.sampleCount",
@@ -758,6 +830,46 @@ test("schema serialization round-trips active values without sharing source cred
   assert.ok(
     partialFocus.warnings.some((warning) => /Focus Lens/.test(warning)),
   );
+});
+
+test("opacity and ECEF clipping serialize, round-trip, and clear through shared configuration", () => {
+  const context = {
+    manifest: WORKSPACE_CURRENT_MANIFEST,
+    renderer: "cesium",
+    runtimeCapabilities: WORKSPACE_CURRENT_CAPABILITIES,
+  };
+  const box = {
+    type: "box",
+    coordinateSystem: "wgs84-ecef-meters",
+    minimum: [-1_000, -2_000, -3_000],
+    maximum: [1_000, 2_000, 3_000],
+  };
+  const values = {
+    "renderer.engine": "cesium",
+    "rendering.opacity": 0.37,
+    "filtering.cesiumClippingVolume": box,
+  };
+  const params = serializeSchemaValues(values, context);
+  assert.equal(params.get("opacity"), "0.37");
+  assert.deepEqual(JSON.parse(params.get("clippingVolume")), box);
+  const restored = deserializeSchemaValues(params, context, values);
+  assert.equal(restored.values["rendering.opacity"], 0.37);
+  assert.deepEqual(restored.values["filtering.cesiumClippingVolume"], box);
+  assert.deepEqual(restored.warnings, []);
+
+  const cleared = serializeSchemaValues({
+    "renderer.engine": "cesium",
+    "rendering.opacity": undefined,
+    "filtering.cesiumClippingVolume": undefined,
+  }, context);
+  assert.equal(cleared.get("clippingClear"), "true");
+  assert.equal(cleared.has("clippingVolume"), false);
+  const clearResult = deserializeSchemaValues(cleared, context, {
+    "renderer.engine": "cesium",
+    "rendering.opacity": 0.37,
+    "filtering.cesiumClippingVolume": box,
+  });
+  assert.equal(clearResult.values["filtering.cesiumClippingVolume"], undefined);
 });
 
 test("nullable classification and explicit undefined focus clearing round-trip distinctly", () => {

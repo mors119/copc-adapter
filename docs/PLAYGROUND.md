@@ -28,9 +28,10 @@ source-provided WKT availability, active backend, and renderer when available.
 Bounds remain in source CRS units. The Playground does not infer a CRS,
 vertical datum, or height reference from location.
 
-The controls include renderer, backend, color mode, point size, rendered-point
-and CPU cache budgets, max nodes, max depth, screen-space error, maximum render
-distance, refinement algorithm, and Focus Lens. Constructor changes are
+The controls include renderer, backend, color mode, layer opacity, point size,
+rendered-point and CPU cache budgets, max nodes, max depth, screen-space error,
+maximum render distance, refinement algorithm, Focus Lens, and Cesium clipping.
+Constructor changes are
 Pending until **Apply changes** replaces the layer successfully. The old layer
 stays active if replacement fails, and the camera is preserved when possible.
 The rendered-point budget estimates active-view workload, not GPU memory; the
@@ -46,6 +47,14 @@ so its color changes require Apply and classification is disabled. Clear a
 Cesium filter before switching to Three.js. The Cesium Focus Lens updates the
 active layer, while algorithm changes use Apply. The guide is visual only and
 does not crop the point cloud.
+
+Opacity and clipping are runtime settings. Apply sends them to the active layer
+without reading or decoding the source again. Opacity accepts 0–1; zero hides
+the layer and disables picking. The public npm 0.7.1 setter accepts numeric
+values, so Playground reset sends the built-in renderer defaults (Cesium 1,
+Three.js 0.9). Clipping accepts an inclusive axis-aligned box or an
+intersection of up to six planes in WGS 84 ECEF XYZ metres. It filters drawing
+and picking only, not source reads, and is available with Cesium only.
 
 Advanced Attributes exposes Cesium's `all` and `required` standard-field
 loading policies. Required mode retains the pending style/filter fields and

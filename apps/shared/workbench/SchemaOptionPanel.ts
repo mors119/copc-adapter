@@ -71,6 +71,7 @@ type MountedOption = {
   readonly input?: HTMLInputElement | HTMLSelectElement;
   readonly segmented?: ReturnType<typeof mountSegmentedControl<string>>;
   readonly specialized?: SchemaSpecialControl;
+  readonly availability?: HTMLElement;
   readonly setValue: (value: unknown) => void;
   readonly setChoices?: (choices: readonly UiSegmentOption<string>[]) => void;
   readonly clearListeners: () => void;
@@ -84,7 +85,7 @@ const SECTION_LABELS: Readonly<Record<SchemaSection, string>> = {
   streaming: "Streaming",
   lod: "LoD & Refinement",
   focus: "Focus Lens",
-  filtering: "Classification Filter",
+  filtering: "Filtering & Clipping",
   attributes: "Attributes",
   coordinates: "Coordinates",
   performance: "Performance",
@@ -119,6 +120,16 @@ function supportedAcrossRenderers(
     }
   }
   return schema.filter(({ id }) => ids.has(id));
+}
+
+function supportedOnAnyRenderer(
+  context: CapabilityContext,
+  option: SchemaOption,
+  schema: readonly SchemaOption[],
+): boolean {
+  return option.renderers.some((renderer) =>
+    getSupportedOptions({ ...context, renderer }, schema).some(({ id }) => id === option.id),
+  );
 }
 
 function element<K extends keyof HTMLElementTagNameMap>(
@@ -384,7 +395,7 @@ function mountGenericOption(
 
 /** Mount schema-described settings once and update values without remounting controls. */
 export function mountSchemaOptionPanel(options: SchemaOptionPanelOptions): SchemaOptionPanel {
-  const schema = options.schema ?? OPTION_SCHEMA;
+  const schema: readonly SchemaOption[] = options.schema ?? OPTION_SCHEMA;
   const sectionSet = new Set(options.sections ?? SECTION_ORDER);
   const excludedOptionIds = new Set(options.excludeOptionIds ?? []);
   const openSections = new Set(options.openSections ?? ["source", "renderer", "backend", "style"]);
@@ -407,7 +418,10 @@ export function mountSchemaOptionPanel(options: SchemaOptionPanelOptions): Schem
   };
 
   const supported = supportedAcrossRenderers(context, schema);
-  for (const option of supported) {
+  const displayOptions = schema.filter((option) =>
+    supported.some(({ id }) => id === option.id) || option.packageUnavailableMessage,
+  );
+  for (const option of displayOptions) {
     if (excludedOptionIds.has(option.id)) continue;
     if (!sectionSet.has(option.section)) continue;
     let section = sections.get(option.section);
@@ -419,6 +433,19 @@ export function mountSchemaOptionPanel(options: SchemaOptionPanelOptions): Schem
       summary.textContent = options.sectionLabels?.[option.section] ?? SECTION_LABELS[option.section];
       section.append(summary);
       sections.set(option.section, section);
+    }
+
+    if (!supportedOnAnyRenderer(context, option, schema)) {
+      const wrapper = element("div", "schema-option schema-option--unavailable");
+      wrapper.dataset.optionId = option.id;
+      const label = element("strong", "schema-option__label");
+      label.textContent = option.label;
+      const message = element("span", "schema-option__availability");
+      message.setAttribute("role", "note");
+      message.textContent = `${context.manifest.origin}@${context.manifest.version}: ${option.packageUnavailableMessage ?? "This adapter package does not expose this option."}`;
+      wrapper.append(label, message);
+      section.append(wrapper);
+      continue;
     }
 
     let control: MountedOption;
@@ -487,11 +514,20 @@ export function mountSchemaOptionPanel(options: SchemaOptionPanelOptions): Schem
       errorText.hidden = true;
       errorText.setAttribute("role", "status");
       wrapper.append(specialized.element, description, errorText);
+      const availability = option.rendererUnavailableMessage
+        ? element("span", "schema-option__availability")
+        : undefined;
+      if (availability) {
+        availability.setAttribute("role", "note");
+        availability.hidden = true;
+        wrapper.append(availability);
+      }
       control = {
         option,
         wrapper,
         error: errorText,
         specialized,
+        ...(availability ? { availability } : {}),
         setValue: (value) => specialized.setValue?.(value),
         ...(specialized.setChoices ? { setChoices: specialized.setChoices } : {}),
         clearListeners: () => specialized.destroy?.(),
@@ -542,9 +578,17 @@ export function mountSchemaOptionPanel(options: SchemaOptionPanelOptions): Schem
     let clearedHiddenEdit = false;
     for (const [id, control] of mounted) {
       const isSupported = getSupportedOptions(context, schema).some(({ id: candidate }) => candidate === id);
+      const rendererUnavailable = !isSupported &&
+        Boolean(control.option.rendererUnavailableMessage) &&
+        supportedOnAnyRenderer(context, control.option, schema);
       const isVisible = available.has(id) && isOptionAvailable(control.option, { ...context, values }, schema);
-      control.wrapper.hidden = !isSupported || !isVisible;
-      if ((!isSupported || !isVisible) && invalidEditErrors.delete(id)) {
+      control.wrapper.hidden = !isSupported && !rendererUnavailable || (isSupported && !isVisible);
+      control.wrapper.inert = rendererUnavailable;
+      if (control.availability) {
+        control.availability.textContent = control.option.rendererUnavailableMessage ?? "";
+        control.availability.hidden = !rendererUnavailable;
+      }
+      if ((!isSupported && !rendererUnavailable || (isSupported && !isVisible)) && invalidEditErrors.delete(id)) {
         clearedHiddenEdit = true;
       }
       const choices = choiceOverrides.get(id) ?? getAvailableChoices(control.option, context, schema);
