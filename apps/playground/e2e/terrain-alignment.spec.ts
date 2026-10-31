@@ -6,8 +6,11 @@ type TerrainHooks = {
   setMockSelectedPoint(point: CopcPointInspection | undefined): void;
   getMockSelectedPoint(): CopcPointInspection | undefined;
   delayNextTerrainEstimate(): void;
-  getAppliedConfig(): { heightOffsetMeters: number; terrainUrl: string } | undefined;
+  failNextLoad(): void;
+  getAppliedConfig(): { heightOffsetMeters: number; pointSize: number; terrainUrl: string } | undefined;
+  getPendingConfig(): { heightOffsetMeters: number; pointSize: number };
   getMockLayerHeightOffsetMeters(): number | undefined;
+  getMockLayerSettings(): { pointSize?: number } | undefined;
 };
 
 test("explains Three.js and ellipsoid-only Terrain limits without enabling sampling", async ({
@@ -34,7 +37,7 @@ test("explains Three.js and ellipsoid-only Terrain limits without enabling sampl
   await expect(page.getByRole("button", { name: "Estimate Terrain" })).toBeDisabled();
 });
 
-test("published single-anchor Terrain command cancels, previews, and copies only approved placement", async ({
+test("Terrain approval preserves pending edits and copies only the approved placement", async ({
   page,
 }) => {
   test.setTimeout(60_000);
@@ -57,6 +60,16 @@ test("published single-anchor Terrain command cancels, previews, and copies only
         .__COPC_PLAYGROUND_TEST__?.getMockLayerHeightOffsetMeters(),
     ))
     .toBe(0.5);
+  await page.locator("#point-size-value").fill("5");
+  await page.locator("#point-size-value").dispatchEvent("change");
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: TerrainHooks })
+      .__COPC_PLAYGROUND_TEST__?.getPendingConfig().pointSize,
+  )).toBe(5);
+  expect(await page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: TerrainHooks })
+      .__COPC_PLAYGROUND_TEST__?.getAppliedConfig()?.pointSize,
+  )).toBe(3);
 
   const point: CopcPointInspection = {
     ownerId: "fixture-owner",
@@ -145,6 +158,35 @@ test("published single-anchor Terrain command cancels, previews, and copies only
         .__COPC_PLAYGROUND_TEST__?.getMockLayerHeightOffsetMeters(),
     ))
     .toBe(0.5);
+  await page.evaluate(() => {
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: TerrainHooks })
+      .__COPC_PLAYGROUND_TEST__?.failNextLoad();
+  });
+  await page.getByRole("button", { name: "Approve and apply" }).click();
+  await expect(page.locator("#source-status")).toContainText(
+    "Could not load terrain-alignment.copc.laz",
+  );
+  expect(await page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: TerrainHooks })
+      .__COPC_PLAYGROUND_TEST__?.getAppliedConfig()?.heightOffsetMeters,
+  )).toBe(0.5);
+  expect(await page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: TerrainHooks })
+      .__COPC_PLAYGROUND_TEST__?.getPendingConfig(),
+  )).toMatchObject({ heightOffsetMeters: 2.75, pointSize: 5 });
+  expect(await page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: TerrainHooks })
+      .__COPC_PLAYGROUND_TEST__?.getMockLayerSettings()?.pointSize,
+  )).toBe(3);
+
+  await estimateButton.click();
+  await expect(preview).toContainText("Estimate: ready · current");
+  await expect(preview).toContainText("Existing manual heightOffsetMeters: 0.500 m");
+  await adjustment.evaluate((element) => {
+    const input = element as HTMLInputElement;
+    input.value = "25";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
   await page.getByRole("button", { name: "Approve and apply" }).click();
   await expect
     .poll(() => page.evaluate(() =>
@@ -152,6 +194,14 @@ test("published single-anchor Terrain command cancels, previews, and copies only
         .__COPC_PLAYGROUND_TEST__?.getAppliedConfig()?.heightOffsetMeters,
     ))
     .toBe(2.75);
+  expect(await page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: TerrainHooks })
+      .__COPC_PLAYGROUND_TEST__?.getAppliedConfig()?.pointSize,
+  )).toBe(3);
+  expect(await page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: TerrainHooks })
+      .__COPC_PLAYGROUND_TEST__?.getPendingConfig(),
+  )).toMatchObject({ heightOffsetMeters: 2.75, pointSize: 5 });
   await expect
     .poll(() => page.evaluate(() =>
       (window as Window & { __COPC_PLAYGROUND_TEST__?: TerrainHooks })

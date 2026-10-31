@@ -662,6 +662,7 @@ declare global {
       getMockLayerCreateCount(): number;
       getMockLayerHeightOffsetMeters(): number | undefined;
       getMockLayerSettings(): {
+        readonly pointSize?: number;
         readonly rangeValidation?: string;
         readonly attributeLoading?: string;
         readonly pointFields?: readonly string[];
@@ -697,6 +698,7 @@ if (import.meta.env.DEV) {
   let mockLayerHeightOffsetMeters: number | undefined;
   let mockLayerSettings:
     | {
+        pointSize?: number;
         rangeValidation?: string;
         attributeLoading?: string;
         pointFields?: string[];
@@ -726,6 +728,7 @@ if (import.meta.env.DEV) {
         mockLayerCreateCount += 1;
         mockLayerHeightOffsetMeters = options.heightOffsetMeters;
         mockLayerSettings = {
+          pointSize: options.pointSize,
           rangeValidation: options.rangeValidation,
           attributeLoading: options.attributeLoading,
           pointFields: options.pointFields ? [...options.pointFields] : undefined,
@@ -1229,7 +1232,7 @@ schemaPanel = mountSchemaOptionPanel({
       apply: async (finalHeightOffsetMeters, estimate) => {
         if (!Number.isFinite(finalHeightOffsetMeters) || !appliedConfig || !appliedSource || !activeRuntime) return false;
         const previousAppliedConfig = appliedConfig;
-        const nextConfig: IntegrationCodeConfig = {
+        const appliedConfigWithApprovedOffset: IntegrationCodeConfig = {
           ...clonePlaygroundConfig(appliedConfig),
           heightOffsetMeters: finalHeightOffsetMeters,
           refinementConfig: {
@@ -1237,12 +1240,20 @@ schemaPanel = mountSchemaOptionPanel({
             center: { ...appliedConfig.refinementConfig.center },
           },
         };
-        pendingConfig = nextConfig;
+        const pendingConfigWithApprovedOffset: IntegrationCodeConfig = {
+          ...clonePlaygroundConfig(pendingConfig),
+          heightOffsetMeters: finalHeightOffsetMeters,
+          refinementConfig: {
+            ...pendingConfig.refinementConfig,
+            center: { ...pendingConfig.refinementConfig.center },
+          },
+        };
+        pendingConfig = pendingConfigWithApprovedOffset;
         syncPendingControls();
         await loadSource(appliedSource, activeSourceName, {
           selectionGeneration: sourceSelectionGeneration,
           preserveCamera: true,
-          config: nextConfig,
+          config: appliedConfigWithApprovedOffset,
           probeResult: activeProbeResult,
         });
         const applied = appliedConfig !== previousAppliedConfig &&
