@@ -25,7 +25,6 @@ import {
   type WorkbenchRenderer,
 } from "../../shared/workbench-config";
 import {
-  applySchemaRuntimeOperations,
   buildSchemaApplicationPlan,
   materializeWorkbenchConstructorOptions,
   normalizeWorkbenchOptionValues,
@@ -34,9 +33,12 @@ import {
 import {
   NPM_0_7_1_CAPABILITIES,
   NPM_0_7_1_MANIFEST,
-  NPM_0_7_1_OPACITY_RESET_VALUES,
 } from "../../shared/schema/index.ts";
 import type { PointScreenPosition } from "../../shared/inspection/PointPopover.ts";
+import {
+  applyNpmRuntimeOperations,
+  setNpmRuntimeOpacity,
+} from "./npmRuntimeOperations.ts";
 
 export type PlaygroundRenderer = WorkbenchRenderer;
 export type PlaygroundBackend = WorkbenchLayerConfig["backend"];
@@ -444,7 +446,11 @@ export async function createPlaygroundRuntime(
     const layer = layerFactory
       ? layerFactory(layerOptions)
       : new adapter.CopcCesiumLayer(layerOptions);
-    await applySchemaRuntimeOperations(layer, applicationPlan.runtimeOperations);
+    await applyNpmRuntimeOperations(
+      layer,
+      "cesium",
+      applicationPlan.runtimeOperations,
+    );
     layer.attachTo(viewer);
     let destroyed = false;
     let lastPostRenderAt: number | undefined;
@@ -515,10 +521,7 @@ export async function createPlaygroundRuntime(
       getMetadata: () => layer.getMetadata(),
       getStyle: () => layer.getStyle(),
       setStyle: (update) => layer.setStyle(update),
-      // npm 0.7.1 accepts numeric overrides only; its built-in styles use
-      // opaque colors, so 1 restores their default appearance.
-      setOpacity: (opacity) =>
-        layer.setOpacity(opacity ?? NPM_0_7_1_OPACITY_RESET_VALUES.cesium),
+      setOpacity: (opacity) => setNpmRuntimeOpacity(layer, "cesium", opacity),
       setClippingVolume: (volume) => layer.setClippingVolume(volume),
       async setCameraView(view) {
         if (destroyed) return;
@@ -665,6 +668,11 @@ export async function createPlaygroundRuntime(
     },
   } as unknown as CopcThreeLayerOptions;
   const layer = new adapter.CopcThreeLayer(layerOptions);
+  await applyNpmRuntimeOperations(
+    layer,
+    "three",
+    applicationPlan.runtimeOperations,
+  );
   layer.addEventListener("error", (event) => {
     options.onError(
       event.error instanceof Error ? event.error.message : String(event.error),
@@ -794,9 +802,7 @@ export async function createPlaygroundRuntime(
     getLatestRenderIntervalMs: () => latestRenderIntervalMs,
     getSelectedPoint: () => layer.getSelectedPoint(),
     getMetadata: () => layer.getMetadata(),
-    // npm 0.7.1 accepts numeric overrides only; Three.js defaults to 0.9.
-    setOpacity: (opacity) =>
-      layer.setOpacity(opacity ?? NPM_0_7_1_OPACITY_RESET_VALUES.three),
+    setOpacity: (opacity) => setNpmRuntimeOpacity(layer, "three", opacity),
     async setCameraView(view) {
       if (destroyed) return;
       const distance =
