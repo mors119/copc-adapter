@@ -99,6 +99,8 @@ const workspaceCapabilities = [
   "cesium.point-fields",
   "cache.coordinate-layout",
   "cache.source-coordinate-retention",
+  "style.numeric-dimension",
+  "style.numeric-dimension-filter",
   "cesium.terrain-alignment",
   "vertical.gtx-grid",
 ] as const;

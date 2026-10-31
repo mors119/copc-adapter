@@ -24,6 +24,7 @@ import {
   serializeSchemaValues,
   deserializeSchemaValues,
   MAX_SCHEMA_SHARE_QUERY_LENGTH,
+  MAX_SCHEMA_SHARE_PARAMETER_LENGTH,
   getSchemaConstraintViolations,
   validateOptionValue,
   validateSchemaValues,
@@ -42,7 +43,7 @@ test("schema choices are the shared renderer and adapter option inventory", () =
     ["adapter.backend", ["copc-js", "rust"]],
     [
       "rendering.colorMode",
-      ["fixed", "rgb", "elevation", "intensity", "classification"],
+      ["fixed", "rgb", "elevation", "intensity", "classification", "dimension"],
     ],
     ["streaming.refinementAlgorithm", ["foveated", "screen-projection"]],
     ["source.rangeValidation", ["head-fallback", "strict"]],
@@ -68,7 +69,8 @@ test("schema integrity: IDs, mappings, defaults, controls, references, and capab
   const controls = new Set([
     "source", "renderer", "select", "attribute-selection", "number", "toggle",
     "attribute-loading", "point-field-selection",
-    "classification-filter", "focus-lens", "opacity", "clipping-volume",
+    "classification-filter", "dimension-style", "dimension-filter", "focus-lens",
+    "opacity", "clipping-volume",
     "vertical-grid", "cesium-renderer",
   ]);
   const validationByValueType = {
@@ -79,6 +81,8 @@ test("schema integrity: IDs, mappings, defaults, controls, references, and capab
     integer: "number",
     boolean: "boolean",
     "classification-filter": "classification-filter",
+    "dimension-style": "dimension-style",
+    "dimension-filter": "dimension-filter",
     "focus-lens": "focus-lens",
     "clipping-volume": "clipping-volume",
     "vertical-grid": "vertical-grid",
@@ -91,6 +95,8 @@ test("schema integrity: IDs, mappings, defaults, controls, references, and capab
     integer: ["number"],
     boolean: ["toggle"],
     "classification-filter": ["classification-filter"],
+    "dimension-style": ["dimension-style"],
+    "dimension-filter": ["dimension-filter"],
     "focus-lens": ["focus-lens"],
     "clipping-volume": ["clipping-volume"],
     "vertical-grid": ["vertical-grid"],
@@ -194,6 +200,9 @@ test("schema integrity: IDs, mappings, defaults, controls, references, and capab
   assert.equal(new Set(NPM_0_7_1_MANIFEST.capabilities).size, NPM_0_7_1_MANIFEST.capabilities.length);
   assert.equal(new Set(WORKSPACE_CURRENT_MANIFEST.capabilities).size, WORKSPACE_CURRENT_MANIFEST.capabilities.length);
   assert.ok(!NPM_0_6_MANIFEST.supportedOptionIds.includes("coordinates.verticalTransform"));
+  assert.ok(!NPM_0_6_MANIFEST.supportedOptionIds.includes("style.dimension"));
+  assert.ok(!NPM_0_6_MANIFEST.supportedOptionIds.includes("style.dimensionFilter"));
+  assert.ok(!NPM_0_6_CAPABILITIES.includes("style.numeric-dimension"));
   assert.ok(!NPM_0_6_MANIFEST.capabilities.includes("vertical.gtx-grid"));
   assert.ok(!NPM_0_6_MANIFEST.capabilities.includes("cesium.terrain-alignment"));
   assert.ok(NPM_0_7_1_MANIFEST.capabilities.includes("cesium.terrain-alignment"));
@@ -204,6 +213,9 @@ test("schema integrity: IDs, mappings, defaults, controls, references, and capab
   assert.ok(NPM_0_7_1_CAPABILITIES.includes("cache.coordinate-layout"));
   assert.ok(NPM_0_7_1_CAPABILITIES.includes("cache.source-coordinate-retention"));
   assert.ok(WORKSPACE_CURRENT_MANIFEST.supportedOptionIds.includes("coordinates.verticalTransform"));
+  assert.ok(WORKSPACE_CURRENT_MANIFEST.supportedOptionIds.includes("style.dimension"));
+  assert.ok(WORKSPACE_CURRENT_MANIFEST.supportedOptionIds.includes("style.dimensionFilter"));
+  assert.ok(WORKSPACE_CURRENT_CAPABILITIES.includes("style.numeric-dimension"));
   assert.ok(WORKSPACE_CURRENT_MANIFEST.capabilities.includes("vertical.gtx-grid"));
   for (const id of [
     "attributes.attributeLoading",
@@ -341,6 +353,23 @@ test("capability projection filters renderer, release support, runtime capabilit
       ({ id }) => id === "coordinates.verticalTransform",
     ),
   );
+  assert.ok(!getAvailableChoices(getOptionDefinition("rendering.colorMode"), cesiumContext)
+    .some(({ value }) => value === "dimension"));
+  assert.ok(!getSupportedOptions(cesiumContext).some(({ id }) => id === "style.dimension"));
+  assert.ok(!getSupportedOptions(cesiumContext).some(({ id }) => id === "style.dimensionFilter"));
+  const workspaceDimensionChoices = getAvailableChoices(
+    getOptionDefinition("rendering.colorMode"),
+    { manifest: WORKSPACE_CURRENT_MANIFEST, renderer: "cesium" },
+  );
+  assert.ok(workspaceDimensionChoices.some(({ value }) => value === "dimension"));
+  assert.ok(getSupportedOptions({
+    manifest: WORKSPACE_CURRENT_MANIFEST,
+    renderer: "three",
+  }).some(({ id }) => id === "style.dimension"));
+  assert.ok(!getSupportedOptions({
+    manifest: WORKSPACE_CURRENT_MANIFEST,
+    renderer: "three",
+  }).some(({ id }) => id === "style.dimensionFilter"));
   assert.ok(
     getSupportedOptions({
       manifest: WORKSPACE_CURRENT_MANIFEST,
@@ -709,6 +738,89 @@ test("schema validation handles numeric constraints, enums, arrays, and cross-fi
   );
 });
 
+test("numeric dimension styles and filters validate exact metadata and normalized ramps", () => {
+  const numericDimensions = [
+    {
+      name: "Intensity", kind: "intensity", styleable: true, decoded: true,
+      defaultRange: { min: 0, max: 65_535 }, units: "raw LAS intensity (unitless)",
+    },
+    {
+      name: "height", kind: "extra", type: "float", length: 4, noData: -9999,
+      styleable: true, decoded: false, defaultRange: { min: 0, max: 1 },
+      units: "source values (unit not declared)",
+    },
+    {
+      name: "record_id", kind: "extra", type: "unsigned", length: 8,
+      styleable: false, unsupportedReason: "64-bit integer fields are preserved as BigInt.",
+      decoded: false, defaultRange: { min: 0, max: 1 },
+      units: "source values (unit not declared)",
+    },
+  ];
+  const context = {
+    manifest: WORKSPACE_CURRENT_MANIFEST,
+    renderer: "cesium",
+    values: { "rendering.colorMode": "dimension" },
+    numericDimensions,
+  };
+  const style = {
+    name: "height",
+    range: { min: -5, max: 40 },
+    palette: [
+      { position: 0, color: { red: 0, green: 0.2, blue: 1, alpha: 0.5 } },
+      { position: 1, color: { red: 1, green: 0.1, blue: 0, alpha: 1 } },
+    ],
+    missingValue: -9999,
+  };
+  const styleOption = getOptionDefinition("style.dimension");
+  const filterOption = getOptionDefinition("style.dimensionFilter");
+  assert.deepEqual(validateOptionValue(styleOption, style, {}, context), []);
+  assert.deepEqual(validateOptionValue(filterOption, { name: "height", min: 0, max: 20 }, {}, context), []);
+  assert.match(validateOptionValue(styleOption, { ...style, name: "not-in-metadata" }, {}, context)[0], /unavailable/u);
+  assert.match(validateOptionValue(styleOption, { ...style, name: "record_id" }, {}, context)[0], /BigInt/u);
+  assert.match(validateOptionValue(styleOption, {
+    ...style,
+    palette: [style.palette[0], { ...style.palette[1], color: { ...style.palette[1].color, alpha: 1.1 } }],
+  }, {}, context)[0], /normalized values/u);
+  assert.match(validateOptionValue(filterOption, { name: "height", min: 20, max: 10 }, {}, context)[0], /minimum must not exceed maximum/u);
+  assert.ok(validateSchemaValues({ "rendering.colorMode": "dimension" }, context)
+    .some((error) => /Numeric Dimension Ramp is required/u.test(error)));
+
+  const retainedFieldStyle = { ...style, name: "previous-source-field" };
+  const currentSourceContext = {
+    manifest: WORKSPACE_CURRENT_MANIFEST,
+    renderer: "cesium",
+    numericDimensions: [numericDimensions[0]],
+  };
+  const inactiveRampValues = {
+    "adapter.backend": "rust",
+    "rendering.colorMode": "rgb",
+    "style.dimension": retainedFieldStyle,
+  };
+  const inactiveRampErrors = validateSchemaValues(
+    inactiveRampValues,
+    currentSourceContext,
+    OPTION_SCHEMA,
+    {},
+    { requireRequired: false },
+  );
+  assert.ok(
+    !inactiveRampErrors.some((error) => /previous-source-field is unavailable/u.test(error)),
+    "a retained inactive ramp should not block a different backend or source configuration",
+  );
+
+  const activeRampErrors = validateSchemaValues(
+    { ...inactiveRampValues, "rendering.colorMode": "dimension" },
+    currentSourceContext,
+    OPTION_SCHEMA,
+    {},
+    { requireRequired: false },
+  );
+  assert.ok(
+    activeRampErrors.some((error) => /previous-source-field is unavailable/u.test(error)),
+    "an active ramp must still match numeric metadata for the current source and backend",
+  );
+});
+
 test("opacity and ECEF clipping values validate without clamping", () => {
   const opacity = getOptionDefinition("rendering.opacity");
   assert.deepEqual(validateOptionValue(opacity, 0), []);
@@ -908,6 +1020,70 @@ test("nullable classification and explicit undefined focus clearing round-trip d
     () => serializeSchemaValues({ "rendering.pointSize": null }, cesiumContext),
     /cannot be null/,
   );
+});
+
+test("numeric dimension ramps use bounded JSON share state", () => {
+  const workspaceContext = {
+    manifest: WORKSPACE_CURRENT_MANIFEST,
+    renderer: "cesium",
+  };
+  const style = {
+    name: "height",
+    range: { min: -3, max: 42 },
+    palette: [
+      { position: 0, color: { red: 0, green: 0.2, blue: 1, alpha: 0.8 } },
+      { position: 1, color: { red: 1, green: 0.1, blue: 0, alpha: 0.9 } },
+    ],
+    missingValue: -9999,
+  };
+  const filter = { name: "height", min: 2, max: 10, missingValue: -9999 };
+  const values = {
+    "rendering.colorMode": "dimension",
+    "style.dimension": style,
+    "style.dimensionFilter": filter,
+    "attributes.extraDimensions": ["height"],
+  };
+  const params = serializeSchemaValues(values, workspaceContext);
+  assert.ok(params.get("dimension").length < MAX_SCHEMA_SHARE_PARAMETER_LENGTH);
+  const restored = deserializeSchemaValues(params, workspaceContext);
+  assert.deepEqual(restored.values["style.dimension"], style);
+  assert.deepEqual(restored.values["style.dimensionFilter"], filter);
+  assert.deepEqual(restored.values["attributes.extraDimensions"], ["height"]);
+  assert.deepEqual(restored.warnings, []);
+
+  const manyStops = Array.from({ length: 64 }, (_, index) => ({
+    position: index / 63,
+    color: { red: 0.1, green: 0.2, blue: 0.3, alpha: 0.9 },
+  }));
+  assert.throws(
+    () => serializeSchemaValues({
+      "rendering.colorMode": "dimension",
+      "style.dimension": { ...style, palette: manyStops },
+    }, workspaceContext),
+    /bounded share-state size/u,
+  );
+  const malformed = deserializeSchemaValues(
+    new URLSearchParams("dimension=%7Bmalformed"),
+    workspaceContext,
+  );
+  assert.ok(malformed.warnings.some((warning) => /Malformed Numeric Dimension Ramp JSON/u.test(warning)));
+});
+
+test("npm 0.6.0 never shares the workspace-only numeric dimension API", () => {
+  assert.throws(() => serializeSchemaValues({
+    "rendering.colorMode": "dimension",
+    "style.dimension": {
+      name: "Height",
+      range: { min: 0, max: 1 },
+    },
+  }, cesiumContext), /unsupported|unavailable/u);
+  const restored = deserializeSchemaValues(
+    new URLSearchParams("colorMode=dimension&dimension=%7B%22name%22%3A%22Height%22%7D"),
+    cesiumContext,
+  );
+  assert.equal(restored.values["rendering.colorMode"], "fixed");
+  assert.equal(restored.values["style.dimension"], undefined);
+  assert.ok(restored.warnings.some((warning) => /Dimension/i.test(warning)));
 });
 
 test("conditional support and visibility do not leak incompatible values", () => {

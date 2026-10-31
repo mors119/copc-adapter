@@ -35,6 +35,50 @@ export type SchemaClassificationFilter = {
   readonly exclude?: readonly number[];
 };
 
+/** Public numeric color ramp shape shared by Cesium and Three.js. */
+export type SchemaDimensionStyle = {
+  readonly name: string;
+  readonly range: Readonly<{ min: number; max: number }>;
+  readonly palette?: readonly SchemaDimensionColorStop[];
+  readonly missingValue?: number;
+};
+
+/** One normalized RGBA stop in a numeric dimension palette. */
+export type SchemaDimensionColorStop = {
+  readonly position: number;
+  readonly color: Readonly<{
+    red: number;
+    green: number;
+    blue: number;
+    alpha?: number;
+  }>;
+};
+
+/** Inclusive Cesium visibility bounds for one numeric dimension. */
+export type SchemaDimensionFilter = {
+  readonly name: string;
+  readonly min: number;
+  readonly max: number;
+  readonly missingValue?: number;
+};
+
+/** Numeric fields discovered in the loaded LAS metadata for Workbench controls. */
+export type SchemaNumericDimensionMetadata = {
+  readonly name: string;
+  readonly kind: "intensity" | "extra";
+  readonly type?: "signed" | "unsigned" | "float";
+  readonly length?: number;
+  readonly scale?: number;
+  readonly offset?: number;
+  readonly noData?: number;
+  readonly styleable: boolean;
+  readonly unsupportedReason?: string;
+  readonly defaultRange: Readonly<{ min: number; max: number }>;
+  readonly defaultRangeNote?: string;
+  readonly units: string;
+  readonly decoded: boolean;
+};
+
 /** Configuration sections used for shared panel grouping. */
 export type SchemaSection =
   | "source"
@@ -60,6 +104,8 @@ export type SchemaValueType =
   | "integer"
   | "boolean"
   | "classification-filter"
+  | "dimension-style"
+  | "dimension-filter"
   | "focus-lens"
   | "clipping-volume"
   | "vertical-grid";
@@ -75,6 +121,8 @@ export type SchemaControl =
   | "number"
   | "toggle"
   | "classification-filter"
+  | "dimension-style"
+  | "dimension-filter"
   | "focus-lens"
   | "opacity"
   | "clipping-volume"
@@ -117,6 +165,12 @@ export type SchemaValidation =
       readonly kind: "classification-filter";
       readonly itemMinimum: 0;
       readonly itemMaximum: 255;
+    }
+  | {
+      readonly kind: "dimension-style";
+    }
+  | {
+      readonly kind: "dimension-filter";
     }
   | {
       readonly kind: "focus-lens";
@@ -176,6 +230,11 @@ export type SchemaSerialization =
     }
   | {
       readonly kind: "string-array";
+      readonly key: string;
+    }
+  | {
+      /** Bounded JSON for structured values such as editable color ramps. */
+      readonly kind: "json";
       readonly key: string;
     }
   | {
@@ -316,6 +375,8 @@ export type CapabilityContext = {
   /** Capabilities reported by the active host/renderer instance. */
   readonly runtimeCapabilities?: readonly string[];
   readonly values?: Readonly<Record<string, unknown>>;
+  /** Numeric dimensions advertised by the active source and backend. */
+  readonly numericDimensions?: readonly SchemaNumericDimensionMetadata[];
 };
 
 /** Specialized runtime checks stay with the app host that owns the resource. */

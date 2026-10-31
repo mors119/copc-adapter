@@ -619,6 +619,88 @@ function buildRuntimeOperations(
   }));
 }
 
+function requiresIntensityField(
+  values: WorkbenchOptionValues,
+  context: WorkbenchConfigurationContext,
+  schema: readonly SchemaOption[],
+): boolean {
+  const colorModeOption = schema.find(({ id }) => id === "rendering.colorMode");
+  if (
+    colorModeOption &&
+    effectiveValue(colorModeOption, values, context, schema) === "intensity"
+  ) {
+    return true;
+  }
+
+  const dimensionOption = schema.find(({ id }) => id === "style.dimension");
+  if (
+    dimensionOption &&
+    optionIsActive(dimensionOption, values, context, schema)
+  ) {
+    const dimension = effectiveValue(dimensionOption, values, context, schema);
+    if (isPlainRecord(dimension) && dimension.name === "Intensity") return true;
+  }
+
+  const filterOption = schema.find(({ id }) => id === "style.dimensionFilter");
+  if (filterOption && optionIsActive(filterOption, values, context, schema)) {
+    const filter = effectiveValue(filterOption, values, context, schema);
+    if (isPlainRecord(filter) && filter.name === "Intensity") return true;
+  }
+  return false;
+}
+
+/** Whether an applied configuration causes its layer to decode LAS Intensity. */
+export function configuredLayerLoadsIntensity(
+  values: WorkbenchOptionValues,
+  context: WorkbenchConfigurationContext,
+  schema: readonly SchemaOption[] = OPTION_SCHEMA,
+): boolean {
+  const attributeLoadingOption = schema.find(
+    ({ id }) => id === "attributes.attributeLoading",
+  );
+  if (
+    !attributeLoadingOption ||
+    effectiveValue(attributeLoadingOption, values, context, schema) !== "required"
+  ) {
+    return true;
+  }
+
+  const pointFields = values["attributes.pointFields"];
+  if (Array.isArray(pointFields) && pointFields.includes("intensity")) {
+    return true;
+  }
+
+  return requiresIntensityField(values, context, schema);
+}
+
+function requiresIntensityFieldReload(
+  values: WorkbenchOptionValues,
+  context: WorkbenchConfigurationContext,
+  schema: readonly SchemaOption[],
+  previousValues: WorkbenchOptionValues | undefined,
+  previousContext: WorkbenchConfigurationContext | undefined,
+): boolean {
+  if (
+    context.renderer !== "cesium" ||
+    previousValues === undefined ||
+    previousContext === undefined
+  ) {
+    return false;
+  }
+
+  const attributeLoadingOption = schema.find(
+    ({ id }) => id === "attributes.attributeLoading",
+  );
+  if (
+    !attributeLoadingOption ||
+    effectiveValue(attributeLoadingOption, values, context, schema) !== "required" ||
+    !requiresIntensityField(values, context, schema)
+  ) {
+    return false;
+  }
+  return !configuredLayerLoadsIntensity(previousValues, previousContext, schema);
+}
+
 function requiresReplacement(
   values: WorkbenchOptionValues,
   context: WorkbenchConfigurationContext,
@@ -631,6 +713,17 @@ function requiresReplacement(
     previousContext.renderer !== context.renderer ||
     previousContext.manifest.origin !== context.manifest.origin ||
     previousContext.manifest.version !== context.manifest.version
+  ) {
+    return true;
+  }
+  if (
+    requiresIntensityFieldReload(
+      values,
+      context,
+      schema,
+      previousValues,
+      previousContext,
+    )
   ) {
     return true;
   }
@@ -734,9 +827,9 @@ export function buildSchemaApplicationPlan(
   }
 
   // Required attribute loading must know the starting style before the first
-  // decode. Cesium exposes colorMode and classificationFilter as constructor
-  // options for this purpose, even though the Workbench also supports updating
-  // them through setStyle after a layer has loaded.
+  // decode. Cesium exposes colorMode, dimension, classificationFilter, and
+  // dimensionFilter as constructor options for this purpose, even though the
+  // Workbench also supports updating them through setStyle after a layer loads.
   const attributeLoadingOption = schema.find(
     ({ id }) => id === "attributes.attributeLoading",
   );
@@ -750,6 +843,18 @@ export function buildSchemaApplicationPlan(
       const colorMode = effectiveValue(colorModeOption, values, activeContext, schema);
       if (colorMode !== MISSING && colorModeOption.apiPath) {
         setApiPath(constructorOptions, colorModeOption.apiPath, colorMode, colorModeOption);
+      }
+    }
+
+    const dimensionOption = schema.find(({ id }) => id === "style.dimension");
+    if (
+      values["rendering.colorMode"] === "dimension" &&
+      dimensionOption &&
+      optionIsActive(dimensionOption, values, activeContext, schema)
+    ) {
+      const dimension = effectiveValue(dimensionOption, values, activeContext, schema);
+      if (dimension !== MISSING && dimensionOption.apiPath) {
+        setApiPath(constructorOptions, dimensionOption.apiPath, dimension, dimensionOption);
       }
     }
 
@@ -768,6 +873,24 @@ export function buildSchemaApplicationPlan(
       );
       if (classificationFilter !== MISSING && classificationFilter !== null) {
         constructorOptions.classificationFilter = copyValue(classificationFilter);
+      }
+    }
+
+    const dimensionFilterOption = schema.find(
+      ({ id }) => id === "style.dimensionFilter",
+    );
+    if (
+      dimensionFilterOption &&
+      optionIsActive(dimensionFilterOption, values, activeContext, schema)
+    ) {
+      const dimensionFilter = effectiveValue(
+        dimensionFilterOption,
+        values,
+        activeContext,
+        schema,
+      );
+      if (dimensionFilter !== MISSING && dimensionFilter !== null) {
+        constructorOptions.dimensionFilter = copyValue(dimensionFilter);
       }
     }
   }

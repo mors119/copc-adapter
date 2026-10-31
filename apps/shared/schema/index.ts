@@ -57,6 +57,9 @@ export type {
   SchemaCondition,
   SchemaControl,
   SchemaCrossFieldConstraint,
+  SchemaDimensionColorStop,
+  SchemaDimensionFilter,
+  SchemaDimensionStyle,
   SchemaDefault,
   SchemaOption,
   SchemaHostValidators,
@@ -66,5 +69,6 @@ export type {
   SchemaSerialization,
   SchemaValidation,
   SchemaValueType,
+  SchemaNumericDimensionMetadata,
 } from "./types.ts";
 export type { WorkbenchOptionId } from "./options.ts";

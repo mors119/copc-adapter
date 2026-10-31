@@ -2,6 +2,7 @@ export {
   applySchemaRuntimeOperations,
   applyWorkbenchConfiguration,
   buildSchemaApplicationPlan,
+  configuredLayerLoadsIntensity,
   createWorkbenchConfigurationState,
   discardWorkbenchPending,
   getChangedWorkbenchOptionIds,

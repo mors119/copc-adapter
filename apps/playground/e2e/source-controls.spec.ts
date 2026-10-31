@@ -1065,6 +1065,25 @@ test("Reset to defaults clears schema-only and inactive renderer settings before
         "streaming.maxConcurrentNodeLoads"
       ],
   )).toBe(7);
+  if (!(await attributesSection.evaluate((element: HTMLDetailsElement) => element.open))) {
+    await attributesSection.locator("summary").click();
+  }
+  await page.locator("#schema-attribute-loading").selectOption("required");
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getPendingConfig().schemaOptionValues?.[
+        "attributes.attributeLoading"
+      ],
+  )).toBe("required");
+
+  await renderer.getByRole("radio", { name: "Three.js" }).click();
+  await expect.poll(() => page.evaluate(() =>
+    Object.hasOwn(
+      (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+        .__COPC_PLAYGROUND_TEST__?.getPendingConfig().schemaOptionValues ?? {},
+      "attributes.attributeLoading",
+    ),
+  )).toBe(false);
 
   if (!(await streamingSection.evaluate((element: HTMLDetailsElement) => element.open))) {
     await streamingSection.locator("summary").click();
@@ -1100,6 +1119,7 @@ test("Reset to defaults clears schema-only and inactive renderer settings before
       .__COPC_PLAYGROUND_TEST__?.getMockLayerSettings(),
   );
   expect(settings?.rangeValidation).toBeUndefined();
+  expect(settings?.attributeLoading).toBeUndefined();
   expect(settings?.streaming?.motionLookahead).toBeUndefined();
 });
 

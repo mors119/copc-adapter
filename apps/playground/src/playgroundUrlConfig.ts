@@ -1,10 +1,14 @@
 import type {
   WorkbenchBackend,
-  WorkbenchColorMode,
   WorkbenchRefinementAlgorithm,
   WorkbenchRenderer,
 } from "../../shared/workbench-config";
-import { getOptionDefinition } from "../../shared/schema/index.ts";
+import {
+  getAvailableChoices,
+  getOptionDefinition,
+  NPM_0_6_CAPABILITIES,
+  NPM_0_6_MANIFEST,
+} from "../../shared/schema/index.ts";
 import { isPotentiallySensitiveSource } from "./integrationCode.ts";
 import {
   readPlaygroundRefinementConfig,
@@ -27,14 +31,20 @@ export const defaultPlaygroundUrlConfig: PlaygroundUrlConfig = {
 function getOptionChoices<Choice extends string>(
   optionId: string,
 ): ReadonlySet<Choice> {
+  const option = getOptionDefinition(optionId);
+  if (!option) return new Set();
   return new Set(
-    getOptionDefinition(optionId)?.choices?.map(({ value }) => value as Choice) ?? [],
+    getAvailableChoices(option, {
+      manifest: NPM_0_6_MANIFEST,
+      renderer: "cesium",
+      runtimeCapabilities: NPM_0_6_CAPABILITIES,
+    }).map(({ value }) => value as Choice),
   );
 }
 
 const renderers = getOptionChoices<WorkbenchRenderer>("renderer.engine");
 const backends = getOptionChoices<WorkbenchBackend>("adapter.backend");
-const colorModes = getOptionChoices<WorkbenchColorMode>("rendering.colorMode");
+const colorModes = getOptionChoices<PlaygroundConfig["colorMode"]>("rendering.colorMode");
 const refinementAlgorithms = getOptionChoices<WorkbenchRefinementAlgorithm>(
   "streaming.refinementAlgorithm",
 );

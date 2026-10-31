@@ -49,6 +49,31 @@ function generate(overrides = {}) {
   });
 }
 
+function generateWorkspace(overrides = {}) {
+  return generateWorkbenchIntegrationCode({
+    renderer: "cesium",
+    values: {
+      renderer: "cesium",
+      backend: "copc-js",
+      colorMode: "elevation",
+      pointSize: 3,
+      maxRenderedPoints: 250_000,
+      maxPointCacheBytes: 256 * 1024 * 1024,
+      maxNodes: 24,
+      maxDepth: 6,
+      maxScreenSpaceError: 8,
+      maxRenderDistanceMeters: 12_000,
+      refinementAlgorithm: "foveated",
+    },
+    source: "https://example.test/area.copc.laz",
+    manifest: WORKSPACE_CURRENT_MANIFEST,
+    runtimeCapabilities: WORKSPACE_CURRENT_CAPABILITIES,
+    adapterVersion: "0.7.1",
+    packageOriginLabel: "workspace package",
+    ...overrides,
+  });
+}
+
 test("generates nested constructor settings and renderer runtime operations from schema metadata", () => {
   const { code } = generate({
     values: {
@@ -365,6 +390,60 @@ test("emits the public backend and Cesium renderer specialized handlers", () => 
   }).code;
   assert.match(batchedRenderer, /BatchedGeometryPointRenderer/u);
   assert.match(batchedRenderer, /renderer: new BatchedGeometryPointRenderer\(\)/u);
+});
+
+test("generates Cesium numeric ramps as runtime styles and Three.js ramps as constructor options", () => {
+  const dimension = {
+    name: "canopy_height",
+    range: { min: 0, max: 42 },
+    palette: [
+      { position: 0, color: { red: 0, green: 0.2, blue: 1, alpha: 0.9 } },
+      { position: 1, color: { red: 1, green: 0.1, blue: 0, alpha: 0.9 } },
+    ],
+    missingValue: -9999,
+  };
+  const filter = { name: "canopy_height", min: 2, max: 20, missingValue: -9999 };
+  const cesiumCode = generateWorkspace({
+    values: {
+      renderer: "cesium",
+      backend: "copc-js",
+      colorMode: "dimension",
+      schemaOptionValues: {
+        "style.dimension": dimension,
+        "style.dimensionFilter": filter,
+        "attributes.extraDimensions": ["canopy_height"],
+      },
+    },
+  }).code;
+  assert.match(cesiumCode, /new CopcJsBackend\(\{ extraDimensions: \['canopy_height'\]\s\}\)/u);
+  assert.match(cesiumCode, /layer\.setStyle\(\{ colorMode: 'dimension', dimension: \{/u);
+  assert.match(cesiumCode, /dimensionFilter: \{ max: 20, min: 2, missingValue: -9999, name: 'canopy_height' \}/u);
+  const cesiumConstructor = cesiumCode.slice(cesiumCode.indexOf("const options"), cesiumCode.indexOf("const layer"));
+  assert.doesNotMatch(cesiumConstructor, /dimension:/u);
+
+  const threeCode = generateWorkspace({
+    renderer: "three",
+    values: {
+      renderer: "three",
+      backend: "copc-js",
+      colorMode: "dimension",
+      schemaOptionValues: {
+        "style.dimension": dimension,
+        "attributes.extraDimensions": ["canopy_height"],
+      },
+    },
+  }).code;
+  assert.match(threeCode, /colorMode: 'dimension'/u);
+  assert.match(threeCode, /dimension: \{\s+missingValue: -9999,\s+name: 'canopy_height'/u);
+  assert.doesNotMatch(threeCode, /dimensionFilter/u);
+  assert.doesNotMatch(threeCode, /layer\.setStyle/u);
+});
+
+test("the published npm 0.6.0 profile rejects numeric dimension code", () => {
+  assert.throws(
+    () => generate({ values: { renderer: "cesium", colorMode: "dimension" } }),
+    /unavailable|unsupported/u,
+  );
 });
 
 test("rejects settings unsupported by the selected package renderer", () => {

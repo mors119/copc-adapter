@@ -92,37 +92,12 @@ Three.js renderer is pending and the selected renderer returns to the active
 Cesium layer, the Playground reconciles that color through `setStyle()` without
 replacing the layer.
 
-For a dataset with numeric Extra Bytes, select the dimension under **Extra
-Dimensions** before loading so its values are retained in the point cache. A
-Cesium layer can then color and filter those cached values without another
-point read:
-
-```ts
-const layer = new CopcCesiumLayer({
-  url: source,
-  extraDimensions: ["CanopyHeight"],
-});
-layer.attachTo(viewer);
-await layer.load();
-layer.setStyle({
-  colorMode: "dimension",
-  dimension: {
-    name: "CanopyHeight",
-    range: { min: 0, max: 50 },
-    palette: [
-      { position: 0, color: { red: 0.05, green: 0.2, blue: 0.65 } },
-      { position: 1, color: { red: 0.85, green: 0.1, blue: 0.05 } },
-    ],
-  },
-  dimensionFilter: { name: "CanopyHeight", min: 2, max: 40 },
-});
-```
-
-This example requires a scalar dimension supported by the selected backend.
-The JavaScript backend applies LAS scale and offset before styling. Missing
-values use the fixed fallback color, and a matching range filter hides them.
-64-bit integer dimensions remain exact in point inspection but are not
-converted to display numbers.
+Numeric dimension styling is gated by the installed package profile. The
+Playground lockfile currently pins npm `0.6.0`, which does not expose this API;
+its Workbench and generated examples therefore omit numeric dimension controls.
+The workspace `0.7.1` Dev Viewer supports exact-metadata field selection,
+editable ramps, and inclusive Cesium filters. Its API mapping and backend limits
+are documented in the [Dev Viewer guide](../dev-viewer/README.md#numeric-dimension-coloring).
 
 **Reset to defaults** restores Playground settings without clearing the active
 source, including a local `File` already backing the active layer.

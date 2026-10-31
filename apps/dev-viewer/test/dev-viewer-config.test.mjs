@@ -11,6 +11,7 @@ import {
 } from "../../shared/schema/index.ts";
 
 import {
+  commitRuntimeColorMode,
   getCesiumTerrainProviderUrl,
   getSafeSourceLabel,
   getSafeTerrainSourceLabel,
@@ -110,6 +111,41 @@ test("marks constructor-time settings pending and keeps Cesium color updates liv
       true,
     ),
     true,
+  );
+});
+
+test("runtime color changes preserve pending non-color schema edits", () => {
+  const appliedFilter = { name: "Intensity", min: 0, max: 65_535 };
+  const pendingFilter = { name: "Intensity", min: 25, max: 500 };
+  const applied = createConfig({
+    schemaOptionValues: {
+      "style.dimensionFilter": appliedFilter,
+      "attributes.extraDimensions": ["CanopyHeight"],
+    },
+  });
+  const dimension = {
+    name: "Intensity",
+    range: { min: 10, max: 60_000 },
+  };
+
+  const nextApplied = commitRuntimeColorMode(applied, "elevation");
+  const pending = createConfig({
+    colorMode: "elevation",
+    schemaOptionValues: {
+      ...applied.schemaOptionValues,
+      "style.dimensionFilter": pendingFilter,
+    },
+  });
+  assert.equal(nextApplied.colorMode, "elevation");
+  assert.deepEqual(nextApplied.schemaOptionValues, applied.schemaOptionValues);
+  assert.equal(hasUnappliedSettings(nextApplied, pending), true);
+
+  const nextDimension = commitRuntimeColorMode(applied, "dimension", dimension);
+  assert.deepEqual(nextDimension.schemaOptionValues["style.dimension"], dimension);
+  assert.deepEqual(nextDimension.schemaOptionValues["style.dimensionFilter"], appliedFilter);
+  assert.deepEqual(
+    nextDimension.schemaOptionValues["attributes.extraDimensions"],
+    ["CanopyHeight"],
   );
 });
 
@@ -219,6 +255,44 @@ test("restores schema-serialized settings from a share URL into host configurati
   assert.equal(restored.config.maxDepth, 9);
   assert.equal(restored.config.maxRenderDistance, 20_000);
   assert.equal(restored.config.refinementAlgorithm, "screen-projection");
+  assert.deepEqual(restored.warnings, []);
+});
+
+test("dimension share state restores exact Extra Bytes requests for the next layer load", () => {
+  const dimension = {
+    name: "CanopyHeight",
+    range: { min: 0, max: 50 },
+    palette: [
+      { position: 0, color: { red: 0, green: 0.2, blue: 1, alpha: 0.9 } },
+      { position: 1, color: { red: 1, green: 0.1, blue: 0, alpha: 0.9 } },
+    ],
+    missingValue: -9999,
+  };
+  const dimensionFilter = { name: "CanopyHeight", min: 2, max: 40, missingValue: -9999 };
+  const values = toWorkbenchOptionValues(createConfig({
+    colorMode: "dimension",
+    schemaOptionValues: {
+      "style.dimension": dimension,
+      "style.dimensionFilter": dimensionFilter,
+    },
+  }));
+  assert.deepEqual(values["attributes.extraDimensions"], ["CanopyHeight"]);
+
+  const params = serializeWorkbenchConfiguration(
+    createWorkbenchConfigurationState(values, values),
+    {
+      manifest: WORKSPACE_CURRENT_MANIFEST,
+      renderer: "cesium",
+      runtimeCapabilities: WORKSPACE_CURRENT_CAPABILITIES,
+    },
+    "applied",
+  );
+  const restored = restoreDevViewerShareConfiguration(params, createConfig());
+  assert.equal(restored.config.colorMode, "dimension");
+  assert.deepEqual(restored.config.schemaOptionValues?.["style.dimension"], dimension);
+  assert.deepEqual(restored.config.schemaOptionValues?.["style.dimensionFilter"], dimensionFilter);
+  assert.deepEqual(restored.config.schemaOptionValues?.["attributes.extraDimensions"], ["CanopyHeight"]);
+  assert.deepEqual(toWorkbenchOptionValues(restored.config)["attributes.extraDimensions"], ["CanopyHeight"]);
   assert.deepEqual(restored.warnings, []);
 });
 

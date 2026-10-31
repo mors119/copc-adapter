@@ -11,12 +11,23 @@ import {
 } from "../../shared/workbench/SchemaOptionPanel.ts";
 import { renderSharedSpecialControl } from "../../shared/workbench/specialControls.ts";
 import {
+  getAvailableChoices,
   WORKSPACE_CURRENT_CAPABILITIES,
   WORKSPACE_CURRENT_MANIFEST,
   getOptionDefinition,
 } from "../../shared/schema/index.ts";
 import { transitionRendererOptionValues } from "../../shared/config/index.ts";
 import type { SchemaRenderer } from "../../shared/schema/index.ts";
+import type {
+  SchemaDimensionFilter,
+  SchemaDimensionStyle,
+  SchemaNumericDimensionMetadata,
+} from "../../shared/schema/types.ts";
+import {
+  createDefaultDimensionStyle,
+  getWorkbenchNumericDimensions,
+  withRequestedExtraDimensions,
+} from "../../shared/workbench/dimensionModel.ts";
 import type {
   CameraPreset,
   CesiumPointRendererVariant,
@@ -34,7 +45,10 @@ export type DevViewerControlsOptions = {
   ) => void;
   readonly onBackendSelected: (backend: CopcBackendName) => void;
   readonly onCameraPresetSelected: (preset: CameraPreset) => number;
-  readonly onColorModeSelected: (mode: WorkbenchColorMode) => void;
+  readonly onColorModeSelected: (
+    mode: WorkbenchColorMode,
+    dimension?: SchemaDimensionStyle,
+  ) => void;
   readonly onRefinementAlgorithmSelected: (
     algorithm: RefinementAlgorithm,
   ) => void;
@@ -51,6 +65,11 @@ export type DevViewerControlsOptions = {
 export type DevViewerControls = {
   getSelectedSource(): string | File | undefined;
   getValidationErrors(): readonly string[];
+  setNumericDimensionMetadata(
+    metadata: Parameters<typeof getWorkbenchNumericDimensions>[0],
+    decodedExtraDimensions: readonly string[],
+    intensityDecoded: boolean,
+  ): void;
   destroy(): void;
 };
 
@@ -78,6 +97,10 @@ export function mountDevViewerControls(
   let schemaOptionValues: Record<string, unknown> = {
     ...(options.initialConfig.schemaOptionValues ?? {}),
   };
+  let sourceMetadata: Parameters<typeof getWorkbenchNumericDimensions>[0];
+  let decodedExtraDimensions: readonly string[] = [];
+  let intensityDecoded = false;
+  let numericDimensions: readonly SchemaNumericDimensionMetadata[] | undefined;
   const inactiveRendererValues = new Map<
     string,
     { readonly value: unknown; readonly schemaOnly: boolean }
@@ -97,9 +120,56 @@ export function mountDevViewerControls(
     if (sourceSelect.value === "custom") return customUrl.value.trim();
     return options.sourcePresets.get(sourceSelect.value);
   };
+  const refreshDimensionContext = (): void => {
+    const backend = values["adapter.backend"] === "rust" ? "rust" : "copc-js";
+    numericDimensions = getWorkbenchNumericDimensions(
+      sourceMetadata,
+      backend,
+      decodedExtraDimensions,
+      intensityDecoded,
+    );
+  };
+  const context = () => ({
+    manifest: WORKSPACE_CURRENT_MANIFEST,
+    renderer,
+    runtimeCapabilities: HOST_RUNTIME_CAPABILITIES,
+    values,
+    ...(numericDimensions === undefined ? {} : { numericDimensions }),
+  });
+  const updateDimensionChoices = (): void => {
+    const option = getOptionDefinition("rendering.colorMode");
+    if (!option) return;
+    const choices = getAvailableChoices(option, {
+      manifest: WORKSPACE_CURRENT_MANIFEST,
+      renderer,
+      runtimeCapabilities: HOST_RUNTIME_CAPABILITIES,
+    }).map(({ value, label }) => ({
+      value,
+      label,
+      ...(value === "dimension" &&
+        values["rendering.colorMode"] !== "dimension" &&
+        !numericDimensions?.some(({ styleable }) => styleable)
+        ? {
+            disabled: true,
+            title: "Load a COPC source to verify available numeric fields.",
+          }
+        : {}),
+    }));
+    schemaPanel?.setChoices("rendering.colorMode", choices);
+  };
+  const clearSourceDimensionMetadata = (): void => {
+    sourceMetadata = undefined;
+    decodedExtraDimensions = [];
+    refreshDimensionContext();
+    schemaPanel?.update({ values, context: context() });
+    updateDimensionChoices();
+  };
   const updateSelectedSource = (): void => {
     const source = getSelectedSource();
-    if (source !== undefined) options.onPendingConfigChange({ source });
+    if (source !== undefined) {
+      clearSourceDimensionMetadata();
+      options.onPendingConfigChange({ source });
+    }
   };
 
   const onSourceSelectionChange = (): void => {
@@ -125,6 +195,7 @@ export function mountDevViewerControls(
     localFileOption.textContent = "Local file · " + file.name;
     sourceSelect.value = "local-file";
     customUrl.disabled = true;
+    clearSourceDimensionMetadata();
     options.onPendingConfigChange({ source: file });
   };
   sourceSelect.addEventListener("change", onSourceSelectionChange);
@@ -157,13 +228,14 @@ export function mountDevViewerControls(
   };
   cameraDistanceInput.addEventListener("change", onCameraDistanceChange);
 
-  const context = () => ({
-    manifest: WORKSPACE_CURRENT_MANIFEST,
-    renderer,
-    runtimeCapabilities: HOST_RUNTIME_CAPABILITIES,
-    values,
-  });
   let schemaPanel: ReturnType<typeof mountSchemaOptionPanel> | undefined;
+  let configuredExtraDimensions: readonly string[] | "*" =
+    schemaOptionValues["attributes.extraDimensions"] === "*"
+      ? "*"
+      : Array.isArray(schemaOptionValues["attributes.extraDimensions"])
+        ? (schemaOptionValues["attributes.extraDimensions"] as unknown[])
+            .filter((name): name is string => typeof name === "string")
+        : [];
 
   const setOption = (optionId: string, value: unknown): void => {
     values = { ...values, [optionId]: value };
@@ -193,9 +265,30 @@ export function mountDevViewerControls(
       }
       case "adapter.backend":
         options.onBackendSelected(value as CopcBackendName);
+        refreshDimensionContext();
         break;
       case "rendering.colorMode":
-        options.onColorModeSelected(value as WorkbenchColorMode);
+        if (value === "dimension" && values["style.dimension"] === undefined && numericDimensions) {
+          const first = numericDimensions.find(({ styleable }) => styleable);
+          if (first) {
+            const dimension = createDefaultDimensionStyle(numericDimensions, first.name);
+            values = { ...values, "style.dimension": dimension };
+            schemaOptionValues = { ...schemaOptionValues, "style.dimension": dimension };
+          }
+        }
+        syncDimensionExtraDimensions();
+        options.onPendingConfigChange({ schemaOptionValues });
+        {
+          const dimension = values["style.dimension"] as SchemaDimensionStyle | undefined;
+          const field = dimension
+            ? numericDimensions?.find(({ name }) => name === dimension.name)
+            : undefined;
+          if (value === "dimension" && dimension && field?.decoded !== true) {
+            options.onPendingConfigChange({ colorMode: "dimension" });
+          } else {
+            options.onColorModeSelected(value as WorkbenchColorMode, dimension);
+          }
+        }
         break;
       case "rendering.cesiumPointRenderer":
         options.onCesiumRendererSelected(value as CesiumPointRendererVariant);
@@ -210,6 +303,22 @@ export function mountDevViewerControls(
         options.onRangeValidationSelected(value as RangeValidationPolicy);
         break;
       default: {
+        if (optionId === "style.dimension" || optionId === "style.dimensionFilter") {
+          schemaOptionValues = { ...schemaOptionValues, [optionId]: value };
+          syncDimensionExtraDimensions();
+          options.onPendingConfigChange({ schemaOptionValues });
+          break;
+        }
+        if (optionId === "attributes.extraDimensions") {
+          configuredExtraDimensions = value === "*"
+            ? "*"
+            : Array.isArray(value)
+              ? value.filter((name): name is string => typeof name === "string")
+              : [];
+          syncDimensionExtraDimensions();
+          options.onPendingConfigChange({ schemaOptionValues });
+          break;
+        }
         const definition = getOptionDefinition(optionId);
         const stateField = definition?.statePath.split(".").at(-1);
         const configuredFields = new Set(Object.keys(options.initialConfig));
@@ -227,8 +336,31 @@ export function mountDevViewerControls(
         }
       }
     }
+    refreshDimensionContext();
     schemaPanel?.update({ values, context: context() });
+    updateDimensionChoices();
   };
+
+  function syncDimensionExtraDimensions(): void {
+    const dimension = values["rendering.colorMode"] === "dimension"
+      ? values["style.dimension"] as SchemaDimensionStyle | undefined
+      : undefined;
+    const filter = (values["style.dimensionFilter"] ?? undefined) as SchemaDimensionFilter | null | undefined;
+    schemaOptionValues = withRequestedExtraDimensions(
+      schemaOptionValues,
+      configuredExtraDimensions,
+      dimension,
+      filter,
+    );
+    if (Object.hasOwn(schemaOptionValues, "attributes.extraDimensions")) {
+      values = {
+        ...values,
+        "attributes.extraDimensions": schemaOptionValues["attributes.extraDimensions"],
+      };
+    } else {
+      delete values["attributes.extraDimensions"];
+    }
+  }
 
   schemaPanel = mountSchemaOptionPanel({
     target: controlRoot,
@@ -245,10 +377,19 @@ export function mountDevViewerControls(
     onChange: setOption,
     onValidationChange: options.onValidationChange,
   });
+  updateDimensionChoices();
 
   return {
     getSelectedSource,
     getValidationErrors: () => schemaPanel?.getValidationErrors() ?? [],
+    setNumericDimensionMetadata(metadata, decoded, decodedIntensity): void {
+      sourceMetadata = metadata;
+      decodedExtraDimensions = decoded;
+      intensityDecoded = decodedIntensity;
+      refreshDimensionContext();
+      schemaPanel?.update({ values, context: context() });
+      updateDimensionChoices();
+    },
     destroy(): void {
       mountedControls.forEach((control) => control.destroy());
       schemaPanel?.destroy();

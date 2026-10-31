@@ -64,6 +64,55 @@ the Inspector reports the actual probe validation level and warnings. HEAD
 metadata is not cryptographic integrity verification. `strict` requires a
 readable matching `Content-Range` and does not fall back to HEAD.
 
+## Numeric dimension coloring
+
+The workspace `0.7.1` Workbench offers standard LAS **Intensity** and supported
+scalar Extra Bytes found in the loaded source metadata. Choose **Numeric
+Dimension** to edit the exact field's value range, normalized RGBA palette, and
+NoData value. Palette stops blend linearly; values outside the color range use
+the nearest end color. Float fields start with a documented 0–1 range because
+the viewer does not scan point samples to estimate a range.
+
+Extra Bytes are requested by exact field name when you apply a selection. This
+rebuilds the layer if that field was not already decoded. Once loaded, Cesium
+palette and filter changes reuse the cached points through `setStyle()`.
+Cesium filter bounds are inclusive. Three.js applies ramps through layer
+constructor options and does not expose a runtime numeric filter. The Rust/WASM
+backend supports Intensity but not named Extra Bytes. Unsupported vector fields
+and 64-bit integer fields are not offered as numeric controls; 64-bit integers
+remain exact `BigInt` values in point inspection.
+
+Generated examples follow the active renderer's public API. Cesium uses a
+`setStyle()` call after load, while Three.js includes `colorMode: "dimension"`
+and the `dimension` ramp in layer options. For a dataset whose metadata declares
+`CanopyHeight` as a supported scalar Extra Bytes field, an example looks like:
+
+```ts
+const layer = new CopcCesiumLayer({
+  url: source,
+  backend: new CopcJsBackend({ extraDimensions: ["CanopyHeight"] }),
+});
+await layer.load();
+layer.attachTo(viewer);
+layer.setStyle({
+  colorMode: "dimension",
+  dimension: {
+    name: "CanopyHeight",
+    range: { min: 0, max: 50 },
+    palette: [
+      { position: 0, color: { red: 0.05, green: 0.2, blue: 0.65, alpha: 0.9 } },
+      { position: 1, color: { red: 0.85, green: 0.1, blue: 0.05, alpha: 0.9 } },
+    ],
+  },
+  dimensionFilter: { name: "CanopyHeight", min: 2, max: 40 },
+});
+```
+
+The field name and range above are illustrative; use values from the loaded
+source's metadata. The JavaScript backend applies LAS scale and offset before
+styling. A declared NoData value is surfaced in the editor and can be passed as
+`missingValue` for styling and filtering.
+
 ## Shared Terrain estimate and approval
 
 The dev-viewer starts with the WGS 84 ellipsoid and imagery only. The ellipsoid

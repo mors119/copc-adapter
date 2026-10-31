@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   applyWorkbenchConfiguration,
   buildSchemaApplicationPlan,
+  configuredLayerLoadsIntensity,
   createWorkbenchConfigurationState,
   discardWorkbenchPending,
   getChangedWorkbenchOptionIds,
@@ -30,6 +31,16 @@ const cesiumContext = {
   manifest: NPM_0_6_MANIFEST,
   renderer: "cesium",
   runtimeCapabilities: NPM_0_6_CAPABILITIES,
+};
+const workspaceCesiumContext = {
+  manifest: WORKSPACE_CURRENT_MANIFEST,
+  renderer: "cesium",
+  runtimeCapabilities: WORKSPACE_CURRENT_CAPABILITIES,
+};
+const workspaceThreeContext = {
+  manifest: WORKSPACE_CURRENT_MANIFEST,
+  renderer: "three",
+  runtimeCapabilities: WORKSPACE_CURRENT_CAPABILITIES,
 };
 
 const focus = {
@@ -224,6 +235,131 @@ test("materializes Cesium pointFields as a Set and replaces the layer for cache 
     Object.hasOwn(materializeWorkbenchConstructorOptions(changedLayout), "retainSourceCoordinatesForQueries"),
     false,
   );
+});
+
+test("seeds a required-loading Cesium Dimension ramp into constructor and runtime styles", () => {
+  const dimension = {
+    name: "scanAngle",
+    range: { min: -90, max: 90 },
+    palette: [
+      { position: 0, color: { red: 0, green: 0.2, blue: 1, alpha: 0.9 } },
+      { position: 1, color: { red: 1, green: 0.1, blue: 0, alpha: 0.9 } },
+    ],
+  };
+  const plan = buildSchemaApplicationPlan(validValues({
+    "rendering.colorMode": "dimension",
+    "style.dimension": dimension,
+    "attributes.extraDimensions": ["scanAngle"],
+    "attributes.attributeLoading": "required",
+  }), workspaceCesiumContext);
+
+  assert.equal(plan.constructorOptions.attributeLoading, "required");
+  assert.equal(plan.constructorOptions.colorMode, "dimension");
+  assert.deepEqual(plan.constructorOptions.dimension, dimension);
+  assert.deepEqual(plan.runtimeOperations, [{
+    method: "setStyle",
+    kind: "patch",
+    argument: { colorMode: "dimension", dimension },
+    rollbackArgument: { colorMode: undefined, dimension: undefined },
+    optionIds: ["rendering.colorMode", "style.dimension"],
+  }]);
+});
+
+test("seeds a required-loading Cesium numeric filter into constructor and runtime styles", () => {
+  const dimensionFilter = { name: "Intensity", min: 25, max: 500 };
+  const plan = buildSchemaApplicationPlan(validValues({
+    "rendering.colorMode": "elevation",
+    "style.dimensionFilter": dimensionFilter,
+    "attributes.attributeLoading": "required",
+  }), workspaceCesiumContext);
+
+  assert.equal(plan.constructorOptions.attributeLoading, "required");
+  assert.equal(plan.constructorOptions.colorMode, "elevation");
+  assert.deepEqual(plan.constructorOptions.dimensionFilter, dimensionFilter);
+  assert.deepEqual(plan.runtimeOperations, [{
+    method: "setStyle",
+    kind: "patch",
+    argument: { colorMode: "elevation", dimensionFilter },
+    rollbackArgument: { colorMode: undefined, dimensionFilter: undefined },
+    optionIds: ["rendering.colorMode", "style.dimensionFilter"],
+  }]);
+});
+
+test("recreates required-loading Cesium when an Intensity style or filter needs a missing field", () => {
+  const dimensionFilter = { name: "Intensity", min: 25, max: 500 };
+  const dimensionStyle = {
+    name: "Intensity",
+    range: { min: 0, max: 65_535 },
+    palette: [
+      { position: 0, color: { red: 0, green: 0.2, blue: 1, alpha: 0.9 } },
+      { position: 1, color: { red: 1, green: 0.1, blue: 0, alpha: 0.9 } },
+    ],
+  };
+  const requiredRgb = validValues({
+    "rendering.colorMode": "rgb",
+    "attributes.attributeLoading": "required",
+    "attributes.pointFields": [],
+  });
+  assert.equal(configuredLayerLoadsIntensity(requiredRgb, workspaceCesiumContext), false);
+
+  const needsRamp = buildSchemaApplicationPlan({
+    ...requiredRgb,
+    "rendering.colorMode": "dimension",
+    "style.dimension": dimensionStyle,
+  }, workspaceCesiumContext, requiredRgb);
+  assert.equal(needsRamp.requiresLayerReplacement, true);
+  assert.ok(needsRamp.runtimeOperations.some((operation) =>
+    operation.method === "setStyle" &&
+    operation.argument.colorMode === "dimension" &&
+    operation.argument.dimension?.name === "Intensity",
+  ));
+
+  const needsIntensity = buildSchemaApplicationPlan({
+    ...requiredRgb,
+    "style.dimensionFilter": dimensionFilter,
+  }, workspaceCesiumContext, requiredRgb);
+  assert.equal(needsIntensity.requiresLayerReplacement, true);
+  assert.deepEqual(needsIntensity.constructorOptions.dimensionFilter, dimensionFilter);
+  assert.ok(needsIntensity.runtimeOperations.some((operation) =>
+    operation.method === "setStyle" &&
+    operation.argument.dimensionFilter?.name === "Intensity",
+  ));
+
+  const intensityAlreadySelected = validValues({
+    "rendering.colorMode": "rgb",
+    "attributes.attributeLoading": "required",
+    "attributes.pointFields": ["intensity"],
+  });
+  assert.equal(configuredLayerLoadsIntensity(intensityAlreadySelected, workspaceCesiumContext), true);
+  const rampRuntimeUpdate = buildSchemaApplicationPlan({
+    ...intensityAlreadySelected,
+    "rendering.colorMode": "dimension",
+    "style.dimension": dimensionStyle,
+  }, workspaceCesiumContext, intensityAlreadySelected);
+  assert.equal(rampRuntimeUpdate.requiresLayerReplacement, false);
+
+  const runtimeUpdate = buildSchemaApplicationPlan({
+    ...intensityAlreadySelected,
+    "style.dimensionFilter": dimensionFilter,
+  }, workspaceCesiumContext, intensityAlreadySelected);
+  assert.equal(runtimeUpdate.requiresLayerReplacement, false);
+  assert.deepEqual(runtimeUpdate.runtimeOperations, [{
+    method: "setStyle",
+    kind: "patch",
+    argument: { dimensionFilter },
+    rollbackArgument: { dimensionFilter: null },
+    optionIds: ["style.dimensionFilter"],
+  }]);
+
+  const intensityModeAlreadySelected = validValues({
+    "rendering.colorMode": "intensity",
+    "attributes.attributeLoading": "required",
+  });
+  const modeHasField = buildSchemaApplicationPlan({
+    ...intensityModeAlreadySelected,
+    "style.dimensionFilter": dimensionFilter,
+  }, workspaceCesiumContext, intensityModeAlreadySelected);
+  assert.equal(modeHasField.requiresLayerReplacement, false);
 });
 
 test("conditional settings stay out of constructor options when their condition is false", () => {
@@ -434,6 +570,64 @@ test("runtime style edits avoid layer recreation and reset nullable filters expl
   assert.deepEqual(calls, [{ colorMode: "intensity", classificationFilter: null }]);
   assert.equal(result.state.applied["rendering.colorMode"], "intensity");
   assert.equal(isWorkbenchConfigurationDirty(result.state), false);
+});
+
+test("numeric dimension palette and filter edits restyle cached Cesium points", async () => {
+  const oldDimension = {
+    name: "Intensity",
+    range: { min: 0, max: 65_535 },
+    palette: [
+      { position: 0, color: { red: 0, green: 0.2, blue: 1, alpha: 0.9 } },
+      { position: 1, color: { red: 1, green: 0.1, blue: 0, alpha: 0.9 } },
+    ],
+  };
+  const nextDimension = { ...oldDimension, range: { min: 5, max: 100 } };
+  const oldFilter = { name: "Intensity", min: 0, max: 65_535 };
+  const filter = { name: "Intensity", min: 10, max: 90 };
+  const current = validValues({
+    "rendering.colorMode": "dimension",
+    "style.dimension": oldDimension,
+    "style.dimensionFilter": oldFilter,
+  });
+  const changed = updateWorkbenchConfiguration(
+    createWorkbenchConfigurationState(current, current),
+    { "style.dimension": nextDimension, "style.dimensionFilter": filter },
+    workspaceCesiumContext,
+  );
+  assert.equal(changed.ok, true);
+
+  const styleCalls = [];
+  const runtime = { setStyle(value) { styleCalls.push(value); } };
+  let creations = 0;
+  const result = await applyWorkbenchConfiguration(changed.state, workspaceCesiumContext, {
+    getActiveRuntime: () => runtime,
+    async createRuntime() { creations += 1; return runtime; },
+    activateRuntime() {},
+    disposeRuntime() {},
+  });
+  assert.equal(result.replaced, false);
+  assert.equal(creations, 0);
+  assert.deepEqual(styleCalls, [{ dimension: nextDimension, dimensionFilter: filter }]);
+  assert.equal(isWorkbenchConfigurationDirty(result.state), false);
+});
+
+test("Three.js receives numeric dimension ramps as constructor options without runtime filters", () => {
+  const dimension = {
+    name: "height",
+    range: { min: 0, max: 100 },
+    palette: [
+      { position: 0, color: { red: 0, green: 0, blue: 1 } },
+      { position: 1, color: { red: 1, green: 0, blue: 0 } },
+    ],
+  };
+  const plan = buildSchemaApplicationPlan(validValues({
+    "renderer.engine": "three",
+    "rendering.colorMode": "dimension",
+    "style.dimension": dimension,
+  }), workspaceThreeContext);
+  assert.equal(plan.constructorOptions.colorMode, "dimension");
+  assert.deepEqual(plan.constructorOptions.dimension, dimension);
+  assert.deepEqual(plan.runtimeOperations, []);
 });
 
 test("opacity and Cesium clipping use runtime operations, including clear, without replacement", async () => {

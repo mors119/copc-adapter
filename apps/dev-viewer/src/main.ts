@@ -76,6 +76,7 @@ import {
 import {
   applySchemaRuntimeOperations,
   buildSchemaApplicationPlan,
+  configuredLayerLoadsIntensity,
   materializeWorkbenchConstructorOptions,
   createWorkbenchConfigurationState,
   getChangedWorkbenchOptionIds,
@@ -87,6 +88,7 @@ import {
   WORKSPACE_CURRENT_MANIFEST,
 } from "../../shared/schema/index.ts";
 import {
+  commitRuntimeColorMode,
   getCesiumTerrainProviderUrl,
   getSafeSourceLabel,
   getSafeTerrainSourceLabel,
@@ -1476,10 +1478,7 @@ async function main(): Promise<void> {
     // The Dev Viewer schema exposes the five modes with complete Workbench
     // controls. Dimension mode also needs a user-supplied range and ramp, so
     // keep that new public API mode out of this host's legacy initial config.
-    colorMode:
-      initialOptions.colorMode === "dimension"
-        ? "rgb"
-        : initialOptions.colorMode ?? "rgb",
+    colorMode: initialOptions.colorMode ?? "rgb",
     pointSize: initialOptions.pointSize ?? 3,
     maxNodes: initialStreaming?.maxNodes ?? 24,
     maxRenderedPoints:
@@ -2237,6 +2236,20 @@ async function main(): Promise<void> {
       activeDebugAdapter = candidateSession.debugAdapter;
       activeDebugAdapter?.activate();
       activeConfig = { ...config };
+      const appliedValues = toWorkbenchOptionValues(config);
+      const appliedExtraDimensions = appliedValues["attributes.extraDimensions"];
+      const intensityDecoded = configuredLayerLoadsIntensity(appliedValues, {
+        manifest: WORKSPACE_CURRENT_MANIFEST,
+        renderer: config.renderer,
+        runtimeCapabilities: WORKSPACE_CURRENT_CAPABILITIES,
+      });
+      workbenchControls?.setNumericDimensionMetadata(
+        candidateSession.getMetadata(),
+        Array.isArray(appliedExtraDimensions)
+          ? appliedExtraDimensions.filter((name): name is string => typeof name === "string")
+          : appliedExtraDimensions === "*" ? ["*"] : [],
+        intensityDecoded,
+      );
       refreshIntegrationCode();
       if (purpose === "load") {
         pendingConfig = { ...config };
@@ -2444,12 +2457,28 @@ async function main(): Promise<void> {
       updateConfigurationState();
       return nextDistance;
     },
-    onColorModeSelected(value) {
-      pendingConfig = { ...pendingConfig, colorMode: value };
+    onColorModeSelected(value, dimension) {
+      const pendingSchemaOptionValues = {
+        ...(pendingConfig.schemaOptionValues ?? {}),
+        ...(value === "dimension" && dimension
+          ? { "style.dimension": dimension }
+          : {}),
+      };
+      pendingConfig = {
+        ...pendingConfig,
+        colorMode: value,
+        schemaOptionValues: pendingSchemaOptionValues,
+      };
       if (activeSession?.renderer === "cesium") {
         try {
-          activeSession.setStyle?.({ colorMode: value });
-          activeConfig = { ...activeConfig, colorMode: value };
+          if (!activeSession.setStyle) {
+            throw new TypeError("The active Cesium layer does not support runtime style updates.");
+          }
+          activeSession.setStyle({
+            colorMode: value,
+            ...(value === "dimension" && dimension ? { dimension } : {}),
+          });
+          activeConfig = commitRuntimeColorMode(activeConfig, value, dimension);
           refreshIntegrationCode();
           lastError = undefined;
           configurationError = undefined;

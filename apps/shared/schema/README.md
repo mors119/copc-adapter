@@ -32,6 +32,17 @@ the current workspace source supports those features. Update the workspace
 profile version when `packages/package.json` changes. Unknown versions resolve
 to no profile and must not receive controls or generated code.
 
+The workspace `0.7.1` profile exposes numeric dimension ramps in both
+renderers. Cesium applies ramp and inclusive filter edits through `setStyle()`;
+Three.js receives the ramp as a constructor option and has no runtime dimension
+filter. Controls use Intensity and exact scalar Extra Bytes descriptors from
+loaded metadata. Only explicitly selected Extra Bytes fields are requested
+before decode. Rust/WASM exposes Intensity but not named Extra Bytes, and 64-bit
+integer descriptors stay unavailable to numeric styling because their values
+remain `BigInt`. Structured ramp and filter share state uses bounded JSON.
+The Playground's pinned npm `0.6.0` profile does not advertise these options, so
+its controls and code generator omit them.
+
 Playground and Dev Viewer typechecks compile the schema against their actual
 package declarations. These checks compare constructor paths and nested
 streaming options, enum choices, renderer-specific methods and exported

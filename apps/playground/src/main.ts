@@ -749,7 +749,8 @@ if (import.meta.env.DEV) {
         const configuredBackend = options.backend;
         mockBackendExtraDimensions =
           typeof configuredBackend === "object" && configuredBackend !== null
-            ? (configuredBackend as unknown as { configuredExtraDimensions?: unknown }).configuredExtraDimensions
+            ? (configuredBackend as unknown as { configuredExtraDimensions?: unknown })
+                .configuredExtraDimensions
             : undefined;
         mockRefinementAlgorithm = options.streaming?.refinementAlgorithm;
         mockRefinementFocus = undefined;

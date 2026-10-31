@@ -8,6 +8,7 @@ import type {
   SchemaSpecialControl,
   SchemaSpecialControlOptions,
 } from "./SchemaOptionPanel.ts";
+import { renderDimensionSpecialControl } from "./dimensionControls.ts";
 
 function textInput(
   id: string,
@@ -596,6 +597,8 @@ function createPointFieldSelectionControl(
 export function renderSharedSpecialControl(
   options: SchemaSpecialControlOptions,
 ): SchemaSpecialControl | undefined {
+  const dimensionControl = renderDimensionSpecialControl(options);
+  if (dimensionControl) return dimensionControl;
   switch (options.option.control) {
     case "opacity":
       return createOpacityControl(options);
