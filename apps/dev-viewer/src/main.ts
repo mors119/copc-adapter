@@ -1927,6 +1927,7 @@ async function main(): Promise<void> {
       .forEach((control) => {
         control.disabled = isLoading;
       });
+    workbenchControls?.refreshVerticalGridAvailability();
     controlsPanel
       .querySelectorAll<HTMLButtonElement>(".ui-segmented button")
       .forEach((control) => {

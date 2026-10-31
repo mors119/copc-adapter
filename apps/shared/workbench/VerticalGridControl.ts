@@ -19,6 +19,15 @@ function element<K extends keyof HTMLElementTagNameMap>(tag: K, className?: stri
   return node;
 }
 
+/** Keep a host-level re-enable from starting concurrent full-world grid loads. */
+export function canStartVerticalGridLoad(
+  loading: boolean,
+  canLoad: boolean,
+  hasSelectedValue: boolean,
+): boolean {
+  return !loading && canLoad && !hasSelectedValue;
+}
+
 function renderGridDetails(target: HTMLElement, value: unknown): void {
   const details = getVerticalGridResourceDetails(value);
   if (!details) {
@@ -120,7 +129,10 @@ export function mountVerticalGridControl(
   const onFileChange = async (): Promise<void> => {
     const file = fileInput.files?.[0];
     fileInput.value = "";
-    if (!file || !options.canLoad() || value !== undefined) return;
+    if (
+      !file ||
+      !canStartVerticalGridLoad(loading, options.canLoad(), value !== undefined)
+    ) return;
     const taskGeneration = ++generation;
     loading = true;
     loadingGeneration = taskGeneration;

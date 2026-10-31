@@ -7,6 +7,7 @@ import type { WorkbenchColorMode } from "../../shared/workbench-config";
 import { mountSegmentedControl } from "../../shared/ui-controls";
 import {
   mountSchemaOptionPanel,
+  type SchemaSpecialControl,
   type SchemaOptionPanelOptions,
 } from "../../shared/workbench/SchemaOptionPanel.ts";
 import { renderSharedSpecialControl } from "../../shared/workbench/specialControls.ts";
@@ -73,6 +74,7 @@ export type DevViewerControls = {
   getSelectedSource(): string | File | undefined;
   getValidationErrors(): readonly string[];
   updateContext(): void;
+  refreshVerticalGridAvailability(): void;
   setNumericDimensionMetadata(
     metadata: Parameters<typeof getWorkbenchNumericDimensions>[0],
     decodedExtraDimensions: readonly string[],
@@ -232,6 +234,7 @@ export function mountDevViewerControls(
   cameraDistanceInput.addEventListener("change", onCameraDistanceChange);
 
   let schemaPanel: ReturnType<typeof mountSchemaOptionPanel> | undefined;
+  let verticalGridControl: SchemaSpecialControl | undefined;
   let configuredExtraDimensions: readonly string[] | "*" =
     schemaOptionValues["attributes.extraDimensions"] === "*"
       ? "*"
@@ -378,12 +381,13 @@ export function mountDevViewerControls(
     hostValidators: options.verticalGridHostValidators,
     renderSpecialControl(controlOptions) {
       if (controlOptions.option.id === "coordinates.verticalTransform") {
-        return mountVerticalGridControl({
+        verticalGridControl = mountVerticalGridControl({
           ...controlOptions,
           loadGrid: options.loadVerticalGrid,
           canLoad: options.canLoadVerticalGrid,
           isApplied: options.isVerticalGridApplied,
         });
+        return verticalGridControl;
       }
       return renderSharedSpecialControl(controlOptions);
     },
@@ -398,6 +402,9 @@ export function mountDevViewerControls(
     getValidationErrors: () => schemaPanel?.getValidationErrors() ?? [],
     updateContext(): void {
       schemaPanel?.update({ values, context: context() });
+    },
+    refreshVerticalGridAvailability(): void {
+      verticalGridControl?.updateContext?.(context());
     },
     setNumericDimensionMetadata(metadata, decoded, decodedIntensity): void {
       sourceMetadata = metadata;

@@ -23,7 +23,6 @@ import {
 } from "../../shared/schema/index.ts";
 import {
   applySchemaRuntimeOperations,
-  buildSchemaApplicationPlan,
   createWorkbenchConfigurationState,
   getChangedWorkbenchOptionIds,
   normalizeWorkbenchOptionValues,
@@ -94,6 +93,7 @@ import {
   type PlaygroundUrlConfig,
 } from "./playgroundUrlConfig";
 import {
+  buildPlaygroundApplicationPlan,
   clonePlaygroundConfig,
   hasConstructorChanges,
   normalizeClassificationFilter,
@@ -1467,14 +1467,11 @@ async function applyOpacityAndClippingToActiveRuntime(
   try {
     const values = playgroundOptionValues(config);
     const previousValues = playgroundOptionValues(appliedConfig);
-    const plan = buildSchemaApplicationPlan(
+    const plan = buildPlaygroundApplicationPlan(
       values,
-      {
-        manifest: NPM_0_7_1_MANIFEST,
-        renderer: config.renderer,
-        runtimeCapabilities: NPM_0_7_1_CAPABILITIES,
-      },
+      config.renderer,
       previousValues,
+      verticalGridResources.hostValidators,
     );
     if (plan.requiresLayerReplacement) {
       throw new Error("The pending settings require a replacement layer.");

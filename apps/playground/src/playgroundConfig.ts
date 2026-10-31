@@ -7,6 +7,8 @@ import {
   buildSchemaApplicationPlan,
   normalizeWorkbenchOptionValues,
   validateWorkbenchConfiguration,
+  type SchemaApplicationPlan,
+  type WorkbenchOptionValues,
 } from "../../shared/config/index.ts";
 import {
   PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES,
@@ -144,6 +146,26 @@ export function validatePlaygroundConfig(
   return errors;
 }
 
+/** Build a Playground plan while preserving host-owned resource validation. */
+export function buildPlaygroundApplicationPlan(
+  values: WorkbenchOptionValues,
+  renderer: WorkbenchRenderer,
+  previousValues?: WorkbenchOptionValues,
+  hostValidators: SchemaHostValidators = {},
+): SchemaApplicationPlan {
+  return buildSchemaApplicationPlan(
+    values,
+    {
+      manifest: NPM_0_7_1_MANIFEST,
+      renderer,
+      runtimeCapabilities: PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES,
+    },
+    previousValues,
+    undefined,
+    hostValidators,
+  );
+}
+
 /** Compare only settings that require a new layer instance. */
 export function hasConstructorChanges(
   pending: PlaygroundConfig,
@@ -164,15 +186,10 @@ export function hasConstructorChanges(
         ...(active.schemaOptionValues ?? {}),
       },
     );
-    return buildSchemaApplicationPlan(
+    return buildPlaygroundApplicationPlan(
       pendingValues,
-      {
-        manifest: NPM_0_7_1_MANIFEST,
-        renderer: active.renderer,
-        runtimeCapabilities: PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES,
-      },
+      active.renderer,
       activeValues,
-      undefined,
       hostValidators,
     ).requiresLayerReplacement;
   } catch {
