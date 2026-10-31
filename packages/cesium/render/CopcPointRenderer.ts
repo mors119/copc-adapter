@@ -81,8 +81,8 @@ export interface CesiumPointRenderer extends CopcPointRenderer {
   detachFrom(): void;
   /** Apply layer-level visibility when the renderer supports it. */
   setShow?(show: boolean): void;
-  /** Apply a uniform alpha to this renderer's owned points and future nodes. */
-  setOpacity?(opacity: number): void;
+  /** Apply a uniform alpha, or restore point-color alpha when `undefined`. */
+  setOpacity?(opacity: number | undefined): void;
   /** Create or replace one node's point primitives. */
   addOrUpdateNode(
     nodeKey: string,
@@ -119,6 +119,7 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
     Cesium.PointPrimitiveCollection
   >();
   private readonly visiblePointCounts = new Map<string, number>();
+  private readonly originalPointAlphas = new Map<string, Float32Array>();
 
   /** Attach a new primitive collection to a Viewer owned by the application. */
   attachTo(viewer: Cesium.Viewer): void {
@@ -153,17 +154,20 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
     }
   }
 
-  /** Set current and future point alpha without rebuilding node collections. */
-  setOpacity(opacity: number): void {
-    assertCopcLayerOpacity(opacity);
+  /** Set current and future alpha, or restore each point's original color alpha. */
+  setOpacity(opacity: number | undefined): void {
+    if (opacity !== undefined) assertCopcLayerOpacity(opacity);
     this.opacity = opacity;
     if (this.primitiveCollection) {
       this.primitiveCollection.show = this.showState && opacity !== 0;
     }
-    for (const collection of this.pointCollections.values()) {
+    for (const [nodeKey, collection] of this.pointCollections) {
+      const original = this.originalPointAlphas.get(nodeKey);
       for (let index = 0; index < collection.length; index += 1) {
         const point = collection.get(index);
-        point.color = point.color.withAlpha(opacity);
+        point.color = point.color.withAlpha(
+          opacity === undefined ? original?.[index] ?? point.color.alpha : opacity,
+        );
       }
     }
   }
@@ -197,6 +201,11 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
       this.primitiveCollection,
     );
     this.pointCollections.set(nodeKey, collection);
+    const originalAlphas = new Float32Array(collection.length);
+    for (let index = 0; index < collection.length; index += 1) {
+      originalAlphas[index] = collection.get(index).color.alpha;
+    }
+    this.originalPointAlphas.set(nodeKey, originalAlphas);
     if (this.opacity !== undefined) {
       for (let index = 0; index < collection.length; index += 1) {
         const point = collection.get(index);
@@ -239,6 +248,7 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
       dimension: options.dimension,
     });
     let visiblePointCount = 0;
+    const originalAlphas = new Float32Array(points.pointCount);
     for (let index = 0; index < points.pointCount; index += 1) {
       const primitive = collection.get(index);
       const visible = options.pointFilter?.(index) ?? true;
@@ -249,12 +259,14 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
         points.attributes,
         index,
       );
+      originalAlphas[index] = color.alpha;
       primitive.color =
         this.opacity === undefined ? color : color.withAlpha(this.opacity);
       if (visible) {
         visiblePointCount += 1;
       }
     }
+    this.originalPointAlphas.set(nodeKey, originalAlphas);
     this.visiblePointCounts.set(nodeKey, visiblePointCount);
     options.onPerformance?.(
       "pointStylePreparation",
@@ -275,6 +287,7 @@ export class PointPrimitiveRenderer implements CesiumPointRenderer {
     const pointCount = collection.length;
     this.primitiveCollection?.remove(collection);
     this.pointCollections.delete(nodeKey);
+    this.originalPointAlphas.delete(nodeKey);
     this.visiblePointCounts.delete(nodeKey);
     // Removal is intentionally measured at the boundary where a future
     // renderer can replace a whole node without exposing Cesium internals.

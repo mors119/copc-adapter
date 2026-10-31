@@ -409,15 +409,24 @@ ellipsoidal display height입니다. dataset-relative 또는 지면 기준 높�
 않습니다.
 
 Cesium과 Three.js layer 모두 constructor의 `opacity`와 runtime
-`setOpacity(opacity)`를 지원합니다. 변경은 현재 layer가 소유한 renderer resource와 이후
-stream된 node에 적용되며 COPC point 데이터를 다시 읽거나 decode하지 않습니다. `0`은
-해당 layer의 point picking을 막고 현재 선택을 지웁니다. 다른 layer, imagery, terrain 또는
-application renderer의 전역 상태는 변경하지 않습니다.
+`setOpacity(opacity)`를 지원합니다. 명시한 값은 `[0, 1]` 범위의 최종 layer alpha로 각 point의
+palette alpha를 대체합니다. `setOpacity(undefined)`는 runtime override를 지우고 renderer 기본값과
+point별 palette alpha를 복원합니다. 변경은 현재 layer가 소유한 renderer resource와 이후 stream된
+node에 적용되며 COPC point 데이터를 다시 읽거나 decode하지 않습니다. `0`은 해당 layer의 point
+picking을 막고 현재 선택을 지웁니다. 다른 layer, imagery, terrain 또는 application renderer의
+전역 상태는 변경하지 않습니다.
 
 ```ts
 const layer = new CopcThreeLayer({ url, opacity: 0.5 });
 layer.setOpacity(0.25);
+layer.setOpacity(undefined); // renderer 기본값과 palette alpha 복원
 ```
+
+공개 Playground는 npm `0.7.1`을 사용하며 opacity와 Cesium clipping을 활성 layer에 runtime으로
+적용합니다. 이 배포 버전의 `setOpacity()` 타입은 숫자만 받습니다. Playground의 기본값 선택은
+Cesium `1` 또는 Three.js `0.9`를 적용하며, 공개 화면의 기본 색상 모드에 해당하는 기본 alpha를
+유지합니다. workspace package를 사용하는 Dev Viewer는 `setOpacity(undefined)`로 override를 지워
+point별 palette alpha를 복원합니다. Clipping은 Cesium 전용이며 Apply해도 source를 다시 읽지 않습니다.
 
 투명도는 각 renderer의 일반 blending 및 depth 동작을 따릅니다. adapter는 투명 point 정렬,
 layer 사이 draw order 조정 또는 order-independent transparency를 구현하지 않으므로

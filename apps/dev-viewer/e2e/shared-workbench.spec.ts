@@ -1,11 +1,25 @@
 import { expect, test } from "./ci-diagnostic-fixtures";
 
 type DevViewerFocusTestApi = {
-  getConfiguration(): { renderer: string };
+  getConfiguration(): {
+    renderer: string;
+    schemaOptionValues?: Readonly<Record<string, unknown>>;
+  };
+  getPendingConfiguration(): {
+    schemaOptionValues?: Readonly<Record<string, unknown>>;
+  };
   getSnapshot():
     | {
         lifecycle: string;
-        performance: { refinementFocusEnabled?: boolean };
+        rangeRequests: { requested: number; active: number };
+        streamingUpdateCount: number;
+        worker?: { activeCount: number; queuedCount: number; completedCount: number };
+        performance: {
+          refinementFocusEnabled?: boolean;
+          decodeDurationMs?: number;
+          activeNodeCount?: number;
+          queuedNodeCount?: number;
+        };
       }
     | undefined;
 };
@@ -343,6 +357,144 @@ test("applies Focus Lens to the active Cesium session through its runtime operat
       ),
     )
     .toBe(true);
+});
+
+test("applies opacity and clipping to the loaded Cesium layer without reading source data", async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  await page.goto("/?debugPanel=0");
+  await expect
+    .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.lifecycle))
+    .toBe("ready");
+  const waitForStableCounters = async (): Promise<void> => {
+    let previous = "";
+    let stableSamples = 0;
+    await expect.poll(async () => {
+      const snapshot = await page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot());
+      const idle = snapshot &&
+        snapshot.rangeRequests.active === 0 &&
+        (snapshot.performance.activeNodeCount ?? 0) === 0 &&
+        (snapshot.performance.queuedNodeCount ?? 0) === 0 &&
+        (!snapshot.worker || (snapshot.worker.activeCount === 0 && snapshot.worker.queuedCount === 0));
+      if (!idle || !snapshot) {
+        previous = "";
+        stableSamples = 0;
+        return false;
+      }
+      const signature = JSON.stringify([
+        snapshot.rangeRequests.requested,
+        snapshot.performance.decodeDurationMs,
+        snapshot.worker?.completedCount,
+        snapshot.streamingUpdateCount,
+      ]);
+      stableSamples = signature === previous ? stableSamples + 1 : 0;
+      previous = signature;
+      return stableSamples >= 3;
+    }, { intervals: [400, 600, 800], timeout: 60_000 }).toBe(true);
+  };
+  await waitForStableCounters();
+  const before = await page.evaluate(() => {
+    const snapshot = window.__COPC_DEV_VIEWER__!.getSnapshot()!;
+    return {
+      requested: snapshot.rangeRequests.requested,
+      decodeDurationMs: (snapshot.performance as { decodeDurationMs?: number }).decodeDurationMs,
+      workerCompletedCount: snapshot.worker?.completedCount,
+    };
+  });
+
+  await page.locator("#schema-opacity-use-default").uncheck();
+  const opacity = page.locator("#schema-opacity-value");
+  await opacity.fill("0.37");
+  await opacity.dispatchEvent("change");
+  await page.locator('.schema-control-section[data-section="filtering"] summary').click();
+  await page.locator("#schema-clipping-enabled").check();
+  for (const [id, value] of [
+    ["schema-clipping-min-x", "-7000000"],
+    ["schema-clipping-min-y", "-7000000"],
+    ["schema-clipping-min-z", "-7000000"],
+    ["schema-clipping-max-x", "7000000"],
+    ["schema-clipping-max-y", "7000000"],
+    ["schema-clipping-max-z", "7000000"],
+  ]) {
+    const input = page.locator(`#${id}`);
+    await input.fill(value);
+    await input.dispatchEvent("change");
+  }
+  const applyButton = page.locator("#apply-settings");
+  await expect(applyButton).toBeEnabled();
+  await applyButton.click();
+  await expect.poll(() => page.evaluate(() =>
+    window.__COPC_DEV_VIEWER__?.getConfiguration().schemaOptionValues?.["rendering.opacity"],
+  )).toBe(0.37);
+  await expect.poll(() => page.evaluate(() =>
+    window.__COPC_DEV_VIEWER__?.getConfiguration().schemaOptionValues?.["filtering.cesiumClippingVolume"],
+  )).toMatchObject({
+    type: "box",
+    coordinateSystem: "wgs84-ecef-meters",
+    minimum: [-7_000_000, -7_000_000, -7_000_000],
+    maximum: [7_000_000, 7_000_000, 7_000_000],
+  });
+  await waitForStableCounters();
+  const after = await page.evaluate(() => {
+    const snapshot = window.__COPC_DEV_VIEWER__!.getSnapshot()!;
+    return {
+      requested: snapshot.rangeRequests.requested,
+      decodeDurationMs: (snapshot.performance as { decodeDurationMs?: number }).decodeDurationMs,
+      workerCompletedCount: snapshot.worker?.completedCount,
+    };
+  });
+  expect(after).toEqual(before);
+  await expect(page.locator("#integration-example")).toContainText("layer.setOpacity(0.37)");
+  await expect(page.locator("#integration-example")).toContainText("layer.setClippingVolume(");
+
+  await page.evaluate(() => {
+    const target = window as Window & { __copiedText?: string };
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async (value: string) => { target.__copiedText = value; } },
+    });
+  });
+  await page.locator("#copy-share-link").evaluate((button: HTMLButtonElement) => button.click());
+  await expect(page.locator("#share-status")).toHaveText("Share link copied.");
+  const shareLink = await page.evaluate(
+    () => (window as Window & { __copiedText?: string }).__copiedText,
+  );
+  const shareParams = new URL(shareLink ?? "https://example.test").searchParams;
+  expect(shareParams.get("opacity")).toBe("0.37");
+  expect(JSON.parse(shareParams.get("clippingVolume") ?? "null")).toMatchObject({
+    type: "box",
+    coordinateSystem: "wgs84-ecef-meters",
+  });
+
+  await page.locator("#schema-opacity-use-default").evaluate((input: HTMLInputElement) => input.click());
+  await page.locator("#schema-clipping-clear").evaluate((button: HTMLButtonElement) => button.click());
+  await expect(applyButton).toBeEnabled();
+  await applyButton.click();
+  await expect.poll(() => page.evaluate(() =>
+    window.__COPC_DEV_VIEWER__?.getConfiguration().schemaOptionValues?.["rendering.opacity"],
+  )).toBeUndefined();
+  await expect.poll(() => page.evaluate(() =>
+    window.__COPC_DEV_VIEWER__?.getConfiguration().schemaOptionValues?.["filtering.cesiumClippingVolume"],
+  )).toBeUndefined();
+  await expect(page.locator("#schema-opacity-use-default")).toBeChecked();
+  await waitForStableCounters();
+  const reset = await page.evaluate(() => {
+    const snapshot = window.__COPC_DEV_VIEWER__!.getSnapshot()!;
+    return {
+      requested: snapshot.rangeRequests.requested,
+      decodeDurationMs: (snapshot.performance as { decodeDurationMs?: number }).decodeDurationMs,
+      workerCompletedCount: snapshot.worker?.completedCount,
+    };
+  });
+  expect(reset).toEqual(after);
+
+  await page.getByRole("radiogroup", { name: "Renderer", exact: true })
+    .getByRole("radio", { name: "Three.js" }).click();
+  await expect(page.locator('[data-option-id="filtering.cesiumClippingVolume"]'))
+    .toHaveAttribute("inert", "");
+  await expect(page.locator('[data-option-id="filtering.cesiumClippingVolume"] .schema-option__availability'))
+    .toContainText("available only with Cesium");
 });
 
 test("a rejected schema edit blocks Dev Viewer Apply until corrected", async ({ page }) => {

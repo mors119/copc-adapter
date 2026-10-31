@@ -91,6 +91,13 @@ test("generated Cesium and Three snippets typecheck against the exact consumer p
           "cache.coordinateCacheLayout": "E",
           "cache.retainSourceCoordinatesForQueries": true,
           "streaming.maxConcurrentNodeLoads": 3,
+          "rendering.opacity": 0.42,
+          "filtering.cesiumClippingVolume": {
+            type: "box",
+            coordinateSystem: "wgs84-ecef-meters",
+            minimum: [-1_000, -2_000, -3_000],
+            maximum: [1_000, 2_000, 3_000],
+          },
         }
       : {}),
     "attributes.extraDimensions": ["scanAngle"],
@@ -127,6 +134,7 @@ test("generated Cesium and Three snippets typecheck against the exact consumer p
       ? {
           "cache.coordinateCacheLayout": "E",
           "cache.retainSourceCoordinatesForQueries": true,
+          "rendering.opacity": 0.65,
         }
       : {}),
     "attributes.extraDimensions": "*",
@@ -251,6 +259,23 @@ test("generated Cesium and Three snippets typecheck against the exact consumer p
   assert.doesNotMatch(three.code, /layer\.setStyle\(/u);
   assert.match(cesiumMatrix.code, /layer\.setStyle\(\{ classificationFilter: \{ include: \[2, 6\] \}, colorMode: 'intensity' \}\);/u);
   assert.match(cesiumMatrix.code, /layer\.setRefinementFocus\(/u);
+  if (consumerProfile.manifest.origin === "workspace") {
+    assert.match(cesiumMatrix.code, /layer\.setOpacity\(0\.42\)/u);
+    assert.match(cesiumMatrix.code, /layer\.setClippingVolume\(/u);
+    assert.match(threeMatrix.code, /layer\.setOpacity\(0\.65\)/u);
+  }
+  if (consumerProfile.manifest.supportedOptionIds.includes("rendering.opacity")) {
+    const resetCesium = generate("cesium", { "rendering.opacity": undefined });
+    const resetThree = generate("three", { "rendering.opacity": undefined });
+    const expectedCesiumReset = consumerProfile.manifest.origin === "npm"
+      ? /layer\.setOpacity\(1\)/u
+      : /layer\.setOpacity\(undefined\)/u;
+    const expectedThreeReset = consumerProfile.manifest.origin === "npm"
+      ? /layer\.setOpacity\(0\.9\)/u
+      : /layer\.setOpacity\(undefined\)/u;
+    assert.match(resetCesium.code, expectedCesiumReset);
+    assert.match(resetThree.code, expectedThreeReset);
+  }
   assert.match(cesiumMatrix.code, /heightOffsetMeters: 1\.25/u);
   assert.match(cesiumMatrix.code, /maxConcurrentRangeRequests: 3/u);
   assert.match(threeMatrix.code, /pickingThreshold: 1\.5/u);

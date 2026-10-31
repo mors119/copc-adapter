@@ -150,10 +150,10 @@ export class CopcThreeLayer {
    * The update reuses existing geometry and decoded point buffers. Opacity
    * zero disables point picking for this layer.
    *
-   * @param opacity Finite alpha in the inclusive range [0, 1].
+   * @param opacity Finite alpha in the inclusive range [0, 1], or `undefined` to restore palette and renderer defaults.
    * @throws If opacity is invalid, the layer is destroyed, or a custom renderer does not support opacity.
    */
-  setOpacity(opacity: number): void {
+  setOpacity(opacity: number | undefined): void {
     this.controller.setOpacity(opacity);
   }
 

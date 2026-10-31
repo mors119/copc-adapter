@@ -42,9 +42,8 @@ type StreamingCompatibilityExclusions =
   | "refineDistanceMultiplier"
   | "maxRenderedPoints"
   | "maxPointsPerBatch";
-// These stay public for host integration or compatibility but are not ordinary
-// Workbench controls (logging, custom decoder injection, callbacks, and
-// layer-only opacity).
+// This comparison covers schema-emitted constructor paths. Host setup and
+// runtime-setter options are checked through their separate contracts.
 type LayerCompatibilityExclusions =
   | "classificationFilter"
   | "clippingVolume"
@@ -106,6 +105,17 @@ type HasMethod<Type, Key extends PropertyKey> = Key extends keyof Type
 type HasKey<Type, Key extends PropertyKey> = Key extends keyof Type ? true : false;
 export type NpmStyleSetterContract = Assert<HasMethod<CesiumLayer, "setStyle">>;
 export type NpmFocusSetterContract = Assert<HasMethod<CesiumLayer, "setRefinementFocus">>;
+export type NpmOpacitySetterContract = Assert<HasMethod<CesiumLayer, "setOpacity">>;
+export type NpmThreeOpacitySetterContract = Assert<HasMethod<ThreeLayer, "setOpacity">>;
+export type NpmCesiumClippingSetterContract = Assert<
+  HasMethod<CesiumLayer, "setClippingVolume">
+>;
+export type NpmOpacitySetterUsesNumericOverride = Assert<
+  Equal<Parameters<CesiumLayer["setOpacity"]>[0], number>
+>;
+export type NpmThreeOpacitySetterUsesNumericOverride = Assert<
+  Equal<Parameters<ThreeLayer["setOpacity"]>[0], number>
+>;
 type NpmFocusArgument = NonNullable<Parameters<CesiumLayer["setRefinementFocus"]>[0]>;
 type NpmStyleFilter = NonNullable<
   Parameters<CesiumLayer["setStyle"]>[0]["classificationFilter"]

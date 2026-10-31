@@ -58,12 +58,14 @@ const npm06Capabilities = [
   "three.point-picking",
 ] as const;
 
-// Audited against the published 0.7.1 declarations. The release supports the
-// single-anchor Cesium estimate API and Advanced attribute/cache options. Batch
-// Terrain estimates remain workspace-only; Playground filters GTX resources
-// because it does not load their grids.
+// Audited against the published 0.7.1 declarations. The release supports
+// opacity, clipping, single-anchor Terrain estimates, and Advanced
+// attribute/cache options. Batch Terrain estimates remain workspace-only;
+// Playground filters GTX resources because it does not load their grids.
 const npm071SupportedOptionIds = [
   ...npm06SupportedOptionIds,
+  "rendering.opacity",
+  "filtering.cesiumClippingVolume",
   "attributes.attributeLoading",
   "attributes.pointFields",
   "cache.coordinateCacheLayout",
@@ -73,6 +75,8 @@ const npm071SupportedOptionIds = [
 
 const npm071Capabilities = [
   ...npm06Capabilities,
+  "renderer.layer-opacity",
+  "cesium.clipping-volume",
   "cesium.attribute-loading",
   "cesium.point-fields",
   "cache.coordinate-layout",
@@ -81,8 +85,16 @@ const npm071Capabilities = [
   "vertical.gtx-grid",
 ] as const;
 
+/** Numeric reset values for npm 0.7.1, whose setter cannot clear an override. */
+export const NPM_0_7_1_OPACITY_RESET_VALUES = {
+  cesium: 1,
+  three: 0.9,
+} as const;
+
 const workspaceCapabilities = [
   ...npm06Capabilities,
+  "renderer.layer-opacity",
+  "cesium.clipping-volume",
   "cesium.attribute-loading",
   "cesium.point-fields",
   "cache.coordinate-layout",
@@ -142,7 +154,7 @@ export const NPM_0_6_MANIFEST = createManifest(
   { cesium: ["streaming.maxConcurrentNodeLoads"] },
 );
 
-/** Exact compatibility manifest for the published Playground package with cache policy APIs. */
+/** Exact compatibility manifest for the published Playground package with opacity, clipping, and cache policy APIs. */
 export const NPM_0_7_1_MANIFEST = createManifest(
   "npm",
   "0.7.1",

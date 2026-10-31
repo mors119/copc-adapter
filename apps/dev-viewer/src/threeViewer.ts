@@ -7,6 +7,7 @@ import {
   type CopcThreeLayerSnapshot,
 } from "@frillab/copc-adapter/three";
 import { createCoalescedUpdate } from "./coalescedUpdate";
+import { applySchemaRuntimeOperations, type SchemaRuntimeOperation } from "../../shared/config/index.ts";
 import type { PointScreenPosition } from "../../shared/inspection/PointPopover.ts";
 
 export type DevThreeCameraState = {
@@ -18,6 +19,7 @@ export type DevThreeViewerOptions = {
   readonly container: HTMLElement;
   readonly sourceName: string;
   readonly layerOptions: CopcThreeLayerOptions;
+  readonly runtimeOperations?: readonly SchemaRuntimeOperation[];
   readonly cameraRenderDistance: number;
   readonly onPointPicked: (
     point: CopcPointInspection | undefined,
@@ -37,6 +39,7 @@ export type DevThreeViewer = {
     CopcThreeLayer["getHierarchyDiagnostics"]
   >;
   getSelectedPoint(): CopcPointInspection | undefined;
+  setOpacity(opacity: number | undefined): void;
   getCameraState(): DevThreeCameraState;
   setCameraState(state: DevThreeCameraState): void;
   setCameraDistance(distance: number): void;
@@ -291,13 +294,16 @@ export function createDevThreeViewer(
   renderer.domElement.addEventListener("pointerdown", onPointerDown);
   renderer.domElement.addEventListener("pointerup", onPointerUp);
 
-  const ready = layer.load().then(() => layer.update());
+  const ready = applySchemaRuntimeOperations(layer, options.runtimeOperations ?? [])
+    .then(() => layer.load())
+    .then(() => layer.update());
   return {
     ready,
     getSnapshot: () => layer.getSnapshot(),
     getMetadata: () => layer.getMetadata(),
     getHierarchyDiagnostics: () => layer.getHierarchyDiagnostics(),
     getSelectedPoint: () => layer.getSelectedPoint(),
+    setOpacity: (opacity) => layer.setOpacity(opacity),
     getCameraState: () => ({
       position: [
         camera.position.x,
