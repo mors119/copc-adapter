@@ -24,7 +24,7 @@ import {
 } from "@frillab/copc-adapter";
 import type { CopcCesiumLayerSnapshot } from "@frillab/copc-adapter";
 import type { CopcThreeLayerSnapshot } from "@frillab/copc-adapter/three";
-import { loadNgaEgm2008Grid } from "@frillab/copc-adapter";
+import { loadGtxGeoidGrid, loadNgaEgm2008Grid } from "@frillab/copc-adapter";
 import type {
   CopcBackendSelection,
   CopcPointDecoder,
@@ -119,7 +119,10 @@ const cesiumRuntimeVersion = (Cesium as typeof Cesium & { VERSION: string })
   .VERSION;
 
 const DEFAULT_COPC_URL = "/samples/autzen.copc.laz";
-const verticalGridResources = createNgaEgm2008ResourceRegistry(loadNgaEgm2008Grid);
+const verticalGridResources = createNgaEgm2008ResourceRegistry(
+  loadNgaEgm2008Grid,
+  loadGtxGeoidGrid,
+);
 const CAMERA_PRESET_HEIGHTS = {
   overview: 5_000,
   far: 10_000,

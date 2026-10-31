@@ -71,10 +71,10 @@ export function mountVerticalGridControl(
   const root = element("div", "vertical-grid-control");
   const introduction = element("p", "schema-option__hint");
   introduction.textContent =
-    "Optional local grid conversion: NGA EGM2008 2.5-minute (EPSG:3855) to WGS 84 ellipsoidal height (EPSG:4979). The file is never downloaded or shared.";
+    "Optional local grid conversion: verified NGA EGM2008 2.5-minute (EPSG:3855) to WGS 84 ellipsoidal height (EPSG:4979). Choose the NGA raw file or the Public Domain OSGeo GTX; the file is never downloaded or shared.";
   const label = element("label", "vertical-grid-control__file-label");
   label.htmlFor = "vertical-grid-file";
-  label.textContent = "Choose the extracted NGA EGM2008 grid file";
+  label.textContent = "Choose an NGA EGM2008 or OSGeo PROJ grid file";
   const fileInput = element("input");
   fileInput.id = "vertical-grid-file";
   fileInput.type = "file";
@@ -118,7 +118,7 @@ export function mountVerticalGridControl(
     } else if (!canLoadAnother) {
       status.textContent = "A source load is active or a vertical grid is still applied. Wait for the load, or remove and apply the active grid before selecting a replacement.";
     } else {
-      status.textContent = "No vertical grid is applied. Select the exact extracted 149,368,328-byte NGA file; SHA-256 and layout are verified before it becomes pending.";
+      status.textContent = "No vertical grid is applied. Select the exact 149,368,328-byte NGA raw file or 149,333,800-byte OSGeo GTX; SHA-256, CRS and layout are verified before it becomes pending.";
     }
     renderGridDetails(metadataContent, value);
     metadata.hidden = !selected;

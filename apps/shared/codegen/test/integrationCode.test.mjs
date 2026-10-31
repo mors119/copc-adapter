@@ -556,6 +556,57 @@ test("emits reproducible local setup for the pinned verified NGA grid without co
   assert.doesNotMatch(generated.code, /private-grid-path|internalGridBytes|sampleUndulation\(\)/u);
 });
 
+test("emits exact OSGeo GTX metadata and digest for a reproducible local EGM2008 setup", async () => {
+  const {
+    OSGEO_EGM2008_FILE_BYTES,
+    OSGEO_EGM2008_GRID_ID,
+    OSGEO_EGM2008_SHA256,
+  } = await import("../../workbench/verticalGridResource.ts");
+  const gridResource = Object.assign(new class { sampleUndulation() { return 0; } }(), {
+    gridId: OSGEO_EGM2008_GRID_ID,
+    sha256: OSGEO_EGM2008_SHA256,
+    sourceVerticalCrs: "EPSG:3855",
+    targetVerticalCrs: "EPSG:4979",
+    horizontalCrs: "EPSG:4326",
+    referenceEllipsoid: "WGS84",
+    valueUnit: "metre",
+    valueConvention: "ellipsoidal-minus-orthometric",
+    interpolation: "bilinear",
+    noDataValue: null,
+    width: 8640,
+    height: 4321,
+    longitudeOrigin: -180,
+    latitudeOrigin: -90,
+    longitudeStep: 2.5 / 60,
+    latitudeStep: 2.5 / 60,
+    encodedByteLength: OSGEO_EGM2008_FILE_BYTES,
+    decodedByteLength: 8640 * 4321 * 4,
+    globalLongitudeCoverage: "periodic",
+  });
+  const generated = generateWorkbenchIntegrationCode({
+    renderer: "cesium",
+    values: {
+      renderer: "cesium",
+      "coordinates.verticalTransform": gridResource,
+    },
+    manifest: WORKSPACE_CURRENT_MANIFEST,
+    runtimeCapabilities: WORKSPACE_CURRENT_CAPABILITIES,
+    adapterVersion: WORKSPACE_CURRENT_MANIFEST.version,
+    packageOriginLabel: "current local workspace source; unpublished",
+    hostValidators: { isLoadedVerticalGrid: (value) => value === gridResource },
+  });
+
+  assert.match(generated.code, /loadGtxGeoidGrid/u);
+  assert.ok(generated.code.includes(OSGEO_EGM2008_GRID_ID));
+  assert.ok(generated.code.includes(OSGEO_EGM2008_SHA256));
+  assert.match(generated.code, /sourceVerticalCrs: 'EPSG:3855'/u);
+  assert.match(generated.code, /valueConvention: 'ellipsoidal-minus-orthometric'/u);
+  assert.match(generated.code, /maxGridBytes: 160 \* 1024 \* 1024/u);
+  assert.doesNotMatch(generated.code, /loadNgaEgm2008Grid/u);
+  assert.match(generated.code, /PROJ-DATUMGRID-WORLD/u);
+  assert.doesNotMatch(generated.code, /sampleUndulation\(\)|private-grid-path|verticalGridFile\.path/u);
+});
+
 test("fails closed when a supplied adapter version has no matching verified profile", () => {
   assert.throws(
     () => generate({ adapterVersion: "0.6.1" }),

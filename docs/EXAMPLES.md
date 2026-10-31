@@ -236,25 +236,28 @@ coverage, and usage terms are documented. No EGM2008 or KNGeoid24 model is
 bundled or automatically selected. See [Explicit vertical CRS grid
 conversion](API.md#explicit-vertical-crs-grid-conversion).
 
-## NGA EGM2008 in the Workbenches
+## EGM2008 in the Workbenches
 
-Playground and Dev Viewer expose one explicit vertical-grid workflow for the
-exact pinned NGA EGM2008 2.5-minute WGS 84 Tide-Free file. Choose an extracted
-local file in the **Vertical Grid** control, wait for SHA-256 and layout
-verification, then apply the pending configuration. The control displays the
-operation, CRS pair, frames, units and sign, coverage, NoData behavior,
-interpolation, resolution, digest, memory bound, epoch behavior, and source
-terms. It does not download or retain the file, and the grid bytes and local
-path are never placed in a share URL.
+Playground and Dev Viewer share one explicit vertical-grid workflow for either
+the exact pinned NGA EGM2008 2.5-minute WGS 84 Tide-Free raw file or the exact
+OSGeo PROJ-DATUMGRID-WORLD `egm08_25.gtx` file. Choose a local file in the
+**Vertical Grid** control, wait for SHA-256, CRS, and layout verification, then
+apply the pending configuration. The control displays the operation, CRS pair,
+frames, units and sign, coverage, NoData behavior, interpolation, resolution,
+digest, memory bound, epoch behavior, and source/license provenance. It does
+not download or retain the file, and grid bytes and local paths are never
+placed in a share URL.
 
-Copy code emits a `loadNgaEgm2008Grid` setup that prompts the consuming page to
-choose its own local file and verifies that file before constructing the
-layer. NGA's accessed product page and archive do not state redistribution
-terms, so obtain and use the file only under terms that apply to you. The
-Workbench and package do not bundle it. This is a specific EGM2008 profile,
-not a generic datum selector or a Korean national height conversion. See
-[NGA EGM2008 2.5-minute grid](API.md#nga-egm2008-25-minute-grid) for the
-operation limits and memory details.
+Copy code prompts the consuming page to choose its own local file and emits
+the exact public loader and metadata for the last applied profile. The NGA
+product page does not state redistribution terms, so obtain and use that raw
+file only under terms that apply to you. The OSGeo world-grid README marks its
+EGM2008 GTX as Public Domain, attributes the model to NGA, and documents its
+GeographicLib generation ([source and license metadata](https://github.com/OSGeo/proj-datumgrid/blob/master/world/README.WORLD)). Neither
+file is bundled or downloaded. These are two fixed EGM2008 profiles, not a
+generic datum selector or a Korean national height conversion. See [NGA
+EGM2008 2.5-minute grid](API.md#nga-egm2008-25-minute-grid) for operation
+limits and memory details.
 
 ## Opt-in Cesium Terrain Height Estimate
 
