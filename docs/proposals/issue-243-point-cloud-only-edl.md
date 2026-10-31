@@ -48,24 +48,17 @@ alpha and layer opacity.
 
 ## Probe and screenshots
 
-The research-only route is `apps/dev-viewer/edl-research.html`, with probe source
-in `apps/dev-viewer/src/experimental/edlResearchProbe.ts`. It renders two
-deterministic point collections as COPC-like layer stand-ins,
-an ellipsoid ground, and an opaque non-point box. Its custom four-neighbor EDL
-shader is attached as a **global** `PostProcessStage`, specifically to test
-the public-stage boundary. The EDL control is confined to this research page.
+The one-off probe rendered two deterministic point collections as COPC-like
+layer stand-ins, an ellipsoid ground, and an opaque non-point box. Its custom
+four-neighbor EDL shader was attached as a **global** `PostProcessStage` to test
+the public-stage boundary. This temporary probe is not retained as a standalone
+benchmark: the run covers one Cesium/browser/GPU combination and does not
+establish a reusable cross-version baseline.
 
 The shader uses strength `18` and radius `2` to make the edge effect visible;
 these are demonstration settings, not recommended production settings. The
 fixture uses opaque points and no imagery or external terrain provider. It is
 not an adapter streaming or real-COPC test.
-
-To open the standalone probe with the Dev Viewer dependencies installed, run
-`npx vite --host 127.0.0.1 --port 4177` from `apps/dev-viewer` and navigate to
-`/edl-research.html`. The browser console exposes
-`window.__EDL_RESEARCH__.measureGpu(enabled, 5000)` and
-`measureFrames(enabled, 5000)` for paired samples, with `enabled` set to either
-`false` or `true`.
 
 | Global stage off | Global stage on |
 | --- | --- |
