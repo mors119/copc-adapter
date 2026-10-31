@@ -858,7 +858,8 @@ accuracy. The requested COPC attributes remain shared; SoFi has no RGB field.
   -693,587 bytes/minute; the controlled-GC lifecycle slope was +32,506
   bytes/cycle. These are Chromium heap proxies, not total process or GPU memory.
 - The same local fixture's separate Three lifecycle soak passed 20 cycles.
-  Packed Three browser validation rendered 219,951 Rust/E points across 7 nodes,
+  The packed Three browser check in [PR #422](https://github.com/mors119/copc-adapter/pull/422)
+  rendered 219,951 Rust/E points across 7 nodes,
   resolved a real Raycaster pick with finite prepared height, and preserved the
   caller's Scene, Material, Renderer, canvas, and WebGL context after layer
   destruction. Its 9 requests were all HTTP 206 and transferred 2,377,673
