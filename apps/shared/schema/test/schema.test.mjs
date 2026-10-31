@@ -207,7 +207,7 @@ test("schema integrity: IDs, mappings, defaults, controls, references, and capab
   assert.ok(!NPM_0_6_MANIFEST.capabilities.includes("cesium.terrain-alignment"));
   assert.ok(NPM_0_7_1_MANIFEST.capabilities.includes("cesium.terrain-alignment"));
   assert.ok(NPM_0_7_1_MANIFEST.capabilities.includes("vertical.gtx-grid"));
-  assert.ok(!PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES.includes("vertical.gtx-grid"));
+  assert.ok(PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES.includes("vertical.gtx-grid"));
   assert.ok(NPM_0_7_1_CAPABILITIES.includes("cesium.attribute-loading"));
   assert.ok(NPM_0_7_1_CAPABILITIES.includes("cesium.point-fields"));
   assert.ok(NPM_0_7_1_CAPABILITIES.includes("cache.coordinate-layout"));

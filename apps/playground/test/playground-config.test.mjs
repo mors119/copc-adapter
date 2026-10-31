@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   cacheBytesToMib,
   cacheMibToBytes,
+  buildPlaygroundApplicationPlan,
   hasConstructorChanges,
   normalizeClassificationFilter,
   parseClassificationCodes,
@@ -157,6 +158,29 @@ test("constructor change detection distinguishes Cesium runtime color from Three
   assert.match(
     validatePlaygroundConfig({ ...cesium, renderer: "three", classificationFilter: { include: [1] } }).join(" "),
     /Clear the Cesium classification filter/,
+  );
+});
+
+test("Playground live plans retain host-verified vertical grids for runtime-only edits", () => {
+  const grid = {};
+  const hostValidators = { isLoadedVerticalGrid: (value) => value === grid };
+  const appliedValues = {
+    "coordinates.verticalTransform": grid,
+    "rendering.opacity": 0.8,
+  };
+  const pendingValues = { ...appliedValues, "rendering.opacity": 0.37 };
+  const plan = buildPlaygroundApplicationPlan(
+    pendingValues,
+    "cesium",
+    appliedValues,
+    hostValidators,
+  );
+
+  assert.equal(plan.requiresLayerReplacement, false);
+  assert.deepEqual(plan.runtimeOperations.map(({ method }) => method), ["setOpacity"]);
+  assert.throws(
+    () => buildPlaygroundApplicationPlan(pendingValues, "cesium", appliedValues),
+    /loaded and verified GTX grid accepted by the host/u,
   );
 });
 

@@ -16,10 +16,17 @@ import {
   type DiagnosticSectionDefinition,
   type DiagnosticSectionsController,
 } from "../../../shared/diagnostics/DiagnosticSections.ts";
+import {
+  describeVerticalGrid,
+  getVerticalGridResourceDetails,
+} from "../../../shared/workbench/verticalGridResource.ts";
 
 export type CopcDebugPanelState = {
   snapshot: CopcCesiumLayerSnapshot | CopcThreeLayerSnapshot;
   metadata?: CopcMetadata;
+  verticalGrid?: unknown;
+  heightOffsetMeters?: number;
+  terrainResidualMeters?: number;
   hierarchy?: CopcHierarchyDiagnostics;
   sourceProbe?: CopcSourceProbeResult;
   safeSourceProbeLabel?: string;
@@ -44,6 +51,13 @@ export type CopcDebugPanelView = {
   verticalCrs: string;
   verticalUnits: string;
   verticalHeightKind: string;
+  sourceVerticalCrs: string;
+  sourceVerticalUnits: string;
+  sourceHeightKind: string;
+  verticalTransform: string;
+  verticalGridCoverage: string;
+  manualHeightOffset: string;
+  terrainResidual: string;
   sourceWktSupport: string;
   crsReasons: string;
   bounds: string;
@@ -239,6 +253,7 @@ export function buildCopcDebugPanelView(
         ? "loading"
         : "inactive";
   const crs = metadata?.crsDiagnostic;
+  const grid = getVerticalGridResourceDetails(state.verticalGrid);
   const formatIdentity = (identity: CopcCrsIdentityDiagnostic | undefined): string => {
     if (!identity) return "Unknown";
     const code = identity.authority && identity.code
@@ -332,6 +347,21 @@ export function buildCopcDebugPanelView(
     verticalHeightKind: crs
       ? `${crs.vertical.heightKind.value} (${crs.vertical.heightKind.certainty})`
       : "Unknown",
+    sourceVerticalCrs: formatIdentity(crs?.vertical.identity),
+    sourceVerticalUnits: formatUnits(crs?.vertical.units ?? { kind: "unknown", certainty: "unknown" }),
+    sourceHeightKind: crs
+      ? `${crs.vertical.heightKind.value} (${crs.vertical.heightKind.certainty})`
+      : "Unknown",
+    verticalTransform: describeVerticalGrid(state.verticalGrid),
+    verticalGridCoverage: grid
+      ? `${grid.extent} · SHA-256 ${grid.sha256}`
+      : "No validated vertical grid applied",
+    manualHeightOffset: state.heightOffsetMeters === undefined
+      ? "Not available"
+      : `${state.heightOffsetMeters} m · independent caller correction to ellipsoidal height`,
+    terrainResidual: Number.isFinite(state.terrainResidualMeters)
+      ? `${state.terrainResidualMeters} m · visual Terrain residual, not a vertical-datum conversion`
+      : "None approved · Terrain sampling is separate from datum conversion",
     sourceWktSupport: crs
       ? `${crs.wkt.format} · metadata ${crs.wkt.metadataSupport} · transforms backend-dependent`
       : "Unknown",
@@ -691,6 +721,19 @@ export const COPC_DEBUG_HEALTH_SECTIONS = [
       { key: "rangeRequestsFailed", label: "Failed" },
       { key: "rangeRequestsAbortedSuperseded", label: "Aborted by view changes" },
       { key: "rangeRequestsAbortedLifecycle", label: "Aborted by lifecycle" },
+    ],
+  },
+  {
+    id: "health-vertical-reference",
+    title: "Vertical reference and transform provenance",
+    fields: [
+      { key: "sourceVerticalCrs", label: "Source vertical CRS" },
+      { key: "sourceHeightKind", label: "Source height kind" },
+      { key: "sourceVerticalUnits", label: "Source vertical units" },
+      { key: "verticalTransform", label: "Applied datum transform" },
+      { key: "verticalGridCoverage", label: "Grid coverage and digest" },
+      { key: "manualHeightOffset", label: "Manual heightOffsetMeters" },
+      { key: "terrainResidual", label: "Terrain residual (visual only)" },
     ],
   },
   {

@@ -235,16 +235,32 @@ test("generated Cesium and Three snippets typecheck against the exact consumer p
         : {}),
     },
   });
-  const workspaceVerticalGrid = consumerProfile.manifest.origin === "workspace"
-    ? { gridId: "validated-test-grid" }
+  const workspaceVerticalGrid = consumerProfile.manifest.capabilities.includes("vertical.gtx-grid")
+    ? Object.assign(new class { sampleUndulation() { return 0; } }(), {
+        gridId: "NGA EGM2008 2.5-minute WGS 84 Tide-Free small-endian grid",
+        sha256: "ab6f8b94076f78707d1cdae7b066b93a786a0c64b52449e20cf1a1a2f4e74daf",
+        sourceVerticalCrs: "EPSG:3855",
+        targetVerticalCrs: "EPSG:4979",
+        horizontalCrs: "EPSG:4326",
+        referenceEllipsoid: "WGS84",
+        valueUnit: "metre",
+        valueConvention: "ellipsoidal-minus-orthometric",
+        interpolation: "bilinear",
+        noDataValue: null,
+        width: 8640,
+        height: 4321,
+        longitudeOrigin: 0,
+        latitudeOrigin: -90,
+        longitudeStep: 2.5 / 60,
+        latitudeStep: 2.5 / 60,
+        encodedByteLength: 149_368_328,
+        decodedByteLength: 8640 * 4321 * 4,
+        globalLongitudeCoverage: "periodic",
+      })
     : undefined;
   const verticalGridOptions = workspaceVerticalGrid === undefined
     ? undefined
-    : {
-        hostValidators: {
-          isLoadedVerticalGrid: (candidate) => candidate === workspaceVerticalGrid,
-        },
-      };
+    : { hostValidators: { isLoadedVerticalGrid: (candidate) => candidate === workspaceVerticalGrid } };
   const cesiumGrid = workspaceVerticalGrid === undefined
     ? undefined
     : generate("cesium", {
@@ -268,10 +284,12 @@ test("generated Cesium and Three snippets typecheck against the exact consumer p
     );
   }
   if (cesiumGrid && threeGrid) {
-    assert.match(cesiumGrid.warnings.join(" "), /verified GTX grid/u);
-    assert.match(threeGrid.warnings.join(" "), /verified GTX grid/u);
-    assert.doesNotMatch(cesiumGrid.code, /verticalTransform|gridId|validated-test-grid/u);
-    assert.doesNotMatch(threeGrid.code, /verticalTransform|gridId|validated-test-grid/u);
+    assert.match(cesiumGrid.code, /loadNgaEgm2008Grid/u);
+    assert.match(threeGrid.code, /loadNgaEgm2008Grid/u);
+    assert.match(cesiumGrid.code, /verticalTransform/u);
+    assert.match(threeGrid.code, /verticalTransform/u);
+    assert.doesNotMatch(cesiumGrid.code, /sampleUndulation\(\)|ab6f8b94076f78707d1cdae7b066b93a786a0c64b52449e20cf1a1a2f4e74daf/u);
+    assert.doesNotMatch(threeGrid.code, /sampleUndulation\(\)|ab6f8b94076f78707d1cdae7b066b93a786a0c64b52449e20cf1a1a2f4e74daf/u);
   }
 
   assert.match(cesium.code, /layer\.setStyle\(\{ classificationFilter: \{ include: \[2, 6\] \}, colorMode: 'intensity' \}\);/u);

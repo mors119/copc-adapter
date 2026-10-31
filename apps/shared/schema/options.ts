@@ -506,7 +506,7 @@ export const OPTION_SCHEMA = [
   {
     id: "coordinates.verticalTransform",
     label: "Vertical Grid",
-    description: "Load a caller supplied, verified GTX grid for vertical datum conversion.",
+    description: "Load the pinned NGA EGM2008 grid locally for an explicit verified vertical datum conversion.",
     section: "coordinates",
     statePath: "verticalTransform",
     apiPath: "verticalTransform",

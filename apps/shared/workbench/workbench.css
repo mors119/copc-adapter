@@ -303,6 +303,63 @@
   margin: 0.15rem 0 0;
 }
 
+.vertical-grid-control {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.vertical-grid-control__file-label {
+  color: var(--workbench-text, #edf4fb);
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.vertical-grid-control input[type="file"] {
+  box-sizing: border-box;
+  color: var(--workbench-muted, #a8b5c3);
+  font-size: 0.68rem;
+  max-width: 100%;
+}
+
+.vertical-grid-control__status {
+  color: var(--workbench-muted, #a8b5c3);
+  font-size: 0.68rem;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.vertical-grid-control__details {
+  border-top: 1px solid var(--workbench-border, #405064);
+  font-size: 0.68rem;
+  min-width: 0;
+  padding-top: 0.35rem;
+}
+
+.vertical-grid-control__details summary {
+  cursor: pointer;
+}
+
+.vertical-grid-control__metadata {
+  display: grid;
+  gap: 0.35rem;
+  grid-template-columns: minmax(5rem, 0.35fr) minmax(0, 1fr);
+  margin: 0.5rem 0 0;
+}
+
+.vertical-grid-control__metadata > div {
+  display: contents;
+}
+
+.vertical-grid-control__metadata dt {
+  color: var(--workbench-muted, #a8b5c3);
+}
+
+.vertical-grid-control__metadata dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 .schema-special-point-fields {
   border: 1px solid var(--workbench-border, #405064);
   border-radius: 0.4rem;

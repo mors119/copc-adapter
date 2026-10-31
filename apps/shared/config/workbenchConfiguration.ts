@@ -926,6 +926,21 @@ export function materializeWorkbenchConstructorOptions(
 ): Readonly<Record<string, unknown>> {
   const options = copyValues(plan.constructorOptions);
   for (const specialized of plan.specializedOptions) {
+    if (specialized.handler === "vertical-grid") {
+      const value = specialized.value as { readonly sampleUndulation?: unknown } | null;
+      if (
+        specialized.optionId !== "coordinates.verticalTransform" ||
+        specialized.apiPath !== "verticalTransform" ||
+        (plan.renderer !== "cesium" && plan.renderer !== "three") ||
+        typeof value !== "object" ||
+        value === null ||
+        typeof value.sampleUndulation !== "function"
+      ) {
+        throw new TypeError("Vertical Transform has no supported public constructor mapping.");
+      }
+      options.verticalTransform = specialized.value;
+      continue;
+    }
     if (specialized.handler !== "cesium-point-fields") continue;
     if (
       plan.renderer !== "cesium" ||

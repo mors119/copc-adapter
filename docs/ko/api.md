@@ -88,6 +88,22 @@ palette alpha를 사용합니다. 값을 지정하면 palette alpha 대신 해�
 [수직 CRS 및 GEOID18 검증 기록](../proposals/issue-244-vertical-crs-geoid-grid.md)을
 참조하세요.
 
+### Workbench에서 NGA EGM2008 그리드 사용
+
+Playground와 Dev Viewer는 고정된 NGA EGM2008 2.5분 WGS 84 Tide-Free 파일만 지원합니다.
+**Vertical Grid**에서 압축 해제한 로컬 파일을 선택하면 SHA-256과 파일 구조를 확인하고,
+검증된 변환의 CRS, 기준계, 단위와 부호, coverage, NoData 처리, 보간, 해상도, digest,
+메모리 제한, epoch 동작과 출처 정보를 표시합니다. 설정은 **Apply Settings**를 눌러야
+실행 중 layer에 적용됩니다. 기본 동작은 수직 datum 변환 없음입니다.
+
+파일은 자동 다운로드되거나 패키지에 포함되지 않습니다. 공유 URL에는 파일 바이트나
+로컬 경로가 들어가지 않습니다. Copy code는 사용하는 앱이 자기 로컬 파일을 선택하도록
+하고 `loadNgaEgm2008Grid`가 무결성과 형식을 확인한 뒤 layer를 만들게 합니다. 확인한
+NGA 제품 페이지와 archive에는 재배포 조건이 명시되어 있지 않으므로, 적용되는 조건에 따라
+사용 권한이 있는 파일만 사용하세요. 이 흐름은 고정된 EGM2008 변환이며 일반 datum 선택기나
+한국 국가 수직 기준 변환이 아닙니다. 세부 제한과 메모리는
+[영문 Public API의 NGA EGM2008 안내](../API#nga-egm2008-25-minute-grid)를 참고하세요.
+
 ## Lifecycle
 
 ```ts
