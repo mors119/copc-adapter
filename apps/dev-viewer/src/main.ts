@@ -71,6 +71,7 @@ import {
 import {
   applySchemaRuntimeOperations,
   buildSchemaApplicationPlan,
+  materializeWorkbenchConstructorOptions,
   createWorkbenchConfigurationState,
   getChangedWorkbenchOptionIds,
   resolveSchemaBackendSelection,
@@ -877,9 +878,11 @@ function getLayerOptions(
         },
       )
     : undefined;
-  const workbenchOptions = plan?.constructorOptions as
+  const workbenchOptions = plan
+    ? materializeWorkbenchConstructorOptions(plan) as
     | Partial<ConstructorParameters<typeof CopcCesiumLayer>[0]>
-    | undefined;
+    | undefined
+    : undefined;
   const streamingOptions =
     workbenchOptions?.streaming ?? {
       maxNodes: issueScenario ? (issue128 ? 16 : 32) : 24,
@@ -958,6 +961,13 @@ function safeErrorMessage(error: unknown): string {
   return message
     .replace(/(https?:\/\/)[^/@\s]+@/gi, "$1[redacted]@")
     .replace(/([?&][^=\s]+)=([^&\s]+)/g, "$1=[redacted]");
+}
+
+function actionableAttributeLoadingError(error: unknown): string {
+  const message = safeErrorMessage(error);
+  return /not requested.*source availability was not checked/iu.test(message)
+    ? message + " No field was fetched. Set Standard attribute loading to All or select the field under Additional standard fields, then Apply Settings to reload."
+    : message;
 }
 
 function projectCesiumPoint(
@@ -1262,7 +1272,7 @@ function createThreeSession(
   );
   const backend = createWorkbenchBackend(applicationPlan);
   const layerOptions = {
-    ...applicationPlan.constructorOptions,
+    ...materializeWorkbenchConstructorOptions(applicationPlan),
     ...(backend === undefined ? {} : { backend }),
   } as unknown as import("@frillab/copc-adapter/three").CopcThreeLayerOptions;
   const viewer: DevThreeViewer = createDevThreeViewer({
@@ -2012,7 +2022,7 @@ async function main(): Promise<void> {
   sourcePanel.prepend(status);
 
   const setActiveError = (error: unknown): void => {
-    lastError = safeErrorMessage(error);
+    lastError = actionableAttributeLoadingError(error);
     showConfigurationError(lastError);
     updateStatus(lastError, "error");
     refreshIntegrationCode();

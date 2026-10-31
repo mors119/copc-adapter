@@ -27,12 +27,13 @@ import {
 import {
   applySchemaRuntimeOperations,
   buildSchemaApplicationPlan,
+  materializeWorkbenchConstructorOptions,
   normalizeWorkbenchOptionValues,
   resolveSchemaBackendSelection,
 } from "../../shared/config/index.ts";
 import {
-  NPM_0_6_CAPABILITIES,
-  NPM_0_6_MANIFEST,
+  NPM_0_7_1_CAPABILITIES,
+  NPM_0_7_1_MANIFEST,
 } from "../../shared/schema/index.ts";
 import type { PointScreenPosition } from "../../shared/inspection/PointPopover.ts";
 
@@ -382,9 +383,9 @@ export async function createPlaygroundRuntime(
     "source.url": options.source,
   });
   const applicationPlan = buildSchemaApplicationPlan(configurationValues, {
-    manifest: NPM_0_6_MANIFEST,
+    manifest: NPM_0_7_1_MANIFEST,
     renderer: options.renderer,
-    runtimeCapabilities: NPM_0_6_CAPABILITIES,
+    runtimeCapabilities: NPM_0_7_1_CAPABILITIES,
   });
 
   if (options.renderer === "cesium") {
@@ -422,7 +423,7 @@ export async function createPlaygroundRuntime(
         }),
     );
     const layerOptions = {
-      ...applicationPlan.constructorOptions,
+      ...materializeWorkbenchConstructorOptions(applicationPlan),
       backend,
       onPointPicked: (point: CopcPointInspection | undefined) => {
         selectedPoint = point;
@@ -629,7 +630,7 @@ export async function createPlaygroundRuntime(
       }),
   );
   const layerOptions = {
-    ...applicationPlan.constructorOptions,
+    ...materializeWorkbenchConstructorOptions(applicationPlan),
     backend,
     onPointPicked: (point: CopcPointInspection | undefined) => {
       selectedPoint = point;

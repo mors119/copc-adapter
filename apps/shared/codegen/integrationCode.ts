@@ -420,6 +420,26 @@ function buildConstructorOptions(
         ));
         break;
       }
+      case "cesium-point-fields": {
+        const option = schema.find(({ id }) => id === specialized.optionId);
+        const allowed = option?.validation.kind === "string-array"
+          ? option.validation.values
+          : undefined;
+        if (
+          plan.renderer !== "cesium" ||
+          specialized.optionId !== "attributes.pointFields" ||
+          specialized.apiPath !== "pointFields" ||
+          !Array.isArray(specialized.value) ||
+          !allowed ||
+          specialized.value.some((field) => typeof field !== "string" || !allowed.includes(field))
+        ) {
+          throw new TypeError("Additional standard fields have an invalid public constructor mapping.");
+        }
+        setPath(options, "pointFields", expression(
+          "new Set(" + literal(specialized.value) + " as const)",
+        ));
+        break;
+      }
       case "cesium-point-renderer": {
         if (plan.renderer !== "cesium" || specialized.apiPath !== "renderer") {
           throw new TypeError("The selected point renderer has no supported constructor mapping.");

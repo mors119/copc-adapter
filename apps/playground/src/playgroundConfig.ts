@@ -9,8 +9,8 @@ import {
   validateWorkbenchConfiguration,
 } from "../../shared/config/index.ts";
 import {
-  NPM_0_6_CAPABILITIES,
-  NPM_0_6_MANIFEST,
+  NPM_0_7_1_CAPABILITIES,
+  NPM_0_7_1_MANIFEST,
 } from "../../shared/schema/index.ts";
 
 const MIB = 1024 * 1024;
@@ -105,9 +105,9 @@ export function validatePlaygroundConfig(config: PlaygroundConfig): string[] {
     },
   );
   const validation = validateWorkbenchConfiguration(values, {
-    manifest: NPM_0_6_MANIFEST,
+    manifest: NPM_0_7_1_MANIFEST,
     renderer: config.renderer,
-    runtimeCapabilities: NPM_0_6_CAPABILITIES,
+    runtimeCapabilities: NPM_0_7_1_CAPABILITIES,
   });
   const errors = [...validation.errors];
   if (config.renderer === "three" && config.classificationFilter !== undefined) {
@@ -139,9 +139,9 @@ export function hasConstructorChanges(
     return buildSchemaApplicationPlan(
       pendingValues,
       {
-        manifest: NPM_0_6_MANIFEST,
+        manifest: NPM_0_7_1_MANIFEST,
         renderer: active.renderer,
-        runtimeCapabilities: NPM_0_6_CAPABILITIES,
+        runtimeCapabilities: NPM_0_7_1_CAPABILITIES,
       },
       activeValues,
     ).requiresLayerReplacement;

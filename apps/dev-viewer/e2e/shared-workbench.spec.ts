@@ -235,6 +235,71 @@ test("generates shared Code tab output from applied workspace configuration", as
   expect(pageErrors).toEqual([]);
 });
 
+test("shares Advanced attribute and coordinate-cache policies", async ({ page }) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  const params = new URLSearchParams({
+    backend: "copc-js",
+    colorMode: "rgb",
+    pointSize: "7",
+    maxNodes: "8",
+    maxRenderedPoints: "50000",
+    attributeLoading: "required",
+    coordinateCacheLayout: "E",
+    retainSourceCoordinatesForQueries: "true",
+  });
+  params.set("pointFields", JSON.stringify(["intensity"]));
+  await page.goto("/?" + params.toString());
+  await expect
+    .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.lifecycle))
+    .toBe("ready");
+
+  const code = page.locator("#integration-example");
+  await expect(page.locator("#point-size-value")).toHaveValue("7");
+  await expect(page.locator("#max-nodes-value")).toHaveValue("8");
+  await expect(page.locator("#max-points-value")).toHaveValue("50000");
+  await expect(code).toContainText("attributeLoading: 'required'");
+  await expect(code).toContainText("colorMode: 'rgb'");
+  await expect(code).toContainText("pointFields: new Set(['intensity'] as const)");
+  await expect(code).not.toContainText("coordinateCacheLayout");
+  await page.locator("#code-mode-explicit").click();
+  await expect(code).toContainText("coordinateCacheLayout: 'E'");
+  await expect(code).toContainText("retainSourceCoordinatesForQueries: true");
+
+  await page.locator('.schema-control-section[data-section="attributes"] summary').click();
+  await expect(page.locator("#schema-attribute-loading")).toHaveValue("required");
+  await expect(page.locator("#schema-point-field-intensity")).toBeChecked();
+  await expect(page.locator(".schema-special-attribute-loading .schema-option__hint"))
+    .toContainText("Pending style and filter fields: Position, RGB");
+  await expect(page.locator(".schema-special-attribute-loading .schema-option__hint"))
+    .toContainText("Pick metadata can include: Position, RGB, Intensity");
+  await page.locator('.schema-control-section[data-section="cache"] summary').click();
+  await expect(page.locator('[data-option-id="cache.coordinateCacheLayout"] select'))
+    .toHaveValue("E");
+  await expect(page.locator('[data-option-id="cache.retainSourceCoordinatesForQueries"] input[type="checkbox"]'))
+    .toBeChecked();
+
+  await page.evaluate(() => {
+    const target = window as Window & { __copiedText?: string };
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async (value: string) => { target.__copiedText = value; } },
+    });
+  });
+  await page.locator("#copy-share-link").click();
+  await expect(page.locator("#share-status")).toHaveText("Share link copied.");
+  const shareLink = await page.evaluate(
+    () => (window as Window & { __copiedText?: string }).__copiedText,
+  );
+  expect(shareLink).toMatch(/^https?:\/\//u);
+  expect(shareLink).toContain("attributeLoading=required");
+  expect(new URL(shareLink!).searchParams.get("pointFields")).toBe('["intensity"]');
+  expect(shareLink).toContain("coordinateCacheLayout=E");
+  expect(shareLink).toContain("retainSourceCoordinatesForQueries=true");
+  expect(shareLink).not.toContain("source=");
+  expect(pageErrors).toEqual([]);
+});
+
 test("keeps the last successful snippet when applying an unreachable source fails", async ({
   page,
 }) => {

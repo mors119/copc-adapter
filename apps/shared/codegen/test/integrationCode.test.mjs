@@ -13,6 +13,8 @@ import {
 import {
   NPM_0_6_CAPABILITIES,
   NPM_0_6_MANIFEST,
+  NPM_0_7_1_CAPABILITIES,
+  NPM_0_7_1_MANIFEST,
   OPTION_SCHEMA,
   WORKSPACE_CURRENT_CAPABILITIES,
   WORKSPACE_CURRENT_MANIFEST,
@@ -84,6 +86,50 @@ test("generates nested constructor settings and renderer runtime operations from
   assert.match(code, /layer\.setRefinementFocus\(/u);
   const constructor = code.slice(code.indexOf("const options"), code.indexOf("const layer"));
   assert.doesNotMatch(constructor, /classificationFilter/u);
+});
+
+test("generates public cache policies and a typed Set for Cesium pointFields", () => {
+  const common = {
+    manifest: NPM_0_7_1_MANIFEST,
+    runtimeCapabilities: NPM_0_7_1_CAPABILITIES,
+    adapterVersion: "0.7.1",
+    packageOriginLabel: "verified npm release",
+    source: "https://example.test/area.copc.laz",
+    mode: "explicit",
+  };
+  const cesium = generateWorkbenchIntegrationCode({
+    ...common,
+    renderer: "cesium",
+    values: {
+      "renderer.engine": "cesium",
+      "adapter.backend": "copc-js",
+      "rendering.colorMode": "rgb",
+      "attributes.attributeLoading": "required",
+      "attributes.pointFields": ["classification", "intensity"],
+      "style.classificationFilter": { include: [2, 6] },
+      "cache.coordinateCacheLayout": "E",
+      "cache.retainSourceCoordinatesForQueries": true,
+    },
+  }).code;
+  assert.match(cesium, /attributeLoading: 'required'/u);
+  assert.match(cesium, /colorMode: 'rgb'/u);
+  assert.match(cesium, /classificationFilter: \{ include: \[2, 6\] \}/u);
+  assert.match(cesium, /pointFields: new Set\(\['classification', 'intensity'\] as const\)/u);
+  assert.match(cesium, /coordinateCacheLayout: 'E'/u);
+  assert.match(cesium, /retainSourceCoordinatesForQueries: true/u);
+
+  const three = generateWorkbenchIntegrationCode({
+    ...common,
+    renderer: "three",
+    values: {
+      "renderer.engine": "three",
+      "adapter.backend": "copc-js",
+      "rendering.colorMode": "elevation",
+      "cache.coordinateCacheLayout": "A",
+    },
+  }).code;
+  assert.match(three, /coordinateCacheLayout: 'A'/u);
+  assert.doesNotMatch(three, /attributeLoading:|pointFields:|retainSourceCoordinatesForQueries/u);
 });
 
 test("emits the same code for equivalent applied values regardless of object key order", () => {
