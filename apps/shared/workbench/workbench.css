@@ -292,10 +292,31 @@
 }
 
 .schema-option__description,
+.schema-option__hint,
 .schema-option__unit {
   color: var(--workbench-muted, #a8b5c3);
   font-size: 0.68rem;
   line-height: 1.35;
+}
+
+.schema-option__hint {
+  margin: 0.15rem 0 0;
+}
+
+.schema-special-point-fields {
+  border: 1px solid var(--workbench-border, #405064);
+  border-radius: 0.4rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.7rem;
+  margin: 0.35rem 0 0;
+  padding: 0.45rem 0.6rem;
+}
+
+.schema-special-point-fields legend {
+  color: var(--workbench-muted, #a8b5c3);
+  font-size: 0.68rem;
+  padding: 0 0.2rem;
 }
 
 .schema-option__error {

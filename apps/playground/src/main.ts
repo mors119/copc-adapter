@@ -13,8 +13,8 @@ import {
   type UiSegmentOption,
 } from "../../shared/ui-controls";
 import {
-  NPM_0_6_CAPABILITIES,
-  NPM_0_6_MANIFEST,
+  NPM_0_7_1_CAPABILITIES,
+  NPM_0_7_1_MANIFEST,
   getOptionDefinition,
 } from "../../shared/schema/index.ts";
 import {
@@ -24,6 +24,7 @@ import {
   transitionRendererOptionValues,
 } from "../../shared/config/index.ts";
 import { mountSchemaOptionPanel } from "../../shared/workbench/SchemaOptionPanel.ts";
+import { renderSharedSpecialControl } from "../../shared/workbench/specialControls.ts";
 import {
   mountWorkbenchLayout,
   mountWorkbenchRightTabs,
@@ -87,6 +88,18 @@ import "../../shared/workbench/workbench.css";
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("The Playground application root is missing.");
+
+const WORKBENCH_COLOR_MODES = new Set<PlaygroundColorMode>([
+  "fixed",
+  "rgb",
+  "elevation",
+  "intensity",
+  "classification",
+]);
+
+function isWorkbenchColorMode(value: string): value is PlaygroundColorMode {
+  return WORKBENCH_COLOR_MODES.has(value as PlaygroundColorMode);
+}
 
 const PLAYGROUND_HEALTH_SECTIONS = [
   {
@@ -597,6 +610,7 @@ declare global {
       delayNextZoom(): void;
       failNextLoad(): void;
       failNextStyle(): void;
+      failNextMissingAttributeStyle(): void;
       releaseDelayedLoad(): void;
       releaseDelayedZoom(): void;
       getMockDestroyCount(): number;
@@ -611,6 +625,10 @@ declare global {
       getMockLayerCreateCount(): number;
       getMockLayerSettings(): {
         readonly rangeValidation?: string;
+        readonly attributeLoading?: string;
+        readonly pointFields?: readonly string[];
+        readonly coordinateCacheLayout?: string;
+        readonly retainSourceCoordinatesForQueries?: boolean;
         readonly streaming?: {
           readonly motionLookahead?: boolean;
           readonly predictivePrefetch?: boolean;
@@ -641,6 +659,10 @@ if (import.meta.env.DEV) {
   let mockLayerSettings:
     | {
         rangeValidation?: string;
+        attributeLoading?: string;
+        pointFields?: string[];
+        coordinateCacheLayout?: string;
+        retainSourceCoordinatesForQueries?: boolean;
         streaming?: {
           motionLookahead?: boolean;
           predictivePrefetch?: boolean;
@@ -655,6 +677,7 @@ if (import.meta.env.DEV) {
   let delayNextMockZoom = false;
   let failNextMockLoad = false;
   let failNextMockStyle = false;
+  let failNextMissingAttributeStyle = false;
   let mockStyleUpdateCount = 0;
   let releaseMockLoad: (() => void) | undefined;
   let releaseMockZoom: (() => void) | undefined;
@@ -664,6 +687,10 @@ if (import.meta.env.DEV) {
         mockLayerCreateCount += 1;
         mockLayerSettings = {
           rangeValidation: options.rangeValidation,
+          attributeLoading: options.attributeLoading,
+          pointFields: options.pointFields ? [...options.pointFields] : undefined,
+          coordinateCacheLayout: options.coordinateCacheLayout,
+          retainSourceCoordinatesForQueries: options.retainSourceCoordinatesForQueries,
           streaming: {
             motionLookahead: options.streaming?.motionLookahead,
             predictivePrefetch: options.streaming?.predictivePrefetch,
@@ -759,6 +786,12 @@ if (import.meta.env.DEV) {
           },
           setStyle(update: CopcCesiumPointStyleUpdate): void {
             mockStyleUpdateCount += 1;
+            if (failNextMissingAttributeStyle) {
+              failNextMissingAttributeStyle = false;
+              throw new Error(
+                'Intensity was not requested; source availability was not checked. Set attributeLoading: "all" or include "intensity" in pointFields before loading.',
+              );
+            }
             if (failNextMockStyle) {
               failNextMockStyle = false;
               throw new Error("Injected mock style failure");
@@ -808,6 +841,9 @@ if (import.meta.env.DEV) {
     },
     failNextStyle(): void {
       failNextMockStyle = true;
+    },
+    failNextMissingAttributeStyle(): void {
+      failNextMissingAttributeStyle = true;
     },
     releaseDelayedLoad(): void {
       releaseMockLoad?.();
@@ -947,8 +983,8 @@ function handleSchemaOptionChange(optionId: string, value: unknown): void {
       inactiveRendererOptionValues,
       {
         support: {
-          manifest: NPM_0_6_MANIFEST,
-          runtimeCapabilities: NPM_0_6_CAPABILITIES,
+          manifest: NPM_0_7_1_MANIFEST,
+          runtimeCapabilities: NPM_0_7_1_CAPABILITIES,
         },
       },
     );
@@ -1019,11 +1055,15 @@ function handleSchemaOptionChange(optionId: string, value: unknown): void {
 schemaPanel = mountSchemaOptionPanel({
   target: byId("shared-schema-controls"),
   context: {
-    manifest: NPM_0_6_MANIFEST,
+    manifest: NPM_0_7_1_MANIFEST,
     renderer: pendingConfig.renderer,
-    runtimeCapabilities: NPM_0_6_CAPABILITIES,
+    runtimeCapabilities: NPM_0_7_1_CAPABILITIES,
   },
   values: playgroundOptionValues(pendingConfig),
+  sectionLabels: {
+    attributes: "Advanced · Attributes",
+    cache: "Advanced · Cache",
+  },
   excludeOptionIds: [
     "source.url",
     "style.classificationFilter",
@@ -1032,6 +1072,7 @@ schemaPanel = mountSchemaOptionPanel({
     "coordinates.verticalTransform",
   ],
   onChange: handleSchemaOptionChange,
+  renderSpecialControl: renderSharedSpecialControl,
   onValidationChange() {
     updateApplyState();
     updateRemoteLoadState();
@@ -1174,6 +1215,9 @@ function applyCesiumStyle(
     const classificationFilter = normalizeClassificationFilter(
       style.classificationFilter,
     );
+    if (!isWorkbenchColorMode(style.colorMode)) {
+      throw new Error("The active Cesium layer returned a color mode this Workbench does not offer.");
+    }
     appliedConfig = {
       ...appliedConfig,
       colorMode: style.colorMode,
@@ -1203,7 +1247,11 @@ function applyCesiumStyle(
     refreshSnapshot();
     return true;
   } catch (error) {
-    styleError.textContent = `Style was not applied. ${safeErrorText(error)} The active style and generated code are unchanged.`;
+    const detail = safeErrorText(error);
+    const missingRetainedField = /not requested.*source availability was not checked/iu.test(detail);
+    styleError.textContent = missingRetainedField
+      ? `Style was not applied. ${detail} No field was fetched. Set Standard attribute loading to All or add the field under Additional standard fields, then Apply changes to reload.`
+      : `Style was not applied. ${detail} The active style and generated code are unchanged.`;
     styleError.hidden = false;
     updateIntegrationExample();
     return false;
@@ -2363,6 +2411,9 @@ const loadSource = async (
       if (Object.keys(styleUpdate).length > 0) candidate.setStyle?.(styleUpdate);
       const actualStyle = candidate.getStyle?.();
       if (actualStyle) {
+        if (!isWorkbenchColorMode(actualStyle.colorMode)) {
+          throw new Error("The candidate Cesium layer returned a color mode this Workbench does not offer.");
+        }
         committedConfig = {
           ...committedConfig,
           colorMode: actualStyle.colorMode,

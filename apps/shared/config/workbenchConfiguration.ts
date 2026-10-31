@@ -733,6 +733,45 @@ export function buildSchemaApplicationPlan(
     setApiPath(constructorOptions, option.apiPath, values[option.id], option);
   }
 
+  // Required attribute loading must know the starting style before the first
+  // decode. Cesium exposes colorMode and classificationFilter as constructor
+  // options for this purpose, even though the Workbench also supports updating
+  // them through setStyle after a layer has loaded.
+  const attributeLoadingOption = schema.find(
+    ({ id }) => id === "attributes.attributeLoading",
+  );
+  if (
+    activeContext.renderer === "cesium" &&
+    attributeLoadingOption &&
+    effectiveValue(attributeLoadingOption, values, activeContext, schema) === "required"
+  ) {
+    const colorModeOption = schema.find(({ id }) => id === "rendering.colorMode");
+    if (colorModeOption && optionIsActive(colorModeOption, values, activeContext, schema)) {
+      const colorMode = effectiveValue(colorModeOption, values, activeContext, schema);
+      if (colorMode !== MISSING && colorModeOption.apiPath) {
+        setApiPath(constructorOptions, colorModeOption.apiPath, colorMode, colorModeOption);
+      }
+    }
+
+    const classificationFilterOption = schema.find(
+      ({ id }) => id === "style.classificationFilter",
+    );
+    if (
+      classificationFilterOption &&
+      optionIsActive(classificationFilterOption, values, activeContext, schema)
+    ) {
+      const classificationFilter = effectiveValue(
+        classificationFilterOption,
+        values,
+        activeContext,
+        schema,
+      );
+      if (classificationFilter !== MISSING && classificationFilter !== null) {
+        constructorOptions.classificationFilter = copyValue(classificationFilter);
+      }
+    }
+  }
+
   const runtimeOperations = buildRuntimeOperations(
     values,
     activeContext,
@@ -756,6 +795,27 @@ export function buildSchemaApplicationPlan(
     changedOptionIds,
     requiresLayerReplacement: replacement,
   };
+}
+
+/** Materialize specialized public constructor inputs that are native JS values. */
+export function materializeWorkbenchConstructorOptions(
+  plan: SchemaApplicationPlan,
+): Readonly<Record<string, unknown>> {
+  const options = copyValues(plan.constructorOptions);
+  for (const specialized of plan.specializedOptions) {
+    if (specialized.handler !== "cesium-point-fields") continue;
+    if (
+      plan.renderer !== "cesium" ||
+      specialized.optionId !== "attributes.pointFields" ||
+      specialized.apiPath !== "pointFields" ||
+      !Array.isArray(specialized.value) ||
+      specialized.value.some((field) => typeof field !== "string")
+    ) {
+      throw new TypeError("Additional standard fields have an invalid public constructor mapping.");
+    }
+    options.pointFields = new Set(specialized.value as string[]);
+  }
+  return options;
 }
 
 function invokeRuntimeOperation(
