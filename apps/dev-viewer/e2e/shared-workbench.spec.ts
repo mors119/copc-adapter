@@ -403,6 +403,7 @@ test("applies opacity and clipping to the loaded Cesium layer without reading so
     };
   });
 
+  await page.locator("#schema-opacity-use-default").uncheck();
   const opacity = page.locator("#schema-opacity-value");
   await opacity.fill("0.37");
   await opacity.dispatchEvent("change");
