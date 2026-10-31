@@ -8,6 +8,7 @@ import type {
   RefinementFocus,
   TerrainHeightAlignmentEstimate,
 } from "@frillab/copc-adapter/cesium";
+import { loadNgaEgm2008Grid } from "@frillab/copc-adapter";
 import {
   formatUiNumber,
   mountSegmentedControl,
@@ -30,6 +31,13 @@ import {
 } from "../../shared/config/index.ts";
 import { mountSchemaOptionPanel } from "../../shared/workbench/SchemaOptionPanel.ts";
 import { renderSharedSpecialControl } from "../../shared/workbench/specialControls.ts";
+import { mountVerticalGridControl } from "../../shared/workbench/VerticalGridControl.ts";
+import {
+  createNgaEgm2008ResourceRegistry,
+  createPointVerticalReferenceContext,
+  describeVerticalGrid,
+  getVerticalGridResourceDetails,
+} from "../../shared/workbench/verticalGridResource.ts";
 import {
   mountTerrainAlignmentControl,
   type TerrainAlignmentControl,
@@ -94,6 +102,8 @@ import {
 } from "./playgroundConfig";
 import "./style.css";
 import "../../shared/workbench/workbench.css";
+
+const verticalGridResources = createNgaEgm2008ResourceRegistry(loadNgaEgm2008Grid);
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("The Playground application root is missing.");
@@ -160,6 +170,19 @@ const PLAYGROUND_HEALTH_SECTIONS = [
       { key: "cacheEvictions", label: "Evicted bytes", id: "diagnostic-cache-evictions" },
       { key: "workerSummary", label: "Worker state", id: "diagnostic-worker" },
       { key: "workerDetails", label: "Worker jobs", id: "diagnostic-worker-details" },
+    ],
+  },
+  {
+    id: "playground-health-vertical-reference",
+    title: "Vertical reference and transform provenance",
+    fields: [
+      { key: "sourceVerticalCrs", label: "Source vertical CRS" },
+      { key: "sourceHeightKind", label: "Source height kind" },
+      { key: "sourceVerticalUnits", label: "Source vertical units" },
+      { key: "verticalTransform", label: "Applied datum transform" },
+      { key: "verticalGridCoverage", label: "Grid coverage and digest" },
+      { key: "manualHeightOffset", label: "Manual heightOffsetMeters" },
+      { key: "terrainResidual", label: "Terrain residual (visual only)" },
     ],
   },
 ] satisfies readonly DiagnosticSectionDefinition[];
@@ -1200,8 +1223,24 @@ schemaPanel = mountSchemaOptionPanel({
     "style.classificationFilter",
     "streaming.refinementFocus",
     "rendering.cesiumPointRenderer",
-    "coordinates.verticalTransform",
   ],
+  hostValidators: verticalGridResources.hostValidators,
+  renderSpecialControl(controlOptions) {
+    if (controlOptions.option.id === "coordinates.verticalTransform") {
+      return mountVerticalGridControl({
+        ...controlOptions,
+        loadGrid: verticalGridResources.loadFile,
+        canLoad: () => !activeLoadPending && !verticalGridResources.isLoadedGrid(
+          appliedConfig
+            ? playgroundOptionValues(appliedConfig)["coordinates.verticalTransform"]
+            : undefined,
+        ),
+        isApplied: (value) => appliedConfig !== undefined &&
+          playgroundOptionValues(appliedConfig)["coordinates.verticalTransform"] === value,
+      });
+    }
+    return renderSharedSpecialControl(controlOptions);
+  },
   renderAction(action) {
     if (action.id !== "coordinates.terrainAlignment") return undefined;
     const actionTarget = document.createElement("div");
@@ -1284,6 +1323,8 @@ schemaPanel = mountSchemaOptionPanel({
             finalHeightOffsetMeters,
             residualMeters: estimate.proposedOffsetMeters ?? 0,
           };
+          updatePointVerticalReferenceContext();
+          refreshSnapshot();
           updateIntegrationExample();
         }
         return applied;
@@ -1298,7 +1339,6 @@ schemaPanel = mountSchemaOptionPanel({
       },
     };
   },
-  renderSpecialControl: renderSharedSpecialControl,
   onChange: handleSchemaOptionChange,
   onValidationChange() {
     updateApplyState();
@@ -1368,7 +1408,7 @@ function syncPendingControls(): void {
 }
 
 function updateApplyState(): void {
-  const configErrors = validatePlaygroundConfig(pendingConfig);
+  const configErrors = validatePlaygroundConfig(pendingConfig, verticalGridResources.hostValidators);
   const errors = [
     ...invalidNumericInputs.values(),
     ...configErrors,
@@ -1378,7 +1418,7 @@ function updateApplyState(): void {
   configValidation.hidden = errors.length === 0;
   const hasPendingConstructorChanges =
     appliedConfig !== undefined &&
-    hasConstructorChanges(pendingConfig, appliedConfig);
+    hasConstructorChanges(pendingConfig, appliedConfig, verticalGridResources.hostValidators);
   applyChangesButton.disabled =
     !activeRuntimeReady ||
     appliedSource === undefined ||
@@ -1746,6 +1786,7 @@ function updateIntegrationExample(): void {
       includeTerrainAlignmentRecipe: panelState.includeTerrainAlignmentRecipe,
       ...(approvedTerrainAlignment ? { approvedTerrainAlignment } : {}),
       ...(appliedCodeAt === undefined ? {} : { appliedAt: appliedCodeAt }),
+      hostValidators: verticalGridResources.hostValidators,
     });
     const appliedStatus = "appliedRevision" in generated
       ? {
@@ -2212,6 +2253,33 @@ const updateSnapshot = (snapshot: PlaygroundSnapshot | undefined): void => {
   );
 };
 
+let lastPointVerticalReferenceKey: string | undefined;
+function updatePointVerticalReferenceContext(): void {
+  if (!activeRuntime || !appliedConfig) {
+    if (lastPointVerticalReferenceKey !== "unavailable") {
+      lastPointVerticalReferenceKey = "unavailable";
+      pointPopover.setVerticalReferenceContext(undefined);
+    }
+    return;
+  }
+  const values = playgroundOptionValues(appliedConfig);
+  const terrainResidual = approvedTerrainAlignmentProvenance && appliedSource &&
+      sameSource(approvedTerrainAlignmentProvenance.source, appliedSource) &&
+      approvedTerrainAlignmentProvenance.finalHeightOffsetMeters === appliedConfig.heightOffsetMeters
+    ? approvedTerrainAlignmentProvenance.residualMeters
+    : undefined;
+  const verticalReference = createPointVerticalReferenceContext(
+    activeRuntime.getMetadata(),
+    values["coordinates.verticalTransform"],
+    appliedConfig.heightOffsetMeters,
+    terrainResidual,
+  );
+  const key = JSON.stringify(verticalReference);
+  if (key === lastPointVerticalReferenceKey) return;
+  lastPointVerticalReferenceKey = key;
+  pointPopover.setVerticalReferenceContext(verticalReference);
+}
+
 const renderDiagnosticsDashboard = (
   diagnostics: PlaygroundLayerDiagnostics | undefined,
 ): void => {
@@ -2224,6 +2292,7 @@ const renderDiagnosticsDashboard = (
     summary.textContent = "Waiting for a source";
     healthDiagnostics.update({});
     dataDiagnostics.update({});
+    updatePointVerticalReferenceContext();
     return;
   }
 
@@ -2232,6 +2301,25 @@ const renderDiagnosticsDashboard = (
     context,
     browserMeasurements,
   );
+  const activeVerticalValues = appliedConfig
+    ? playgroundOptionValues(appliedConfig)
+    : {};
+  const activeVerticalGrid = activeVerticalValues["coordinates.verticalTransform"];
+  const activeVerticalDetails = getVerticalGridResourceDetails(activeVerticalGrid);
+  const activeTerrainResidual = appliedConfig && approvedTerrainAlignmentProvenance &&
+      appliedSource && sameSource(approvedTerrainAlignmentProvenance.source, appliedSource) &&
+      approvedTerrainAlignmentProvenance.finalHeightOffsetMeters === appliedConfig.heightOffsetMeters
+    ? approvedTerrainAlignmentProvenance.residualMeters
+    : undefined;
+  const verticalReference = activeRuntime
+    ? createPointVerticalReferenceContext(
+        activeRuntime.getMetadata(),
+        activeVerticalGrid,
+        appliedConfig?.heightOffsetMeters ?? 0,
+        activeTerrainResidual,
+      )
+    : undefined;
+  updatePointVerticalReferenceContext();
   contextElement.textContent = model.context;
   summary.textContent = model.lifecycle;
   healthDiagnostics.update({
@@ -2261,6 +2349,19 @@ const renderDiagnosticsDashboard = (
     cacheEvictions: model.cacheBytesEvicted,
     workerSummary: model.workerSummary,
     workerDetails: model.workerDetails,
+    sourceVerticalCrs: verticalReference?.sourceVerticalCrs,
+    sourceHeightKind: verticalReference?.sourceHeightKind,
+    sourceVerticalUnits: verticalReference?.sourceVerticalUnits,
+    verticalTransform: describeVerticalGrid(activeVerticalGrid),
+    verticalGridCoverage: activeVerticalDetails
+      ? `${activeVerticalDetails.extent} · SHA-256 ${activeVerticalDetails.sha256}`
+      : "No validated vertical grid applied",
+    manualHeightOffset: appliedConfig
+      ? `${appliedConfig.heightOffsetMeters} m · independent caller correction to ellipsoidal height`
+      : undefined,
+    terrainResidual: activeTerrainResidual === undefined
+      ? "None approved · Terrain sampling is separate from datum conversion"
+      : `${activeTerrainResidual} m · visual Terrain residual, not a vertical-datum conversion`,
   });
 
   dataDiagnostics.update({
@@ -2571,7 +2672,7 @@ function selectedRemoteSource(): { url: string; name: string } | undefined {
 function updateRemoteLoadState(): void {
   const selected = selectedRemoteSource();
   const invalidConfiguration =
-    validatePlaygroundConfig(pendingConfig).length > 0 ||
+    validatePlaygroundConfig(pendingConfig, verticalGridResources.hostValidators).length > 0 ||
     invalidNumericInputs.size > 0 ||
     (schemaPanel?.getValidationErrors().length ?? 0) > 0;
   const hasMatchingProbe = selected !== undefined &&
@@ -2599,7 +2700,7 @@ const loadSource = async (
   const loadStartedAt = options.initiatedAt ?? performance.now();
   let loadConfig = clonePlaygroundConfig(options.config ?? captureWorkbenchConfig());
   const configurationErrors = [
-    ...validatePlaygroundConfig(loadConfig),
+    ...validatePlaygroundConfig(loadConfig, verticalGridResources.hostValidators),
     ...invalidNumericInputs.values(),
     ...(schemaPanel?.getValidationErrors() ?? []),
   ];
@@ -2658,6 +2759,7 @@ const loadSource = async (
         maxPointCacheBytes: loadConfig.maxPointCacheBytes,
         refinementAlgorithm: loadConfig.refinementAlgorithm,
         schemaOptionValues: loadConfig.schemaOptionValues,
+        hostValidators: verticalGridResources.hostValidators,
         ...(loadConfig.classificationFilter === undefined ? {} : { classificationFilter: loadConfig.classificationFilter }),
         container: host,
         onPointPicked: (point) => {
@@ -2774,6 +2876,7 @@ const loadSource = async (
       pendingConfig = { ...pendingConfig, colorMode: "elevation" };
     }
     appliedConfig = committedConfig;
+    updatePointVerticalReferenceContext();
     activeDiagnosticsContext = {
       sourceLabel: displaySourceLabel(sourceName, typeof source === "string" ? source : undefined),
       renderer: loadConfig.renderer,
@@ -2979,8 +3082,8 @@ fileInput.addEventListener("change", async () => {
 });
 
 applyChangesButton.addEventListener("click", () => {
-  if (!appliedSource || !appliedConfig || validatePlaygroundConfig(pendingConfig).length > 0 || invalidNumericInputs.size > 0) return;
-  if (!hasConstructorChanges(pendingConfig, appliedConfig) && hasPendingOpacityOrClippingChanges()) {
+  if (!appliedSource || !appliedConfig || validatePlaygroundConfig(pendingConfig, verticalGridResources.hostValidators).length > 0 || invalidNumericInputs.size > 0) return;
+  if (!hasConstructorChanges(pendingConfig, appliedConfig, verticalGridResources.hostValidators) && hasPendingOpacityOrClippingChanges()) {
     void applyOpacityAndClippingToActiveRuntime(captureWorkbenchConfig());
     return;
   }

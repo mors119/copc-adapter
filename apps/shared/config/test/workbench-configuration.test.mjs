@@ -821,6 +821,78 @@ test("workspace and published package origins retain distinct support and versio
   );
 });
 
+test("materializes a host-verified vertical grid as a constructor resource without serializing it", async () => {
+  const { createNgaEgm2008ResourceRegistry } = await import(
+    "../../workbench/verticalGridResource.ts"
+  );
+  const { NGA_EGM2008_FILE_BYTES, NGA_EGM2008_GRID_ID, NGA_EGM2008_SHA256 } =
+    await import("../../workbench/verticalGridResource.ts");
+  const grid = Object.assign(new class { sampleUndulation() { return 0; } }(), {
+    gridId: NGA_EGM2008_GRID_ID,
+    sha256: NGA_EGM2008_SHA256,
+    sourceVerticalCrs: "EPSG:3855",
+    targetVerticalCrs: "EPSG:4979",
+    horizontalCrs: "EPSG:4326",
+    referenceEllipsoid: "WGS84",
+    valueUnit: "metre",
+    valueConvention: "ellipsoidal-minus-orthometric",
+    interpolation: "bilinear",
+    noDataValue: null,
+    width: 8640,
+    height: 4321,
+    longitudeOrigin: 0,
+    latitudeOrigin: -90,
+    longitudeStep: 2.5 / 60,
+    latitudeStep: 2.5 / 60,
+    encodedByteLength: NGA_EGM2008_FILE_BYTES,
+    decodedByteLength: 8640 * 4321 * 4,
+    globalLongitudeCoverage: "periodic",
+  });
+  const registry = createNgaEgm2008ResourceRegistry(async () => grid);
+  const loaded = await registry.loadFile({ size: NGA_EGM2008_FILE_BYTES });
+  const context = {
+    manifest: NPM_0_7_1_MANIFEST,
+    renderer: "cesium",
+    runtimeCapabilities: NPM_0_7_1_CAPABILITIES,
+  };
+  const values = validValues({ "coordinates.verticalTransform": loaded });
+
+  assert.deepEqual(validateWorkbenchConfiguration(values, context, undefined, registry.hostValidators).errors, []);
+  const plan = buildSchemaApplicationPlan(values, context, undefined, undefined, registry.hostValidators);
+  assert.equal(plan.requiresLayerReplacement, true);
+  assert.equal(materializeWorkbenchConstructorOptions(plan).verticalTransform, loaded);
+  const activeRuntime = { setStyle() {} };
+  let constructorResource;
+  let activated = false;
+  const applied = await applyWorkbenchConfiguration(
+    createWorkbenchConfigurationState(values),
+    context,
+    {
+      getActiveRuntime: () => undefined,
+      async createRuntime(candidatePlan) {
+        constructorResource = materializeWorkbenchConstructorOptions(candidatePlan).verticalTransform;
+        return activeRuntime;
+      },
+      activateRuntime(candidate) { activated = candidate === activeRuntime; },
+      disposeRuntime() {},
+    },
+    undefined,
+    registry.hostValidators,
+  );
+  assert.equal(applied.replaced, true);
+  assert.equal(activated, true);
+  assert.equal(constructorResource, loaded);
+  assert.equal(applied.state.applied["coordinates.verticalTransform"], loaded);
+  const shared = serializeWorkbenchConfiguration(
+    createWorkbenchConfigurationState(values),
+    context,
+    "pending",
+    undefined,
+    registry.hostValidators,
+  ).toString();
+  assert.doesNotMatch(shared, /verticalGrid|EPSG%3A3855|ab6f8b940/u);
+});
+
 test("unverified origin/version manifests fail closed even when their fields look supported", () => {
   assert.throws(
     () => buildSchemaApplicationPlan(

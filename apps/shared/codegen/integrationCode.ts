@@ -14,6 +14,7 @@ import {
   resolveOptionDefault,
 } from "../schema/capabilities.ts";
 import { isOptionConditionMet, OPTION_SCHEMA } from "../schema/options.ts";
+import { isNgaEgm2008Grid } from "../workbench/verticalGridResource.ts";
 import { NPM_0_7_1_OPACITY_RESET_VALUES } from "../schema/manifests.ts";
 import type {
   AdapterManifest,
@@ -381,10 +382,16 @@ function removeDefaults(
 function buildConstructorOptions(
   plan: SchemaApplicationPlan,
   schema: readonly SchemaOption[],
-): { readonly options: CodeObject; readonly imports: readonly string[]; readonly warnings: readonly string[] } {
+): {
+  readonly options: CodeObject;
+  readonly imports: readonly string[];
+  readonly warnings: readonly string[];
+  readonly verticalGridSetup: readonly string[];
+} {
   const options = structuredClone(plan.constructorOptions) as CodeObject;
   const imports = new Set<string>();
   const warnings: string[] = [];
+  const verticalGridSetup: string[] = [];
   const supported = new Set(
     getSupportedOptions({ manifest: plan.manifest, renderer: plan.renderer }, schema)
       .map(({ id }) => id),
@@ -455,16 +462,47 @@ function buildConstructorOptions(
         }
         break;
       }
-      case "vertical-grid":
+      case "vertical-grid": {
+        if (
+          specialized.optionId !== "coordinates.verticalTransform" ||
+          specialized.apiPath !== "verticalTransform" ||
+          !isNgaEgm2008Grid(specialized.value)
+        ) {
+          throw new TypeError("The selected vertical grid has no reproducible public loading profile.");
+        }
+        imports.add("loadNgaEgm2008Grid");
+        setPath(
+          options,
+          "verticalTransform",
+          expression("verticalTransform"),
+        );
+        verticalGridSetup.push(
+          "// Obtain the exact extracted NGA EGM2008 2.5-minute WGS 84 Tide-Free file from:",
+          "// " + "https://earth-info.nga.mil/index.php?action=geoid&dir=wgs84",
+          "// Review the source terms and use a local copy you are authorized to use. This code never downloads or bundles it.",
+          "// Add a visible <input id=\"vertical-grid-file\" type=\"file\">; select the local file while this module waits.",
+          "const verticalGridInput = document.querySelector<HTMLInputElement>('#vertical-grid-file');",
+          "if (!verticalGridInput) throw new Error('Add the vertical-grid-file input before running this code.');",
+          "const verticalGridFile = verticalGridInput.files?.[0] ?? await new Promise<File>((resolve, reject) => {",
+          "  verticalGridInput.addEventListener('change', () => {",
+          "    const file = verticalGridInput.files?.[0];",
+          "    if (file) resolve(file);",
+          "    else reject(new Error('Choose the local NGA EGM2008 grid file.'));",
+          "  }, { once: true });",
+          "});",
+          "const verticalTransform = await loadNgaEgm2008Grid(verticalGridFile, { maxGridBytes: 160 * 1024 * 1024 });",
+          "",
+        );
         warnings.push(
-          "A verified GTX grid is active. The grid resource is host-owned and was not embedded; load the same validated GtxGeoidGrid and pass it as verticalTransform in your application.",
+          "The applied transform uses the pinned NGA EGM2008 file. Supply the exact locally authorized file; the generated loader verifies its SHA-256 and format before setting verticalTransform.",
         );
         break;
+      }
       default:
         throw new TypeError("No integration code handler is registered for " + specialized.handler + ".");
     }
   }
-  return { options, imports: [...imports], warnings };
+  return { options, imports: [...imports], warnings, verticalGridSetup };
 }
 
 function buildRuntimeLines(
@@ -603,6 +641,7 @@ export function generateIntegrationCodeFromPlan(options: {
         "import { " + namedImports.join(", ") + " } from '" + importPath + "';",
         "import type { " + typeName + " } from '" + importPath + "';",
         "",
+        ...constructor.verticalGridSetup,
         ...setup,
         "// Provide an element with this id in your page.",
         "const viewer = new Cesium.Viewer('cesium-container');",
@@ -638,6 +677,7 @@ export function generateIntegrationCodeFromPlan(options: {
       "import { " + namedImports.join(", ") + " } from '" + importPath + "';",
       "import type { " + typeName + " } from '" + importPath + "';",
       "",
+      ...constructor.verticalGridSetup,
       ...setup,
       "const scene = new THREE.Scene();",
       "const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 250_000);",

@@ -1,3 +1,5 @@
+import type { VerticalGridResourceDetails } from "../workbench/verticalGridResource.ts";
+
 export type PointInspectionData = {
   readonly nodeKey: string;
   readonly level: number;
@@ -22,6 +24,17 @@ export type PointInspectionData = {
   };
   readonly dimensions?: Readonly<Record<string, number | bigint>>;
   readonly backend: string;
+};
+
+/** Source CRS and applied vertical-operation context supplied by the host. */
+export type PointVerticalReferenceContext = {
+  readonly sourceVerticalCrs?: string;
+  readonly sourceVerticalUnits?: string;
+  readonly sourceHeightKind?: string;
+  readonly grid?: VerticalGridResourceDetails;
+  readonly heightOffsetMeters: number;
+  /** A separately approved visual Terrain residual, never a datum operation. */
+  readonly terrainResidualMeters?: number;
 };
 
 export type PointInspectionRow = {
@@ -54,7 +67,10 @@ function pushIfAvailable(
 }
 
 /** Format only values present in the point inspection without inventing precision. */
-export function getPointInspectionRows(point: PointInspectionData): {
+export function getPointInspectionRows(
+  point: PointInspectionData,
+  verticalReference?: PointVerticalReferenceContext,
+): {
   readonly summary: readonly PointInspectionRow[];
   readonly details: readonly PointInspectionRow[];
 } {
@@ -122,6 +138,36 @@ export function getPointInspectionRows(point: PointInspectionData): {
       "Source coordinates (X / Y / Z)",
       formatTriple(point.source.x, point.source.y, point.source.z),
     );
+  }
+
+  if (verticalReference) {
+    pushIfAvailable(details, "Source vertical CRS", verticalReference.sourceVerticalCrs);
+    pushIfAvailable(details, "Source vertical units", verticalReference.sourceVerticalUnits);
+    pushIfAvailable(details, "Source height kind", verticalReference.sourceHeightKind);
+    pushIfAvailable(
+      details,
+      "Vertical datum transform",
+      verticalReference.grid
+        ? `${verticalReference.grid.gridId} · ${verticalReference.grid.sourceVerticalCrs} → ${verticalReference.grid.targetVerticalCrs} · ${verticalReference.grid.interpolation} · ${verticalReference.grid.valueConvention}`
+        : "None · source height is not converted to another vertical datum",
+    );
+    if (verticalReference.grid) {
+      pushIfAvailable(details, "Grid coverage", verticalReference.grid.extent);
+      pushIfAvailable(details, "Grid SHA-256", verticalReference.grid.sha256);
+      pushIfAvailable(details, "Grid source", verticalReference.grid.source);
+    }
+    if (Number.isFinite(verticalReference.heightOffsetMeters)) {
+      details.push({
+        label: "Manual heightOffsetMeters",
+        value: `${verticalReference.heightOffsetMeters} m · ${verticalReference.grid ? "applied separately after the vertical grid" : "independent manual adjustment"}`,
+      });
+    }
+    if (Number.isFinite(verticalReference.terrainResidualMeters)) {
+      details.push({
+        label: "Terrain residual (visual only)",
+        value: `${verticalReference.terrainResidualMeters} m · not a geoid or vertical-datum conversion`,
+      });
+    }
   }
 
   if (point.world?.coordinateSystem === "wgs84-ecef-meters") {

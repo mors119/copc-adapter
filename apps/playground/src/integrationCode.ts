@@ -13,6 +13,7 @@ import {
   type IntegrationCodeMode,
 } from "../../shared/codegen/integrationCode.ts";
 import type { WorkbenchConfigurationState } from "../../shared/config/index.ts";
+import type { SchemaHostValidators } from "../../shared/schema/types.ts";
 import type { PlaygroundConfig } from "./playgroundConfig";
 import type { PlaygroundRefinementConfig } from "./refinementConfig";
 
@@ -35,6 +36,7 @@ export type IntegrationCodeOptions = {
   /** When present, code comes from `state.applied`; pending values only drive status. */
   readonly appliedState?: WorkbenchConfigurationState;
   readonly appliedAt?: number;
+  readonly hostValidators?: SchemaHostValidators;
 };
 
 export type IntegrationCodeGenerationResult = SharedIntegrationCodeGenerationResult |
@@ -64,6 +66,7 @@ export function generateIntegrationCodeResult(
       runtimeCapabilities: PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES,
       adapterVersion: options.adapterVersion,
       packageOriginLabel: "verified npm release",
+      hostValidators: options.hostValidators,
     });
   }
   const values: Record<string, unknown> = {
@@ -86,6 +89,7 @@ export function generateIntegrationCodeResult(
     runtimeCapabilities: PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES,
     adapterVersion: options.adapterVersion,
     packageOriginLabel: "verified npm release",
+    hostValidators: options.hostValidators,
   });
 }
 

@@ -10,6 +10,7 @@ import {
   type SchemaOptionPanelOptions,
 } from "../../shared/workbench/SchemaOptionPanel.ts";
 import { renderSharedSpecialControl } from "../../shared/workbench/specialControls.ts";
+import { mountVerticalGridControl } from "../../shared/workbench/VerticalGridControl.ts";
 import {
   getAvailableChoices,
   WORKSPACE_CURRENT_CAPABILITIES,
@@ -21,8 +22,10 @@ import type { SchemaRenderer } from "../../shared/schema/index.ts";
 import type {
   SchemaDimensionFilter,
   SchemaDimensionStyle,
+  SchemaHostValidators,
   SchemaNumericDimensionMetadata,
 } from "../../shared/schema/types.ts";
+import type { VerifiedVerticalGrid } from "../../shared/workbench/verticalGridResource.ts";
 import {
   createDefaultDimensionStyle,
   getWorkbenchNumericDimensions,
@@ -60,11 +63,16 @@ export type DevViewerControlsOptions = {
   readonly onCameraDistanceSelected: (distance: number) => void;
   readonly onInvalidCameraDistance: () => void;
   readonly getCameraDistance: () => number;
+  readonly loadVerticalGrid: (file: File) => Promise<VerifiedVerticalGrid>;
+  readonly verticalGridHostValidators: SchemaHostValidators;
+  readonly canLoadVerticalGrid: () => boolean;
+  readonly isVerticalGridApplied: (value: unknown) => boolean;
 };
 
 export type DevViewerControls = {
   getSelectedSource(): string | File | undefined;
   getValidationErrors(): readonly string[];
+  updateContext(): void;
   setNumericDimensionMetadata(
     metadata: Parameters<typeof getWorkbenchNumericDimensions>[0],
     decodedExtraDimensions: readonly string[],
@@ -73,16 +81,11 @@ export type DevViewerControls = {
   destroy(): void;
 };
 
-const HOST_RUNTIME_CAPABILITIES = WORKSPACE_CURRENT_CAPABILITIES.filter(
-  // No Dev Viewer GTX loader is registered yet; keep the package API capability
-  // out of this host until the resource can be validated and loaded here.
-  (capability) => capability !== "vertical.gtx-grid",
-);
-
 /** Mount shared schema controls while keeping source and camera ownership in the host. */
 export function mountDevViewerControls(
   options: DevViewerControlsOptions,
 ): DevViewerControls {
+  const HOST_RUNTIME_CAPABILITIES = WORKSPACE_CURRENT_CAPABILITIES;
   const sourceSelect = document.querySelector<HTMLSelectElement>("#source-selection")!;
   const customUrl = document.querySelector<HTMLInputElement>("#custom-source-url")!;
   const fileInput = document.querySelector<HTMLInputElement>("#local-source-file")!;
@@ -370,9 +373,20 @@ export function mountDevViewerControls(
       attributes: "Advanced · Attributes",
       cache: "Advanced · Cache",
     },
-    excludeOptionIds: ["source.url", "coordinates.verticalTransform"],
+    excludeOptionIds: ["source.url"],
     openSections: ["source", "renderer", "backend", "style", "coordinates"],
-    renderSpecialControl: renderSharedSpecialControl,
+    hostValidators: options.verticalGridHostValidators,
+    renderSpecialControl(controlOptions) {
+      if (controlOptions.option.id === "coordinates.verticalTransform") {
+        return mountVerticalGridControl({
+          ...controlOptions,
+          loadGrid: options.loadVerticalGrid,
+          canLoad: options.canLoadVerticalGrid,
+          isApplied: options.isVerticalGridApplied,
+        });
+      }
+      return renderSharedSpecialControl(controlOptions);
+    },
     renderAction: options.renderAction,
     onChange: setOption,
     onValidationChange: options.onValidationChange,
@@ -382,6 +396,9 @@ export function mountDevViewerControls(
   return {
     getSelectedSource,
     getValidationErrors: () => schemaPanel?.getValidationErrors() ?? [],
+    updateContext(): void {
+      schemaPanel?.update({ values, context: context() });
+    },
     setNumericDimensionMetadata(metadata, decoded, decodedIntensity): void {
       sourceMetadata = metadata;
       decodedExtraDimensions = decoded;

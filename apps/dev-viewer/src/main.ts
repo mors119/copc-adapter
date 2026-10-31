@@ -24,6 +24,7 @@ import {
 } from "@frillab/copc-adapter";
 import type { CopcCesiumLayerSnapshot } from "@frillab/copc-adapter";
 import type { CopcThreeLayerSnapshot } from "@frillab/copc-adapter/three";
+import { loadNgaEgm2008Grid } from "@frillab/copc-adapter";
 import type {
   CopcBackendSelection,
   CopcPointDecoder,
@@ -70,6 +71,10 @@ import {
   type PointScreenPosition,
 } from "../../shared/inspection/PointPopover.ts";
 import {
+  createNgaEgm2008ResourceRegistry,
+  createPointVerticalReferenceContext,
+} from "../../shared/workbench/verticalGridResource.ts";
+import {
   generateAppliedWorkbenchIntegrationCode,
   isPotentiallySensitiveSource,
 } from "../../shared/codegen/integrationCode.ts";
@@ -110,6 +115,7 @@ const cesiumRuntimeVersion = (Cesium as typeof Cesium & { VERSION: string })
   .VERSION;
 
 const DEFAULT_COPC_URL = "/samples/autzen.copc.laz";
+const verticalGridResources = createNgaEgm2008ResourceRegistry(loadNgaEgm2008Grid);
 const CAMERA_PRESET_HEIGHTS = {
   overview: 5_000,
   far: 10_000,
@@ -886,6 +892,9 @@ function getLayerOptions(
           renderer: "cesium",
           runtimeCapabilities: WORKSPACE_CURRENT_CAPABILITIES,
         },
+        undefined,
+        undefined,
+        verticalGridResources.hostValidators,
       )
     : undefined;
   const workbenchOptions = plan
@@ -1049,6 +1058,9 @@ async function createCesiumSession(
       renderer: "cesium",
       runtimeCapabilities: WORKSPACE_CURRENT_CAPABILITIES,
     },
+    undefined,
+    undefined,
+    verticalGridResources.hostValidators,
   );
   const params = new URLSearchParams(window.location.search);
   const usePublicBatchedRenderer = config.cesiumRenderer === "batched-geometry";
@@ -1285,6 +1297,9 @@ function createThreeSession(
       renderer: "three",
       runtimeCapabilities: WORKSPACE_CURRENT_CAPABILITIES,
     },
+    undefined,
+    undefined,
+    verticalGridResources.hostValidators,
   );
   const backend = createWorkbenchBackend(applicationPlan);
   const layerOptions = {
@@ -1660,6 +1675,32 @@ async function main(): Promise<void> {
     }
     return left === right;
   };
+  let pointVerticalReferenceKey: string | undefined;
+  const updatePointVerticalReferenceContext = (): void => {
+    if (!activeSession) {
+      if (pointVerticalReferenceKey !== "unavailable") {
+        pointVerticalReferenceKey = "unavailable";
+        pointPopover.setVerticalReferenceContext(undefined);
+      }
+      return;
+    }
+    const values = toWorkbenchOptionValues(activeConfig);
+    const terrainResidual = approvedTerrainAlignmentProvenance &&
+        sameSource(approvedTerrainAlignmentProvenance.source, activeConfig.source) &&
+        approvedTerrainAlignmentProvenance.finalHeightOffsetMeters === activeConfig.heightOffsetMeters
+      ? approvedTerrainAlignmentProvenance.residualMeters
+      : undefined;
+    const reference = createPointVerticalReferenceContext(
+      activeSession.getMetadata(),
+      values["coordinates.verticalTransform"],
+      activeConfig.heightOffsetMeters,
+      terrainResidual,
+    );
+    const key = JSON.stringify(reference);
+    if (key === pointVerticalReferenceKey) return;
+    pointVerticalReferenceKey = key;
+    pointPopover.setVerticalReferenceContext(reference);
+  };
   const inspectorTabsTarget = getElement<HTMLElement>("#inspector-content");
   const codePanel = document.createElement("section");
   codePanel.className = "dev-code-panel";
@@ -1700,7 +1741,13 @@ async function main(): Promise<void> {
       runtimeCapabilities: WORKSPACE_CURRENT_CAPABILITIES,
     } as const;
     const state = createWorkbenchConfigurationState(values, values);
-    const params = serializeWorkbenchConfiguration(state, context, "applied");
+    const params = serializeWorkbenchConfiguration(
+      state,
+      context,
+      "applied",
+      undefined,
+      verticalGridResources.hostValidators,
+    );
     if (
       includeSource &&
       typeof activeConfig.source === "string" &&
@@ -1776,6 +1823,7 @@ async function main(): Promise<void> {
         runtimeCapabilities: WORKSPACE_CURRENT_CAPABILITIES,
         adapterVersion: __COPC_ADAPTER_VERSION__,
         packageOriginLabel: "current local workspace source; unpublished",
+        hostValidators: verticalGridResources.hostValidators,
       });
       const warnings = [...shareConfigurationWarnings, ...generated.warnings];
       if (activeConfig.renderer === "cesium" && activeConfig.terrainUrl.trim()) {
@@ -1933,10 +1981,22 @@ async function main(): Promise<void> {
 
   const debugPanel = createCopcDebugPanel(
     { source: sourcePanel, health: healthPanel, data: dataPanel },
-    () => ({
+    () => {
+      const appliedValues = toWorkbenchOptionValues(activeConfig);
+      const terrainResidual = approvedTerrainAlignmentProvenance &&
+          sameSource(approvedTerrainAlignmentProvenance.source, activeConfig.source) &&
+          approvedTerrainAlignmentProvenance.finalHeightOffsetMeters === activeConfig.heightOffsetMeters
+        ? approvedTerrainAlignmentProvenance.residualMeters
+        : undefined;
+      return {
       snapshot: activeSnapshot(),
       snapshotIsAvailable: activeSession !== undefined || lastSnapshot !== undefined,
       metadata: activeSession?.getMetadata(),
+      verticalGrid: appliedValues["coordinates.verticalTransform"],
+      heightOffsetMeters: activeConfig.renderer === "cesium"
+        ? activeConfig.heightOffsetMeters
+        : undefined,
+      terrainResidualMeters: terrainResidual,
       hierarchy: activeSession?.getHierarchyDiagnostics(),
       sourceProbe,
       safeSourceProbeLabel: sourceProbe
@@ -1956,7 +2016,8 @@ async function main(): Promise<void> {
         (activeDebugAdapter?.getLastError()
           ? safeErrorMessage(activeDebugAdapter.getLastError())
           : undefined),
-    }),
+      };
+    },
   );
   setInspectorPolling = (enabled) => debugPanel.setPollingEnabled(enabled);
   debugPanel.setPollingEnabled(
@@ -2061,6 +2122,7 @@ async function main(): Promise<void> {
         config,
         Boolean(activeSession),
         sourceSupportsHttpRange(config.source, window.location.href),
+        verticalGridResources.hostValidators,
       );
     if (applyTrace) {
       recordApplyTrace(applyTrace, "session-replacement-started");
@@ -2087,6 +2149,8 @@ async function main(): Promise<void> {
             runtimeCapabilities: WORKSPACE_CURRENT_CAPABILITIES,
           },
           toWorkbenchOptionValues(activeConfig),
+        undefined,
+        verticalGridResources.hostValidators,
         );
         await applySchemaRuntimeOperations(session, runtimePlan.runtimeOperations);
         activeConfig = { ...config };
@@ -2170,6 +2234,7 @@ async function main(): Promise<void> {
         position?: PointScreenPosition,
       ): void => {
         if (!candidateSession || activeSession !== candidateSession) return;
+        updatePointVerticalReferenceContext();
         pointPopover.setSelection(point, position);
         terrainAlignmentControl?.update();
       };
@@ -2236,6 +2301,8 @@ async function main(): Promise<void> {
       activeDebugAdapter = candidateSession.debugAdapter;
       activeDebugAdapter?.activate();
       activeConfig = { ...config };
+      workbenchControls?.updateContext();
+      updatePointVerticalReferenceContext();
       const appliedValues = toWorkbenchOptionValues(config);
       const appliedExtraDimensions = appliedValues["attributes.extraDimensions"];
       const intensityDecoded = configuredLayerLoadsIntensity(appliedValues, {
@@ -2305,6 +2372,13 @@ async function main(): Promise<void> {
 
   workbenchControls = mountDevViewerControls({
     initialConfig: pendingConfig,
+    loadVerticalGrid: verticalGridResources.loadFile,
+    verticalGridHostValidators: verticalGridResources.hostValidators,
+    canLoadVerticalGrid: () => !isLoading && !verticalGridResources.isLoadedGrid(
+      toWorkbenchOptionValues(activeConfig)["coordinates.verticalTransform"],
+    ),
+    isVerticalGridApplied: (value) =>
+      toWorkbenchOptionValues(activeConfig)["coordinates.verticalTransform"] === value,
     onValidationChange() {
       updateConfigurationState();
     },
@@ -2391,6 +2465,8 @@ async function main(): Promise<void> {
             activeConfig.heightOffsetMeters === finalHeightOffsetMeters;
           if (applied) {
             approvedTerrainAlignmentProvenance = approvedProvenance;
+            updatePointVerticalReferenceContext();
+            debugPanel.refresh();
             refreshIntegrationCode();
           }
           return applied;

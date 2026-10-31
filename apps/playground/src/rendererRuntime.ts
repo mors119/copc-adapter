@@ -26,6 +26,7 @@ import {
   type WorkbenchLayerConfig,
   type WorkbenchRenderer,
 } from "../../shared/workbench-config";
+import type { SchemaHostValidators } from "../../shared/schema/types.ts";
 import {
   buildSchemaApplicationPlan,
   materializeWorkbenchConstructorOptions,
@@ -101,6 +102,7 @@ export type PlaygroundRuntime = {
 export type PlaygroundRuntimeOptions = WorkbenchLayerConfig & {
   readonly heightOffsetMeters: number;
   readonly schemaOptionValues?: Readonly<Record<string, unknown>>;
+  readonly hostValidators?: SchemaHostValidators;
   readonly renderer: PlaygroundRenderer;
   readonly source: PlaygroundSource;
   readonly sourceName: string;
@@ -426,7 +428,7 @@ export async function createPlaygroundRuntime(
     manifest: NPM_0_7_1_MANIFEST,
     renderer: options.renderer,
     runtimeCapabilities: PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES,
-  });
+  }, undefined, undefined, options.hostValidators);
 
   if (options.renderer === "cesium") {
     const [Cesium, adapter] = await Promise.all([
