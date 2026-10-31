@@ -47,6 +47,22 @@ Cesium filter before switching to Three.js. The Cesium Focus Lens updates the
 active layer, while algorithm changes use Apply. The guide is visual only and
 does not crop the point cloud.
 
+Advanced Attributes exposes Cesium's `all` and `required` standard-field
+loading policies. Required mode retains the pending style/filter fields and
+any selected pick fields; Extra Bytes remain a separate copc-js setting. If a
+later style needs a field that was not retained, the style remains unchanged
+and the Playground explains which setting to change before reloading. Advanced
+Cache exposes the A/E coordinate layout for both renderers. E is compact and
+derives Geographic coordinates from ECEF; it omits exact Source XYZ unless
+**Retain exact Source XYZ in E** is enabled. That option adds 24 bytes per
+cached point, counted against the CPU cache budget. A retains exact Source and
+Geographic coordinates at 72 coordinate bytes per point. These settings are
+included in safe share links and generated constructor code.
+The existing [A/E cache measurement report](benchmarks/issue-324-ecef-cache-layouts.md)
+documents retained-storage and representative reuse measurements, along with
+their synthetic-trace and worker-memory limits; the Playground makes no
+universal speed claim for either layout.
+
 During replacement, the Playground creates a hidden candidate runtime and
 keeps the active runtime visible until the candidate loads. A successful swap
 then disposes the previous runtime; a failed or superseded candidate is

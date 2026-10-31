@@ -106,6 +106,15 @@ export function validateOptionValue(
             (validation.wildcard ?? "a supported wildcard") +
             ".",
         );
+      } else if (
+        value !== validation.wildcard &&
+        validation.values !== undefined &&
+        Array.isArray(value) &&
+        value.some((item) => !validation.values!.includes(item as string))
+      ) {
+        errors.push(
+          option.label + " may contain only: " + validation.values.join(", ") + ".",
+        );
       }
       break;
     case "number": {
@@ -196,7 +205,10 @@ export function validateOptionValue(
       const style = value as unknown as SchemaDimensionStyle;
       if (typeof style.name !== "string" || style.name.trim().length === 0) {
         errors.push(option.label + " must select an exact numeric field name.");
-      } else if (context?.numericDimensions) {
+      } else if (
+        context?.values?.["rendering.colorMode"] === "dimension" &&
+        context.numericDimensions
+      ) {
         const metadata = context.numericDimensions.find(({ name }) => name === style.name);
         if (!metadata) {
           errors.push(option.label + " field " + style.name + " is unavailable for the loaded source and backend.");

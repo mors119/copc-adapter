@@ -417,7 +417,7 @@ function createDimensionStyleControl(options: SchemaSpecialControlOptions): Sche
   return {
     element: root,
     setValue,
-    setContext(nextContext) {
+    updateContext(nextContext) {
       context = nextContext;
       updateFieldChoices();
       setValue(context.values?.["style.dimension"]);
@@ -586,7 +586,7 @@ function createDimensionFilterControl(options: SchemaSpecialControlOptions): Sch
   return {
     element: root,
     setValue,
-    setContext(nextContext) {
+    updateContext(nextContext) {
       context = nextContext;
       const name = fieldSelect.value;
       const next = createFieldSelect("schema-dimension-filter-field", context);

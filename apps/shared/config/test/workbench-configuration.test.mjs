@@ -8,6 +8,7 @@ import {
   discardWorkbenchPending,
   getChangedWorkbenchOptionIds,
   isWorkbenchConfigurationDirty,
+  materializeWorkbenchConstructorOptions,
   normalizeWorkbenchOptionValues,
   resolveSchemaBackendSelection,
   restoreWorkbenchConfiguration,
@@ -19,6 +20,8 @@ import {
 import {
   NPM_0_6_CAPABILITIES,
   NPM_0_6_MANIFEST,
+  NPM_0_7_1_CAPABILITIES,
+  NPM_0_7_1_MANIFEST,
   WORKSPACE_CURRENT_CAPABILITIES,
   WORKSPACE_CURRENT_MANIFEST,
 } from "../../schema/index.ts";
@@ -195,6 +198,42 @@ test("plan maps nested constructor paths and keeps library-derived defaults omit
       optionIds: ["streaming.refinementFocus"],
     },
   ]);
+});
+
+test("materializes Cesium pointFields as a Set and replaces the layer for cache policy changes", () => {
+  const context = {
+    manifest: NPM_0_7_1_MANIFEST,
+    renderer: "cesium",
+    runtimeCapabilities: NPM_0_7_1_CAPABILITIES,
+  };
+  const values = validValues({
+    "attributes.attributeLoading": "required",
+    "attributes.pointFields": ["intensity", "classification"],
+    "style.classificationFilter": { include: [2, 6] },
+    "cache.coordinateCacheLayout": "E",
+    "cache.retainSourceCoordinatesForQueries": true,
+  });
+  const plan = buildSchemaApplicationPlan(values, context);
+  assert.equal(Object.hasOwn(plan.constructorOptions, "pointFields"), false);
+  assert.equal(plan.constructorOptions.colorMode, "elevation");
+  assert.deepEqual(plan.constructorOptions.classificationFilter, { include: [2, 6] });
+  const constructorOptions = materializeWorkbenchConstructorOptions(plan);
+  assert.ok(constructorOptions.pointFields instanceof Set);
+  assert.deepEqual([...constructorOptions.pointFields], ["intensity", "classification"]);
+  assert.equal(constructorOptions.attributeLoading, "required");
+  assert.equal(constructorOptions.coordinateCacheLayout, "E");
+  assert.equal(constructorOptions.retainSourceCoordinatesForQueries, true);
+
+  const changedLayout = buildSchemaApplicationPlan(
+    { ...values, "cache.coordinateCacheLayout": "A" },
+    context,
+    values,
+  );
+  assert.equal(changedLayout.requiresLayerReplacement, true);
+  assert.equal(
+    Object.hasOwn(materializeWorkbenchConstructorOptions(changedLayout), "retainSourceCoordinatesForQueries"),
+    false,
+  );
 });
 
 test("conditional settings stay out of constructor options when their condition is false", () => {

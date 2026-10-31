@@ -11,6 +11,8 @@ import {
 import {
   NPM_0_6_CAPABILITIES,
   NPM_0_6_MANIFEST,
+  NPM_0_7_1_CAPABILITIES,
+  NPM_0_7_1_MANIFEST,
   OPTION_SCHEMA,
   WORKSPACE_CURRENT_CAPABILITIES,
   WORKSPACE_CURRENT_MANIFEST,
@@ -40,6 +42,12 @@ const consumerProfile = packedCandidateProfile
       capabilities: NPM_0_6_CAPABILITIES,
       originLabel: "verified npm consumer fixture",
     }
+  : packageSpec === "0.7.1"
+    ? {
+        manifest: NPM_0_7_1_MANIFEST,
+        capabilities: NPM_0_7_1_CAPABILITIES,
+        originLabel: "verified npm consumer fixture",
+      }
   : typeof packageSpec === "string" && packageSpec.startsWith("file:")
     ? {
         manifest: WORKSPACE_CURRENT_MANIFEST,
@@ -76,6 +84,15 @@ test("generated Cesium and Three snippets typecheck against the exact consumer p
     assert.equal(installedPackage.version, WORKSPACE_CURRENT_MANIFEST.version);
   }
   const cesiumOptionValues = {
+    ...(consumerProfile.manifest.version === "0.7.1"
+      ? {
+          "attributes.attributeLoading": "required",
+          "attributes.pointFields": ["classification", "rgb"],
+          "cache.coordinateCacheLayout": "E",
+          "cache.retainSourceCoordinatesForQueries": true,
+          "streaming.maxConcurrentNodeLoads": 3,
+        }
+      : {}),
     "attributes.extraDimensions": ["scanAngle"],
     "rendering.colorMode": "intensity",
     "rendering.pointSize": 4,
@@ -114,6 +131,12 @@ test("generated Cesium and Three snippets typecheck against the exact consumer p
     ],
   };
   const threeOptionValues = {
+    ...(consumerProfile.manifest.version === "0.7.1"
+      ? {
+          "cache.coordinateCacheLayout": "E",
+          "cache.retainSourceCoordinatesForQueries": true,
+        }
+      : {}),
     "attributes.extraDimensions": "*",
     "rendering.colorMode": "elevation",
     "rendering.pointSize": 5,

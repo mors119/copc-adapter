@@ -1,4 +1,8 @@
-import type { SchemaClassificationFilter, SchemaFocusLens } from "../schema/types.ts";
+import type {
+  CapabilityContext,
+  SchemaClassificationFilter,
+  SchemaFocusLens,
+} from "../schema/types.ts";
 import type {
   SchemaSpecialControl,
   SchemaSpecialControlOptions,
@@ -163,6 +167,130 @@ function createFocusLensControl(
   };
 }
 
+const STANDARD_FIELD_LABELS: Readonly<Record<string, string>> = {
+  position: "Position",
+  rgb: "RGB",
+  intensity: "Intensity",
+  classification: "Classification",
+};
+
+function selectedStrings(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string")
+    : [];
+}
+
+function initialStyleFields(context: CapabilityContext): string[] {
+  switch (context.values?.["rendering.colorMode"]) {
+    case "rgb": return ["position", "rgb"];
+    case "intensity": return ["position", "intensity"];
+    case "classification": return ["position", "classification"];
+    default: return ["position"];
+  }
+}
+
+function withClassificationFilter(fields: string[], context: CapabilityContext): string[] {
+  const filter = context.values?.["style.classificationFilter"];
+  if (filter !== undefined && filter !== null) fields.push("classification");
+  return fields;
+}
+
+function createAttributeLoadingControl(
+  options: SchemaSpecialControlOptions,
+): SchemaSpecialControl {
+  const root = document.createElement("div");
+  root.className = "schema-special-attribute-loading";
+  const label = document.createElement("label");
+  label.className = "ui-field";
+  label.htmlFor = "schema-attribute-loading";
+  label.textContent = options.option.label;
+  const select = document.createElement("select");
+  select.id = "schema-attribute-loading";
+  select.setAttribute("aria-label", options.option.label);
+  for (const choice of options.option.choices ?? []) {
+    select.add(new Option(choice.label, choice.value));
+  }
+  const details = document.createElement("p");
+  details.className = "schema-option__hint";
+  details.setAttribute("aria-live", "polite");
+  const updateDetails = (context: CapabilityContext): void => {
+    const styleFields = [...new Set(withClassificationFilter(initialStyleFields(context), context))];
+    const selectedFields = selectedStrings(context.values?.["attributes.pointFields"]);
+    const loadingMode = context.values?.["attributes.attributeLoading"] ?? select.value;
+    const retainedFields = loadingMode === "all"
+      ? ["position", "rgb", "intensity", "classification"]
+      : [...new Set([...styleFields, ...selectedFields])];
+    const names = (fields: readonly string[]) => fields
+      .map((field) => STANDARD_FIELD_LABELS[field] ?? field)
+      .join(", ");
+    details.textContent =
+      "Pending style and filter fields: " + names(styleFields) +
+      ". Pick metadata can include: " + names(retainedFields) +
+      ". Fields unavailable in the source stay unavailable; Extra Bytes are separate.";
+  };
+  const onChange = (): void => options.onChange(select.value);
+  select.addEventListener("change", onChange);
+  root.append(label, select, details);
+
+  const setValue = (value: unknown): void => {
+    select.value = typeof value === "string" ? value : "all";
+  };
+  setValue(options.value);
+  updateDetails(options.context);
+  return {
+    element: root,
+    setValue,
+    updateContext: updateDetails,
+    destroy() {
+      select.removeEventListener("change", onChange);
+      root.remove();
+    },
+  };
+}
+
+function createPointFieldSelectionControl(
+  options: SchemaSpecialControlOptions,
+): SchemaSpecialControl {
+  const root = document.createElement("fieldset");
+  root.className = "schema-special-point-fields";
+  const legend = document.createElement("legend");
+  legend.textContent = options.option.label;
+  root.append(legend);
+  const allowed = options.option.validation.kind === "string-array"
+    ? options.option.validation.values ?? []
+    : [];
+  const inputs = allowed.map((field) => {
+    const label = document.createElement("label");
+    label.className = "ui-field ui-field--inline";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.value = field;
+    input.id = "schema-point-field-" + field;
+    label.htmlFor = input.id;
+    label.append(input, document.createTextNode(STANDARD_FIELD_LABELS[field] ?? field));
+    root.append(label);
+    return { field, input };
+  });
+  const onChange = (): void => {
+    const selected = inputs.filter(({ input }) => input.checked).map(({ field }) => field);
+    options.onChange(selected.length > 0 ? selected : undefined);
+  };
+  for (const { input } of inputs) input.addEventListener("change", onChange);
+  const setValue = (value: unknown): void => {
+    const selected = new Set(selectedStrings(value));
+    for (const { field, input } of inputs) input.checked = selected.has(field);
+  };
+  setValue(options.value);
+  return {
+    element: root,
+    setValue,
+    destroy() {
+      for (const { input } of inputs) input.removeEventListener("change", onChange);
+      root.remove();
+    },
+  };
+}
+
 /** Shared presentation for domain controls whose meaning is not a scalar input. */
 export function renderSharedSpecialControl(
   options: SchemaSpecialControlOptions,
@@ -174,6 +302,10 @@ export function renderSharedSpecialControl(
       return createClassificationControl(options);
     case "focus-lens":
       return createFocusLensControl(options);
+    case "attribute-loading":
+      return createAttributeLoadingControl(options);
+    case "point-field-selection":
+      return createPointFieldSelectionControl(options);
     default:
       return undefined;
   }

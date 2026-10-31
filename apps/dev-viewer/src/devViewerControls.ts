@@ -360,6 +360,10 @@ export function mountDevViewerControls(
     target: controlRoot,
     context: context(),
     values,
+    sectionLabels: {
+      attributes: "Advanced · Attributes",
+      cache: "Advanced · Cache",
+    },
     excludeOptionIds: ["source.url", "coordinates.verticalTransform"],
     renderSpecialControl: renderSharedSpecialControl,
     onChange: setOption,

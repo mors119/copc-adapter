@@ -71,7 +71,7 @@ test("generates deterministic public Cesium and Three.js snippets with defaults 
 
   const cesiumCode = await generatedCode(page, {
     config: { ...config(), colorMode: "classification", backend: "rust", maxNodes: 32 },
-    adapterVersion: "0.6.0",
+    adapterVersion: "0.7.1",
     mode: "explicit",
   });
   expect(cesiumCode).toContain("@frillab/copc-adapter/cesium");
@@ -83,14 +83,14 @@ test("generates deterministic public Cesium and Three.js snippets with defaults 
   expect(cesiumCode).toBe(
     await generatedCode(page, {
       config: { ...config(), colorMode: "classification", backend: "rust", maxNodes: 32 },
-      adapterVersion: "0.6.0",
+      adapterVersion: "0.7.1",
       mode: "explicit",
     }),
   );
 
   const threeCode = await generatedCode(page, {
     config: { ...config("three"), backend: "rust", maxDepth: 7, maxScreenSpaceError: 6, maxRenderDistanceMeters: 20_000 },
-    adapterVersion: "0.6.0",
+    adapterVersion: "0.7.1",
     mode: "minimal",
   });
   expect(threeCode).toContain("@frillab/copc-adapter/three");
@@ -105,7 +105,7 @@ test("generates deterministic public Cesium and Three.js snippets with defaults 
 
   const minimalDefaults = await generatedCode(page, {
     config: config(),
-    adapterVersion: "0.6.0",
+    adapterVersion: "0.7.1",
     mode: "minimal",
   });
   expect(minimalDefaults).not.toContain("pointSize:");
@@ -115,7 +115,7 @@ test("generates deterministic public Cesium and Three.js snippets with defaults 
   for (const colorMode of ["fixed", "rgb", "elevation", "intensity", "classification"] as const) {
     const code = await generatedCode(page, {
       config: { ...config(), colorMode },
-      adapterVersion: "0.6.0",
+      adapterVersion: "0.7.1",
       mode: "explicit",
     });
     expect(code).toContain(`colorMode: '${colorMode}'`);
@@ -130,7 +130,7 @@ test("generates deterministic public Cesium and Three.js snippets with defaults 
         "streaming.predictivePrefetch": true,
       },
     },
-    adapterVersion: "0.6.0",
+    adapterVersion: "0.7.1",
     mode: "explicit",
   });
   expect(schemaConfiguredCode).toContain("rangeValidation: 'strict'");
@@ -182,7 +182,7 @@ test(
         source: localFile
           ? new File(["local bytes"], "area.copc.laz")
           : "https://example.com/area.copc.laz",
-        adapterVersion: "0.6.0",
+        adapterVersion: "0.7.1",
         mode,
       });
       const schemaOptionsBase = make("cesium", "explicit", false);
@@ -446,7 +446,7 @@ test("generates Cesium classification include, exclude, and clear calls after at
   ] as const) {
     const code = await generatedCode(page, {
       config: { ...config(), classificationFilter: filter },
-      adapterVersion: "0.6.0",
+      adapterVersion: "0.7.1",
     });
     expect(code).toContain("layer.setStyle({");
     expect(code.indexOf("layer.attachTo(viewer)")).toBeLessThan(code.indexOf("layer.setStyle({"));
@@ -456,7 +456,7 @@ test("generates Cesium classification include, exclude, and clear calls after at
   await expect(
     generatedCode(page, {
       config: { ...config("three"), classificationFilter: { include: [2] } },
-      adapterVersion: "0.6.0",
+      adapterVersion: "0.7.1",
     }),
   ).rejects.toThrow(/no public classification style setter/u);
 });
@@ -467,7 +467,7 @@ test("escapes URL strings and protects sensitive URLs; files use a file input pa
   const placeholder = await generatedCode(page, {
     config: config(),
     source,
-    adapterVersion: "0.6.0",
+    adapterVersion: "0.7.1",
   });
   expect(placeholder).toContain("https://example.com/data.copc.laz");
   expect(placeholder).not.toContain("token=one");
@@ -476,7 +476,7 @@ test("escapes URL strings and protects sensitive URLs; files use a file input pa
     config: config(),
     source,
     includeExactSource: true,
-    adapterVersion: "0.6.0",
+    adapterVersion: "0.7.1",
   });
   expect(exact).toContain("token=one\\'\\nsecond");
 
@@ -512,7 +512,7 @@ test("escapes URL strings and protects sensitive URLs; files use a file input pa
         },
       },
       source: new File(["local bytes"], "area.copc.laz"),
-      adapterVersion: "0.6.0",
+      adapterVersion: "0.7.1",
     });
   });
   expect(fileCode).toContain("document.querySelector<HTMLInputElement>('#copc-file-input')");
@@ -606,7 +606,7 @@ test("normalizes share configuration, omits unsafe sources, and copies the visib
   await expect(page.getByRole("button", { name: "Copied" })).toBeVisible();
   expect(await page.evaluate(() => (window as Window & { __getCopiedText?: () => string }).__getCopiedText?.())).toBe(visibleCode);
   const installText = await page.locator("#install-command").textContent();
-  expect(installText).toBe("npm install @frillab/copc-adapter@0.6.0 cesium@1.146.0");
+  expect(installText).toBe("npm install @frillab/copc-adapter@0.7.1 cesium@1.146.0");
   await page.locator("#copy-install").click();
   await expect(page.locator("#copy-install")).toHaveText("Copied");
   expect(await page.evaluate(() => (window as Window & { __getCopiedText?: () => string }).__getCopiedText?.())).toBe(installText);

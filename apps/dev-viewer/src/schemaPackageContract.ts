@@ -49,8 +49,6 @@ type LayerCompatibilityExclusions =
   | "debug"
   | "decoder"
   | "onPointPicked"
-  | "coordinateCacheLayout"
-  | "attributeLoading"
   | "classificationFilter"
   // The Extra Bytes selector has specialized constructor code generation.
   | "extraDimensions"
@@ -60,8 +58,6 @@ type LayerCompatibilityExclusions =
   // dataset-derived default and does not expose custom ramp controls yet.
   | "elevationRange"
   | "elevationStyle"
-  | "pointFields"
-  | "retainSourceCoordinatesForQueries"
   | "opacity"
   // Renderer-space clipping uses ECEF planes/boxes and has no structured
   // Workbench input; keep it as an explicit layer API.
