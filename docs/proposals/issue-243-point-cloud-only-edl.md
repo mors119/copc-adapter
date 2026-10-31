@@ -48,9 +48,9 @@ alpha and layer opacity.
 
 ## Probe and screenshots
 
-The research-only route is [edl-research.html](../../apps/dev-viewer/edl-research.html)
-with its [probe source](../../apps/dev-viewer/src/experimental/edlResearchProbe.ts).
-It renders two deterministic point collections as COPC-like layer stand-ins,
+The research-only route is `apps/dev-viewer/edl-research.html`, with probe source
+in `apps/dev-viewer/src/experimental/edlResearchProbe.ts`. It renders two
+deterministic point collections as COPC-like layer stand-ins,
 an ellipsoid ground, and an opaque non-point box. Its custom four-neighbor EDL
 shader is attached as a **global** `PostProcessStage`, specifically to test
 the public-stage boundary. The EDL control is confined to this research page.
