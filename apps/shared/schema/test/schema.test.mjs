@@ -18,6 +18,7 @@ import {
   NPM_0_6_CAPABILITIES,
   NPM_0_7_1_MANIFEST,
   PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES,
+  NPM_0_7_1_CAPABILITIES,
   OPTION_SCHEMA,
   resolveOptionDefault,
   serializeSchemaValues,
@@ -57,6 +58,7 @@ test("schema integrity: IDs, mappings, defaults, controls, references, and capab
   assert.equal(new Set(ids).size, ids.length);
   const capabilities = new Set([
     ...NPM_0_6_CAPABILITIES,
+    ...NPM_0_7_1_CAPABILITIES,
     ...WORKSPACE_CURRENT_CAPABILITIES,
   ]);
   const sections = new Set([
@@ -65,7 +67,7 @@ test("schema integrity: IDs, mappings, defaults, controls, references, and capab
   ]);
   const controls = new Set([
     "source", "renderer", "select", "attribute-selection", "number", "toggle",
-    "classification-filter", "focus-lens", "vertical-grid", "cesium-renderer",
+    "attribute-loading", "point-field-selection", "classification-filter", "focus-lens", "vertical-grid", "cesium-renderer",
   ]);
   const validationByValueType = {
     "input-source": "source",
@@ -80,8 +82,8 @@ test("schema integrity: IDs, mappings, defaults, controls, references, and capab
   };
   const controlsByValueType = {
     "input-source": ["source"],
-    enum: ["select", "renderer", "cesium-renderer"],
-    "string-array": ["attribute-selection"],
+    enum: ["select", "renderer", "cesium-renderer", "attribute-loading"],
+    "string-array": ["attribute-selection", "point-field-selection"],
     number: ["number"],
     integer: ["number"],
     boolean: ["toggle"],
@@ -191,8 +193,25 @@ test("schema integrity: IDs, mappings, defaults, controls, references, and capab
   assert.ok(NPM_0_7_1_MANIFEST.capabilities.includes("cesium.terrain-alignment"));
   assert.ok(NPM_0_7_1_MANIFEST.capabilities.includes("vertical.gtx-grid"));
   assert.ok(!PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES.includes("vertical.gtx-grid"));
+  assert.ok(NPM_0_7_1_CAPABILITIES.includes("cesium.attribute-loading"));
+  assert.ok(NPM_0_7_1_CAPABILITIES.includes("cesium.point-fields"));
+  assert.ok(NPM_0_7_1_CAPABILITIES.includes("cache.coordinate-layout"));
+  assert.ok(NPM_0_7_1_CAPABILITIES.includes("cache.source-coordinate-retention"));
   assert.ok(WORKSPACE_CURRENT_MANIFEST.supportedOptionIds.includes("coordinates.verticalTransform"));
   assert.ok(WORKSPACE_CURRENT_MANIFEST.capabilities.includes("vertical.gtx-grid"));
+  for (const id of [
+    "attributes.attributeLoading",
+    "attributes.pointFields",
+    "cache.coordinateCacheLayout",
+    "cache.retainSourceCoordinatesForQueries",
+  ]) {
+    assert.ok(NPM_0_7_1_MANIFEST.supportedOptionIds.includes(id), id + " is present in npm 0.7.1");
+    assert.ok(!NPM_0_6_MANIFEST.supportedOptionIds.includes(id), id + " is absent from npm 0.6.0");
+    assert.ok(WORKSPACE_CURRENT_MANIFEST.supportedOptionIds.includes(id), id + " is present in the workspace");
+  }
+  assert.ok(NPM_0_6_MANIFEST.supportedOptionIds.includes("streaming.maxConcurrentNodeLoads"));
+  assert.ok(NPM_0_6_MANIFEST.unsupportedOptionIdsByRenderer.cesium?.includes("streaming.maxConcurrentNodeLoads"));
+  assert.ok(NPM_0_7_1_MANIFEST.supportedOptionIds.includes("streaming.maxConcurrentNodeLoads"));
 });
 
 test("public release and workspace profiles resolve only known package versions", () => {
@@ -269,6 +288,13 @@ test("capability projection filters renderer, release support, runtime capabilit
       ({ id }) => id === "streaming.maxConcurrentNodeLoads",
     ),
     "npm 0.6.0 Cesium declarations do not expose maxConcurrentNodeLoads",
+  );
+  assert.ok(
+    getSupportedOptions({
+      manifest: NPM_0_7_1_MANIFEST,
+      renderer: "cesium",
+    }).some(({ id }) => id === "streaming.maxConcurrentNodeLoads"),
+    "npm 0.7.1 exposes maxConcurrentNodeLoads for Cesium",
   );
   assert.ok(
     !getSupportedOptions(cesiumContext).some(
@@ -383,6 +409,60 @@ test("capability projection filters renderer, release support, runtime capabilit
     getAvailableActions({ manifest: NPM_0_7_1_MANIFEST, renderer: "three" }).map(({ id }) => id),
     ["source.probe", "source.load", "coordinates.terrainAlignment"],
   );
+});
+
+test("attribute and cache controls follow exact package, renderer, and loading dependencies", () => {
+  const npm071Cesium = {
+    manifest: NPM_0_7_1_MANIFEST,
+    renderer: "cesium",
+    runtimeCapabilities: NPM_0_7_1_CAPABILITIES,
+  };
+  const requiredFields = getAvailableOptions({
+    ...npm071Cesium,
+    values: { "attributes.attributeLoading": "required" },
+  });
+  assert.ok(requiredFields.some(({ id }) => id === "attributes.attributeLoading"));
+  assert.ok(requiredFields.some(({ id }) => id === "attributes.pointFields"));
+  assert.ok(requiredFields.some(({ id }) => id === "cache.coordinateCacheLayout"));
+  assert.ok(requiredFields.some(({ id }) => id === "cache.retainSourceCoordinatesForQueries"));
+
+  const allFields = getAvailableOptions({ ...npm071Cesium, values: {} });
+  assert.ok(allFields.some(({ id }) => id === "attributes.attributeLoading"));
+  assert.ok(!allFields.some(({ id }) => id === "attributes.pointFields"));
+  assert.ok(!getSupportedOptions(cesiumContext).some(({ id }) => id === "attributes.attributeLoading"));
+
+  const three = getSupportedOptions({ ...npm071Cesium, renderer: "three" });
+  assert.ok(!three.some(({ id }) => id === "attributes.attributeLoading"));
+  assert.ok(!three.some(({ id }) => id === "attributes.pointFields"));
+  assert.ok(three.some(({ id }) => id === "cache.coordinateCacheLayout"));
+  assert.ok(three.some(({ id }) => id === "cache.retainSourceCoordinatesForQueries"));
+
+  const pointFields = getOptionDefinition("attributes.pointFields");
+  assert.match(validateOptionValue(pointFields, ["intensity", "not-a-standard-field"]).join(" "), /only: intensity, classification, rgb/u);
+});
+
+test("attribute and cache policy values round-trip through safe share state", () => {
+  const context = {
+    manifest: NPM_0_7_1_MANIFEST,
+    renderer: "cesium",
+    runtimeCapabilities: NPM_0_7_1_CAPABILITIES,
+  };
+  const values = {
+    "renderer.engine": "cesium",
+    "adapter.backend": "copc-js",
+    "rendering.colorMode": "rgb",
+    "attributes.attributeLoading": "required",
+    "attributes.pointFields": ["intensity", "classification"],
+    "cache.coordinateCacheLayout": "E",
+    "cache.retainSourceCoordinatesForQueries": true,
+  };
+  const query = serializeSchemaValues(values, context);
+  assert.equal(query.get("attributeLoading"), "required");
+  assert.deepEqual(JSON.parse(query.get("pointFields")), ["intensity", "classification"]);
+  assert.equal(query.get("coordinateCacheLayout"), "E");
+  assert.equal(query.get("retainSourceCoordinatesForQueries"), "true");
+  const restored = deserializeSchemaValues(query, context);
+  for (const id of Object.keys(values)) assert.deepEqual(restored.values[id], values[id], id);
 });
 
 test("versioned defaults preserve verified values and delegate derived behavior to the adapter", () => {

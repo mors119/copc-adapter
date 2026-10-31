@@ -21,6 +21,10 @@ test("npm 0.7.1 schema defaults match the package's exported runtime defaults", 
     CesiumApi.DEFAULT_REFINEMENT_ALGORITHM,
   );
   assert.equal(
+    resolveOptionDefault("streaming.maxConcurrentNodeLoads", NPM_0_7_1_MANIFEST),
+    4,
+  );
+  assert.equal(
     resolveOptionDefault("rendering.minPointSize", NPM_0_7_1_MANIFEST),
     CesiumApi.DEFAULT_MIN_ATTENUATED_POINT_SIZE_CSS_PIXELS,
   );
@@ -28,4 +32,8 @@ test("npm 0.7.1 schema defaults match the package's exported runtime defaults", 
     resolveOptionDefault("rendering.maxPointSize", NPM_0_7_1_MANIFEST),
     CesiumApi.DEFAULT_MAX_ATTENUATED_POINT_SIZE_CSS_PIXELS,
   );
+  assert.equal(resolveOptionDefault("attributes.attributeLoading", NPM_0_7_1_MANIFEST), "all");
+  assert.equal(resolveOptionDefault("attributes.pointFields", NPM_0_7_1_MANIFEST), undefined);
+  assert.equal(resolveOptionDefault("cache.coordinateCacheLayout", NPM_0_7_1_MANIFEST), "E");
+  assert.equal(resolveOptionDefault("cache.retainSourceCoordinatesForQueries", NPM_0_7_1_MANIFEST), false);
 });

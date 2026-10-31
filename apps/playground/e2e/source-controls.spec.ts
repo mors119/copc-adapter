@@ -28,6 +28,7 @@ type PlaygroundTestHooks = {
   releaseDelayedZoom(): void;
   failNextLoad(): void;
   failNextStyle(): void;
+  failNextMissingAttributeStyle(): void;
   getMockZoomCount(): number;
   getMockLoadCount(): number;
   getMockDestroyCount(): number;
@@ -35,6 +36,10 @@ type PlaygroundTestHooks = {
   getAppliedConfig(): { pointSize: number; colorMode: string; maxNodes?: number } | undefined;
   getMockLayerSettings(): {
     rangeValidation?: string;
+    attributeLoading?: string;
+    pointFields?: readonly string[];
+    coordinateCacheLayout?: string;
+    retainSourceCoordinatesForQueries?: boolean;
     streaming?: { motionLookahead?: boolean; predictivePrefetch?: boolean };
   } | undefined;
   getMockBackendExtraDimensions(): unknown;
@@ -154,6 +159,17 @@ test("forwards schema-only settings to the created Playground runtime", async ({
     .getByRole("radio", { name: "Off" }).click();
   await page.getByRole("checkbox", { name: "Predictive Prefetch" }).check();
 
+  await page.locator('details[data-section="attributes"] summary').click();
+  await expect(page.locator("#schema-point-field-intensity")).toBeHidden();
+  await page.locator("#schema-attribute-loading").selectOption("required");
+  await expect(page.locator("#schema-point-field-intensity")).toBeVisible();
+  await page.locator("#schema-point-field-intensity").check();
+  await expect(page.locator(".schema-special-attribute-loading .schema-option__hint"))
+    .toContainText("Pick metadata can include: Position, Intensity");
+  await page.locator('details[data-section="cache"] summary').click();
+  await page.locator('[data-option-id="cache.coordinateCacheLayout"] select').selectOption("E");
+  await page.locator('[data-option-id="cache.retainSourceCoordinatesForQueries"] input[type="checkbox"]').check();
+
   await page.locator("#copc-file").setInputFiles({
     name: "schema-options.copc.laz",
     mimeType: "application/octet-stream",
@@ -167,8 +183,51 @@ test("forwards schema-only settings to the created Playground runtime", async ({
   );
   expect(settings).toMatchObject({
     rangeValidation: "strict",
+    attributeLoading: "required",
+    pointFields: ["intensity"],
+    coordinateCacheLayout: "E",
+    retainSourceCoordinatesForQueries: true,
     streaming: { motionLookahead: false, predictivePrefetch: true },
   });
+});
+
+test("required attribute style errors explain that no field was fetched", async ({ page }) => {
+  await page.goto("./");
+  await page.evaluate(() => {
+    const hooks = (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__;
+    if (!hooks) throw new Error("Playground test hooks are unavailable");
+    hooks.useCameraResetLayerMock();
+  });
+
+  await page.locator('details[data-section="attributes"] summary').click();
+  await page.locator("#schema-attribute-loading").selectOption("required");
+  await page.locator("#copc-file").setInputFiles({
+    name: "required-fields.copc.laz",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("local test source"),
+  });
+  await expect(page.locator("#source-status")).toHaveText("Loaded required-fields.copc.laz");
+  const loadCount = await page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getMockLoadCount(),
+  );
+
+  await page.evaluate(() => {
+    const target = window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks };
+    const hooks = target.__COPC_PLAYGROUND_TEST__;
+    if (!hooks) throw new Error("Playground test hooks are unavailable");
+    hooks.failNextMissingAttributeStyle();
+  });
+  await page.getByRole("radiogroup", { name: "Color mode" }).getByRole("radio", { name: "Intensity" }).click();
+
+  await expect(page.locator("#style-error")).toContainText("No field was fetched");
+  await expect(page.locator("#style-error")).toContainText("All or add the field under Additional standard fields");
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getMockLoadCount(),
+  )).toBe(loadCount);
+  await expect(page.locator("#integration-example")).not.toContainText('colorMode: \'intensity\'');
 });
 
 test("the same local file can be selected again after loading another source", async ({
@@ -872,6 +931,31 @@ test("Reset to defaults clears schema-only and inactive renderer settings before
   await page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.useCameraResetLayerMock());
 
   const renderer = page.getByRole("radiogroup", { name: "Renderer" });
+  const attributesSection = page.locator('details[data-section="attributes"]');
+  if (!(await attributesSection.evaluate((element: HTMLDetailsElement) => element.open))) {
+    await attributesSection.locator("summary").click();
+  }
+  await page.locator("#schema-attribute-loading").selectOption("required");
+  await page.locator("#schema-point-field-intensity").check();
+  await expect.poll(() => page.evaluate(() => {
+    const values = (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getPendingConfig().schemaOptionValues ?? {};
+    return [values["attributes.attributeLoading"], values["attributes.pointFields"]];
+  })).toEqual(["required", ["intensity"]]);
+
+  await renderer.getByRole("radio", { name: "Three.js" }).click();
+  await expect.poll(() => page.evaluate(() => {
+    const values = (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getPendingConfig().schemaOptionValues ?? {};
+    return [values["attributes.attributeLoading"], values["attributes.pointFields"]];
+  })).toEqual([undefined, undefined]);
+  await renderer.getByRole("radio", { name: "Cesium" }).click();
+  await expect.poll(() => page.evaluate(() => {
+    const values = (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getPendingConfig().schemaOptionValues ?? {};
+    return [values["attributes.attributeLoading"], values["attributes.pointFields"]];
+  })).toEqual(["required", ["intensity"]]);
+
   await renderer.getByRole("radio", { name: "Three.js" }).click();
   const streamingSection = page.locator('details[data-section="streaming"]');
   if (!(await streamingSection.evaluate((element: HTMLDetailsElement) => element.open))) {
@@ -889,12 +973,11 @@ test("Reset to defaults clears schema-only and inactive renderer settings before
 
   await renderer.getByRole("radio", { name: "Cesium" }).click();
   await expect.poll(() => page.evaluate(() =>
-    Object.hasOwn(
-      (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
-        .__COPC_PLAYGROUND_TEST__?.getPendingConfig().schemaOptionValues ?? {},
-      "streaming.maxConcurrentNodeLoads",
-    ),
-  )).toBe(false);
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getPendingConfig().schemaOptionValues?.[
+        "streaming.maxConcurrentNodeLoads"
+      ],
+  )).toBe(7);
 
   if (!(await streamingSection.evaluate((element: HTMLDetailsElement) => element.open))) {
     await streamingSection.locator("summary").click();

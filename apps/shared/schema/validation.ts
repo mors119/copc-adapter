@@ -102,6 +102,15 @@ export function validateOptionValue(
             (validation.wildcard ?? "a supported wildcard") +
             ".",
         );
+      } else if (
+        value !== validation.wildcard &&
+        validation.values !== undefined &&
+        Array.isArray(value) &&
+        value.some((item) => !validation.values!.includes(item as string))
+      ) {
+        errors.push(
+          option.label + " may contain only: " + validation.values.join(", ") + ".",
+        );
       }
       break;
     case "number": {

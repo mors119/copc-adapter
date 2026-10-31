@@ -28,6 +28,7 @@ export type SchemaSpecialControlOptions = {
 export type SchemaSpecialControl = {
   readonly element: HTMLElement;
   setValue?(value: unknown): void;
+  updateContext?(context: CapabilityContext): void;
   setChoices?(choices: readonly { readonly value: string; readonly label: string }[]): void;
   destroy?(): void;
 };
@@ -562,6 +563,7 @@ export function mountSchemaOptionPanel(options: SchemaOptionPanelOptions): Schem
       }
       const choices = choiceOverrides.get(id) ?? getAvailableChoices(control.option, context, schema);
       control.setChoices?.(choices);
+      control.specialized?.updateContext?.({ ...context, values });
       control.setValue(values[id] !== undefined
         ? values[id]
         : resolveOptionDefault(id, context.manifest, new Set(), schema, values));

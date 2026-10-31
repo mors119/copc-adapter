@@ -58,21 +58,35 @@ const npm06Capabilities = [
   "three.point-picking",
 ] as const;
 
-// Audited against the published 0.7.1 declarations. That release adds the
-// single-anchor Cesium estimate API; its batch API is still workspace-only.
+// Audited against the published 0.7.1 declarations. The release supports the
+// single-anchor Cesium estimate API and Advanced attribute/cache options. Batch
+// Terrain estimates remain workspace-only; Playground filters GTX resources
+// because it does not load their grids.
+const npm071SupportedOptionIds = [
+  ...npm06SupportedOptionIds,
+  "attributes.attributeLoading",
+  "attributes.pointFields",
+  "cache.coordinateCacheLayout",
+  "cache.retainSourceCoordinatesForQueries",
+  "coordinates.verticalTransform",
+] as const;
+
 const npm071Capabilities = [
   ...npm06Capabilities,
+  "cesium.attribute-loading",
+  "cesium.point-fields",
+  "cache.coordinate-layout",
+  "cache.source-coordinate-retention",
   "cesium.terrain-alignment",
   "vertical.gtx-grid",
 ] as const;
 
-const npm071SupportedOptionIds = [
-  ...npm06SupportedOptionIds,
-  "coordinates.verticalTransform",
-] as const;
-
 const workspaceCapabilities = [
   ...npm06Capabilities,
+  "cesium.attribute-loading",
+  "cesium.point-fields",
+  "cache.coordinate-layout",
+  "cache.source-coordinate-retention",
   "cesium.terrain-alignment",
   "vertical.gtx-grid",
 ] as const;
@@ -128,7 +142,7 @@ export const NPM_0_6_MANIFEST = createManifest(
   { cesium: ["streaming.maxConcurrentNodeLoads"] },
 );
 
-/** Exact compatibility manifest for the published Playground package. */
+/** Exact compatibility manifest for the published Playground package with cache policy APIs. */
 export const NPM_0_7_1_MANIFEST = createManifest(
   "npm",
   "0.7.1",

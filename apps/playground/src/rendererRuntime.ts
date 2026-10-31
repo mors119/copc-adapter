@@ -29,6 +29,7 @@ import {
 import {
   applySchemaRuntimeOperations,
   buildSchemaApplicationPlan,
+  materializeWorkbenchConstructorOptions,
   normalizeWorkbenchOptionValues,
   resolveSchemaBackendSelection,
 } from "../../shared/config/index.ts";
@@ -475,7 +476,7 @@ export async function createPlaygroundRuntime(
         }),
     );
     const layerOptions = {
-      ...applicationPlan.constructorOptions,
+      ...materializeWorkbenchConstructorOptions(applicationPlan),
       backend,
       onPointPicked: (point: CopcPointInspection | undefined) => {
         selectedPoint = point;
@@ -693,7 +694,7 @@ export async function createPlaygroundRuntime(
       }),
   );
   const layerOptions = {
-    ...applicationPlan.constructorOptions,
+    ...materializeWorkbenchConstructorOptions(applicationPlan),
     backend,
     onPointPicked: (point: CopcPointInspection | undefined) => {
       selectedPoint = point;

@@ -46,19 +46,17 @@ type StreamingCompatibilityExclusions =
 // Workbench controls (logging, custom decoder injection, callbacks, and
 // layer-only opacity).
 type LayerCompatibilityExclusions =
-  | "attributeLoading"
   | "classificationFilter"
   | "clippingVolume"
   | "debug"
   | "decoder"
   | "dimension"
   | "dimensionFilter"
+  | "elevationRange"
+  | "elevationStyle"
   | "extraDimensions"
   | "onPointPicked"
-  | "opacity"
-  | "pointFields"
-  | "coordinateCacheLayout"
-  | "retainSourceCoordinatesForQueries";
+  | "opacity";
 
 // Every declared user-facing npm 0.7.1 constructor path exists in its actual
 // published package types, and every public option is represented or is an
@@ -152,10 +150,10 @@ type NpmExtraDimensions = NonNullable<
 type NpmRustBackend = import("@frillab/copc-adapter/cesium").RustCopcBackendOptions;
 type NpmInputSource = import("@frillab/copc-adapter/cesium").CopcInputSource;
 
-export type NpmColorModeChoicesMatch = AssertEqual<
+export type NpmColorModeChoicesMatch = Assert<AssertEqual<
   SchemaChoiceValues<"rendering.colorMode">,
-  NpmColorMode
->;
+  Exclude<NpmColorMode, "dimension">
+>>;
 export type NpmPointSizeChoicesMatch = AssertEqual<
   SchemaChoiceValues<"rendering.pointSizeMode">,
   NpmPointSizeMode
@@ -167,6 +165,20 @@ export type NpmRefinementChoicesMatch = AssertEqual<
 export type NpmRangePolicyChoicesMatch = AssertEqual<
   SchemaChoiceValues<"source.rangeValidation">,
   NpmRangePolicy
+>;
+export type NpmAttributeLoadingChoicesMatch = AssertEqual<
+  SchemaChoiceValues<"attributes.attributeLoading">,
+  NonNullable<CesiumOptions["attributeLoading"]>
+>;
+export type NpmCoordinateCacheLayoutChoicesMatch = AssertEqual<
+  SchemaChoiceValues<"cache.coordinateCacheLayout">,
+  NonNullable<CesiumOptions["coordinateCacheLayout"]>
+>;
+type NpmPointFieldSelection = NonNullable<CesiumOptions["pointFields"]>;
+export type NpmPointFieldSelectionIsReadonlySet = Assert<
+  NpmPointFieldSelection extends ReadonlySet<"position" | "intensity" | "classification" | "rgb">
+    ? true
+    : false
 >;
 export type NpmBackendChoicesMatch = AssertEqual<
   SchemaChoiceValues<"adapter.backend">,

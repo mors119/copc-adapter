@@ -234,6 +234,10 @@ export function mountDevViewerControls(
     target: controlRoot,
     context: context(),
     values,
+    sectionLabels: {
+      attributes: "Advanced · Attributes",
+      cache: "Advanced · Cache",
+    },
     excludeOptionIds: ["source.url", "coordinates.verticalTransform"],
     openSections: ["source", "renderer", "backend", "style", "coordinates"],
     renderSpecialControl: renderSharedSpecialControl,
