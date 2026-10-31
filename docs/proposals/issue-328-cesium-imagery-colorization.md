@@ -16,7 +16,7 @@ If a provider owner confirms the exact CONUS source, attribution, derivative use
 
 ## Cesium API findings
 
-The packed consumer pins `cesium` **1.142.0** in [its package manifest](../../tests/environments/cesium-vite/package.json). The relevant Cesium 1.142 source is [ImageryProvider](https://github.com/CesiumGS/cesium/blob/1.142/packages/engine/Source/Scene/ImageryProvider.js), [UrlTemplateImageryProvider](https://github.com/CesiumGS/cesium/blob/1.142/packages/engine/Source/Scene/UrlTemplateImageryProvider.js), [GeographicTilingScheme](https://github.com/CesiumGS/cesium/blob/1.142/packages/engine/Source/Core/GeographicTilingScheme.js), and [WebMercatorTilingScheme](https://github.com/CesiumGS/cesium/blob/1.142/packages/engine/Source/Core/WebMercatorTilingScheme.js). The [public API reference](https://cesium.com/learn/cesiumjs/ref-doc/ImageryProvider.html) documents the same provider contract.
+The packed consumer pins `cesium` **1.142.0** in `tests/environments/cesium-vite/package.json`. The relevant Cesium 1.142 source is [ImageryProvider](https://github.com/CesiumGS/cesium/blob/1.142/packages/engine/Source/Scene/ImageryProvider.js), [UrlTemplateImageryProvider](https://github.com/CesiumGS/cesium/blob/1.142/packages/engine/Source/Scene/UrlTemplateImageryProvider.js), [GeographicTilingScheme](https://github.com/CesiumGS/cesium/blob/1.142/packages/engine/Source/Core/GeographicTilingScheme.js), and [WebMercatorTilingScheme](https://github.com/CesiumGS/cesium/blob/1.142/packages/engine/Source/Core/WebMercatorTilingScheme.js). The [public API reference](https://cesium.com/learn/cesiumjs/ref-doc/ImageryProvider.html) documents the same provider contract.
 
 - `ImageryProvider` is an interface, not a source of pixels for the already-composited Viewer. A concrete provider exposes its `tilingScheme`, `rectangle`, tile dimensions, level bounds, credits, an asynchronous error event, and `requestImage(x, y, level, request?)`.
 - `requestImage` resolves to an image (or another documented imagery type). It can return `undefined` when Cesium's request scheduler is saturated; that means retry later, not “no coverage.” The optional `request` parameter is internal Cesium request state. The adapter should not manufacture or depend on it. The [UrlTemplate provider API](https://cesium.com/learn/cesiumjs/ref-doc/UrlTemplateImageryProvider.html) also documents `{x}` as west-to-east and `{y}` as north-to-south.
@@ -63,7 +63,7 @@ The live USGS check is opt-in and is not part of the normal suite. On 2026-10-31
 
 ## Coordinate and pixel semantics
 
-The existing prepared point data retains WGS84 geographic longitude/latitude in degrees, as well as source and ECEF coordinates ([prepared point type](../../packages/core/copc/types/copc.ts), [coordinate preparation](../../packages/core/point/preparedPoint.ts)). A future Cesium colorizer should consume those already-prepared geographic values; it must not reinterpret raw COPC X/Y as longitude/latitude. The source CRS must be recognized by the existing coordinate pipeline. Unknown datum realization/epoch or unsupported horizontal CRS means no imagery sample; imagery is not a way to hide a bad CRS transformation.
+The existing prepared point data retains WGS84 geographic longitude/latitude in degrees, as well as source and ECEF coordinates (`packages/core/copc/types/copc.ts`, `packages/core/point/preparedPoint.ts`). A future Cesium colorizer should consume those already-prepared geographic values; it must not reinterpret raw COPC X/Y as longitude/latitude. The source CRS must be recognized by the existing coordinate pipeline. Unknown datum realization/epoch or unsupported horizontal CRS means no imagery sample; imagery is not a way to hide a bad CRS transformation.
 
 For each valid point, the algorithm should:
 
@@ -80,7 +80,7 @@ This is 2D orthophoto projection. The same XY pixel is applied at every point he
 
 ## Architecture and bounds
 
-The existing Cesium path already produces point colors on CPU: [shared color-buffer preparation](../../packages/core/point/style/pointStyle.ts) feeds the batched geometry renderer, while the point-primitive renderer computes per-point colors. The shared streaming cache retains prepared coordinates, so a Cesium-only sampler can color already-decoded/visible nodes without downloading a whole COPC or decoding source points a second time. The sampler should remain inside the Cesium package; a `Cesium.ImageryProvider` is not renderer-neutral and does not make the Three renderer support imagery.
+The existing Cesium path already produces point colors on CPU: `packages/core/point/style/pointStyle.ts` feeds the batched geometry renderer, while the point-primitive renderer computes per-point colors. The shared streaming cache retains prepared coordinates, so a Cesium-only sampler can color already-decoded/visible nodes without downloading a whole COPC or decoding source points a second time. The sampler should remain inside the Cesium package; a `Cesium.ImageryProvider` is not renderer-neutral and does not make the Three renderer support imagery.
 
 | Approach | Fit to current code | Costs and limits |
 | --- | --- | --- |
@@ -123,7 +123,7 @@ The point inspection panel, legend, and examples must say **synthetic imagery-pr
 
 ## Deterministic browser evidence and performance
 
-The new [research browser spec](../../tests/environments/cesium-vite/e2e/imagery-projection-research.spec.js) constructs its fixture PNG from source code under this repository's Apache-2.0 license. It is a synthetic coordinate-coded 16 × 16 RGBA tile with an alpha-zero southeast quadrant; it contains no third-party image data. It tests known pixel samples, geographic/Web Mercator projection, tile seam ownership, north/south orientation, a shared in-flight tile request, CORS-readable and non-CORS responses, transparent pixels, and a failed tile.
+The new research browser spec (`tests/environments/cesium-vite/e2e/imagery-projection-research.spec.js`) constructs its fixture PNG from source code under this repository's Apache-2.0 license. It is a synthetic coordinate-coded 16 × 16 RGBA tile with an alpha-zero southeast quadrant; it contains no third-party image data. It tests known pixel samples, geographic/Web Mercator projection, tile seam ownership, north/south orientation, a shared in-flight tile request, CORS-readable and non-CORS responses, transparent pixels, and a failed tile.
 
 Run from `tests/environments/cesium-vite`:
 
