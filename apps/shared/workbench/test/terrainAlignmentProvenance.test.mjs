@@ -1,20 +1,24 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getCurrentTerrainAlignmentResidual } from "../terrainAlignmentProvenance.ts";
+import {
+  getCurrentTerrainAlignmentResidual,
+  getVerticalTransformIdentity,
+} from "../terrainAlignmentProvenance.ts";
 
 test("approved Terrain residual is current only for its source, provider, grid, and offset", () => {
   const verticalTransform = { grid: "nga-egm2008" };
+  const verticalTransformIdentity = getVerticalTransformIdentity(verticalTransform);
   const provenance = {
     source: "https://example.test/data.copc.laz",
     terrainUrl: "https://example.test/terrain-a",
-    verticalTransform,
+    verticalTransformIdentity,
     finalHeightOffsetMeters: 2.25,
     residualMeters: 2,
   };
   const context = {
     source: provenance.source,
     terrainUrl: provenance.terrainUrl,
-    verticalTransform,
+    verticalTransformIdentity,
     heightOffsetMeters: provenance.finalHeightOffsetMeters,
   };
   const sameSource = (left, right) => left === right;
@@ -31,7 +35,7 @@ test("approved Terrain residual is current only for its source, provider, grid, 
   assert.equal(
     getCurrentTerrainAlignmentResidual(
       provenance,
-      { ...context, verticalTransform: undefined },
+      { ...context, verticalTransformIdentity: undefined },
       sameSource,
     ),
     undefined,
@@ -39,7 +43,10 @@ test("approved Terrain residual is current only for its source, provider, grid, 
   assert.equal(
     getCurrentTerrainAlignmentResidual(
       provenance,
-      { ...context, verticalTransform: { grid: "nga-egm2008" } },
+      {
+        ...context,
+        verticalTransformIdentity: getVerticalTransformIdentity({ grid: "nga-egm2008" }),
+      },
       sameSource,
     ),
     undefined,
@@ -68,4 +75,14 @@ test("approved Terrain residual is current only for its source, provider, grid, 
     ),
     undefined,
   );
+});
+
+test("grid identity does not keep grid objects in approved provenance", () => {
+  const grid = { backingBuffer: new ArrayBuffer(16) };
+  const identity = getVerticalTransformIdentity(grid);
+
+  assert.equal(typeof identity, "symbol");
+  assert.equal(getVerticalTransformIdentity(grid), identity);
+  assert.notEqual(getVerticalTransformIdentity({ backingBuffer: new ArrayBuffer(16) }), identity);
+  assert.equal(getVerticalTransformIdentity(undefined), undefined);
 });

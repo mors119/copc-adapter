@@ -37,7 +37,10 @@ import {
   describeVerticalGrid,
   getVerticalGridResourceDetails,
 } from "../../shared/workbench/verticalGridResource.ts";
-import { getCurrentTerrainAlignmentResidual } from "../../shared/workbench/terrainAlignmentProvenance.ts";
+import {
+  getCurrentTerrainAlignmentResidual,
+  getVerticalTransformIdentity,
+} from "../../shared/workbench/terrainAlignmentProvenance.ts";
 import {
   mountTerrainAlignmentControl,
   type TerrainAlignmentControl,
@@ -563,7 +566,7 @@ let appliedConfig: IntegrationCodeConfig | undefined;
 let approvedTerrainAlignmentProvenance: {
   readonly source: PlaygroundSource;
   readonly terrainUrl: string;
-  readonly verticalTransform: unknown;
+  readonly verticalTransformIdentity: symbol | undefined;
   readonly finalHeightOffsetMeters: number;
   readonly residualMeters: number;
 } | undefined;
@@ -1322,9 +1325,9 @@ schemaPanel = mountSchemaOptionPanel({
           approvedTerrainAlignmentProvenance = {
             source: appliedSource,
             terrainUrl: appliedConfig.terrainUrl,
-            verticalTransform: playgroundOptionValues(appliedConfig)[
-              "coordinates.verticalTransform"
-            ],
+            verticalTransformIdentity: getVerticalTransformIdentity(
+              playgroundOptionValues(appliedConfig)["coordinates.verticalTransform"],
+            ),
             finalHeightOffsetMeters,
             residualMeters: estimate.proposedOffsetMeters ?? 0,
           };
@@ -1774,7 +1777,9 @@ function updateIntegrationExample(): void {
         {
           source: appliedSource,
           terrainUrl: config.terrainUrl,
-          verticalTransform: appliedValues["coordinates.verticalTransform"],
+          verticalTransformIdentity: getVerticalTransformIdentity(
+            appliedValues["coordinates.verticalTransform"],
+          ),
           heightOffsetMeters: config.heightOffsetMeters,
         },
         sameSource,
@@ -2279,7 +2284,9 @@ function updatePointVerticalReferenceContext(): void {
         {
           source: appliedSource,
           terrainUrl: appliedConfig.terrainUrl,
-          verticalTransform: values["coordinates.verticalTransform"],
+          verticalTransformIdentity: getVerticalTransformIdentity(
+            values["coordinates.verticalTransform"],
+          ),
           heightOffsetMeters: appliedConfig.heightOffsetMeters,
         },
         sameSource,
@@ -2329,7 +2336,7 @@ const renderDiagnosticsDashboard = (
         {
           source: appliedSource,
           terrainUrl: appliedConfig.terrainUrl,
-          verticalTransform: activeVerticalGrid,
+          verticalTransformIdentity: getVerticalTransformIdentity(activeVerticalGrid),
           heightOffsetMeters: appliedConfig.heightOffsetMeters,
         },
         sameSource,

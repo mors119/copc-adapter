@@ -74,7 +74,10 @@ import {
   createNgaEgm2008ResourceRegistry,
   createPointVerticalReferenceContext,
 } from "../../shared/workbench/verticalGridResource.ts";
-import { getCurrentTerrainAlignmentResidual } from "../../shared/workbench/terrainAlignmentProvenance.ts";
+import {
+  getCurrentTerrainAlignmentResidual,
+  getVerticalTransformIdentity,
+} from "../../shared/workbench/terrainAlignmentProvenance.ts";
 import {
   generateAppliedWorkbenchIntegrationCode,
   isPotentiallySensitiveSource,
@@ -1639,7 +1642,7 @@ async function main(): Promise<void> {
   let approvedTerrainAlignmentProvenance: {
     readonly source: string | File;
     readonly terrainUrl: string;
-    readonly verticalTransform: unknown;
+    readonly verticalTransformIdentity: symbol | undefined;
     readonly finalHeightOffsetMeters: number;
     readonly residualMeters: number;
   } | undefined;
@@ -1693,7 +1696,9 @@ async function main(): Promise<void> {
           {
             source: activeConfig.source,
             terrainUrl: activeConfig.terrainUrl,
-            verticalTransform: values["coordinates.verticalTransform"],
+            verticalTransformIdentity: getVerticalTransformIdentity(
+              values["coordinates.verticalTransform"],
+            ),
             heightOffsetMeters: activeConfig.heightOffsetMeters,
           },
           sameSource,
@@ -1816,7 +1821,9 @@ async function main(): Promise<void> {
           {
             source: activeConfig.source,
             terrainUrl: activeConfig.terrainUrl,
-            verticalTransform: values["coordinates.verticalTransform"],
+            verticalTransformIdentity: getVerticalTransformIdentity(
+              values["coordinates.verticalTransform"],
+            ),
             heightOffsetMeters: activeConfig.heightOffsetMeters,
           },
           sameSource,
@@ -2007,7 +2014,9 @@ async function main(): Promise<void> {
             {
               source: activeConfig.source,
               terrainUrl: activeConfig.terrainUrl,
-              verticalTransform: appliedValues["coordinates.verticalTransform"],
+              verticalTransformIdentity: getVerticalTransformIdentity(
+                appliedValues["coordinates.verticalTransform"],
+              ),
               heightOffsetMeters: activeConfig.heightOffsetMeters,
             },
             sameSource,
@@ -2491,9 +2500,9 @@ async function main(): Promise<void> {
           if (applied) {
             approvedTerrainAlignmentProvenance = {
               ...approvedProvenance,
-              verticalTransform: toWorkbenchOptionValues(activeConfig)[
-                "coordinates.verticalTransform"
-              ],
+              verticalTransformIdentity: getVerticalTransformIdentity(
+                toWorkbenchOptionValues(activeConfig)["coordinates.verticalTransform"],
+              ),
             };
             updatePointVerticalReferenceContext();
             debugPanel.refresh();
