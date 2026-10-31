@@ -60,8 +60,8 @@ const npm06Capabilities = [
 
 // Audited against the published 0.7.1 declarations. The release supports
 // opacity, clipping, single-anchor Terrain estimates, and Advanced
-// attribute/cache options. Batch Terrain estimates remain workspace-only;
-// Playground filters GTX resources because it does not load their grids.
+// attribute/cache options. Batch Terrain estimates remain workspace-only.
+// Playground uses the released loader for the pinned local NGA EGM2008 profile.
 const npm071SupportedOptionIds = [
   ...npm06SupportedOptionIds,
   "rendering.opacity",
@@ -205,8 +205,6 @@ export const NPM_0_6_SUPPORTED_OPTION_IDS = npm06SupportedOptionIds;
 export const NPM_0_6_CAPABILITIES = npm06Capabilities;
 export const NPM_0_7_1_SUPPORTED_OPTION_IDS = npm071SupportedOptionIds;
 export const NPM_0_7_1_CAPABILITIES = npm071Capabilities;
-/** The Playground does not load GTX resources even though the package supports them. */
-export const PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES = npm071Capabilities.filter(
-  (capability) => capability !== "vertical.gtx-grid",
-);
+/** Runtime gates for Playground's pinned npm 0.7.1 public grid loader. */
+export const PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES = npm071Capabilities;
 export const WORKSPACE_CURRENT_CAPABILITIES = workspaceCapabilities;

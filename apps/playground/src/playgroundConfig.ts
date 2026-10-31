@@ -7,11 +7,14 @@ import {
   buildSchemaApplicationPlan,
   normalizeWorkbenchOptionValues,
   validateWorkbenchConfiguration,
+  type SchemaApplicationPlan,
+  type WorkbenchOptionValues,
 } from "../../shared/config/index.ts";
 import {
   PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES,
   NPM_0_7_1_MANIFEST,
 } from "../../shared/schema/index.ts";
+import type { SchemaHostValidators } from "../../shared/schema/types.ts";
 
 const MIB = 1024 * 1024;
 
@@ -106,7 +109,10 @@ export function normalizeClassificationFilter(
 }
 
 /** Validate values against the supported package contract before construction. */
-export function validatePlaygroundConfig(config: PlaygroundConfig): string[] {
+export function validatePlaygroundConfig(
+  config: PlaygroundConfig,
+  hostValidators: SchemaHostValidators = {},
+): string[] {
   const values = normalizeWorkbenchOptionValues(
     {
       ...(config as unknown as Readonly<Record<string, unknown>>),
@@ -117,7 +123,7 @@ export function validatePlaygroundConfig(config: PlaygroundConfig): string[] {
     manifest: NPM_0_7_1_MANIFEST,
     renderer: config.renderer,
     runtimeCapabilities: PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES,
-  });
+  }, undefined, hostValidators);
   const errors = [...validation.errors];
   if (config.terrainUrl.trim()) {
     try {
@@ -140,10 +146,31 @@ export function validatePlaygroundConfig(config: PlaygroundConfig): string[] {
   return errors;
 }
 
+/** Build a Playground plan while preserving host-owned resource validation. */
+export function buildPlaygroundApplicationPlan(
+  values: WorkbenchOptionValues,
+  renderer: WorkbenchRenderer,
+  previousValues?: WorkbenchOptionValues,
+  hostValidators: SchemaHostValidators = {},
+): SchemaApplicationPlan {
+  return buildSchemaApplicationPlan(
+    values,
+    {
+      manifest: NPM_0_7_1_MANIFEST,
+      renderer,
+      runtimeCapabilities: PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES,
+    },
+    previousValues,
+    undefined,
+    hostValidators,
+  );
+}
+
 /** Compare only settings that require a new layer instance. */
 export function hasConstructorChanges(
   pending: PlaygroundConfig,
   active: PlaygroundConfig,
+  hostValidators: SchemaHostValidators = {},
 ): boolean {
   if (pending.renderer === "cesium" && pending.terrainUrl !== active.terrainUrl) return true;
   try {
@@ -159,14 +186,11 @@ export function hasConstructorChanges(
         ...(active.schemaOptionValues ?? {}),
       },
     );
-    return buildSchemaApplicationPlan(
+    return buildPlaygroundApplicationPlan(
       pendingValues,
-      {
-        manifest: NPM_0_7_1_MANIFEST,
-        renderer: active.renderer,
-        runtimeCapabilities: PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES,
-      },
+      active.renderer,
       activeValues,
+      hostValidators,
     ).requiresLayerReplacement;
   } catch {
     // Invalid or newly unsupported state cannot be considered a live-only edit.

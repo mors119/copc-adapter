@@ -2,6 +2,7 @@ import {
   getPointInspectionRows,
   type PointInspectionData,
   type PointInspectionRow,
+  type PointVerticalReferenceContext,
 } from "./pointFormatting.ts";
 import "./pointPopover.css";
 
@@ -14,6 +15,7 @@ export type PointPopover = {
     position?: PointScreenPosition,
   ): void;
   updatePosition(position?: PointScreenPosition): void;
+  setVerticalReferenceContext(context: PointVerticalReferenceContext | undefined): void;
   clear(): void;
   destroy(): void;
 };
@@ -76,6 +78,7 @@ export function mountPointPopover(host: HTMLElement): PointPopover {
   host.append(overlay);
 
   let selectedPoint: PointInspectionData | undefined;
+  let verticalReferenceContext: PointVerticalReferenceContext | undefined;
   let screenPosition: PointScreenPosition | undefined;
   let dismissed = false;
   let overlayVisible = false;
@@ -171,6 +174,15 @@ export function mountPointPopover(host: HTMLElement): PointPopover {
     details.open = false;
   };
 
+  const renderSelection = (): void => {
+    if (!selectedPoint) return;
+    const rows = getPointInspectionRows(selectedPoint, verticalReferenceContext);
+    summary.replaceChildren(createRows(rows.summary));
+    detailsContent.replaceChildren(createRows(rows.details));
+    details.hidden = rows.details.length === 0;
+    details.open = false;
+  };
+
   return {
     setSelection(point, position): void {
       if (!point) {
@@ -180,11 +192,12 @@ export function mountPointPopover(host: HTMLElement): PointPopover {
       selectedPoint = point;
       screenPosition = position;
       dismissed = false;
-      const rows = getPointInspectionRows(point);
-      summary.replaceChildren(createRows(rows.summary));
-      detailsContent.replaceChildren(createRows(rows.details));
-      details.hidden = rows.details.length === 0;
-      details.open = false;
+      renderSelection();
+      positionOverlay();
+    },
+    setVerticalReferenceContext(context): void {
+      verticalReferenceContext = context;
+      renderSelection();
       positionOverlay();
     },
     updatePosition(position): void {

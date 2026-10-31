@@ -19,6 +19,7 @@ import {
   WORKSPACE_CURRENT_CAPABILITIES,
   WORKSPACE_CURRENT_MANIFEST,
 } from "../../shared/schema/index.ts";
+import type { SchemaHostValidators } from "../../shared/schema/types.ts";
 import { requestedDimensionNames } from "../../shared/workbench/dimensionModel.ts";
 import type { SchemaDimensionFilter, SchemaDimensionStyle } from "../../shared/schema/types.ts";
 
@@ -300,6 +301,7 @@ export function needsSessionRecreation(
   next: DevViewerConfig,
   hasActiveSession: boolean,
   currentSourceUsesHttp: boolean,
+  hostValidators: SchemaHostValidators = {},
 ): boolean {
   if (!hasActiveSession) return true;
   const appliedValues = toWorkbenchOptionValues(applied);
@@ -321,6 +323,8 @@ export function needsSessionRecreation(
         runtimeCapabilities: WORKSPACE_CURRENT_CAPABILITIES,
       },
       appliedValues,
+      undefined,
+      hostValidators,
     );
     return plan.requiresLayerReplacement ||
       (next.renderer === "cesium" && applied.terrainUrl !== next.terrainUrl);

@@ -226,7 +226,7 @@ LAS classification을 categorical palette로 보려면 `classification`을 사�
 필요한 source attribute가 없는 경우 기존 cyan으로 fallback한다. Intensity
 범위는 각 streaming node의 loaded point buffer에서 계산한다.
 
-## User-Supplied Vertical Grid (CesiumJS)
+## Generic Caller-Supplied GTX Grid (CesiumJS)
 
 The API guide has a complete offline `File` example for loading a documented
 GTX grid, verifying its SHA-256, and enabling it through
@@ -235,6 +235,26 @@ vertical CRS, WGS 84 horizontal frame, `h - H` sign, units, NoData value,
 coverage, and usage terms are documented. No EGM2008 or KNGeoid24 model is
 bundled or automatically selected. See [Explicit vertical CRS grid
 conversion](API.md#explicit-vertical-crs-grid-conversion).
+
+## NGA EGM2008 in the Workbenches
+
+Playground and Dev Viewer expose one explicit vertical-grid workflow for the
+exact pinned NGA EGM2008 2.5-minute WGS 84 Tide-Free file. Choose an extracted
+local file in the **Vertical Grid** control, wait for SHA-256 and layout
+verification, then apply the pending configuration. The control displays the
+operation, CRS pair, frames, units and sign, coverage, NoData behavior,
+interpolation, resolution, digest, memory bound, epoch behavior, and source
+terms. It does not download or retain the file, and the grid bytes and local
+path are never placed in a share URL.
+
+Copy code emits a `loadNgaEgm2008Grid` setup that prompts the consuming page to
+choose its own local file and verifies that file before constructing the
+layer. NGA's accessed product page and archive do not state redistribution
+terms, so obtain and use the file only under terms that apply to you. The
+Workbench and package do not bundle it. This is a specific EGM2008 profile,
+not a generic datum selector or a Korean national height conversion. See
+[NGA EGM2008 2.5-minute grid](API.md#nga-egm2008-25-minute-grid) for the
+operation limits and memory details.
 
 ## Opt-in Cesium Terrain Height Estimate
 

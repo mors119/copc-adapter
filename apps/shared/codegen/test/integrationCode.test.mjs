@@ -504,16 +504,37 @@ test("represents local Files with an input control and never emits file metadata
   assert.doesNotMatch(code, /private-area|private fixture/u);
 });
 
-test("warns when a validated host-owned GTX resource needs application setup", () => {
-  const gridResource = new (class LoadedGrid {
-    internalGridBytes = new Uint8Array([1, 2, 3]);
-    sampleHeight() { return 12.5; }
-  })();
+test("emits reproducible local setup for the pinned verified NGA grid without copying bytes or paths", async () => {
+  const { NGA_EGM2008_FILE_BYTES, NGA_EGM2008_GRID_ID, NGA_EGM2008_SHA256 } = await import(
+    "../../workbench/verticalGridResource.ts"
+  );
+  const gridResource = Object.assign(new class { sampleUndulation() { return 0; } }(), {
+    gridId: NGA_EGM2008_GRID_ID,
+    sha256: NGA_EGM2008_SHA256,
+    sourceVerticalCrs: "EPSG:3855",
+    targetVerticalCrs: "EPSG:4979",
+    horizontalCrs: "EPSG:4326",
+    referenceEllipsoid: "WGS84",
+    valueUnit: "metre",
+    valueConvention: "ellipsoidal-minus-orthometric",
+    interpolation: "bilinear",
+    noDataValue: null,
+    width: 8640,
+    height: 4321,
+    longitudeOrigin: 0,
+    latitudeOrigin: -90,
+    longitudeStep: 2.5 / 60,
+    latitudeStep: 2.5 / 60,
+    encodedByteLength: NGA_EGM2008_FILE_BYTES,
+    decodedByteLength: 8640 * 4321 * 4,
+    globalLongitudeCoverage: "periodic",
+  });
   const generated = generateWorkbenchIntegrationCode({
     renderer: "cesium",
     values: {
       renderer: "cesium",
       "coordinates.verticalTransform": gridResource,
+      "coordinates.heightOffsetMeters": 8,
     },
     manifest: WORKSPACE_CURRENT_MANIFEST,
     runtimeCapabilities: WORKSPACE_CURRENT_CAPABILITIES,
@@ -524,9 +545,15 @@ test("warns when a validated host-owned GTX resource needs application setup", (
     },
   });
 
-  assert.match(generated.warnings.join(" "), /host-owned/u);
-  assert.match(generated.warnings.join(" "), /GtxGeoidGrid/u);
-  assert.doesNotMatch(generated.code, /internalGridBytes|sampleHeight|verticalTransform/u);
+  assert.match(generated.code, /loadNgaEgm2008Grid/u);
+  assert.match(generated.code, /vertical-grid-file/u);
+  assert.match(generated.code, /new Promise<File>/u);
+  assert.match(generated.code, /addEventListener\('change'/u);
+  assert.match(generated.code, /maxGridBytes: 160 \* 1024 \* 1024/u);
+  assert.match(generated.code, /verticalTransform: verticalTransform/u);
+  assert.match(generated.code, /heightOffsetMeters: 8/u);
+  assert.match(generated.warnings.join(" "), /pinned NGA EGM2008/u);
+  assert.doesNotMatch(generated.code, /private-grid-path|internalGridBytes|sampleUndulation\(\)/u);
 });
 
 test("fails closed when a supplied adapter version has no matching verified profile", () => {
