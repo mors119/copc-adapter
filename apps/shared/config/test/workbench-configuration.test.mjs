@@ -264,6 +264,26 @@ test("seeds a required-loading Cesium Dimension ramp into constructor and runtim
   }]);
 });
 
+test("seeds a required-loading Cesium numeric filter into constructor and runtime styles", () => {
+  const dimensionFilter = { name: "Intensity", min: 25, max: 500 };
+  const plan = buildSchemaApplicationPlan(validValues({
+    "rendering.colorMode": "elevation",
+    "style.dimensionFilter": dimensionFilter,
+    "attributes.attributeLoading": "required",
+  }), workspaceCesiumContext);
+
+  assert.equal(plan.constructorOptions.attributeLoading, "required");
+  assert.equal(plan.constructorOptions.colorMode, "elevation");
+  assert.deepEqual(plan.constructorOptions.dimensionFilter, dimensionFilter);
+  assert.deepEqual(plan.runtimeOperations, [{
+    method: "setStyle",
+    kind: "patch",
+    argument: { colorMode: "elevation", dimensionFilter },
+    rollbackArgument: { colorMode: undefined, dimensionFilter: undefined },
+    optionIds: ["rendering.colorMode", "style.dimensionFilter"],
+  }]);
+});
+
 test("conditional settings stay out of constructor options when their condition is false", () => {
   const plan = buildSchemaApplicationPlan(
     validValues({

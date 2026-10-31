@@ -172,6 +172,32 @@ test("colors cached Intensity with an editable numeric ramp and inclusive filter
   await expect(code).toContainText("colorMode: 'elevation'");
   await expect(code).toContainText("max: 500");
   await expect(code).not.toContainText("max: 400");
+
+  await page.locator("#apply-settings").click();
+  await expect
+    .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.lifecycle))
+    .toBe("ready");
+  await page.locator("#schema-attribute-loading").selectOption("all");
+  await page.locator("#apply-settings").click();
+  await expect
+    .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.lifecycle))
+    .toBe("ready");
+  await page.locator("#schema-attribute-loading").selectOption("required");
+  await page.locator("#apply-settings").click();
+  await expect
+    .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.lifecycle))
+    .toBe("ready");
+  await expect(code).toContainText("attributeLoading: 'required'");
+  await expect(code).toContainText("colorMode: 'elevation'");
+  await expect(code).toContainText("max: 400");
+
+  await filter.getByLabel("Inclusive filter maximum").fill("350");
+  await filter.getByLabel("Inclusive filter maximum").dispatchEvent("change");
+  await page.locator("#apply-settings").click();
+  await expect
+    .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.lifecycle))
+    .toBe("ready");
+  await expect(code).toContainText("max: 350");
   expect(pageErrors).toEqual([]);
 });
 
