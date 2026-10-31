@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("Playground exposes the explicit NGA profile and rejects the wrong local file", async ({ page }) => {
+test("Playground exposes only the pinned EGM2008 profiles and rejects an unrelated local file", async ({ page }) => {
   await page.goto("./");
   const gridInput = page.locator("#vertical-grid-file");
   await expect(gridInput).toHaveCount(1);
@@ -26,6 +26,9 @@ test("Playground verifies the exact local OSGeo EGM2008 GTX and removes it witho
   await expect(page.locator(".vertical-grid-control__status")).toContainText(
     "verified and pending",
     { timeout: 150_000 },
+  );
+  await expect(page.locator(".vertical-grid-control__status")).toContainText(
+    "OSGeo PROJ-DATUMGRID-WORLD",
   );
   const metadata = page.locator(".vertical-grid-control__metadata");
   await expect(metadata).toContainText("EPSG:3855");

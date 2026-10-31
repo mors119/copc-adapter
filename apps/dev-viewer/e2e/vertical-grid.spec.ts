@@ -54,7 +54,7 @@ test("browser loads a local GTX Blob with Web Crypto and fails on NoData", async
   expect(result.noDataCode).toBe("grid-nodata");
 });
 
-test("Dev Viewer exposes only the explicit NGA grid profile and rejects the wrong local file", async ({
+test("Dev Viewer exposes only the pinned EGM2008 profiles and rejects an unrelated local file", async ({
   page,
 }) => {
   await page.goto("/?debugPanel=off");
@@ -80,6 +80,9 @@ test("Dev Viewer verifies the exact local OSGeo EGM2008 GTX before marking it pe
   await expect(page.locator(".vertical-grid-control__status")).toContainText(
     "verified and pending",
     { timeout: 150_000 },
+  );
+  await expect(page.locator(".vertical-grid-control__status")).toContainText(
+    "OSGeo PROJ-DATUMGRID-WORLD",
   );
   const metadata = page.locator(".vertical-grid-control__metadata");
   await expect(metadata).toContainText("EPSG:3855");

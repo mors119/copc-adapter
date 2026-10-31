@@ -5,7 +5,7 @@ import {
 } from "./verticalGridResource.ts";
 
 export type VerticalGridControlOptions = SchemaSpecialControlOptions & {
-  /** Load the one supported registered model using the host's released API. */
+  /** Load one of the pinned EGM2008 profiles using the host's released API. */
   readonly loadGrid: (file: File) => Promise<VerifiedVerticalGrid>;
   /** Avoid holding a second full-world grid while the current one is active. */
   readonly canLoad: () => boolean;
@@ -64,14 +64,14 @@ function renderGridDetails(target: HTMLElement, value: unknown): void {
   target.replaceChildren(list);
 }
 
-/** Render explicit local-file selection for the verified NGA EGM2008 profile. */
+/** Render explicit local-file selection for the pinned EGM2008 profiles. */
 export function mountVerticalGridControl(
   options: VerticalGridControlOptions,
 ): SchemaSpecialControl {
   const root = element("div", "vertical-grid-control");
   const introduction = element("p", "schema-option__hint");
   introduction.textContent =
-    "Optional local grid conversion: verified NGA EGM2008 2.5-minute (EPSG:3855) to WGS 84 ellipsoidal height (EPSG:4979). Choose the NGA raw file or the Public Domain OSGeo GTX; the file is never downloaded or shared.";
+    "Optional local EGM2008 conversion (EPSG:3855 to WGS 84 ellipsoidal height, EPSG:4979). Choose the pinned NGA raw file or OSGeo Public Domain GTX; the file is never downloaded or shared.";
   const label = element("label", "vertical-grid-control__file-label");
   label.htmlFor = "vertical-grid-file";
   label.textContent = "Choose an NGA EGM2008 or OSGeo PROJ grid file";
@@ -103,6 +103,7 @@ export function mountVerticalGridControl(
 
   const refresh = (): void => {
     const selected = value !== undefined && value !== null;
+    const gridName = getVerticalGridResourceDetails(value)?.gridId ?? "EGM2008 grid";
     const canLoadAnother = options.canLoad();
     const applied = selected && options.isApplied(value);
     const allowed = canLoadAnother && !selected;
@@ -112,9 +113,9 @@ export function mountVerticalGridControl(
     if (loading) {
       status.textContent = "Verifying the local grid in bounded row chunks. The public loader cannot interrupt an active digest; discard will ignore its result when loading finishes.";
     } else if (applied) {
-      status.textContent = "NGA EGM2008 is verified and applied. Remove and apply that change before selecting a replacement.";
+      status.textContent = `${gridName} is verified and applied. Remove and apply that change before selecting a replacement.`;
     } else if (selected) {
-      status.textContent = "NGA EGM2008 grid is verified and pending. Apply settings to use it, or remove it before selecting another file.";
+      status.textContent = `${gridName} is verified and pending. Apply settings to use it, or remove it before selecting another file.`;
     } else if (!canLoadAnother) {
       status.textContent = "A source load is active or a vertical grid is still applied. Wait for the load, or remove and apply the active grid before selecting a replacement.";
     } else {
