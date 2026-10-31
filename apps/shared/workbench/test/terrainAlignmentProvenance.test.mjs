@@ -2,16 +2,19 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { getCurrentTerrainAlignmentResidual } from "../terrainAlignmentProvenance.ts";
 
-test("approved Terrain residual is current only for its source, provider, and offset", () => {
+test("approved Terrain residual is current only for its source, provider, grid, and offset", () => {
+  const verticalTransform = { grid: "nga-egm2008" };
   const provenance = {
     source: "https://example.test/data.copc.laz",
     terrainUrl: "https://example.test/terrain-a",
+    verticalTransform,
     finalHeightOffsetMeters: 2.25,
     residualMeters: 2,
   };
   const context = {
     source: provenance.source,
     terrainUrl: provenance.terrainUrl,
+    verticalTransform,
     heightOffsetMeters: provenance.finalHeightOffsetMeters,
   };
   const sameSource = (left, right) => left === right;
@@ -21,6 +24,22 @@ test("approved Terrain residual is current only for its source, provider, and of
     getCurrentTerrainAlignmentResidual(
       provenance,
       { ...context, terrainUrl: "https://example.test/terrain-b" },
+      sameSource,
+    ),
+    undefined,
+  );
+  assert.equal(
+    getCurrentTerrainAlignmentResidual(
+      provenance,
+      { ...context, verticalTransform: undefined },
+      sameSource,
+    ),
+    undefined,
+  );
+  assert.equal(
+    getCurrentTerrainAlignmentResidual(
+      provenance,
+      { ...context, verticalTransform: { grid: "nga-egm2008" } },
       sameSource,
     ),
     undefined,

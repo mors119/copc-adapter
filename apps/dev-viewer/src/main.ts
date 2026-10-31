@@ -1639,6 +1639,7 @@ async function main(): Promise<void> {
   let approvedTerrainAlignmentProvenance: {
     readonly source: string | File;
     readonly terrainUrl: string;
+    readonly verticalTransform: unknown;
     readonly finalHeightOffsetMeters: number;
     readonly residualMeters: number;
   } | undefined;
@@ -1692,6 +1693,7 @@ async function main(): Promise<void> {
           {
             source: activeConfig.source,
             terrainUrl: activeConfig.terrainUrl,
+            verticalTransform: values["coordinates.verticalTransform"],
             heightOffsetMeters: activeConfig.heightOffsetMeters,
           },
           sameSource,
@@ -1814,6 +1816,7 @@ async function main(): Promise<void> {
           {
             source: activeConfig.source,
             terrainUrl: activeConfig.terrainUrl,
+            verticalTransform: values["coordinates.verticalTransform"],
             heightOffsetMeters: activeConfig.heightOffsetMeters,
           },
           sameSource,
@@ -2004,6 +2007,7 @@ async function main(): Promise<void> {
             {
               source: activeConfig.source,
               terrainUrl: activeConfig.terrainUrl,
+              verticalTransform: appliedValues["coordinates.verticalTransform"],
               heightOffsetMeters: activeConfig.heightOffsetMeters,
             },
             sameSource,
@@ -2485,7 +2489,12 @@ async function main(): Promise<void> {
             activeConfig.terrainUrl === approvedProvenance.terrainUrl &&
             activeConfig.heightOffsetMeters === finalHeightOffsetMeters;
           if (applied) {
-            approvedTerrainAlignmentProvenance = approvedProvenance;
+            approvedTerrainAlignmentProvenance = {
+              ...approvedProvenance,
+              verticalTransform: toWorkbenchOptionValues(activeConfig)[
+                "coordinates.verticalTransform"
+              ],
+            };
             updatePointVerticalReferenceContext();
             debugPanel.refresh();
             refreshIntegrationCode();

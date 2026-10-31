@@ -563,6 +563,7 @@ let appliedConfig: IntegrationCodeConfig | undefined;
 let approvedTerrainAlignmentProvenance: {
   readonly source: PlaygroundSource;
   readonly terrainUrl: string;
+  readonly verticalTransform: unknown;
   readonly finalHeightOffsetMeters: number;
   readonly residualMeters: number;
 } | undefined;
@@ -1317,10 +1318,13 @@ schemaPanel = mountSchemaOptionPanel({
         const applied = appliedConfig !== previousAppliedConfig &&
           appliedConfig.renderer === "cesium" &&
           appliedConfig.heightOffsetMeters === finalHeightOffsetMeters;
-        if (applied) {
+        if (applied && appliedConfig) {
           approvedTerrainAlignmentProvenance = {
             source: appliedSource,
             terrainUrl: appliedConfig.terrainUrl,
+            verticalTransform: playgroundOptionValues(appliedConfig)[
+              "coordinates.verticalTransform"
+            ],
             finalHeightOffsetMeters,
             residualMeters: estimate.proposedOffsetMeters ?? 0,
           };
@@ -1770,6 +1774,7 @@ function updateIntegrationExample(): void {
         {
           source: appliedSource,
           terrainUrl: config.terrainUrl,
+          verticalTransform: appliedValues["coordinates.verticalTransform"],
           heightOffsetMeters: config.heightOffsetMeters,
         },
         sameSource,
@@ -2274,6 +2279,7 @@ function updatePointVerticalReferenceContext(): void {
         {
           source: appliedSource,
           terrainUrl: appliedConfig.terrainUrl,
+          verticalTransform: values["coordinates.verticalTransform"],
           heightOffsetMeters: appliedConfig.heightOffsetMeters,
         },
         sameSource,
@@ -2323,6 +2329,7 @@ const renderDiagnosticsDashboard = (
         {
           source: appliedSource,
           terrainUrl: appliedConfig.terrainUrl,
+          verticalTransform: activeVerticalGrid,
           heightOffsetMeters: appliedConfig.heightOffsetMeters,
         },
         sameSource,
