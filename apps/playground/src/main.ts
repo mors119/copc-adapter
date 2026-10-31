@@ -2,9 +2,11 @@ import type {
   CopcCesiumLayer,
   CopcCesiumPointStyle,
   CopcCesiumPointStyleUpdate,
+  CopcPointInspection,
   CopcSourceProbeResult,
   RefinementAlgorithm,
   RefinementFocus,
+  TerrainHeightAlignmentEstimate,
 } from "@frillab/copc-adapter/cesium";
 import {
   formatUiNumber,
@@ -14,6 +16,7 @@ import {
 } from "../../shared/ui-controls";
 import {
   NPM_0_7_1_CAPABILITIES,
+  PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES,
   NPM_0_7_1_MANIFEST,
   getOptionDefinition,
 } from "../../shared/schema/index.ts";
@@ -27,6 +30,10 @@ import {
 } from "../../shared/config/index.ts";
 import { mountSchemaOptionPanel } from "../../shared/workbench/SchemaOptionPanel.ts";
 import { renderSharedSpecialControl } from "../../shared/workbench/specialControls.ts";
+import {
+  mountTerrainAlignmentControl,
+  type TerrainAlignmentControl,
+} from "../../shared/workbench/TerrainAlignmentControl.ts";
 import {
   mountWorkbenchLayout,
   mountWorkbenchRightTabs,
@@ -277,6 +284,13 @@ app.innerHTML = `
 
       <aside class="side-panel config-panel" id="config-panel" aria-label="Point cloud controls">
         <div id="shared-schema-controls" class="schema-controls" aria-label="Adapter configuration options"></div>
+        <section class="config-section terrain-provider-settings" aria-labelledby="terrain-provider-heading">
+          <div class="section-heading"><div><span class="eyebrow">CESIUM</span><h2 id="terrain-provider-heading">Terrain provider</h2></div></div>
+          <label class="ui-field" for="terrain-provider-url">Quantized-mesh service root
+            <input id="terrain-provider-url" type="url" placeholder="https://host.example/terrain" autocomplete="off" spellcheck="false">
+          </label>
+          <p class="control-hint">Cesium only. Apply changes to load this provider in the Playground-owned Viewer. Leave blank for ellipsoid-only mode. Terrain alignment is visual placement, not geoid accuracy.</p>
+        </section>
         <p class="config-state" id="config-state" role="status" aria-live="polite">No layer is active. Settings apply when a source is loaded.</p>
         <section class="config-section classification-controls" aria-labelledby="classification-heading">
             <h3 id="classification-heading">Classification filter <span class="active-filter" id="classification-active">No filter</span></h3>
@@ -347,6 +361,13 @@ const byId = <T extends HTMLElement>(id: string): T => {
   if (!element) throw new Error(`Missing Playground element #${id}.`);
   return element as T;
 };
+
+function sameSource(left: PlaygroundSource, right: PlaygroundSource): boolean {
+  if (typeof left === "string" || typeof right === "string") {
+    return typeof left === "string" && typeof right === "string" && left === right;
+  }
+  return left === right;
+}
 
 const integrationCodePanel = mountIntegrationCodePanel({
   target: byId<HTMLElement>("generated-code-card-mount"),
@@ -445,6 +466,7 @@ const focusYInput = byId<HTMLInputElement>("focus-y");
 const focusPositionControls = byId<HTMLDivElement>("focus-position-controls");
 const focusConfigWarning = byId<HTMLElement>("focus-config-warning");
 const configState = byId<HTMLElement>("config-state");
+const terrainProviderUrlInput = byId<HTMLInputElement>("terrain-provider-url");
 const applyChangesButton = byId<HTMLButtonElement>("apply-changes");
 const configValidation = byId<HTMLElement>("config-validation");
 const classificationIncludeInput = byId<HTMLInputElement>("classification-include");
@@ -469,6 +491,7 @@ let pendingConfig: IntegrationCodeConfig = {
     center: { ...parsedUrlConfig.refinementConfig.center },
   },
 };
+terrainProviderUrlInput.value = pendingConfig.terrainUrl;
 // The focus controls build one synchronous edit before committing it back to the
 // canonical pending configuration through updatePendingConfig/applyFocusSettings.
 let refinementConfig: PlaygroundRefinementConfig = pendingConfig.refinementConfig;
@@ -499,6 +522,7 @@ let activeRuntimeHost: HTMLDivElement | undefined;
 let pendingRuntime: PlaygroundRuntime | undefined;
 let pendingRuntimeHost: HTMLDivElement | undefined;
 let activeRuntimeReady = false;
+let terrainAlignmentControl: TerrainAlignmentControl | undefined;
 let activeDiagnosticsContext: PlaygroundDiagnosticsContext | undefined;
 let browserMeasurements: PlaygroundBrowserMeasurements = {};
 let loadInitiatedAt: number | undefined;
@@ -512,6 +536,12 @@ const defaultIntegrationConfig: IntegrationCodeConfig = {
   },
 };
 let appliedConfig: IntegrationCodeConfig | undefined;
+let approvedTerrainAlignmentProvenance: {
+  readonly source: PlaygroundSource;
+  readonly terrainUrl: string;
+  readonly finalHeightOffsetMeters: number;
+  readonly residualMeters: number;
+} | undefined;
 let appliedCodeRevision = 0;
 let appliedCodeAt: number | undefined;
 let lastAppliedCodeValues: Readonly<Record<string, unknown>> | undefined;
@@ -520,6 +550,9 @@ let currentProbeSourceUrl: string | undefined;
 let currentProbeGeneration: number | undefined;
 let currentProbeResult: CopcSourceProbeResult | undefined;
 let activePointFormat: number | undefined;
+let terrainAlignmentTestProvider = false;
+let terrainAlignmentTestPoint: CopcPointInspection | undefined;
+let delayNextTerrainTestEstimate = false;
 let cameraInteractionVersion = 0;
 let layerFactory: CesiumLayerFactory | undefined;
 let schemaPanel: ReturnType<typeof mountSchemaOptionPanel> | undefined;
@@ -609,6 +642,10 @@ declare global {
   interface Window {
     __COPC_PLAYGROUND_TEST__?: {
       useCameraResetLayerMock(): void;
+      useTerrainAlignmentMock(): void;
+      setMockSelectedPoint(point: CopcPointInspection | undefined): void;
+      getMockSelectedPoint(): CopcPointInspection | undefined;
+      delayNextTerrainEstimate(): void;
       delayNextLoad(): void;
       delayNextZoom(): void;
       failNextLoad(): void;
@@ -628,7 +665,9 @@ declare global {
       getPendingConfig(): IntegrationCodeConfig;
       getPickablePointScreenPosition(): { x: number; y: number } | undefined;
       getMockLayerCreateCount(): number;
+      getMockLayerHeightOffsetMeters(): number | undefined;
       getMockLayerSettings(): {
+        readonly pointSize?: number;
         readonly rangeValidation?: string;
         readonly attributeLoading?: string;
         readonly pointFields?: readonly string[];
@@ -661,8 +700,10 @@ if (import.meta.env.DEV) {
   let mockDestroyCount = 0;
   let mockZoomCount = 0;
   let mockLayerCreateCount = 0;
+  let mockLayerHeightOffsetMeters: number | undefined;
   let mockLayerSettings:
     | {
+        pointSize?: number;
         rangeValidation?: string;
         attributeLoading?: string;
         pointFields?: string[];
@@ -692,7 +733,9 @@ if (import.meta.env.DEV) {
     useCameraResetLayerMock(): void {
       layerFactory = (options) => {
         mockLayerCreateCount += 1;
+        mockLayerHeightOffsetMeters = options.heightOffsetMeters;
         mockLayerSettings = {
+          pointSize: options.pointSize,
           rangeValidation: options.rangeValidation,
           attributeLoading: options.attributeLoading,
           pointFields: options.pointFields ? [...options.pointFields] : undefined,
@@ -706,7 +749,7 @@ if (import.meta.env.DEV) {
         const configuredBackend = options.backend;
         mockBackendExtraDimensions =
           typeof configuredBackend === "object" && configuredBackend !== null
-            ? (configuredBackend as unknown as { extraDimensions?: unknown }).extraDimensions
+            ? (configuredBackend as unknown as { configuredExtraDimensions?: unknown }).configuredExtraDimensions
             : undefined;
         mockRefinementAlgorithm = options.streaming?.refinementAlgorithm;
         mockRefinementFocus = undefined;
@@ -767,8 +810,8 @@ if (import.meta.env.DEV) {
             }
             return true;
           },
-          getSelectedPoint(): undefined {
-            return undefined;
+          getSelectedPoint(): CopcPointInspection | undefined {
+            return terrainAlignmentTestPoint;
           },
           getSnapshot(): ReturnType<CopcCesiumLayer["getSnapshot"]> {
             return {
@@ -790,6 +833,59 @@ if (import.meta.env.DEV) {
           },
           getStyle(): CopcCesiumPointStyle {
             return structuredClone(mockStyle);
+          },
+          async estimateTerrainHeightAlignment(
+            anchor: CopcPointInspection,
+            estimateOptions?: { signal?: AbortSignal },
+          ): Promise<TerrainHeightAlignmentEstimate> {
+            const residual = 2;
+            const existingHeightOffsetMeters = options.heightOffsetMeters ?? 0;
+            const makeResult = (status: "ready" | "cancelled"): TerrainHeightAlignmentEstimate => ({
+              status,
+              actionable: status === "ready",
+              anchor: {
+                ...(anchor.ownerId === undefined ? {} : { ownerId: anchor.ownerId }),
+                nodeKey: anchor.nodeKey,
+                pointIndex: anchor.pointIndex,
+                longitudeDegrees: anchor.longitude,
+                latitudeDegrees: anchor.latitude,
+                displayedHeightMeters: anchor.height,
+                ...(anchor.source ? { source: anchor.source } : {}),
+                ...(anchor.classification === undefined ? {} : { classification: anchor.classification }),
+              },
+              ...(status === "ready" ? {
+                terrainHeightMeters: anchor.height + residual,
+                proposedOffsetMeters: residual,
+                effectiveProposedHeightOffsetMeters: existingHeightOffsetMeters + residual,
+              } : {}),
+              existingHeightOffsetMeters,
+              verticalReference: {
+                displayHeightReference: "wgs84-ellipsoidal",
+                conversion: "source-declared-ellipsoidal",
+              },
+              terrainProvider: { type: "FixtureTerrainProvider", hasTileAvailability: true },
+              terrainSourceId: "fixture terrain provider",
+              sourceId: "fixture COPC source",
+              terrainSamplingCalls: status === "ready" ? 1 : 0,
+              warnings: [],
+              ...(status === "cancelled" ? { rejectionReason: "Terrain estimate cancelled." } : {}),
+            });
+            if (delayNextTerrainTestEstimate) {
+              delayNextTerrainTestEstimate = false;
+              return await new Promise((resolve) => {
+                estimateOptions?.signal?.addEventListener("abort", () => resolve(makeResult("cancelled")), { once: true });
+              });
+            }
+            return makeResult("ready");
+          },
+          isTerrainHeightAlignmentEstimateCurrent(estimate: TerrainHeightAlignmentEstimate): boolean {
+            const estimatedAnchor = estimate.anchor;
+            const selectedAnchor = terrainAlignmentTestPoint;
+            return terrainAlignmentTestProvider && estimatedAnchor !== undefined &&
+              selectedAnchor !== undefined &&
+              estimatedAnchor.ownerId === selectedAnchor.ownerId &&
+              estimatedAnchor.nodeKey === selectedAnchor.nodeKey &&
+              estimatedAnchor.pointIndex === selectedAnchor.pointIndex;
           },
           setOpacity(opacity: number): void {
             mockOpacity = opacity;
@@ -845,6 +941,20 @@ if (import.meta.env.DEV) {
         } as unknown as ReturnType<CesiumLayerFactory>;
       };
     },
+    useTerrainAlignmentMock(): void {
+      terrainAlignmentTestProvider = true;
+      window.__COPC_PLAYGROUND_TEST__?.useCameraResetLayerMock();
+    },
+    setMockSelectedPoint(point): void {
+      terrainAlignmentTestPoint = point;
+      terrainAlignmentControl?.update();
+    },
+    getMockSelectedPoint(): CopcPointInspection | undefined {
+      return terrainAlignmentTestPoint;
+    },
+    delayNextTerrainEstimate(): void {
+      delayNextTerrainTestEstimate = true;
+    },
     delayNextLoad(): void {
       delayNextMockLoad = true;
     },
@@ -876,6 +986,7 @@ if (import.meta.env.DEV) {
     getAppliedConfig: () => appliedConfig ? structuredClone(appliedConfig) : undefined,
     getPendingConfig: () => structuredClone(pendingConfig),
     getMockLayerCreateCount: () => mockLayerCreateCount,
+    getMockLayerHeightOffsetMeters: () => mockLayerHeightOffsetMeters,
     getMockLayerSettings: () =>
       mockLayerSettings ? structuredClone(mockLayerSettings) : undefined,
     getMockBackendExtraDimensions: () => mockBackendExtraDimensions,
@@ -1002,7 +1113,7 @@ function handleSchemaOptionChange(optionId: string, value: unknown): void {
       {
         support: {
           manifest: NPM_0_7_1_MANIFEST,
-          runtimeCapabilities: NPM_0_7_1_CAPABILITIES,
+          runtimeCapabilities: PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES,
         },
       },
     );
@@ -1075,9 +1186,10 @@ schemaPanel = mountSchemaOptionPanel({
   context: {
     manifest: NPM_0_7_1_MANIFEST,
     renderer: pendingConfig.renderer,
-    runtimeCapabilities: NPM_0_7_1_CAPABILITIES,
+    runtimeCapabilities: PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES,
   },
   values: playgroundOptionValues(pendingConfig),
+  openSections: ["source", "renderer", "backend", "style", "coordinates"],
   sectionLabels: {
     attributes: "Advanced · Attributes",
     cache: "Advanced · Cache",
@@ -1089,6 +1201,102 @@ schemaPanel = mountSchemaOptionPanel({
     "rendering.cesiumPointRenderer",
     "coordinates.verticalTransform",
   ],
+  renderAction(action) {
+    if (action.id !== "coordinates.terrainAlignment") return undefined;
+    const actionTarget = document.createElement("div");
+    const control = mountTerrainAlignmentControl({
+      target: actionTarget,
+      getState: () => ({
+        contextKey: `${loadGeneration}:${appliedConfig?.renderer ?? pendingConfig.renderer}:${appliedConfig?.terrainUrl ?? pendingConfig.terrainUrl}`,
+        renderer: activeRuntime?.renderer ?? pendingConfig.renderer,
+        apiAvailable: NPM_0_7_1_CAPABILITIES.includes("cesium.terrain-alignment") &&
+          activeRuntime?.renderer === "cesium" &&
+          typeof activeRuntime.estimateTerrainHeightAlignment === "function",
+        apiUnavailableReason: "The Playground is pinned to published @frillab/copc-adapter 0.7.1; that release provides the single-anchor Terrain API, but not the batch API.",
+        batchAvailable: false,
+        providerAvailable: (import.meta.env.DEV && terrainAlignmentTestProvider) ||
+          activeRuntime?.terrainProviderAvailable === true,
+        providerStatus: import.meta.env.DEV && terrainAlignmentTestProvider
+          ? "Fixture Terrain provider · test controlled"
+          : activeRuntime?.terrainSourceStatus ??
+          (pendingConfig.terrainUrl.trim()
+            ? "Terrain source is not active yet. Apply changes to load it in the Cesium Viewer."
+            : "WGS84 ellipsoid only · no real Terrain elevations are available."),
+        selectedPoint: import.meta.env.DEV && terrainAlignmentTestProvider
+          ? terrainAlignmentTestPoint
+          : activeRuntime?.renderer === "cesium"
+            ? activeRuntime.getSelectedPoint()
+            : undefined,
+        heightOffsetMeters: appliedConfig?.heightOffsetMeters ?? pendingConfig.heightOffsetMeters,
+        applying: activeLoadPending,
+      }),
+      estimate: async (candidates, signal) => {
+        const runtime = activeRuntime;
+        const candidate = candidates[0];
+        if (!runtime || runtime.renderer !== "cesium" || !candidate || !runtime.estimateTerrainHeightAlignment) {
+          throw new Error("The published package or active Cesium runtime does not support Terrain alignment.");
+        }
+        return runtime.estimateTerrainHeightAlignment(candidate.anchor, {
+          ...(candidate.groundConfirmed === undefined ? {} : { groundConfirmed: candidate.groundConfirmed }),
+          signal,
+        });
+      },
+      isEstimateCurrent: (estimate) =>
+        activeRuntime?.renderer === "cesium" &&
+        (activeRuntime.isTerrainHeightAlignmentEstimateCurrent?.(
+          estimate as unknown as import("@frillab/copc-adapter/cesium").TerrainHeightAlignmentEstimate,
+        ) ?? false),
+      apply: async (finalHeightOffsetMeters, estimate) => {
+        if (!Number.isFinite(finalHeightOffsetMeters) || !appliedConfig || !appliedSource || !activeRuntime) return false;
+        const previousAppliedConfig = appliedConfig;
+        const appliedConfigWithApprovedOffset: IntegrationCodeConfig = {
+          ...clonePlaygroundConfig(appliedConfig),
+          heightOffsetMeters: finalHeightOffsetMeters,
+          refinementConfig: {
+            ...appliedConfig.refinementConfig,
+            center: { ...appliedConfig.refinementConfig.center },
+          },
+        };
+        const pendingConfigWithApprovedOffset: IntegrationCodeConfig = {
+          ...clonePlaygroundConfig(pendingConfig),
+          heightOffsetMeters: finalHeightOffsetMeters,
+          refinementConfig: {
+            ...pendingConfig.refinementConfig,
+            center: { ...pendingConfig.refinementConfig.center },
+          },
+        };
+        pendingConfig = pendingConfigWithApprovedOffset;
+        syncPendingControls();
+        await loadSource(appliedSource, activeSourceName, {
+          selectionGeneration: sourceSelectionGeneration,
+          preserveCamera: true,
+          config: appliedConfigWithApprovedOffset,
+          probeResult: activeProbeResult,
+        });
+        const applied = appliedConfig !== previousAppliedConfig &&
+          appliedConfig.renderer === "cesium" &&
+          appliedConfig.heightOffsetMeters === finalHeightOffsetMeters;
+        if (applied) {
+          approvedTerrainAlignmentProvenance = {
+            source: appliedSource,
+            terrainUrl: appliedConfig.terrainUrl,
+            finalHeightOffsetMeters,
+            residualMeters: estimate.proposedOffsetMeters ?? 0,
+          };
+          updateIntegrationExample();
+        }
+        return applied;
+      },
+    });
+    terrainAlignmentControl = control;
+    return {
+      element: actionTarget,
+      destroy() {
+        control.destroy();
+        if (terrainAlignmentControl === control) terrainAlignmentControl = undefined;
+      },
+    };
+  },
   renderSpecialControl: renderSharedSpecialControl,
   onChange: handleSchemaOptionChange,
   onValidationChange() {
@@ -1151,8 +1359,11 @@ function syncPendingControls(): void {
     context: { renderer: pendingConfig.renderer },
   });
   refinementConfig = pendingConfig.refinementConfig;
+  terrainProviderUrlInput.value = pendingConfig.terrainUrl;
+  terrainProviderUrlInput.disabled = pendingConfig.renderer !== "cesium";
   updateFocusControls();
   updateClassificationControls();
+  terrainAlignmentControl?.update();
 }
 
 function updateApplyState(): void {
@@ -1188,6 +1399,7 @@ function updateApplyState(): void {
     configState.textContent = "Active layer matches the applied settings.";
   }
   updateClassificationControls();
+  terrainAlignmentControl?.update();
   updateRemoteLoadState();
   updateIntegrationExample();
 }
@@ -1288,16 +1500,17 @@ function applyCesiumStyle(
     if (!isWorkbenchColorMode(style.colorMode)) {
       throw new Error("The active Cesium layer returned a color mode this Workbench does not offer.");
     }
+    const colorMode = style.colorMode;
     appliedConfig = {
       ...appliedConfig,
-      colorMode: style.colorMode,
+      colorMode,
       classificationFilter,
     };
     pendingConfig = {
       ...pendingConfig,
       ...(update.colorMode === undefined
         ? {}
-        : { colorMode: style.colorMode }),
+        : { colorMode }),
       ...(update.classificationFilter === undefined
         ? {}
         : { classificationFilter }),
@@ -1468,6 +1681,10 @@ function effectiveRefinementFocus(
 }
 
 function updateIntegrationExample(): void {
+  integrationCodePanel.setTerrainAlignmentRecipeAvailable(
+    pendingConfig.renderer === "cesium" &&
+      NPM_0_7_1_CAPABILITIES.includes("cesium.terrain-alignment"),
+  );
   const config = appliedConfig;
   if (!config || !activeRuntimeReady || appliedSource === undefined) {
     integrationCodePanel.setContent({
@@ -1508,6 +1725,16 @@ function updateIntegrationExample(): void {
     pendingRevision: appliedCodeRevision,
   };
   const panelState = integrationCodePanel.getState();
+  const approvedTerrainAlignment = config.renderer === "cesium" &&
+      approvedTerrainAlignmentProvenance &&
+      sameSource(approvedTerrainAlignmentProvenance.source, appliedSource) &&
+      approvedTerrainAlignmentProvenance.terrainUrl === config.terrainUrl &&
+      approvedTerrainAlignmentProvenance.finalHeightOffsetMeters === config.heightOffsetMeters
+    ? {
+        residualMeters: approvedTerrainAlignmentProvenance.residualMeters,
+        finalHeightOffsetMeters: approvedTerrainAlignmentProvenance.finalHeightOffsetMeters,
+      }
+    : undefined;
   try {
     const generated = generateIntegrationCodeResult({
       config,
@@ -1515,6 +1742,8 @@ function updateIntegrationExample(): void {
       mode: panelState.mode,
       adapterVersion: __ADAPTER_VERSION__,
       appliedState,
+      includeTerrainAlignmentRecipe: panelState.includeTerrainAlignmentRecipe,
+      ...(approvedTerrainAlignment ? { approvedTerrainAlignment } : {}),
       ...(appliedCodeAt === undefined ? {} : { appliedAt: appliedCodeAt }),
     });
     const appliedStatus = "appliedRevision" in generated
@@ -2416,6 +2645,8 @@ const loadSource = async (
         backend: loadConfig.backend,
         source,
         sourceName,
+        terrainUrl: loadConfig.terrainUrl,
+        heightOffsetMeters: loadConfig.heightOffsetMeters,
         colorMode: loadConfig.colorMode,
         pointSize: loadConfig.pointSize,
         maxNodes: loadConfig.maxNodes,
@@ -2429,7 +2660,10 @@ const loadSource = async (
         ...(loadConfig.classificationFilter === undefined ? {} : { classificationFilter: loadConfig.classificationFilter }),
         container: host,
         onPointPicked: (point) => {
-          if (activeRuntime === candidate) pointPopover.setSelection(point);
+          if (activeRuntime === candidate) {
+            pointPopover.setSelection(point);
+            terrainAlignmentControl?.update();
+          }
         },
         onPointPositionChanged: (position) => {
           if (activeRuntime === candidate)
@@ -2652,6 +2886,9 @@ customUrlInput.addEventListener("input", () => {
     invalidateSourceSelection();
     removeSharedSourceParam();
   }
+});
+terrainProviderUrlInput.addEventListener("input", () => {
+  updatePendingConfig({ terrainUrl: terrainProviderUrlInput.value.trim() });
 });
 
 probeSourceButton.addEventListener("click", async () => {

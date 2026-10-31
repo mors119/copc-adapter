@@ -1018,6 +1018,31 @@ test("Reset to defaults clears schema-only and inactive renderer settings before
   await page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.useCameraResetLayerMock());
 
   const renderer = page.getByRole("radiogroup", { name: "Renderer" });
+  const attributesSection = page.locator('details[data-section="attributes"]');
+  if (!(await attributesSection.evaluate((element: HTMLDetailsElement) => element.open))) {
+    await attributesSection.locator("summary").click();
+  }
+  await page.locator("#schema-attribute-loading").selectOption("required");
+  await page.locator("#schema-point-field-intensity").check();
+  await expect.poll(() => page.evaluate(() => {
+    const values = (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getPendingConfig().schemaOptionValues ?? {};
+    return [values["attributes.attributeLoading"], values["attributes.pointFields"]];
+  })).toEqual(["required", ["intensity"]]);
+
+  await renderer.getByRole("radio", { name: "Three.js" }).click();
+  await expect.poll(() => page.evaluate(() => {
+    const values = (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getPendingConfig().schemaOptionValues ?? {};
+    return [values["attributes.attributeLoading"], values["attributes.pointFields"]];
+  })).toEqual([undefined, undefined]);
+  await renderer.getByRole("radio", { name: "Cesium" }).click();
+  await expect.poll(() => page.evaluate(() => {
+    const values = (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getPendingConfig().schemaOptionValues ?? {};
+    return [values["attributes.attributeLoading"], values["attributes.pointFields"]];
+  })).toEqual(["required", ["intensity"]]);
+
   await renderer.getByRole("radio", { name: "Three.js" }).click();
   const streamingSection = page.locator('details[data-section="streaming"]');
   if (!(await streamingSection.evaluate((element: HTMLDetailsElement) => element.open))) {
@@ -1035,12 +1060,11 @@ test("Reset to defaults clears schema-only and inactive renderer settings before
 
   await renderer.getByRole("radio", { name: "Cesium" }).click();
   await expect.poll(() => page.evaluate(() =>
-    Object.hasOwn(
-      (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
-        .__COPC_PLAYGROUND_TEST__?.getPendingConfig().schemaOptionValues ?? {},
-      "streaming.maxConcurrentNodeLoads",
-    ),
-  )).toBe(false);
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getPendingConfig().schemaOptionValues?.[
+        "streaming.maxConcurrentNodeLoads"
+      ],
+  )).toBe(7);
 
   if (!(await streamingSection.evaluate((element: HTMLDetailsElement) => element.open))) {
     await streamingSection.locator("summary").click();

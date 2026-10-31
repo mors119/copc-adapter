@@ -17,6 +17,7 @@ import {
   NPM_0_6_MANIFEST,
   NPM_0_6_CAPABILITIES,
   NPM_0_7_1_MANIFEST,
+  PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES,
   NPM_0_7_1_CAPABILITIES,
   OPTION_SCHEMA,
   resolveOptionDefault,
@@ -194,6 +195,14 @@ test("schema integrity: IDs, mappings, defaults, controls, references, and capab
   assert.equal(new Set(WORKSPACE_CURRENT_MANIFEST.capabilities).size, WORKSPACE_CURRENT_MANIFEST.capabilities.length);
   assert.ok(!NPM_0_6_MANIFEST.supportedOptionIds.includes("coordinates.verticalTransform"));
   assert.ok(!NPM_0_6_MANIFEST.capabilities.includes("vertical.gtx-grid"));
+  assert.ok(!NPM_0_6_MANIFEST.capabilities.includes("cesium.terrain-alignment"));
+  assert.ok(NPM_0_7_1_MANIFEST.capabilities.includes("cesium.terrain-alignment"));
+  assert.ok(NPM_0_7_1_MANIFEST.capabilities.includes("vertical.gtx-grid"));
+  assert.ok(!PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES.includes("vertical.gtx-grid"));
+  assert.ok(NPM_0_7_1_CAPABILITIES.includes("cesium.attribute-loading"));
+  assert.ok(NPM_0_7_1_CAPABILITIES.includes("cesium.point-fields"));
+  assert.ok(NPM_0_7_1_CAPABILITIES.includes("cache.coordinate-layout"));
+  assert.ok(NPM_0_7_1_CAPABILITIES.includes("cache.source-coordinate-retention"));
   assert.ok(WORKSPACE_CURRENT_MANIFEST.supportedOptionIds.includes("coordinates.verticalTransform"));
   assert.ok(WORKSPACE_CURRENT_MANIFEST.capabilities.includes("vertical.gtx-grid"));
   for (const id of [
@@ -420,6 +429,10 @@ test("capability projection filters renderer, release support, runtime capabilit
     ["source.probe", "source.load"],
   );
   assert.deepEqual(
+    getAvailableActions({ manifest: NPM_0_7_1_MANIFEST, renderer: "cesium" }).map(({ id }) => id),
+    ["source.probe", "source.load", "coordinates.terrainAlignment"],
+  );
+  assert.deepEqual(
     getAvailableActions({
       manifest: WORKSPACE_CURRENT_MANIFEST,
       renderer: "cesium",
@@ -431,6 +444,10 @@ test("capability projection filters renderer, release support, runtime capabilit
       ({ id }) => id,
     ),
     ["source.probe", "source.load"],
+  );
+  assert.deepEqual(
+    getAvailableActions({ manifest: NPM_0_7_1_MANIFEST, renderer: "three" }).map(({ id }) => id),
+    ["source.probe", "source.load", "coordinates.terrainAlignment"],
   );
 });
 

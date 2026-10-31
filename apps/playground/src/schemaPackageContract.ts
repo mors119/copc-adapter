@@ -45,18 +45,17 @@ type StreamingCompatibilityExclusions =
 // This comparison covers schema-emitted constructor paths. Host setup and
 // runtime-setter options are checked through their separate contracts.
 type LayerCompatibilityExclusions =
+  | "classificationFilter"
+  | "clippingVolume"
   | "debug"
   | "decoder"
-  | "onPointPicked"
-  | "classificationFilter"
-  | "extraDimensions"
-  | "opacity"
-  | "clippingVolume"
   | "dimension"
   | "dimensionFilter"
   | "elevationRange"
   | "elevationStyle"
-  | "verticalTransform";
+  | "extraDimensions"
+  | "onPointPicked"
+  | "opacity";
 
 // Every declared user-facing npm 0.7.1 constructor path exists in its actual
 // published package types, and every public option is represented or is an
@@ -127,6 +126,9 @@ export type NpmClassificationFilterContract = Assert<
 >;
 export type NpmTerrainAlignmentPresent = Assert<
   HasMethod<CesiumLayer, "estimateTerrainHeightAlignment">
+>;
+export type NpmTerrainBatchAlignmentAbsent = Assert<
+  Equal<HasMethod<CesiumLayer, "estimateTerrainHeightAlignmentBatch">, false>
 >;
 export type NpmThreePickingContract = Assert<HasMethod<ThreeLayer, "pick">>;
 export type NpmBatchedRendererContract = Assert<

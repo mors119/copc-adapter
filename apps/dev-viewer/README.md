@@ -64,17 +64,23 @@ the Inspector reports the actual probe validation level and warnings. HEAD
 metadata is not cryptographic integrity verification. `strict` requires a
 readable matching `Content-Range` and does not fall back to HEAD.
 
-## Explicit Terrain alignment workflow
+## Shared Terrain estimate and approval
 
 The dev-viewer starts with the WGS 84 ellipsoid and imagery only. The ellipsoid
 is not measured local ground, and imagery has no elevation samples. To use
 Terrain, enter an explicitly configured Cesium quantized-mesh service root URL
-(the folder containing `layer.json`) in **Terrain and height alignment** and
-press **Apply Settings**. A trailing `/layer.json` is also accepted. A local
-unauthenticated source is supported. The viewer does not request Cesium ion
-credentials; Terrain endpoints containing URL credentials, query parameters,
-or fragments are rejected. If the source cannot load, the viewer remains usable
-over the ellipsoid and reports that Terrain is unavailable.
+(the folder containing `layer.json`) in **Terrain provider** and press **Apply
+Settings**. A trailing `/layer.json` is also accepted. A local unauthenticated
+source is supported. The viewer does not request Cesium ion credentials;
+Terrain endpoints containing URL credentials, query parameters, or fragments
+are rejected. If the source cannot load, the viewer remains usable over the
+ellipsoid and the shared Coordinates command reports that Terrain is unavailable.
+
+The same shared command is registered in both Workbench hosts. Dev Viewer uses
+the workspace single and batch estimators; the public Playground uses only the
+single-anchor API available in its exact published package. A real Terrain
+provider and the relevant package API are required. Three.js displays why the
+operation is unavailable and never simulates Cesium sampling.
 
 With a Cesium session active:
 
@@ -82,14 +88,20 @@ With a Cesium session active:
 2. Verify that it represents ground. LAS class 2 is accepted as classified
    ground; for another or missing classification, check **I confirm the
    selected point is ground** only after independent confirmation.
-3. Press **Estimate residual**. This samples one location through Cesium's
-   `sampleTerrainMostDetailed` API and does not change geometry.
-4. Review the displayed COPC height, sampled Terrain height, proposed delta,
-   current `heightOffsetMeters`, effective total offset, vertical-reference
-   status, Terrain source label, latency and warnings.
-5. Press **Apply proposed correction** only when the estimate is current and
-   actionable. The viewer rebuilds the layer with the approved total
-   `heightOffsetMeters`, from original COPC source coordinates.
+3. Add the selected point as a ground anchor. LAS class 2 is accepted as
+   classified ground; other or missing classifications need the explicit
+   confirmation above. Dev Viewer accepts up to eight distinct anchors and
+   reports accepted/rejected samples, median residual, and spread. With one
+   anchor it uses the compatible single-point estimate.
+4. Press **Estimate Terrain**. Sampling uses Cesium's
+   `sampleTerrainMostDetailed` API and does not change geometry. Review provider
+   and source provenance, vertical-reference assessment, sample outcomes,
+   residual, existing offset, proposed total, and warnings.
+5. Make an optional fine adjustment within ±100 cm, then choose **Approve and
+   apply**. The viewer rebuilds the layer using the final total
+   `heightOffsetMeters`, starting from the original COPC source coordinates.
+   **Reset anchors and estimate** clears the proposal without changing the
+   applied offset. An estimate never applies automatically.
 
 For a non-class-2 ground anchor, confirmation is an explicit caller judgment,
 not independent classification evidence. If the source height is NAVD88 or

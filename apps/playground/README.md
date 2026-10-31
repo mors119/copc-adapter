@@ -14,6 +14,34 @@ Viewer aliases the workspace package source and keeps its fixture middleware
 and developer modules in its own entrypoint. CI separately packs the working
 commit and installs that candidate into isolated consumers.
 
+## Terrain placement estimate
+
+The Playground is pinned to published `@frillab/copc-adapter` 0.7.1. That
+release exposes the single-anchor Cesium Terrain estimate API, so the shared
+Coordinates command can estimate one selected COPC point. It does not expose
+the batch API; Dev Viewer uses the workspace build for multi-anchor estimates.
+Three.js and the ellipsoid-only Cesium viewer cannot sample Terrain, and the
+command explains that state instead of estimating against a placeholder.
+
+To enable an estimate, enter a consumer-owned Cesium quantized-mesh service
+root URL (the folder containing `layer.json`) in **Terrain provider**, then
+apply the settings. The Playground loads it into its own Cesium Viewer. This
+URL stays out of share links and copied adapter configuration. Select a point,
+confirm ground status unless it is LAS class 2, and choose **Estimate Terrain**.
+The shared preview shows the provider, source and vertical-reference status,
+sample result, residual, current manual `heightOffsetMeters`, and proposed
+total. You can adjust the proposal by up to ±100 cm and must choose **Approve
+and apply** to rebuild the active layer. Reset clears the estimate without
+changing the applied offset. Estimates never modify source XYZ or apply by
+themselves.
+
+Terrain alignment is a visual placement estimate, not a geoid correction or
+survey-grade vertical conversion. Orthometric or unknown source heights remain
+uncertain until a verified vertical conversion is configured. The generated
+code panel derives its applied settings from the successfully rebuilt layer;
+Terrain placement provenance appears only after explicit approval and while
+the approved source, provider, and final offset remain active.
+
 Refinement can use the public `foveated` strategy (the default) or the legacy
 `screen-projection` strategy. In Cesium, Focus Lens modes can prioritize the
 center, follow the pointer, or keep a pinned screen-space circle. Lens movement,

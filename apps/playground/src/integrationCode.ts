@@ -1,7 +1,7 @@
 import type { RefinementFocus } from "@frillab/copc-adapter/cesium";
 import type { WorkbenchRenderer } from "../../shared/workbench-config";
 import {
-  NPM_0_7_1_CAPABILITIES,
+  PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES,
   NPM_0_7_1_MANIFEST,
 } from "../../shared/schema/index.ts";
 import {
@@ -27,6 +27,11 @@ export type IntegrationCodeOptions = {
   readonly mode?: IntegrationCodeMode;
   readonly adapterVersion: string;
   readonly refinementFocus?: RefinementFocus;
+  readonly includeTerrainAlignmentRecipe?: boolean;
+  readonly approvedTerrainAlignment?: {
+    readonly residualMeters: number;
+    readonly finalHeightOffsetMeters: number;
+  };
   /** When present, code comes from `state.applied`; pending values only drive status. */
   readonly appliedState?: WorkbenchConfigurationState;
   readonly appliedAt?: number;
@@ -52,9 +57,11 @@ export function generateIntegrationCodeResult(
       state: options.appliedState,
       ...(options.appliedAt === undefined ? {} : { appliedAt: options.appliedAt }),
       includeExactSource: options.includeExactSource,
+      includeTerrainAlignmentRecipe: options.includeTerrainAlignmentRecipe,
+      approvedTerrainAlignment: options.approvedTerrainAlignment,
       mode: options.mode,
       manifest: NPM_0_7_1_MANIFEST,
-      runtimeCapabilities: NPM_0_7_1_CAPABILITIES,
+      runtimeCapabilities: PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES,
       adapterVersion: options.adapterVersion,
       packageOriginLabel: "verified npm release",
     });
@@ -72,9 +79,11 @@ export function generateIntegrationCodeResult(
     values,
     ...(options.source === undefined ? {} : { source: options.source }),
     includeExactSource: options.includeExactSource,
+    includeTerrainAlignmentRecipe: options.includeTerrainAlignmentRecipe,
+    approvedTerrainAlignment: options.approvedTerrainAlignment,
     mode: options.mode,
     manifest: NPM_0_7_1_MANIFEST,
-    runtimeCapabilities: NPM_0_7_1_CAPABILITIES,
+    runtimeCapabilities: PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES,
     adapterVersion: options.adapterVersion,
     packageOriginLabel: "verified npm release",
   });
