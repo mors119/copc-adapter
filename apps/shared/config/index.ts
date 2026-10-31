@@ -6,6 +6,7 @@ export {
   discardWorkbenchPending,
   getChangedWorkbenchOptionIds,
   isWorkbenchConfigurationDirty,
+  materializeWorkbenchConstructorOptions,
   normalizeWorkbenchOptionValues,
   resolveSchemaBackendSelection,
   replaceWorkbenchConfiguration,

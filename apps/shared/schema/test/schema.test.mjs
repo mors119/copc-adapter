@@ -16,6 +16,8 @@ import {
   isKnownManifest,
   NPM_0_6_MANIFEST,
   NPM_0_6_CAPABILITIES,
+  NPM_0_7_1_MANIFEST,
+  NPM_0_7_1_CAPABILITIES,
   OPTION_SCHEMA,
   resolveOptionDefault,
   serializeSchemaValues,
@@ -55,6 +57,7 @@ test("schema integrity: IDs, mappings, defaults, controls, references, and capab
   assert.equal(new Set(ids).size, ids.length);
   const capabilities = new Set([
     ...NPM_0_6_CAPABILITIES,
+    ...NPM_0_7_1_CAPABILITIES,
     ...WORKSPACE_CURRENT_CAPABILITIES,
   ]);
   const sections = new Set([
@@ -63,6 +66,7 @@ test("schema integrity: IDs, mappings, defaults, controls, references, and capab
   ]);
   const controls = new Set([
     "source", "renderer", "select", "attribute-selection", "number", "toggle",
+    "attribute-loading", "point-field-selection",
     "classification-filter", "focus-lens", "opacity", "clipping-volume",
     "vertical-grid", "cesium-renderer",
   ]);
@@ -80,8 +84,8 @@ test("schema integrity: IDs, mappings, defaults, controls, references, and capab
   };
   const controlsByValueType = {
     "input-source": ["source"],
-    enum: ["select", "renderer", "cesium-renderer"],
-    "string-array": ["attribute-selection"],
+    enum: ["select", "renderer", "cesium-renderer", "attribute-loading"],
+    "string-array": ["attribute-selection", "point-field-selection"],
     number: ["number", "opacity"],
     integer: ["number"],
     boolean: ["toggle"],
@@ -164,7 +168,7 @@ test("schema integrity: IDs, mappings, defaults, controls, references, and capab
       }
     }
     for (const profile of Object.keys(option.defaults)) {
-      assert.ok(["npm@0.6.0", "workspace@0.7.1"].includes(profile), option.id + " default profile " + profile);
+      assert.ok(["npm@0.6.0", "npm@0.7.1", "workspace@0.7.1"].includes(profile), option.id + " default profile " + profile);
       const entry = option.defaults[profile];
       assert.ok(["value", "omitted", "derived"].includes(entry.kind), option.id + " default kind");
       if (entry.kind === "value") assert.deepEqual(validateOptionValue(option, entry.value), [], option.id + " default value");
@@ -180,21 +184,39 @@ test("schema integrity: IDs, mappings, defaults, controls, references, and capab
   }
   assert.deepEqual(WORKSPACE_CURRENT_MANIFEST.supportedOptionIds, ids);
   assert.equal(new Set(NPM_0_6_MANIFEST.supportedOptionIds).size, NPM_0_6_MANIFEST.supportedOptionIds.length);
+  assert.equal(new Set(NPM_0_7_1_MANIFEST.supportedOptionIds).size, NPM_0_7_1_MANIFEST.supportedOptionIds.length);
   assert.ok(NPM_0_6_MANIFEST.supportedOptionIds.every((id) => ids.includes(id)));
   assert.ok(NPM_0_6_MANIFEST.supportedOptionIds.every((id) => NPM_0_6_MANIFEST.defaults[id]));
+  assert.ok(NPM_0_7_1_MANIFEST.supportedOptionIds.every((id) => NPM_0_7_1_MANIFEST.defaults[id]));
   assert.ok(ids.every((id) => WORKSPACE_CURRENT_MANIFEST.defaults[id]));
   assert.equal(new Set(NPM_0_6_MANIFEST.capabilities).size, NPM_0_6_MANIFEST.capabilities.length);
+  assert.equal(new Set(NPM_0_7_1_MANIFEST.capabilities).size, NPM_0_7_1_MANIFEST.capabilities.length);
   assert.equal(new Set(WORKSPACE_CURRENT_MANIFEST.capabilities).size, WORKSPACE_CURRENT_MANIFEST.capabilities.length);
   assert.ok(!NPM_0_6_MANIFEST.supportedOptionIds.includes("coordinates.verticalTransform"));
   assert.ok(!NPM_0_6_MANIFEST.capabilities.includes("vertical.gtx-grid"));
   assert.ok(WORKSPACE_CURRENT_MANIFEST.supportedOptionIds.includes("coordinates.verticalTransform"));
   assert.ok(WORKSPACE_CURRENT_MANIFEST.capabilities.includes("vertical.gtx-grid"));
+  for (const id of [
+    "attributes.attributeLoading",
+    "attributes.pointFields",
+    "cache.coordinateCacheLayout",
+    "cache.retainSourceCoordinatesForQueries",
+  ]) {
+    assert.ok(NPM_0_7_1_MANIFEST.supportedOptionIds.includes(id), id + " is present in npm 0.7.1");
+    assert.ok(!NPM_0_6_MANIFEST.supportedOptionIds.includes(id), id + " is absent from npm 0.6.0");
+    assert.ok(WORKSPACE_CURRENT_MANIFEST.supportedOptionIds.includes(id), id + " is present in the workspace");
+  }
+  assert.ok(NPM_0_6_MANIFEST.supportedOptionIds.includes("streaming.maxConcurrentNodeLoads"));
+  assert.ok(NPM_0_6_MANIFEST.unsupportedOptionIdsByRenderer.cesium?.includes("streaming.maxConcurrentNodeLoads"));
+  assert.ok(NPM_0_7_1_MANIFEST.supportedOptionIds.includes("streaming.maxConcurrentNodeLoads"));
 });
 
 test("public release and workspace profiles resolve only known package versions", () => {
   assert.equal(isKnownManifest(NPM_0_6_MANIFEST), true);
+  assert.equal(isKnownManifest(NPM_0_7_1_MANIFEST), true);
   assert.equal(isKnownManifest(WORKSPACE_CURRENT_MANIFEST), true);
   assert.equal(getAdapterManifest("npm", "0.6.0"), NPM_0_6_MANIFEST);
+  assert.equal(getAdapterManifest("npm", "0.7.1"), NPM_0_7_1_MANIFEST);
   assert.equal(
     getAdapterManifest("workspace", "0.7.1"),
     WORKSPACE_CURRENT_MANIFEST,
@@ -224,12 +246,12 @@ test("package profiles match the actual pinned and workspace package versions", 
 
   assert.equal(
     playground.devDependencies["@frillab/copc-adapter"],
-    NPM_0_6_MANIFEST.version,
+    NPM_0_7_1_MANIFEST.version,
   );
   assert.equal(workspace.version, WORKSPACE_CURRENT_MANIFEST.version);
   assert.equal(
     playgroundLock.packages["node_modules/@frillab/copc-adapter"].version,
-    NPM_0_6_MANIFEST.version,
+    NPM_0_7_1_MANIFEST.version,
   );
   assert.match(
     playgroundLock.packages["node_modules/@frillab/copc-adapter"].resolved,
@@ -241,8 +263,8 @@ test("package profiles match the actual pinned and workspace package versions", 
     "../../packages",
   );
   assert.equal(devViewerLock.packages["node_modules/@frillab/copc-adapter"].link, true);
-  for (const id of NPM_0_6_MANIFEST.supportedOptionIds) {
-    assert.ok(NPM_0_6_MANIFEST.defaults[id], "missing npm default manifest entry for " + id);
+  for (const id of NPM_0_7_1_MANIFEST.supportedOptionIds) {
+    assert.ok(NPM_0_7_1_MANIFEST.defaults[id], "missing npm default manifest entry for " + id);
   }
 });
 
@@ -252,10 +274,23 @@ test("opacity and Cesium clipping support follows the verified package and rende
   assert.ok(opacity.packageUnavailableMessage);
   assert.ok(clipping.packageUnavailableMessage);
   assert.ok(clipping.rendererUnavailableMessage);
+  assert.ok(NPM_0_7_1_MANIFEST.supportedOptionIds.includes(opacity.id));
+  assert.ok(NPM_0_7_1_MANIFEST.supportedOptionIds.includes(clipping.id));
+  assert.ok(NPM_0_7_1_MANIFEST.capabilities.includes("renderer.layer-opacity"));
+  assert.ok(NPM_0_7_1_MANIFEST.capabilities.includes("cesium.clipping-volume"));
   assert.ok(!NPM_0_6_MANIFEST.supportedOptionIds.includes(opacity.id));
   assert.ok(!NPM_0_6_MANIFEST.supportedOptionIds.includes(clipping.id));
   assert.ok(!NPM_0_6_MANIFEST.capabilities.includes("renderer.layer-opacity"));
   assert.ok(!NPM_0_6_MANIFEST.capabilities.includes("cesium.clipping-volume"));
+
+  const npm071 = {
+    manifest: NPM_0_7_1_MANIFEST,
+    runtimeCapabilities: NPM_0_7_1_CAPABILITIES,
+  };
+  assert.ok(getSupportedOptions({ ...npm071, renderer: "cesium" }).some(({ id }) => id === opacity.id));
+  assert.ok(getSupportedOptions({ ...npm071, renderer: "three" }).some(({ id }) => id === opacity.id));
+  assert.ok(getSupportedOptions({ ...npm071, renderer: "cesium" }).some(({ id }) => id === clipping.id));
+  assert.ok(!getSupportedOptions({ ...npm071, renderer: "three" }).some(({ id }) => id === clipping.id));
 
   const workspace = {
     manifest: WORKSPACE_CURRENT_MANIFEST,
@@ -284,6 +319,13 @@ test("capability projection filters renderer, release support, runtime capabilit
       ({ id }) => id === "streaming.maxConcurrentNodeLoads",
     ),
     "npm 0.6.0 Cesium declarations do not expose maxConcurrentNodeLoads",
+  );
+  assert.ok(
+    getSupportedOptions({
+      manifest: NPM_0_7_1_MANIFEST,
+      renderer: "cesium",
+    }).some(({ id }) => id === "streaming.maxConcurrentNodeLoads"),
+    "npm 0.7.1 exposes maxConcurrentNodeLoads for Cesium",
   );
   assert.ok(
     !getSupportedOptions(cesiumContext).some(
@@ -390,6 +432,60 @@ test("capability projection filters renderer, release support, runtime capabilit
     ),
     ["source.probe", "source.load"],
   );
+});
+
+test("attribute and cache controls follow exact package, renderer, and loading dependencies", () => {
+  const npm071Cesium = {
+    manifest: NPM_0_7_1_MANIFEST,
+    renderer: "cesium",
+    runtimeCapabilities: NPM_0_7_1_CAPABILITIES,
+  };
+  const requiredFields = getAvailableOptions({
+    ...npm071Cesium,
+    values: { "attributes.attributeLoading": "required" },
+  });
+  assert.ok(requiredFields.some(({ id }) => id === "attributes.attributeLoading"));
+  assert.ok(requiredFields.some(({ id }) => id === "attributes.pointFields"));
+  assert.ok(requiredFields.some(({ id }) => id === "cache.coordinateCacheLayout"));
+  assert.ok(requiredFields.some(({ id }) => id === "cache.retainSourceCoordinatesForQueries"));
+
+  const allFields = getAvailableOptions({ ...npm071Cesium, values: {} });
+  assert.ok(allFields.some(({ id }) => id === "attributes.attributeLoading"));
+  assert.ok(!allFields.some(({ id }) => id === "attributes.pointFields"));
+  assert.ok(!getSupportedOptions(cesiumContext).some(({ id }) => id === "attributes.attributeLoading"));
+
+  const three = getSupportedOptions({ ...npm071Cesium, renderer: "three" });
+  assert.ok(!three.some(({ id }) => id === "attributes.attributeLoading"));
+  assert.ok(!three.some(({ id }) => id === "attributes.pointFields"));
+  assert.ok(three.some(({ id }) => id === "cache.coordinateCacheLayout"));
+  assert.ok(three.some(({ id }) => id === "cache.retainSourceCoordinatesForQueries"));
+
+  const pointFields = getOptionDefinition("attributes.pointFields");
+  assert.match(validateOptionValue(pointFields, ["intensity", "not-a-standard-field"]).join(" "), /only: intensity, classification, rgb/u);
+});
+
+test("attribute and cache policy values round-trip through safe share state", () => {
+  const context = {
+    manifest: NPM_0_7_1_MANIFEST,
+    renderer: "cesium",
+    runtimeCapabilities: NPM_0_7_1_CAPABILITIES,
+  };
+  const values = {
+    "renderer.engine": "cesium",
+    "adapter.backend": "copc-js",
+    "rendering.colorMode": "rgb",
+    "attributes.attributeLoading": "required",
+    "attributes.pointFields": ["intensity", "classification"],
+    "cache.coordinateCacheLayout": "E",
+    "cache.retainSourceCoordinatesForQueries": true,
+  };
+  const query = serializeSchemaValues(values, context);
+  assert.equal(query.get("attributeLoading"), "required");
+  assert.deepEqual(JSON.parse(query.get("pointFields")), ["intensity", "classification"]);
+  assert.equal(query.get("coordinateCacheLayout"), "E");
+  assert.equal(query.get("retainSourceCoordinatesForQueries"), "true");
+  const restored = deserializeSchemaValues(query, context);
+  for (const id of Object.keys(values)) assert.deepEqual(restored.values[id], values[id], id);
 });
 
 test("versioned defaults preserve verified values and delegate derived behavior to the adapter", () => {

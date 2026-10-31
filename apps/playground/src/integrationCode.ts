@@ -1,8 +1,8 @@
 import type { RefinementFocus } from "@frillab/copc-adapter/cesium";
 import type { WorkbenchRenderer } from "../../shared/workbench-config";
 import {
-  NPM_0_6_CAPABILITIES,
-  NPM_0_6_MANIFEST,
+  NPM_0_7_1_CAPABILITIES,
+  NPM_0_7_1_MANIFEST,
 } from "../../shared/schema/index.ts";
 import {
   generateAppliedWorkbenchIntegrationCode,
@@ -36,8 +36,8 @@ export type IntegrationCodeGenerationResult = SharedIntegrationCodeGenerationRes
   AppliedIntegrationCodeGenerationResult;
 
 export const PLAYGROUND_INSTALL_COMMANDS: Readonly<Record<WorkbenchRenderer, string>> = {
-  cesium: `npm install @frillab/copc-adapter@${NPM_0_6_MANIFEST.version} cesium@1.146.0`,
-  three: `npm install @frillab/copc-adapter@${NPM_0_6_MANIFEST.version} three@0.186.1`,
+  cesium: `npm install @frillab/copc-adapter@${NPM_0_7_1_MANIFEST.version} cesium@1.146.0`,
+  three: `npm install @frillab/copc-adapter@${NPM_0_7_1_MANIFEST.version} three@0.186.1`,
 };
 
 export { isPotentiallySensitiveSource };
@@ -53,8 +53,8 @@ export function generateIntegrationCodeResult(
       ...(options.appliedAt === undefined ? {} : { appliedAt: options.appliedAt }),
       includeExactSource: options.includeExactSource,
       mode: options.mode,
-      manifest: NPM_0_6_MANIFEST,
-      runtimeCapabilities: NPM_0_6_CAPABILITIES,
+      manifest: NPM_0_7_1_MANIFEST,
+      runtimeCapabilities: NPM_0_7_1_CAPABILITIES,
       adapterVersion: options.adapterVersion,
       packageOriginLabel: "verified npm release",
     });
@@ -73,8 +73,8 @@ export function generateIntegrationCodeResult(
     ...(options.source === undefined ? {} : { source: options.source }),
     includeExactSource: options.includeExactSource,
     mode: options.mode,
-    manifest: NPM_0_6_MANIFEST,
-    runtimeCapabilities: NPM_0_6_CAPABILITIES,
+    manifest: NPM_0_7_1_MANIFEST,
+    runtimeCapabilities: NPM_0_7_1_CAPABILITIES,
     adapterVersion: options.adapterVersion,
     packageOriginLabel: "verified npm release",
   });

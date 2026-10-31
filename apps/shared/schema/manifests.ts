@@ -58,10 +58,40 @@ const npm06Capabilities = [
   "three.point-picking",
 ] as const;
 
+const npm071SupportedOptionIds = [
+  ...npm06SupportedOptionIds,
+  "rendering.opacity",
+  "filtering.cesiumClippingVolume",
+  "attributes.attributeLoading",
+  "attributes.pointFields",
+  "cache.coordinateCacheLayout",
+  "cache.retainSourceCoordinatesForQueries",
+] as const;
+
+const npm071Capabilities = [
+  ...npm06Capabilities,
+  "renderer.layer-opacity",
+  "cesium.clipping-volume",
+  "cesium.attribute-loading",
+  "cesium.point-fields",
+  "cache.coordinate-layout",
+  "cache.source-coordinate-retention",
+] as const;
+
+/** Numeric reset values for npm 0.7.1, whose setter cannot clear an override. */
+export const NPM_0_7_1_OPACITY_RESET_VALUES = {
+  cesium: 1,
+  three: 0.9,
+} as const;
+
 const workspaceCapabilities = [
   ...npm06Capabilities,
   "renderer.layer-opacity",
   "cesium.clipping-volume",
+  "cesium.attribute-loading",
+  "cesium.point-fields",
+  "cache.coordinate-layout",
+  "cache.source-coordinate-retention",
   "cesium.terrain-alignment",
   "vertical.gtx-grid",
 ] as const;
@@ -117,6 +147,15 @@ export const NPM_0_6_MANIFEST = createManifest(
   { cesium: ["streaming.maxConcurrentNodeLoads"] },
 );
 
+/** Exact compatibility manifest for the published Playground package with opacity, clipping, and cache policy APIs. */
+export const NPM_0_7_1_MANIFEST = createManifest(
+  "npm",
+  "0.7.1",
+  npm071SupportedOptionIds,
+  npm071Capabilities,
+  {},
+);
+
 /**
  * The workspace profile follows the current audited source schema. New schema
  * definitions therefore become available to Dev Viewer without maintaining a
@@ -130,7 +169,10 @@ export const WORKSPACE_CURRENT_MANIFEST = createManifest(
   {},
 );
 
-const npmManifests = new Map<string, AdapterManifest>([[NPM_0_6_MANIFEST.version, NPM_0_6_MANIFEST]]);
+const npmManifests = new Map<string, AdapterManifest>([
+  [NPM_0_6_MANIFEST.version, NPM_0_6_MANIFEST],
+  [NPM_0_7_1_MANIFEST.version, NPM_0_7_1_MANIFEST],
+]);
 const workspaceManifests = new Map<string, AdapterManifest>([
   [WORKSPACE_CURRENT_MANIFEST.version, WORKSPACE_CURRENT_MANIFEST],
 ]);
@@ -152,4 +194,6 @@ export function getAdapterManifest(
 
 export const NPM_0_6_SUPPORTED_OPTION_IDS = npm06SupportedOptionIds;
 export const NPM_0_6_CAPABILITIES = npm06Capabilities;
+export const NPM_0_7_1_SUPPORTED_OPTION_IDS = npm071SupportedOptionIds;
+export const NPM_0_7_1_CAPABILITIES = npm071Capabilities;
 export const WORKSPACE_CURRENT_CAPABILITIES = workspaceCapabilities;

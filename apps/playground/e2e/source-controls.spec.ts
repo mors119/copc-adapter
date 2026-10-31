@@ -28,13 +28,26 @@ type PlaygroundTestHooks = {
   releaseDelayedZoom(): void;
   failNextLoad(): void;
   failNextStyle(): void;
+  failNextMissingAttributeStyle(): void;
   getMockZoomCount(): number;
   getMockLoadCount(): number;
   getMockDestroyCount(): number;
+  getMockLayerCreateCount(): number;
   getMockStyleUpdateCount(): number;
+  getMockOpacity(): number | undefined;
+  getMockClippingVolume(): {
+    readonly type: "box" | "planes";
+    readonly coordinateSystem: "wgs84-ecef-meters";
+    readonly minimum?: readonly [number, number, number];
+    readonly maximum?: readonly [number, number, number];
+  } | undefined;
   getAppliedConfig(): { pointSize: number; colorMode: string; maxNodes?: number } | undefined;
   getMockLayerSettings(): {
     rangeValidation?: string;
+    attributeLoading?: string;
+    pointFields?: readonly string[];
+    coordinateCacheLayout?: string;
+    retainSourceCoordinatesForQueries?: boolean;
     streaming?: { motionLookahead?: boolean; predictivePrefetch?: boolean };
   } | undefined;
   getMockBackendExtraDimensions(): unknown;
@@ -154,6 +167,17 @@ test("forwards schema-only settings to the created Playground runtime", async ({
     .getByRole("radio", { name: "Off" }).click();
   await page.getByRole("checkbox", { name: "Predictive Prefetch" }).check();
 
+  await page.locator('details[data-section="attributes"] summary').click();
+  await expect(page.locator("#schema-point-field-intensity")).toBeHidden();
+  await page.locator("#schema-attribute-loading").selectOption("required");
+  await expect(page.locator("#schema-point-field-intensity")).toBeVisible();
+  await page.locator("#schema-point-field-intensity").check();
+  await expect(page.locator(".schema-special-attribute-loading .schema-option__hint"))
+    .toContainText("Pick metadata can include: Position, Intensity");
+  await page.locator('details[data-section="cache"] summary').click();
+  await page.locator('[data-option-id="cache.coordinateCacheLayout"] select').selectOption("E");
+  await page.locator('[data-option-id="cache.retainSourceCoordinatesForQueries"] input[type="checkbox"]').check();
+
   await page.locator("#copc-file").setInputFiles({
     name: "schema-options.copc.laz",
     mimeType: "application/octet-stream",
@@ -167,8 +191,130 @@ test("forwards schema-only settings to the created Playground runtime", async ({
   );
   expect(settings).toMatchObject({
     rangeValidation: "strict",
+    attributeLoading: "required",
+    pointFields: ["intensity"],
+    coordinateCacheLayout: "E",
+    retainSourceCoordinatesForQueries: true,
     streaming: { motionLookahead: false, predictivePrefetch: true },
   });
+});
+
+test("applies opacity and Cesium clipping to the active layer without reloading the source", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.goto("./");
+  await page.evaluate(() => {
+    const hooks = (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__;
+    if (!hooks) throw new Error("Playground test hooks are unavailable");
+    hooks.useCameraResetLayerMock();
+  });
+  await page.locator("#copc-file").setInputFiles({
+    name: "runtime-settings.copc.laz",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("local test source"),
+  });
+  await expect(page.locator("#source-status")).toHaveText("Loaded runtime-settings.copc.laz");
+
+  const initialCounts = await page.evaluate(() => {
+    const hooks = (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__;
+    return {
+      layers: hooks?.getMockLayerCreateCount(),
+      loads: hooks?.getMockLoadCount(),
+    };
+  });
+  await page.locator("#schema-opacity-use-default").uncheck();
+  await page.locator("#schema-opacity-value").fill("0.4");
+  await page.locator("#schema-opacity-value").dispatchEvent("change");
+  await page.locator("#apply-changes").evaluate((button: HTMLButtonElement) => button.click());
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getMockOpacity(),
+  )).toBe(0.4);
+  expect(await page.evaluate(() => {
+    const hooks = (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__;
+    return { layers: hooks?.getMockLayerCreateCount(), loads: hooks?.getMockLoadCount() };
+  })).toEqual(initialCounts);
+
+  await page.locator("#schema-opacity-use-default").check();
+  await page.locator("#apply-changes").evaluate((button: HTMLButtonElement) => button.click());
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getMockOpacity(),
+  )).toBe(1);
+
+  const filteringSection = page.locator('details[data-section="filtering"]');
+  if (!(await filteringSection.evaluate((element: HTMLDetailsElement) => element.open))) {
+    await filteringSection.locator("summary").evaluate((summary: HTMLElement) => summary.click());
+  }
+  await page.locator("#schema-clipping-enabled").check();
+  for (const [id, value] of [
+    ["schema-clipping-min-x", "-1"],
+    ["schema-clipping-min-y", "-1"],
+    ["schema-clipping-min-z", "-1"],
+    ["schema-clipping-max-x", "1"],
+    ["schema-clipping-max-y", "1"],
+    ["schema-clipping-max-z", "1"],
+  ]) {
+    const input = page.locator(`#${id}`);
+    await input.fill(value);
+    await input.dispatchEvent("change");
+  }
+  await page.locator("#apply-changes").evaluate((button: HTMLButtonElement) => button.click());
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getMockClippingVolume(),
+  )).toEqual({
+    type: "box",
+    coordinateSystem: "wgs84-ecef-meters",
+    minimum: [-1, -1, -1],
+    maximum: [1, 1, 1],
+  });
+  expect(await page.evaluate(() => {
+    const hooks = (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__;
+    return { layers: hooks?.getMockLayerCreateCount(), loads: hooks?.getMockLoadCount() };
+  })).toEqual(initialCounts);
+});
+
+test("required attribute style errors explain that no field was fetched", async ({ page }) => {
+  await page.goto("./");
+  await page.evaluate(() => {
+    const hooks = (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__;
+    if (!hooks) throw new Error("Playground test hooks are unavailable");
+    hooks.useCameraResetLayerMock();
+  });
+
+  await page.locator('details[data-section="attributes"] summary').click();
+  await page.locator("#schema-attribute-loading").selectOption("required");
+  await page.locator("#copc-file").setInputFiles({
+    name: "required-fields.copc.laz",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("local test source"),
+  });
+  await expect(page.locator("#source-status")).toHaveText("Loaded required-fields.copc.laz");
+  const loadCount = await page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getMockLoadCount(),
+  );
+
+  await page.evaluate(() => {
+    const target = window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks };
+    const hooks = target.__COPC_PLAYGROUND_TEST__;
+    if (!hooks) throw new Error("Playground test hooks are unavailable");
+    hooks.failNextMissingAttributeStyle();
+  });
+  await page.getByRole("radiogroup", { name: "Color mode" }).getByRole("radio", { name: "Intensity" }).click();
+
+  await expect(page.locator("#style-error")).toContainText("No field was fetched");
+  await expect(page.locator("#style-error")).toContainText("All or add the field under Additional standard fields");
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks })
+      .__COPC_PLAYGROUND_TEST__?.getMockLoadCount(),
+  )).toBe(loadCount);
+  await expect(page.locator("#integration-example")).not.toContainText('colorMode: \'intensity\'');
 });
 
 test("the same local file can be selected again after loading another source", async ({

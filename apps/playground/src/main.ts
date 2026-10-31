@@ -13,11 +13,13 @@ import {
   type UiSegmentOption,
 } from "../../shared/ui-controls";
 import {
-  NPM_0_6_CAPABILITIES,
-  NPM_0_6_MANIFEST,
+  NPM_0_7_1_CAPABILITIES,
+  NPM_0_7_1_MANIFEST,
   getOptionDefinition,
 } from "../../shared/schema/index.ts";
 import {
+  applySchemaRuntimeOperations,
+  buildSchemaApplicationPlan,
   createWorkbenchConfigurationState,
   getChangedWorkbenchOptionIds,
   normalizeWorkbenchOptionValues,
@@ -88,6 +90,18 @@ import "../../shared/workbench/workbench.css";
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("The Playground application root is missing.");
+
+const WORKBENCH_COLOR_MODES = new Set<PlaygroundColorMode>([
+  "fixed",
+  "rgb",
+  "elevation",
+  "intensity",
+  "classification",
+]);
+
+function isWorkbenchColorMode(value: string): value is PlaygroundColorMode {
+  return WORKBENCH_COLOR_MODES.has(value as PlaygroundColorMode);
+}
 
 const PLAYGROUND_HEALTH_SECTIONS = [
   {
@@ -477,6 +491,7 @@ let probeGeneration = 0;
 let probeController: AbortController | undefined;
 let loadGeneration = 0;
 let activeLoadPending = false;
+let activeRuntimeOperationPending = false;
 let appliedSource: PlaygroundSource | undefined;
 let activeSourceName = "";
 let activeRuntime: PlaygroundRuntime | undefined;
@@ -598,6 +613,7 @@ declare global {
       delayNextZoom(): void;
       failNextLoad(): void;
       failNextStyle(): void;
+      failNextMissingAttributeStyle(): void;
       releaseDelayedLoad(): void;
       releaseDelayedZoom(): void;
       getMockDestroyCount(): number;
@@ -606,12 +622,18 @@ declare global {
       getCameraView(): PlaygroundTestCameraView;
       getMockLoadCount(): number;
       getMockStyleUpdateCount(): number;
+      getMockOpacity(): number | undefined;
+      getMockClippingVolume(): Parameters<CopcCesiumLayer["setClippingVolume"]>[0];
       getAppliedConfig(): IntegrationCodeConfig | undefined;
       getPendingConfig(): IntegrationCodeConfig;
       getPickablePointScreenPosition(): { x: number; y: number } | undefined;
       getMockLayerCreateCount(): number;
       getMockLayerSettings(): {
         readonly rangeValidation?: string;
+        readonly attributeLoading?: string;
+        readonly pointFields?: readonly string[];
+        readonly coordinateCacheLayout?: string;
+        readonly retainSourceCoordinatesForQueries?: boolean;
         readonly streaming?: {
           readonly motionLookahead?: boolean;
           readonly predictivePrefetch?: boolean;
@@ -642,6 +664,10 @@ if (import.meta.env.DEV) {
   let mockLayerSettings:
     | {
         rangeValidation?: string;
+        attributeLoading?: string;
+        pointFields?: string[];
+        coordinateCacheLayout?: string;
+        retainSourceCoordinatesForQueries?: boolean;
         streaming?: {
           motionLookahead?: boolean;
           predictivePrefetch?: boolean;
@@ -656,7 +682,10 @@ if (import.meta.env.DEV) {
   let delayNextMockZoom = false;
   let failNextMockLoad = false;
   let failNextMockStyle = false;
+  let failNextMissingAttributeStyle = false;
   let mockStyleUpdateCount = 0;
+  let mockOpacity: number | undefined;
+  let mockClippingVolume: Parameters<CopcCesiumLayer["setClippingVolume"]>[0];
   let releaseMockLoad: (() => void) | undefined;
   let releaseMockZoom: (() => void) | undefined;
   window.__COPC_PLAYGROUND_TEST__ = {
@@ -665,6 +694,10 @@ if (import.meta.env.DEV) {
         mockLayerCreateCount += 1;
         mockLayerSettings = {
           rangeValidation: options.rangeValidation,
+          attributeLoading: options.attributeLoading,
+          pointFields: options.pointFields ? [...options.pointFields] : undefined,
+          coordinateCacheLayout: options.coordinateCacheLayout,
+          retainSourceCoordinatesForQueries: options.retainSourceCoordinatesForQueries,
           streaming: {
             motionLookahead: options.streaming?.motionLookahead,
             predictivePrefetch: options.streaming?.predictivePrefetch,
@@ -758,8 +791,22 @@ if (import.meta.env.DEV) {
           getStyle(): CopcCesiumPointStyle {
             return structuredClone(mockStyle);
           },
+          setOpacity(opacity: number): void {
+            mockOpacity = opacity;
+          },
+          setClippingVolume(
+            volume: Parameters<CopcCesiumLayer["setClippingVolume"]>[0],
+          ): void {
+            mockClippingVolume = volume;
+          },
           setStyle(update: CopcCesiumPointStyleUpdate): void {
             mockStyleUpdateCount += 1;
+            if (failNextMissingAttributeStyle) {
+              failNextMissingAttributeStyle = false;
+              throw new Error(
+                'Intensity was not requested; source availability was not checked. Set attributeLoading: "all" or include "intensity" in pointFields before loading.',
+              );
+            }
             if (failNextMockStyle) {
               failNextMockStyle = false;
               throw new Error("Injected mock style failure");
@@ -810,6 +857,9 @@ if (import.meta.env.DEV) {
     failNextStyle(): void {
       failNextMockStyle = true;
     },
+    failNextMissingAttributeStyle(): void {
+      failNextMissingAttributeStyle = true;
+    },
     releaseDelayedLoad(): void {
       releaseMockLoad?.();
       releaseMockLoad = undefined;
@@ -820,6 +870,9 @@ if (import.meta.env.DEV) {
     },
     getMockLoadCount: () => mockLoadCount,
     getMockStyleUpdateCount: () => mockStyleUpdateCount,
+    getMockOpacity: () => mockOpacity,
+    getMockClippingVolume: () =>
+      mockClippingVolume === undefined ? undefined : structuredClone(mockClippingVolume),
     getAppliedConfig: () => appliedConfig ? structuredClone(appliedConfig) : undefined,
     getPendingConfig: () => structuredClone(pendingConfig),
     getMockLayerCreateCount: () => mockLayerCreateCount,
@@ -948,8 +1001,8 @@ function handleSchemaOptionChange(optionId: string, value: unknown): void {
       inactiveRendererOptionValues,
       {
         support: {
-          manifest: NPM_0_6_MANIFEST,
-          runtimeCapabilities: NPM_0_6_CAPABILITIES,
+          manifest: NPM_0_7_1_MANIFEST,
+          runtimeCapabilities: NPM_0_7_1_CAPABILITIES,
         },
       },
     );
@@ -1020,11 +1073,15 @@ function handleSchemaOptionChange(optionId: string, value: unknown): void {
 schemaPanel = mountSchemaOptionPanel({
   target: byId("shared-schema-controls"),
   context: {
-    manifest: NPM_0_6_MANIFEST,
+    manifest: NPM_0_7_1_MANIFEST,
     renderer: pendingConfig.renderer,
-    runtimeCapabilities: NPM_0_6_CAPABILITIES,
+    runtimeCapabilities: NPM_0_7_1_CAPABILITIES,
   },
   values: playgroundOptionValues(pendingConfig),
+  sectionLabels: {
+    attributes: "Advanced · Attributes",
+    cache: "Advanced · Cache",
+  },
   excludeOptionIds: [
     "source.url",
     "style.classificationFilter",
@@ -1113,23 +1170,75 @@ function updateApplyState(): void {
   applyChangesButton.disabled =
     !activeRuntimeReady ||
     appliedSource === undefined ||
-    !hasPendingConstructorChanges ||
+    (!hasPendingConstructorChanges && !hasPendingOpacityOrClippingChanges()) ||
     errors.length > 0 ||
-    activeLoadPending;
+    activeLoadPending ||
+    activeRuntimeOperationPending;
   byId<HTMLButtonElement>("reset-defaults").disabled = activeLoadPending;
   if (!activeRuntimeReady || !appliedConfig) {
     configState.textContent =
       "No layer is active. Settings apply when a source is loaded.";
   } else if (activeLoadPending) {
     configState.textContent = "Applying settings; the active layer remains available until replacement succeeds.";
+  } else if (hasPendingOpacityOrClippingChanges()) {
+    configState.textContent = "Pending opacity and clipping settings apply to the active layer without reloading the source.";
   } else if (hasPendingConstructorChanges) {
     configState.textContent = "Pending settings differ from the active layer. Apply changes to replace the layer.";
   } else {
-    configState.textContent = "Active layer matches the constructor settings.";
+    configState.textContent = "Active layer matches the applied settings.";
   }
   updateClassificationControls();
   updateRemoteLoadState();
   updateIntegrationExample();
+}
+
+function hasPendingOpacityOrClippingChanges(): boolean {
+  if (!appliedConfig) return false;
+  const changed = getChangedWorkbenchOptionIds(
+    playgroundOptionValues(pendingConfig),
+    playgroundOptionValues(appliedConfig),
+  );
+  const runtimeOptionIds = new Set([
+    "rendering.opacity",
+    "filtering.cesiumClippingVolume",
+  ]);
+  return changed.length > 0 && changed.every((id) => runtimeOptionIds.has(id));
+}
+
+async function applyOpacityAndClippingToActiveRuntime(
+  config: IntegrationCodeConfig,
+): Promise<void> {
+  if (!activeRuntime || !appliedConfig || activeLoadPending) return;
+  activeRuntimeOperationPending = true;
+  updateApplyState();
+  try {
+    const values = playgroundOptionValues(config);
+    const previousValues = playgroundOptionValues(appliedConfig);
+    const plan = buildSchemaApplicationPlan(
+      values,
+      {
+        manifest: NPM_0_7_1_MANIFEST,
+        renderer: config.renderer,
+        runtimeCapabilities: NPM_0_7_1_CAPABILITIES,
+      },
+      previousValues,
+    );
+    if (plan.requiresLayerReplacement) {
+      throw new Error("The pending settings require a replacement layer.");
+    }
+    await applySchemaRuntimeOperations(activeRuntime, plan.runtimeOperations);
+    appliedConfig = config;
+    setStatus(`Applied settings to ${activeSourceName}`, "ready");
+  } catch (error) {
+    setStatus(
+      `Could not apply settings; the active layer was kept. ${safeErrorText(error)}`,
+      "error",
+    );
+  } finally {
+    activeRuntimeOperationPending = false;
+    updateApplyState();
+    updateIntegrationExample();
+  }
 }
 
 function sameClassificationFilter(
@@ -1176,6 +1285,9 @@ function applyCesiumStyle(
     const classificationFilter = normalizeClassificationFilter(
       style.classificationFilter,
     );
+    if (!isWorkbenchColorMode(style.colorMode)) {
+      throw new Error("The active Cesium layer returned a color mode this Workbench does not offer.");
+    }
     appliedConfig = {
       ...appliedConfig,
       colorMode: style.colorMode,
@@ -1205,7 +1317,11 @@ function applyCesiumStyle(
     refreshSnapshot();
     return true;
   } catch (error) {
-    styleError.textContent = `Style was not applied. ${safeErrorText(error)} The active style and generated code are unchanged.`;
+    const detail = safeErrorText(error);
+    const missingRetainedField = /not requested.*source availability was not checked/iu.test(detail);
+    styleError.textContent = missingRetainedField
+      ? `Style was not applied. ${detail} No field was fetched. Set Standard attribute loading to All or add the field under Additional standard fields, then Apply changes to reload.`
+      : `Style was not applied. ${detail} The active style and generated code are unchanged.`;
     styleError.hidden = false;
     updateIntegrationExample();
     return false;
@@ -2365,6 +2481,9 @@ const loadSource = async (
       if (Object.keys(styleUpdate).length > 0) candidate.setStyle?.(styleUpdate);
       const actualStyle = candidate.getStyle?.();
       if (actualStyle) {
+        if (!isWorkbenchColorMode(actualStyle.colorMode)) {
+          throw new Error("The candidate Cesium layer returned a color mode this Workbench does not offer.");
+        }
         committedConfig = {
           ...committedConfig,
           colorMode: actualStyle.colorMode,
@@ -2623,6 +2742,10 @@ fileInput.addEventListener("change", async () => {
 
 applyChangesButton.addEventListener("click", () => {
   if (!appliedSource || !appliedConfig || validatePlaygroundConfig(pendingConfig).length > 0 || invalidNumericInputs.size > 0) return;
+  if (!hasConstructorChanges(pendingConfig, appliedConfig) && hasPendingOpacityOrClippingChanges()) {
+    void applyOpacityAndClippingToActiveRuntime(captureWorkbenchConfig());
+    return;
+  }
   void loadSource(appliedSource, activeSourceName, {
     selectionGeneration: sourceSelectionGeneration,
     preserveCamera: true,

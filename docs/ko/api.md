@@ -422,10 +422,11 @@ layer.setOpacity(0.25);
 layer.setOpacity(undefined); // renderer 기본값과 palette alpha 복원
 ```
 
-공개 Playground는 npm `0.6.0`에 고정되어 opacity setter와 Cesium clipping setter를 제공하지
-않습니다. 해당 Workbench 설정은 적용 가능한 것처럼 보이지 않도록 package 버전 안내를 표시합니다.
-workspace package를 사용하는 Dev Viewer에서는 opacity를 두 renderer에, ECEF clipping을 Cesium에
-적용할 수 있습니다.
+공개 Playground는 npm `0.7.1`을 사용하며 opacity와 Cesium clipping을 활성 layer에 runtime으로
+적용합니다. 이 배포 버전의 `setOpacity()` 타입은 숫자만 받습니다. Playground의 기본값 선택은
+Cesium `1` 또는 Three.js `0.9`를 적용하며, 공개 화면의 기본 색상 모드에 해당하는 기본 alpha를
+유지합니다. workspace package를 사용하는 Dev Viewer는 `setOpacity(undefined)`로 override를 지워
+point별 palette alpha를 복원합니다. Clipping은 Cesium 전용이며 Apply해도 source를 다시 읽지 않습니다.
 
 투명도는 각 renderer의 일반 blending 및 depth 동작을 따릅니다. adapter는 투명 point 정렬,
 layer 사이 draw order 조정 또는 order-independent transparency를 구현하지 않으므로

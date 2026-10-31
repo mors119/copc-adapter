@@ -70,6 +70,8 @@ export type SchemaControl =
   | "renderer"
   | "select"
   | "attribute-selection"
+  | "attribute-loading"
+  | "point-field-selection"
   | "number"
   | "toggle"
   | "classification-filter"
@@ -97,6 +99,8 @@ export type SchemaValidation =
   | {
       readonly kind: "string-array";
       readonly wildcard?: string;
+    /** Restrict a string-array option to a public, renderer-owned set. */
+    readonly values?: readonly string[];
     }
   | {
       readonly kind: "number";

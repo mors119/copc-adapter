@@ -17,7 +17,7 @@ test("uses the shared schema controls and four-tab Workbench shell", async ({
   await page.goto("./");
 
   await expect(page.locator(".workbench-provenance")).toHaveText(
-    /^npm release \d+\.\d+\.\d+ \/ Playground$/,
+    "npm release 0.7.1 / Playground",
   );
   const tabs = page.getByRole("tablist", { name: "Workbench details" });
   await expect(tabs.getByRole("tab")).toHaveText([
@@ -43,12 +43,9 @@ test("uses the shared schema controls and four-tab Workbench shell", async ({
   await expect(page.getByRole("radiogroup", { name: "COPC backend" })).toBeVisible();
   await expect(page.getByRole("radiogroup", { name: "Color mode" })).toBeVisible();
   await expect(page.getByRole("slider", { name: "Point size" })).toBeVisible();
-  await expect(page.locator('[data-option-id="rendering.opacity"] .schema-option__availability'))
-    .toContainText("npm@0.6.0");
-  await expect(page.locator('[data-option-id="filtering.cesiumClippingVolume"] .schema-option__availability'))
-    .toContainText("npm@0.6.0");
-  await expect(page.locator("#schema-opacity-slider")).toHaveCount(0);
-  await expect(page.locator("#schema-clipping-enabled")).toHaveCount(0);
+  await expect(page.locator("#schema-opacity-slider")).toBeVisible();
+  await page.locator('details[data-section="filtering"] summary').click();
+  await expect(page.locator("#schema-clipping-enabled")).toBeVisible();
   await expect(
     page.locator('.schema-control-section[data-section="streaming"] summary'),
   ).toHaveText("Streaming");

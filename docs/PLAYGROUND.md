@@ -28,9 +28,10 @@ source-provided WKT availability, active backend, and renderer when available.
 Bounds remain in source CRS units. The Playground does not infer a CRS,
 vertical datum, or height reference from location.
 
-The controls include renderer, backend, color mode, point size, rendered-point
-and CPU cache budgets, max nodes, max depth, screen-space error, maximum render
-distance, refinement algorithm, and Focus Lens. Constructor changes are
+The controls include renderer, backend, color mode, layer opacity, point size,
+rendered-point and CPU cache budgets, max nodes, max depth, screen-space error,
+maximum render distance, refinement algorithm, Focus Lens, and Cesium clipping.
+Constructor changes are
 Pending until **Apply changes** replaces the layer successfully. The old layer
 stays active if replacement fails, and the camera is preserved when possible.
 The rendered-point budget estimates active-view workload, not GPU memory; the
@@ -47,16 +48,29 @@ Cesium filter before switching to Three.js. The Cesium Focus Lens updates the
 active layer, while algorithm changes use Apply. The guide is visual only and
 does not crop the point cloud.
 
-The shared controls also define layer opacity and Cesium clipping. Opacity is a
-runtime setting from `0` to `1`; an explicit value replaces palette alpha, and
-`0` hides the layer and disables picking. Choosing **Use renderer defaults**
-restores palette alpha without reading or decoding COPC data. Clipping accepts
-an axis-aligned box or up to six intersecting planes in WGS 84 ECEF XYZ metres.
-It filters drawing and picking but does not reduce source reads. The internal
-Dev Viewer uses the workspace package and can apply these settings to the
-active runtime. Public Pages is pinned to npm `0.6.0`, whose declarations lack
-both methods, so its Workbench shows package-version guidance instead of
-controls that it cannot apply. Clipping is also unavailable in Three.js.
+Opacity and clipping are runtime settings. Apply sends them to the active layer
+without reading or decoding the source again. Opacity accepts 0–1; zero hides
+the layer and disables picking. The public npm 0.7.1 setter accepts numeric
+values, so Playground reset sends the built-in renderer defaults (Cesium 1,
+Three.js 0.9). Clipping accepts an inclusive axis-aligned box or an
+intersection of up to six planes in WGS 84 ECEF XYZ metres. It filters drawing
+and picking only, not source reads, and is available with Cesium only.
+
+Advanced Attributes exposes Cesium's `all` and `required` standard-field
+loading policies. Required mode retains the pending style/filter fields and
+any selected pick fields; Extra Bytes remain a separate copc-js setting. If a
+later style needs a field that was not retained, the style remains unchanged
+and the Playground explains which setting to change before reloading. Advanced
+Cache exposes the A/E coordinate layout for both renderers. E is compact and
+derives Geographic coordinates from ECEF; it omits exact Source XYZ unless
+**Retain exact Source XYZ in E** is enabled. That option adds 24 bytes per
+cached point, counted against the CPU cache budget. A retains exact Source and
+Geographic coordinates at 72 coordinate bytes per point. These settings are
+included in safe share links and generated constructor code.
+The existing [A/E cache measurement report](benchmarks/issue-324-ecef-cache-layouts.md)
+documents retained-storage and representative reuse measurements, along with
+their synthetic-trace and worker-memory limits; the Playground makes no
+universal speed claim for either layout.
 
 During replacement, the Playground creates a hidden candidate runtime and
 keeps the active runtime visible until the candidate loads. A successful swap
@@ -93,7 +107,7 @@ The release and renderer coverage for every public layer option, host action,
 copy mapping, and share policy is recorded in the [Workbench capability
 coverage matrix](API.md#workbench-capability-coverage). It distinguishes the
 published npm profile from the current workspace profile and keeps workspace-only
-API calls out of public Playground code when its pinned package lacks them.
+APIs out of public Playground code.
 
 For Playground setup, development, release-candidate validation, and local
 Pages builds, see the [Playground README](https://github.com/mors119/copc-adapter/blob/main/apps/playground/README.md).

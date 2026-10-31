@@ -27,12 +27,14 @@ import {
 import {
   applySchemaRuntimeOperations,
   buildSchemaApplicationPlan,
+  materializeWorkbenchConstructorOptions,
   normalizeWorkbenchOptionValues,
   resolveSchemaBackendSelection,
 } from "../../shared/config/index.ts";
 import {
-  NPM_0_6_CAPABILITIES,
-  NPM_0_6_MANIFEST,
+  NPM_0_7_1_CAPABILITIES,
+  NPM_0_7_1_MANIFEST,
+  NPM_0_7_1_OPACITY_RESET_VALUES,
 } from "../../shared/schema/index.ts";
 import type { PointScreenPosition } from "../../shared/inspection/PointPopover.ts";
 
@@ -67,6 +69,11 @@ export type PlaygroundRuntime = {
   getStyle?(): CopcCesiumPointStyle;
   /** Present only for the public Cesium runtime style API. */
   setStyle?(update: CopcCesiumPointStyleUpdate): void;
+  setOpacity(opacity: number | undefined): void;
+  /** Present only for the public Cesium clipping API. */
+  setClippingVolume?(
+    volume: Parameters<CopcCesiumLayer["setClippingVolume"]>[0],
+  ): void;
   setCameraView(view: PlaygroundCameraView): Promise<void>;
   getCameraState(): PlaygroundCameraState;
   setCameraState(state: PlaygroundCameraState): void;
@@ -108,6 +115,8 @@ type CesiumLayer = Pick<
   | "getPointCacheDiagnostics"
   | "getStyle"
   | "setStyle"
+  | "setOpacity"
+  | "setClippingVolume"
   | "zoomTo"
   | "boundingSphere"
   | "setRefinementFocus"
@@ -382,9 +391,9 @@ export async function createPlaygroundRuntime(
     "source.url": options.source,
   });
   const applicationPlan = buildSchemaApplicationPlan(configurationValues, {
-    manifest: NPM_0_6_MANIFEST,
+    manifest: NPM_0_7_1_MANIFEST,
     renderer: options.renderer,
-    runtimeCapabilities: NPM_0_6_CAPABILITIES,
+    runtimeCapabilities: NPM_0_7_1_CAPABILITIES,
   });
 
   if (options.renderer === "cesium") {
@@ -422,7 +431,7 @@ export async function createPlaygroundRuntime(
         }),
     );
     const layerOptions = {
-      ...applicationPlan.constructorOptions,
+      ...materializeWorkbenchConstructorOptions(applicationPlan),
       backend,
       onPointPicked: (point: CopcPointInspection | undefined) => {
         selectedPoint = point;
@@ -506,6 +515,11 @@ export async function createPlaygroundRuntime(
       getMetadata: () => layer.getMetadata(),
       getStyle: () => layer.getStyle(),
       setStyle: (update) => layer.setStyle(update),
+      // npm 0.7.1 accepts numeric overrides only; its built-in styles use
+      // opaque colors, so 1 restores their default appearance.
+      setOpacity: (opacity) =>
+        layer.setOpacity(opacity ?? NPM_0_7_1_OPACITY_RESET_VALUES.cesium),
+      setClippingVolume: (volume) => layer.setClippingVolume(volume),
       async setCameraView(view) {
         if (destroyed) return;
         const radius = layer.boundingSphere?.radius ?? 1_000;
@@ -629,7 +643,7 @@ export async function createPlaygroundRuntime(
       }),
   );
   const layerOptions = {
-    ...applicationPlan.constructorOptions,
+    ...materializeWorkbenchConstructorOptions(applicationPlan),
     backend,
     onPointPicked: (point: CopcPointInspection | undefined) => {
       selectedPoint = point;
@@ -780,6 +794,9 @@ export async function createPlaygroundRuntime(
     getLatestRenderIntervalMs: () => latestRenderIntervalMs,
     getSelectedPoint: () => layer.getSelectedPoint(),
     getMetadata: () => layer.getMetadata(),
+    // npm 0.7.1 accepts numeric overrides only; Three.js defaults to 0.9.
+    setOpacity: (opacity) =>
+      layer.setOpacity(opacity ?? NPM_0_7_1_OPACITY_RESET_VALUES.three),
     async setCameraView(view) {
       if (destroyed) return;
       const distance =

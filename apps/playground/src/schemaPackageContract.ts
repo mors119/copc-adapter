@@ -11,7 +11,7 @@ import type {
   SchemaFocusLens,
 } from "../../shared/schema/types.ts";
 
-type NpmManifest = typeof import("../../shared/schema/manifests.ts").NPM_0_6_MANIFEST;
+type NpmManifest = typeof import("../../shared/schema/manifests.ts").NPM_0_7_1_MANIFEST;
 type CesiumApi = typeof import("@frillab/copc-adapter/cesium");
 type ThreeApi = typeof import("@frillab/copc-adapter/three");
 type CesiumOptions = import("@frillab/copc-adapter/cesium").CopcCesiumLayerOptions;
@@ -42,16 +42,23 @@ type StreamingCompatibilityExclusions =
   | "refineDistanceMultiplier"
   | "maxRenderedPoints"
   | "maxPointsPerBatch";
-// These stay public for host integration or compatibility but are not ordinary
-// Workbench controls (logging, custom decoder injection, callbacks, and
-// layer-only opacity).
+// This comparison covers schema-emitted constructor paths. Host setup and
+// runtime-setter options are checked through their separate contracts.
 type LayerCompatibilityExclusions =
   | "debug"
   | "decoder"
   | "onPointPicked"
-  | "opacity";
+  | "classificationFilter"
+  | "extraDimensions"
+  | "opacity"
+  | "clippingVolume"
+  | "dimension"
+  | "dimensionFilter"
+  | "elevationRange"
+  | "elevationStyle"
+  | "verticalTransform";
 
-// Every declared user-facing npm 0.6.0 constructor path exists in its actual
+// Every declared user-facing npm 0.7.1 constructor path exists in its actual
 // published package types, and every public option is represented or is an
 // intentionally excluded callback/debug/compatibility alias.
 export type NpmCesiumPathsExist = AssertNoMissingPublicPaths<CesiumOptions, NpmCesiumPaths>;
@@ -62,7 +69,7 @@ export type NpmCesiumDefaultsMatchApiTypes = Assert<
     "cesium",
     NpmManifest,
     CesiumOptions,
-    "npm@0.6.0"
+    "npm@0.7.1"
   >
 >;
 export type NpmThreeDefaultsMatchApiTypes = Assert<
@@ -71,7 +78,7 @@ export type NpmThreeDefaultsMatchApiTypes = Assert<
     "three",
     NpmManifest,
     ThreeOptions,
-    "npm@0.6.0"
+    "npm@0.7.1"
   >
 >;
 export type NpmCesiumLayerOptionCoverage = Assert<AssertEqual<
@@ -99,14 +106,16 @@ type HasMethod<Type, Key extends PropertyKey> = Key extends keyof Type
 type HasKey<Type, Key extends PropertyKey> = Key extends keyof Type ? true : false;
 export type NpmStyleSetterContract = Assert<HasMethod<CesiumLayer, "setStyle">>;
 export type NpmFocusSetterContract = Assert<HasMethod<CesiumLayer, "setRefinementFocus">>;
-export type NpmOpacitySetterAbsent = Assert<
-  Equal<HasMethod<CesiumLayer, "setOpacity">, false>
+export type NpmOpacitySetterContract = Assert<HasMethod<CesiumLayer, "setOpacity">>;
+export type NpmThreeOpacitySetterContract = Assert<HasMethod<ThreeLayer, "setOpacity">>;
+export type NpmCesiumClippingSetterContract = Assert<
+  HasMethod<CesiumLayer, "setClippingVolume">
 >;
-export type NpmThreeOpacitySetterAbsent = Assert<
-  Equal<HasMethod<ThreeLayer, "setOpacity">, false>
+export type NpmOpacitySetterUsesNumericOverride = Assert<
+  Equal<Parameters<CesiumLayer["setOpacity"]>[0], number>
 >;
-export type NpmCesiumClippingSetterAbsent = Assert<
-  Equal<HasMethod<CesiumLayer, "setClippingVolume">, false>
+export type NpmThreeOpacitySetterUsesNumericOverride = Assert<
+  Equal<Parameters<ThreeLayer["setOpacity"]>[0], number>
 >;
 type NpmFocusArgument = NonNullable<Parameters<CesiumLayer["setRefinementFocus"]>[0]>;
 type NpmStyleFilter = NonNullable<
@@ -116,8 +125,8 @@ export type NpmFocusShapeContract = Assert<SchemaFocusLens extends NpmFocusArgum
 export type NpmClassificationFilterContract = Assert<
   SchemaClassificationFilter extends NpmStyleFilter ? true : false
 >;
-export type NpmTerrainAlignmentAbsent = Assert<
-  Equal<HasMethod<CesiumLayer, "estimateTerrainHeightAlignment">, false>
+export type NpmTerrainAlignmentPresent = Assert<
+  HasMethod<CesiumLayer, "estimateTerrainHeightAlignment">
 >;
 export type NpmThreePickingContract = Assert<HasMethod<ThreeLayer, "pick">>;
 export type NpmBatchedRendererContract = Assert<
@@ -125,14 +134,14 @@ export type NpmBatchedRendererContract = Assert<
 >;
 export type NpmPointRendererContract = Assert<HasKey<CesiumApi, "PointPrimitiveRenderer">>;
 export type NpmProbeContract = Assert<HasKey<CesiumApi, "probeCopcSource">>;
-export type NpmVerticalLayerOptionAbsent = Assert<
-  Equal<HasKey<CesiumOptions, "verticalTransform">, false>
+export type NpmVerticalLayerOptionPresent = Assert<
+  HasKey<CesiumOptions, "verticalTransform">
 >;
-export type NpmThreeVerticalLayerOptionAbsent = Assert<
-  Equal<HasKey<ThreeOptions, "verticalTransform">, false>
+export type NpmThreeVerticalLayerOptionPresent = Assert<
+  HasKey<ThreeOptions, "verticalTransform">
 >;
-export type NpmCesiumConcurrentNodeLoadAbsent = Assert<
-  Equal<HasKey<NonNullable<CesiumOptions["streaming"]>, "maxConcurrentNodeLoads">, false>
+export type NpmCesiumConcurrentNodeLoadPresent = Assert<
+  HasKey<NonNullable<CesiumOptions["streaming"]>, "maxConcurrentNodeLoads">
 >;
 export type NpmThreeConcurrentNodeLoadPresent = Assert<
   HasKey<NonNullable<ThreeOptions["streaming"]>, "maxConcurrentNodeLoads">
@@ -149,10 +158,10 @@ type NpmExtraDimensions = NonNullable<
 type NpmRustBackend = import("@frillab/copc-adapter/cesium").RustCopcBackendOptions;
 type NpmInputSource = import("@frillab/copc-adapter/cesium").CopcInputSource;
 
-export type NpmColorModeChoicesMatch = AssertEqual<
+export type NpmColorModeChoicesMatch = Assert<AssertEqual<
   SchemaChoiceValues<"rendering.colorMode">,
-  NpmColorMode
->;
+  Exclude<NpmColorMode, "dimension">
+>>;
 export type NpmPointSizeChoicesMatch = AssertEqual<
   SchemaChoiceValues<"rendering.pointSizeMode">,
   NpmPointSizeMode
@@ -164,6 +173,20 @@ export type NpmRefinementChoicesMatch = AssertEqual<
 export type NpmRangePolicyChoicesMatch = AssertEqual<
   SchemaChoiceValues<"source.rangeValidation">,
   NpmRangePolicy
+>;
+export type NpmAttributeLoadingChoicesMatch = AssertEqual<
+  SchemaChoiceValues<"attributes.attributeLoading">,
+  NonNullable<CesiumOptions["attributeLoading"]>
+>;
+export type NpmCoordinateCacheLayoutChoicesMatch = AssertEqual<
+  SchemaChoiceValues<"cache.coordinateCacheLayout">,
+  NonNullable<CesiumOptions["coordinateCacheLayout"]>
+>;
+type NpmPointFieldSelection = NonNullable<CesiumOptions["pointFields"]>;
+export type NpmPointFieldSelectionIsReadonlySet = Assert<
+  NpmPointFieldSelection extends ReadonlySet<"position" | "intensity" | "classification" | "rgb">
+    ? true
+    : false
 >;
 export type NpmBackendChoicesMatch = AssertEqual<
   SchemaChoiceValues<"adapter.backend">,

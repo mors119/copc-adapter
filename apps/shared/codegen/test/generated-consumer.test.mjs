@@ -11,6 +11,8 @@ import {
 import {
   NPM_0_6_CAPABILITIES,
   NPM_0_6_MANIFEST,
+  NPM_0_7_1_CAPABILITIES,
+  NPM_0_7_1_MANIFEST,
   OPTION_SCHEMA,
   WORKSPACE_CURRENT_CAPABILITIES,
   WORKSPACE_CURRENT_MANIFEST,
@@ -40,6 +42,12 @@ const consumerProfile = packedCandidateProfile
       capabilities: NPM_0_6_CAPABILITIES,
       originLabel: "verified npm consumer fixture",
     }
+  : packageSpec === "0.7.1"
+    ? {
+        manifest: NPM_0_7_1_MANIFEST,
+        capabilities: NPM_0_7_1_CAPABILITIES,
+        originLabel: "verified npm consumer fixture",
+      }
   : typeof packageSpec === "string" && packageSpec.startsWith("file:")
     ? {
         manifest: WORKSPACE_CURRENT_MANIFEST,
@@ -76,21 +84,30 @@ test("generated Cesium and Three snippets typecheck against the exact consumer p
     assert.equal(installedPackage.version, WORKSPACE_CURRENT_MANIFEST.version);
   }
   const cesiumOptionValues = {
+    ...(consumerProfile.manifest.version === "0.7.1"
+      ? {
+          "attributes.attributeLoading": "required",
+          "attributes.pointFields": ["classification", "rgb"],
+          "cache.coordinateCacheLayout": "E",
+          "cache.retainSourceCoordinatesForQueries": true,
+          "streaming.maxConcurrentNodeLoads": 3,
+          "rendering.opacity": 0.42,
+          "filtering.cesiumClippingVolume": {
+            type: "box",
+            coordinateSystem: "wgs84-ecef-meters",
+            minimum: [-1_000, -2_000, -3_000],
+            maximum: [1_000, 2_000, 3_000],
+          },
+        }
+      : {}),
     "attributes.extraDimensions": ["scanAngle"],
     "rendering.colorMode": "intensity",
     "rendering.pointSize": 4,
     "rendering.cesiumPointRenderer": "batched-geometry",
-    "rendering.opacity": 0.42,
     "rendering.pointSizeMode": "attenuated",
     "rendering.minPointSize": 2,
     "rendering.maxPointSize": 18,
     "style.classificationFilter": { include: [2, 6] },
-    "filtering.cesiumClippingVolume": {
-      type: "box",
-      coordinateSystem: "wgs84-ecef-meters",
-      minimum: [-1_000, -2_000, -3_000],
-      maximum: [1_000, 2_000, 3_000],
-    },
     "coordinates.heightOffsetMeters": 1.25,
     "performance.maxRenderedPoints": 400_000,
     "cache.maxPointCacheBytes": 128 * 1024 * 1024,
@@ -113,9 +130,15 @@ test("generated Cesium and Three snippets typecheck against the exact consumer p
     "source.maxConcurrentRangeRequests": 3,
   };
   const threeOptionValues = {
+    ...(consumerProfile.manifest.version === "0.7.1"
+      ? {
+          "cache.coordinateCacheLayout": "E",
+          "cache.retainSourceCoordinatesForQueries": true,
+          "rendering.opacity": 0.65,
+        }
+      : {}),
     "attributes.extraDimensions": "*",
     "rendering.colorMode": "elevation",
-    "rendering.opacity": 0.65,
     "rendering.pointSize": 5,
     "coordinates.heightOffsetMeters": 2.5,
     "performance.maxRenderedPoints": 350_000,
@@ -149,9 +172,6 @@ test("generated Cesium and Three snippets typecheck against the exact consumer p
   const cesiumMatrixValues = {
     "adapter.backend": "copc-js",
     ...cesiumOptionValues,
-    ...(consumerProfile.manifest.origin === "workspace"
-      ? { "streaming.maxConcurrentNodeLoads": 3 }
-      : {}),
   };
   assertSupportedOptionsCovered("cesium", cesiumMatrixValues);
   assertSupportedOptionsCovered("three", {
@@ -240,6 +260,18 @@ test("generated Cesium and Three snippets typecheck against the exact consumer p
     assert.match(cesiumMatrix.code, /layer\.setOpacity\(0\.42\)/u);
     assert.match(cesiumMatrix.code, /layer\.setClippingVolume\(/u);
     assert.match(threeMatrix.code, /layer\.setOpacity\(0\.65\)/u);
+  }
+  if (consumerProfile.manifest.supportedOptionIds.includes("rendering.opacity")) {
+    const resetCesium = generate("cesium", { "rendering.opacity": undefined });
+    const resetThree = generate("three", { "rendering.opacity": undefined });
+    const expectedCesiumReset = consumerProfile.manifest.origin === "npm"
+      ? /layer\.setOpacity\(1\)/u
+      : /layer\.setOpacity\(undefined\)/u;
+    const expectedThreeReset = consumerProfile.manifest.origin === "npm"
+      ? /layer\.setOpacity\(0\.9\)/u
+      : /layer\.setOpacity\(undefined\)/u;
+    assert.match(resetCesium.code, expectedCesiumReset);
+    assert.match(resetThree.code, expectedThreeReset);
   }
   assert.match(cesiumMatrix.code, /heightOffsetMeters: 1\.25/u);
   assert.match(cesiumMatrix.code, /maxConcurrentRangeRequests: 3/u);
