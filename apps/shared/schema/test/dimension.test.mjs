@@ -5,6 +5,7 @@ import {
   createDefaultDimensionStyle,
   getWorkbenchNumericDimensions,
   requestedDimensionNames,
+  withRequestedExtraDimensions,
 } from "../../workbench/dimensionModel.ts";
 
 const metadata = {
@@ -56,4 +57,15 @@ test("default ramps use the exact selected descriptor and carry declared NoData"
   assert.throws(() => createDefaultDimensionStyle(fields, "record_id"), /supported/u);
   assert.deepEqual(requestedDimensionNames(style, { name: "rank", min: 0, max: 3 }), ["height", "rank"]);
   assert.deepEqual(requestedDimensionNames(createDefaultDimensionStyle(fields, "Intensity"), undefined), []);
+});
+
+test("Extra Bytes requests replace schema state without mutating the applied snapshot", () => {
+  const applied = {
+    "attributes.extraDimensions": ["A"],
+    "style.dimension": { name: "Intensity", range: { min: 0, max: 65_535 } },
+  };
+  const next = withRequestedExtraDimensions(applied, ["B"], undefined, null);
+  assert.deepEqual(next["attributes.extraDimensions"], ["B"]);
+  assert.deepEqual(applied["attributes.extraDimensions"], ["A"]);
+  assert.notEqual(next, applied);
 });

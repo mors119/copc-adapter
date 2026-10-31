@@ -150,3 +150,27 @@ export function requestedDimensionNames(
   return [...new Set([dimension?.name, filter?.name]
     .filter((name): name is string => name !== undefined && name !== "Intensity"))];
 }
+
+/** Copy schema state while synchronizing the exact Extra Bytes decode requests. */
+export function withRequestedExtraDimensions(
+  schemaOptionValues: Readonly<Record<string, unknown>>,
+  configuredExtraDimensions: readonly string[] | "*",
+  dimension: SchemaDimensionStyle | undefined,
+  filter: SchemaDimensionFilter | undefined | null,
+): Record<string, unknown> {
+  const next = { ...schemaOptionValues };
+  const requested = configuredExtraDimensions === "*"
+    ? ["*"]
+    : [...new Set([
+        ...configuredExtraDimensions,
+        ...requestedDimensionNames(dimension, filter),
+      ])];
+  if (requested.length > 0) {
+    next["attributes.extraDimensions"] = configuredExtraDimensions === "*"
+      ? "*"
+      : requested;
+  } else {
+    delete next["attributes.extraDimensions"];
+  }
+  return next;
+}

@@ -23,7 +23,7 @@ import type {
 import {
   createDefaultDimensionStyle,
   getWorkbenchNumericDimensions,
-  requestedDimensionNames,
+  withRequestedExtraDimensions,
 } from "../../shared/workbench/dimensionModel.ts";
 import type {
   CameraPreset,
@@ -309,8 +309,6 @@ export function mountDevViewerControls(
             : Array.isArray(value)
               ? value.filter((name): name is string => typeof name === "string")
               : [];
-          if (value === undefined) delete schemaOptionValues[optionId];
-          else schemaOptionValues[optionId] = value;
           syncDimensionExtraDimensions();
           options.onPendingConfigChange({ schemaOptionValues });
           break;
@@ -342,16 +340,18 @@ export function mountDevViewerControls(
       ? values["style.dimension"] as SchemaDimensionStyle | undefined
       : undefined;
     const filter = (values["style.dimensionFilter"] ?? undefined) as SchemaDimensionFilter | null | undefined;
-    const nextDimensionNames = requestedDimensionNames(dimension, filter);
-    const names = configuredExtraDimensions === "*"
-      ? ["*"]
-      : [...new Set([...configuredExtraDimensions, ...nextDimensionNames])];
-    if (names.length > 0) {
-      const requestedValue = configuredExtraDimensions === "*" ? "*" : names;
-      schemaOptionValues["attributes.extraDimensions"] = requestedValue;
-      values = { ...values, "attributes.extraDimensions": requestedValue };
+    schemaOptionValues = withRequestedExtraDimensions(
+      schemaOptionValues,
+      configuredExtraDimensions,
+      dimension,
+      filter,
+    );
+    if (Object.hasOwn(schemaOptionValues, "attributes.extraDimensions")) {
+      values = {
+        ...values,
+        "attributes.extraDimensions": schemaOptionValues["attributes.extraDimensions"],
+      };
     } else {
-      delete schemaOptionValues["attributes.extraDimensions"];
       delete values["attributes.extraDimensions"];
     }
   }
