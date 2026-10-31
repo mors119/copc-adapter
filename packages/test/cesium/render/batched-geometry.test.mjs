@@ -524,6 +524,24 @@ test("BatchedGeometryPointRenderer preserves dimension palette alpha unless laye
   assert.equal(material.uniforms.u_overridePointAlpha, 0);
   assert.equal(primitive.appearance.isTranslucent(), true);
 
+  renderer.setOpacity(0.25);
+  renderer.addOrUpdateNode("alpha-node-created-under-override", points, options);
+  const latePrimitive = scenePrimitives.get(0).get(1);
+  const lateColorAttribute = latePrimitive.geometryInstances.geometry.attributes.a_color;
+  const lateMaterial = latePrimitive.appearance.material;
+  assert.deepEqual(
+    Array.from(lateColorAttribute.values),
+    [0, 0, 1, 0, 1, 0, 0, Math.fround(0.8)],
+  );
+  assert.equal(lateMaterial.uniforms.u_overridePointAlpha, 1);
+
+  renderer.setOpacity(undefined);
+  assert.equal(lateMaterial.uniforms.u_overridePointAlpha, 0);
+  assert.deepEqual(
+    Array.from(lateColorAttribute.values),
+    [0, 0, 1, 0, 1, 0, 0, Math.fround(0.8)],
+  );
+
   renderer.destroy();
   scenePrimitives.destroy();
 });

@@ -432,7 +432,6 @@ export class BatchedGeometryPointRenderer implements CesiumPointRenderer {
           points,
           colorOptions,
           undefined,
-          this.opacityOverride ? 1 : undefined,
         )
       : prepareCopcPointColorBuffer(points, colorOptions);
     const pointSizes = new Float32Array(points.pointCount);
