@@ -145,6 +145,99 @@ test("generates shared Code tab output from applied workspace configuration", as
   test.setTimeout(180_000);
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
+  await page.goto("/");
+  await expect
+    .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.lifecycle))
+    .toBe("ready");
+
+  const code = page.locator("#integration-example");
+  const codeSummary = page.locator("#workbench-panel-code .summary-state");
+  await expect(code).toContainText("local workspace source; unpublished");
+  await expect(code).toContainText("CopcCesiumLayer");
+  await expect(codeSummary).toContainText("up to date");
+  const terrainRecipe = page.locator("#include-terrain-alignment-recipe");
+  await expect(terrainRecipe).toBeVisible();
+  await expect(code).not.toContainText("estimateAndApproveTerrainPlacement");
+  await terrainRecipe.check();
+  await expect(code).toContainText("estimateAndApproveTerrainPlacement");
+  await expect(code).toContainText("window.confirm");
+  await terrainRecipe.uncheck();
+  await expect(code).not.toContainText("estimateAndApproveTerrainPlacement");
+  const initialCode = await code.textContent();
+
+  const pointSize = page.locator("#point-size-value");
+  await pointSize.fill("7");
+  await pointSize.dispatchEvent("change");
+  await page.locator('.schema-control-section[data-section="performance"] summary').click();
+  const maxPoints = page.locator("#max-points-value");
+  await maxPoints.fill("50000");
+  await maxPoints.dispatchEvent("change");
+
+  await page.locator('.schema-control-section[data-section="streaming"] summary').click();
+  const maxNodes = page.locator("#max-nodes-value");
+  await maxNodes.fill("8");
+  await maxNodes.dispatchEvent("change");
+  await expect(code).toHaveText(initialCode ?? "");
+  await expect(codeSummary).toContainText("pending edits");
+
+  await page.locator("#apply-settings").click();
+  await expect
+    .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.lifecycle))
+    .toBe("ready");
+  await expect(code).toContainText("maxNodes: 8");
+  await expect(code).toContainText("pointSize: 7");
+  await expect(code).toContainText("maxRenderedPoints: 50000");
+  await expect(codeSummary).toContainText("up to date");
+  await expect(page.locator("#copy-code")).toBeVisible();
+  await expect(page.locator("#copy-share-link")).toBeVisible();
+  await expect(page.locator("#install-guidance-label")).toBeHidden();
+
+  await page.evaluate(() => {
+    const target = window as Window & { __copiedText?: string };
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async (value: string) => { target.__copiedText = value; } },
+    });
+  });
+  await page.locator("#copy-share-link").click();
+  await expect(page.locator("#share-status")).toHaveText("Share link copied.");
+  const shareLink = await page.evaluate(
+    () => (window as Window & { __copiedText?: string }).__copiedText,
+  );
+  expect(shareLink).toMatch(/^https?:\/\//u);
+  expect(pageErrors).toEqual([]);
+  expect(shareLink).toContain("backend=copc-js");
+  expect(shareLink).toContain("pointSize=7");
+  expect(shareLink).toContain("maxNodes=8");
+  expect(shareLink).toContain("maxRenderedPoints=50000");
+  expect(shareLink).not.toContain("source=");
+
+  await page.goto(shareLink ?? "/");
+  await expect
+    .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.lifecycle))
+    .toBe("ready");
+  await expect(page.locator("#point-size-value")).toHaveValue("7");
+  await expect(page.locator("#max-nodes-value")).toHaveValue("8");
+  await expect(page.locator("#max-points-value")).toHaveValue("50000");
+  await expect(page.locator("#integration-example")).toContainText("maxRenderedPoints: 50000");
+
+  const rendererGroup = page.getByRole("radiogroup", { name: "Renderer", exact: true });
+  await rendererGroup.getByRole("radio", { name: "Three.js" }).click();
+  await expect(codeSummary).toContainText("pending edits");
+  await expect(code).toContainText("CopcCesiumLayer");
+  await page.locator("#apply-settings").click();
+  await expect
+    .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getConfiguration().renderer))
+    .toBe("three");
+  await expect(code).toContainText("CopcThreeLayer");
+  await expect(code).not.toContainText("CopcCesiumLayer");
+  await expect(codeSummary).toContainText("up to date");
+  expect(pageErrors).toEqual([]);
+});
+
+test("shares Advanced attribute and coordinate-cache policies", async ({ page }) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
   const params = new URLSearchParams({
     backend: "copc-js",
     colorMode: "rgb",
@@ -162,10 +255,6 @@ test("generates shared Code tab output from applied workspace configuration", as
     .toBe("ready");
 
   const code = page.locator("#integration-example");
-  const codeSummary = page.locator("#workbench-panel-code .summary-state");
-  await expect(code).toContainText("local workspace source; unpublished");
-  await expect(code).toContainText("CopcCesiumLayer");
-  await expect(codeSummary).toContainText("up to date");
   await expect(page.locator("#point-size-value")).toHaveValue("7");
   await expect(page.locator("#max-nodes-value")).toHaveValue("8");
   await expect(page.locator("#max-points-value")).toHaveValue("50000");
@@ -190,19 +279,6 @@ test("generates shared Code tab output from applied workspace configuration", as
   await expect(page.locator('[data-option-id="cache.retainSourceCoordinatesForQueries"] input[type="checkbox"]'))
     .toBeChecked();
 
-  const terrainRecipe = page.locator("#include-terrain-alignment-recipe");
-  await expect(terrainRecipe).toBeVisible();
-  await expect(code).not.toContainText("estimateAndApproveTerrainPlacement");
-  await terrainRecipe.check();
-  await expect(code).toContainText("estimateAndApproveTerrainPlacement");
-  await expect(code).toContainText("window.confirm");
-  await terrainRecipe.uncheck();
-  await expect(code).not.toContainText("estimateAndApproveTerrainPlacement");
-  await expect(codeSummary).toContainText("up to date");
-  await expect(page.locator("#copy-code")).toBeVisible();
-  await expect(page.locator("#copy-share-link")).toBeVisible();
-  await expect(page.locator("#install-guidance-label")).toBeHidden();
-
   await page.evaluate(() => {
     const target = window as Window & { __copiedText?: string };
     Object.defineProperty(navigator, "clipboard", {
@@ -216,11 +292,6 @@ test("generates shared Code tab output from applied workspace configuration", as
     () => (window as Window & { __copiedText?: string }).__copiedText,
   );
   expect(shareLink).toMatch(/^https?:\/\//u);
-  expect(pageErrors).toEqual([]);
-  expect(shareLink).toContain("backend=copc-js");
-  expect(shareLink).toContain("pointSize=7");
-  expect(shareLink).toContain("maxNodes=8");
-  expect(shareLink).toContain("maxRenderedPoints=50000");
   expect(shareLink).toContain("attributeLoading=required");
   expect(new URL(shareLink!).searchParams.get("pointFields")).toBe('["intensity"]');
   expect(shareLink).toContain("coordinateCacheLayout=E");
