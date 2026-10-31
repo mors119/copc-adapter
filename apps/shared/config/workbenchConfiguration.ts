@@ -619,26 +619,11 @@ function buildRuntimeOperations(
   }));
 }
 
-function initiallyLoadsIntensity(
+function requiresIntensityField(
   values: WorkbenchOptionValues,
   context: WorkbenchConfigurationContext,
   schema: readonly SchemaOption[],
 ): boolean {
-  const attributeLoadingOption = schema.find(
-    ({ id }) => id === "attributes.attributeLoading",
-  );
-  if (
-    !attributeLoadingOption ||
-    effectiveValue(attributeLoadingOption, values, context, schema) !== "required"
-  ) {
-    return true;
-  }
-
-  const pointFields = values["attributes.pointFields"];
-  if (Array.isArray(pointFields) && pointFields.includes("intensity")) {
-    return true;
-  }
-
   const colorModeOption = schema.find(({ id }) => id === "rendering.colorMode");
   if (
     colorModeOption &&
@@ -664,7 +649,31 @@ function initiallyLoadsIntensity(
   return false;
 }
 
-function requiresIntensityFilterReload(
+/** Whether an applied configuration causes its layer to decode LAS Intensity. */
+export function configuredLayerLoadsIntensity(
+  values: WorkbenchOptionValues,
+  context: WorkbenchConfigurationContext,
+  schema: readonly SchemaOption[] = OPTION_SCHEMA,
+): boolean {
+  const attributeLoadingOption = schema.find(
+    ({ id }) => id === "attributes.attributeLoading",
+  );
+  if (
+    !attributeLoadingOption ||
+    effectiveValue(attributeLoadingOption, values, context, schema) !== "required"
+  ) {
+    return true;
+  }
+
+  const pointFields = values["attributes.pointFields"];
+  if (Array.isArray(pointFields) && pointFields.includes("intensity")) {
+    return true;
+  }
+
+  return requiresIntensityField(values, context, schema);
+}
+
+function requiresIntensityFieldReload(
   values: WorkbenchOptionValues,
   context: WorkbenchConfigurationContext,
   schema: readonly SchemaOption[],
@@ -682,19 +691,14 @@ function requiresIntensityFilterReload(
   const attributeLoadingOption = schema.find(
     ({ id }) => id === "attributes.attributeLoading",
   );
-  const filterOption = schema.find(({ id }) => id === "style.dimensionFilter");
   if (
     !attributeLoadingOption ||
-    !filterOption ||
     effectiveValue(attributeLoadingOption, values, context, schema) !== "required" ||
-    !optionIsActive(filterOption, values, context, schema)
+    !requiresIntensityField(values, context, schema)
   ) {
     return false;
   }
-
-  const filter = effectiveValue(filterOption, values, context, schema);
-  if (!isPlainRecord(filter) || filter.name !== "Intensity") return false;
-  return !initiallyLoadsIntensity(previousValues, previousContext, schema);
+  return !configuredLayerLoadsIntensity(previousValues, previousContext, schema);
 }
 
 function requiresReplacement(
@@ -713,7 +717,7 @@ function requiresReplacement(
     return true;
   }
   if (
-    requiresIntensityFilterReload(
+    requiresIntensityFieldReload(
       values,
       context,
       schema,

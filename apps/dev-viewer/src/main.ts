@@ -76,6 +76,7 @@ import {
 import {
   applySchemaRuntimeOperations,
   buildSchemaApplicationPlan,
+  configuredLayerLoadsIntensity,
   materializeWorkbenchConstructorOptions,
   createWorkbenchConfigurationState,
   getChangedWorkbenchOptionIds,
@@ -2235,12 +2236,19 @@ async function main(): Promise<void> {
       activeDebugAdapter = candidateSession.debugAdapter;
       activeDebugAdapter?.activate();
       activeConfig = { ...config };
-      const appliedExtraDimensions = toWorkbenchOptionValues(config)["attributes.extraDimensions"];
+      const appliedValues = toWorkbenchOptionValues(config);
+      const appliedExtraDimensions = appliedValues["attributes.extraDimensions"];
+      const intensityDecoded = configuredLayerLoadsIntensity(appliedValues, {
+        manifest: WORKSPACE_CURRENT_MANIFEST,
+        renderer: config.renderer,
+        runtimeCapabilities: WORKSPACE_CURRENT_CAPABILITIES,
+      });
       workbenchControls?.setNumericDimensionMetadata(
         candidateSession.getMetadata(),
         Array.isArray(appliedExtraDimensions)
           ? appliedExtraDimensions.filter((name): name is string => typeof name === "string")
           : appliedExtraDimensions === "*" ? ["*"] : [],
+        intensityDecoded,
       );
       refreshIntegrationCode();
       if (purpose === "load") {

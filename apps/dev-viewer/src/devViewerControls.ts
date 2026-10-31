@@ -67,7 +67,8 @@ export type DevViewerControls = {
   getValidationErrors(): readonly string[];
   setNumericDimensionMetadata(
     metadata: Parameters<typeof getWorkbenchNumericDimensions>[0],
-    decodedExtraDimensions?: readonly string[],
+    decodedExtraDimensions: readonly string[],
+    intensityDecoded: boolean,
   ): void;
   destroy(): void;
 };
@@ -98,6 +99,7 @@ export function mountDevViewerControls(
   };
   let sourceMetadata: Parameters<typeof getWorkbenchNumericDimensions>[0];
   let decodedExtraDimensions: readonly string[] = [];
+  let intensityDecoded = false;
   let numericDimensions: readonly SchemaNumericDimensionMetadata[] | undefined;
   const inactiveRendererValues = new Map<
     string,
@@ -124,7 +126,7 @@ export function mountDevViewerControls(
       sourceMetadata,
       backend,
       decodedExtraDimensions,
-      true,
+      intensityDecoded,
     );
   };
   const context = () => ({
@@ -380,9 +382,10 @@ export function mountDevViewerControls(
   return {
     getSelectedSource,
     getValidationErrors: () => schemaPanel?.getValidationErrors() ?? [],
-    setNumericDimensionMetadata(metadata, decoded): void {
+    setNumericDimensionMetadata(metadata, decoded, decodedIntensity): void {
       sourceMetadata = metadata;
-      decodedExtraDimensions = decoded ?? [];
+      decodedExtraDimensions = decoded;
+      intensityDecoded = decodedIntensity;
       refreshDimensionContext();
       schemaPanel?.update({ values, context: context() });
       updateDimensionChoices();

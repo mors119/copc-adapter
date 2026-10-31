@@ -265,6 +265,45 @@ test("recreates required-loading Cesium when a new Intensity filter needs the fi
   expect(pageErrors).toEqual([]);
 });
 
+test("recreates required-loading Cesium when a new Intensity ramp needs the field", async ({ page }) => {
+  test.setTimeout(180_000);
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  await page.goto("/?debugPanel=0");
+  await expect
+    .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.lifecycle))
+    .toBe("ready");
+
+  const attributesSection = page.locator('.schema-control-section[data-section="attributes"]');
+  if (!(await attributesSection.evaluate((element: HTMLDetailsElement) => element.open))) {
+    await attributesSection.locator("summary").click();
+  }
+  await page.locator("#schema-attribute-loading").selectOption("required");
+  await page.locator("#apply-settings").click();
+  await expect
+    .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.lifecycle))
+    .toBe("ready");
+
+  const code = page.locator("#integration-example");
+  await expect(code).toContainText("attributeLoading: 'required'");
+  await expect(code).toContainText("colorMode: 'rgb'");
+  const colorMode = page.getByRole("radiogroup", { name: "Color mode" });
+  await colorMode.getByRole("radio", { name: "Numeric Dimension" }).click();
+  await expect(page.locator("#apply-settings")).toBeEnabled();
+  await expect(code).toContainText("colorMode: 'rgb'");
+  await page.locator("#apply-settings").click();
+  await expect(code).toContainText("colorMode: 'dimension'");
+  await expect(code).toContainText("name: 'Intensity'");
+  await expect(page.locator("#configuration-error")).toBeHidden();
+
+  const ramp = page.locator('[data-option-id="style.dimension"]');
+  await ramp.getByLabel("Color range minimum").fill("10");
+  await ramp.getByLabel("Color range minimum").dispatchEvent("change");
+  await page.locator("#apply-settings").click();
+  await expect(code).toContainText("min: 10");
+  expect(pageErrors).toEqual([]);
+});
+
 test("assigns source, runtime health, and dataset analysis to separate tabs", async ({
   page,
 }) => {

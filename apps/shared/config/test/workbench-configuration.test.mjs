@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   applyWorkbenchConfiguration,
   buildSchemaApplicationPlan,
+  configuredLayerLoadsIntensity,
   createWorkbenchConfigurationState,
   discardWorkbenchPending,
   getChangedWorkbenchOptionIds,
@@ -284,13 +285,35 @@ test("seeds a required-loading Cesium numeric filter into constructor and runtim
   }]);
 });
 
-test("recreates required-loading Cesium only when an Intensity filter needs a missing field", () => {
+test("recreates required-loading Cesium when an Intensity style or filter needs a missing field", () => {
   const dimensionFilter = { name: "Intensity", min: 25, max: 500 };
+  const dimensionStyle = {
+    name: "Intensity",
+    range: { min: 0, max: 65_535 },
+    palette: [
+      { position: 0, color: { red: 0, green: 0.2, blue: 1, alpha: 0.9 } },
+      { position: 1, color: { red: 1, green: 0.1, blue: 0, alpha: 0.9 } },
+    ],
+  };
   const requiredRgb = validValues({
     "rendering.colorMode": "rgb",
     "attributes.attributeLoading": "required",
     "attributes.pointFields": [],
   });
+  assert.equal(configuredLayerLoadsIntensity(requiredRgb, workspaceCesiumContext), false);
+
+  const needsRamp = buildSchemaApplicationPlan({
+    ...requiredRgb,
+    "rendering.colorMode": "dimension",
+    "style.dimension": dimensionStyle,
+  }, workspaceCesiumContext, requiredRgb);
+  assert.equal(needsRamp.requiresLayerReplacement, true);
+  assert.ok(needsRamp.runtimeOperations.some((operation) =>
+    operation.method === "setStyle" &&
+    operation.argument.colorMode === "dimension" &&
+    operation.argument.dimension?.name === "Intensity",
+  ));
+
   const needsIntensity = buildSchemaApplicationPlan({
     ...requiredRgb,
     "style.dimensionFilter": dimensionFilter,
@@ -307,6 +330,14 @@ test("recreates required-loading Cesium only when an Intensity filter needs a mi
     "attributes.attributeLoading": "required",
     "attributes.pointFields": ["intensity"],
   });
+  assert.equal(configuredLayerLoadsIntensity(intensityAlreadySelected, workspaceCesiumContext), true);
+  const rampRuntimeUpdate = buildSchemaApplicationPlan({
+    ...intensityAlreadySelected,
+    "rendering.colorMode": "dimension",
+    "style.dimension": dimensionStyle,
+  }, workspaceCesiumContext, intensityAlreadySelected);
+  assert.equal(rampRuntimeUpdate.requiresLayerReplacement, false);
+
   const runtimeUpdate = buildSchemaApplicationPlan({
     ...intensityAlreadySelected,
     "style.dimensionFilter": dimensionFilter,
