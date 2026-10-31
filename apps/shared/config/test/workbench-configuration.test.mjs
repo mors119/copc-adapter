@@ -284,6 +284,53 @@ test("seeds a required-loading Cesium numeric filter into constructor and runtim
   }]);
 });
 
+test("recreates required-loading Cesium only when an Intensity filter needs a missing field", () => {
+  const dimensionFilter = { name: "Intensity", min: 25, max: 500 };
+  const requiredRgb = validValues({
+    "rendering.colorMode": "rgb",
+    "attributes.attributeLoading": "required",
+    "attributes.pointFields": [],
+  });
+  const needsIntensity = buildSchemaApplicationPlan({
+    ...requiredRgb,
+    "style.dimensionFilter": dimensionFilter,
+  }, workspaceCesiumContext, requiredRgb);
+  assert.equal(needsIntensity.requiresLayerReplacement, true);
+  assert.deepEqual(needsIntensity.constructorOptions.dimensionFilter, dimensionFilter);
+  assert.ok(needsIntensity.runtimeOperations.some((operation) =>
+    operation.method === "setStyle" &&
+    operation.argument.dimensionFilter?.name === "Intensity",
+  ));
+
+  const intensityAlreadySelected = validValues({
+    "rendering.colorMode": "rgb",
+    "attributes.attributeLoading": "required",
+    "attributes.pointFields": ["intensity"],
+  });
+  const runtimeUpdate = buildSchemaApplicationPlan({
+    ...intensityAlreadySelected,
+    "style.dimensionFilter": dimensionFilter,
+  }, workspaceCesiumContext, intensityAlreadySelected);
+  assert.equal(runtimeUpdate.requiresLayerReplacement, false);
+  assert.deepEqual(runtimeUpdate.runtimeOperations, [{
+    method: "setStyle",
+    kind: "patch",
+    argument: { dimensionFilter },
+    rollbackArgument: { dimensionFilter: null },
+    optionIds: ["style.dimensionFilter"],
+  }]);
+
+  const intensityModeAlreadySelected = validValues({
+    "rendering.colorMode": "intensity",
+    "attributes.attributeLoading": "required",
+  });
+  const modeHasField = buildSchemaApplicationPlan({
+    ...intensityModeAlreadySelected,
+    "style.dimensionFilter": dimensionFilter,
+  }, workspaceCesiumContext, intensityModeAlreadySelected);
+  assert.equal(modeHasField.requiresLayerReplacement, false);
+});
+
 test("conditional settings stay out of constructor options when their condition is false", () => {
   const plan = buildSchemaApplicationPlan(
     validValues({

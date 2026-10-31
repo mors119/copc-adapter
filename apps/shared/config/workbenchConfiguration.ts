@@ -619,6 +619,84 @@ function buildRuntimeOperations(
   }));
 }
 
+function initiallyLoadsIntensity(
+  values: WorkbenchOptionValues,
+  context: WorkbenchConfigurationContext,
+  schema: readonly SchemaOption[],
+): boolean {
+  const attributeLoadingOption = schema.find(
+    ({ id }) => id === "attributes.attributeLoading",
+  );
+  if (
+    !attributeLoadingOption ||
+    effectiveValue(attributeLoadingOption, values, context, schema) !== "required"
+  ) {
+    return true;
+  }
+
+  const pointFields = values["attributes.pointFields"];
+  if (Array.isArray(pointFields) && pointFields.includes("intensity")) {
+    return true;
+  }
+
+  const colorModeOption = schema.find(({ id }) => id === "rendering.colorMode");
+  if (
+    colorModeOption &&
+    effectiveValue(colorModeOption, values, context, schema) === "intensity"
+  ) {
+    return true;
+  }
+
+  const dimensionOption = schema.find(({ id }) => id === "style.dimension");
+  if (
+    dimensionOption &&
+    optionIsActive(dimensionOption, values, context, schema)
+  ) {
+    const dimension = effectiveValue(dimensionOption, values, context, schema);
+    if (isPlainRecord(dimension) && dimension.name === "Intensity") return true;
+  }
+
+  const filterOption = schema.find(({ id }) => id === "style.dimensionFilter");
+  if (filterOption && optionIsActive(filterOption, values, context, schema)) {
+    const filter = effectiveValue(filterOption, values, context, schema);
+    if (isPlainRecord(filter) && filter.name === "Intensity") return true;
+  }
+  return false;
+}
+
+function requiresIntensityFilterReload(
+  values: WorkbenchOptionValues,
+  context: WorkbenchConfigurationContext,
+  schema: readonly SchemaOption[],
+  previousValues: WorkbenchOptionValues | undefined,
+  previousContext: WorkbenchConfigurationContext | undefined,
+): boolean {
+  if (
+    context.renderer !== "cesium" ||
+    previousValues === undefined ||
+    previousContext === undefined
+  ) {
+    return false;
+  }
+
+  const attributeLoadingOption = schema.find(
+    ({ id }) => id === "attributes.attributeLoading",
+  );
+  const filterOption = schema.find(({ id }) => id === "style.dimensionFilter");
+  if (
+    !attributeLoadingOption ||
+    !filterOption ||
+    effectiveValue(attributeLoadingOption, values, context, schema) !== "required" ||
+    !optionIsActive(filterOption, values, context, schema)
+  ) {
+    return false;
+  }
+
+  const filter = effectiveValue(filterOption, values, context, schema);
+  if (!isPlainRecord(filter) || filter.name !== "Intensity") return false;
+  return !initiallyLoadsIntensity(previousValues, previousContext, schema);
+}
+
 function requiresReplacement(
   values: WorkbenchOptionValues,
   context: WorkbenchConfigurationContext,
@@ -631,6 +709,17 @@ function requiresReplacement(
     previousContext.renderer !== context.renderer ||
     previousContext.manifest.origin !== context.manifest.origin ||
     previousContext.manifest.version !== context.manifest.version
+  ) {
+    return true;
+  }
+  if (
+    requiresIntensityFilterReload(
+      values,
+      context,
+      schema,
+      previousValues,
+      previousContext,
+    )
   ) {
     return true;
   }
