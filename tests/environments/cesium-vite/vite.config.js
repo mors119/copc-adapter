@@ -79,6 +79,7 @@ export default defineConfig({
       input: [
         path.resolve(process.cwd(), "index.html"),
         path.resolve(process.cwd(), "core.html"),
+        path.resolve(process.cwd(), "imagery-research/index.html"),
       ],
     },
   },

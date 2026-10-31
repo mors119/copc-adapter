@@ -10,6 +10,7 @@
     "typecheck:nodenext": "tsc --noEmit --project tsconfig.nodenext.json",
     "typecheck:public-bundler": "tsc --noEmit --project tsconfig.public-bundler.json",
     "test:e2e": "playwright test",
+    "test:imagery-research": "playwright test --config playwright.imagery-research.config.js e2e/imagery-projection-research.spec.js",
     "preview": "vite preview"
   },
   "dependencies": {
