@@ -24,8 +24,14 @@ jobs:
           cache: npm
           cache-dependency-path: |
             package-lock.json
-            packages/package-lock.json
             apps/dev-viewer/package-lock.json
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json', 'apps/dev-viewer/package-lock.json') }}
+          restore-keys: ${{ runner.os }}-playwright-
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -35,14 +41,11 @@ jobs:
       - name: Install root dependencies
         run: npm ci
 
-      - name: Install adapter dependencies
-        run: npm ci --prefix packages
-
       - name: Install viewer dependencies
-        run: npm ci --prefix apps/dev-viewer
+        run: npm ci --prefix apps/dev-viewer --workspaces=false
 
       - name: Prepare Rust/WASM asset
-        run: npm --prefix packages run prepare-copc-adapter-wasm
+        run: npm run prepare-copc-adapter-wasm -w @frillab/copc-adapter
 
       - name: Install Chromium for direct browser requests
         run: npx --prefix apps/dev-viewer playwright install --with-deps chromium

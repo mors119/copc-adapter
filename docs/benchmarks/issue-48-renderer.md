@@ -1,5 +1,9 @@
 # Issue #48 renderer benchmark
 
+> Historical reproduction record: the recorded commands predate npm Workspaces
+> and use the former Adapter package path. For current commands, see the
+> [monorepo development guide](../monorepo-development.md).
+
 This benchmark answers whether the existing Cesium point path is expensive
 enough to require a project-owned renderer boundary. It does not claim that
 browser timings are deterministic.
@@ -127,7 +131,7 @@ npm --prefix apps/dev-viewer run test:e2e -- e2e/sofi-multigb-validation.spec.ts
 COPC_RENDERER_VARIANT=public-batched npm --prefix apps/dev-viewer run test:e2e -- e2e/sofi-multigb-validation.spec.ts
 ```
 
-`npm --prefix packages run benchmark:renderer` also passed its Node synthetic
+`npm run benchmark:renderer -w @frillab/copc-adapter` also passed its Node synthetic
 baseline after its import was updated to the current app benchmark module. At
 100,000 points its median CRS transform, world-coordinate conversion, style
 preparation, collection add, and total renderer preparation were 64.0, 1.7,

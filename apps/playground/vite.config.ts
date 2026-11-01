@@ -47,7 +47,7 @@ function assertAdapterBundleResolution() {
         this.getModuleIds(),
         {
           adapterPackageRoot: packageRoot,
-          repositoryPackageRoot: pathForPackage("../../packages"),
+          repositoryPackageRoot: pathForPackage("../../packages/adapter"),
           candidateArtifactsRoot: pathForPackage("../../.ci-artifacts"),
         },
       );

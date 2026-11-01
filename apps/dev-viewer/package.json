@@ -21,11 +21,11 @@
     "test:soak:smoke": "COPC_RUN_STREAMING_SOAK=1 COPC_SOAK_ALLOW_SHORT=1 COPC_SOAK_MINUTES=2 COPC_SOAK_SAMPLE_INTERVAL_MS=15000 playwright test e2e/copc-streaming-soak.spec.ts --workers=1 --reporter=line",
     "test:soak:three": "COPC_RUN_THREE_LIFECYCLE=1 playwright test e2e/three-layer-lifecycle-validation.spec.ts --workers=1 --reporter=line",
     "preview": "vite preview",
-    "prepare-assets": "npm --prefix ../../packages run prepare-copc-adapter-wasm && npm run prepare-laz-perf",
-    "prepare-laz-perf": "cp ../../packages/node_modules/laz-perf/lib/web/laz-perf.wasm ../../packages/core/wasm/laz-perf.wasm && cp ../../packages/node_modules/laz-perf/lib/web/laz-perf.wasm public/laz-perf.wasm"
+    "prepare-assets": "npm --prefix ../../packages/adapter run prepare-copc-adapter-wasm && npm run prepare-laz-perf",
+    "prepare-laz-perf": "node ../../scripts/copy-laz-perf.mjs --viewer"
   },
   "devDependencies": {
-    "@frillab/copc-adapter": "file:../../packages",
+    "@frillab/copc-adapter": "file:../../packages/adapter",
     "@playwright/test": "^1.55.0",
     "@types/node": "^26.6.5",
     "@types/three": "^0.186.0",
@@ -35,5 +35,9 @@
     "typescript": "~7.0.2",
     "vite": "^8.0.12",
     "vite-plugin-cesium": "^1.2.23"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "fsevents@2.3.3": true
   }
 }

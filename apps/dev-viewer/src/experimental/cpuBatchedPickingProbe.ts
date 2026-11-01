@@ -1,7 +1,7 @@
 import * as Cesium from "cesium";
-import { BatchedGeometryPointRenderer } from "../../../../packages/cesium/render/BatchedGeometryPointRenderer";
-import { PointPrimitiveRenderer } from "../../../../packages/cesium/render/CopcPointRenderer";
-import { packRelativeEcef } from "../../../../packages/cesium/render/relativeEcef";
+import { BatchedGeometryPointRenderer } from "../../../../packages/adapter/cesium/render/BatchedGeometryPointRenderer";
+import { PointPrimitiveRenderer } from "../../../../packages/adapter/cesium/render/CopcPointRenderer";
+import { packRelativeEcef } from "../../../../packages/adapter/cesium/render/relativeEcef";
 
 const cesiumRuntimeVersion = (Cesium as typeof Cesium & { VERSION: string })
   .VERSION;

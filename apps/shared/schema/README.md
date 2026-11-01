@@ -29,7 +29,7 @@ second option-ID list. Renderer-specific exceptions remain explicit. For
 example, npm `0.6.0` supports `maxConcurrentNodeLoads` in Three but not Cesium,
 and it does not support layer `verticalTransform` or Cesium Terrain alignment;
 the current workspace source supports those features. Update the workspace
-profile version when `packages/package.json` changes. Unknown versions resolve
+profile version when `packages/adapter/package.json` changes. Unknown versions resolve
 to no profile and must not receive controls or generated code.
 
 The workspace `0.7.1` profile exposes numeric dimension ramps in both

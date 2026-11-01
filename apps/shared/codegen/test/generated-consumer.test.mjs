@@ -405,7 +405,7 @@ test("generated Cesium and Three snippets typecheck against the exact consumer p
         extends: consumerConfig,
         include: [
           join(temporaryDirectory, "*.ts"),
-          join(repositoryRoot, "packages", "core", "types", "node-modules.d.ts"),
+          join(repositoryRoot, "packages", "adapter", "core", "types", "node-modules.d.ts"),
         ],
       }, null, 2)),
     ]);

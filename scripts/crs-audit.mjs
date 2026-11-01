@@ -7,8 +7,8 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import process from "node:process";
 
-const require = createRequire(import.meta.url);
-const proj4 = require("../packages/node_modules/proj4");
+const require = createRequire(new URL("../packages/adapter/package.json", import.meta.url));
+const proj4 = require("proj4");
 const repositoryDirectory = path.resolve(
   new URL("..", import.meta.url).pathname,
 );

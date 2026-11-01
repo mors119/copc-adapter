@@ -29,6 +29,24 @@ for its contract and limits.
 - [Validation overview](https://mors119.github.io/copc-adapter/ko/validation)
 - [Public API](https://mors119.github.io/copc-adapter/API)
 
+## npm Workspaces
+
+The repository contains two independently buildable and publishable npm
+packages. The private root workspace owns the single `package-lock.json` used
+for package development and validation.
+
+| Package | Directory | Responsibility |
+| --- | --- | --- |
+| `@frillab/copc-adapter@0.7.1` | [`packages/adapter`](packages/adapter/README.md) | COPC Core, Cesium, and Three entrypoints |
+| `@frillab/copc-tiles@0.1.0` | [`packages/tiles`](packages/tiles/README.md) | Source-neutral 3D Tiles engine and optional public Adapter Core connector |
+
+The dependency direction is `@frillab/copc-tiles` →
+`@frillab/copc-adapter/core`. Adapter Core and the Tiles Engine do not require
+CesiumJS or Three.js. Direct Adapter renderer imports do not import Tiles.
+The [architecture guide](docs/ARCHITECTURE.md#workspace-package-boundaries)
+and [workspace development guide](docs/monorepo-development.md) describe the
+package and consumer boundaries.
+
 ## Try the Playground
 
 [Open Playground](https://mors119.github.io/copc-adapter/playground/)
@@ -454,15 +472,19 @@ npm run test:functional
 Core validation commands:
 
 ```bash
-npm --prefix packages run typecheck
-npm --prefix packages run test
-npm --prefix packages run coverage
-npm --prefix packages run build:library
+npm run typecheck -w @frillab/copc-adapter
+npm test -w @frillab/copc-adapter
+npm run coverage -w @frillab/copc-adapter
+npm run build -w @frillab/copc-adapter
+npm run typecheck -w @frillab/copc-tiles
+npm run typecheck:adapter-core -w @frillab/copc-tiles
+npm test -w @frillab/copc-tiles
+npm run build -w @frillab/copc-tiles
+npm run test:packed-consumer -w @frillab/copc-tiles
 npm run test:functional
-npm --prefix packages run typecheck
 npm --prefix apps/dev-viewer run test:e2e
-npm --prefix packages run benchmark:renderer
-npm --prefix packages run benchmark:vertical-grid
+npm run benchmark:renderer -w @frillab/copc-adapter
+npm run benchmark:vertical-grid -w @frillab/copc-adapter
 npm --prefix apps/dev-viewer run benchmark:streaming
 npm --prefix apps/dev-viewer run benchmark:vertical-grid
 npm --prefix apps/dev-viewer run test:e2e -- e2e/renderer-performance.spec.ts
@@ -470,17 +492,20 @@ npm run test:pack
 cargo test --workspace
 ```
 
-To build and inspect the library artifact:
+To pack each distribution separately, without publishing:
 
 ```bash
-cd packages
-npm run build:library
-npm pack
+npm pack --workspace @frillab/copc-adapter --pack-destination /tmp/copc-adapter-pack
+npm pack --workspace @frillab/copc-tiles --pack-destination /tmp/copc-tiles-pack
 ```
 
-The package is an ESM library with declarations and package-local decoder
-runtime assets. Library builds clean `dist` first, `npm pack` rebuilds through
-`prepack`, and sample COPC data is excluded from the package.
+Each package keeps its own version, exports, files list, and npm artifact.
+Builds clean their own `dist`; Adapter includes its decoder runtime assets,
+Tiles includes its package documentation, and neither tarball includes the
+other package's source or local COPC datasets. The public Playground continues
+to install the exact published Adapter `0.7.1`; the Dev Viewer links the local
+workspace package. See [workspace development](docs/monorepo-development.md)
+for candidate-package and released-package checks.
 
 `npm run test:pack` is the release-boundary gate for the generated `.tgz`. It
 builds Rust/WASM and the library, checks the tarball contents, installs it by

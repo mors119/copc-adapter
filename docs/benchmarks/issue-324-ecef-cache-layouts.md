@@ -1,5 +1,9 @@
 # Issues #324 and #326: ECEF cache layout measurement report
 
+> Historical measurement record: some captured commands and paths predate npm
+> Workspaces. The migration preserves the measurements; current workspace
+> commands are in the [monorepo development guide](../monorepo-development.md).
+
 ## Issue #326 adoption follow-up — 2026-10-28
 
 The standard Cesium and Three layer caches now default to E. Set
@@ -40,9 +44,9 @@ transient preparation memory for E. Those gaps prevent a safe default decision.
 | Setting | Value |
 | --- | --- |
 | Full measurement source revision | `e832bb653866964fac2984ece59d506893f5dd7c` (5 warm-ups, 15 samples) |
-| Node benchmark harness SHA-256 (full measurement) | `cd38ce8add88b55c57f57c749ca0614f87826dc94a2beee082f8a48426a3d5f8` (`packages/scripts/cache-representation-performance-benchmark.mjs`) |
+| Node benchmark harness SHA-256 (full measurement) | `cd38ce8add88b55c57f57c749ca0614f87826dc94a2beee082f8a48426a3d5f8` (`packages/adapter/scripts/cache-representation-performance-benchmark.mjs`) |
 | Node harness SHA-256 (layout-specific metadata) | `7117b43670a93dbc7498153ebcc7e8be5bcb76e91cb82d7eade86eb853a63358` at `0c232496ab03689a6163d52608d5b95d84c2f502`; metadata smoke check used 0 warm-ups and 1 sample |
-| Review follow-up cache budget metadata harness SHA-256 | `ad025c67aa3ee5cd330ab7de6fcb521755bd2d1acca74220c4e7b1db264a9030` (`packages/scripts/cache-representation-performance-benchmark.mjs`); Autzen smoke run used 0 warm-ups and 1 sample |
+| Review follow-up cache budget metadata harness SHA-256 | `ad025c67aa3ee5cd330ab7de6fcb521755bd2d1acca74220c4e7b1db264a9030` (`packages/adapter/scripts/cache-representation-performance-benchmark.mjs`); Autzen smoke run used 0 warm-ups and 1 sample |
 | Browser benchmark harness SHA-256 (original run) | `d85362ae194068d603ea29faeebfbd91d1a0ae456d0e05cfcb9ddd671e0585f0` (`apps/dev-viewer/src/rendererPerformanceBenchmark.ts`) |
 | Review follow-up Cesium harness SHA-256 | `e647deec480f7cbcc59b573d196cc1085cbb01c084bf9d4c2e907a2c114a6dda` (`apps/dev-viewer/src/rendererPerformanceBenchmark.ts`); `fede41d5f383f744931dae5636da84cb45b11d9b5a6992a24eb05bfe92a43611` (`apps/dev-viewer/e2e/renderer-performance.spec.ts`) |
 | Review follow-up Worker instrumentation SHA-256 | `a06fc5de333557cc07be592fa56e8bfd210cc633a7c4666dee88096700c9d9b7` (`apps/dev-viewer/e2e/streaming-performance.spec.ts`) |
@@ -50,7 +54,7 @@ transient preparation memory for E. Those gaps prevent a safe default decision.
 | Node runtime | Node.js `v26.12.1`, V8 `14.6.202.34-node.40`, macOS `25.6.0`, arm64 |
 | Machine | Apple M2, 8 logical CPUs, 8 GiB RAM |
 | Rust/WASM | rustc `1.92.0`; COPC adapter WASM 850,535 bytes; laz-perf WASM 214,351 bytes |
-| Node command | `COPC_CACHE_BENCHMARK_SOFI=1 npm --prefix packages run benchmark:cache-representations` |
+| Node command | `COPC_CACHE_BENCHMARK_SOFI=1 npm run benchmark:cache-representations -w @frillab/copc-adapter` |
 | Node repetitions | 5 warm-ups, then 15 measured samples; p95 is nearest-rank; tables include SD and CV where useful |
 | Requested data | Position, intensity, classification, RGB; SoFi has no RGB field |
 | Transform | Same forward transform result per comparison; no height offset or geoid grid |
@@ -315,8 +319,8 @@ transfer accounting before considering any default switch.
 
 ### Task 3 validation
 
-- `npm --prefix packages run typecheck` and `npm --prefix apps/dev-viewer run typecheck` passed.
-- `npm --prefix packages run test:raw -- --skip-integration`: 532 passed, 0 failed, 5 skipped.
+- `npm run typecheck -w @frillab/copc-adapter` and `npm --prefix apps/dev-viewer run typecheck` passed.
+- `npm run test:raw -w @frillab/copc-adapter -- --skip-integration`: 532 passed, 0 failed, 5 skipped.
 - Focused Rust/JavaScript backend conformance test: 10 passed, 0 failed.
 - Dev-viewer production build and production-mode benchmark build passed.
 - Synthetic Cesium/Three A/E renderer benchmark: 1 browser test passed with counterbalanced Three A/E order; A-only first-visible benchmark: 1 browser test passed (5 cold + 5 warm measured runs).
@@ -810,7 +814,7 @@ logical CPUs, 8 GiB RAM), `rustc 1.92.0`, COPC adapter package `0.7.1`, and
 Playwright-independent Node execution. Command:
 
 ```sh
-COPC_CACHE_BENCHMARK_SOFI=1 node --expose-gc --import tsx packages/scripts/cache-representation-performance-benchmark.mjs
+COPC_CACHE_BENCHMARK_SOFI=1 node --expose-gc --import tsx packages/adapter/scripts/cache-representation-performance-benchmark.mjs
 ```
 
 The harness used 5 warm-ups and 15 samples, with JS/TypeScript and explicitly
@@ -912,7 +916,7 @@ limits, and absence of surveyed control points remain.
 
 Checks completed for this follow-up:
 
-- `npm --prefix packages test` — 662 passed, 0 failed.
+- `npm test -w @frillab/copc-adapter` — 662 passed, 0 failed.
 - `npm --prefix apps/dev-viewer run test:unit` — 117 passed.
 - Package and dev-viewer typechecks passed.
 - Rust/WASM build passed as part of package tests and packed package builds.

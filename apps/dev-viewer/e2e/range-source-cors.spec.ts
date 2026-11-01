@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 const packageEntryUrl = `/@fs/${fileURLToPath(
-  new URL("../../../packages/index.ts", import.meta.url),
+  new URL("../../../packages/adapter/index.ts", import.meta.url),
 )}`;
 const autzenFixturePath = fileURLToPath(
   new URL("../../../samples/local/autzen.copc.laz", import.meta.url),

@@ -1,5 +1,9 @@
 # Issue 212: SoFi multi-GB browser streaming validation
 
+> Historical reproduction record: the recorded commands predate npm Workspaces
+> and use the former Adapter package path. For current commands, see the
+> [monorepo development guide](../monorepo-development.md).
+
 This record covers the final browser validation requested by [issue #212](https://github.com/mors119/copc-adapter/issues/212). Measurements were captured on 2026-10-07 against source commit `53944880c1f912f3ceaddf91e8c501056e86019c`.
 
 ## Result
@@ -64,9 +68,9 @@ npm ci --prefix apps/dev-viewer
 npm run download-samples -- autzen
 mkdir -p apps/dev-viewer/public/samples
 cp samples/local/autzen.copc.laz apps/dev-viewer/public/samples/autzen.copc.laz
-npm --prefix packages run typecheck
-npm --prefix packages test
-npm --prefix packages run build
+npm run typecheck -w @frillab/copc-adapter
+npm test -w @frillab/copc-adapter
+npm run build -w @frillab/copc-adapter
 npm --prefix apps/dev-viewer run test:e2e
 ```
 

@@ -180,11 +180,14 @@ From the repository root:
 
 ```bash
 npm ci
-npm ci --prefix packages
-npm ci --prefix apps/dev-viewer
+npm ci --prefix apps/dev-viewer --workspaces=false
 npm run download-samples -- autzen
 npm run dev
 ```
+
+The root install links the `@frillab/copc-adapter` and `@frillab/copc-tiles`
+workspaces. The Dev Viewer keeps its application lockfile and installs its
+local Adapter link with `--workspaces=false`.
 
 `npm run dev` prepares the Rust/WASM decoder and laz-perf assets before starting
 Vite. Download the local Autzen fixture once with the command above when it is

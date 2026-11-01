@@ -44,7 +44,7 @@ import {
   type EllipsoidalHeightOffsetBenchmark,
   type RendererBenchmarkKind,
 } from "./rendererPerformanceBenchmark";
-import type { CpuPointPickProbe } from "../../../packages/cesium/render/BatchedGeometryPointRenderer";
+import type { CpuPointPickProbe } from "../../../packages/adapter/cesium/render/BatchedGeometryPointRenderer";
 import {
   runCpuBatchedPickingProbe,
   runCpuBatchedPickingStress,

@@ -421,6 +421,6 @@ byte 변환을 적용하지 마세요.
 
 ## 관련 구현
 
-- `packages/core/copc/range/httpRangeSource.ts`
-- `packages/core/copc/range/contentRange.ts`
-- `packages/core/copc/sourceProbe.ts`
+- `packages/adapter/core/copc/range/httpRangeSource.ts`
+- `packages/adapter/core/copc/range/contentRange.ts`
+- `packages/adapter/core/copc/sourceProbe.ts`

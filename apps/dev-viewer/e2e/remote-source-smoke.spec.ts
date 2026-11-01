@@ -8,7 +8,7 @@ import {
 } from "./remote-smoke-utils";
 
 const packageEntryUrl = `/@fs/${fileURLToPath(
-  new URL("../../../packages/index.ts", import.meta.url),
+  new URL("../../../packages/adapter/index.ts", import.meta.url),
 )}`;
 const smokeUtilsUrl = `/@fs/${fileURLToPath(
   new URL("./remote-smoke-utils.ts", import.meta.url),

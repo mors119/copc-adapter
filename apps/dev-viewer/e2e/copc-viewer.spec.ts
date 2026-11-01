@@ -2,7 +2,7 @@ import { expect, test } from "./ci-diagnostic-fixtures";
 import type {
   CopcCesiumPointStyle,
   CopcCesiumPointStyleUpdate,
-} from "../../../packages/index";
+} from "../../../packages/adapter/index";
 import { getCompletedStreamingState } from "./streaming-state";
 
 type CopcDebugState = {

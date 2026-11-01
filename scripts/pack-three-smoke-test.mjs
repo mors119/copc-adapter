@@ -18,7 +18,7 @@ import { assertPackedCandidateInstall } from "./lib/packed-candidate-provenance.
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryDirectory = path.resolve(scriptDirectory, "..");
-const packageDirectory = path.resolve(repositoryDirectory, "packages");
+const packageDirectory = path.resolve(repositoryDirectory, "packages/adapter");
 const consumerTemplateDirectory = path.resolve(
   repositoryDirectory,
   "tests/environments/three-vite",

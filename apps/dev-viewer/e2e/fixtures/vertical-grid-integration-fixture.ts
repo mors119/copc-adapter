@@ -16,7 +16,7 @@ import {
   applyPreparedPointVerticalGrid,
   createPointTransformer,
   createProjectPointTransformer,
-} from "../../../../packages/core/coordinates/transform/createPointTransformer";
+} from "../../../../packages/adapter/core/coordinates/transform/createPointTransformer";
 
 type LayerOptions = {
   id: string;
@@ -676,7 +676,7 @@ integrationWindow.__VERTICAL_GRID_INTEGRATION__ = {
   async cancelWorkerQueue(source) {
     const opened = await new RustCopcBackend().open(source);
     try {
-      const nodes = new Map<string, import("../../../../packages/core/copc/hierarchy/types").CopcHierarchyNode>();
+      const nodes = new Map<string, import("../../../../packages/adapter/core/copc/hierarchy/types").CopcHierarchyNode>();
       const pages = [opened.getRootHierarchyPage()];
       const visited = new Set<string>();
       while (pages.length > 0 && nodes.size < 2 && visited.size < 64) {

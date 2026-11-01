@@ -6,7 +6,10 @@ import { fileURLToPath } from "node:url";
 
 const appDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryDirectory = path.resolve(appDirectory, "../..");
-const packageSourceDirectory = path.resolve(repositoryDirectory, "packages");
+const packageSourceDirectory = path.resolve(
+  repositoryDirectory,
+  "packages/adapter",
+);
 const isolatedCesiumPackageDirectory = process.env.COPC_TEST_CESIUM_PACKAGE_DIR;
 const adapterPackage = JSON.parse(
   fs.readFileSync(path.join(packageSourceDirectory, "package.json"), "utf8"),
