@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import semver from 'semver';
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
@@ -9,6 +9,17 @@ import { fileURLToPath } from 'node:url';
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = resolve(packageRoot, '../..');
 const packagePrefix = `${packageRoot.slice(repositoryRoot.length + 1)}${sep}`;
+const adapterArtifactDirectory = join(repositoryRoot, 'ci-artifacts');
+const adapterArtifacts = await readdir(adapterArtifactDirectory).catch((error) => {
+  if (error?.code === 'ENOENT') return [];
+  throw error;
+});
+const adapterCandidates = adapterArtifacts.filter((file) =>
+  file.startsWith('frillab-copc-adapter-0.8.0.') && file.endsWith('.tgz'));
+assert.ok(adapterCandidates.length <= 1, 'at most one verified Adapter 0.8.0 package candidate is staged');
+const adapterCandidatePath = adapterCandidates[0] === undefined
+  ? undefined
+  : resolve(adapterArtifactDirectory, adapterCandidates[0]);
 const stagingRoot = await mkdtemp(join(tmpdir(), 'copc-tiles-workspace-staging-'));
 const stagedPackageRoot = join(stagingRoot, 'packages', 'tiles');
 const npmCli = process.env.npm_execpath;
@@ -21,7 +32,9 @@ function run(command, args, cwd, label) {
     stdio: 'inherit',
     env: {
       ...process.env,
-      COPC_ADAPTER_WORKSPACE_ROOT: resolve(repositoryRoot, 'packages/adapter'),
+      ...(adapterCandidatePath === undefined
+        ? { COPC_ADAPTER_WORKSPACE_ROOT: resolve(repositoryRoot, 'packages/adapter') }
+        : { COPC_ADAPTER_PACKED_CANDIDATE: adapterCandidatePath }),
       SHARP_IGNORE_GLOBAL_LIBVIPS: process.env.SHARP_IGNORE_GLOBAL_LIBVIPS ?? '1',
       npm_config_audit: 'false',
       npm_config_fund: 'false',

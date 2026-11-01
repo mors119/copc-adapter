@@ -3,7 +3,7 @@ import { cp, lstat, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } fro
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -119,11 +119,21 @@ try {
   assert.equal(tileFiles.some((file) => file.endsWith('.copc.laz')), false, 'Tiles tarball excludes COPC datasets');
   assert.equal(tileFiles.some((file) => file.includes('/node_modules/')), false, 'Tiles tarball excludes node_modules');
 
-  const adapterWorkspace = resolve(process.env.COPC_ADAPTER_WORKSPACE_ROOT ?? resolve(root, '../adapter'));
-  runNpm(['pack', '--pack-destination', packDirectory], adapterWorkspace, 'Adapter 0.8.0 candidate npm pack');
-  const packedAdapterName = (await readdir(packDirectory)).find((name) => name.startsWith('frillab-copc-adapter-0.8.0.') && name.endsWith('.tgz'));
-  if (!packedAdapterName) throw new Error('Adapter 0.8.0 candidate npm pack did not produce a tarball.');
-  const packedAdapter = `file:${join(packDirectory, packedAdapterName)}`;
+  let packedAdapterName;
+  let packedAdapter;
+  if (process.env.COPC_ADAPTER_PACKED_CANDIDATE !== undefined) {
+    const candidatePath = resolve(process.env.COPC_ADAPTER_PACKED_CANDIDATE);
+    assert.ok(candidatePath.endsWith('.tgz'), 'Adapter candidate artifact is an npm tarball');
+    assert.equal((await lstat(candidatePath)).isFile(), true, 'Adapter candidate artifact is a regular file');
+    packedAdapterName = basename(candidatePath);
+    packedAdapter = `file:${candidatePath}`;
+  } else {
+    const adapterWorkspace = resolve(process.env.COPC_ADAPTER_WORKSPACE_ROOT ?? resolve(root, '../adapter'));
+    runNpm(['pack', '--pack-destination', packDirectory], adapterWorkspace, 'Adapter 0.8.0 candidate npm pack');
+    packedAdapterName = (await readdir(packDirectory)).find((name) => name.startsWith('frillab-copc-adapter-0.8.0.') && name.endsWith('.tgz'));
+    if (!packedAdapterName) throw new Error('Adapter 0.8.0 candidate npm pack did not produce a tarball.');
+    packedAdapter = `file:${join(packDirectory, packedAdapterName)}`;
+  }
 
   await makeConsumer(consumerDirectory, {
     '@frillab/copc-adapter': '0.7.1',
