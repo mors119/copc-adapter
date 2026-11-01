@@ -388,6 +388,23 @@ export function toWorkbenchOptionValues(
   return values;
 }
 
+/** Return a fail-closed error when Tiles would silently omit active filters. */
+export function getTilesUnsupportedFilteringError(
+  config: DevViewerConfig,
+): string | undefined {
+  const values = toWorkbenchOptionValues(config);
+  const unsupported = [
+    ["style.classificationFilter", "Classification Filter"],
+    ["style.dimensionFilter", "Numeric Dimension Filter"],
+    ["filtering.cesiumClippingVolume", "Clipping Volume"],
+  ] as const;
+  const activeLabels = unsupported
+    .filter(([optionId]) => values[optionId] !== undefined && values[optionId] !== null)
+    .map(([, label]) => label);
+  if (activeLabels.length === 0) return undefined;
+  return `3D Tiles does not apply ${activeLabels.join(", ")}. Switch to Direct COPC and clear these settings before selecting 3D Tiles.`;
+}
+
 /** Display a configured Terrain URL without credentials or query data. */
 export function getSafeTerrainSourceLabel(
   source: string,

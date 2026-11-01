@@ -110,15 +110,39 @@ test("Direct remains the default and the Cesium 3D Tiles pipeline renders genera
   await expect(page.locator("#source-status")).toHaveAttribute("data-status", "ready");
   await expect.poll(() => hasDirectSnapshot(page)).toBe(true);
 
+  const filteringSection = page.locator('.schema-control-section[data-section="filtering"]');
+  await filteringSection.locator("summary").click();
+  await page.getByRole("checkbox", { name: "Use include list" }).check();
+  const classificationInclude = page.getByLabel("Include codes (0–255)");
+  await classificationInclude.fill("2");
   await page.locator("#rendering-pipeline").selectOption("tiles");
+  await expect(page.locator("#configuration-error")).toContainText("Classification Filter");
+  await expect(page.locator("#apply-settings")).toBeDisabled();
+  await expect(page.locator("#load-source")).toBeDisabled();
+  await expect(filteringSection).toHaveAttribute("aria-disabled", "true");
+  await expect(classificationInclude).toBeDisabled();
   await expect(
     page.getByRole("radiogroup", { name: "Color mode" }).getByRole("radio", { name: "Elevation" }),
   ).toBeDisabled();
+
+  await page.locator("#rendering-pipeline").selectOption("direct");
+  await expect(classificationInclude).toBeEnabled();
+  await expect(
+    page.getByRole("radiogroup", { name: "Color mode" }).getByRole("radio", { name: "Elevation" }),
+  ).toBeEnabled();
+  await filteringSection.locator(".schema-special-classification button.schema-action").click();
+  await expect(page.locator("#configuration-error")).toBeHidden();
+  await page.locator("#rendering-pipeline").selectOption("tiles");
   await expect(page.locator("#apply-settings")).toBeEnabled();
+  await expect(classificationInclude).toBeDisabled();
   await page.locator("#apply-settings").click();
   await expect(page.locator("#source-status")).toHaveAttribute("data-status", "ready");
   await expect(page.locator("#source-status")).toContainText("3D Tiles (Experimental)");
   await expect.poll(async () => (await getTilesDiagnostics(page))?.status).toBe("ready");
+  await expect(
+    page.getByRole("radiogroup", { name: "Color mode" }).getByRole("radio", { name: "Elevation" }),
+  ).toBeDisabled();
+  await expect(classificationInclude).toBeDisabled();
 
   const cesium = await getTilesDiagnostics(page);
   expect(cesium).toMatchObject({

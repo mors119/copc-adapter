@@ -16,6 +16,7 @@ import {
   getSafeSourceLabel,
   getSafeTerrainSourceLabel,
   getTilesVerticalGrid,
+  getTilesUnsupportedFilteringError,
   hasUnappliedSettings,
   isRangeValidationPolicy,
   isRefinementAlgorithm,
@@ -78,6 +79,30 @@ test("passes only a host-verified vertical grid into the Tiles pipeline", () => 
     () => getTilesVerticalGrid(config, () => false),
     /loaded, verified vertical grid/,
   );
+});
+
+test("rejects filters and clipping that the Tiles pipeline cannot apply", () => {
+  const cleanTiles = createConfig({ pipeline: "tiles" });
+  assert.equal(getTilesUnsupportedFilteringError(cleanTiles), undefined);
+
+  const unsupportedSettings = [
+    ["style.classificationFilter", { include: [2] }, "Classification Filter"],
+    ["style.dimensionFilter", { name: "Intensity", min: 0, max: 100 }, "Numeric Dimension Filter"],
+    ["filtering.cesiumClippingVolume", {
+      type: "box",
+      coordinateSystem: "wgs84-ecef-meters",
+      minimum: [-1, -1, -1],
+      maximum: [1, 1, 1],
+    }, "Clipping Volume"],
+  ];
+  for (const [optionId, value, label] of unsupportedSettings) {
+    const error = getTilesUnsupportedFilteringError(createConfig({
+      pipeline: "tiles",
+      schemaOptionValues: { [optionId]: value },
+    }));
+    assert.match(error, new RegExp(label));
+    assert.match(error, /clear these settings/);
+  }
 });
 
 test("marks constructor-time settings pending and keeps Cesium color updates live", () => {

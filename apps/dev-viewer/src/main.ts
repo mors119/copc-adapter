@@ -106,6 +106,7 @@ import {
   getCesiumTerrainProviderUrl,
   getSafeSourceLabel,
   getSafeTerrainSourceLabel,
+  getTilesUnsupportedFilteringError,
   hasUnappliedSettings,
   isRangeValidationPolicy,
   isRefinementAlgorithm,
@@ -2010,25 +2011,32 @@ async function main(): Promise<void> {
   const updateConfigurationState = (): void => {
     const dirty = hasUnappliedSettings(activeConfig, pendingConfig);
     const schemaValidationErrors = workbenchControls?.getValidationErrors() ?? [];
+    const tilesFilteringError = pendingConfig.pipeline === "tiles"
+      ? getTilesUnsupportedFilteringError(pendingConfig)
+      : undefined;
     const selectedSourceDiffers = !sameSource(
       activeConfig.source,
       pendingConfig.source,
     );
-    configurationState.textContent = dirty
-      ? "Settings not applied"
-      : selectedSourceDiffers
-        ? "Settings applied · selected source differs"
-        : "Settings applied";
+    configurationState.textContent = tilesFilteringError
+      ? "Filtering settings are unsupported by 3D Tiles"
+      : dirty
+        ? "Settings not applied"
+        : selectedSourceDiffers
+          ? "Settings applied · selected source differs"
+          : "Settings applied";
     configurationState.dataset.dirty = String(dirty);
-    configurationErrorElement.textContent = configurationError ?? "";
-    configurationErrorElement.hidden = !configurationError;
+    configurationErrorElement.textContent = configurationError ?? tilesFilteringError ?? "";
+    configurationErrorElement.hidden = !configurationError && !tilesFilteringError;
     applySettingsButton.disabled =
       isLoading ||
       startupIssues.size > 0 ||
       schemaValidationErrors.length > 0 ||
+      Boolean(tilesFilteringError) ||
       (!dirty && !configurationError);
     loadButton.disabled =
-      isLoading || startupIssues.size > 0 || schemaValidationErrors.length > 0;
+      isLoading || startupIssues.size > 0 || schemaValidationErrors.length > 0 ||
+      Boolean(tilesFilteringError);
     reloadCurrentSourceButton.disabled = isLoading || !activeSession;
     controlsPanel
       .querySelectorAll<HTMLInputElement | HTMLSelectElement>("input, select")
@@ -2048,11 +2056,27 @@ async function main(): Promise<void> {
       .forEach((control) => {
         control.disabled = isLoading || tilesStylesDisabled;
       });
+    const tilesFilteringDisabled =
+      activeConfig.pipeline === "tiles" || pendingConfig.pipeline === "tiles";
+    const filteringSection = controlsPanel.querySelector<HTMLElement>(
+      '.schema-control-section[data-section="filtering"]',
+    );
+    filteringSection?.setAttribute("aria-disabled", String(tilesFilteringDisabled));
+    filteringSection
+      ?.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>(
+        "input, select, button",
+      )
+      .forEach((control) => {
+        control.disabled = isLoading || tilesFilteringDisabled;
+      });
     workbenchControls?.refreshVerticalGridAvailability();
     controlsPanel
       .querySelectorAll<HTMLButtonElement>(".ui-segmented button")
       .forEach((control) => {
-        control.disabled = isLoading;
+        const section = control.closest<HTMLElement>(".schema-control-section");
+        control.disabled = isLoading ||
+          (tilesStylesDisabled && section?.dataset.section === "style") ||
+          (tilesFilteringDisabled && section?.dataset.section === "filtering");
       });
     terrainAlignmentControl?.update();
     refreshIntegrationCode();
@@ -2269,6 +2293,19 @@ async function main(): Promise<void> {
     if (validationError) {
       showConfigurationError(validationError);
       updateStatus(validationError, "error");
+      return;
+    }
+    const tilesFilteringError = config.pipeline === "tiles"
+      ? getTilesUnsupportedFilteringError(config)
+      : undefined;
+    if (tilesFilteringError) {
+      if (!activeSession) {
+        updateStatus(
+          "Configuration ready · switch to Direct COPC or clear unsupported filter settings.",
+          "inactive",
+        );
+      }
+      updateConfigurationState();
       return;
     }
     const schemaValidationErrors = workbenchControls?.getValidationErrors() ?? [];
@@ -2726,6 +2763,14 @@ async function main(): Promise<void> {
     onPipelineSelected(value) {
       resolveStartupIssue("pipeline");
       pendingConfig = { ...pendingConfig, pipeline: value };
+      if (
+        value === "direct" &&
+        !activeSession &&
+        startupIssues.size === 0 &&
+        !configurationError
+      ) {
+        updateStatus("Configuration ready · load the selected source.", "inactive");
+      }
       updateConfigurationState();
     },
     onCesiumRendererSelected(value) {

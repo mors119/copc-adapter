@@ -64,4 +64,8 @@ use Direct COPC for those sources in the Dev Viewer.
 The selector is local to this developer host. It does not add a public
 Playground option or an npm installation path for `@frillab/copc-tiles`.
 Appearance controls are disabled while Tiles is selected; switch back to
-Direct COPC to use them. Direct streaming controls are unavailable in Tiles mode.
+Direct COPC to use them. Filtering & Clipping controls are also disabled in
+Tiles mode. If a classification filter, numeric dimension filter, or clipping
+volume is already selected, Tiles fails closed with a message; switch to Direct
+COPC and clear those settings before selecting Tiles. Direct streaming controls
+are unavailable in Tiles mode.
