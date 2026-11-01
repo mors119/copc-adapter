@@ -1,4 +1,10 @@
+import { existsSync } from "node:fs";
 import { expect, test } from "@playwright/test";
+
+const demoFixturesAvailable =
+  existsSync(new URL("../../../samples/local/demo-wgs84.copc.laz", import.meta.url)) &&
+  existsSync(new URL("../../../samples/local/demo-projected.copc.laz", import.meta.url));
+const fixtureSetupCommand = "npm --prefix apps/dev-viewer run test:e2e:tiles";
 
 type TilesDiagnostics = {
   status: string;
@@ -40,6 +46,7 @@ async function getTilesDiagnostics(page: import("@playwright/test").Page): Promi
 }
 
 test("Direct remains the default and the Cesium 3D Tiles pipeline renders generated COPC GLBs", async ({ page }) => {
+  test.skip(!demoFixturesAvailable, `Run ${fixtureSetupCommand} to generate the ignored COPC fixtures.`);
   test.setTimeout(180_000);
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
@@ -110,6 +117,7 @@ test("Direct remains the default and the Cesium 3D Tiles pipeline renders genera
 });
 
 test("the same Tiles pipeline works with the Three.js renderer", async ({ page }) => {
+  test.skip(!demoFixturesAvailable, `Run ${fixtureSetupCommand} to generate the ignored COPC fixtures.`);
   test.setTimeout(120_000);
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
@@ -132,6 +140,7 @@ test("the same Tiles pipeline works with the Three.js renderer", async ({ page }
 });
 
 test("unsupported projected COPC reports its conservative bounds reason before any GLB request", async ({ page }) => {
+  test.skip(!demoFixturesAvailable, `Run ${fixtureSetupCommand} to generate the ignored COPC fixtures.`);
   test.setTimeout(120_000);
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
