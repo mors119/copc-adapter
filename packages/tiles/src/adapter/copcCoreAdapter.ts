@@ -6,6 +6,7 @@ import type {
   CopcHierarchyBounds,
   CopcHierarchyNode,
   CopcHierarchyPage,
+  CopcHierarchySource,
   CopcInputSource,
   CopcMetadata,
   CopcPointField,
@@ -27,7 +28,10 @@ import type {
   TileConservativeBoundsGridProvenance,
   TileConservativeBoundsResult,
   TileConservativeNodeSource,
+  TileCompleteHierarchyLoadOptions,
+  TileNodeHierarchy,
 } from '../source/tileNodeSource.js';
+import { TileNodeReaderError } from '../source/tileNodeSource.js';
 
 export type CopcCoreAdapterOptions = Readonly<{
   /** Input supported by the public Core factory: URL, File/Blob, or random-access source. */
@@ -186,6 +190,109 @@ export class CopcCoreNodeSource implements TileConservativeNodeSource {
     } finally {
       operation.dispose();
     }
+  }
+
+  /**
+   * Use Adapter Core's public HierarchyLoader to add child-completeness
+   * evidence to backend hierarchy entries, which intentionally contain only
+   * raw COPC node fields. The explicit scan remains bounded by Tiles limits.
+   */
+  async loadCompleteHierarchy(options: TileCompleteHierarchyLoadOptions): Promise<TileNodeHierarchy> {
+    this.#assertCurrent(options.signal);
+    const {
+      maxHierarchyPages,
+      maxHierarchyPageBytes,
+      maxTotalHierarchyPageBytes,
+      maxHierarchyNodes,
+      maxNodesPerPage,
+    } = options.limits;
+    const rootPage = this.#source.getRootHierarchyPage();
+    if (
+      rootPage.pageLength > maxHierarchyPageBytes ||
+      rootPage.pageLength > maxTotalHierarchyPageBytes
+    ) {
+      throw new TileNodeReaderError('HIERARCHY_LIMIT', 'Root hierarchy page exceeds the configured byte limit.', { pageKey: rootPage.key });
+    }
+
+    let admittedPages = 1;
+    let admittedBytes = rootPage.pageLength;
+    let hierarchyPagesRead = 0;
+    let hierarchyPageBytesRead = 0;
+    let hierarchyNodeLimitExceeded = false;
+    const loadedNodeKeys = new Set<string>();
+    const hierarchySource: CopcHierarchySource = {
+      getRootHierarchyPage: () => this.#source.getRootHierarchyPage(),
+      loadHierarchyPage: async (page, pageOptions) => {
+        this.#assertCurrent(pageOptions?.signal ?? options.signal);
+        const subtree = await this.loadHierarchyPage(page, pageOptions?.signal ?? options.signal);
+        hierarchyPagesRead += 1;
+        hierarchyPageBytesRead += page.pageLength;
+        if (subtree.nodes.length > maxNodesPerPage) hierarchyNodeLimitExceeded = true;
+        for (const node of subtree.nodes) {
+          loadedNodeKeys.add(node.key);
+          if (loadedNodeKeys.size > maxHierarchyNodes) hierarchyNodeLimitExceeded = true;
+        }
+        return {
+          nodes: subtree.nodes.map(copyNodeToCore),
+          pages: subtree.pages.map(copyPage),
+        };
+      },
+    };
+    const core = await importCoreApi();
+    this.#assertCurrent(options.signal);
+    const cube = this.#source.getMetadata().cube;
+    const loader = new core.HierarchyLoader(hierarchySource, cube, {
+      // A single admitted page at a time keeps the explicit scan's byte and
+      // page budgets deterministic even when the source reports many pages.
+      maxConcurrentPageLoads: 1,
+    });
+    const root = await loader.loadRoot(options.signal === undefined ? {} : { signal: options.signal });
+    if (
+      hierarchyNodeLimitExceeded ||
+      root.nodes.length > maxNodesPerPage ||
+      root.nodes.length > maxHierarchyNodes
+    ) {
+      throw new TileNodeReaderError('HIERARCHY_LIMIT', 'Root hierarchy page exceeds the configured node limit.', { pageKey: rootPage.key });
+    }
+    for (const node of root.nodes) options.onRootNode?.(copyCoreNode(node));
+
+    let hierarchyLimitReached = false;
+    const complete = await loader.query(
+      { bounds: { ...cube, coordinateSystem: 'copc-source' } },
+      {
+        ...(options.signal === undefined ? {} : { signal: options.signal }),
+        maxPages: Math.max(1, maxHierarchyPages - 1),
+        maxConcurrentPageLoads: 1,
+        canLoadPage: (page, cached) => {
+          if (cached) return true;
+          if (
+            hierarchyNodeLimitExceeded ||
+            page.pageLength > maxHierarchyPageBytes ||
+            admittedPages >= maxHierarchyPages ||
+            page.pageLength > maxTotalHierarchyPageBytes - admittedBytes
+          ) {
+            hierarchyLimitReached = true;
+            return false;
+          }
+          admittedPages += 1;
+          admittedBytes += page.pageLength;
+          return true;
+        },
+        onPageSkipped: () => { hierarchyLimitReached = true; },
+      },
+    );
+    this.#assertCurrent(options.signal);
+    if (hierarchyLimitReached || hierarchyNodeLimitExceeded) {
+      throw new TileNodeReaderError('HIERARCHY_LIMIT', 'Complete hierarchy scan exceeded a configured page or node limit.');
+    }
+    if (hierarchyPagesRead > maxHierarchyPages || hierarchyPageBytesRead > maxTotalHierarchyPageBytes) {
+      throw new TileNodeReaderError('HIERARCHY_LIMIT', 'Complete hierarchy scan exceeded a configured page or byte limit.');
+    }
+    return Object.freeze({
+      nodes: Object.freeze(complete.nodes.map(copyCoreNode)),
+      hierarchyPagesRead,
+      hierarchyPageBytesRead,
+    });
   }
 
   async loadNode(

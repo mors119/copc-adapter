@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as adapterCore from '@frillab/copc-adapter/core';
 import { CopcCoreAdapterError, CopcCoreNodeSource, wrapCopcCoreNodeSource } from '../src/adapter/copcCoreAdapter.ts';
+import { createCopcTileResourceProvider, CopcTileResourceProviderError } from '../src/resources/copcTileResourceProvider.ts';
+import { createPaddedEcefBoundsFromConservativeResult, getExplicitTileContentUri } from '../src/tileset/explicitTileset.ts';
 import { TileNodeReader } from '../src/source/tileNodeReader.ts';
-import { createPaddedEcefBoundsFromConservativeResult } from '../src/tileset/explicitTileset.ts';
+import { TileNodeReaderError } from '../src/source/tileNodeSource.ts';
 
 const node = {
   key: '0-0-0-0', level: 0, x: 0, y: 0, z: 0,
@@ -194,6 +196,90 @@ test('the installed Registry Adapter 0.7.1 package publishes the renderer-neutra
   assert.equal(typeof adapterCore.CopcContext.prototype.getConservativeNodeEcefBounds, 'function');
   assert.equal(typeof adapterCore.getCopcHierarchyCellBounds, 'function');
   assert.equal(typeof adapterCore.createCoordinateTransformPlan, 'function');
+  assert.equal(typeof adapterCore.HierarchyLoader, 'function');
+});
+
+test('Adapter Core hierarchy loader enriches raw COPC entries for the live Tiles provider', async () => {
+  const root = {
+    key: '0-0-0-0', level: 0, x: 0, y: 0, z: 0,
+    pointCount: 2, pointDataOffset: 128, pointDataLength: 40,
+  };
+  const child = {
+    key: '1-0-0-0', level: 1, x: 0, y: 0, z: 0,
+    pointCount: 1, pointDataOffset: 168, pointDataLength: 20,
+  };
+  const rootPage = { key: root.key, pageOffset: 0, pageLength: 32 };
+  const childPage = { key: child.key, pageOffset: 32, pageLength: 32 };
+  let source;
+  let hierarchyReads = 0;
+  const conservativeReads = [];
+  source = makeSource({
+    transformPlan: geographicPlan(4326),
+    getMetadata: () => ({ pointCount: 3, cube: { minX: -180, minY: -90, minZ: -100, maxX: 180, maxY: 90, maxZ: 100 } }),
+    getRootHierarchyPage: () => rootPage,
+    loadHierarchyPage: async (page) => {
+      hierarchyReads += 1;
+      return page.key === root.key
+        ? { nodes: [root], pages: [childPage] }
+        : { nodes: [child], pages: [] };
+    },
+    getConservativeNodeEcefBounds: (nodeKey) => {
+      conservativeReads.push(nodeKey);
+      return supportedBoundsResult(source, nodeKey);
+    },
+  });
+
+  const bridge = wrap(source);
+  const provider = await createCopcTileResourceProvider(bridge, { scanCompleteHierarchy: true });
+  assert.equal(provider.hierarchyPagesRead, 2);
+  assert.equal(provider.hierarchyPageBytesRead, 64);
+  assert.deepEqual(conservativeReads, [root.key, child.key], 'root bounds are checked early and reused after hierarchy completion');
+  const bytes = await provider.getResource('tileset.json', new AbortController().signal);
+  const tileset = JSON.parse(new TextDecoder().decode(bytes));
+  assert.equal(tileset.root.children[0].content.uri, getExplicitTileContentUri(child.key));
+  assert.equal(hierarchyReads, 2);
+  await provider.close();
+
+  const boundedSource = makeSource({
+    transformPlan: geographicPlan(4326),
+    getMetadata: () => ({ pointCount: 3, cube: { minX: -180, minY: -90, minZ: -100, maxX: 180, maxY: 90, maxZ: 100 } }),
+    getRootHierarchyPage: () => rootPage,
+    loadHierarchyPage: async (page) => {
+      boundedSource.hierarchyReads += 1;
+      return page.key === root.key
+        ? { nodes: [root], pages: [childPage] }
+        : { nodes: [child], pages: [] };
+    },
+    hierarchyReads: 0,
+    getConservativeNodeEcefBounds: (nodeKey) => supportedBoundsResult(boundedSource, nodeKey),
+  });
+  const boundedReader = new TileNodeReader(wrap(boundedSource), { maxHierarchyPages: 1 });
+  await assert.rejects(
+    boundedReader.readHierarchy(),
+    (error) => error instanceof TileNodeReaderError && error.code === 'HIERARCHY_LIMIT',
+  );
+  assert.equal(boundedSource.hierarchyReads, 1, 'the page cap prevents loading a child page after the root page');
+
+  let projectedReads = 0;
+  let projectedBoundsReads = 0;
+  const projectedSource = makeSource({
+    getMetadata: () => ({ pointCount: 3, cube: { minX: 0, minY: 0, minZ: 0, maxX: 1, maxY: 1, maxZ: 1 } }),
+    getRootHierarchyPage: () => rootPage,
+    loadHierarchyPage: async () => {
+      projectedReads += 1;
+      return { nodes: [root], pages: [childPage] };
+    },
+    getConservativeNodeEcefBounds: (nodeKey) => {
+      projectedBoundsReads += 1;
+      return unsupportedBoundsResult(projectedSource, nodeKey);
+    },
+  });
+  await assert.rejects(
+    createCopcTileResourceProvider(wrap(projectedSource), { scanCompleteHierarchy: true }),
+    (error) => error instanceof CopcTileResourceProviderError && error.code === 'UNSUPPORTED_BOUNDS',
+  );
+  assert.equal(projectedReads, 1, 'unsupported projected bounds stop after the root hierarchy page');
+  assert.equal(projectedBoundsReads, 1);
 });
 
 test('for WGS84 EPSG:4326 and EPSG:4979 fixtures, preserves analytic full-cell bounds and never reads points', () => {

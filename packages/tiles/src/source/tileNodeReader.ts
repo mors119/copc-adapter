@@ -141,6 +141,53 @@ export class TileNodeReader {
     const batch = createBatchSignal(options.signal);
     try {
       this.#assertCurrent(batch.signal);
+      if (this.#source.loadCompleteHierarchy) {
+        const rawHierarchy = await this.#source.loadCompleteHierarchy({
+          limits: this.#limits,
+          signal: batch.signal,
+          ...(options.onRootNode === undefined ? {} : { onRootNode: options.onRootNode }),
+        });
+        this.#assertCurrent(batch.signal);
+        if (!rawHierarchy || !Array.isArray(rawHierarchy.nodes)) {
+          throw new TileNodeReaderError('INVALID_HIERARCHY_PAGE', 'Complete hierarchy result must include nodes.');
+        }
+        if (
+          !Number.isSafeInteger(rawHierarchy.hierarchyPagesRead) || rawHierarchy.hierarchyPagesRead < 1 ||
+          rawHierarchy.hierarchyPagesRead > this.#limits.maxHierarchyPages ||
+          !Number.isSafeInteger(rawHierarchy.hierarchyPageBytesRead) || rawHierarchy.hierarchyPageBytesRead < 1 ||
+          rawHierarchy.hierarchyPageBytesRead > this.#limits.maxTotalHierarchyPageBytes ||
+          rawHierarchy.nodes.length > this.#limits.maxHierarchyNodes
+        ) {
+          throw new TileNodeReaderError('HIERARCHY_LIMIT', 'Complete hierarchy result exceeds configured page, byte, or node limits.');
+        }
+        const nodes = new Map<string, TileHierarchyNode>();
+        for (const rawNode of rawHierarchy.nodes) {
+          const node = validateNode(rawNode, this.#limits);
+          const prior = nodes.get(node.key);
+          if (prior && !sameNode(prior, node)) {
+            throw new TileNodeReaderError('CONFLICTING_NODE', 'A hierarchy node key was returned with conflicting metadata.', { nodeKey: node.key });
+          }
+          if (!prior) {
+            nodes.set(node.key, node);
+            options.onNode?.(node);
+          }
+        }
+        if (nodes.size === 0) {
+          throw new TileNodeReaderError('INVALID_HIERARCHY_PAGE', 'The loaded hierarchy contains no nodes.');
+        }
+        const incomplete = [...nodes.values()].find((node) => node.childrenComplete !== true);
+        if (incomplete) {
+          throw new TileNodeReaderError('INCOMPLETE_HIERARCHY', 'A complete hierarchy scan found a node without proven direct-child discovery.', { nodeKey: incomplete.key });
+        }
+        this.#assertCurrent(batch.signal);
+        this.#resolvedNodes.clear();
+        for (const node of nodes.values()) this.#resolvedNodes.set(node.key, node);
+        return Object.freeze({
+          nodes: Object.freeze([...nodes.values()]),
+          hierarchyPagesRead: rawHierarchy.hierarchyPagesRead,
+          hierarchyPageBytesRead: rawHierarchy.hierarchyPageBytesRead,
+        });
+      }
       const rootPage = validatePage(this.#source.getRootHierarchyPage(), this.#limits);
       const queue: TileHierarchyPage[] = [rootPage];
       const queuedPageSignatures = new Map<string, string>([[rootPage.key, pageSignature(rootPage)]]);
@@ -170,6 +217,7 @@ export class TileNodeReader {
         const result = validatePageResult(rawResult, page, this.#limits);
         for (const rawNode of result.nodes) {
           const node = validateNode(rawNode, this.#limits);
+          if (loadedPages.size === 1 && page.key === rootPage.key) options.onRootNode?.(node);
           const prior = nodes.get(node.key);
           if (prior && !sameNode(prior, node)) {
             throw new TileNodeReaderError('CONFLICTING_NODE', 'A hierarchy node key was returned with conflicting metadata.', { nodeKey: node.key, pageKey: page.key });

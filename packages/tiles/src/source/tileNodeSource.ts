@@ -125,6 +125,12 @@ export interface TileNodeSource {
   getNodeCellBounds?(nodeKey: string): TileSourceCellBounds;
   /** Implementations should honor the signal; synchronous decoders may only reject after the current decode finishes. */
   loadHierarchyPage(page: TileHierarchyPage, signal?: AbortSignal): Promise<TileHierarchyPageResult>;
+  /**
+   * Optional Adapter-backed traversal that returns child-complete nodes using
+   * the public Adapter hierarchy loader. Source-neutral fixture sources may
+   * omit this and use TileNodeReader's bounded page traversal instead.
+   */
+  loadCompleteHierarchy?(options: TileCompleteHierarchyLoadOptions): Promise<TileNodeHierarchy>;
   loadNode(
     node: TileHierarchyNode,
     selection: TilePointFieldSelection,
@@ -162,6 +168,11 @@ export type TileNodeReaderLimits = Readonly<{
   maxConcurrentNodeReads?: number;
 }>;
 
+export type TileHierarchyLimits = Readonly<Required<Pick<
+  TileNodeReaderLimits,
+  'maxHierarchyPages' | 'maxHierarchyPageBytes' | 'maxTotalHierarchyPageBytes' | 'maxHierarchyNodes' | 'maxNodesPerPage'
+>>>;
+
 export type TileNodeReadOptions = Readonly<{
   signal?: AbortSignal;
 }>;
@@ -176,6 +187,15 @@ export type TileNodeHierarchy = Readonly<{
 export type TileHierarchyScanOptions = TileNodeReadOptions & Readonly<{
   /** Called once for each validated node before following additional pages. */
   onNode?: (node: TileHierarchyNode) => void;
+  /** Called for root-page nodes before following child pages, allowing early CRS rejection. */
+  onRootNode?: (node: TileHierarchyNode) => void;
+}>;
+
+export type TileCompleteHierarchyLoadOptions = TileNodeReadOptions & Readonly<{
+  /** The caller's normalized metadata scan limits. */
+  limits: TileHierarchyLimits;
+  /** Called for root-page nodes before the complete traversal starts. */
+  onRootNode?: (node: TileHierarchyNode) => void;
 }>;
 
 export type TileNodeReaderErrorCode =

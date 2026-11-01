@@ -121,6 +121,14 @@ export async function createCopcTileResourceProvider(
   const prepareNodeBounds = (node: TileHierarchyNode): void => {
     assertNotAborted(options.signal);
     assertSourceCurrent(source, sourceIdentity, sourceGeneration, expectedSourceGeneration, sourceTransformGeneration);
+    const prior = pendingNodes.get(node.key);
+    if (prior) {
+      // Adapter's public hierarchy loader first exposes the root page for an
+      // early conservative-CRS check, then returns its child-complete form.
+      // Keep the validated bounds and replace only that hierarchy snapshot.
+      pendingNodes.set(node.key, Object.freeze({ ...prior, node }));
+      return;
+    }
     const result = source.getConservativeNodeEcefBounds(node.key);
     validateConservativeResult(result, source, node.key, expectedSourceGeneration);
     if (expectedSourceGeneration === undefined) expectedSourceGeneration = result.sourceGeneration;
@@ -147,6 +155,7 @@ export async function createCopcTileResourceProvider(
   };
   const hierarchy = await reader.readHierarchy({
     ...(options.signal === undefined ? {} : { signal: options.signal }),
+    onRootNode: prepareNodeBounds,
     onNode: prepareNodeBounds,
   });
 

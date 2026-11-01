@@ -1,4 +1,4 @@
-import { runSyntheticRendererPerformanceBenchmark } from "../../apps/dev-viewer/src/rendererPerformanceBenchmark.ts";
+import { runSyntheticRendererPerformanceBenchmark } from "../../../apps/dev-viewer/src/rendererPerformanceBenchmark.ts";
 
 const renderers = ["point-primitive", "batched-geometry"];
 const results = Object.fromEntries(
