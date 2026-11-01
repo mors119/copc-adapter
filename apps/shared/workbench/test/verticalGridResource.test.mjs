@@ -4,11 +4,14 @@ import {
   createNgaEgm2008ResourceRegistry,
   createPointVerticalReferenceContext,
   getVerticalGridResourceDetails,
-  isNgaEgm2008Grid,
+  isSupportedEgm2008Grid,
   NGA_EGM2008_FILE_BYTES,
   NGA_EGM2008_GRID_ID,
   NGA_EGM2008_MAX_GRID_BYTES,
   NGA_EGM2008_SHA256,
+  OSGEO_EGM2008_FILE_BYTES,
+  OSGEO_EGM2008_GRID_ID,
+  OSGEO_EGM2008_SHA256,
 } from "../verticalGridResource.ts";
 
 function validGrid(overrides = {}) {
@@ -37,6 +40,16 @@ function validGrid(overrides = {}) {
   };
 }
 
+function validOsgeoGrid(overrides = {}) {
+  return validGrid({
+    gridId: OSGEO_EGM2008_GRID_ID,
+    sha256: OSGEO_EGM2008_SHA256,
+    longitudeOrigin: -180,
+    encodedByteLength: OSGEO_EGM2008_FILE_BYTES,
+    ...overrides,
+  });
+}
+
 test("registers only the public loader result with the exact pinned NGA operation", async () => {
   const grid = validGrid();
   let observedOptions;
@@ -51,7 +64,34 @@ test("registers only the public loader result with the exact pinned NGA operatio
   assert.deepEqual(observedOptions, { maxGridBytes: NGA_EGM2008_MAX_GRID_BYTES });
   assert.equal(registry.hostValidators.isLoadedVerticalGrid(loaded), true);
   assert.equal(registry.hostValidators.isLoadedVerticalGrid(validGrid()), false);
-  assert.equal(isNgaEgm2008Grid(loaded), true);
+  assert.equal(isSupportedEgm2008Grid(loaded), true);
+});
+
+test("loads the pinned OSGeo GTX profile with explicit CRS, units, digest, and memory bounds", async () => {
+  const grid = validOsgeoGrid();
+  let observedOptions;
+  const registry = createNgaEgm2008ResourceRegistry(
+    async () => assert.fail("The NGA raw loader must not receive an OSGeo GTX"),
+    async (file, options) => {
+      assert.equal(file.size, OSGEO_EGM2008_FILE_BYTES);
+      observedOptions = options;
+      return grid;
+    },
+  );
+  const loaded = await registry.loadFile({ size: OSGEO_EGM2008_FILE_BYTES });
+
+  assert.equal(loaded, grid);
+  assert.equal(observedOptions.gridId, OSGEO_EGM2008_GRID_ID);
+  assert.equal(observedOptions.sourceVerticalCrs, "EPSG:3855");
+  assert.equal(observedOptions.targetVerticalCrs, "EPSG:4979");
+  assert.equal(observedOptions.valueUnit, "metre");
+  assert.equal(observedOptions.valueConvention, "ellipsoidal-minus-orthometric");
+  assert.equal(observedOptions.interpolation, "bilinear");
+  assert.equal(observedOptions.noDataValue, null);
+  assert.equal(observedOptions.sha256, OSGEO_EGM2008_SHA256);
+  assert.equal(observedOptions.maxGridBytes, NGA_EGM2008_MAX_GRID_BYTES);
+  assert.equal(registry.hostValidators.isLoadedVerticalGrid(loaded), true);
+  assert.equal(isSupportedEgm2008Grid(loaded), true);
 });
 
 test("rejects wrong file size before invoking the loader and rejects wrong loader metadata", async () => {
@@ -68,12 +108,41 @@ test("rejects wrong file size before invoking the loader and rejects wrong loade
   assert.equal(calls, 0);
   await assert.rejects(
     registry.loadFile({ size: NGA_EGM2008_FILE_BYTES }),
-    /outside the host's registered NGA EGM2008 operation/u,
+    /outside the host's registered EGM2008 operations/u,
   );
   assert.equal(registry.hostValidators.isLoadedVerticalGrid(validGrid()), false);
 });
 
-test("summarizes registered model coverage, resource bounds, epoch, and source terms accurately", () => {
+test("rejects OSGeo loader results with invalid metadata or coverage", async (t) => {
+  const invalidProfiles = [
+    ["wrong digest", { sha256: "0".repeat(64) }],
+    ["wrong source CRS", { sourceVerticalCrs: "EPSG:5703" }],
+    ["wrong target CRS", { targetVerticalCrs: "EPSG:3855" }],
+    ["wrong units", { valueUnit: "foot" }],
+    ["wrong value convention", { valueConvention: "orthometric-minus-ellipsoidal" }],
+    ["unexpected coordinate epoch", { sourceCoordinateEpoch: 2020 }],
+    ["unexpected grid reference epoch", { gridReferenceEpoch: 2020 }],
+    ["NoData sentinel", { noDataValue: -9999 }],
+    ["out-of-bounds extent", { latitudeOrigin: -89.9 }],
+    ["missing grid identity", { gridId: undefined }],
+    ["missing sampler", { sampleUndulation: undefined }],
+  ];
+
+  for (const [label, overrides] of invalidProfiles) {
+    await t.test(label, async () => {
+      const registry = createNgaEgm2008ResourceRegistry(
+        async () => assert.fail("The NGA raw loader must not receive an OSGeo GTX"),
+        async () => validOsgeoGrid(overrides),
+      );
+      await assert.rejects(
+        registry.loadFile({ size: OSGEO_EGM2008_FILE_BYTES }),
+        /outside the host's registered EGM2008 operations/u,
+      );
+    });
+  }
+});
+
+test("summarizes the pinned NGA model coverage, resource bounds, epoch, and source terms accurately", () => {
   const details = getVerticalGridResourceDetails(validGrid());
   assert.ok(details);
   assert.equal(details.sourceVerticalCrs, "EPSG:3855");
@@ -84,6 +153,16 @@ test("summarizes registered model coverage, resource bounds, epoch, and source t
   assert.match(details.epoch, /no frame or epoch propagation/u);
   assert.match(details.licenseProvenance, /does not state redistribution terms/u);
   assert.equal(getVerticalGridResourceDetails(validGrid({ sha256: "0".repeat(64) })), undefined);
+});
+
+test("reports OSGeo public-domain provenance for its verified EGM2008 GTX", () => {
+  const grid = validOsgeoGrid();
+  const details = getVerticalGridResourceDetails(grid);
+  assert.ok(details);
+  assert.match(details.source, /OSGeo PROJ-DATUMGRID-WORLD.*NGA EGM2008/u);
+  assert.match(details.licenseProvenance, /Public Domain/u);
+  assert.match(details.licenseProvenance, /GeographicLib/u);
+  assert.equal(getVerticalGridResourceDetails(validOsgeoGrid({ sha256: "0".repeat(64) })), undefined);
 });
 
 test("builds point provenance from declared source metadata and keeps Terrain separate", () => {

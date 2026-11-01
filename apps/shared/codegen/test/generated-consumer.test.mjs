@@ -258,6 +258,29 @@ test("generated Cesium and Three snippets typecheck against the exact consumer p
         globalLongitudeCoverage: "periodic",
       })
     : undefined;
+  const osgeoVerticalGrid = workspaceVerticalGrid === undefined
+    ? undefined
+    : Object.assign(new class { sampleUndulation() { return 0; } }(), {
+        gridId: "OSGeo PROJ-DATUMGRID-WORLD EGM2008 2.5-minute GTX",
+        sha256: "c18f20d1fe88616e3497a3eff993227371e1d9acc76f96253e8d84b475bbe6bf",
+        sourceVerticalCrs: "EPSG:3855",
+        targetVerticalCrs: "EPSG:4979",
+        horizontalCrs: "EPSG:4326",
+        referenceEllipsoid: "WGS84",
+        valueUnit: "metre",
+        valueConvention: "ellipsoidal-minus-orthometric",
+        interpolation: "bilinear",
+        noDataValue: null,
+        width: 8640,
+        height: 4321,
+        longitudeOrigin: -180,
+        latitudeOrigin: -90,
+        longitudeStep: 2.5 / 60,
+        latitudeStep: 2.5 / 60,
+        encodedByteLength: 149_333_800,
+        decodedByteLength: 8640 * 4321 * 4,
+        globalLongitudeCoverage: "periodic",
+      });
   const verticalGridOptions = workspaceVerticalGrid === undefined
     ? undefined
     : { hostValidators: { isLoadedVerticalGrid: (candidate) => candidate === workspaceVerticalGrid } };
@@ -271,6 +294,19 @@ test("generated Cesium and Three snippets typecheck against the exact consumer p
     : generate("three", {
         schemaOptionValues: { "coordinates.verticalTransform": workspaceVerticalGrid },
       }, verticalGridOptions);
+  const osgeoGridOptions = osgeoVerticalGrid === undefined
+    ? undefined
+    : { hostValidators: { isLoadedVerticalGrid: (candidate) => candidate === osgeoVerticalGrid } };
+  const cesiumOsgeoGrid = osgeoVerticalGrid === undefined
+    ? undefined
+    : generate("cesium", {
+        schemaOptionValues: { "coordinates.verticalTransform": osgeoVerticalGrid },
+      }, osgeoGridOptions);
+  const threeOsgeoGrid = osgeoVerticalGrid === undefined
+    ? undefined
+    : generate("three", {
+        schemaOptionValues: { "coordinates.verticalTransform": osgeoVerticalGrid },
+      }, osgeoGridOptions);
   const terrainAlignmentAvailable = consumerProfile.manifest.capabilities.includes(
     "cesium.terrain-alignment",
   );
@@ -290,6 +326,13 @@ test("generated Cesium and Three snippets typecheck against the exact consumer p
     assert.match(threeGrid.code, /verticalTransform/u);
     assert.doesNotMatch(cesiumGrid.code, /sampleUndulation\(\)|ab6f8b94076f78707d1cdae7b066b93a786a0c64b52449e20cf1a1a2f4e74daf/u);
     assert.doesNotMatch(threeGrid.code, /sampleUndulation\(\)|ab6f8b94076f78707d1cdae7b066b93a786a0c64b52449e20cf1a1a2f4e74daf/u);
+  }
+  if (cesiumOsgeoGrid && threeOsgeoGrid) {
+    assert.match(cesiumOsgeoGrid.code, /loadGtxGeoidGrid/u);
+    assert.match(threeOsgeoGrid.code, /loadGtxGeoidGrid/u);
+    assert.match(cesiumOsgeoGrid.code, /c18f20d1fe88616e3497a3eff993227371e1d9acc76f96253e8d84b475bbe6bf/u);
+    assert.match(threeOsgeoGrid.code, /PROJ-DATUMGRID-WORLD/u);
+    assert.doesNotMatch(cesiumOsgeoGrid.code, /sampleUndulation\(\)|local-grid-path/u);
   }
 
   assert.match(cesium.code, /layer\.setStyle\(\{ classificationFilter: \{ include: \[2, 6\] \}, colorMode: 'intensity' \}\);/u);
@@ -347,6 +390,12 @@ test("generated Cesium and Three snippets typecheck against the exact consumer p
         ? [
             writeFile(join(temporaryDirectory, "cesium-vertical-grid.ts"), cesiumGrid.code),
             writeFile(join(temporaryDirectory, "three-vertical-grid.ts"), threeGrid.code),
+          ]
+        : []),
+      ...(cesiumOsgeoGrid && threeOsgeoGrid
+        ? [
+            writeFile(join(temporaryDirectory, "cesium-osgeo-vertical-grid.ts"), cesiumOsgeoGrid.code),
+            writeFile(join(temporaryDirectory, "three-osgeo-vertical-grid.ts"), threeOsgeoGrid.code),
           ]
         : []),
       ...(terrainAlignmentRecipe

@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("Playground exposes the explicit NGA profile and rejects the wrong local file", async ({ page }) => {
+test("Playground exposes only the pinned EGM2008 profiles and rejects an unrelated local file", async ({ page }) => {
   await page.goto("./");
   const gridInput = page.locator("#vertical-grid-file");
   await expect(gridInput).toHaveCount(1);
@@ -15,11 +15,11 @@ test("Playground exposes the explicit NGA profile and rejects the wrong local fi
   await expect(gridInput).toBeEnabled();
 });
 
-test("Playground verifies the exact local NGA grid as pending and removes it without sharing its path", async ({
+test("Playground verifies the exact local OSGeo EGM2008 GTX and removes it without sharing its path", async ({
   page,
 }) => {
-  const gridPath = process.env.COPC_NGA_EGM2008_FILE;
-  test.skip(!gridPath, "Set COPC_NGA_EGM2008_FILE to an authorized local NGA grid copy");
+  const gridPath = process.env.COPC_WORKBENCH_EGM2008_FILE;
+  test.skip(!gridPath, "Set COPC_WORKBENCH_EGM2008_FILE to the verified OSGeo EGM2008 GTX");
   test.setTimeout(180_000);
   await page.goto("./");
   await page.locator("#vertical-grid-file").setInputFiles(gridPath!);
@@ -27,11 +27,14 @@ test("Playground verifies the exact local NGA grid as pending and removes it wit
     "verified and pending",
     { timeout: 150_000 },
   );
+  await expect(page.locator(".vertical-grid-control__status")).toContainText(
+    "OSGeo PROJ-DATUMGRID-WORLD",
+  );
   const metadata = page.locator(".vertical-grid-control__metadata");
   await expect(metadata).toContainText("EPSG:3855");
   await expect(metadata).toContainText("EPSG:4979");
-  await expect(metadata).toContainText("ab6f8b94076f78707d1cdae7b066b93a786a0c64b52449e20cf1a1a2f4e74daf");
-  await expect(metadata).toContainText("does not state redistribution terms");
+  await expect(metadata).toContainText("c18f20d1fe88616e3497a3eff993227371e1d9acc76f96253e8d84b475bbe6bf");
+  await expect(metadata).toContainText("Public Domain");
   expect(page.url()).not.toContain("Und_min2.5");
   await page.getByRole("button", { name: "Remove vertical grid" }).click();
   await expect(page.locator(".vertical-grid-control__status")).toContainText(

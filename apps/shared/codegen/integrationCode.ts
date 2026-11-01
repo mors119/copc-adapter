@@ -14,7 +14,12 @@ import {
   resolveOptionDefault,
 } from "../schema/capabilities.ts";
 import { isOptionConditionMet, OPTION_SCHEMA } from "../schema/options.ts";
-import { isNgaEgm2008Grid } from "../workbench/verticalGridResource.ts";
+import {
+  isSupportedEgm2008Grid,
+  OSGEO_EGM2008_GRID_ID,
+  OSGEO_EGM2008_SHA256,
+  OSGEO_EGM2008_PROVENANCE_URL,
+} from "../workbench/verticalGridResource.ts";
 import { NPM_0_7_1_OPACITY_RESET_VALUES } from "../schema/manifests.ts";
 import type {
   AdapterManifest,
@@ -466,36 +471,63 @@ function buildConstructorOptions(
         if (
           specialized.optionId !== "coordinates.verticalTransform" ||
           specialized.apiPath !== "verticalTransform" ||
-          !isNgaEgm2008Grid(specialized.value)
+          !isSupportedEgm2008Grid(specialized.value)
         ) {
           throw new TypeError("The selected vertical grid has no reproducible public loading profile.");
         }
-        imports.add("loadNgaEgm2008Grid");
         setPath(
           options,
           "verticalTransform",
           expression("verticalTransform"),
         );
+        const grid = specialized.value;
         verticalGridSetup.push(
-          "// Obtain the exact extracted NGA EGM2008 2.5-minute WGS 84 Tide-Free file from:",
-          "// " + "https://earth-info.nga.mil/index.php?action=geoid&dir=wgs84",
-          "// Review the source terms and use a local copy you are authorized to use. This code never downloads or bundles it.",
-          "// Add a visible <input id=\"vertical-grid-file\" type=\"file\">; select the local file while this module waits.",
+          grid.gridId === OSGEO_EGM2008_GRID_ID
+            ? `// OSGeo PROJ-DATUMGRID-WORLD identifies this NGA EGM2008 grid as Public Domain: ${OSGEO_EGM2008_PROVENANCE_URL}`
+            : "// Obtain the exact extracted NGA EGM2008 2.5-minute WGS 84 Tide-Free file.",
+          "// This code prompts for a local file; it never downloads or bundles grid data.",
+          "// Add a visible <input id=\"vertical-grid-file\" type=\"file\"> before running this module.",
           "const verticalGridInput = document.querySelector<HTMLInputElement>('#vertical-grid-file');",
           "if (!verticalGridInput) throw new Error('Add the vertical-grid-file input before running this code.');",
           "const verticalGridFile = verticalGridInput.files?.[0] ?? await new Promise<File>((resolve, reject) => {",
           "  verticalGridInput.addEventListener('change', () => {",
           "    const file = verticalGridInput.files?.[0];",
           "    if (file) resolve(file);",
-          "    else reject(new Error('Choose the local NGA EGM2008 grid file.'));",
+          "    else reject(new Error('Choose a local EGM2008 grid file.'));",
           "  }, { once: true });",
           "});",
-          "const verticalTransform = await loadNgaEgm2008Grid(verticalGridFile, { maxGridBytes: 160 * 1024 * 1024 });",
-          "",
         );
-        warnings.push(
-          "The applied transform uses the pinned NGA EGM2008 file. Supply the exact locally authorized file; the generated loader verifies its SHA-256 and format before setting verticalTransform.",
-        );
+        if (grid.gridId === OSGEO_EGM2008_GRID_ID) {
+          imports.add("loadGtxGeoidGrid");
+          verticalGridSetup.push(
+            "const verticalTransform = await loadGtxGeoidGrid(verticalGridFile, {",
+            `  gridId: ${literal(OSGEO_EGM2008_GRID_ID)},`,
+            "  sourceVerticalCrs: 'EPSG:3855',",
+            "  targetVerticalCrs: 'EPSG:4979',",
+            "  horizontalCrs: 'EPSG:4326',",
+            "  referenceEllipsoid: 'WGS84',",
+            `  sha256: ${literal(OSGEO_EGM2008_SHA256)},`,
+            "  valueUnit: 'metre',",
+            "  valueConvention: 'ellipsoidal-minus-orthometric',",
+            "  interpolation: 'bilinear',",
+            "  noDataValue: null,",
+            "  maxGridBytes: 160 * 1024 * 1024,",
+            "});",
+            "",
+          );
+          warnings.push(
+            "The applied transform uses the pinned OSGeo PROJ-DATUMGRID-WORLD EGM2008 GTX. The generated code verifies its digest and layout; the user must select a local copy.",
+          );
+        } else {
+          imports.add("loadNgaEgm2008Grid");
+          verticalGridSetup.push(
+            "const verticalTransform = await loadNgaEgm2008Grid(verticalGridFile, { maxGridBytes: 160 * 1024 * 1024 });",
+            "",
+          );
+          warnings.push(
+            "The applied transform uses the pinned NGA EGM2008 file. Supply the exact local file; the generated loader verifies its SHA-256 and format before setting verticalTransform.",
+          );
+        }
         break;
       }
       default:

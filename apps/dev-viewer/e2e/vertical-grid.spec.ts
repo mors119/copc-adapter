@@ -54,7 +54,7 @@ test("browser loads a local GTX Blob with Web Crypto and fails on NoData", async
   expect(result.noDataCode).toBe("grid-nodata");
 });
 
-test("Dev Viewer exposes only the explicit NGA grid profile and rejects the wrong local file", async ({
+test("Dev Viewer exposes only the pinned EGM2008 profiles and rejects an unrelated local file", async ({
   page,
 }) => {
   await page.goto("/?debugPanel=off");
@@ -71,9 +71,9 @@ test("Dev Viewer exposes only the explicit NGA grid profile and rejects the wron
   await expect(page.locator("#vertical-grid-file")).toBeEnabled();
 });
 
-test("Dev Viewer verifies the exact local NGA grid before marking it pending", async ({ page }) => {
-  const gridPath = process.env.COPC_NGA_EGM2008_FILE;
-  test.skip(!gridPath, "Set COPC_NGA_EGM2008_FILE to an authorized local NGA grid copy");
+test("Dev Viewer verifies the exact local OSGeo EGM2008 GTX before marking it pending", async ({ page }) => {
+  const gridPath = process.env.COPC_WORKBENCH_EGM2008_FILE;
+  test.skip(!gridPath, "Set COPC_WORKBENCH_EGM2008_FILE to the verified OSGeo EGM2008 GTX");
   test.setTimeout(180_000);
   await page.goto("/?debugPanel=off");
   await page.locator("#vertical-grid-file").setInputFiles(gridPath!);
@@ -81,11 +81,14 @@ test("Dev Viewer verifies the exact local NGA grid before marking it pending", a
     "verified and pending",
     { timeout: 150_000 },
   );
+  await expect(page.locator(".vertical-grid-control__status")).toContainText(
+    "OSGeo PROJ-DATUMGRID-WORLD",
+  );
   const metadata = page.locator(".vertical-grid-control__metadata");
   await expect(metadata).toContainText("EPSG:3855");
   await expect(metadata).toContainText("EPSG:4979");
-  await expect(metadata).toContainText("ab6f8b94076f78707d1cdae7b066b93a786a0c64b52449e20cf1a1a2f4e74daf");
-  await expect(metadata).toContainText("does not state redistribution terms");
+  await expect(metadata).toContainText("c18f20d1fe88616e3497a3eff993227371e1d9acc76f96253e8d84b475bbe6bf");
+  await expect(metadata).toContainText("Public Domain");
   const pageUrl = page.url();
   expect(pageUrl).not.toContain("Und_min2.5");
   await page.getByRole("button", { name: "Remove vertical grid" }).click();
@@ -95,8 +98,8 @@ test("Dev Viewer verifies the exact local NGA grid before marking it pending", a
 });
 
 test("Dev Viewer discards an in-flight local grid result when the user cancels", async ({ page }) => {
-  const gridPath = process.env.COPC_NGA_EGM2008_FILE;
-  test.skip(!gridPath, "Set COPC_NGA_EGM2008_FILE to an authorized local NGA grid copy");
+  const gridPath = process.env.COPC_WORKBENCH_EGM2008_FILE;
+  test.skip(!gridPath, "Set COPC_WORKBENCH_EGM2008_FILE to the verified OSGeo EGM2008 GTX");
   test.setTimeout(180_000);
   await page.goto("/?debugPanel=off");
   await page.locator("#vertical-grid-file").setInputFiles(gridPath!);

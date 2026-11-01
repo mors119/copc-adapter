@@ -8,7 +8,7 @@ import type {
   RefinementFocus,
   TerrainHeightAlignmentEstimate,
 } from "@frillab/copc-adapter/cesium";
-import { loadNgaEgm2008Grid } from "@frillab/copc-adapter";
+import { loadGtxGeoidGrid, loadNgaEgm2008Grid } from "@frillab/copc-adapter";
 import {
   formatUiNumber,
   mountSegmentedControl,
@@ -107,7 +107,10 @@ import {
 import "./style.css";
 import "../../shared/workbench/workbench.css";
 
-const verticalGridResources = createNgaEgm2008ResourceRegistry(loadNgaEgm2008Grid);
+const verticalGridResources = createNgaEgm2008ResourceRegistry(
+  loadNgaEgm2008Grid,
+  loadGtxGeoidGrid,
+);
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("The Playground application root is missing.");
