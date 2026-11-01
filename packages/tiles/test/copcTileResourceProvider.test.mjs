@@ -114,6 +114,8 @@ test('decoded-content preprocessing accounts for every point and emits distinct 
     { nodeKey: 'left', pointCount: 3, scannedPointCount: 3, coverage: 'all-points-in-node' },
   ]);
   assert.deepEqual(progress.map(({ phase }) => phase), ['hierarchy', 'hierarchy', 'preflight', 'points', 'points', 'complete']);
+  assert.equal(progress.at(-1).decodedEcefBytesScanned, 144);
+  assert.equal(progress.at(-1).peakDecodedEcefBufferBytes, 72);
 
   const bytes = await provider.getResource('tileset.json', new AbortController().signal);
   assert.ok(bytes);

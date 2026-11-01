@@ -769,6 +769,8 @@ async function createDecodedContentProvider(
     totalPoints: effectiveLimits.totalPoints,
     scannedPoints,
     totalPointDataBytes: effectiveLimits.totalPointDataBytes,
+    decodedEcefBytesScanned,
+    peakDecodedEcefBufferBytes,
     transformPlanIdentity: commonProvenance.transformPlanIdentity,
     sourceCrs: commonProvenance.sourceCrs,
     verticalDatum: commonProvenance.verticalDatum,
