@@ -459,6 +459,7 @@ async function createDecodedContentProvider(
     },
   });
   assertSourceCurrent(source, sourceIdentity, sourceGeneration, sourceGeneration, transformGeneration);
+  validateDecodedContentHierarchy(hierarchy.nodes);
 
   const effectiveLimits = preflightDecodedContentHierarchy(hierarchy.nodes, limits, options.tilesetOptions);
   const contentNodes = hierarchy.nodes.filter((node) => node.pointCount > 0);
@@ -954,6 +955,62 @@ function preflightDecodedContentHierarchy(
     }
   }
   return Object.freeze({ maxNodes, maxTotalPoints, totalPoints, totalPointDataBytes, totalDecodedEcefBytes });
+}
+
+function validateDecodedContentHierarchy(nodes: readonly TileHierarchyNode[]): void {
+  const nodesByKey = new Map(nodes.map((node) => [node.key, node]));
+  const parentByChild = new Map<string, string>();
+  const roots = nodes.filter((node) => node.level === 0 && node.x === 0 && node.y === 0 && node.z === 0);
+  if (roots.length !== 1) {
+    throw new CopcTileResourceProviderError(
+      'CONTENT_SCAN_INVALID',
+      `Decoded-content scan requires exactly one COPC root node; found ${roots.length}.`,
+    );
+  }
+  const root = roots[0]!;
+
+  for (const node of nodes) {
+    for (const childKey of node.children ?? []) {
+      const child = nodesByKey.get(childKey);
+      if (!child) {
+        throw new CopcTileResourceProviderError(
+          'CONTENT_SCAN_INVALID',
+          `Complete hierarchy node ${node.key} references child ${childKey}, which is absent from the scanned hierarchy; the branch cannot be treated as empty.`,
+          { nodeKey: node.key },
+        );
+      }
+      if (parentByChild.has(childKey)) {
+        throw new CopcTileResourceProviderError(
+          'CONTENT_SCAN_INVALID',
+          `Hierarchy child ${childKey} is referenced by more than one parent.`,
+          { nodeKey: childKey },
+        );
+      }
+      if (
+        child.level !== node.level + 1 || Math.floor(child.x / 2) !== node.x ||
+        Math.floor(child.y / 2) !== node.y || Math.floor(child.z / 2) !== node.z
+      ) {
+        throw new CopcTileResourceProviderError(
+          'CONTENT_SCAN_INVALID',
+          `Hierarchy child ${childKey} is not the next octree node below ${node.key}.`,
+          { nodeKey: childKey },
+        );
+      }
+      parentByChild.set(childKey, node.key);
+    }
+  }
+
+  if (parentByChild.has(root.key)) {
+    throw new CopcTileResourceProviderError('CONTENT_SCAN_INVALID', 'The COPC root node is referenced as another node’s child.', { nodeKey: root.key });
+  }
+  const disconnected = nodes.find((node) => node.key !== root.key && !parentByChild.has(node.key));
+  if (disconnected) {
+    throw new CopcTileResourceProviderError(
+      'CONTENT_SCAN_INVALID',
+      `Hierarchy node ${disconnected.key} is not reachable from the COPC root.`,
+      { nodeKey: disconnected.key },
+    );
+  }
 }
 
 function validateDecodedSource(source: TileNodeSource): void {

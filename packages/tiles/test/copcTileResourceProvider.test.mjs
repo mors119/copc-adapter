@@ -216,6 +216,30 @@ test('decoded-content requires authorization and rejects over-budget or incomple
     (error) => error.code === 'INCOMPLETE_HIERARCHY',
   );
   assert.deepEqual(incompleteBase.diagnostics.nodes, []);
+
+  const missingReferenceBase = createBrowserFixtureSource(7211);
+  const missingReference = {
+    ...missingReferenceBase,
+    loadHierarchyPage: async (page, signal) => {
+      const result = await missingReferenceBase.loadHierarchyPage(page, signal);
+      return page.key === 'root-page'
+        ? {
+          ...result,
+          nodes: result.nodes.map((node) => ({ ...node, children: [...node.children, 'missing-content'] })),
+        }
+        : result;
+    },
+  };
+  await assert.rejects(
+    createCopcTileResourceProvider(missingReference, {
+      scanCompleteHierarchy: true,
+      boundsStrategy: 'decoded-content',
+      allowDecodedContentBounds: true,
+    }),
+    (error) => error instanceof CopcTileResourceProviderError &&
+      error.code === 'CONTENT_SCAN_INVALID' && /missing-content.*absent from the scanned hierarchy/u.test(error.message),
+  );
+  assert.deepEqual(missingReferenceBase.diagnostics.nodes, [], 'missing child references fail before point decoding');
 });
 
 test('decoded-content omits empty terminal leaves and keeps empty ancestors around content descendants', async () => {
