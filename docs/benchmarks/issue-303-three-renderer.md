@@ -126,6 +126,66 @@ node counts, visual/local-coordinate precision, and pick identity; compare
 renderer stage times, transient bytes, frame p50/p95, and WebGL submission
 proxies. Keep the baseline if timing gains do not exceed run variance.
 
-No renderer change is adopted by this profile. Packed-consumer browser
-render/pick/cleanup validation and precision checks remain for an approved
-prototype.
+No renderer optimization is adopted by this profile. Packed-consumer browser
+render/pick/cleanup validation and precision checks are recorded in the
+2026-11-01 follow-up below.
+
+## 2026-11-01 profile and packed-consumer follow-up
+
+### Hardware profile
+
+The current profile was run from source revision `a504cafc281f94e0910498e8ff73c23bb5a4b4a5`
+using the checked-in command above, `COPC_BENCHMARK_HARDWARE=1 npm --prefix
+apps/dev-viewer run benchmark:three-renderer`. It used Node 26.12.1, Playwright
+Headless Chrome 156.0.8078.74, macOS 25.6.0, Apple M2, WebGL 2 / ANGLE Metal
+Renderer: Apple M2. The profile completed Rust / copc-js / copc-js / Rust, two
+runs per backend, with the same Autzen input, five-pose camera path and budgets
+listed above. Both backends rendered the same per-pose point counts:
+249,525 / 219,951 / 240,303 / 214,678 / 249,525.
+
+| Backend / run | Near first useful / settled | Renderer preparation, five poses | WebGL calls / submitted bytes | Long Tasks / maximum | Near frame p95 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Rust 1 | 147 / 942 ms | 142 ms | 54 / 19.54 MB | 0 / 0 ms | 16.7 ms |
+| Rust 2 | 124 / 903 ms | 157 ms | 60 / 21.96 MB | 0 / 0 ms | 16.7 ms |
+| copc-js 1 | 203 / 1,093 ms | 157 ms | 54 / 19.54 MB | 8 / 71 ms | 66.7 ms |
+| copc-js 2 | 250 / 1,099 ms | 153 ms | 60 / 21.96 MB | 8 / 73 ms | 66.7 ms |
+
+Across the five poses, per-call WebGL buffer submission CPU p95 was at most
+0.7 ms. This is CPU time spent in the instrumented calls; it does not measure
+GPU completion or exact GPU memory. Rust and copc-js had the same uploaded byte
+counts within each repeat. Their different first-view frame and Long Task
+results do not establish which call stacks caused the stalls. The final decoded
+point cache was 19,963,936 bytes under the configured 256 MiB limit. The
+renderer had 9 live point objects and no errors. These observations do not
+identify a GPU upload bottleneck or isolate the copy share of world-to-local
+conversion.
+
+### Packed Three consumer
+
+`npm run test:pack:three` built and installed the actual
+`@frillab/copc-adapter@0.7.1` tarball in an isolated consumer with Three.js and
+no Cesium dependency, then ran it in Chromium 156 with SwiftShader. The packed
+Rust/E layer rendered 219,951 points across 7 nodes within the 250,000-point
+budget. A real `THREE.Raycaster` pick returned node `1-1-0-0`, point index
+7416, and a finite prepared height; E inspection correctly omitted unavailable
+source coordinates. The consumer made 9 byte-range requests, all HTTP 206,
+transferring 2,377,673 bytes. After layer destruction, rendered points were
+zero while the application-owned scene object, material, renderer and canvas
+remained intact; the WebGL context was not lost.
+
+### Decision
+
+**NEUTRAL / KEEP BASELINE.** This profile closes the browser measurement and
+packed-consumer validation gaps. It does not compare an optimization candidate
+against the baseline, and the available data do not isolate a CPU/GPU cost with
+a demonstrated benefit. Keep the current renderer and defer the direct
+Float32-write candidate until a controlled comparison can measure its copy
+share and verify bounds, precision, and picking. No renderer behavior or
+default changed in this follow-up.
+
+### Validation
+
+- `COPC_BENCHMARK_HARDWARE=1 npm --prefix apps/dev-viewer run benchmark:three-renderer` — passed, four profile runs.
+- `npm run test:pack:three` — passed against the built tarball with render, real pick, ranged-source and ownership/cleanup assertions.
+- `npm run test:pack` — passed; root-production, Cesium-production and Vite-dev packed-consumer modes each reported 13 passed and one pre-existing live-USGS test skipped.
+- `git diff --check` — passed.
