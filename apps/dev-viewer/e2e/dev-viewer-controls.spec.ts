@@ -1204,34 +1204,43 @@ test("plays, stops, replays, and cancels the deterministic Cesium camera demo", 
   const firstRun = await page.evaluate(async () => {
     document.querySelector<HTMLButtonElement>("#play-camera-demo")!.click();
     const start = window.__COPC_DEV_VIEWER__!.getCameraState();
-    const startTime = performance.now();
-    await new Promise<void>((resolve) => {
-      const nextFrame = (): void => {
-        if (performance.now() - startTime >= 800) resolve();
-        else requestAnimationFrame(nextFrame);
-      };
-      requestAnimationFrame(nextFrame);
+    const startTime = await new Promise<number>((resolve) => {
+      requestAnimationFrame(resolve);
     });
+    const waitForElapsedTime = (elapsedMs: number): Promise<void> =>
+      new Promise((resolve) => {
+        const nextFrame = (timestamp: number): void => {
+          if (timestamp - startTime >= elapsedMs) resolve();
+          else requestAnimationFrame(nextFrame);
+        };
+        requestAnimationFrame(nextFrame);
+      });
+    await waitForElapsedTime(800);
+    const sample = window.__COPC_DEV_VIEWER__!.getCameraState();
+    await waitForElapsedTime(3_000);
     return {
       start,
-      sample: window.__COPC_DEV_VIEWER__!.getCameraState(),
+      sample,
+      trajectorySample: window.__COPC_DEV_VIEWER__!.getCameraState(),
     };
   });
   const firstStart = firstRun.start;
   const firstSample = firstRun.sample;
+  const firstTrajectorySample = firstRun.trajectorySample;
   expect(positionDeltaMeters(firstStart, framingBeforePlayback)).toBeLessThan(
     0.01,
   );
   await expect(stop).toBeEnabled();
   await expect(play).toBeDisabled();
-  const firstCounts = await page.evaluate(() => ({
-    streamingUpdates: window.__COPC_DEBUG__!.getState().streamingUpdateCount,
-  }));
   expect(firstSample.engine).toBe("cesium");
   expect(positionDeltaMeters(firstSample, firstStart)).toBeGreaterThan(1);
-  expect(firstCounts.streamingUpdates).toBeGreaterThan(
-    initialCounts.streamingUpdates,
-  );
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => window.__COPC_DEBUG__!.getState().streamingUpdateCount,
+      ),
+    )
+    .toBeGreaterThan(initialCounts.streamingUpdates);
   await expect
     .poll(() =>
       page.evaluate(
@@ -1256,16 +1265,18 @@ test("plays, stops, replays, and cancels the deterministic Cesium camera demo", 
   const replayRun = await page.evaluate(async () => {
     document.querySelector<HTMLButtonElement>("#play-camera-demo")!.click();
     const start = window.__COPC_DEV_VIEWER__!.getCameraState();
-    const startTime = performance.now();
+    const startTime = await new Promise<number>((resolve) => {
+      requestAnimationFrame(resolve);
+    });
     const waitForElapsedTime = (elapsedMs: number): Promise<void> =>
       new Promise((resolve) => {
-        const nextFrame = (): void => {
-          if (performance.now() - startTime >= elapsedMs) resolve();
+        const nextFrame = (timestamp: number): void => {
+          if (timestamp - startTime >= elapsedMs) resolve();
           else requestAnimationFrame(nextFrame);
         };
         requestAnimationFrame(nextFrame);
       });
-    await waitForElapsedTime(800);
+    await waitForElapsedTime(3_000);
     const sample = window.__COPC_DEV_VIEWER__!.getCameraState();
     const visibilitySamples: boolean[] = [];
     for (const elapsedMs of [3_000, 11_000, 17_000, 21_000, 24_000]) {
@@ -1288,7 +1299,9 @@ test("plays, stops, replays, and cancels the deterministic Cesium camera demo", 
   await expect(play).toBeEnabled();
   expect(replayStart.engine).toBe("cesium");
   expect(positionDeltaMeters(replayStart, firstStart)).toBeLessThan(0.01);
-  expect(positionDeltaMeters(replaySample, firstSample)).toBeLessThan(250);
+  expect(positionDeltaMeters(replaySample, firstTrajectorySample)).toBeLessThan(
+    250,
+  );
   expect(replayRun.visibilitySamples).toEqual([true, true, true, true, true]);
 
   await play.click();

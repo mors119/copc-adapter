@@ -1147,6 +1147,9 @@ async function createCesiumSession(
     viewer,
     onCameraDemoPlayingChange,
   );
+  const onCameraMoveEnd = (): void =>
+    onCameraDemoPlayingChange?.(cameraDemo.isPlaying());
+  viewer.camera.moveEnd.addEventListener(onCameraMoveEnd);
   const terrainProviderAvailable =
     !(viewer.terrainProvider instanceof Cesium.EllipsoidTerrainProvider) &&
     viewer.terrainProvider.availability !== undefined;
@@ -1319,6 +1322,7 @@ async function createCesiumSession(
       }
       viewer.scene.postRender.removeEventListener(onPostRender);
       viewer.camera.changed.removeEventListener(onCameraChanged);
+      viewer.camera.moveEnd.removeEventListener(onCameraMoveEnd);
       cameraDemo.destroy();
       for (const removeListener of removeApplyTraceListeners) {
         removeListener();
