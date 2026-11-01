@@ -541,9 +541,15 @@ function projectedUpAxisUnitScale(wkt: string): number | undefined {
     northSouthDirections.includes(axes[1]?.direction ?? "");
   const hasNorthEastOrder = northSouthDirections.includes(axes[0]?.direction ?? "") &&
     eastWestDirections.includes(axes[1]?.direction ?? "");
+  const isCartesian3d = coordinateSystem?.[1].toLowerCase() === "cartesian" &&
+    Number(coordinateSystem[2]) === 3 && axes.length === 3;
+  if (isCartesian3d && axes.some((axis) => axis.direction === "DOWN")) {
+    throw new Error(
+      "COPC projected 3D WKT with a DOWN axis is unsupported because depth sign normalization is not available",
+    );
+  }
   if (
-    coordinateSystem?.[1].toLowerCase() !== "cartesian" ||
-    Number(coordinateSystem[2]) !== 3 || axes.length !== 3 ||
+    !isCartesian3d ||
     axes[0]?.order !== 1 || axes[1]?.order !== 2 || (!hasEastNorthOrder && !hasNorthEastOrder) ||
     axes[2]?.order !== 3 || axes[2].direction !== "UP"
   ) return undefined;

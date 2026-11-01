@@ -225,6 +225,23 @@ test("keeps projected horizontal and ellipsoidal-height axis units independent",
     coordinates: new Float64Array([5_020_000, 500_000, 100]),
   });
   assert.ok(Math.abs(northEastPrepared.coordinates[2] - 30.4800609601219) < 1e-9);
+
+  const projectedDownFeet = projectedFeet.replace(
+    'AXIS["ellipsoidal height (h)",up,ORDER[3],LENGTHUNIT["US survey foot",0.304800609601219]]',
+    'AXIS["depth (d)",down,ORDER[3],LENGTHUNIT["US survey foot",0.304800609601219]]',
+  );
+  assert.equal(extractHorizontalUnitScale(projectedDownFeet), 1);
+  assert.throws(
+    () => extractVerticalUnitScale(projectedDownFeet),
+    /DOWN axis is unsupported because depth sign normalization is not available/u,
+  );
+  assert.throws(
+    () => transformPointBufferToPreparedPointData({ ...metadata, wkt: projectedDownFeet }, {
+      pointCount: 1,
+      coordinates: new Float64Array([500_000, 5_020_000, 100]),
+    }),
+    /DOWN axis is unsupported because depth sign normalization is not available/u,
+  );
 });
 
 test("validates the explicit EPSG:4979 ellipsoidal height unit", () => {

@@ -1235,9 +1235,9 @@ test("plays, stops, replays, and cancels the deterministic Cesium camera demo", 
   expect(firstSample.engine).toBe("cesium");
   expect(positionDeltaMeters(firstSample, firstStart)).toBeGreaterThan(1);
 
-  // Stop while the deterministic 25-second playback is still active. Keep
-  // resource and pickability polling after the stop so a slow software-WebGL
-  // runner cannot let the demo finish before the stop-button interaction.
+  // Stop while the deterministic 25-second playback is still active. Point
+  // visibility is checked at each replay keyframe below, while this first run
+  // proves the stop control works before the slower rendering checks.
   await stop.click();
   await expect(stop).toBeDisabled();
   const stoppedState = await page.evaluate(
@@ -1258,14 +1258,6 @@ test("plays, stops, replays, and cancels the deterministic Cesium camera demo", 
       ),
     )
     .toBeGreaterThan(initialCounts.streamingUpdates);
-  await expect
-    .poll(() =>
-      page.evaluate(
-        () => window.__COPC_DEV_VIEWER__!.getPickablePointScreenPosition(),
-      ),
-    )
-    .toBeTruthy();
-
   const replayRun = await page.evaluate(async () => {
     document.querySelector<HTMLButtonElement>("#play-camera-demo")!.click();
     const start = window.__COPC_DEV_VIEWER__!.getCameraState();
