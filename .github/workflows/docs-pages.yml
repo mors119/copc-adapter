@@ -35,13 +35,31 @@ on:
 
 permissions: {}
 
+# PRs must not wait behind unrelated PR Pages builds, or cancel main deployment.
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: pages-${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'main' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  preflight:
+    name: Workspace manifest preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Verify workspaces before browser and install steps
+        run: node packages/tiles/scripts/test-migration-staging.mjs --preflight
+
   build:
     name: Build complete Pages site
+    needs: preflight
     runs-on: ubuntu-latest
     permissions:
       contents: read
