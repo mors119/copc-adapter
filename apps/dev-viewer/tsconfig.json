@@ -16,6 +16,7 @@
     "noFallthroughCasesInSwitch": true,
     "paths": {
       "@frillab/copc-adapter": ["../../packages/adapter/index.ts"],
+      "@frillab/copc-adapter/core": ["../../packages/adapter/core.ts"],
       "@frillab/copc-adapter/cesium": ["../../packages/adapter/cesium.ts"],
       "@frillab/copc-adapter/three": ["../../packages/adapter/three.ts"]
     }

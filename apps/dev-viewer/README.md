@@ -113,6 +113,14 @@ source's metadata. The JavaScript backend applies LAS scale and offset before
 styling. A declared NoData value is surfaced in the editor and can be passed as
 `missingValue` for styling and filtering.
 
+## Experimental 3D Tiles recording demo
+
+The developer-only pipeline selector can run a generated WGS 84 COPC fixture
+through Adapter Core, the local Tiles workspace, and Cesium or Three.js. The
+short setup, GIF recording steps, and current scope are in the
+[3D Tiles demo guide](./docs/3d-tiles-demo.md). Direct COPC remains the default;
+the selector is not exposed by the public Playground.
+
 ## Shared Terrain estimate and approval
 
 The dev-viewer starts with the WGS 84 ellipsoid and imagery only. The ellipsoid
@@ -187,7 +195,7 @@ npm run dev
 
 The root install links the `@frillab/copc-adapter` and `@frillab/copc-tiles`
 workspaces. The Dev Viewer keeps its application lockfile and installs its
-local Adapter link with `--workspaces=false`.
+local Adapter and Tiles links with `--workspaces=false`.
 
 `npm run dev` prepares the Rust/WASM decoder and laz-perf assets before starting
 Vite. Download the local Autzen fixture once with the command above when it is

@@ -6,6 +6,7 @@ export function createCesiumViewer(
     scene3DOnly?: boolean;
     useBrowserRecommendedResolution?: boolean;
     terrainProvider?: Cesium.TerrainProvider;
+    preserveDrawingBuffer?: boolean;
   } = {},
 ): Cesium.Viewer {
   return new Cesium.Viewer(container, {
@@ -18,6 +19,9 @@ export function createCesiumViewer(
     navigationHelpButton: false,
     fullscreenButton: false,
     scene3DOnly: options.scene3DOnly ?? false,
+    ...(options.preserveDrawingBuffer === undefined
+      ? {}
+      : { contextOptions: { webgl: { preserveDrawingBuffer: options.preserveDrawingBuffer } } }),
     ...(options.terrainProvider === undefined
       ? {}
       : { terrainProvider: options.terrainProvider }),

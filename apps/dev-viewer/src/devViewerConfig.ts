@@ -2,6 +2,7 @@ import type {
   RangeValidationPolicy,
   RefinementAlgorithm,
 } from "@frillab/copc-adapter";
+import type { GtxGeoidGrid } from "@frillab/copc-adapter/core";
 
 import type {
   WorkbenchCameraPreset,
@@ -20,10 +21,12 @@ import {
   WORKSPACE_CURRENT_MANIFEST,
 } from "../../shared/schema/index.ts";
 import type { SchemaHostValidators } from "../../shared/schema/types.ts";
+import type { VerifiedVerticalGrid } from "../../shared/workbench/verticalGridResource.ts";
 import { requestedDimensionNames } from "../../shared/workbench/dimensionModel.ts";
 import type { SchemaDimensionFilter, SchemaDimensionStyle } from "../../shared/schema/types.ts";
 
 export type RenderingEngine = WorkbenchRenderer;
+export type RenderingPipeline = "direct" | "tiles";
 export type CesiumPointRendererVariant = "point-primitive" | "batched-geometry";
 export type CameraPreset = WorkbenchCameraPreset;
 
@@ -39,6 +42,8 @@ export type DevViewerConfig = Omit<
   /** Schema options that have no legacy flat field in this host config. */
   schemaOptionValues?: Readonly<Record<string, unknown>>;
   renderer: RenderingEngine;
+  /** Developer-only renderer pipeline; Direct remains the compatibility default. */
+  pipeline: RenderingPipeline;
   cesiumRenderer: CesiumPointRendererVariant;
   refinementAlgorithm: RefinementAlgorithm;
   motionLookahead: boolean;
@@ -59,6 +64,20 @@ export type DevViewerShareRestoreResult = {
   readonly config: DevViewerConfig;
   readonly warnings: readonly string[];
 };
+
+/** Resolve only a host-verified grid for the public Adapter Core Tiles path. */
+export function getTilesVerticalGrid(
+  config: DevViewerConfig,
+  isLoadedGrid: (value: unknown) => value is VerifiedVerticalGrid,
+): GtxGeoidGrid | undefined {
+  const value = toWorkbenchOptionValues(config)["coordinates.verticalTransform"];
+  if (value === undefined || value === null) return undefined;
+  if (!isLoadedGrid(value)) {
+    throw new TypeError("3D Tiles requires a loaded, verified vertical grid.");
+  }
+  // The registry accepts only instances returned by the public GTX loaders.
+  return value as GtxGeoidGrid;
+}
 
 /** Commit only the Cesium color mode and dimension ramp sent to setStyle(). */
 export function commitRuntimeColorMode(
@@ -184,6 +203,9 @@ export function validateDevViewerConfig(
   if (config.renderer !== "cesium" && config.renderer !== "three") {
     return "Choose Cesium or Three.js as the rendering engine.";
   }
+  if (config.pipeline !== "direct" && config.pipeline !== "tiles") {
+    return "Choose Direct COPC or the experimental 3D Tiles pipeline.";
+  }
   if (
     config.cesiumRenderer !== "point-primitive" &&
     config.cesiumRenderer !== "batched-geometry"
@@ -286,6 +308,7 @@ export function hasUnappliedSettings(
   pending: DevViewerConfig,
 ): boolean {
   return (
+    applied.pipeline !== pending.pipeline ||
     getChangedWorkbenchOptionIds(
       toWorkbenchOptionValues(applied),
       toWorkbenchOptionValues(pending),
@@ -304,6 +327,9 @@ export function needsSessionRecreation(
   hostValidators: SchemaHostValidators = {},
 ): boolean {
   if (!hasActiveSession) return true;
+  if (applied.pipeline !== next.pipeline || applied.pipeline === "tiles" || next.pipeline === "tiles") {
+    return true;
+  }
   const appliedValues = toWorkbenchOptionValues(applied);
   const nextValues = toWorkbenchOptionValues(next);
   if (!currentSourceUsesHttp) {
@@ -360,6 +386,23 @@ export function toWorkbenchOptionValues(
     values["attributes.extraDimensions"] = [...new Set([...existing, ...selectedNames])];
   }
   return values;
+}
+
+/** Return a fail-closed error when Tiles would silently omit active filters. */
+export function getTilesUnsupportedFilteringError(
+  config: DevViewerConfig,
+): string | undefined {
+  const values = toWorkbenchOptionValues(config);
+  const unsupported = [
+    ["style.classificationFilter", "Classification Filter"],
+    ["style.dimensionFilter", "Numeric Dimension Filter"],
+    ["filtering.cesiumClippingVolume", "Clipping Volume"],
+  ] as const;
+  const activeLabels = unsupported
+    .filter(([optionId]) => values[optionId] !== undefined && values[optionId] !== null)
+    .map(([, label]) => label);
+  if (activeLabels.length === 0) return undefined;
+  return `3D Tiles does not apply ${activeLabels.join(", ")}. Switch to Direct COPC and clear these settings before selecting 3D Tiles.`;
 }
 
 /** Display a configured Terrain URL without credentials or query data. */
