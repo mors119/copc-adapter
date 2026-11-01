@@ -242,6 +242,31 @@ test("keeps projected horizontal and ellipsoidal-height axis units independent",
     }),
     /DOWN axis is unsupported because depth sign normalization is not available/u,
   );
+
+  const projectedMissingHeightUnit = PROJECTED_WGS84_ELLIPSOIDAL_3D.replace(
+    ',LENGTHUNIT["metre",1]] ]',
+    '] ]',
+  );
+  assert.equal(extractHorizontalUnitScale(projectedMissingHeightUnit), 1);
+  assert.throws(
+    () => extractVerticalUnitScale(projectedMissingHeightUnit),
+    /projected 3D WKT UP axis does not declare a LENGTHUNIT/u,
+  );
+  assert.throws(
+    () => transformPointBufferToPreparedPointData(
+      { ...metadata, wkt: projectedMissingHeightUnit },
+      {
+        pointCount: 1,
+        coordinates: new Float64Array([500_000, 5_020_000, 100]),
+      },
+    ),
+    /projected 3D WKT UP axis does not declare a LENGTHUNIT/u,
+  );
+  assert.ok(
+    resolveCopcCrsMetadata(projectedMissingHeightUnit).reasons.some(
+      (reason) => reason.code === "missing-vertical-unit",
+    ),
+  );
 });
 
 test("validates the explicit EPSG:4979 ellipsoidal height unit", () => {

@@ -554,7 +554,12 @@ function projectedUpAxisUnitScale(wkt: string): number | undefined {
     axes[2]?.order !== 3 || axes[2].direction !== "UP"
   ) return undefined;
   const unit = findDirectWktSections(axes[2].section, ["LENGTHUNIT["])[0]?.section;
-  return unit ? parseLengthUnitFactor(unit, "LENGTHUNIT") : undefined;
+  if (!unit) {
+    throw new Error(
+      "COPC projected 3D WKT UP axis does not declare a LENGTHUNIT",
+    );
+  }
+  return parseLengthUnitFactor(unit, "LENGTHUNIT");
 }
 
 function parseLengthUnitFactor(unit: string, keyword: "UNIT" | "LENGTHUNIT"): number {
