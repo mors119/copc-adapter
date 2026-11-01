@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import semver from 'semver';
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -20,6 +21,7 @@ function run(command, args, cwd, label) {
     stdio: 'inherit',
     env: {
       ...process.env,
+      COPC_ADAPTER_WORKSPACE_ROOT: resolve(repositoryRoot, 'packages/adapter'),
       SHARP_IGNORE_GLOBAL_LIBVIPS: process.env.SHARP_IGNORE_GLOBAL_LIBVIPS ?? '1',
       npm_config_audit: 'false',
       npm_config_fund: 'false',
@@ -55,7 +57,7 @@ try {
   const manifest = JSON.parse(await readFile(join(stagedPackageRoot, 'package.json'), 'utf8'));
   assert.equal(manifest.name, '@frillab/copc-tiles');
   assert.equal(manifest.version, '0.1.0');
-  assert.equal(manifest.peerDependencies?.['@frillab/copc-adapter'], '0.7.1');
+  assertAdapterPeerRange(manifest.peerDependencies?.['@frillab/copc-adapter'], 'staged package manifest');
   assert.equal(manifest.peerDependenciesMeta?.['@frillab/copc-adapter']?.optional, true);
   for (const section of ['dependencies', 'optionalDependencies', 'peerDependencies', 'devDependencies']) {
     for (const [name, version] of Object.entries(manifest[section] ?? {})) {
@@ -100,8 +102,22 @@ try {
   const stagedLock = JSON.parse(await readFile(join(stagingRoot, 'package-lock.json'), 'utf8'));
   assert.equal(stagedLock.packages?.['packages/tiles']?.name, '@frillab/copc-tiles');
   assert.equal(stagedLock.packages?.['packages/tiles']?.version, '0.1.0');
-  assert.equal(stagedLock.packages?.['packages/tiles']?.peerDependencies?.['@frillab/copc-adapter'], '0.7.1');
+  assertAdapterPeerRange(
+    stagedLock.packages?.['packages/tiles']?.peerDependencies?.['@frillab/copc-adapter'],
+    'staged package lockfile',
+  );
   console.log('Staged npm Workspace package checks and external packed consumers passed.');
 } finally {
   await rm(stagingRoot, { recursive: true, force: true });
+}
+
+function assertAdapterPeerRange(range, source) {
+  assert.equal(typeof range, 'string', `${source} declares the optional Adapter peer range`);
+  assert.notEqual(semver.validRange(range), null, `${source} declares a valid semver range`);
+  for (const version of ['0.7.1', '0.7.99', '0.8.0', '0.8.99']) {
+    assert.equal(semver.satisfies(version, range), true, `${source} accepts Adapter ${version}`);
+  }
+  for (const version of ['0.7.0', '0.9.0', '1.0.0', '0.8.0-next.1']) {
+    assert.equal(semver.satisfies(version, range), false, `${source} rejects Adapter ${version}`);
+  }
 }

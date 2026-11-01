@@ -119,7 +119,7 @@ try {
   assert.equal(tileFiles.some((file) => file.endsWith('.copc.laz')), false, 'Tiles tarball excludes COPC datasets');
   assert.equal(tileFiles.some((file) => file.includes('/node_modules/')), false, 'Tiles tarball excludes node_modules');
 
-  const adapterWorkspace = resolve(root, '../adapter');
+  const adapterWorkspace = resolve(process.env.COPC_ADAPTER_WORKSPACE_ROOT ?? resolve(root, '../adapter'));
   runNpm(['pack', '--pack-destination', packDirectory], adapterWorkspace, 'Adapter 0.8.0 candidate npm pack');
   const packedAdapterName = (await readdir(packDirectory)).find((name) => name.startsWith('frillab-copc-adapter-0.8.0.') && name.endsWith('.tgz'));
   if (!packedAdapterName) throw new Error('Adapter 0.8.0 candidate npm pack did not produce a tarball.');

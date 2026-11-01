@@ -6,6 +6,7 @@ import test from 'node:test';
 import tilesValidator from '3d-tiles-validator';
 import gltfValidator from 'gltf-validator';
 import { getFloat32EcefReconstructionErrorBound } from '../src/geometry/tileLocalCoordinates.ts';
+import { createExperimentalETilePointView } from '../src/input/tilePointView.ts';
 import { createCopcTileResourceProvider, CopcTileResourceProviderError } from '../src/resources/copcTileResourceProvider.ts';
 import { getExplicitTileContentUri } from '../src/tileset/explicitTileset.ts';
 import { createBrowserFixtureSource } from './browser/fixture.ts';
@@ -313,6 +314,72 @@ test('decoded-content preserves original node identity when pruning an empty chi
   assert.ok(rootGlb, 'content read receives the original parent hierarchy node');
   assert.ok(childGlb);
   assert.deepEqual(base.diagnostics.nodes, ['root', 'left', 'root', 'left']);
+  await provider.close();
+});
+
+test('empty decoded-content parents expand minimum extents without rounding inward past child bounds', async () => {
+  const base = createBrowserFixtureSource(723);
+  const rootPage = { key: 'rounding-parent-root', pageOffset: 0, pageLength: 32 };
+  const childPage = { key: 'rounding-parent-children', pageOffset: 32, pageLength: 64 };
+  const emptyRoot = {
+    key: 'root', level: 0, x: 0, y: 0, z: 0,
+    pointCount: 0, pointDataOffset: 0, pointDataLength: 0,
+    children: ['left', 'right'], childrenComplete: true,
+  };
+  const childNodes = [
+    { key: 'left', level: 1, x: 0, y: 0, z: 0, pointCount: 3, pointDataOffset: 100, pointDataLength: 72, children: [], childrenComplete: true },
+    { key: 'right', level: 1, x: 1, y: 0, z: 0, pointCount: 3, pointDataOffset: 172, pointDataLength: 72, children: [], childrenComplete: true },
+  ];
+  const positions = {
+    left: 6_378_142.5828533955,
+    right: 6_378_143.436268077,
+  };
+  const transformPlan = Object.freeze({
+    schema: 'copc-coordinate-transform-plan',
+    version: 1,
+    identity: Object.freeze({ key: 'browser-fixture-transform-v1' }),
+    manualHeightOffsetMeters: 0,
+  });
+  const source = {
+    ...base,
+    getRootHierarchyPage: () => rootPage,
+    loadHierarchyPage: async (page) => page.key === rootPage.key
+      ? { nodes: [emptyRoot], pages: [childPage] }
+      : { nodes: childNodes, pages: [] },
+    loadNode: async (node, selection) => {
+      const x = positions[node.key];
+      const ecef = new Float64Array([x, 0, 0, x, 0, 0, x, 0, 0]);
+      const context = {
+        sourceIdentity: base.sourceIdentity,
+        nodeKey: node.key,
+        sourceGeneration: 723,
+        transformGeneration: base.transformGeneration,
+        sourceCrs: { status: 'identified', identifier: 'EPSG:4978', horizontalUnit: 'metre', verticalUnit: 'metre' },
+        verticalDatum: { status: 'verified', identifier: 'WGS 84 ellipsoidal height', corrections: [] },
+        heightOffsetMeters: 0,
+        transformPlan,
+      };
+      return createExperimentalETilePointView(
+        { pointCount: 3, ecef, height: new Float64Array(3), attributes: {} },
+        context,
+        { sourceIdentity: base.sourceIdentity, sourceGeneration: 723, transformGeneration: base.transformGeneration },
+        selection,
+      );
+    },
+  };
+
+  const provider = await createCopcTileResourceProvider(source, {
+    scanCompleteHierarchy: true,
+    boundsStrategy: 'decoded-content',
+    allowDecodedContentBounds: true,
+  });
+  assert.equal(provider.decodedContentScan.scannedPoints, 6);
+  const bytes = await provider.getResource('tileset.json', new AbortController().signal);
+  assert.ok(bytes);
+  const tileset = JSON.parse(new TextDecoder().decode(bytes));
+  assert.equal(tileset.root.children.length, 2);
+  assertTileBoxContains(tileset.root, tileset.root.children[0]);
+  assertTileBoxContains(tileset.root, tileset.root.children[1]);
   await provider.close();
 });
 

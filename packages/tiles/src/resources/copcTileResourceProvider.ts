@@ -1047,11 +1047,11 @@ function expandBounds(bounds: EcefAxisAlignedBounds, padding: number): EcefAxisA
 function ensureMinimumHalfExtent(bounds: EcefAxisAlignedBounds): EcefAxisAlignedBounds {
   const minimum = bounds.minimum.map((value, axis) => {
     const center = value + (bounds.maximum[axis] - value) / 2;
-    return center - Math.max((bounds.maximum[axis] - value) / 2, 0.001);
+    return Math.min(value, center - Math.max((bounds.maximum[axis] - value) / 2, 0.001));
   }) as [number, number, number];
   const maximum = bounds.maximum.map((value, axis) => {
     const center = bounds.minimum[axis] + (value - bounds.minimum[axis]) / 2;
-    return center + Math.max((value - bounds.minimum[axis]) / 2, 0.001);
+    return Math.max(value, center + Math.max((value - bounds.minimum[axis]) / 2, 0.001));
   }) as [number, number, number];
   if (![...minimum, ...maximum].every(Number.isFinite)) {
     throw new CopcTileResourceProviderError('CONTENT_SCAN_INVALID', 'Minimum 3D Tiles bounding-volume extents exceed the finite numeric range.');
