@@ -469,9 +469,17 @@ function createNodeContext(
     plan.source.verticalHeightKind?.value === 'ellipsoidal' &&
     plan.source.verticalHeightKind?.certainty === 'explicit' &&
     plan.source.verticalCrs?.name === 'WGS 84 ellipsoidal height';
+  const verticalUnitScaleIsVerified =
+    (plan.source.verticalUnitConversion?.source === 'wkt' ||
+      plan.source.verticalUnitConversion?.source === 'validated-grid') &&
+    Number.isFinite(plan.source.verticalUnitConversion.scaleToMeters) &&
+    (plan.source.verticalUnitConversion.scaleToMeters ?? 0) > 0;
   const verticalStatus = plan.manualHeightOffsetMeters !== 0
     ? 'unverified'
-    : plan.verticalGrid?.compatibility === 'validated' || explicitlyEllipsoidalHeight
+    : explicitlyEllipsoidalHeight && !verticalUnitScaleIsVerified
+      ? 'unverified'
+    : verticalUnitScaleIsVerified &&
+      (plan.verticalGrid?.compatibility === 'validated' || explicitlyEllipsoidalHeight)
       ? 'verified'
       : corrections.length > 0
         ? 'unverified'

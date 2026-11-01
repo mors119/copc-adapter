@@ -374,6 +374,43 @@ test('manual height offsets keep decoded vertical placement unverified', async (
   }
 });
 
+test('explicit ellipsoidal height is verified only when its source-unit scale is declared', async () => {
+  const ellipsoidalPlan = geographicPlan(4979);
+  ellipsoidalPlan.source.verticalCrs = {
+    authority: 'EPSG', code: '4979', name: 'WGS 84 ellipsoidal height',
+  };
+  ellipsoidalPlan.source.verticalHeightKind = {
+    value: 'ellipsoidal', certainty: 'explicit',
+  };
+  ellipsoidalPlan.source.verticalUnits = { kind: 'unknown', certainty: 'unknown' };
+  ellipsoidalPlan.source.verticalUnitConversion = {
+    scaleToMeters: 1, source: 'compatibility-default',
+  };
+  const declaredUnitPlan = {
+    ...ellipsoidalPlan,
+    identity: { key: 'geographic-plan-4979-with-declared-height-unit' },
+    source: {
+      ...ellipsoidalPlan.source,
+      verticalUnits: { kind: 'linear', name: 'metre', certainty: 'explicit' },
+      verticalUnitConversion: { scaleToMeters: 1, source: 'wkt' },
+    },
+  };
+
+  for (const [plan, expectedStatus] of [
+    [ellipsoidalPlan, 'unverified'],
+    [declaredUnitPlan, 'verified'],
+  ]) {
+    const source = makeSource({
+      transformPlan: plan,
+      loadPreparedNodeData: async () => ({ ...preparedData(), transformPlan: plan }),
+    });
+    const view = await wrap(source).loadNode(node, {});
+
+    assert.equal(view.context.verticalDatum.status, expectedStatus);
+    assert.equal(view.context.verticalDatum.identifier, 'EPSG:4979');
+  }
+});
+
 test('rejects conservative bounds whose vertical unit or validated grid differs from the active transform plan', () => {
   const grid = validatedGridProvenance();
   const plan = geographicPlan(4979, { verticalGrid: grid, verticalUnit: 'US survey foot' });
