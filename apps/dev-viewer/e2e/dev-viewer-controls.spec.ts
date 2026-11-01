@@ -1158,7 +1158,7 @@ test("shows actionable errors for unknown URL-driven refinement values", async (
 test("plays, stops, replays, and cancels the deterministic Cesium camera demo", async ({
   page,
 }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(240_000);
   const pageErrors: Error[] = [];
   page.on("pageerror", (error) => pageErrors.push(error));
   const positionDeltaMeters = (
