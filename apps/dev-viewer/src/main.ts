@@ -35,6 +35,7 @@ import {
   PointPrimitiveRenderer,
 } from "@frillab/copc-adapter/cesium";
 import { createCesiumViewer } from "./createViewer";
+import { createCinematicCameraDemo } from "./cinematicCameraDemo";
 import { createCopcDebugPanel } from "./debug/CopcDebugPanel";
 import {
   runSyntheticRendererLayoutComparisonBenchmark,
@@ -322,6 +323,10 @@ type ViewerSession = {
   ): boolean;
   setCameraPreset(preset: CameraPreset): void;
   setCameraRenderDistance(distance: number): void;
+  canPlayCameraDemo?(): boolean;
+  playCameraDemo?(): boolean;
+  stopCameraDemo?(): void;
+  isCameraDemoPlaying?(): boolean;
   getCameraState(): ViewerCameraState;
   setCameraState(state: ViewerCameraState): void;
   getPickablePointScreenPosition(): { x: number; y: number } | undefined;
@@ -1072,6 +1077,7 @@ async function createCesiumSession(
   ) => void,
   onPointPositionChanged: (position: PointScreenPosition | undefined) => void,
   applyTrace?: ApplyTrace,
+  onCameraDemoPlayingChange?: (playing: boolean) => void,
 ): Promise<ViewerSession> {
   const applicationPlan = buildSchemaApplicationPlan(
     {
@@ -1137,6 +1143,10 @@ async function createCesiumSession(
     ...(testHighDpiRendering ? { useBrowserRecommendedResolution: false } : {}),
     ...(terrainProvider ? { terrainProvider } : {}),
   });
+  const cameraDemo = createCinematicCameraDemo(
+    viewer,
+    onCameraDemoPlayingChange,
+  );
   const terrainProviderAvailable =
     !(viewer.terrainProvider instanceof Cesium.EllipsoidTerrainProvider) &&
     viewer.terrainProvider.availability !== undefined;
@@ -1250,6 +1260,18 @@ async function createCesiumSession(
     setCameraRenderDistance(distance) {
       moveCameraToHeight(viewer, distance);
     },
+    canPlayCameraDemo: () => {
+      const metadata = layer.getMetadata();
+      return Boolean(
+        metadata && metadata.pointCount > 0 && cameraDemo.canPlay(),
+      );
+    },
+    playCameraDemo: () => {
+      const metadata = layer.getMetadata();
+      return Boolean(metadata && metadata.pointCount > 0 && cameraDemo.play());
+    },
+    stopCameraDemo: () => cameraDemo.stop(),
+    isCameraDemoPlaying: () => cameraDemo.isPlaying(),
     setRefinementFocus: (focus) => layer.setRefinementFocus(focus),
     getFocusCanvas: () => viewer.isDestroyed() ? undefined : viewer.scene.canvas,
     getCameraState(): ViewerCameraState {
@@ -1294,6 +1316,7 @@ async function createCesiumSession(
       }
       viewer.scene.postRender.removeEventListener(onPostRender);
       viewer.camera.changed.removeEventListener(onCameraChanged);
+      cameraDemo.destroy();
       for (const removeListener of removeApplyTraceListeners) {
         removeListener();
       }
@@ -1777,6 +1800,8 @@ async function main(): Promise<void> {
   workbenchStatus.id = "workbench-status";
   workbenchStatus.textContent = "Loading configured source…";
   const loadButton = getElement<HTMLButtonElement>("#load-source");
+  const cameraDemoPlayButton = getElement<HTMLButtonElement>("#play-camera-demo");
+  const cameraDemoStopButton = getElement<HTMLButtonElement>("#stop-camera-demo");
   const applySettingsButton = getElement<HTMLButtonElement>("#apply-settings");
   const reloadCurrentSourceButton = getElement<HTMLButtonElement>(
     "#reload-current-source",
@@ -2089,6 +2114,28 @@ async function main(): Promise<void> {
     workbenchStatus.textContent = message;
     workbenchStatus.dataset.status = tone;
   };
+  const refreshCameraDemoControls = (): void => {
+    const playing = activeSession?.isCameraDemoPlaying?.() === true;
+    const available = !disposed &&
+      !isLoading &&
+      activeSession?.renderer === "cesium" &&
+      activeSession.pipeline === "direct" &&
+      activeSession.canPlayCameraDemo?.() === true;
+    cameraDemoPlayButton.disabled = !available || playing;
+    cameraDemoStopButton.disabled = !playing;
+  };
+  const onCameraDemoPlay = (): void => {
+    if (isLoading || !activeSession?.canPlayCameraDemo?.()) return;
+    activeSession.playCameraDemo?.();
+    refreshCameraDemoControls();
+  };
+  const onCameraDemoStop = (): void => {
+    activeSession?.stopCameraDemo?.();
+    refreshCameraDemoControls();
+  };
+  cameraDemoPlayButton.addEventListener("click", onCameraDemoPlay);
+  cameraDemoStopButton.addEventListener("click", onCameraDemoStop);
+  refreshCameraDemoControls();
   const updateConfigurationState = (): void => {
     const dirty = hasUnappliedSettings(activeConfig, pendingConfig);
     const schemaValidationErrors = workbenchControls?.getValidationErrors() ?? [];
@@ -2161,6 +2208,7 @@ async function main(): Promise<void> {
       });
     workbenchControls?.refreshFocusCursorAvailability();
     terrainAlignmentControl?.update();
+    refreshCameraDemoControls();
     refreshIntegrationCode();
   };
   const showConfigurationError = (message: string): void => {
@@ -2363,6 +2411,7 @@ async function main(): Promise<void> {
     applyTrace?: ApplyTrace,
   ): Promise<void> {
     const currentGeneration = ++generation;
+    activeSession?.stopCameraDemo?.();
     isLoading = false;
     probeAbortController?.abort();
     probeAbortController = undefined;
@@ -2584,6 +2633,7 @@ async function main(): Promise<void> {
               handlePointPicked,
               handlePointPositionChanged,
               applyTrace,
+              refreshCameraDemoControls,
             )
           : createThreeSession(
               candidateMount,
@@ -2888,6 +2938,7 @@ async function main(): Promise<void> {
       updateConfigurationState();
     },
     onCameraPresetSelected(value) {
+      activeSession?.stopCameraDemo?.();
       resolveStartupIssue("cameraPreset");
       resolveStartupIssue("cameraDistance");
       const nextDistance = presetDistance(
@@ -2963,6 +3014,7 @@ async function main(): Promise<void> {
       updateConfigurationState();
     },
     onCameraDistanceSelected(distance) {
+      activeSession?.stopCameraDemo?.();
       activeSession?.setCameraRenderDistance(distance);
       activeConfig = { ...activeConfig, cameraRenderDistance: distance };
       pendingConfig = { ...pendingConfig, cameraRenderDistance: distance };
@@ -3036,6 +3088,8 @@ async function main(): Promise<void> {
     () => {
       disposed = true;
       generation += 1;
+      cameraDemoPlayButton.removeEventListener("click", onCameraDemoPlay);
+      cameraDemoStopButton.removeEventListener("click", onCameraDemoStop);
       followCursorTracker.destroy();
       probeAbortController?.abort();
       debugPanel.destroy();

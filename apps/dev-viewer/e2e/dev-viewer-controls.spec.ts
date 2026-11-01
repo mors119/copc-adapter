@@ -27,6 +27,14 @@ type DevViewerApi = {
       }
     | undefined;
   getPickablePointScreenPosition(): { x: number; y: number } | undefined;
+  getCameraState(): {
+    engine: "cesium";
+    longitudeDegrees: number;
+    latitudeDegrees: number;
+    heightMeters: number;
+    headingDegrees: number;
+    pitchDegrees: number;
+  };
   getConfiguration(): {
     renderer: string;
     cesiumRenderer: string;
@@ -59,7 +67,7 @@ declare global {
     __COPC_DEV_VIEWER__?: DevViewerApi;
     __COPC_DEBUG__?: {
       getState(): {
-        cameraMoveEventCount: number;
+        streamingUpdateCount: number;
         cameraBasis: {
           position: { x: number; y: number; z: number };
           direction: { x: number; y: number; z: number };
@@ -1145,4 +1153,176 @@ test("shows actionable errors for unknown URL-driven refinement values", async (
     .click();
   await expect(error).toBeHidden();
   await expect(page.locator("#apply-settings")).toBeEnabled();
+});
+
+test("plays, stops, replays, and cancels the deterministic Cesium camera demo", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const pageErrors: Error[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error));
+  const positionDeltaMeters = (
+    left: ReturnType<DevViewerApi["getCameraState"]>,
+    right: ReturnType<DevViewerApi["getCameraState"]>,
+  ): number => {
+    const latitude = ((left.latitudeDegrees + right.latitudeDegrees) / 2) *
+      Math.PI / 180;
+    const north = (left.latitudeDegrees - right.latitudeDegrees) * 111_320;
+    const east =
+      (left.longitudeDegrees - right.longitudeDegrees) *
+      111_320 *
+      Math.cos(latitude);
+    const vertical = left.heightMeters - right.heightMeters;
+    return Math.hypot(east, north, vertical);
+  };
+  await page.goto("/?source=");
+  const cameraSection = page
+    .locator(".dev-control-section")
+    .filter({ hasText: "Camera presets" });
+  await cameraSection.locator("summary").click();
+  const play = page.getByRole("button", { name: "Play camera demo" });
+  const stop = page.getByRole("button", { name: "Stop", exact: true });
+  await expect(play).toBeDisabled();
+
+  await page.goto("/");
+  await cameraSection.locator("summary").click();
+  await expect(page.locator("#source-status")).toContainText("Ready");
+  await expect(play).toBeEnabled();
+  await expect(stop).toBeDisabled();
+
+  const initialCounts = await page.evaluate(() => ({
+    streamingUpdates: window.__COPC_DEBUG__!.getState().streamingUpdateCount,
+  }));
+  const firstRun = await page.evaluate(async () => {
+    document.querySelector<HTMLButtonElement>("#play-camera-demo")!.click();
+    const start = window.__COPC_DEV_VIEWER__!.getCameraState();
+    const startTime = performance.now();
+    await new Promise<void>((resolve) => {
+      const nextFrame = (): void => {
+        if (performance.now() - startTime >= 800) resolve();
+        else requestAnimationFrame(nextFrame);
+      };
+      requestAnimationFrame(nextFrame);
+    });
+    return {
+      start,
+      sample: window.__COPC_DEV_VIEWER__!.getCameraState(),
+    };
+  });
+  const firstStart = firstRun.start;
+  const firstSample = firstRun.sample;
+  await expect(stop).toBeEnabled();
+  await expect(play).toBeDisabled();
+  const firstCounts = await page.evaluate(() => ({
+    streamingUpdates: window.__COPC_DEBUG__!.getState().streamingUpdateCount,
+  }));
+  expect(firstSample.engine).toBe("cesium");
+  expect(positionDeltaMeters(firstSample, firstStart)).toBeGreaterThan(1);
+  expect(firstCounts.streamingUpdates).toBeGreaterThan(
+    initialCounts.streamingUpdates,
+  );
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => window.__COPC_DEV_VIEWER__!.getPickablePointScreenPosition(),
+      ),
+    )
+    .toBeTruthy();
+
+  await stop.click();
+  await expect(stop).toBeDisabled();
+  const stoppedState = await page.evaluate(
+    () => window.__COPC_DEV_VIEWER__!.getCameraState(),
+  );
+  await page.waitForTimeout(250);
+  const afterStop = await page.evaluate(
+    () => window.__COPC_DEV_VIEWER__!.getCameraState(),
+  );
+  expect(positionDeltaMeters(afterStop, stoppedState)).toBeLessThan(0.01);
+  expect(afterStop.headingDegrees).toBeCloseTo(stoppedState.headingDegrees, 10);
+  expect(afterStop.pitchDegrees).toBeCloseTo(stoppedState.pitchDegrees, 10);
+
+  const replayRun = await page.evaluate(async () => {
+    document.querySelector<HTMLButtonElement>("#play-camera-demo")!.click();
+    const start = window.__COPC_DEV_VIEWER__!.getCameraState();
+    const startTime = performance.now();
+    const waitForElapsedTime = (elapsedMs: number): Promise<void> =>
+      new Promise((resolve) => {
+        const nextFrame = (): void => {
+          if (performance.now() - startTime >= elapsedMs) resolve();
+          else requestAnimationFrame(nextFrame);
+        };
+        requestAnimationFrame(nextFrame);
+      });
+    await waitForElapsedTime(800);
+    const sample = window.__COPC_DEV_VIEWER__!.getCameraState();
+    const visibilitySamples: boolean[] = [];
+    for (const elapsedMs of [3_000, 11_000, 17_000, 21_000, 24_000]) {
+      await waitForElapsedTime(elapsedMs);
+      visibilitySamples.push(
+        window.__COPC_DEV_VIEWER__!.getPickablePointScreenPosition() !==
+          undefined,
+      );
+    }
+    await waitForElapsedTime(25_200);
+    return {
+      start,
+      sample,
+      visibilitySamples,
+    };
+  });
+  const replayStart = replayRun.start;
+  const replaySample = replayRun.sample;
+  await expect(stop).toBeDisabled();
+  await expect(play).toBeEnabled();
+  expect(replayStart.engine).toBe("cesium");
+  expect(positionDeltaMeters(replayStart, firstStart)).toBeLessThan(0.01);
+  expect(positionDeltaMeters(replaySample, firstSample)).toBeLessThan(250);
+  expect(replayRun.visibilitySamples).toEqual([true, true, true, true, true]);
+
+  await play.click();
+  await expect(stop).toBeEnabled();
+  const canvas = page.locator("#cesium-container canvas");
+  const canvasBounds = await canvas.boundingBox();
+  expect(canvasBounds).not.toBeNull();
+  await page.mouse.move(
+    canvasBounds!.x + canvasBounds!.width / 2,
+    canvasBounds!.y + canvasBounds!.height / 2,
+  );
+  await page.mouse.down();
+  await expect(stop).toBeDisabled();
+  await page.mouse.up();
+  await expect(play).toBeEnabled();
+
+  const distance = page.locator("#camera-render-distance");
+  await distance.fill("2800");
+  await distance.press("Tab");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => window.__COPC_DEV_VIEWER__!.getCameraState().heightMeters,
+      ),
+    )
+    .toBeGreaterThan(2795);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => window.__COPC_DEV_VIEWER__!.getCameraState().heightMeters,
+      ),
+    )
+    .toBeLessThan(2805);
+
+  await play.click();
+  await expect(stop).toBeEnabled();
+  await page.getByRole("button", { name: "Reload current source" }).click();
+  await expect(stop).toBeDisabled();
+  await expect(page.locator("#source-status")).toContainText("Ready");
+  await expect(play).toBeEnabled();
+
+  await play.click();
+  await expect(stop).toBeEnabled();
+  await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
+  await expect(stop).toBeDisabled();
+  await page.waitForTimeout(250);
+  expect(pageErrors).toEqual([]);
 });
