@@ -83,6 +83,9 @@ test("Direct remains the default and the Cesium 3D Tiles pipeline renders genera
   await expect.poll(() => hasDirectSnapshot(page)).toBe(true);
 
   await page.locator("#rendering-pipeline").selectOption("tiles");
+  await expect(
+    page.getByRole("radiogroup", { name: "Color mode" }).getByRole("radio", { name: "Elevation" }),
+  ).toBeDisabled();
   await expect(page.locator("#apply-settings")).toBeEnabled();
   await page.locator("#apply-settings").click();
   await expect(page.locator("#source-status")).toHaveAttribute("data-status", "ready");
@@ -138,6 +141,9 @@ test("Direct remains the default and the Cesium 3D Tiles pipeline renders genera
   await page.locator("#rendering-pipeline").selectOption("direct");
   await page.locator("#apply-settings").click();
   await expect(page.locator("#source-status")).toHaveAttribute("data-status", "ready");
+  await expect(
+    page.getByRole("radiogroup", { name: "Color mode" }).getByRole("radio", { name: "Elevation" }),
+  ).toBeEnabled();
   await expect.poll(() => getActivePipeline(page)).toBe("direct");
   await expect.poll(() => hasDirectSnapshot(page)).toBe(true);
   await expect(page.locator(".dev-session-mount .cesium-widget canvas")).toHaveCount(1);

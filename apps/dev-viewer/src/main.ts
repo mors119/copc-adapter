@@ -2034,6 +2034,19 @@ async function main(): Promise<void> {
       .forEach((control) => {
         control.disabled = isLoading;
       });
+    const tilesStylesDisabled =
+      activeConfig.pipeline === "tiles" || pendingConfig.pipeline === "tiles";
+    const styleSection = controlsPanel.querySelector<HTMLElement>(
+      '.schema-control-section[data-section="style"]',
+    );
+    styleSection?.setAttribute("aria-disabled", String(tilesStylesDisabled));
+    styleSection
+      ?.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>(
+        "input, select, button",
+      )
+      .forEach((control) => {
+        control.disabled = isLoading || tilesStylesDisabled;
+      });
     workbenchControls?.refreshVerticalGridAvailability();
     controlsPanel
       .querySelectorAll<HTMLButtonElement>(".ui-segmented button")
@@ -2761,6 +2774,9 @@ async function main(): Promise<void> {
         try {
           if (!activeSession.setStyle) {
             throw new TypeError("The active Cesium layer does not support runtime style updates.");
+          }
+          if (activeSession.pipeline === "tiles") {
+            throw new TypeError("Color styling is unavailable while 3D Tiles is selected. Switch to Direct COPC to change colors.");
           }
           activeSession.setStyle({
             colorMode: value,
