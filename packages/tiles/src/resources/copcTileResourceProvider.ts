@@ -206,7 +206,10 @@ type ConservativePreparedTileNode = Readonly<{
 }>;
 
 type DecodedPreparedTileNode = Readonly<{
+  /** Original hierarchy identity used when re-reading source content. */
   node: TileHierarchyNode;
+  /** Pruned child links used only to construct the spatial Tileset. */
+  tilesetNode: TileHierarchyNode;
   decodedContentBounds?: DecodedContentBoundsProvenance;
   contentBounds?: EcefAxisAlignedBounds;
   bounds: EcefAxisAlignedBounds;
@@ -601,8 +604,10 @@ async function createDecodedContentProvider(
       ? withContentPadding(ownBounds, nodeEncoderPadding)
       : undefined;
     if (decodedContentBounds) completedContentBounds.set(node.key, decodedContentBounds);
+    const tilesetNode = Object.freeze({ ...node, children: Object.freeze(includedChildren) });
     const prepared: DecodedPreparedTileNode = Object.freeze({
-      node: Object.freeze({ ...node, children: Object.freeze(includedChildren) }),
+      node,
+      tilesetNode,
       ...(decodedContentBounds === undefined ? {} : { decodedContentBounds }),
       ...(contentBounds === undefined ? {} : { contentBounds }),
       bounds,
@@ -611,7 +616,7 @@ async function createDecodedContentProvider(
     });
     includedNodeKeys.add(node.key);
     preparedNodes.set(node.key, prepared);
-    tilesetInputs.push({ node: prepared.node, bounds });
+    tilesetInputs.push({ node: prepared.tilesetNode, bounds });
   }
 
   assertSourceCurrent(source, sourceIdentity, sourceGeneration, sourceGeneration, transformGeneration);
@@ -787,7 +792,7 @@ function decorateDecodedContentTile(
   if (!prepared || !rawBounds || !tileBounds) {
     throw new CopcTileResourceProviderError('CONTENT_SCAN_INVALID', `Node ${nodeKey} is missing finalized content or descendant bounds.`, { nodeKey });
   }
-  const node = prepared.node;
+  const node = prepared.tilesetNode;
   const children = (tile.children as Record<string, unknown>[] | undefined) ?? [];
   if (children.length !== (node.children?.length ?? 0)) {
     throw new CopcTileResourceProviderError('CONTENT_SCAN_INVALID', `Generated Tileset children do not match hierarchy node ${nodeKey}.`, { nodeKey });

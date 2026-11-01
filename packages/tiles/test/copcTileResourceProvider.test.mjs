@@ -265,6 +265,57 @@ test('decoded-content omits empty terminal leaves and keeps empty ancestors arou
   await provider.close();
 });
 
+test('decoded-content preserves original node identity when pruning an empty child from a content-bearing parent', async () => {
+  const base = createBrowserFixtureSource(722);
+  const rootPage = { key: 'content-parent-root', pageOffset: 0, pageLength: 32 };
+  const childPage = { key: 'content-parent-children', pageOffset: 32, pageLength: 32 };
+  const contentRoot = {
+    key: 'root', level: 0, x: 0, y: 0, z: 0,
+    pointCount: 3, pointDataOffset: 100, pointDataLength: 72,
+    children: ['left', 'empty-leaf'], childrenComplete: true,
+  };
+  const contentChild = {
+    key: 'left', level: 1, x: 0, y: 0, z: 0,
+    pointCount: 3, pointDataOffset: 172, pointDataLength: 72,
+    children: [], childrenComplete: true,
+  };
+  const emptyLeaf = {
+    key: 'empty-leaf', level: 1, x: 1, y: 0, z: 0,
+    pointCount: 0, pointDataOffset: 0, pointDataLength: 0,
+    children: [], childrenComplete: true,
+  };
+  const source = {
+    ...base,
+    getRootHierarchyPage: () => rootPage,
+    loadHierarchyPage: async (page) => page.key === rootPage.key
+      ? { nodes: [contentRoot], pages: [childPage] }
+      : { nodes: [contentChild, emptyLeaf], pages: [] },
+  };
+
+  const provider = await createCopcTileResourceProvider(source, {
+    scanCompleteHierarchy: true,
+    boundsStrategy: 'decoded-content',
+    allowDecodedContentBounds: true,
+  });
+  assert.equal(provider.decodedContentScan.status, 'complete');
+  assert.equal(provider.decodedContentScan.hierarchyNodes, 3);
+  assert.equal(provider.decodedContentScan.tilesetNodes, 2);
+  assert.equal(provider.decodedContentScan.scannedPoints, 6);
+
+  const tilesetBytes = await provider.getResource('tileset.json', new AbortController().signal);
+  assert.ok(tilesetBytes);
+  const tileset = JSON.parse(new TextDecoder().decode(tilesetBytes));
+  assert.equal(tileset.root.content.uri, getExplicitTileContentUri('root'));
+  assert.deepEqual(tileset.root.children.map((child) => child.extras.nodeKey), ['left']);
+
+  const rootGlb = await provider.getResource(getExplicitTileContentUri('root'), new AbortController().signal);
+  const childGlb = await provider.getResource(getExplicitTileContentUri('left'), new AbortController().signal);
+  assert.ok(rootGlb, 'content read receives the original parent hierarchy node');
+  assert.ok(childGlb);
+  assert.deepEqual(base.diagnostics.nodes, ['root', 'left', 'root', 'left']);
+  await provider.close();
+});
+
 test('decoded-content cancels and rejects source replacement while scanning', async () => {
   const base = createBrowserFixtureSource(73);
   const controller = new AbortController();
