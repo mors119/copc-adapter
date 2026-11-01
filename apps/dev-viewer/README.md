@@ -66,7 +66,7 @@ readable matching `Content-Range` and does not fall back to HEAD.
 
 ## Numeric dimension coloring
 
-The workspace `0.7.1` Workbench offers standard LAS **Intensity** and supported
+The workspace `0.8.0` Workbench offers standard LAS **Intensity** and supported
 scalar Extra Bytes found in the loaded source metadata. Choose **Numeric
 Dimension** to edit the exact field's value range, normalized RGBA palette, and
 NoData value. Palette stops blend linearly; values outside the color range use

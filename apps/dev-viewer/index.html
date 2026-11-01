@@ -51,11 +51,21 @@
                 <option value="tiles">3D Tiles (Experimental)</option>
               </select>
             </label>
+            <label class="ui-field" for="tiles-bounds-strategy">
+              3D Tiles bounds strategy
+              <select id="tiles-bounds-strategy">
+                <option value="conservative-source-cell">Fast source-cell bounds (default)</option>
+                <option value="decoded-content">Bounded decoded-content bounds (experimental)</option>
+              </select>
+            </label>
             <p class="dev-help">
               The pipeline is independent of the Cesium / Three renderer below.
               3D Tiles uses the unpublished local Tiles workspace. Appearance
               controls are disabled in that mode; switch to Direct COPC to use
-              them. Direct streaming controls do not apply.
+              them. Direct streaming controls do not apply. Decoded-content
+              bounds scan every point in a complete hierarchy, default to a
+              4-million-point budget, and cover rendered content only. Unknown
+              vertical provenance is shown as unverified placement.
             </p>
             <label class="ui-field" for="custom-source-url"
               >COPC URL

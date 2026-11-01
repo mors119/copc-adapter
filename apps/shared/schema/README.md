@@ -32,7 +32,7 @@ the current workspace source supports those features. Update the workspace
 profile version when `packages/adapter/package.json` changes. Unknown versions resolve
 to no profile and must not receive controls or generated code.
 
-The workspace `0.7.1` profile exposes numeric dimension ramps in both
+The workspace `0.8.0` profile exposes numeric dimension ramps in both
 renderers. Cesium applies ramp and inclusive filter edits through `setStyle()`;
 Three.js receives the ramp as a constructor option and has no runtime dimension
 filter. Controls use Intensity and exact scalar Extra Bytes descriptors from

@@ -27,6 +27,7 @@ import type { SchemaDimensionFilter, SchemaDimensionStyle } from "../../shared/s
 
 export type RenderingEngine = WorkbenchRenderer;
 export type RenderingPipeline = "direct" | "tiles";
+export type TilesBoundsStrategy = "conservative-source-cell" | "decoded-content";
 export type CesiumPointRendererVariant = "point-primitive" | "batched-geometry";
 export type CameraPreset = WorkbenchCameraPreset;
 
@@ -44,6 +45,8 @@ export type DevViewerConfig = Omit<
   renderer: RenderingEngine;
   /** Developer-only renderer pipeline; Direct remains the compatibility default. */
   pipeline: RenderingPipeline;
+  /** Developer-only opt-in content scan; conservative source-cell remains default. */
+  tilesBoundsStrategy?: TilesBoundsStrategy;
   cesiumRenderer: CesiumPointRendererVariant;
   refinementAlgorithm: RefinementAlgorithm;
   motionLookahead: boolean;
@@ -206,6 +209,11 @@ export function validateDevViewerConfig(
   if (config.pipeline !== "direct" && config.pipeline !== "tiles") {
     return "Choose Direct COPC or the experimental 3D Tiles pipeline.";
   }
+  if (config.tilesBoundsStrategy !== undefined &&
+      config.tilesBoundsStrategy !== "conservative-source-cell" &&
+      config.tilesBoundsStrategy !== "decoded-content") {
+    return "Choose Fast source-cell bounds or bounded decoded-content bounds.";
+  }
   if (
     config.cesiumRenderer !== "point-primitive" &&
     config.cesiumRenderer !== "batched-geometry"
@@ -309,6 +317,8 @@ export function hasUnappliedSettings(
 ): boolean {
   return (
     applied.pipeline !== pending.pipeline ||
+    (applied.tilesBoundsStrategy ?? "conservative-source-cell") !==
+      (pending.tilesBoundsStrategy ?? "conservative-source-cell") ||
     getChangedWorkbenchOptionIds(
       toWorkbenchOptionValues(applied),
       toWorkbenchOptionValues(pending),
@@ -327,7 +337,12 @@ export function needsSessionRecreation(
   hostValidators: SchemaHostValidators = {},
 ): boolean {
   if (!hasActiveSession) return true;
-  if (applied.pipeline !== next.pipeline || applied.pipeline === "tiles" || next.pipeline === "tiles") {
+  if (
+    applied.pipeline !== next.pipeline ||
+    (applied.tilesBoundsStrategy ?? "conservative-source-cell") !==
+      (next.tilesBoundsStrategy ?? "conservative-source-cell") ||
+    applied.pipeline === "tiles" || next.pipeline === "tiles"
+  ) {
     return true;
   }
   const appliedValues = toWorkbenchOptionValues(applied);

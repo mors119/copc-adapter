@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
@@ -8,6 +8,50 @@ import { fileURLToPath } from 'node:url';
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = resolve(packageRoot, '../..');
 const packagePrefix = `${packageRoot.slice(repositoryRoot.length + 1)}${sep}`;
+
+if (process.argv.includes('--preflight')) {
+  const listed = spawnSync('git', ['ls-files', '-z'], { cwd: repositoryRoot, encoding: 'utf8' });
+  if (listed.error) throw listed.error;
+  if (listed.status !== 0) throw new Error(`git ls-files failed with exit code ${listed.status}.`);
+  const trackedFiles = listed.stdout.split('\0');
+  assert.ok(trackedFiles.includes(`${packagePrefix}package.json`), 'tracked Tiles package manifest is present');
+  assert.ok(
+    trackedFiles.includes(`${packagePrefix}scripts/test-migration-staging.mjs`),
+    'tracked staging script is present',
+  );
+
+  const repositoryLock = JSON.parse(await readFile(join(repositoryRoot, 'package-lock.json'), 'utf8'));
+  for (const workspace of ['packages/adapter', 'packages/tiles']) {
+    const actual = JSON.parse(await readFile(join(repositoryRoot, workspace, 'package.json'), 'utf8'));
+    const locked = repositoryLock.packages?.[workspace];
+    assert.equal(locked?.name, actual.name, `${workspace} name matches root lockfile`);
+    assert.equal(locked?.version, actual.version, `${workspace} version matches root lockfile`);
+  }
+
+  const tilesManifest = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8'));
+  const lockedTiles = repositoryLock.packages?.['packages/tiles'];
+  assert.deepEqual(lockedTiles?.peerDependencies, tilesManifest.peerDependencies, 'Tiles peer dependencies match the root lockfile');
+  assert.deepEqual(
+    lockedTiles?.peerDependenciesMeta,
+    tilesManifest.peerDependenciesMeta,
+    'Tiles peer dependency metadata matches the root lockfile',
+  );
+  console.log('Fast workspace manifest/lockfile preflight passed; dependency installation and browser tests are deferred.');
+  process.exit(0);
+}
+
+const semver = (await import('semver')).default;
+const adapterArtifactDirectory = join(repositoryRoot, 'ci-artifacts');
+const adapterArtifacts = await readdir(adapterArtifactDirectory).catch((error) => {
+  if (error?.code === 'ENOENT') return [];
+  throw error;
+});
+const adapterCandidates = adapterArtifacts.filter((file) =>
+  file.startsWith('frillab-copc-adapter-0.8.0.') && file.endsWith('.tgz'));
+assert.ok(adapterCandidates.length <= 1, 'at most one verified Adapter 0.8.0 package candidate is staged');
+const adapterCandidatePath = adapterCandidates[0] === undefined
+  ? undefined
+  : resolve(adapterArtifactDirectory, adapterCandidates[0]);
 const stagingRoot = await mkdtemp(join(tmpdir(), 'copc-tiles-workspace-staging-'));
 const stagedPackageRoot = join(stagingRoot, 'packages', 'tiles');
 const preflightOnly = process.argv.includes('--preflight');
@@ -21,6 +65,9 @@ function run(command, args, cwd, label) {
     stdio: 'inherit',
     env: {
       ...process.env,
+      ...(adapterCandidatePath === undefined
+        ? { COPC_ADAPTER_WORKSPACE_ROOT: resolve(repositoryRoot, 'packages/adapter') }
+        : { COPC_ADAPTER_PACKED_CANDIDATE: adapterCandidatePath }),
       SHARP_IGNORE_GLOBAL_LIBVIPS: process.env.SHARP_IGNORE_GLOBAL_LIBVIPS ?? '1',
       npm_config_audit: 'false',
       npm_config_fund: 'false',
@@ -56,7 +103,7 @@ try {
   const manifest = JSON.parse(await readFile(join(stagedPackageRoot, 'package.json'), 'utf8'));
   assert.equal(manifest.name, '@frillab/copc-tiles');
   assert.equal(manifest.version, '0.1.0');
-  assert.equal(manifest.peerDependencies?.['@frillab/copc-adapter'], '0.7.1');
+  assertAdapterPeerRange(manifest.peerDependencies?.['@frillab/copc-adapter'], 'staged package manifest');
   assert.equal(manifest.peerDependenciesMeta?.['@frillab/copc-adapter']?.optional, true);
   for (const section of ['dependencies', 'optionalDependencies', 'peerDependencies', 'devDependencies']) {
     for (const [name, version] of Object.entries(manifest[section] ?? {})) {
@@ -119,9 +166,23 @@ try {
   const stagedLock = JSON.parse(await readFile(join(stagingRoot, 'package-lock.json'), 'utf8'));
   assert.equal(stagedLock.packages?.['packages/tiles']?.name, '@frillab/copc-tiles');
   assert.equal(stagedLock.packages?.['packages/tiles']?.version, '0.1.0');
-  assert.equal(stagedLock.packages?.['packages/tiles']?.peerDependencies?.['@frillab/copc-adapter'], '0.7.1');
+  assertAdapterPeerRange(
+    stagedLock.packages?.['packages/tiles']?.peerDependencies?.['@frillab/copc-adapter'],
+    'staged package lockfile',
+  );
   console.log('Staged npm Workspace package checks and external packed consumers passed.');
   }
 } finally {
   await rm(stagingRoot, { recursive: true, force: true });
+}
+
+function assertAdapterPeerRange(range, source) {
+  assert.equal(typeof range, 'string', `${source} declares the optional Adapter peer range`);
+  assert.notEqual(semver.validRange(range), null, `${source} declares a valid semver range`);
+  for (const version of ['0.7.1', '0.7.99', '0.8.0', '0.8.99']) {
+    assert.equal(semver.satisfies(version, range), true, `${source} accepts Adapter ${version}`);
+  }
+  for (const version of ['0.7.0', '0.9.0', '1.0.0', '0.8.0-next.1']) {
+    assert.equal(semver.satisfies(version, range), false, `${source} rejects Adapter ${version}`);
+  }
 }

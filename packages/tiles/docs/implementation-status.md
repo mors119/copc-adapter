@@ -8,6 +8,45 @@
 > [repository development guide](https://github.com/mors119/copc-adapter/blob/main/docs/monorepo-development.md) for
 > migration, packaging, and consumer-validation results.
 
+## Current approved #432 delivery candidate — 2026-11-01
+
+The maintainer-approved scope amendment in
+[Adapter issue #432](https://github.com/mors119/copc-adapter/issues/432) adds
+an explicit, separately authorized `decoded-content` strategy for this one
+0.8.0 delivery track. This branch keeps the original
+`conservative-source-cell` behavior and Core
+`getConservativeNodeEcefBounds()` contract unchanged. Projected metadata-only
+full-source-cell enclosure remains **BLOCKED**; decoded-content claims cover
+only all actual prepared ECEF positions from each content-bearing node in one
+completely discovered, bounded hierarchy.
+
+The new path preflights hierarchy, point and byte budgets, reads one node view
+at a time, records source/transform/coordinate and vertical provenance, and
+fails closed on incomplete traversal, stale sources, cancellation, non-finite
+positions, and exhausted limits. It includes Float32 reconstruction padding,
+checks regenerated GLB coordinates against the scanned envelope, and unions
+parent content with finalized child volumes. These are geometry-containment
+guarantees for scanned content; they do not establish survey-grade datum
+placement.
+
+The branch has a packed Adapter `0.8.0` release candidate. Its only Core
+behavior change recognizes an explicit WKT2 3D projected WGS 84 ellipsoidal
+height declaration for point preparation and diagnostics; there is no new
+public declaration shape. Tiles retains a `0.7.1` development baseline and its
+optional peer range is tested against both the published `0.7.1` artifact and
+the packed local `0.8.0` candidate. Neither package is published, and the
+npm-based public Playground remains on Adapter `0.7.1` without Tiles.
+
+Validation evidence and dataset measurements for this candidate are recorded
+in [`adapter-api-compatibility.md`](./adapter-api-compatibility.md) and the
+Dev Viewer [3D Tiles runbook](../../../apps/dev-viewer/docs/3d-tiles-demo.md).
+Real Autzen full content scan results remain explicitly **unverified for
+vertical placement** because the source declares EPSG:6360 NAVD88 heights in
+US survey feet and no matched authoritative correction is configured. SoFi's
+364,384,576 points exceed the hard scan limit. Synthetic projected fixtures
+are browser-tested through Cesium and Three; the original metadata-only
+projected proof has not been completed.
+
 Assessment date: 2026-10-31. This is the Adapter 0.7.1 integration,
 conservative-bounds, and live explicit-resource-provider milestone. The
 package remains unpublished and all T1–T12 issues remain open.

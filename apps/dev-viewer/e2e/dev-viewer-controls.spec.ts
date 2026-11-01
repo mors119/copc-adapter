@@ -80,6 +80,13 @@ declare global {
           motionLive: { acceptedMovementSampleCount: number };
         };
       };
+      setCameraView(view: {
+        longitudeDegrees: number;
+        latitudeDegrees: number;
+        heightMeters: number;
+        headingDegrees: number;
+        pitchDegrees: number;
+      }): void;
     };
     __devViewerDebugIntervalCount?: () => number;
   }
@@ -1190,10 +1197,60 @@ test("plays, stops, replays, and cancels the deterministic Cesium camera demo", 
   await expect(play).toBeEnabled();
   await expect(stop).toBeDisabled();
 
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => window.__COPC_DEV_VIEWER__!.getSnapshot()?.renderedPointCount ?? 0,
+      ),
+    )
+    .toBeGreaterThan(0);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => window.__COPC_DEV_VIEWER__!.getPickablePointScreenPosition(),
+      ),
+    )
+    .toBeTruthy();
+
   await page
     .getByRole("radiogroup", { name: "Camera presets" })
-    .getByRole("radio", { name: "Far" })
+    .getByRole("radio", { name: "Near" })
     .click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => window.__COPC_DEV_VIEWER__!.getSnapshot()?.renderedPointCount ?? 0,
+      ),
+    )
+    .toBeGreaterThan(0);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => window.__COPC_DEV_VIEWER__!.getPickablePointScreenPosition(),
+      ),
+    )
+    .toBeTruthy();
+  // Keep the orbit above the local Autzen patch while it circles the target.
+  const cameraDistance = page.locator("#camera-render-distance");
+  await cameraDistance.fill("1000");
+  await cameraDistance.press("Tab");
+  await expect
+    .poll(() =>
+      page.evaluate(() => window.__COPC_DEV_VIEWER__!.getCameraState().heightMeters),
+    )
+    .toBeGreaterThan(995);
+  await expect
+    .poll(() =>
+      page.evaluate(() => window.__COPC_DEV_VIEWER__!.getCameraState().heightMeters),
+    )
+    .toBeLessThan(1_005);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => window.__COPC_DEV_VIEWER__!.getPickablePointScreenPosition(),
+      ),
+    )
+    .toBeTruthy();
   const framingBeforePlayback = await page.evaluate(
     () => window.__COPC_DEV_VIEWER__!.getCameraState(),
   );
@@ -1234,21 +1291,10 @@ test("plays, stops, replays, and cancels the deterministic Cesium camera demo", 
   await expect(play).toBeDisabled();
   expect(firstSample.engine).toBe("cesium");
   expect(positionDeltaMeters(firstSample, firstStart)).toBeGreaterThan(1);
-  await expect
-    .poll(() =>
-      page.evaluate(
-        () => window.__COPC_DEBUG__!.getState().streamingUpdateCount,
-      ),
-    )
-    .toBeGreaterThan(initialCounts.streamingUpdates);
-  await expect
-    .poll(() =>
-      page.evaluate(
-        () => window.__COPC_DEV_VIEWER__!.getPickablePointScreenPosition(),
-      ),
-    )
-    .toBeTruthy();
 
+  // Stop while the deterministic 25-second playback is still active. Point
+  // visibility is checked at each replay keyframe below, while this first run
+  // proves the stop control works before the slower rendering checks.
   await stop.click();
   await expect(stop).toBeDisabled();
   const stoppedState = await page.evaluate(
@@ -1262,6 +1308,33 @@ test("plays, stops, replays, and cancels the deterministic Cesium camera demo", 
   expect(afterStop.headingDegrees).toBeCloseTo(stoppedState.headingDegrees, 10);
   expect(afterStop.pitchDegrees).toBeCloseTo(stoppedState.pitchDegrees, 10);
 
+  // Replaying from the stopped orbit would create a new path around the
+  // different ground point now under the camera center. Restore the original
+  // visible framing so the replay tests the same point cloud footprint.
+  await page.evaluate((state) => {
+    window.__COPC_DEBUG__!.setCameraView({
+      longitudeDegrees: state.longitudeDegrees,
+      latitudeDegrees: state.latitudeDegrees,
+      heightMeters: state.heightMeters,
+      headingDegrees: state.headingDegrees,
+      pitchDegrees: state.pitchDegrees,
+    });
+  }, framingBeforePlayback);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => window.__COPC_DEV_VIEWER__!.getPickablePointScreenPosition(),
+      ),
+    )
+    .toBeTruthy();
+
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => window.__COPC_DEBUG__!.getState().streamingUpdateCount,
+      ),
+    )
+    .toBeGreaterThan(initialCounts.streamingUpdates);
   const replayRun = await page.evaluate(async () => {
     document.querySelector<HTMLButtonElement>("#play-camera-demo")!.click();
     const start = window.__COPC_DEV_VIEWER__!.getCameraState();

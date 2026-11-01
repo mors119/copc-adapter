@@ -1,10 +1,12 @@
-# Adapter API compatibility — 2026-10-31
+# Adapter API compatibility — 2026-11-01
 
 ## Supported published artifact
 
-This milestone supports exactly `@frillab/copc-adapter@0.7.1`. Both the
-optional peer dependency and development dependency are pinned to that exact
-version. Compatibility with earlier or later releases is not claimed.
+The released compatibility baseline is `@frillab/copc-adapter@0.7.1`. The
+decoded-content branch also tests the packed local `0.8.0` candidate. Tiles
+keeps `0.7.1` as its exact development dependency and declares
+`^0.7.1 || ^0.8.0` as an optional peer range; compatibility beyond these tested
+versions is not claimed.
 
 The npm Registry metadata and the actual downloaded Registry tarball were
 checked. The published archive was installed in clean packed consumers.
@@ -27,7 +29,7 @@ the 0.7.0 package.
 
 ## Public contract inventory
 
-| Operation | Public Adapter 0.7.1 API | Data and ownership | Cancellation and lifecycle | Tiles coverage and limits |
+| Operation | Public Adapter 0.7.1 / 0.8.0 candidate API | Data and ownership | Cancellation and lifecycle | Tiles coverage and limits |
 | --- | --- | --- | --- | --- |
 | Open source | `createCopcContext(input, backend, options)` from `@frillab/copc-adapter/core`; `CopcContext` | Supports the public URL, `File`/`Blob`, and random-access inputs; explicit `copc-js` or `rust` backend. | Context close invalidates the source; source and transform generations identify results. | Public ESM and runtime Core capability verified from the Registry package. HTTP Range integration tested. |
 | Read metadata | `CopcNodeSource.getMetadata()`; `CopcMetadata` | Source-space bounds, point count, and CRS evidence. Tiles returns a defensive immutable copy and preserves source units/labels. | Connector checks current source before returning metadata. | Unit and real Autzen integration coverage. |
@@ -38,7 +40,7 @@ the 0.7.0 package.
 | Preserve transform evidence | `sourceGeneration`, `transformGeneration`, `transformPlan`, `isCurrent()` on `CopcNodeSource` | Immutable plan identity and source/vertical CRS, unit, height-offset, and grid evidence. | Source close/replacement makes stale results unusable. | Connector checks node/source/transform identity and keeps height/grid provenance. |
 | Read decoded-point bound | `CopcPreparedNodeData.ecefBounds`, `ecefBoundsKind` | `decoded-point-content` bound encloses only decoded point positions in WGS84 ECEF metres. | Bound has the prepared result's generations. | Kept distinct from source-cell and conservative-cell bounds. |
 | Read conservative source-cell bound | `CopcConservativeNodeSource.getConservativeNodeEcefBounds(nodeKey): CopcConservativeBoundsResult` from `/core` | Synchronous, metadata-only result. Supported values include `boundsEcef`, full-cell-and-descendant coverage, analytic verification/method, vertical reference and units, assumptions, and `encoderErrorPaddingRequired: true`. Unsupported values retain `reasonCode`, `reason`, source-cell bounds, source identity/generations, transform-plan identity, height offset, and optional vertical-grid provenance; they have no `boundsEcef`. | No signal parameter. Evaluation performs no point payload reads or network requests. A closed/stale context throws `CopcStaleSourceError`. | Connector validates exact node/source/cell/transform provenance and copies/freezes the result. It rejects malformed or fabricated bounds. Unsupported results cannot build a Tiles bound. |
-| Build live explicit resources | Tiles `createCopcTileResourceProvider(source, { scanCompleteHierarchy: true, ... })`; public from package root and `/resources` | Uses the source-neutral hierarchy/bounds/point contract; full metadata scan is explicitly authorized and bounded; content GLBs are generated on demand. | Bounded metadata scan is cancellable; content requests combine caller cancellation with provider shutdown and check source/transform generations. Source ownership is opt-in. | Supported bounds only. Unsupported results stop construction with their unchanged Adapter result; no decoded-point fallback is used. |
+| Build live explicit resources | Tiles `createCopcTileResourceProvider(source, { scanCompleteHierarchy: true, ... })`; public from package root and `/resources` | Default `conservative-source-cell` uses the public conservative result; explicit `decoded-content` uses public prepared Float64 ECEF views and preserves separate strategy provenance. | Both modes use complete bounded hierarchy discovery. Decoded mode preflights point/byte limits, prepares every content point sequentially, checks source/transform generations, and supports cancellation. Content requests reread and validate recorded provenance. | Conservative mode requires supported full-cell results. Decoded mode encloses only all rendered content points and GLB reconstruction; it never claims source-cell coverage and does not validate vertical placement. |
 
 The published unsupported reason codes are `unsupported-horizontal-crs`,
 `unsupported-horizontal-units`, `unsupported-axis-order`,
@@ -59,6 +61,17 @@ largest descendant padding to ancestor volumes (including empty nodes), then
 checks decoded points and actual GLB reconstruction error. Default maximum
 accepted padding is 1 cm and can be tightened. Unit fixtures validate the
 generated GLB and Tileset with Khronos and CesiumGS validators.
+
+Tiles' `decoded-content` strategy is a separate provider capability, not a new
+Adapter API. It requires `boundsStrategy: 'decoded-content'` and
+`allowDecodedContentBounds: true`, plus `scanCompleteHierarchy: true`. The
+default total point limit is 4,000,000 and the hard point limit is 20,000,000;
+all reader, byte, node, GLB and Tileset budgets apply. A complete scan records
+source/transform identity and per-content-node CRS/vertical provenance. Every
+prepared point and regenerated GLB is checked against its envelope; parents
+union own content and finalized children. Source-cell metadata results remain
+separately recorded and unchanged. Unknown vertical evidence is reported as
+unverified placement.
 
 ## Connector behavior
 
@@ -103,7 +116,8 @@ coverage for every geographic cell, epoch, vertical grid, or height policy.
   `/resources`; runtime ESM imports; and a separate Adapter Core plus Tiles
   consumer without renderer packages.
 - Runtime and declaration checks passed from the actual installed Registry
-  package. The packed Tiles tarball was installed in clean temporary consumers.
+  Adapter 0.7.1 package and the packed local Adapter 0.8.0 candidate. The
+  packed Tiles tarball was installed in clean temporary consumers with each.
 - Clean installs and type/build/unit checks were verified under Node `18.20.8`
   and Node `22.14.0`. Node `26.12.1` can run the suite after a local Sharp
   rebuild, but clean development installation fails while compiling the
@@ -113,5 +127,7 @@ coverage for every geographic cell, epoch, vertical grid, or height policy.
   selected-node renderer checks do not claim real multi-node live Tiles LOD.
   Firefox and WebKit are not part of this evidence.
 
-Adapter Direct `.`, `/cesium`, and `/three` were not modified. This Tiles
-change does not change Adapter or close upstream issue #383.
+Adapter Direct `.`, `/cesium`, and `/three` runtime implementations were not
+modified. The 0.8.0 candidate adds a narrowly scoped WKT2 vertical CRS
+diagnostic while keeping `getConservativeNodeEcefBounds()` unchanged and
+projected source-cell bounds unsupported. Upstream issue #383 remains open.

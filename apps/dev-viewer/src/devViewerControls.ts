@@ -38,6 +38,7 @@ import type {
   DevViewerConfig,
   RenderingEngine,
   RenderingPipeline,
+  TilesBoundsStrategy,
 } from "./devViewerConfig";
 import { toWorkbenchOptionValues } from "./devViewerConfig";
 
@@ -46,6 +47,7 @@ export type DevViewerControlsOptions = {
   readonly sourcePresets: ReadonlyMap<string, string>;
   readonly onEngineSelected: (engine: RenderingEngine) => number;
   readonly onPipelineSelected: (pipeline: RenderingPipeline) => void;
+  readonly onTilesBoundsStrategySelected: (strategy: TilesBoundsStrategy) => void;
   readonly onCesiumRendererSelected: (
     renderer: CesiumPointRendererVariant,
   ) => void;
@@ -98,6 +100,7 @@ export function mountDevViewerControls(
   const HOST_RUNTIME_CAPABILITIES = WORKSPACE_CURRENT_CAPABILITIES;
   const sourceSelect = document.querySelector<HTMLSelectElement>("#source-selection")!;
   const pipelineSelect = document.querySelector<HTMLSelectElement>("#rendering-pipeline")!;
+  const tilesBoundsStrategySelect = document.querySelector<HTMLSelectElement>("#tiles-bounds-strategy")!;
   const customUrl = document.querySelector<HTMLInputElement>("#custom-source-url")!;
   const fileInput = document.querySelector<HTMLInputElement>("#local-source-file")!;
   const cameraDistanceInput = document.querySelector<HTMLInputElement>("#camera-render-distance")!;
@@ -128,6 +131,7 @@ export function mountDevViewerControls(
   )?.[0];
   sourceSelect.value = initialPreset ?? "custom";
   pipelineSelect.value = options.initialConfig.pipeline;
+  tilesBoundsStrategySelect.value = options.initialConfig.tilesBoundsStrategy ?? "conservative-source-cell";
   customUrl.disabled = sourceSelect.value !== "custom";
   if (sourceSelect.value === "custom") customUrl.value = initialUrl;
 
@@ -197,6 +201,11 @@ export function mountDevViewerControls(
     if (pipelineSelect.value !== "direct" && pipelineSelect.value !== "tiles") return;
     options.onPipelineSelected(pipelineSelect.value);
   };
+  const onTilesBoundsStrategyChange = (): void => {
+    if (tilesBoundsStrategySelect.value !== "conservative-source-cell" &&
+        tilesBoundsStrategySelect.value !== "decoded-content") return;
+    options.onTilesBoundsStrategySelected(tilesBoundsStrategySelect.value);
+  };
   const onCustomUrlInput = (): void => {
     if (sourceSelect.value === "custom") updateSelectedSource();
   };
@@ -220,6 +229,7 @@ export function mountDevViewerControls(
   };
   sourceSelect.addEventListener("change", onSourceSelectionChange);
   pipelineSelect.addEventListener("change", onPipelineSelectionChange);
+  tilesBoundsStrategySelect.addEventListener("change", onTilesBoundsStrategyChange);
   customUrl.addEventListener("input", onCustomUrlInput);
   fileInput.addEventListener("change", onLocalFileChange);
 
@@ -456,6 +466,7 @@ export function mountDevViewerControls(
       schemaPanel?.destroy();
       sourceSelect.removeEventListener("change", onSourceSelectionChange);
       pipelineSelect.removeEventListener("change", onPipelineSelectionChange);
+      tilesBoundsStrategySelect.removeEventListener("change", onTilesBoundsStrategyChange);
       customUrl.removeEventListener("input", onCustomUrlInput);
       fileInput.removeEventListener("change", onLocalFileChange);
       cameraDistanceInput.removeEventListener("change", onCameraDistanceChange);

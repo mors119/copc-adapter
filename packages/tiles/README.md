@@ -2,7 +2,7 @@
 
 **COPC → standard 3D Tiles 1.1** as an optional, independently published companion to [COPC Adapter](https://github.com/mors119/copc-adapter). This package is developed at `packages/tiles` in the Adapter npm Workspaces monorepo.
 
-> **Status: 0.1.0 conditional review candidate; not published.** This milestone pins and verifies npm `@frillab/copc-adapter@0.7.1` and adds a live explicit resource provider over its public `/core` contract. Generated WGS84 COPC fixtures verify conservative bounds; a synthetic two-node source exercises on-demand hierarchy-to-content flow in both renderers. Real Autzen EPSG:2992 and SoFi EPSG:32611 return `unsupported-horizontal-crs`; Autzen's live provider rejects before point reads. Projected bounds still block safe live multi-node Tilesets for these real datasets. T1–T12 remain open with documented acceptance gaps. See [`docs/implementation-status.md`](docs/implementation-status.md) and the [API compatibility matrix](docs/adapter-api-compatibility.md).
+> **Status: 0.1.0 conditional review candidate; not published.** The live provider supports the existing metadata-only `conservative-source-cell` strategy and the separately authorized, bounded `decoded-content` strategy. A generated projected EPSG:32611 COPC fixture exercises complete decoded-content preprocessing, multiple GLB requests, camera movement, and visible geometry in Cesium and Three.js. The fixture has no verified vertical CRS: its placement is explicitly unverified. Real Autzen EPSG:2992 and SoFi EPSG:32611 remain unsupported by metadata-only bounds; selected-node browser checks do not prove complete-source coverage. The original projected full-cell proof remains blocked. T1–T12 remain open with documented acceptance gaps. See [`docs/implementation-status.md`](docs/implementation-status.md), the [API compatibility matrix](docs/adapter-api-compatibility.md), and the [projected demo runbook](../../apps/dev-viewer/docs/3d-tiles-demo.md).
 
 ## Why separate?
 
@@ -17,7 +17,7 @@ COPC Adapter streams COPC points directly with CesiumJS and Three.js. COPC Tiles
   Adapter subpath.
 - Adapter package: `@frillab/copc-adapter` ([upstream repository](https://github.com/mors119/copc-adapter)).
 - Dependency direction: **copc-tiles → copc-adapter**, never the reverse.
-- Reuse verified *public* Adapter APIs for COPC hierarchy/Range/decode/CRS, read-only point data, and conservative source-cell bounds. The exact supported release is Adapter `0.7.1`; its Registry integrity and API inventory are recorded in the compatibility matrix. Do not import private Adapter source or bypass its `/core` export.
+- Reuse verified *public* Adapter APIs for COPC hierarchy/Range/decode/CRS, read-only point data, and conservative source-cell bounds. Compatibility is checked against the published Adapter `0.7.1` Registry artifact and the packed `0.8.0` release candidate. The candidate adds narrow WKT2 CRS diagnostic behavior but no new Core API or declaration shape. Do not import private Adapter source or bypass its `/core` export.
 - Where required public APIs do not exist, define the narrowest viable contract and propose a separate, reviewed upstream PR. Never duplicate the entire COPC decoder or silently use private exports.
 - Keep direct `/cesium`, `/three`, source/cache defaults, behavior, and consumers unaffected.
 
@@ -83,10 +83,11 @@ commands, source evidence, limitations and release classification.
 5. Measure clean Direct COPC bundle and **npm install** footprint without Tiles; tree shaking is not sufficient proof of install-size isolation.
 6. Do not publish, deploy or claim full T12 completion before maintainer review and required passing gates.
 
-Tiles pins Adapter `0.7.1` as both its exact development dependency and
-optional peer dependency. Strict NodeNext and Bundler packed-consumer checks
-pass against the actual Registry artifact; the compatibility matrix records
-the package integrity and test environment. CesiumJS `1.146.0`, Three.js
+Tiles keeps Adapter `0.7.1` as its exact development baseline and supports
+`^0.7.1 || ^0.8.0` as an optional peer range. Strict NodeNext and Bundler
+packed-consumer checks run against the Registry 0.7.1 artifact and the local
+packed 0.8.0 candidate; the compatibility matrix records the Registry
+integrity and candidate checks. CesiumJS `1.146.0`, Three.js
 `0.186.1`, `3d-tiles-renderer` `0.5.3`, and Chromium are tested points, not
 declared broad compatibility ranges.
 
@@ -105,14 +106,35 @@ and SoFi requested-node reads and single-node rendering were verified; a
 synthetic two-node provider exercises the live hierarchy-to-content path.
 `createCopcTileResourceProvider()` requires explicit
 `scanCompleteHierarchy: true` authorization for a bounded full hierarchy
-metadata scan. That scan does not decode point payloads: content points are
-prepared when their resource is requested. A supported conservative ECEF
-bound is required before the provider creates a spatially safe Tileset.
+metadata scan. The default `conservative-source-cell` strategy does not decode
+point payloads: content points are prepared when their resource is requested,
+after every cell has a supported conservative ECEF bound. The opt-in
+`decoded-content` strategy requires a second explicit authorization and
+preprocesses every point in every content-bearing node before returning a
+Tileset. It bounds those rendered points and their GLB reconstruction only;
+the source-cell volume remains unbounded by that result. Hierarchy, node,
+point, compressed-byte, decoded-ECEF-byte and output budgets are enforced; the
+default total-point budget is 4 million and the hard point ceiling is 20
+million. Prepared views are processed sequentially and discarded after each
+node's bounds and provenance are recorded.
+
+Decoded-content Tileset extras identify the strategy, source and transform
+generation, transform-plan identity, node, point count, content/descendant
+coverage, raw and padded ECEF envelopes, Float32 error allowance, and vertical
+placement status. The provider's `decodedContentScan` summary records exact
+node/point/byte accounting and per-node CRS and vertical evidence. A GLB
+request rereads the node and validates the source/transform provenance, every
+prepared point, and reconstructed Float32 positions against the recorded
+content and tile envelopes. Unknown vertical provenance is `unverified`; a
+finite ECEF transform is not a survey-datum claim.
 
 Adapter 0.7.1 returns `unsupported-horizontal-crs` for projected Autzen
-EPSG:2992 and SoFi EPSG:32611. Tiles preserves that result and fails closed;
-real projected multi-node Tilesets and camera-driven Cesium/Three LOD remain
-unverified. Fixture implicit tiling is implemented, while a live COPC
+EPSG:2992 and SoFi EPSG:32611. The default source-cell strategy preserves that
+result and fails closed; decoded-content may be used only when complete bounded
+preprocessing succeeds and reports unverified vertical provenance where
+needed. The generated projected fixture covers multi-node Cesium/Three content
+rendering; full real-source projected visualization remains limited by source
+budgets and vertical evidence. Fixture implicit tiling is implemented, while a live COPC
 implicit subtree provider remains planned. The current limitations and T1–T12
 acceptance status are recorded in
 [`docs/implementation-status.md`](docs/implementation-status.md).

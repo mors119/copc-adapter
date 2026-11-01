@@ -5,6 +5,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { resolveCopcCrsMetadata } from "../../../../core/coordinates/crs/copcCrsMetadata.ts";
+import {
+  extractHorizontalUnitScale,
+  extractVerticalUnitScale,
+} from "../../../../core/coordinates/crs/parseCopcWkt.ts";
+import { transformPointBufferToPreparedPointData } from "../../../../core/coordinates/transform/createPointTransformer.ts";
 
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const auditPath = path.resolve(testDirectory, "../../../../../../crates/crs-audit/src/fixtures.json");
@@ -14,6 +19,7 @@ const WKT2_COMPOUND = 'COMPOUNDCRS["WGS 84 / UTM zone 11N + NAVD88 height",PROJC
 const UNKNOWN_LOCAL_VERTICAL = 'COMPD_CS["Local test CRS",PROJCS["Local grid",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],PARAMETER["central_meridian",0],UNIT["foot",0.3048]],VERT_CS["Local height",VERT_DATUM["Local datum",2000],UNIT["metre",1]]]';
 const CONTRADICTORY_IDENTIFIERS = 'PROJCS["Conflicting identifiers",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],UNIT["metre",1],AUTHORITY["EPSG","1000"],AUTHORITY["EPSG","2000"]]';
 const WGS84_3D = 'GEOGCRS["WGS 84",DATUM["World Geodetic System 1984",ELLIPSOID["WGS 84",6378137,298.257223563,LENGTHUNIT["metre",1]],ID["EPSG",6326]],CS[ellipsoidal,3],AXIS["geodetic latitude (Lat)",north,ORDER[1],ANGLEUNIT["degree",0.0174532925199433]],AXIS["geodetic longitude (Lon)",east,ORDER[2],ANGLEUNIT["degree",0.0174532925199433]],AXIS["ellipsoidal height (h)",up,ORDER[3],LENGTHUNIT["metre",1]],ID["EPSG",4979]]';
+const PROJECTED_WGS84_ELLIPSOIDAL_3D = 'PROJCRS["WGS 84 / UTM zone 11N",BASEGEOGCRS["WGS 84",ENSEMBLE["World Geodetic System 1984 ensemble",ELLIPSOID["WGS 84",6378137,298.257223563,LENGTHUNIT["metre",1]],ENSEMBLEACCURACY[2.0]],ID["EPSG",4979]],CONVERSION["UTM zone 11N",METHOD["Transverse Mercator"]],CS[Cartesian,3],AXIS["(E)",east,ORDER[1],LENGTHUNIT["metre",1]],AXIS["(N)",north,ORDER[2],LENGTHUNIT["metre",1]],AXIS["ellipsoidal height (h)",up,ORDER[3],LENGTHUNIT["metre",1]] ]';
 const CONTRADICTORY_UNIT = 'PROJCS["Conflicting unit",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],UNIT["US survey foot",0.3048]]';
 const PARTIAL_AXIS_UNIT = 'PROJCRS["Partial axis unit",BASEGEOGCRS["WGS 84",DATUM["WGS 84",ELLIPSOID["WGS 84",6378137,298.257223563,LENGTHUNIT["metre",1]]],PRIMEM["Greenwich",0],ANGLEUNIT["degree",0.0174532925199433]],CONVERSION["test",METHOD["Transverse Mercator"]],CS[Cartesian,2],AXIS["Easting",east,ORDER[1],LENGTHUNIT["metre",1]],AXIS["Northing",north,ORDER[2],LENGTHUNIT["bad",0]]]';
 const CONFLICTING_VERTICAL_UNIT = 'VERTCRS["Gravity-related height",VDATUM["Test datum"],CS[vertical,1],AXIS["gravity-related height",up,LENGTHUNIT["metre",1]],LENGTHUNIT["foot",0.3048]]';
@@ -154,6 +160,113 @@ test("marks only an explicit three-dimensional EPSG:4979 source as ellipsoidal",
   assert.equal(explicit3d.horizontal.units.standard, "degree");
   assert.ok(!explicit3d.reasons.some((reason) => reason.code === "unsupported-horizontal-unit"));
   assert.equal(geographic2d.vertical.heightKind.value, "local/unknown");
+});
+
+test("recognizes projected ellipsoidal height only with an explicit 3D UP axis and WGS 84 base", () => {
+  const projected3d = resolveCopcCrsMetadata(PROJECTED_WGS84_ELLIPSOIDAL_3D);
+  assert.equal(projected3d.vertical.heightKind.value, "ellipsoidal");
+  assert.equal(projected3d.vertical.heightKind.certainty, "explicit");
+  assert.equal(projected3d.vertical.units.standard, "metre");
+  assert.equal(projected3d.vertical.identity?.name, "WGS 84 ellipsoidal height");
+  assert.ok(projected3d.evidence.some(({ value }) => value.includes("BASEGEOGCRS EPSG:4979")));
+
+  const downAxis = resolveCopcCrsMetadata(
+    PROJECTED_WGS84_ELLIPSOIDAL_3D.replace('"ellipsoidal height (h)",up', '"ellipsoidal height (h)",down'),
+  );
+  assert.equal(downAxis.vertical.heightKind.value, "local/unknown");
+
+  const otherBase = resolveCopcCrsMetadata(
+    PROJECTED_WGS84_ELLIPSOIDAL_3D.replace('ID["EPSG",4979]],CONVERSION', 'ID["EPSG",4326]],CONVERSION'),
+  );
+  assert.equal(otherBase.vertical.heightKind.value, "local/unknown");
+
+  const twoDimensional = resolveCopcCrsMetadata(
+    PROJECTED_WGS84_ELLIPSOIDAL_3D
+      .replace("CS[Cartesian,3]", "CS[Cartesian,2]")
+      .replace(',AXIS["ellipsoidal height (h)",up,ORDER[3],LENGTHUNIT["metre",1]]', ""),
+  );
+  assert.equal(twoDimensional.vertical.heightKind.value, "local/unknown");
+});
+
+test("keeps projected horizontal and ellipsoidal-height axis units independent", () => {
+  const projectedFeet = PROJECTED_WGS84_ELLIPSOIDAL_3D.replace(
+    'AXIS["ellipsoidal height (h)",up,ORDER[3],LENGTHUNIT["metre",1]]',
+    'AXIS["ellipsoidal height (h)",up,ORDER[3],LENGTHUNIT["US survey foot",0.304800609601219]]',
+  );
+  assert.equal(extractHorizontalUnitScale(projectedFeet), 1);
+  assert.equal(extractVerticalUnitScale(projectedFeet), 0.304800609601219);
+  const diagnostic = resolveCopcCrsMetadata(projectedFeet);
+  assert.equal(diagnostic.horizontal.units.standard, "metre");
+  assert.equal(diagnostic.vertical.units.standard, "us-survey-foot");
+
+  const metadata = {
+    pointCount: 1,
+    bounds: { minX: 500_000, minY: 5_020_000, minZ: 100, maxX: 500_000, maxY: 5_020_000, maxZ: 100 },
+    cube: { minX: 500_000, minY: 5_020_000, minZ: 100, maxX: 500_000, maxY: 5_020_000, maxZ: 100 },
+    wkt: projectedFeet,
+  };
+  const prepared = transformPointBufferToPreparedPointData(metadata, {
+    pointCount: 1,
+    coordinates: new Float64Array([500_000, 5_020_000, 100]),
+  });
+  assert.ok(Math.abs(prepared.coordinates[2] - 30.4800609601219) < 1e-9);
+
+  const northEastAxes = projectedFeet.replace(
+    'AXIS["(E)",east,ORDER[1],LENGTHUNIT["metre",1]],AXIS["(N)",north,ORDER[2],LENGTHUNIT["metre",1]]',
+    'AXIS["(N)",north,ORDER[1],LENGTHUNIT["metre",1]],AXIS["(E)",east,ORDER[2],LENGTHUNIT["metre",1]]',
+  );
+  assert.equal(extractHorizontalUnitScale(northEastAxes), 1);
+  assert.equal(extractVerticalUnitScale(northEastAxes), 0.304800609601219);
+  assert.equal(resolveCopcCrsMetadata(northEastAxes).horizontal.axisOrder.order, "north-east");
+
+  const northEastMetadata = { ...metadata, wkt: northEastAxes };
+  const northEastPrepared = transformPointBufferToPreparedPointData(northEastMetadata, {
+    pointCount: 1,
+    coordinates: new Float64Array([5_020_000, 500_000, 100]),
+  });
+  assert.ok(Math.abs(northEastPrepared.coordinates[2] - 30.4800609601219) < 1e-9);
+
+  const projectedDownFeet = projectedFeet.replace(
+    'AXIS["ellipsoidal height (h)",up,ORDER[3],LENGTHUNIT["US survey foot",0.304800609601219]]',
+    'AXIS["depth (d)",down,ORDER[3],LENGTHUNIT["US survey foot",0.304800609601219]]',
+  );
+  assert.equal(extractHorizontalUnitScale(projectedDownFeet), 1);
+  assert.throws(
+    () => extractVerticalUnitScale(projectedDownFeet),
+    /DOWN axis is unsupported because depth sign normalization is not available/u,
+  );
+  assert.throws(
+    () => transformPointBufferToPreparedPointData({ ...metadata, wkt: projectedDownFeet }, {
+      pointCount: 1,
+      coordinates: new Float64Array([500_000, 5_020_000, 100]),
+    }),
+    /DOWN axis is unsupported because depth sign normalization is not available/u,
+  );
+
+  const projectedMissingHeightUnit = PROJECTED_WGS84_ELLIPSOIDAL_3D.replace(
+    ',LENGTHUNIT["metre",1]] ]',
+    '] ]',
+  );
+  assert.equal(extractHorizontalUnitScale(projectedMissingHeightUnit), 1);
+  assert.throws(
+    () => extractVerticalUnitScale(projectedMissingHeightUnit),
+    /projected 3D WKT UP axis does not declare a LENGTHUNIT/u,
+  );
+  assert.throws(
+    () => transformPointBufferToPreparedPointData(
+      { ...metadata, wkt: projectedMissingHeightUnit },
+      {
+        pointCount: 1,
+        coordinates: new Float64Array([500_000, 5_020_000, 100]),
+      },
+    ),
+    /projected 3D WKT UP axis does not declare a LENGTHUNIT/u,
+  );
+  assert.ok(
+    resolveCopcCrsMetadata(projectedMissingHeightUnit).reasons.some(
+      (reason) => reason.code === "missing-vertical-unit",
+    ),
+  );
 });
 
 test("validates the explicit EPSG:4979 ellipsoidal height unit", () => {

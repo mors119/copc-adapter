@@ -56,6 +56,16 @@ export type EncodedPointCloudGlb = Readonly<{
   tileTransform: Float64Array;
   maxAbsoluteErrorMeters: number;
   maxRelativeError: number;
+  /** Bounds reconstructed from the exact Float32 POSITION values and ECEF origin. */
+  reconstructedEcefBounds: Readonly<{
+    coordinateSystem: 'wgs84-ecef-meters';
+    minX: number;
+    minY: number;
+    minZ: number;
+    maxX: number;
+    maxY: number;
+    maxZ: number;
+  }>;
   /** Original LAS/extra-dimension property names stored through standard glTF metadata. */
   metadataProperties: readonly string[];
 }>;
@@ -229,6 +239,7 @@ export function encodePointCloudGlb(
   for (const property of metadata.properties) {
     writeMetadataValues(data, binaryOffset + property.byteOffset, property);
   }
+  const reconstructedEcefBounds = getReconstructedEcefBounds(local.positions, local.originEcef);
 
   return Object.freeze({
     bytes,
@@ -239,7 +250,35 @@ export function encodePointCloudGlb(
     tileTransform: local.tileTransform,
     maxAbsoluteErrorMeters: local.maxAbsoluteErrorMeters,
     maxRelativeError: local.maxRelativeError,
+    reconstructedEcefBounds,
     metadataProperties: Object.freeze(metadata.properties.map((property) => property.name)),
+  });
+}
+
+function getReconstructedEcefBounds(
+  positions: Float32Array,
+  origin: Float64Array,
+): EncodedPointCloudGlb['reconstructedEcefBounds'] {
+  const minimum = [Infinity, Infinity, Infinity];
+  const maximum = [-Infinity, -Infinity, -Infinity];
+  for (let index = 0; index < positions.length; index += 3) {
+    const reconstructed = [
+      origin[0]! + positions[index]!,
+      origin[1]! - positions[index + 2]!,
+      origin[2]! + positions[index + 1]!,
+    ];
+    for (let axis = 0; axis < 3; axis += 1) {
+      minimum[axis] = Math.min(minimum[axis]!, reconstructed[axis]!);
+      maximum[axis] = Math.max(maximum[axis]!, reconstructed[axis]!);
+    }
+  }
+  if (positions.length === 0 || ![...minimum, ...maximum].every(Number.isFinite)) {
+    throw new GlbEncodingError('INVALID_INPUT', 'Reconstructed GLB ECEF bounds must be finite and contain at least one point.');
+  }
+  return Object.freeze({
+    coordinateSystem: 'wgs84-ecef-meters',
+    minX: minimum[0]!, minY: minimum[1]!, minZ: minimum[2]!,
+    maxX: maximum[0]!, maxY: maximum[1]!, maxZ: maximum[2]!,
   });
 }
 

@@ -45,10 +45,14 @@ export class ExplicitTilesetError extends Error {
   }
 }
 
-const DEFAULT_MAX_NODES = 100_000;
-const HARD_MAX_NODES = 500_000;
-const DEFAULT_MAX_TOTAL_POINTS = 20_000_000;
-const HARD_MAX_TOTAL_POINTS = 100_000_000;
+export const EXPLICIT_TILESET_DEFAULT_LIMITS = Object.freeze({
+  maxNodes: 100_000,
+  maxTotalPoints: 20_000_000,
+});
+export const EXPLICIT_TILESET_HARD_LIMITS = Object.freeze({
+  maxNodes: 500_000,
+  maxTotalPoints: 100_000_000,
+});
 const MIN_HALF_EXTENT_M = 0.001;
 
 /**
@@ -125,9 +129,9 @@ export function createExplicitTileset(
   if (!options || typeof options !== 'object') {
     throw new ExplicitTilesetError('INVALID_INPUT', 'Tileset options must be an object.');
   }
-  const maxNodes = options.maxNodes ?? DEFAULT_MAX_NODES;
-  if (!Number.isSafeInteger(maxNodes) || maxNodes <= 0 || maxNodes > HARD_MAX_NODES) {
-    throw new ExplicitTilesetError('TILESET_LIMIT', `maxNodes must be a positive safe integer no greater than ${HARD_MAX_NODES}.`);
+  const maxNodes = options.maxNodes ?? EXPLICIT_TILESET_DEFAULT_LIMITS.maxNodes;
+  if (!Number.isSafeInteger(maxNodes) || maxNodes <= 0 || maxNodes > EXPLICIT_TILESET_HARD_LIMITS.maxNodes) {
+    throw new ExplicitTilesetError('TILESET_LIMIT', `maxNodes must be a positive safe integer no greater than ${EXPLICIT_TILESET_HARD_LIMITS.maxNodes}.`);
   }
   if (!Array.isArray(inputs) || inputs.length === 0 || inputs.length > maxNodes) {
     throw new ExplicitTilesetError('TILESET_LIMIT', `Tileset hierarchy must contain 1 to ${maxNodes} nodes.`);
@@ -135,9 +139,9 @@ export function createExplicitTileset(
   if (options.tilesetVersion !== undefined && (typeof options.tilesetVersion !== 'string' || options.tilesetVersion.trim() === '')) {
     throw new ExplicitTilesetError('INVALID_INPUT', 'tilesetVersion must be a non-empty string when provided.');
   }
-  const maxTotalPoints = options.maxTotalPoints ?? DEFAULT_MAX_TOTAL_POINTS;
-  if (!Number.isSafeInteger(maxTotalPoints) || maxTotalPoints <= 0 || maxTotalPoints > HARD_MAX_TOTAL_POINTS) {
-    throw new ExplicitTilesetError('TILESET_LIMIT', `maxTotalPoints must be a positive safe integer no greater than ${HARD_MAX_TOTAL_POINTS}.`);
+  const maxTotalPoints = options.maxTotalPoints ?? EXPLICIT_TILESET_DEFAULT_LIMITS.maxTotalPoints;
+  if (!Number.isSafeInteger(maxTotalPoints) || maxTotalPoints <= 0 || maxTotalPoints > EXPLICIT_TILESET_HARD_LIMITS.maxTotalPoints) {
+    throw new ExplicitTilesetError('TILESET_LIMIT', `maxTotalPoints must be a positive safe integer no greater than ${EXPLICIT_TILESET_HARD_LIMITS.maxTotalPoints}.`);
   }
 
   const nodes = new Map<string, ValidNode>();

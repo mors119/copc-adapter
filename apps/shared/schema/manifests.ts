@@ -172,7 +172,7 @@ export const NPM_0_7_1_MANIFEST = createManifest(
  */
 export const WORKSPACE_CURRENT_MANIFEST = createManifest(
   "workspace",
-  "0.7.1",
+  "0.8.0",
   OPTION_SCHEMA.map(({ id }) => id),
   workspaceCapabilities,
   {},

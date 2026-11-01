@@ -10,7 +10,12 @@ import type * as CesiumTypes from '@frillab/copc-adapter/cesium';
 import type * as ThreeTypes from '@frillab/copc-adapter/three';
 import type { CopcCoreNodeSource } from '@frillab/copc-tiles/adapter/copc-core';
 import type { TileConservativeBoundsResult, TileConservativeNodeSource } from '@frillab/copc-tiles';
-import type { CopcTileResourceProviderOptions } from '@frillab/copc-tiles/resources';
+import {
+  createCopcTileResourceProvider,
+  type CopcTileResourceProviderOptions,
+  type DecodedContentProviderOptions,
+  type DecodedContentScanSummary,
+} from '@frillab/copc-tiles/resources';
 
 type Assert<T extends true> = T;
 type PublicBoundsArePreserved = Assert<CopcConservativeBoundsResult extends TileConservativeBoundsResult ? true : false>;
@@ -25,10 +30,18 @@ type ImplicitNodeTypesAreResolved = Assert<keyof ImplicitOctreeNodeInput extends
 
 declare const source: CopcConservativeNodeSource;
 declare const providerOptions: CopcTileResourceProviderOptions;
+declare const connector: CopcCoreNodeSource;
 const fullScanAuthorization: CopcTileResourceProviderOptions = { scanCompleteHierarchy: true };
+const decodedContentAuthorization: DecodedContentProviderOptions = {
+  scanCompleteHierarchy: true,
+  boundsStrategy: 'decoded-content',
+  allowDecodedContentBounds: true,
+};
+const decodedContentScan: DecodedContentScanSummary | undefined = undefined;
+const decodedProvider = createCopcTileResourceProvider(connector, decodedContentAuthorization);
 const metadata: CopcMetadata = source.getMetadata();
 const conservative: TileConservativeBoundsResult = source.getConservativeNodeEcefBounds('0-0-0-0');
-void [metadata, conservative, providerOptions, fullScanAuthorization];
+void [metadata, conservative, providerOptions, fullScanAuthorization, decodedContentAuthorization, decodedContentScan, decodedProvider];
 
 export type PackedConsumerCompatibility =
   | PublicBoundsArePreserved

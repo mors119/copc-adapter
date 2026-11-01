@@ -182,7 +182,23 @@ export function extractHorizontalUnitScale(wkt: string): number {
   }
 
   if (/^PROJCRS\s*\[/i.test(horizontalWkt)) {
-    const axisUnits = findDirectWktSections(horizontalWkt, ["AXIS["])
+    const axes = findDirectWktSections(horizontalWkt, ["AXIS["])
+      .map(({ section }, index) => {
+        const direction = section
+          .match(/^AXIS\s*\[\s*"(?:""|[^"])*"\s*,\s*"?([A-Z]+)"?/i)?.[1]
+          ?.toLowerCase();
+        const orderSection = findDirectWktSections(section, ["ORDER["])[0]?.section;
+        const order = Number(orderSection?.match(/^ORDER\s*\[\s*(\d+)\s*\]/i)?.[1] ?? index + 1);
+        return { section, direction, order };
+      })
+      .sort((left, right) => left.order - right.order);
+    const horizontalAxes = axes.filter(({ direction }) =>
+      direction === "east" || direction === "west" || direction === "north" || direction === "south",
+    );
+    if (horizontalAxes.length !== 2) {
+      throw new Error("COPC projected WKT2 must declare exactly two horizontal axes");
+    }
+    const axisUnits = horizontalAxes
       .map(({ section }) => findDirectWktSections(section, ["LENGTHUNIT["])[0]?.section);
     if (axisUnits.length === 0 || axisUnits.some((unit) => unit === undefined)) {
       throw new Error("COPC projected WKT2 does not declare a length unit for every axis");
@@ -478,7 +494,7 @@ export function getRootCrsIdentity(wkt: string): RootCrsIdentity | undefined {
 export function extractExplicitVerticalUnitScale(wkt: string): number | undefined {
   const wkt1 = findWktSection(wkt, "VERT_CS[");
   const section = wkt1 ?? findWktSection(wkt, "VERTCRS[");
-  if (!section) return undefined;
+  if (!section) return projectedUpAxisUnitScale(wkt);
   const unitKeyword = wkt1 ? "UNIT[" : "LENGTHUNIT[";
   const unitName = wkt1 ? "UNIT" : "LENGTHUNIT";
   const rootUnits = findDirectWktSections(section, [unitKeyword])
@@ -500,6 +516,50 @@ export function extractExplicitVerticalUnitScale(wkt: string): number | undefine
     throw new Error("COPC vertical WKT declares conflicting units");
   }
   return factors[0];
+}
+
+function projectedUpAxisUnitScale(wkt: string): number | undefined {
+  if (!findWktSection(wkt, "PROJCRS[")) return undefined;
+  const projected = extractHorizontalCrsWkt(wkt);
+  if (!/^PROJCRS\s*\[/i.test(projected)) return undefined;
+  const direct = findDirectWktSections(projected, ["CS[", "AXIS["]);
+  const coordinateSystem = direct.find(({ keyword }) => keyword === "CS[")?.section
+    .match(/^CS\s*\[\s*"?([A-Z_]+)"?\s*,\s*(\d+)/i);
+  const axes = direct.filter(({ keyword }) => keyword === "AXIS[")
+    .map(({ section }, index) => {
+      const direction = section
+        .match(/^AXIS\s*\[\s*"(?:""|[^"])*"\s*,\s*"?([A-Z]+)"?/i)?.[1]
+        ?.toUpperCase();
+      const orderSection = findDirectWktSections(section, ["ORDER["])[0]?.section;
+      const order = Number(orderSection?.match(/^ORDER\s*\[\s*(\d+)\s*\]/i)?.[1] ?? index + 1);
+      return { section, direction, order };
+    })
+    .sort((left, right) => left.order - right.order);
+  const eastWestDirections = ["EAST", "WEST"];
+  const northSouthDirections = ["NORTH", "SOUTH"];
+  const hasEastNorthOrder = eastWestDirections.includes(axes[0]?.direction ?? "") &&
+    northSouthDirections.includes(axes[1]?.direction ?? "");
+  const hasNorthEastOrder = northSouthDirections.includes(axes[0]?.direction ?? "") &&
+    eastWestDirections.includes(axes[1]?.direction ?? "");
+  const isCartesian3d = coordinateSystem?.[1].toLowerCase() === "cartesian" &&
+    Number(coordinateSystem[2]) === 3 && axes.length === 3;
+  if (isCartesian3d && axes.some((axis) => axis.direction === "DOWN")) {
+    throw new Error(
+      "COPC projected 3D WKT with a DOWN axis is unsupported because depth sign normalization is not available",
+    );
+  }
+  if (
+    !isCartesian3d ||
+    axes[0]?.order !== 1 || axes[1]?.order !== 2 || (!hasEastNorthOrder && !hasNorthEastOrder) ||
+    axes[2]?.order !== 3 || axes[2].direction !== "UP"
+  ) return undefined;
+  const unit = findDirectWktSections(axes[2].section, ["LENGTHUNIT["])[0]?.section;
+  if (!unit) {
+    throw new Error(
+      "COPC projected 3D WKT UP axis does not declare a LENGTHUNIT",
+    );
+  }
+  return parseLengthUnitFactor(unit, "LENGTHUNIT");
 }
 
 function parseLengthUnitFactor(unit: string, keyword: "UNIT" | "LENGTHUNIT"): number {

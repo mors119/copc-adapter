@@ -68,7 +68,7 @@ function generateWorkspace(overrides = {}) {
     source: "https://example.test/area.copc.laz",
     manifest: WORKSPACE_CURRENT_MANIFEST,
     runtimeCapabilities: WORKSPACE_CURRENT_CAPABILITIES,
-    adapterVersion: "0.7.1",
+    adapterVersion: WORKSPACE_CURRENT_MANIFEST.version,
     packageOriginLabel: "workspace package",
     ...overrides,
   });
@@ -642,7 +642,7 @@ test("a synthetic schema extension is discovered, validated, serialized, and gen
     serialization: { kind: "scalar", key: "syntheticQueueLimit" },
     defaults: {
       "npm@0.6.0": { kind: "value", value: 12 },
-      "workspace@0.7.1": { kind: "value", value: 12 },
+      "workspace@0.8.0": { kind: "value", value: 12 },
     },
   };
   const schema = [...OPTION_SCHEMA, option];
