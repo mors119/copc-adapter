@@ -10,12 +10,20 @@ if (typeof RustCrsTransformer !== "function") {
 
 const container = document.querySelector("#three-container");
 if (!container) throw new Error("Packed Three consumer container is missing");
-container.style.width = "1280px";
-container.style.height = "720px";
+// Keep SwiftShader's software framebuffer modest on hosted Chromium runners.
+const rendererWidth = 640;
+const rendererHeight = 360;
+container.style.width = `${rendererWidth}px`;
+container.style.height = `${rendererHeight}px`;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color("#08111d");
-const camera = new THREE.PerspectiveCamera(45, 1280 / 720, 0.1, 250_000);
+const camera = new THREE.PerspectiveCamera(
+  45,
+  rendererWidth / rendererHeight,
+  0.1,
+  250_000,
+);
 camera.up.set(0, 0, 1);
 camera.position.set(0, -1_500, 570);
 camera.lookAt(0, 0, 0);
@@ -23,8 +31,12 @@ camera.updateMatrixWorld(true);
 
 const renderer = new THREE.WebGLRenderer({ antialias: false });
 renderer.setPixelRatio(1);
-renderer.setSize(1280, 720);
+renderer.setSize(rendererWidth, rendererHeight);
 container.appendChild(renderer.domElement);
+const rendererContextLossEvents = [];
+renderer.domElement.addEventListener("webglcontextlost", (event) => {
+  rendererContextLossEvents.push(event.statusMessage || "WebGL context lost");
+});
 
 const applicationGeometry = new THREE.BoxGeometry(1, 1, 1);
 const applicationMaterial = new THREE.MeshBasicMaterial({ color: 0xff00ff });
@@ -133,7 +145,9 @@ function pickVisiblePoint() {
 function destroyLayer() {
   rendering = false;
   cancelAnimationFrame(animationFrame);
+  const rendererContextLostBeforeDestroy = renderer.getContext().isContextLost();
   layer.destroy();
+  const rendererContextLostAfterLayerDestroy = renderer.getContext().isContextLost();
   // The caller still owns these objects and its render loop.
   renderer.render(scene, camera);
   return {
@@ -142,7 +156,10 @@ function destroyLayer() {
     applicationObjectPreserved: scene.children.includes(applicationObject),
     applicationMaterialDisposed,
     rendererCanvasConnected: renderer.domElement.isConnected,
+    rendererContextLostBeforeDestroy,
+    rendererContextLostAfterLayerDestroy,
     rendererContextLost: renderer.getContext().isContextLost(),
+    rendererContextLossEvents: [...rendererContextLossEvents],
     errors: [...errors],
   };
 }
