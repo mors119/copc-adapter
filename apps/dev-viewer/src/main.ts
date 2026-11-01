@@ -2723,6 +2723,7 @@ async function main(): Promise<void> {
       return cameraRenderDistance;
     },
     onPipelineSelected(value) {
+      resolveStartupIssue("pipeline");
       pendingConfig = { ...pendingConfig, pipeline: value };
       updateConfigurationState();
     },

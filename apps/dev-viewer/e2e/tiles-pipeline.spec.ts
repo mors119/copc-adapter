@@ -70,6 +70,22 @@ async function getFirstGlbUrl(page: import("@playwright/test").Page, tilesetUrl:
   return new URL(uri, tilesetUrl).href;
 }
 
+test("correcting an invalid pipeline query recovers without a reload", async ({ page }) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+
+  await page.goto("/?pipeline=invalid");
+  await expect(page.locator("#source-status")).toHaveAttribute("data-status", "error");
+  await expect(page.locator("#source-status")).toContainText("Unknown rendering pipeline");
+  await expect(page.locator("#load-source")).toBeDisabled();
+
+  await page.locator("#rendering-pipeline").selectOption("direct");
+  await expect(page.locator("#source-status")).toHaveAttribute("data-status", "inactive");
+  await expect(page.locator("#source-status")).toContainText("Configuration ready");
+  await expect(page.locator("#load-source")).toBeEnabled();
+  expect(pageErrors).toEqual([]);
+});
+
 test("Direct remains the default and the Cesium 3D Tiles pipeline renders generated COPC GLBs", async ({ page }) => {
   test.skip(!demoFixturesAvailable, `Run ${fixtureSetupCommand} to generate the ignored COPC fixtures.`);
   test.setTimeout(180_000);
