@@ -101,8 +101,8 @@ test("switches renderer and backend, applies controls, and inspects a Three poin
   await expect(
     page.getByRole("radiogroup", { name: "Color mode" }),
   ).toHaveCount(1);
-  await page.locator('.schema-control-section[data-section="streaming"] summary').click();
-  await page.locator('.schema-control-section[data-section="lod"] summary').click();
+  await page.locator('.schema-control-section[data-section="streaming"] > summary').click();
+  await page.locator('.schema-control-section[data-section="lod"] > summary').click();
   const refinementGroup = page.getByRole("radiogroup", {
     name: "Refinement Algorithm",
   });
@@ -812,7 +812,7 @@ test("compares both refinement algorithms at Overview, Far, and Near without cha
   await page.goto("/?debugPanel=0");
   await expect(page.locator("#source-status")).toContainText("Ready");
   await page
-    .locator('.schema-control-section[data-section="lod"] summary')
+    .locator('.schema-control-section[data-section="lod"] > summary')
     .click();
   await page
     .locator(".dev-control-section")
@@ -991,9 +991,9 @@ test("applies advanced streaming inputs and keeps mobile controls reachable", as
     page.getByRole("slider", { name: "Point size" }),
   ).toHaveAttribute("min", "1");
   const streamingSection = page.locator('.schema-control-section[data-section="streaming"]');
-  await streamingSection.locator("summary").click();
+  await streamingSection.locator(":scope > summary").click();
   const performanceSection = page.locator('.schema-control-section[data-section="performance"]');
-  await performanceSection.locator("summary").click();
+  await performanceSection.locator(":scope > summary").click();
   await expect(
     page.getByRole("slider", { name: "Max selected nodes" }),
   ).toHaveAttribute("max", "64");
@@ -1002,7 +1002,7 @@ test("applies advanced streaming inputs and keeps mobile controls reachable", as
   ).toHaveAttribute("max", "1000000");
 
   const lodSection = page.locator('.schema-control-section[data-section="lod"]');
-  await lodSection.locator("summary").click();
+  await lodSection.locator(":scope > summary").click();
   await lodSection.locator("#max-depth-value").fill("5");
   await lodSection.locator("#max-sse-value").fill("10");
   await page
@@ -1136,7 +1136,7 @@ test("shows actionable errors for unknown URL-driven refinement values", async (
   await expect(page.locator("#load-source")).toBeDisabled();
   await expect(page.locator("#apply-settings")).toBeDisabled();
   await page
-    .locator('.schema-control-section[data-section="lod"] summary')
+    .locator('.schema-control-section[data-section="lod"] > summary')
     .click();
 
   await page

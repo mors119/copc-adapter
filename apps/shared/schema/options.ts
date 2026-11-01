@@ -487,8 +487,8 @@ export const OPTION_SCHEMA = [
   },
   {
     id: "coordinates.heightOffsetMeters",
-    label: "Height Offset",
-    description: "Add a manual correction to ellipsoidal point height, in metres.",
+    label: "Height Offset (m)",
+    description: "Manual display-height adjustment added to transformed ellipsoidal height. It does not convert a vertical datum.",
     section: "coordinates",
     statePath: "heightOffsetMeters",
     apiPath: "heightOffsetMeters",
@@ -505,8 +505,8 @@ export const OPTION_SCHEMA = [
   },
   {
     id: "coordinates.verticalTransform",
-    label: "Vertical Grid",
-    description: "Load the pinned NGA EGM2008 grid locally for an explicit verified vertical datum conversion.",
+    label: "Validated Vertical Grid",
+    description: "Load one pinned local grid profile and verify its digest, metadata, and source CRS before applying the datum conversion.",
     section: "coordinates",
     statePath: "verticalTransform",
     apiPath: "verticalTransform",

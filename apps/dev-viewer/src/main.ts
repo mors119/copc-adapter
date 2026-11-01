@@ -71,6 +71,10 @@ import {
   type TerrainAlignmentControl,
 } from "../../shared/workbench/TerrainAlignmentControl.ts";
 import {
+  mountFollowCursorTracker,
+  type NormalizedScreenPosition,
+} from "../../shared/workbench/followCursor.ts";
+import {
   mountPointPopover,
   type PointScreenPosition,
 } from "../../shared/inspection/PointPopover.ts";
@@ -326,6 +330,7 @@ type ViewerSession = {
   setOpacity(opacity: number | undefined): void;
   setClippingVolume?(volume: CopcCesiumClippingVolume | undefined): void;
   setRefinementFocus?(focus: RefinementFocus | undefined): void;
+  getFocusCanvas?(): HTMLCanvasElement | undefined;
   destroy(): void;
 };
 
@@ -1246,6 +1251,7 @@ async function createCesiumSession(
       moveCameraToHeight(viewer, distance);
     },
     setRefinementFocus: (focus) => layer.setRefinementFocus(focus),
+    getFocusCanvas: () => viewer.isDestroyed() ? undefined : viewer.scene.canvas,
     getCameraState(): ViewerCameraState {
       const position = viewer.camera.positionCartographic;
       return {
@@ -1606,6 +1612,9 @@ async function main(): Promise<void> {
   let workbenchControls: ReturnType<typeof mountDevViewerControls> | undefined;
   let terrainAlignmentControl: TerrainAlignmentControl | undefined;
   let activeSession: ViewerSession | undefined;
+  let followCursorEnabled = false;
+  let followCursorFocus: RefinementFocus | undefined;
+  let lastFollowCursorPosition: NormalizedScreenPosition | undefined;
   let activeMount: HTMLElement | undefined;
   let stagedSession: ViewerSession | undefined;
   let stagedMount: HTMLElement | undefined;
@@ -1625,6 +1634,73 @@ async function main(): Promise<void> {
   let isLoading = false;
   let probeAbortController: AbortController | undefined;
   let disposed = false;
+
+  const readFocusValue = (value: unknown): RefinementFocus | undefined => {
+    if (typeof value !== "object" || value === null) return undefined;
+    const focus = value as Partial<RefinementFocus>;
+    if (
+      focus.type !== "screen-circle" ||
+      typeof focus.center !== "object" || focus.center === null ||
+      !Number.isFinite(focus.center.x) || focus.center.x < 0 || focus.center.x > 1 ||
+      !Number.isFinite(focus.center.y) || focus.center.y < 0 || focus.center.y > 1 ||
+      typeof focus.radius !== "number" || !Number.isFinite(focus.radius) || focus.radius <= 0 || focus.radius > 1 ||
+      typeof focus.detailBias !== "number" || !Number.isFinite(focus.detailBias) || focus.detailBias < 1 || focus.detailBias > 2
+    ) return undefined;
+    return focus as RefinementFocus;
+  };
+  const setLiveFocus = (focus: RefinementFocus | undefined): boolean => {
+    if (activeSession?.renderer !== "cesium" || activeSession.pipeline !== "direct" ||
+      !activeSession.setRefinementFocus) return false;
+    try {
+      activeSession.setRefinementFocus(focus);
+      return true;
+    } catch (error) {
+      followCursorEnabled = false;
+      followCursorTracker.setEnabled(false);
+      setActiveError(error);
+      return false;
+    }
+  };
+  const followCursorTracker = mountFollowCursorTracker({
+    getTarget: () => activeSession?.renderer === "cesium" && activeSession.pipeline === "direct"
+      ? activeSession.getFocusCanvas?.()
+      : undefined,
+    onPosition(position) {
+      lastFollowCursorPosition = position;
+      if (!followCursorEnabled || !followCursorFocus) return;
+      setLiveFocus({ ...followCursorFocus, center: position });
+    },
+  });
+  const isFollowCursorAvailable = (): boolean =>
+    pendingConfig.renderer === "cesium" &&
+    pendingConfig.pipeline === "direct" &&
+    activeSession?.renderer === "cesium" &&
+    activeSession.pipeline === "direct" &&
+    typeof activeSession.setRefinementFocus === "function";
+  const setFollowCursor = (enabled: boolean, rawFocus: unknown): void => {
+    const suppliedFocus = readFocusValue(rawFocus);
+    if (suppliedFocus) followCursorFocus = suppliedFocus;
+    else if (rawFocus === undefined) followCursorFocus = undefined;
+    const focus = suppliedFocus ?? (rawFocus === undefined ? undefined : followCursorFocus);
+    const canFollow = isFollowCursorAvailable();
+    followCursorEnabled = enabled && canFollow && focus !== undefined;
+    followCursorTracker.setEnabled(followCursorEnabled);
+    let applied = false;
+    if (followCursorEnabled && focus) {
+      applied = setLiveFocus({ ...focus, center: lastFollowCursorPosition ?? focus.center });
+    } else if (!followCursorEnabled) {
+      applied = setLiveFocus(focus);
+    }
+    if (applied) {
+      const schemaOptionValues = { ...(activeConfig.schemaOptionValues ?? {}) };
+      if (focus) schemaOptionValues["streaming.refinementFocus"] = focus;
+      else delete schemaOptionValues["streaming.refinementFocus"];
+      activeConfig = { ...activeConfig, schemaOptionValues };
+      refreshIntegrationCode();
+    } else {
+      refreshIntegrationCode();
+    }
+  };
   let lastApplyTrace: ApplyTrace | undefined;
 
   const getPendingDebugState = (): CopcDebugState => ({
@@ -1935,6 +2011,11 @@ async function main(): Promise<void> {
         hostValidators: verticalGridResources.hostValidators,
       });
       const warnings = [...shareConfigurationWarnings, ...generated.warnings];
+      if (followCursorEnabled) {
+        warnings.push(
+          "Follow Cursor is a Dev Viewer host interaction. The generated snippet uses the configured static Focus Lens center and does not install continuous pointer tracking.",
+        );
+      }
       if (activeConfig.renderer === "cesium" && activeConfig.terrainUrl.trim()) {
         warnings.push(
           "Dev Viewer Terrain is configured on the Cesium viewer, not on the adapter layer. Configure the equivalent Cesium Terrain provider separately in your application.",
@@ -2078,6 +2159,7 @@ async function main(): Promise<void> {
           (tilesStylesDisabled && section?.dataset.section === "style") ||
           (tilesFilteringDisabled && section?.dataset.section === "filtering");
       });
+    workbenchControls?.refreshFocusCursorAvailability();
     terrainAlignmentControl?.update();
     refreshIntegrationCode();
   };
@@ -2550,9 +2632,19 @@ async function main(): Promise<void> {
       activeDebugAdapter = candidateSession.debugAdapter;
       activeDebugAdapter?.activate();
       activeConfig = { ...config };
+      lastFollowCursorPosition = undefined;
       tilesDiagnostics = candidateSession.getTilesDiagnostics?.();
       updateTilesDiagnosticsPanel();
       workbenchControls?.updateContext();
+      if (candidateSession.renderer === "cesium" && candidateSession.pipeline === "direct") {
+        followCursorTracker.refreshTarget();
+        if (followCursorEnabled && followCursorFocus) {
+          setLiveFocus(followCursorFocus);
+        }
+      } else {
+        followCursorEnabled = false;
+        followCursorTracker.setEnabled(false);
+      }
       updatePointVerticalReferenceContext();
       const appliedValues = toWorkbenchOptionValues(config);
       const appliedExtraDimensions = appliedValues["attributes.extraDimensions"];
@@ -2632,6 +2724,16 @@ async function main(): Promise<void> {
     ),
     isVerticalGridApplied: (value) =>
       toWorkbenchOptionValues(activeConfig)["coordinates.verticalTransform"] === value,
+    getFollowCursorEnabled: () => followCursorEnabled,
+    isFollowCursorAvailable,
+    isBusy: () => isLoading,
+    onFollowCursorChange: setFollowCursor,
+    getSelectedPointEcef: () => {
+      const world = activeSession?.getSelectedPoint()?.world;
+      return world?.coordinateSystem === "wgs84-ecef-meters"
+        ? [world.x, world.y, world.z]
+        : undefined;
+    },
     onValidationChange() {
       updateConfigurationState();
     },
@@ -2757,12 +2859,14 @@ async function main(): Promise<void> {
         renderer: value,
         cameraRenderDistance,
       };
+      workbenchControls?.updateContext();
       updateConfigurationState();
       return cameraRenderDistance;
     },
     onPipelineSelected(value) {
       resolveStartupIssue("pipeline");
       pendingConfig = { ...pendingConfig, pipeline: value };
+      workbenchControls?.updateContext();
       if (
         value === "direct" &&
         !activeSession &&
@@ -2932,6 +3036,7 @@ async function main(): Promise<void> {
     () => {
       disposed = true;
       generation += 1;
+      followCursorTracker.destroy();
       probeAbortController?.abort();
       debugPanel.destroy();
       tilesDiagnosticsPanel.destroy();

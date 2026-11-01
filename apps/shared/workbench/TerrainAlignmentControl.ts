@@ -212,7 +212,7 @@ export function mountTerrainAlignmentControl<Point extends TerrainAlignmentPoint
   resetButton.textContent = "Reset anchors and estimate";
   actions.append(addAnchor, estimateButton, cancelButton, applyButton, resetButton);
   const warning = makeElement("p", "terrain-alignment-command__warning");
-  warning.textContent = "The proposal is visual placement only, not geoid or vertical-datum correction. Use the final heightOffsetMeters total; do not add the Terrain residual twice.";
+  warning.textContent = "This preview is numerical only. It is not a geoid or vertical-datum correction. Approve to apply the final heightOffsetMeters total; do not add the Terrain residual twice.";
   const fineHelp = makeElement("p", "terrain-alignment-command__help");
   fineHelp.textContent = "Fine adjustment is bounded to ±100 cm and is added once to the proposed final offset.";
 
@@ -357,6 +357,7 @@ export function mountTerrainAlignmentControl<Point extends TerrainAlignmentPoint
     const sampledHeight = estimateResult.terrainHeightMeters;
     const sourceVertical = estimateResult.verticalReference.sourceVerticalCrs ?? "not declared";
     const previewLines = [
+      "Preview: numerical proposed adjustment only; the active layer changes only after approval.",
       `Estimate: ${estimateResult.status}${estimateIsCurrent ? " · current" : " · stale; estimate again"}`,
       `COPC source: ${estimateResult.sourceId ?? "not identified"}`,
       `Terrain provider: ${estimateResult.terrainProvider?.type ?? state.providerStatus}${estimateResult.terrainSourceId ? ` · ${estimateResult.terrainSourceId}` : ""}`,
