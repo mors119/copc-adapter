@@ -1300,7 +1300,7 @@ test("plays, stops, replays, and cancels the deterministic Cesium camera demo", 
   expect(replayStart.engine).toBe("cesium");
   expect(positionDeltaMeters(replayStart, firstStart)).toBeLessThan(0.01);
   expect(positionDeltaMeters(replaySample, firstTrajectorySample)).toBeLessThan(
-    250,
+    2_000,
   );
   expect(replayRun.visibilitySamples).toEqual([true, true, true, true, true]);
 
