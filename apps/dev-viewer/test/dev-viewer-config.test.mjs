@@ -15,6 +15,7 @@ import {
   getCesiumTerrainProviderUrl,
   getSafeSourceLabel,
   getSafeTerrainSourceLabel,
+  getTilesVerticalGrid,
   hasUnappliedSettings,
   isRangeValidationPolicy,
   isRefinementAlgorithm,
@@ -61,6 +62,21 @@ test("recognizes only the public refinement and range validation values", () => 
   assert.match(
     validateDevViewerConfig(createConfig({ refinementAlgorithm: "unknown" })),
     /Foveated or Screen Projection/,
+  );
+});
+
+test("passes only a host-verified vertical grid into the Tiles pipeline", () => {
+  const grid = { gridId: "verified-grid" };
+  const config = createConfig({
+    pipeline: "tiles",
+    schemaOptionValues: { "coordinates.verticalTransform": grid },
+  });
+
+  assert.equal(getTilesVerticalGrid(config, (value) => value === grid), grid);
+  assert.equal(getTilesVerticalGrid(createConfig(), () => false), undefined);
+  assert.throws(
+    () => getTilesVerticalGrid(config, () => false),
+    /loaded, verified vertical grid/,
   );
 });
 

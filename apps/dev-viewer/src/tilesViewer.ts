@@ -7,7 +7,11 @@ import {
   GLTFMeshFeaturesExtension,
   GLTFStructuralMetadataExtension,
 } from "3d-tiles-renderer/three/plugins";
-import type { CopcBackendName, CopcMetadata } from "@frillab/copc-adapter/core";
+import type {
+  CopcBackendName,
+  CopcMetadata,
+  GtxGeoidGrid,
+} from "@frillab/copc-adapter/core";
 import { CopcCoreNodeSource } from "@frillab/copc-tiles/adapter/copc-core";
 import {
   createCopcTileResourceProvider,
@@ -25,6 +29,7 @@ import type {
 export type TilesViewerSession = Readonly<{
   renderer: "cesium" | "three";
   metadata: CopcMetadata;
+  getTilesetUrl(): string;
   getDiagnostics(): TilesPipelineDiagnostics;
   getCameraState(): TilesViewerCameraState;
   setCameraState(state: TilesViewerCameraState): void;
@@ -39,6 +44,7 @@ export type CreateTilesViewerOptions = Readonly<{
   backend: CopcBackendName;
   rangeValidation: "head-fallback" | "strict";
   heightOffsetMeters: number;
+  verticalGrid?: GtxGeoidGrid;
   renderer: "cesium" | "three";
   signal: AbortSignal;
   isCurrent(): boolean;
@@ -127,6 +133,7 @@ export async function createTilesViewerSession(
       signal: options.signal,
       rangeValidation: options.rangeValidation,
       heightOffsetMeters: options.heightOffsetMeters,
+      verticalGrid: options.verticalGrid,
       maxConcurrentRangeRequests: 3,
     });
     assertCurrent();
@@ -214,6 +221,7 @@ export async function createTilesViewerSession(
     return Object.freeze({
       renderer: options.renderer,
       metadata,
+      getTilesetUrl: () => activeRoute.url,
       getDiagnostics: () => diagnostics,
       getCameraState: complete.getCameraState,
       setCameraState: complete.setCameraState,

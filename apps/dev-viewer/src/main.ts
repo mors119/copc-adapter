@@ -113,6 +113,7 @@ import {
   restoreDevViewerShareConfiguration,
   sourceSupportsHttpRange,
   toWorkbenchOptionValues,
+  getTilesVerticalGrid,
   validateDevViewerConfig,
   type CameraPreset,
   type CesiumPointRendererVariant,
@@ -294,6 +295,7 @@ type ViewerSession = {
   debugAdapter?: CopcDebugAdapter;
   getSnapshot(): CopcCesiumLayerSnapshot | CopcThreeLayerSnapshot | undefined;
   getTilesDiagnostics?(): TilesPipelineDiagnostics;
+  getTilesetUrl?(): string;
   getMetadata(): CopcMetadata | undefined;
   getHierarchyDiagnostics(): CopcHierarchyDiagnostics | undefined;
   getSelectedPoint(): CopcPointInspection | undefined;
@@ -392,6 +394,7 @@ declare global {
         elapsedMs: number;
       }>;
       getTilesDiagnostics(): TilesPipelineDiagnostics | undefined;
+      getTilesetUrl(): string | undefined;
     };
     __COPC_TEST_TERRAIN_HEIGHT__?: number;
   }
@@ -1373,12 +1376,17 @@ async function createTilesPipelineSession(
   onError: (error: unknown) => void,
 ): Promise<ViewerSession> {
   const { createTilesViewerSession } = await import("./tilesViewer");
+  const verticalGrid = getTilesVerticalGrid(
+    config,
+    verticalGridResources.isLoadedGrid,
+  );
   const viewer = await createTilesViewerSession({
     container,
     source: config.source,
     backend: config.backend,
     rangeValidation: config.rangeValidation,
     heightOffsetMeters: config.heightOffsetMeters,
+    verticalGrid,
     renderer: config.renderer,
     signal,
     isCurrent,
@@ -1391,6 +1399,7 @@ async function createTilesPipelineSession(
     ready: Promise.resolve(),
     getSnapshot: () => undefined,
     getTilesDiagnostics: viewer.getDiagnostics,
+    getTilesetUrl: viewer.getTilesetUrl,
     getMetadata: () => viewer.metadata,
     getHierarchyDiagnostics: () => undefined,
     getSelectedPoint: () => undefined,
@@ -2423,7 +2432,10 @@ async function main(): Promise<void> {
             candidateMount,
             config,
             controller.signal,
-            () => currentGeneration === generation && !disposed,
+            () => !disposed && (
+              (candidateSession !== undefined && activeSession === candidateSession) ||
+              currentGeneration === generation
+            ),
             (value) => {
               if (currentGeneration !== generation || disposed) return;
               tilesDiagnostics = value;
@@ -2848,6 +2860,7 @@ async function main(): Promise<void> {
     getPendingConfiguration: () => publicConfig(pendingConfig),
     getLastApplyTrace: () => lastApplyTrace?.events.map((event) => ({ ...event })) ?? [],
     getTilesDiagnostics: () => activeSession?.getTilesDiagnostics?.() ?? tilesDiagnostics,
+    getTilesetUrl: () => activeSession?.getTilesetUrl?.(),
   };
 
   window.addEventListener(

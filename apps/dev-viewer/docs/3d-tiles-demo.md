@@ -55,9 +55,11 @@ The demo deliberately uses a small bounded fixture and a complete hierarchy
 scan. It demonstrates the COPC → Tileset → GLB → rendered-point path; it is not
 a public package release or a production adaptive-LOD benchmark. The adapter
 continues to own COPC decoding, coordinate transforms, and conservative ECEF
-bounds. Unsupported projected conservative bounds stop Tileset creation before
-content GLBs are requested. Autzen (EPSG:2992) and SoFi (EPSG:32611) therefore
-remain fail-closed; use Direct COPC for those sources in the Dev Viewer.
+bounds. A selected vertical grid is passed to Adapter Core only after the
+Dev Viewer verifies it through the pinned public GTX loaders. Unsupported
+projected conservative bounds stop Tileset creation before content GLBs are
+requested. Autzen (EPSG:2992) and SoFi (EPSG:32611) therefore remain fail-closed;
+use Direct COPC for those sources in the Dev Viewer.
 
 The selector is local to this developer host. It does not add a public
 Playground option or an npm installation path for `@frillab/copc-tiles`.

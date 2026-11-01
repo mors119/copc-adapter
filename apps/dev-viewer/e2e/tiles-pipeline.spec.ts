@@ -25,6 +25,7 @@ type DevViewerApi = {
   getSnapshot(): unknown;
   getConfiguration(): { pipeline: string; renderer: string };
   getTilesDiagnostics(): TilesDiagnostics | undefined;
+  getTilesetUrl(): string | undefined;
 };
 
 declare global {
@@ -45,10 +46,35 @@ async function getTilesDiagnostics(page: import("@playwright/test").Page): Promi
   return page.evaluate(() => window.__COPC_DEV_VIEWER__?.getTilesDiagnostics());
 }
 
+async function getTilesetUrl(page: import("@playwright/test").Page): Promise<string | undefined> {
+  return page.evaluate(() => window.__COPC_DEV_VIEWER__?.getTilesetUrl());
+}
+
+async function getFirstGlbUrl(page: import("@playwright/test").Page, tilesetUrl: string): Promise<string> {
+  const tileset = await page.evaluate(async (url) =>
+    await (await fetch(url)).json() as {
+      root: { content?: { uri?: string }; children?: Array<{ content?: { uri?: string }; children?: unknown[] }> };
+    }, tilesetUrl,
+  );
+  const findContentUri = (tile: { content?: { uri?: string }; children?: unknown[] }): string | undefined => {
+    if (tile.content?.uri?.endsWith(".glb")) return tile.content.uri;
+    for (const child of tile.children ?? []) {
+      if (typeof child !== "object" || child === null) continue;
+      const uri = findContentUri(child as { content?: { uri?: string }; children?: unknown[] });
+      if (uri) return uri;
+    }
+    return undefined;
+  };
+  const uri = findContentUri(tileset.root);
+  if (!uri) throw new Error("The active Tileset did not contain a GLB resource URI.");
+  return new URL(uri, tilesetUrl).href;
+}
+
 test("Direct remains the default and the Cesium 3D Tiles pipeline renders generated COPC GLBs", async ({ page }) => {
   test.skip(!demoFixturesAvailable, `Run ${fixtureSetupCommand} to generate the ignored COPC fixtures.`);
   test.setTimeout(180_000);
   const pageErrors: string[] = [];
+  let activeGlbUrl: string | undefined;
   page.on("pageerror", (error) => pageErrors.push(error.message));
 
   await page.goto("/?source=/samples/demo-wgs84.copc.laz");
@@ -87,10 +113,24 @@ test("Direct remains the default and the Cesium 3D Tiles pipeline renders genera
   expect(pageErrors).toEqual([]);
 
   await page.locator("#source-selection").selectOption("custom");
+  const activeTilesetUrl = await getTilesetUrl(page);
+  expect(activeTilesetUrl).toBeTruthy();
+  activeGlbUrl = await getFirstGlbUrl(page, activeTilesetUrl!);
+  await page.locator("#custom-source-url").fill(
+    new URL("/samples/demo-projected.copc.laz?failed-switch=1", page.url()).href,
+  );
+  await page.locator("#load-source").click();
+  await expect(page.locator("#source-status")).toHaveAttribute("data-status", "error");
+  const retainedGlbUrl = activeGlbUrl!;
+  const retainedGlbStatus = await page.evaluate(async (url) =>
+    (await fetch(url)).status, retainedGlbUrl,
+  );
+  expect(retainedGlbStatus).toBe(200);
+
   await page.locator("#custom-source-url").fill(
     new URL("/samples/demo-wgs84.copc.laz?source-switch=1", page.url()).href,
   );
-  await page.locator("#apply-settings").click();
+  await page.locator("#load-source").click();
   await expect(page.locator("#source-status")).toHaveAttribute("data-status", "ready");
   await expect.poll(async () => (await getTilesDiagnostics(page))?.status).toBe("ready");
   expect((await getTilesDiagnostics(page))?.glbRequests).toBeGreaterThan(1);

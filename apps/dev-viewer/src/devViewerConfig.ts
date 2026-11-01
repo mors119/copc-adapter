@@ -2,6 +2,7 @@ import type {
   RangeValidationPolicy,
   RefinementAlgorithm,
 } from "@frillab/copc-adapter";
+import type { GtxGeoidGrid } from "@frillab/copc-adapter/core";
 
 import type {
   WorkbenchCameraPreset,
@@ -20,6 +21,7 @@ import {
   WORKSPACE_CURRENT_MANIFEST,
 } from "../../shared/schema/index.ts";
 import type { SchemaHostValidators } from "../../shared/schema/types.ts";
+import type { VerifiedVerticalGrid } from "../../shared/workbench/verticalGridResource.ts";
 import { requestedDimensionNames } from "../../shared/workbench/dimensionModel.ts";
 import type { SchemaDimensionFilter, SchemaDimensionStyle } from "../../shared/schema/types.ts";
 
@@ -62,6 +64,20 @@ export type DevViewerShareRestoreResult = {
   readonly config: DevViewerConfig;
   readonly warnings: readonly string[];
 };
+
+/** Resolve only a host-verified grid for the public Adapter Core Tiles path. */
+export function getTilesVerticalGrid(
+  config: DevViewerConfig,
+  isLoadedGrid: (value: unknown) => value is VerifiedVerticalGrid,
+): GtxGeoidGrid | undefined {
+  const value = toWorkbenchOptionValues(config)["coordinates.verticalTransform"];
+  if (value === undefined || value === null) return undefined;
+  if (!isLoadedGrid(value)) {
+    throw new TypeError("3D Tiles requires a loaded, verified vertical grid.");
+  }
+  // The registry accepts only instances returned by the public GTX loaders.
+  return value as GtxGeoidGrid;
+}
 
 /** Commit only the Cesium color mode and dimension ramp sent to setStyle(). */
 export function commitRuntimeColorMode(
