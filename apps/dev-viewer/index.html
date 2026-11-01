@@ -37,12 +37,25 @@
             <label class="ui-field" for="source-selection"
               >Dataset
               <select id="source-selection">
+                <option value="wgs84-demo">WGS 84 · generated demo fixture</option>
                 <option value="local-autzen">Autzen · local fixture</option>
                 <option value="autzen-remote">Autzen · public HTTP</option>
                 <option value="chicago-remote">Chicago · public HTTP</option>
                 <option value="custom">Custom HTTP URL</option>
               </select>
             </label>
+            <label class="ui-field" for="rendering-pipeline">
+              Rendering pipeline
+              <select id="rendering-pipeline">
+                <option value="direct">Direct COPC (default)</option>
+                <option value="tiles">3D Tiles (Experimental)</option>
+              </select>
+            </label>
+            <p class="dev-help">
+              The pipeline is independent of the Cesium / Three renderer below.
+              3D Tiles uses the unpublished local Tiles workspace; styling and
+              Direct streaming controls do not apply in that mode.
+            </p>
             <label class="ui-field" for="custom-source-url"
               >COPC URL
               <input

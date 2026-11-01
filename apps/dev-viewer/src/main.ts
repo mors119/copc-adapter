@@ -55,6 +55,10 @@ import {
   type DevThreeViewer,
 } from "./threeViewer";
 import type { DevTerrainFixtureProvider } from "./devTerrainFixture";
+import type {
+  TilesPipelineDiagnostics,
+  TilesViewerCameraState,
+} from "./tilesViewerTypes";
 import { mountDevViewerControls } from "./devViewerControls";
 import {
   mountWorkbenchLayout,
@@ -70,6 +74,7 @@ import {
   mountPointPopover,
   type PointScreenPosition,
 } from "../../shared/inspection/PointPopover.ts";
+import { mountDiagnosticSections } from "../../shared/diagnostics/DiagnosticSections.ts";
 import {
   createNgaEgm2008ResourceRegistry,
   createPointVerticalReferenceContext,
@@ -113,6 +118,7 @@ import {
   type CesiumPointRendererVariant,
   type DevViewerConfig,
   type RenderingEngine,
+  type RenderingPipeline,
 } from "./devViewerConfig";
 
 const cesiumRuntimeVersion = (Cesium as typeof Cesium & { VERSION: string })
@@ -283,9 +289,11 @@ type CopcDebugAdapter = {
 
 type ViewerSession = {
   renderer: RenderingEngine;
+  pipeline: RenderingPipeline;
   ready: Promise<void>;
   debugAdapter?: CopcDebugAdapter;
-  getSnapshot(): CopcCesiumLayerSnapshot | CopcThreeLayerSnapshot;
+  getSnapshot(): CopcCesiumLayerSnapshot | CopcThreeLayerSnapshot | undefined;
+  getTilesDiagnostics?(): TilesPipelineDiagnostics;
   getMetadata(): CopcMetadata | undefined;
   getHierarchyDiagnostics(): CopcHierarchyDiagnostics | undefined;
   getSelectedPoint(): CopcPointInspection | undefined;
@@ -383,6 +391,7 @@ declare global {
         stage: ApplyTraceStage;
         elapsedMs: number;
       }>;
+      getTilesDiagnostics(): TilesPipelineDiagnostics | undefined;
     };
     __COPC_TEST_TERRAIN_HEIGHT__?: number;
   }
@@ -1198,6 +1207,7 @@ async function createCesiumSession(
 
   return {
     renderer: "cesium",
+    pipeline: "direct",
     terrainSourceStatus,
     terrainProviderAvailable,
     ready: ready.then(() => undefined),
@@ -1325,6 +1335,7 @@ function createThreeSession(
   });
   return {
     renderer: "three",
+    pipeline: "direct",
     terrainSourceStatus:
       "Three.js renderer · the dev-viewer Cesium Terrain provider is not used.",
     terrainProviderAvailable: false,
@@ -1353,12 +1364,57 @@ function createThreeSession(
   };
 }
 
+async function createTilesPipelineSession(
+  container: HTMLElement,
+  config: DevViewerConfig,
+  signal: AbortSignal,
+  isCurrent: () => boolean,
+  onDiagnostics: (diagnostics: TilesPipelineDiagnostics) => void,
+  onError: (error: unknown) => void,
+): Promise<ViewerSession> {
+  const { createTilesViewerSession } = await import("./tilesViewer");
+  const viewer = await createTilesViewerSession({
+    container,
+    source: config.source,
+    backend: config.backend,
+    rangeValidation: config.rangeValidation,
+    heightOffsetMeters: config.heightOffsetMeters,
+    renderer: config.renderer,
+    signal,
+    isCurrent,
+    onDiagnostics,
+    onError,
+  });
+  return {
+    renderer: config.renderer,
+    pipeline: "tiles",
+    ready: Promise.resolve(),
+    getSnapshot: () => undefined,
+    getTilesDiagnostics: viewer.getDiagnostics,
+    getMetadata: () => viewer.metadata,
+    getHierarchyDiagnostics: () => undefined,
+    getSelectedPoint: () => undefined,
+    terrainSourceStatus: "3D Tiles are not Cesium Terrain samples; Terrain alignment is unavailable in Tiles mode.",
+    terrainProviderAvailable: false,
+    setCameraPreset: (preset) => viewer.setCameraPreset(preset),
+    setCameraRenderDistance: (distance) => viewer.setCameraDistance(distance),
+    getCameraState: () => viewer.getCameraState() as ViewerCameraState,
+    setCameraState: (state) => viewer.setCameraState(state as TilesViewerCameraState),
+    getPickablePointScreenPosition: () => undefined,
+    getStyle: () => ({ colorMode: config.colorMode }),
+    setStyle: () => undefined,
+    setOpacity: () => undefined,
+    destroy: () => viewer.destroy(),
+  };
+}
+
 async function main(): Promise<void> {
   const params = new URLSearchParams(window.location.search);
   const initialOptions = getLayerOptions();
   const initialStreaming = initialOptions.streaming;
   const initialSource = getCopcUrl();
   const requestedEngine = params.get("renderer");
+  const requestedPipeline = params.get("pipeline");
   const renderer: RenderingEngine =
     requestedEngine === "three" ? "three" : "cesium";
   const requestedCesiumRenderer = params.get("cesiumRenderer");
@@ -1372,6 +1428,9 @@ async function main(): Promise<void> {
   const reportStartupIssue = (key: string, message: string): void => {
     startupIssues.set(key, message);
   };
+  if (requestedPipeline !== null && requestedPipeline !== "direct" && requestedPipeline !== "tiles") {
+    reportStartupIssue("pipeline", 'Unknown rendering pipeline; choose "direct" or "tiles".');
+  }
   if (
     requestedEngine !== null &&
     requestedEngine !== "cesium" &&
@@ -1487,6 +1546,7 @@ async function main(): Promise<void> {
 
   const baseInitialConfig: DevViewerConfig = {
     renderer,
+    pipeline: requestedPipeline === "tiles" ? "tiles" : "direct",
     cesiumRenderer,
     backend:
       initialOptions.backend === "rust" || initialOptions.backend === "copc-js"
@@ -1539,6 +1599,7 @@ async function main(): Promise<void> {
   let stagedSession: ViewerSession | undefined;
   let stagedMount: HTMLElement | undefined;
   let activeDebugAdapter: CopcDebugAdapter | undefined;
+  let tilesDiagnostics: TilesPipelineDiagnostics | undefined;
   let sourceProbe: CopcSourceProbeResult | undefined;
   let sourceProbePolicy: RangeValidationPolicy | undefined;
   let lastSnapshot:
@@ -1781,6 +1842,16 @@ async function main(): Promise<void> {
     return url.toString();
   };
   const refreshIntegrationCode = (): void => {
+    if (activeConfig.pipeline === "tiles") {
+      integrationCodePanel.setTerrainAlignmentRecipeAvailable(false);
+      integrationCodePanel.setContent({
+        code: "// No public integration snippet is available for this experimental pipeline.",
+        warnings: [
+          "This demonstration uses the unpublished local @frillab/copc-tiles workspace. npm installation and public Playground support are not included. Share links preserve Adapter settings and return to Direct COPC mode.",
+        ],
+      });
+      return;
+    }
     integrationCodePanel.setTerrainAlignmentRecipeAvailable(
       activeConfig.renderer === "cesium" &&
         WORKSPACE_CURRENT_CAPABILITIES.includes("cesium.terrain-alignment"),
@@ -1986,7 +2057,9 @@ async function main(): Promise<void> {
   const activeSnapshot = ():
     | CopcCesiumLayerSnapshot
     | CopcThreeLayerSnapshot => {
-    const snapshot = activeSession?.getSnapshot() ?? lastSnapshot;
+    const snapshot = activeSession?.pipeline === "tiles"
+      ? undefined
+      : activeSession?.getSnapshot() ?? lastSnapshot;
     if (!snapshot) {
       // The inspector only reads these fields until a real session exists.
       return {
@@ -2027,7 +2100,9 @@ async function main(): Promise<void> {
         : undefined;
       return {
       snapshot: activeSnapshot(),
-      snapshotIsAvailable: activeSession !== undefined || lastSnapshot !== undefined,
+      snapshotIsAvailable: activeSession
+        ? activeSession.pipeline === "direct"
+        : lastSnapshot !== undefined,
       metadata: activeSession?.getMetadata(),
       verticalGrid: appliedValues["coordinates.verticalTransform"],
       heightOffsetMeters: activeConfig.renderer === "cesium"
@@ -2056,6 +2131,56 @@ async function main(): Promise<void> {
       };
     },
   );
+  const tilesDiagnosticsTarget = document.createElement("div");
+  healthPanel.append(tilesDiagnosticsTarget);
+  const tilesDiagnosticsPanel = mountDiagnosticSections(
+    tilesDiagnosticsTarget,
+    [{
+      id: "health-tiles-pipeline",
+      title: "Experimental 3D Tiles pipeline",
+      description: "Live counters come from the Adapter Core source, Tiles resource server, and active renderer. Unsupported conservative bounds stop before content GLBs are requested.",
+      initiallyOpen: true,
+      fields: [
+        { key: "tilesActivePipeline", label: "Active pipeline" },
+        { key: "tilesAttemptStatus", label: "Tiles attempt status" },
+        { key: "tilesSourceCrs", label: "Source CRS" },
+        { key: "tilesBounds", label: "Conservative bounds" },
+        { key: "tilesBoundsReason", label: "Bounds reason" },
+        { key: "tilesHierarchy", label: "Scanned hierarchy" },
+        { key: "tilesRequested", label: "Content GLB requests" },
+        { key: "tilesLoaded", label: "Loaded tiles" },
+        { key: "tilesVisible", label: "Visible tiles" },
+        { key: "tilesRenderedPoints", label: "Visible points" },
+        { key: "tilesResourceBytes", label: "Resource bytes served" },
+        { key: "tilesGlbBytes", label: "Generated GLB bytes served" },
+        { key: "tilesSourceGeneration", label: "Adapter source generation" },
+        { key: "tilesError", label: "Tiles pipeline error" },
+      ],
+    }],
+    { className: "copc-debug-panel__groups", sectionClassName: "copc-debug-panel__section workbench-diagnostic-section" },
+  );
+  const updateTilesDiagnosticsPanel = (): void => {
+    const value = tilesDiagnostics;
+    tilesDiagnosticsPanel.update({
+      tilesActivePipeline: activeConfig.pipeline === "tiles" ? "3D Tiles (Experimental)" : "Direct COPC",
+      tilesAttemptStatus: value?.status ?? "No 3D Tiles attempt in this session",
+      tilesSourceCrs: value?.sourceCrs,
+      tilesBounds: value?.boundsSupport,
+      tilesBoundsReason: value?.boundsReason,
+      tilesHierarchy: value
+        ? `${value.hierarchyNodes} nodes · ${value.hierarchyPages} pages · ${value.hierarchyPageBytes.toLocaleString()} bytes`
+        : undefined,
+      tilesRequested: value?.requestedTiles.toLocaleString(),
+      tilesLoaded: value?.loadedTiles.toLocaleString(),
+      tilesVisible: value?.visibleTiles.toLocaleString(),
+      tilesRenderedPoints: value?.renderedPoints.toLocaleString(),
+      tilesResourceBytes: value?.resourceBytes.toLocaleString(),
+      tilesGlbBytes: value?.glbBytes.toLocaleString(),
+      tilesSourceGeneration: value?.sourceGeneration?.toString(),
+      tilesError: value?.error,
+    });
+  };
+  updateTilesDiagnosticsPanel();
   setInspectorPolling = (enabled) => debugPanel.setPollingEnabled(enabled);
   debugPanel.setPollingEnabled(
     inspectorExpanded && tabUsesDiagnostics(selectedRightTab),
@@ -2153,6 +2278,9 @@ async function main(): Promise<void> {
 
     const recreate =
       purpose === "reload" ||
+      activeConfig.pipeline !== config.pipeline ||
+      activeConfig.pipeline === "tiles" ||
+      config.pipeline === "tiles" ||
       !sameSource(activeConfig.source, config.source) ||
       needsSessionRecreation(
         activeConfig,
@@ -2263,6 +2391,14 @@ async function main(): Promise<void> {
       const reportCandidateError = (error: unknown): void => {
         if (currentGeneration !== generation || disposed) return;
         lastError = safeErrorMessage(error);
+        if (config.pipeline === "tiles" && tilesDiagnostics) {
+          tilesDiagnostics = Object.freeze({
+            ...tilesDiagnostics,
+            status: "error",
+            error: lastError,
+          });
+          updateTilesDiagnosticsPanel();
+        }
         updateStatus(lastError, "error");
         debugPanel.refresh();
       };
@@ -2282,8 +2418,20 @@ async function main(): Promise<void> {
         pointPopover.updatePosition(position);
       };
       recordApplyTrace(applyTrace, "session-create-started");
-      candidateSession =
-        config.renderer === "cesium"
+      candidateSession = config.pipeline === "tiles"
+        ? await createTilesPipelineSession(
+            candidateMount,
+            config,
+            controller.signal,
+            () => currentGeneration === generation && !disposed,
+            (value) => {
+              if (currentGeneration !== generation || disposed) return;
+              tilesDiagnostics = value;
+              updateTilesDiagnosticsPanel();
+            },
+            reportCandidateError,
+          )
+        : config.renderer === "cesium"
           ? await createCesiumSession(
               candidateMount,
               config,
@@ -2312,6 +2460,7 @@ async function main(): Promise<void> {
 
       if (
         previousCamera &&
+        activeConfig.pipeline === config.pipeline &&
         previousCamera.engine === candidateSession.renderer &&
         sameSource(activeConfig.source, config.source)
       ) {
@@ -2338,6 +2487,8 @@ async function main(): Promise<void> {
       activeDebugAdapter = candidateSession.debugAdapter;
       activeDebugAdapter?.activate();
       activeConfig = { ...config };
+      tilesDiagnostics = candidateSession.getTilesDiagnostics?.();
+      updateTilesDiagnosticsPanel();
       workbenchControls?.updateContext();
       updatePointVerticalReferenceContext();
       const appliedValues = toWorkbenchOptionValues(config);
@@ -2373,7 +2524,8 @@ async function main(): Promise<void> {
       configurationError = undefined;
       lastError = undefined;
       updateStatus(
-        "Ready · " + getSafeSourceLabel(config.source, window.location.href),
+        (config.pipeline === "tiles" ? "Ready · 3D Tiles (Experimental) · " : "Ready · ") +
+          getSafeSourceLabel(config.source, window.location.href),
         "ready",
       );
       recordApplyTrace(applyTrace, "status-ready");
@@ -2389,6 +2541,7 @@ async function main(): Promise<void> {
       if (stagedSession === candidateSession) stagedSession = undefined;
       if (stagedMount === candidateMount) stagedMount = undefined;
       lastError = safeErrorMessage(error);
+      controller.abort();
       recordApplyTrace(applyTrace, "apply-error");
       configurationError = lastError;
       updateStatus(lastError, "error");
@@ -2524,6 +2677,7 @@ async function main(): Promise<void> {
       };
     },
     sourcePresets: new Map<string, string>([
+      ["wgs84-demo", "/samples/demo-wgs84.copc.laz"],
       ["local-autzen", DEFAULT_COPC_URL],
       ["autzen-remote", AUTZEN_REMOTE_URL],
       ["chicago-remote", CHICAGO_REMOTE_URL],
@@ -2542,6 +2696,10 @@ async function main(): Promise<void> {
       };
       updateConfigurationState();
       return cameraRenderDistance;
+    },
+    onPipelineSelected(value) {
+      pendingConfig = { ...pendingConfig, pipeline: value };
+      updateConfigurationState();
     },
     onCesiumRendererSelected(value) {
       resolveStartupIssue("cesiumRenderer");
@@ -2689,6 +2847,7 @@ async function main(): Promise<void> {
     getConfiguration: () => publicConfig(activeConfig),
     getPendingConfiguration: () => publicConfig(pendingConfig),
     getLastApplyTrace: () => lastApplyTrace?.events.map((event) => ({ ...event })) ?? [],
+    getTilesDiagnostics: () => activeSession?.getTilesDiagnostics?.() ?? tilesDiagnostics,
   };
 
   window.addEventListener(
@@ -2698,6 +2857,7 @@ async function main(): Promise<void> {
       generation += 1;
       probeAbortController?.abort();
       debugPanel.destroy();
+      tilesDiagnosticsPanel.destroy();
       integrationCodePanel.destroy();
       rightTabs.destroy();
       workbenchControls?.destroy();

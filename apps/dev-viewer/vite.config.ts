@@ -10,6 +10,7 @@ const packageSourceDirectory = path.resolve(
   repositoryDirectory,
   "packages/adapter",
 );
+const tilesPackageSourceDirectory = path.resolve(repositoryDirectory, "packages/tiles");
 const isolatedCesiumPackageDirectory = process.env.COPC_TEST_CESIUM_PACKAGE_DIR;
 const adapterPackage = JSON.parse(
   fs.readFileSync(path.join(packageSourceDirectory, "package.json"), "utf8"),
@@ -136,12 +137,28 @@ export default defineConfig({
         replacement: path.resolve(packageSourceDirectory, "index.ts"),
       },
       {
+        find: /^@frillab\/copc-adapter\/core$/,
+        replacement: path.resolve(packageSourceDirectory, "core.ts"),
+      },
+      {
         find: /^@frillab\/copc-adapter\/cesium$/,
         replacement: path.resolve(packageSourceDirectory, "cesium.ts"),
       },
       {
         find: /^@frillab\/copc-adapter\/three$/,
         replacement: path.resolve(packageSourceDirectory, "three.ts"),
+      },
+      {
+        find: /^@frillab\/copc-tiles$/,
+        replacement: path.resolve(tilesPackageSourceDirectory, "src/index.ts"),
+      },
+      {
+        find: /^@frillab\/copc-tiles\/adapter\/copc-core$/,
+        replacement: path.resolve(tilesPackageSourceDirectory, "src/adapter/copcCoreAdapter.ts"),
+      },
+      {
+        find: /^@frillab\/copc-tiles\/resources$/,
+        replacement: path.resolve(tilesPackageSourceDirectory, "src/resources/index.ts"),
       },
       {
         find: /^laz-perf$/,

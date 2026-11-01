@@ -37,6 +37,7 @@ import type {
   CesiumPointRendererVariant,
   DevViewerConfig,
   RenderingEngine,
+  RenderingPipeline,
 } from "./devViewerConfig";
 import { toWorkbenchOptionValues } from "./devViewerConfig";
 
@@ -44,6 +45,7 @@ export type DevViewerControlsOptions = {
   readonly initialConfig: DevViewerConfig;
   readonly sourcePresets: ReadonlyMap<string, string>;
   readonly onEngineSelected: (engine: RenderingEngine) => number;
+  readonly onPipelineSelected: (pipeline: RenderingPipeline) => void;
   readonly onCesiumRendererSelected: (
     renderer: CesiumPointRendererVariant,
   ) => void;
@@ -89,6 +91,7 @@ export function mountDevViewerControls(
 ): DevViewerControls {
   const HOST_RUNTIME_CAPABILITIES = WORKSPACE_CURRENT_CAPABILITIES;
   const sourceSelect = document.querySelector<HTMLSelectElement>("#source-selection")!;
+  const pipelineSelect = document.querySelector<HTMLSelectElement>("#rendering-pipeline")!;
   const customUrl = document.querySelector<HTMLInputElement>("#custom-source-url")!;
   const fileInput = document.querySelector<HTMLInputElement>("#local-source-file")!;
   const cameraDistanceInput = document.querySelector<HTMLInputElement>("#camera-render-distance")!;
@@ -117,6 +120,7 @@ export function mountDevViewerControls(
     ([, source]) => source === initialUrl,
   )?.[0];
   sourceSelect.value = initialPreset ?? "custom";
+  pipelineSelect.value = options.initialConfig.pipeline;
   customUrl.disabled = sourceSelect.value !== "custom";
   if (sourceSelect.value === "custom") customUrl.value = initialUrl;
 
@@ -182,6 +186,10 @@ export function mountDevViewerControls(
     if (sourceSelect.value !== "local-file") fileInput.value = "";
     updateSelectedSource();
   };
+  const onPipelineSelectionChange = (): void => {
+    if (pipelineSelect.value !== "direct" && pipelineSelect.value !== "tiles") return;
+    options.onPipelineSelected(pipelineSelect.value);
+  };
   const onCustomUrlInput = (): void => {
     if (sourceSelect.value === "custom") updateSelectedSource();
   };
@@ -204,6 +212,7 @@ export function mountDevViewerControls(
     options.onPendingConfigChange({ source: file });
   };
   sourceSelect.addEventListener("change", onSourceSelectionChange);
+  pipelineSelect.addEventListener("change", onPipelineSelectionChange);
   customUrl.addEventListener("input", onCustomUrlInput);
   fileInput.addEventListener("change", onLocalFileChange);
 
@@ -418,6 +427,7 @@ export function mountDevViewerControls(
       mountedControls.forEach((control) => control.destroy());
       schemaPanel?.destroy();
       sourceSelect.removeEventListener("change", onSourceSelectionChange);
+      pipelineSelect.removeEventListener("change", onPipelineSelectionChange);
       customUrl.removeEventListener("input", onCustomUrlInput);
       fileInput.removeEventListener("change", onLocalFileChange);
       cameraDistanceInput.removeEventListener("change", onCameraDistanceChange);

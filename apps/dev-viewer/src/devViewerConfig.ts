@@ -24,6 +24,7 @@ import { requestedDimensionNames } from "../../shared/workbench/dimensionModel.t
 import type { SchemaDimensionFilter, SchemaDimensionStyle } from "../../shared/schema/types.ts";
 
 export type RenderingEngine = WorkbenchRenderer;
+export type RenderingPipeline = "direct" | "tiles";
 export type CesiumPointRendererVariant = "point-primitive" | "batched-geometry";
 export type CameraPreset = WorkbenchCameraPreset;
 
@@ -39,6 +40,8 @@ export type DevViewerConfig = Omit<
   /** Schema options that have no legacy flat field in this host config. */
   schemaOptionValues?: Readonly<Record<string, unknown>>;
   renderer: RenderingEngine;
+  /** Developer-only renderer pipeline; Direct remains the compatibility default. */
+  pipeline: RenderingPipeline;
   cesiumRenderer: CesiumPointRendererVariant;
   refinementAlgorithm: RefinementAlgorithm;
   motionLookahead: boolean;
@@ -184,6 +187,9 @@ export function validateDevViewerConfig(
   if (config.renderer !== "cesium" && config.renderer !== "three") {
     return "Choose Cesium or Three.js as the rendering engine.";
   }
+  if (config.pipeline !== "direct" && config.pipeline !== "tiles") {
+    return "Choose Direct COPC or the experimental 3D Tiles pipeline.";
+  }
   if (
     config.cesiumRenderer !== "point-primitive" &&
     config.cesiumRenderer !== "batched-geometry"
@@ -286,6 +292,7 @@ export function hasUnappliedSettings(
   pending: DevViewerConfig,
 ): boolean {
   return (
+    applied.pipeline !== pending.pipeline ||
     getChangedWorkbenchOptionIds(
       toWorkbenchOptionValues(applied),
       toWorkbenchOptionValues(pending),
@@ -304,6 +311,9 @@ export function needsSessionRecreation(
   hostValidators: SchemaHostValidators = {},
 ): boolean {
   if (!hasActiveSession) return true;
+  if (applied.pipeline !== next.pipeline || applied.pipeline === "tiles" || next.pipeline === "tiles") {
+    return true;
+  }
   const appliedValues = toWorkbenchOptionValues(applied);
   const nextValues = toWorkbenchOptionValues(next);
   if (!currentSourceUsesHttp) {

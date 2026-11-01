@@ -28,6 +28,7 @@ import {
 function createConfig(overrides = {}) {
   return {
     renderer: "cesium",
+    pipeline: "direct",
     cesiumRenderer: "point-primitive",
     backend: "copc-js",
     refinementAlgorithm: "foveated",
@@ -112,6 +113,19 @@ test("marks constructor-time settings pending and keeps Cesium color updates liv
     ),
     true,
   );
+});
+
+test("treats the experimental rendering pipeline as a session setting without changing the Direct default", () => {
+  const applied = createConfig();
+  assert.equal(applied.pipeline, "direct");
+  const pending = createConfig({ pipeline: "tiles" });
+  assert.equal(hasUnappliedSettings(applied, pending), true);
+  assert.equal(needsSessionRecreation(applied, pending, true, true), true);
+  assert.equal(
+    needsSessionRecreation(pending, createConfig({ renderer: "three", pipeline: "tiles" }), true, true),
+    true,
+  );
+  assert.equal(validateDevViewerConfig(createConfig({ pipeline: "unknown" })), "Choose Direct COPC or the experimental 3D Tiles pipeline.");
 });
 
 test("runtime color changes preserve pending non-color schema edits", () => {
