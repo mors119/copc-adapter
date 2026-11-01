@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import semver from 'semver';
 import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -9,6 +8,39 @@ import { fileURLToPath } from 'node:url';
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = resolve(packageRoot, '../..');
 const packagePrefix = `${packageRoot.slice(repositoryRoot.length + 1)}${sep}`;
+
+if (process.argv.includes('--preflight')) {
+  const listed = spawnSync('git', ['ls-files', '-z'], { cwd: repositoryRoot, encoding: 'utf8' });
+  if (listed.error) throw listed.error;
+  if (listed.status !== 0) throw new Error(`git ls-files failed with exit code ${listed.status}.`);
+  const trackedFiles = listed.stdout.split('\0');
+  assert.ok(trackedFiles.includes(`${packagePrefix}package.json`), 'tracked Tiles package manifest is present');
+  assert.ok(
+    trackedFiles.includes(`${packagePrefix}scripts/test-migration-staging.mjs`),
+    'tracked staging script is present',
+  );
+
+  const repositoryLock = JSON.parse(await readFile(join(repositoryRoot, 'package-lock.json'), 'utf8'));
+  for (const workspace of ['packages/adapter', 'packages/tiles']) {
+    const actual = JSON.parse(await readFile(join(repositoryRoot, workspace, 'package.json'), 'utf8'));
+    const locked = repositoryLock.packages?.[workspace];
+    assert.equal(locked?.name, actual.name, `${workspace} name matches root lockfile`);
+    assert.equal(locked?.version, actual.version, `${workspace} version matches root lockfile`);
+  }
+
+  const tilesManifest = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8'));
+  const lockedTiles = repositoryLock.packages?.['packages/tiles'];
+  assert.deepEqual(lockedTiles?.peerDependencies, tilesManifest.peerDependencies, 'Tiles peer dependencies match the root lockfile');
+  assert.deepEqual(
+    lockedTiles?.peerDependenciesMeta,
+    tilesManifest.peerDependenciesMeta,
+    'Tiles peer dependency metadata matches the root lockfile',
+  );
+  console.log('Fast workspace manifest/lockfile preflight passed; dependency installation and browser tests are deferred.');
+  process.exit(0);
+}
+
+const semver = (await import('semver')).default;
 const adapterArtifactDirectory = join(repositoryRoot, 'ci-artifacts');
 const adapterArtifacts = await readdir(adapterArtifactDirectory).catch((error) => {
   if (error?.code === 'ENOENT') return [];
