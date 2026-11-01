@@ -535,11 +535,16 @@ function projectedUpAxisUnitScale(wkt: string): number | undefined {
       return { section, direction, order };
     })
     .sort((left, right) => left.order - right.order);
+  const eastWestDirections = ["EAST", "WEST"];
+  const northSouthDirections = ["NORTH", "SOUTH"];
+  const hasEastNorthOrder = eastWestDirections.includes(axes[0]?.direction ?? "") &&
+    northSouthDirections.includes(axes[1]?.direction ?? "");
+  const hasNorthEastOrder = northSouthDirections.includes(axes[0]?.direction ?? "") &&
+    eastWestDirections.includes(axes[1]?.direction ?? "");
   if (
     coordinateSystem?.[1].toLowerCase() !== "cartesian" ||
     Number(coordinateSystem[2]) !== 3 || axes.length !== 3 ||
-    axes[0]?.order !== 1 || !["EAST", "WEST"].includes(axes[0].direction ?? "") ||
-    axes[1]?.order !== 2 || !["NORTH", "SOUTH"].includes(axes[1].direction ?? "") ||
+    axes[0]?.order !== 1 || axes[1]?.order !== 2 || (!hasEastNorthOrder && !hasNorthEastOrder) ||
     axes[2]?.order !== 3 || axes[2].direction !== "UP"
   ) return undefined;
   const unit = findDirectWktSections(axes[2].section, ["LENGTHUNIT["])[0]?.section;

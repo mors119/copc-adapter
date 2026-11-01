@@ -216,7 +216,15 @@ test("keeps projected horizontal and ellipsoidal-height axis units independent",
     'AXIS["(N)",north,ORDER[1],LENGTHUNIT["metre",1]],AXIS["(E)",east,ORDER[2],LENGTHUNIT["metre",1]]',
   );
   assert.equal(extractHorizontalUnitScale(northEastAxes), 1);
+  assert.equal(extractVerticalUnitScale(northEastAxes), 0.304800609601219);
   assert.equal(resolveCopcCrsMetadata(northEastAxes).horizontal.axisOrder.order, "north-east");
+
+  const northEastMetadata = { ...metadata, wkt: northEastAxes };
+  const northEastPrepared = transformPointBufferToPreparedPointData(northEastMetadata, {
+    pointCount: 1,
+    coordinates: new Float64Array([5_020_000, 500_000, 100]),
+  });
+  assert.ok(Math.abs(northEastPrepared.coordinates[2] - 30.4800609601219) < 1e-9);
 });
 
 test("validates the explicit EPSG:4979 ellipsoidal height unit", () => {
