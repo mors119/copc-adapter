@@ -172,7 +172,18 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: |
+            package-lock.json
             packages/package-lock.json
+            apps/dev-viewer/package-lock.json
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install viewer dependencies
+        run: npm ci --prefix apps/dev-viewer
+
+      - name: Install Chromium for packed Three validation
+        run: npx --prefix apps/dev-viewer playwright install --with-deps chromium
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -206,6 +217,9 @@ jobs:
           printf 'PACKAGE_CANDIDATE=%s\n' "${candidates[0]}" >> "$GITHUB_ENV"
           package_sha256=$(sha256sum "${candidates[0]}" | cut -d ' ' -f 1)
           printf 'package_sha256=%s\n' "$package_sha256" >> "$GITHUB_OUTPUT"
+
+      - name: Download sample dataset
+        run: npm run download-samples -- autzen
 
       - name: Run packed Three.js artifact smoke test
         run: node scripts/pack-three-smoke-test.mjs "$PACKAGE_CANDIDATE"
