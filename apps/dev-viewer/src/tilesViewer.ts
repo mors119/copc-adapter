@@ -301,6 +301,8 @@ async function createCesiumTilesRenderer(
   let tileset: Cesium.Cesium3DTileset | undefined;
   let destroyed = false;
   let initialDistance = 300;
+  const initialHeading = 0;
+  const initialPitch = Cesium.Math.toRadians(-38);
   let renderedPoints = 0;
   let added = false;
   let lastTileFailure = "";
@@ -348,7 +350,7 @@ async function createCesiumTilesRenderer(
     initialDistance = Math.max(80, sphere.radius * 4);
     await viewer.zoomTo(
       tileset,
-      new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(-38), initialDistance),
+      new Cesium.HeadingPitchRange(initialHeading, initialPitch, initialDistance),
     );
     await waitFor(
       () => [...visible.values()].some((count) => count > 0),
@@ -412,7 +414,14 @@ async function createCesiumTilesRenderer(
     },
     setCameraPreset(preset) {
       const distance = initialDistance * (preset === "near" ? 0.55 : preset === "far" ? 2.5 : 1);
-      setCameraDistance(distance);
+      viewer.camera.flyToBoundingSphere(tileset!.boundingSphere, {
+        duration: 0,
+        offset: new Cesium.HeadingPitchRange(
+          initialHeading,
+          initialPitch,
+          distance,
+        ),
+      });
     },
     destroy(): void {
       if (destroyed) return;

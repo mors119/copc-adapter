@@ -26,6 +26,12 @@ type DevViewerApi = {
   getConfiguration(): { pipeline: string; renderer: string };
   getTilesDiagnostics(): TilesDiagnostics | undefined;
   getTilesetUrl(): string | undefined;
+  getCameraState(): {
+    engine: string;
+    longitudeDegrees?: number;
+    latitudeDegrees?: number;
+    heightMeters?: number;
+  } | undefined;
 };
 
 declare global {
@@ -48,6 +54,12 @@ async function getTilesDiagnostics(page: import("@playwright/test").Page): Promi
 
 async function getTilesetUrl(page: import("@playwright/test").Page): Promise<string | undefined> {
   return page.evaluate(() => window.__COPC_DEV_VIEWER__?.getTilesetUrl());
+}
+
+async function getCameraState(
+  page: import("@playwright/test").Page,
+): Promise<Awaited<ReturnType<DevViewerApi["getCameraState"]>>> {
+  return page.evaluate(() => window.__COPC_DEV_VIEWER__?.getCameraState());
 }
 
 async function getFirstGlbUrl(page: import("@playwright/test").Page, tilesetUrl: string): Promise<string> {
@@ -123,6 +135,41 @@ test("Direct remains the default and the Cesium 3D Tiles pipeline renders genera
   expect(cesium!.resourceBytes).toBeGreaterThan(0);
   expect(cesium!.glbBytes).toBeGreaterThan(0);
   await expect(page.locator(".dev-session-mount .cesium-widget canvas")).toBeVisible();
+  await page.locator("#camera-control").locator("xpath=..").locator("summary").click();
+
+  const initialCamera = await getCameraState(page);
+  expect(initialCamera?.engine).toBe("cesium");
+  await page.getByRole("radiogroup", { name: "Camera presets" }).getByRole("radio", { name: "Far" }).click();
+  await expect.poll(async () => {
+    const camera = await getCameraState(page);
+    if (
+      camera?.engine !== "cesium" ||
+      typeof camera.longitudeDegrees !== "number" ||
+      typeof camera.latitudeDegrees !== "number" ||
+      typeof initialCamera?.longitudeDegrees !== "number" ||
+      typeof initialCamera.latitudeDegrees !== "number"
+    ) return 0;
+    return Math.hypot(
+      camera.longitudeDegrees - initialCamera.longitudeDegrees,
+      camera.latitudeDegrees - initialCamera.latitudeDegrees,
+    );
+  }).toBeGreaterThan(0.001);
+  await page.getByRole("radiogroup", { name: "Camera presets" }).getByRole("radio", { name: "Overview" }).click();
+  await expect.poll(async () => {
+    const camera = await getCameraState(page);
+    if (
+      camera?.engine !== "cesium" ||
+      typeof camera.longitudeDegrees !== "number" ||
+      typeof camera.latitudeDegrees !== "number" ||
+      typeof initialCamera?.longitudeDegrees !== "number" ||
+      typeof initialCamera.latitudeDegrees !== "number"
+    ) return Number.POSITIVE_INFINITY;
+    return Math.hypot(
+      camera.longitudeDegrees - initialCamera.longitudeDegrees,
+      camera.latitudeDegrees - initialCamera.latitudeDegrees,
+    );
+  }).toBeLessThan(0.001);
+
   await page.getByRole("tab", { name: "Health" }).click();
   const tilesDiagnosticsPanel = page.locator('[data-diagnostic-section="health-tiles-pipeline"]');
   await expect(tilesDiagnosticsPanel).toContainText("EPSG:4326");

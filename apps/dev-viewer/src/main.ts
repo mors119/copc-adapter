@@ -395,6 +395,7 @@ declare global {
       }>;
       getTilesDiagnostics(): TilesPipelineDiagnostics | undefined;
       getTilesetUrl(): string | undefined;
+      getCameraState(): ViewerCameraState | undefined;
     };
     __COPC_TEST_TERRAIN_HEIGHT__?: number;
   }
@@ -2878,6 +2879,7 @@ async function main(): Promise<void> {
     getLastApplyTrace: () => lastApplyTrace?.events.map((event) => ({ ...event })) ?? [],
     getTilesDiagnostics: () => activeSession?.getTilesDiagnostics?.() ?? tilesDiagnostics,
     getTilesetUrl: () => activeSession?.getTilesetUrl?.(),
+    getCameraState: () => activeSession?.getCameraState(),
   };
 
   window.addEventListener(
