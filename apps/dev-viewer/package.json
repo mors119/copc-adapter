@@ -33,7 +33,7 @@
     "@frillab/copc-tiles": "file:../../packages/tiles",
     "@playwright/test": "^1.55.0",
     "3d-tiles-renderer": "0.5.3",
-    "@types/node": "^26.6.5",
+    "@types/node": "^26.6.6",
     "@types/three": "^0.186.0",
     "cesium": "^1.142.0",
     "three": "^0.186.0",
