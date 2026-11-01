@@ -469,11 +469,13 @@ function createNodeContext(
     plan.source.verticalHeightKind?.value === 'ellipsoidal' &&
     plan.source.verticalHeightKind?.certainty === 'explicit' &&
     plan.source.verticalCrs?.name === 'WGS 84 ellipsoidal height';
-  const verticalStatus = plan.verticalGrid?.compatibility === 'validated' || explicitlyEllipsoidalHeight
-    ? 'verified'
-    : corrections.length > 0
-      ? 'unverified'
-      : 'unknown';
+  const verticalStatus = plan.manualHeightOffsetMeters !== 0
+    ? 'unverified'
+    : plan.verticalGrid?.compatibility === 'validated' || explicitlyEllipsoidalHeight
+      ? 'verified'
+      : corrections.length > 0
+        ? 'unverified'
+        : 'unknown';
   const bounds = prepared.ecefBounds;
   return Object.freeze({
     sourceIdentity,

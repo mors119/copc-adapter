@@ -341,6 +341,39 @@ test('preserves manual height offset and validated vertical-grid dependencies in
   assert.equal(result.verticalGrid.compatibility, 'validated');
 });
 
+test('manual height offsets keep decoded vertical placement unverified', async () => {
+  const ellipsoidalPlan = geographicPlan(4979, { heightOffsetMeters: 100 });
+  ellipsoidalPlan.source.verticalCrs = {
+    authority: 'EPSG', code: '4979', name: 'WGS 84 ellipsoidal height',
+  };
+  ellipsoidalPlan.source.verticalHeightKind = {
+    value: 'ellipsoidal', certainty: 'explicit',
+  };
+
+  const grid = validatedGridProvenance();
+  const griddedPlan = geographicPlan(4979, {
+    verticalGrid: grid,
+    heightOffsetMeters: 100,
+  });
+
+  for (const plan of [ellipsoidalPlan, griddedPlan]) {
+    const prepared = { ...preparedData(), transformPlan: plan };
+    const source = makeSource({
+      transformPlan: plan,
+      loadPreparedNodeData: async () => prepared,
+    });
+    const view = await wrap(source).loadNode(node, {});
+    assert.equal(view.context.heightOffsetMeters, 100);
+    assert.equal(view.context.verticalDatum.status, 'unverified');
+    assert.deepEqual(view.context.verticalDatum.corrections, [
+      { kind: 'manual-offset', offsetMeters: 100 },
+      ...(plan.verticalGrid === undefined ? [] : [{
+        kind: 'validated-grid', identifier: grid.id,
+      }]),
+    ]);
+  }
+});
+
 test('rejects conservative bounds whose vertical unit or validated grid differs from the active transform plan', () => {
   const grid = validatedGridProvenance();
   const plan = geographicPlan(4979, { verticalGrid: grid, verticalUnit: 'US survey foot' });
