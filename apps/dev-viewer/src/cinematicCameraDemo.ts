@@ -24,6 +24,7 @@ export type CinematicCameraDemo = {
   play(): boolean;
   stop(): void;
   isPlaying(): boolean;
+  invalidatePath(): void;
   destroy(): void;
 };
 
@@ -51,6 +52,9 @@ export function createCinematicCameraDemo(
   const direction = new Cesium.Cartesian3();
   const cameraUp = new Cesium.Cartesian3();
   const cameraRight = new Cesium.Cartesian3();
+  const observedCameraPosition = new Cesium.Cartesian3();
+  const observedCameraDirection = new Cesium.Cartesian3();
+  const observedCameraUp = new Cesium.Cartesian3();
   const animatedViewOptions = {
     destination: cameraPosition,
     orientation: { direction, up: cameraUp },
@@ -61,11 +65,14 @@ export function createCinematicCameraDemo(
   const enuFrame = new Cesium.Matrix4();
   let frameIndex = 0;
 
-  const onPointerDown = (): void => stop();
-  const onWheel = (): void => stop();
-  const onTouchStart = (): void => stop();
+  const onManualCameraInput = (): void => stop();
+  const onPointerDown = (): void => onManualCameraInput();
+  const onWheel = (): void => onManualCameraInput();
+  const onTouchStart = (): void => onManualCameraInput();
   const onKeyDown = (event: KeyboardEvent): void => {
-    if (event.target === canvas || canvas.contains(event.target as Node)) stop();
+    if (event.target === canvas || canvas.contains(event.target as Node)) {
+      onManualCameraInput();
+    }
   };
 
   const removeInputListeners = (): void => {
@@ -75,15 +82,40 @@ export function createCinematicCameraDemo(
     window.removeEventListener("keydown", onKeyDown, true);
   };
 
-  const addInputListeners = (): void => {
-    canvas.addEventListener("pointerdown", onPointerDown, true);
-    canvas.addEventListener("wheel", onWheel, true);
-    canvas.addEventListener("touchstart", onTouchStart, {
-      capture: true,
-      passive: true,
-    });
-    window.addEventListener("keydown", onKeyDown, true);
+  canvas.addEventListener("pointerdown", onPointerDown, true);
+  canvas.addEventListener("wheel", onWheel, true);
+  canvas.addEventListener("touchstart", onTouchStart, {
+    capture: true,
+    passive: true,
+  });
+  window.addEventListener("keydown", onKeyDown, true);
+
+  const captureCameraPose = (): void => {
+    if (viewer.isDestroyed()) return;
+    Cesium.Cartesian3.clone(viewer.camera.positionWC, observedCameraPosition);
+    Cesium.Cartesian3.clone(viewer.camera.directionWC, observedCameraDirection);
+    Cesium.Cartesian3.clone(viewer.camera.upWC, observedCameraUp);
   };
+
+  const cameraPoseChanged = (): boolean =>
+    Cesium.Cartesian3.distanceSquared(
+      viewer.camera.positionWC,
+      observedCameraPosition,
+    ) > 1e-10 ||
+    Cesium.Cartesian3.distanceSquared(
+      viewer.camera.directionWC,
+      observedCameraDirection,
+    ) > 1e-14 ||
+    Cesium.Cartesian3.distanceSquared(viewer.camera.upWC, observedCameraUp) >
+      1e-14;
+
+  const onPreRender = (): void => {
+    if (destroyed || viewer.isDestroyed()) return;
+    if (!playing && path && cameraPoseChanged()) path = undefined;
+    captureCameraPose();
+  };
+  captureCameraPose();
+  viewer.scene.preRender.addEventListener(onPreRender);
 
   const createPath = (): CameraPath | undefined => {
     if (viewer.isDestroyed()) return undefined;
@@ -230,7 +262,7 @@ export function createCinematicCameraDemo(
     if (!playing) return;
     playing = false;
     startTimestamp = undefined;
-    removeInputListeners();
+    captureCameraPose();
     onPlayingChange(false);
   };
 
@@ -258,8 +290,7 @@ export function createCinematicCameraDemo(
 
   const canPlay = (): boolean => {
     if (destroyed || viewer.isDestroyed()) return false;
-    path ??= createPath();
-    return path !== undefined;
+    return path !== undefined || createPath() !== undefined;
   };
 
   return {
@@ -267,21 +298,27 @@ export function createCinematicCameraDemo(
     play(): boolean {
       if (destroyed || viewer.isDestroyed()) return false;
       if (playing) return true;
-      if (!canPlay()) return false;
+      path ??= createPath();
+      if (!path) return false;
       playing = true;
       startTimestamp = undefined;
       setInitialView();
-      addInputListeners();
       onPlayingChange(true);
       frameId = window.requestAnimationFrame(tick);
       return true;
     },
     stop,
     isPlaying: () => playing,
+    invalidatePath(): void {
+      path = undefined;
+    },
     destroy(): void {
       destroyed = true;
       stop();
       removeInputListeners();
+      if (!viewer.isDestroyed()) {
+        viewer.scene.preRender.removeEventListener(onPreRender);
+      }
     },
   };
 }

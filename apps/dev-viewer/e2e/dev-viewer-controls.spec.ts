@@ -1190,6 +1190,14 @@ test("plays, stops, replays, and cancels the deterministic Cesium camera demo", 
   await expect(play).toBeEnabled();
   await expect(stop).toBeDisabled();
 
+  await page
+    .getByRole("radiogroup", { name: "Camera presets" })
+    .getByRole("radio", { name: "Far" })
+    .click();
+  const framingBeforePlayback = await page.evaluate(
+    () => window.__COPC_DEV_VIEWER__!.getCameraState(),
+  );
+
   const initialCounts = await page.evaluate(() => ({
     streamingUpdates: window.__COPC_DEBUG__!.getState().streamingUpdateCount,
   }));
@@ -1211,6 +1219,9 @@ test("plays, stops, replays, and cancels the deterministic Cesium camera demo", 
   });
   const firstStart = firstRun.start;
   const firstSample = firstRun.sample;
+  expect(positionDeltaMeters(firstStart, framingBeforePlayback)).toBeLessThan(
+    0.01,
+  );
   await expect(stop).toBeEnabled();
   await expect(play).toBeDisabled();
   const firstCounts = await page.evaluate(() => ({

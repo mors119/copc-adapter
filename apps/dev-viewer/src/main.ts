@@ -1255,9 +1255,11 @@ async function createCesiumSession(
     isTerrainHeightAlignmentEstimateCurrent: (estimate) =>
       layer.isTerrainHeightAlignmentEstimateCurrent(estimate),
     setCameraPreset(preset) {
+      cameraDemo.invalidatePath();
       debugAdapter.setCameraPreset(preset);
     },
     setCameraRenderDistance(distance) {
+      cameraDemo.invalidatePath();
       moveCameraToHeight(viewer, distance);
     },
     canPlayCameraDemo: () => {
@@ -1288,6 +1290,7 @@ async function createCesiumSession(
     },
     setCameraState(state) {
       if (state.engine !== "cesium") return;
+      cameraDemo.invalidatePath();
       viewer.camera.setView({
         destination: Cesium.Cartesian3.fromDegrees(
           state.longitudeDegrees,
