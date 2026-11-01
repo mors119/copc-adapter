@@ -16,7 +16,7 @@ import {
   type TileNodeSource,
 } from './tileNodeSource.js';
 
-const DEFAULT_LIMITS = Object.freeze({
+export const TILE_NODE_READER_DEFAULT_LIMITS = Object.freeze({
   maxHierarchyPages: 512,
   maxHierarchyPageBytes: 16 * 1024 * 1024,
   maxTotalHierarchyPageBytes: 64 * 1024 * 1024,
@@ -33,7 +33,7 @@ const DEFAULT_LIMITS = Object.freeze({
   maxConcurrentNodeReads: 4,
 });
 
-const HARD_LIMITS = Object.freeze({
+export const TILE_NODE_READER_HARD_LIMITS = Object.freeze({
   maxHierarchyPages: 4096,
   maxHierarchyPageBytes: 64 * 1024 * 1024,
   maxTotalHierarchyPageBytes: 256 * 1024 * 1024,
@@ -50,7 +50,8 @@ const HARD_LIMITS = Object.freeze({
   maxConcurrentNodeReads: 16,
 });
 
-type Limits = Readonly<{ [Key in keyof typeof DEFAULT_LIMITS]: number }>;
+export type ResolvedTileNodeReaderLimits = Readonly<{ [Key in keyof typeof TILE_NODE_READER_DEFAULT_LIMITS]: number }>;
+type Limits = ResolvedTileNodeReaderLimits;
 
 /**
  * Resolves only requested node keys. Hierarchy pages are loaded on demand and
@@ -82,7 +83,7 @@ export class TileNodeReader {
     this.#sourceIdentity = source.sourceIdentity;
     this.#sourceGeneration = source.sourceGeneration;
     this.#transformGeneration = source.transformGeneration;
-    this.#limits = normalizeLimits(limits);
+    this.#limits = resolveTileNodeReaderLimits(limits);
   }
 
   async readNodes(
@@ -512,16 +513,16 @@ function normalizeRequestedKeys(keys: readonly string[], maxRequested: number): 
   return [...seen];
 }
 
-function normalizeLimits(input: TileNodeReaderLimits): Limits {
+export function resolveTileNodeReaderLimits(input: TileNodeReaderLimits = {}): ResolvedTileNodeReaderLimits {
   if (!input || typeof input !== 'object') {
     throw new TileNodeReaderError('INVALID_REQUEST', 'Reader limits must be an object.');
   }
-  const result: { -readonly [Key in keyof Limits]: number } = { ...DEFAULT_LIMITS };
-  for (const key of Object.keys(DEFAULT_LIMITS) as (keyof Limits)[]) {
+  const result: { -readonly [Key in keyof Limits]: number } = { ...TILE_NODE_READER_DEFAULT_LIMITS };
+  for (const key of Object.keys(TILE_NODE_READER_DEFAULT_LIMITS) as (keyof Limits)[]) {
     const value = input[key];
     if (value === undefined) continue;
-    if (!Number.isSafeInteger(value) || value <= 0 || value > HARD_LIMITS[key]) {
-      throw new TileNodeReaderError('INVALID_REQUEST', `${key} must be a positive safe integer no greater than ${HARD_LIMITS[key]}.`);
+    if (!Number.isSafeInteger(value) || value <= 0 || value > TILE_NODE_READER_HARD_LIMITS[key]) {
+      throw new TileNodeReaderError('INVALID_REQUEST', `${key} must be a positive safe integer no greater than ${TILE_NODE_READER_HARD_LIMITS[key]}.`);
     }
     result[key] = value;
   }

@@ -5,12 +5,17 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("../../../", import.meta.url)));
-const projected = process.argv.includes("--projected");
+const projectedEllipsoidal = process.argv.includes("--projected-ellipsoidal");
+const projected = process.argv.includes("--projected") || projectedEllipsoidal;
 const explicitOutput = process.argv.slice(2).find((argument) => !argument.startsWith("--"));
 const outputPath = resolve(explicitOutput ?? join(
   repositoryRoot,
-  projected ? "samples/local/demo-projected.copc.laz" : "samples/local/demo-wgs84.copc.laz",
+  projectedEllipsoidal
+    ? "samples/local/demo-projected-ellipsoidal.copc.laz"
+    : projected ? "samples/local/demo-projected.copc.laz" : "samples/local/demo-wgs84.copc.laz",
 ));
+
+const projectedEllipsoidalWkt = `COMPD_CS["WGS 84 / UTM zone 11N + WGS 84 ellipsoidal height",PROJCS["WGS 84 / UTM zone 11N",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4326"]],PROJECTION["Transverse_Mercator"],PARAMETER["latitude_of_origin",0],PARAMETER["central_meridian",-117],PARAMETER["scale_factor",0.9996],PARAMETER["false_easting",500000],PARAMETER["false_northing",0],UNIT["metre",1,AUTHORITY["EPSG","9001"]],AXIS["Easting",EAST],AXIS["Northing",NORTH],AUTHORITY["EPSG","32611"]],VERT_CS["WGS 84 ellipsoidal height",VERT_DATUM["WGS 84 ellipsoid",2002],UNIT["metre",1,AUTHORITY["EPSG","9001"]],AXIS["Ellipsoidal height",UP]]]`;
 
 function run(command, args) {
   return new Promise((resolveRun, rejectRun) => {
@@ -74,12 +79,16 @@ try {
       {
         type: "readers.text",
         filename: pointFile,
-        override_srs: projected ? "EPSG:32611" : "EPSG:4979",
+        override_srs: projectedEllipsoidal
+          ? projectedEllipsoidalWkt
+          : projected ? "EPSG:32611" : "EPSG:4979",
       },
       {
         type: "writers.copc",
         filename: outputPath,
-        a_srs: projected ? "EPSG:32611" : "EPSG:4979",
+        a_srs: projectedEllipsoidal
+          ? projectedEllipsoidalWkt
+          : projected ? "EPSG:32611" : "EPSG:4979",
         enhanced_srs_vlrs: true,
         fixed_seed: true,
         scale_x: projected ? 0.001 : 0.00000001,
@@ -100,7 +109,7 @@ try {
   if (!Number.isSafeInteger(pointCount) || pointCount !== columns * rowsCount || bytes < 65_536 || bytes > 2 * 1024 * 1024) {
     throw new Error(`Generated COPC validation failed: points=${String(pointCount)}, bytes=${bytes}.`);
   }
-  console.log(`Generated ${outputPath} · ${pointCount.toLocaleString()} points · ${(bytes / 1024).toFixed(1)} KiB · ${projected ? "projected EPSG:32611 fail-closed diagnostic" : "WGS 84 EPSG:4326 with ellipsoidal height"}.`);
+  console.log(`Generated ${outputPath} · ${pointCount.toLocaleString()} points · ${(bytes / 1024).toFixed(1)} KiB · ${projectedEllipsoidal ? "projected EPSG:32611 with declared WGS 84 ellipsoidal metre height" : projected ? "projected EPSG:32611 fail-closed diagnostic with unknown height" : "WGS 84 EPSG:4326 with ellipsoidal height"}.`);
 } catch (error) {
   if (error?.code === "ENOENT") {
     throw new Error("PDAL is required to generate the local demo COPC. Install PDAL with COPC reader/writer support, then rerun this command.", { cause: error });

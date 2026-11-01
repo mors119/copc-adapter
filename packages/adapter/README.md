@@ -88,6 +88,16 @@ Autzen source declares EPSG:6360 NAVD88 height in US survey feet and the
 compatibility point transform has no configured geoid grid, so its vertical
 datum remains unreconciled with WGS 84 ellipsoidal height.
 
+Core also recognizes one projected 3D height declaration for point preparation
+and CRS diagnostics: WKT2 `PROJCRS` with a Cartesian 3-axis system, ordered
+east/north/up axes, a `BASEGEOGCRS` identified as EPSG:4979, an explicitly
+named ellipsoidal-height UP axis, and a declared linear unit. This establishes
+explicit WGS 84 ellipsoidal-height semantics for those prepared points; the
+vertical operation is identity. It does not make projected
+`getConservativeNodeEcefBounds()` supported, establish a coordinate epoch, or
+claim survey-grade accuracy. Other projected 3D Z axes and unknown datums
+remain unverified.
+
 ```ts
 import { createCopcContext } from '@frillab/copc-adapter/core';
 

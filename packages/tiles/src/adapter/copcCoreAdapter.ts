@@ -102,7 +102,7 @@ export class CopcCoreNodeSource implements TileConservativeNodeSource {
     if (typeof options.source.getConservativeNodeEcefBounds !== 'function') {
       throw new CopcCoreAdapterError(
         'MISSING_CONSERVATIVE_BOUNDS_API',
-        'Adapter Core 0.7.1 getConservativeNodeEcefBounds(nodeKey) is required for the Tiles Core connector.',
+        'Adapter Core 0.7.1 or 0.8.x getConservativeNodeEcefBounds(nodeKey) is required for the Tiles Core connector.',
       );
     }
     if (!Number.isSafeInteger(options.source.sourceGeneration) || options.source.sourceGeneration < 0) {
@@ -465,7 +465,11 @@ function createNodeContext(
   if (plan.verticalGrid) {
     corrections.push({ kind: 'validated-grid' as const, identifier: plan.verticalGrid.id });
   }
-  const verticalStatus = plan.verticalGrid?.compatibility === 'validated'
+  const explicitlyEllipsoidalHeight =
+    plan.source.verticalHeightKind?.value === 'ellipsoidal' &&
+    plan.source.verticalHeightKind?.certainty === 'explicit' &&
+    plan.source.verticalCrs?.name === 'WGS 84 ellipsoidal height';
+  const verticalStatus = plan.verticalGrid?.compatibility === 'validated' || explicitlyEllipsoidalHeight
     ? 'verified'
     : corrections.length > 0
       ? 'unverified'

@@ -4,7 +4,7 @@ The repository root is private and defines two npm package workspaces:
 
 | Package | Path | Version | Role |
 | --- | --- | --- | --- |
-| `@frillab/copc-adapter` | `packages/adapter` | `0.7.1` | COPC Core, Cesium, and Three APIs |
+| `@frillab/copc-adapter` | `packages/adapter` | `0.8.0` | COPC Core, Cesium, and Three APIs |
 | `@frillab/copc-tiles` | `packages/tiles` | `0.1.0` | Source-neutral 3D Tiles engine and optional Adapter Core connector |
 
 They are independent npm distributions. Tiles may depend on public Adapter
@@ -27,13 +27,10 @@ automatic dependency fixes were applied as part of this migration.
 The Adapter candidate built from this repository is 654,469 bytes packed and
 2,322,555 bytes unpacked (129 entries). The existing npm
 `@frillab/copc-adapter@0.7.1` artifact is 646,494 bytes packed and 2,289,736
-bytes unpacked (127 entries), so the candidate is 7,975 bytes larger packed
-and 32,819 bytes larger unpacked. The candidate adds two terrain declaration
-files and has changed generated chunks and declarations. Those API and runtime
-source changes were already present on destination `main` at the recorded
-migration baseline; the package move itself changes only asset-copy script
-paths. The manifest remains `0.7.1` as required, so this candidate is not a
-replacement artifact to publish over the existing registry version.
+bytes unpacked (127 entries). The current `0.8.0` workspace candidate adds
+narrow WKT2 projected-height diagnostics without changing exports or public
+declaration shapes. It remains an unpublished review candidate; package
+packing and isolated consumer tests are not publication approval.
 
 The Tiles candidate is 98,968 bytes packed and 377,803 bytes unpacked (50
 entries), compared with 98,100 packed and 375,100 unpacked in the source
@@ -104,13 +101,13 @@ npm pack --workspace @frillab/copc-adapter --pack-destination /tmp/copc-adapter-
 npm pack --workspace @frillab/copc-tiles --pack-destination /tmp/copc-tiles-pack
 ```
 
-The Tiles packed-consumer script packs Tiles, then installs it into clean
-temporary consumers outside the workspace alongside the exact published
-Adapter 0.7.1 package. The consumer lock confirms a registry URL and no
-workspace link. Checks cover renderer-free Adapter Core, Adapter root/Cesium/
-Three entrypoints, Adapter-free Tiles Engine, Tiles with Adapter Core, strict
-NodeNext and Bundler declarations, runtime ESM imports, and renderer bundle
-graphs:
+The Tiles packed-consumer script packs both workspace artifacts, then installs
+Tiles into clean temporary consumers alongside the exact published Adapter
+0.7.1 package and the local packed Adapter 0.8.0 candidate. The 0.7.1 consumer
+lock confirms a Registry URL and no workspace link. Checks cover renderer-free
+Adapter Core, Adapter root/Cesium/Three entrypoints, Adapter-free Tiles Engine,
+Tiles with both Adapter package versions, strict NodeNext and Bundler
+declarations, runtime ESM imports, and renderer bundle graphs:
 
 ```bash
 npm run test:packed-consumer -w @frillab/copc-tiles
@@ -131,19 +128,20 @@ npm publish --workspace @frillab/copc-adapter
 npm publish --workspace @frillab/copc-tiles
 ```
 
-Never publish the repository root. This migration keeps Adapter `0.7.1` and
-Tiles `0.1.0`; it does not publish, create tags, or change release versions.
-Tiles currently declares Adapter `0.7.1` as both an optional peer and a
-development dependency. Any later compatibility-range change requires its
-own evidence and review.
+Never publish the repository root. This branch prepares Adapter `0.8.0` for
+review and keeps Tiles `0.1.0` independent and unpublished; it does not
+publish or create tags. Tiles keeps Adapter `0.7.1` as its exact development
+baseline and declares `^0.7.1 || ^0.8.0` as an optional peer range, tested
+against both packed artifacts.
 
 ## Current limits
 
-The package move does not complete the Tiles roadmap. Projected CRS conservative
-bounds for Autzen EPSG:2992 and SoFi EPSG:32611 remain unsupported, and real
-multi-node Tiles LOD is not complete. Live resource hierarchy scans require
-the explicit `scanCompleteHierarchy: true` option and remain bounded. T1–T12
-issues remain open and were not transferred or closed; issue ownership may
-need a later maintainer decision. See the original
+Projected CRS conservative source-cell bounds for Autzen EPSG:2992 and SoFi
+EPSG:32611 remain unsupported. The explicitly authorized decoded-content
+strategy bounds all points in a complete bounded hierarchy and remains a
+separate claim. Live resource hierarchy scans require
+`scanCompleteHierarchy: true` and remain bounded. T1–T12 issues remain open
+and were not transferred or closed; issue ownership may need a later
+maintainer decision. See the original
 [Tiles implementation-status record](https://github.com/FrilLab/copc-tiles/blob/main/docs/implementation-status.md)
 and [Tiles issue tracker](https://github.com/FrilLab/copc-tiles/issues).

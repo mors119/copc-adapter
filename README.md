@@ -37,7 +37,7 @@ for package development and validation.
 
 | Package | Directory | Responsibility |
 | --- | --- | --- |
-| `@frillab/copc-adapter@0.7.1` | [`packages/adapter`](packages/adapter/README.md) | COPC Core, Cesium, and Three entrypoints |
+| `@frillab/copc-adapter@0.8.0` | [`packages/adapter`](packages/adapter/README.md) | COPC Core, Cesium, and Three entrypoints |
 | `@frillab/copc-tiles@0.1.0` | [`packages/tiles`](packages/tiles/README.md) | Source-neutral 3D Tiles engine and optional public Adapter Core connector |
 
 The dependency direction is `@frillab/copc-tiles` →

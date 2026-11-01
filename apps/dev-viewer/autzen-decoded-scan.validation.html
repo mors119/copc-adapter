@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Autzen decoded-content validation</title></head>
+<body><pre id="result">Starting bounded Autzen validation…</pre>
+<script type="module">
+import { createCopcContext } from "@frillab/copc-adapter/core";
+import { CopcCoreNodeSource } from "@frillab/copc-tiles/adapter/copc-core";
+import { createCopcTileResourceProvider, getExplicitTileContentUri } from "@frillab/copc-tiles";
+
+const output = document.querySelector("#result");
+const metrics = { rangeBytes: 0, rangeCalls: 0 };
+const started = performance.now();
+const write = (label, values) => {
+  output.textContent += `\n${label} ${JSON.stringify(values)}`;
+  if (label === "Autzen decoded-content result") {
+    output.dataset.status = values.status;
+    output.dataset.summary = JSON.stringify(values);
+  }
+  console.log(label, values);
+};
+let context;
+let provider;
+try {
+  context = await createCopcContext(new URL("/samples/local/autzen.copc.laz", location.href).href, "rust", {
+    rangeValidation: "strict",
+    maxConcurrentRangeRequests: 2,
+  });
+  context.setPerformanceObserver?.((event) => {
+    if (event.stage === "rangeFetch" && event.bytes !== undefined) {
+      metrics.rangeBytes += event.bytes;
+      metrics.rangeCalls += 1;
+    }
+  });
+  const metadata = context.getMetadata();
+  write("Autzen source metadata", { points: metadata.pointCount, crs: metadata.crs });
+  const connector = new CopcCoreNodeSource({
+    source: context,
+    sourceIdentity: "autzen-decoded-content-browser-validation",
+    ownsSource: true,
+  });
+  context = undefined;
+  let lastLog = 0;
+  provider = await createCopcTileResourceProvider(connector, {
+    boundsStrategy: "decoded-content",
+    allowDecodedContentBounds: true,
+    scanCompleteHierarchy: true,
+    ownsSource: true,
+    readerLimits: {
+      maxHierarchyPages: 4096,
+      maxHierarchyPageBytes: 64 * 1024 * 1024,
+      maxTotalHierarchyPageBytes: 256 * 1024 * 1024,
+      maxHierarchyNodes: 500_000,
+      maxNodesPerPage: 250_000,
+      maxRequestedNodes: 2048,
+      maxPointsPerNode: 10_000_000,
+      maxTotalPoints: 20_000_000,
+      maxPointDataBytesPerNode: 512 * 1024 * 1024,
+      maxTotalPointDataBytes: 1024 * 1024 * 1024,
+      maxDecodedBytesPerNode: 768 * 1024 * 1024,
+      maxTotalDecodedBytes: 1536 * 1024 * 1024,
+      maxConcurrentNodeReads: 1,
+    },
+    tilesetOptions: { maxNodes: 500_000, maxTotalPoints: 20_000_000 },
+    onDecodedContentProgress(progress) {
+      if (progress.phase === "preflight" || performance.now() - lastLog > 10_000 || progress.phase === "complete") {
+        lastLog = performance.now();
+        write("Autzen scan progress", {
+          phase: progress.phase,
+          nodes: `${progress.scannedNodes}/${progress.contentNodes}`,
+          points: `${progress.scannedPoints}/${progress.totalPoints}`,
+          hierarchyPages: progress.hierarchyPages,
+          sourceRangeBytes: metrics.rangeBytes,
+          elapsedMilliseconds: Math.round(progress.elapsedMilliseconds),
+        });
+      }
+    },
+  });
+  const summary = provider.decodedContentScan;
+  if (!summary) throw new Error("Provider returned no complete scan summary.");
+  const contentEntries = [];
+  const visit = (tile) => {
+    if (tile.content?.uri && Number(tile.extras?.pointCount) > 0) {
+      contentEntries.push({ nodeKey: tile.extras.nodeKey, pointCount: tile.extras.pointCount });
+    }
+    for (const child of tile.children ?? []) visit(child);
+  };
+  visit(provider.tileset.root);
+  contentEntries.sort((a, b) => a.pointCount - b.pointCount);
+  const glbs = [];
+  for (const item of contentEntries.slice(0, 3)) {
+    const bytes = await provider.getResource(getExplicitTileContentUri(item.nodeKey), new AbortController().signal);
+    if (!bytes) throw new Error(`No GLB returned for ${item.nodeKey}`);
+    glbs.push({ nodeKey: item.nodeKey, pointCount: item.pointCount, glbBytes: bytes.byteLength });
+  }
+  write("Autzen decoded-content result", {
+    status: summary.status,
+    coverage: summary.coverage,
+    sourceCrs: summary.sourceCrs,
+    verticalDatum: summary.verticalDatum,
+    verticalPlacement: summary.verticalPlacement,
+    metadataOnlySourceCellStatus: summary.metadataOnlySourceCellStatus,
+    metadataOnlySourceCellReasonCode: summary.metadataOnlySourceCellReasonCode,
+    hierarchyNodes: summary.hierarchyNodes,
+    hierarchyPages: summary.hierarchyPages,
+    tilesetNodes: summary.tilesetNodes,
+    contentNodes: summary.contentNodes,
+    emptyNodes: summary.emptyNodes,
+    points: summary.scannedPoints,
+    pointDataBytes: summary.totalPointDataBytes,
+    ecefBytesScanned: summary.decodedEcefBytesScanned,
+    peakReturnedEcefBytes: summary.peakDecodedEcefBufferBytes,
+    sourceRangeBytesIncludingGlbs: metrics.rangeBytes,
+    sourceRangeCalls: metrics.rangeCalls,
+    preprocessingMilliseconds: Math.round(summary.scanDurationMilliseconds),
+    endToEndMilliseconds: Math.round(performance.now() - started),
+    glbs,
+  });
+} catch (error) {
+  const failure = {
+    message: error instanceof Error ? error.message : String(error),
+    code: error?.code,
+    nodeKey: error?.nodeKey,
+    sourceRangeBytes: metrics.rangeBytes,
+    elapsedMilliseconds: Math.round(performance.now() - started),
+  };
+  output.dataset.status = "failure";
+  output.dataset.summary = JSON.stringify(failure);
+  write("Autzen decoded-content failure", failure);
+} finally {
+  if (provider) await provider.close();
+  else if (context) await context.close();
+}
+</script></body></html>

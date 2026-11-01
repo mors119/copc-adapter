@@ -95,7 +95,7 @@ replacing the layer.
 Numeric dimension styling is gated by the installed package profile. The
 Playground lockfile currently pins npm `0.6.0`, which does not expose this API;
 its Workbench and generated examples therefore omit numeric dimension controls.
-The workspace `0.7.1` Dev Viewer supports exact-metadata field selection,
+The workspace `0.8.0` Dev Viewer supports exact-metadata field selection,
 editable ramps, and inclusive Cesium filters. Its API mapping and backend limits
 are documented in the [Dev Viewer guide](../dev-viewer/README.md#numeric-dimension-coloring).
 

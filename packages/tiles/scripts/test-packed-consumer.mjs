@@ -13,6 +13,7 @@ const typescriptCli = join(await findPackageDirectory('typescript'), 'bin/tsc');
 const tempRoot = await mkdtemp(join(tmpdir(), 'copc-tiles-packed-consumer-'));
 const packDirectory = join(tempRoot, 'packs');
 const consumerDirectory = join(tempRoot, 'renderers');
+const candidateConsumerDirectory = join(tempRoot, 'adapter-0.8-candidate');
 const coreOnlyDirectory = join(tempRoot, 'core-only');
 const engineOnlyDirectory = join(tempRoot, 'engine-only');
 const npmCli = process.env.npm_execpath;
@@ -91,8 +92,10 @@ try {
   runNpm(['pack', '--pack-destination', packDirectory], root, 'Tiles npm pack');
   const packedNames = (await readdir(packDirectory)).filter((name) => name.endsWith('.tgz'));
   assert.equal(packedNames.length, 1, 'npm pack produced one Tiles tarball');
-  const packedTiles = `file:${join(packDirectory, packedNames[0])}`;
-  const packedTilesPath = join(packDirectory, packedNames[0]);
+  const packedTilesName = packedNames[0];
+  if (!packedTilesName) throw new Error('Tiles npm pack did not produce a tarball.');
+  const packedTiles = `file:${join(packDirectory, packedTilesName)}`;
+  const packedTilesPath = join(packDirectory, packedTilesName);
   const packedTilesEntries = spawnSync('tar', ['-tzf', packedTilesPath], { encoding: 'utf8' });
   if (packedTilesEntries.error) throw packedTilesEntries.error;
   assert.equal(packedTilesEntries.status, 0, 'Tiles tarball can be inspected');
@@ -115,6 +118,12 @@ try {
   }
   assert.equal(tileFiles.some((file) => file.endsWith('.copc.laz')), false, 'Tiles tarball excludes COPC datasets');
   assert.equal(tileFiles.some((file) => file.includes('/node_modules/')), false, 'Tiles tarball excludes node_modules');
+
+  const adapterWorkspace = resolve(root, '../adapter');
+  runNpm(['pack', '--pack-destination', packDirectory], adapterWorkspace, 'Adapter 0.8.0 candidate npm pack');
+  const packedAdapterName = (await readdir(packDirectory)).find((name) => name.startsWith('frillab-copc-adapter-0.8.0.') && name.endsWith('.tgz'));
+  if (!packedAdapterName) throw new Error('Adapter 0.8.0 candidate npm pack did not produce a tarball.');
+  const packedAdapter = `file:${join(packDirectory, packedAdapterName)}`;
 
   await makeConsumer(consumerDirectory, {
     '@frillab/copc-adapter': '0.7.1',
@@ -149,6 +158,26 @@ try {
     assert.equal(directSources.some((source) => source.includes('@frillab/copc-tiles')), false, `Adapter /${renderer} bundle has no Tiles modules`);
     console.log(`Adapter /${renderer} consumer bundle has no Tiles source modules.`);
   }
+
+  await makeConsumer(candidateConsumerDirectory, {
+    '@frillab/copc-adapter': packedAdapter,
+    '@frillab/copc-tiles': packedTiles,
+    '@types/three': '0.186.0',
+    cesium: '1.146.0',
+    three: '0.186.1',
+    typescript: '5.9.3',
+  }, ['api.ts', 'tsconfig.nodenext.json', 'tsconfig.bundler.json', 'runtime.mjs']);
+  const candidateAdapterPath = join(candidateConsumerDirectory, 'node_modules/@frillab/copc-adapter');
+  const candidateAdapter = JSON.parse(await readFile(join(candidateAdapterPath, 'package.json'), 'utf8'));
+  assert.equal(candidateAdapter.version, '0.8.0', 'second consumer uses the packed Adapter 0.8.0 candidate');
+  assert.equal((await lstat(candidateAdapterPath)).isSymbolicLink(), false, 'Adapter 0.8.0 consumer does not resolve a workspace symlink');
+  const candidateTiles = JSON.parse(await readFile(join(candidateConsumerDirectory, 'node_modules/@frillab/copc-tiles/package.json'), 'utf8'));
+  assert.equal(candidateTiles.peerDependencies?.['@frillab/copc-adapter'], '^0.7.1 || ^0.8.0');
+  const candidateCompiler = join(candidateConsumerDirectory, 'node_modules/typescript/bin/tsc');
+  run(process.execPath, [candidateCompiler, '--project', 'tsconfig.nodenext.json'], candidateConsumerDirectory, 'Adapter 0.8 candidate strict NodeNext packed consumer typecheck');
+  run(process.execPath, [candidateCompiler, '--project', 'tsconfig.bundler.json'], candidateConsumerDirectory, 'Adapter 0.8 candidate strict Bundler packed consumer typecheck');
+  run(process.execPath, ['runtime.mjs'], candidateConsumerDirectory, 'Adapter 0.8 candidate packed consumer ESM imports');
+  console.log(`Adapter 0.8 candidate consumer installed file bytes: ${await installBytes(candidateConsumerDirectory)}`);
 
   await makeConsumer(coreOnlyDirectory, {
     '@frillab/copc-adapter': '0.7.1',
@@ -198,7 +227,8 @@ try {
   assert.equal(engineSources.some((source) => source.includes('@frillab/copc-adapter')), false, 'Tiles Engine bundle has no Adapter modules');
   assert.equal(engineSources.some((source) => source.includes('/cesium') || source.includes('/three')), false, 'Tiles Engine bundle has no renderer modules');
   console.log(`Tiles Engine consumer installed file bytes: ${await installBytes(engineOnlyDirectory)}`);
-  console.log(`Packed Tiles tarball: ${packedNames[0]}`);
+  console.log(`Packed Tiles tarball: ${packedTilesName}`);
+  console.log(`Packed Adapter candidate tarball: ${packedAdapterName}`);
 } finally {
   await rm(tempRoot, { recursive: true, force: true });
 }

@@ -70,6 +70,12 @@ const contextFor = (nodeKey: string, generation: number) => Object.freeze({
   sourceCrs: Object.freeze({ status: 'identified' as const, identifier: 'EPSG:4978', horizontalUnit: 'metre', verticalUnit: 'metre' }),
   verticalDatum: Object.freeze({ status: 'verified' as const, identifier: 'WGS 84 ellipsoidal height', corrections: Object.freeze([]) }),
   heightOffsetMeters: 0,
+  transformPlan: Object.freeze({
+    schema: 'copc-coordinate-transform-plan' as const,
+    version: 1 as const,
+    identity: Object.freeze({ key: 'browser-fixture-transform-v1' }),
+    manualHeightOffsetMeters: 0,
+  }),
 });
 
 const page = (key: string, pageOffset: number): TileHierarchyPage => Object.freeze({ key, pageOffset, pageLength: 32 });

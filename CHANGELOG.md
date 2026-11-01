@@ -6,6 +6,29 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-01 (release candidate; not published)
+
+### Added
+
+- Recognize a narrow, explicit WKT2 projected 3D height declaration as WGS 84
+  ellipsoidal only when the CRS has a Cartesian three-axis system, ordered
+  east/north/up axes, a `BASEGEOGCRS` identified as EPSG:4979, an explicitly
+  named ellipsoidal-height axis, and a declared linear unit. The existing Core
+  transform applies the vertical identity operation for this source evidence.
+- Keep projected source-cell `getConservativeNodeEcefBounds()` results
+  unsupported. A recognized height axis does not certify projected full-cell
+  bounds or survey-grade accuracy.
+
+### Validation and limitations
+
+- Add positive and fail-closed CRS diagnostic tests for missing/altered vertical
+  axes, wrong base CRS, dimensionality and height units. Packed declarations
+  remain the same public shape; the observable diagnostic becomes more
+  informative for this narrow WKT2 subset.
+- The explicit WGS 84 ensemble declaration does not establish a coordinate
+  epoch or survey-grade accuracy. Other projected 3D axes and vertical datums
+  remain unknown unless separately supported.
+
 ## [0.7.1] - 2026-10-30
 
 ### Added

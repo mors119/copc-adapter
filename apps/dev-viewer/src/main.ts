@@ -1389,6 +1389,7 @@ async function createTilesPipelineSession(
     rangeValidation: config.rangeValidation,
     heightOffsetMeters: config.heightOffsetMeters,
     verticalGrid,
+    boundsStrategy: config.tilesBoundsStrategy ?? "conservative-source-cell",
     renderer: config.renderer,
     signal,
     isCurrent,
@@ -1426,6 +1427,7 @@ async function main(): Promise<void> {
   const initialSource = getCopcUrl();
   const requestedEngine = params.get("renderer");
   const requestedPipeline = params.get("pipeline");
+  const requestedTilesBounds = params.get("tilesBounds");
   const renderer: RenderingEngine =
     requestedEngine === "three" ? "three" : "cesium";
   const requestedCesiumRenderer = params.get("cesiumRenderer");
@@ -1441,6 +1443,13 @@ async function main(): Promise<void> {
   };
   if (requestedPipeline !== null && requestedPipeline !== "direct" && requestedPipeline !== "tiles") {
     reportStartupIssue("pipeline", 'Unknown rendering pipeline; choose "direct" or "tiles".');
+  }
+  if (
+    requestedTilesBounds !== null &&
+    requestedTilesBounds !== "conservative-source-cell" &&
+    requestedTilesBounds !== "decoded-content"
+  ) {
+    reportStartupIssue("tilesBounds", 'Unknown 3D Tiles bounds strategy; choose "conservative-source-cell" or "decoded-content".');
   }
   if (
     requestedEngine !== null &&
@@ -1558,6 +1567,7 @@ async function main(): Promise<void> {
   const baseInitialConfig: DevViewerConfig = {
     renderer,
     pipeline: requestedPipeline === "tiles" ? "tiles" : "direct",
+    tilesBoundsStrategy: requestedTilesBounds === "decoded-content" ? "decoded-content" : "conservative-source-cell",
     cesiumRenderer,
     backend:
       initialOptions.backend === "rust" || initialOptions.backend === "copc-js"
@@ -2185,15 +2195,24 @@ async function main(): Promise<void> {
     [{
       id: "health-tiles-pipeline",
       title: "Experimental 3D Tiles pipeline",
-      description: "Live counters come from the Adapter Core source, Tiles resource server, and active renderer. Unsupported conservative bounds stop before content GLBs are requested.",
+      description: "Geometry coverage, Adapter preparation, and vertical placement are reported separately. Decoded-content bounds cover every scanned rendered point, not unobserved source cells.",
       initiallyOpen: true,
       fields: [
         { key: "tilesActivePipeline", label: "Active pipeline" },
         { key: "tilesAttemptStatus", label: "Tiles attempt status" },
         { key: "tilesSourceCrs", label: "Source CRS" },
-        { key: "tilesBounds", label: "Conservative bounds" },
+        { key: "tilesBounds", label: "Bounds status" },
+        { key: "tilesBoundsStrategy", label: "Bounds strategy" },
+        { key: "tilesBoundsCoverage", label: "Bounds coverage" },
+        { key: "tilesGeometryBounds", label: "Geometry bounds status" },
+        { key: "tilesMetadataOnlyBounds", label: "Metadata-only source-cell result" },
+        { key: "tilesSourceToEcef", label: "Source-to-ECEF preparation" },
+        { key: "tilesVerticalPlacement", label: "Vertical placement" },
+        { key: "tilesTransformPlan", label: "Transform plan identity" },
         { key: "tilesBoundsReason", label: "Bounds reason" },
         { key: "tilesHierarchy", label: "Scanned hierarchy" },
+        { key: "tilesContentScan", label: "Decoded-content scan" },
+        { key: "tilesRangeBytes", label: "Source Range bytes observed" },
         { key: "tilesRequested", label: "Content GLB requests" },
         { key: "tilesLoaded", label: "Loaded tiles" },
         { key: "tilesVisible", label: "Visible tiles" },
@@ -2213,10 +2232,25 @@ async function main(): Promise<void> {
       tilesAttemptStatus: value?.status ?? "No 3D Tiles attempt in this session",
       tilesSourceCrs: value?.sourceCrs,
       tilesBounds: value?.boundsSupport,
+      tilesBoundsStrategy: value?.boundsStrategy,
+      tilesBoundsCoverage: value?.boundsCoverage,
+      tilesGeometryBounds: value?.geometryBoundsStatus,
+      tilesMetadataOnlyBounds: value
+        ? `${value.metadataOnlySourceCellStatus}${value.metadataOnlySourceCellReason ? ` · ${value.metadataOnlySourceCellReason}` : ""}`
+        : undefined,
+      tilesSourceToEcef: value?.sourceToEcefStatus,
+      tilesVerticalPlacement: value
+        ? `${value.verticalPlacementStatus}${value.verticalPlacementReason ? ` · ${value.verticalPlacementReason}` : ""}`
+        : undefined,
+      tilesTransformPlan: value?.transformPlanIdentity,
       tilesBoundsReason: value?.boundsReason,
       tilesHierarchy: value
         ? `${value.hierarchyNodes} nodes · ${value.hierarchyPages} pages · ${value.hierarchyPageBytes.toLocaleString()} bytes`
         : undefined,
+      tilesContentScan: value?.boundsStrategy === "decoded-content"
+        ? `${value.contentScanPhase} · ${value.contentNodesScanned.toLocaleString()}/${value.contentNodesTotal.toLocaleString()} nodes · ${value.contentPointsScanned.toLocaleString()}/${value.contentPointsTotal.toLocaleString()} points · ${value.contentPointDataBytes.toLocaleString()} point-data bytes · ${value.contentEcefBytesScanned.toLocaleString()} ECEF bytes · ${value.peakDecodedEcefBufferBytes.toLocaleString()} peak ECEF buffer · ${value.scanDurationMilliseconds.toFixed(1)} ms`
+        : undefined,
+      tilesRangeBytes: value?.sourceRangeBytesObserved.toLocaleString(),
       tilesRequested: value?.requestedTiles.toLocaleString(),
       tilesLoaded: value?.loadedTiles.toLocaleString(),
       tilesVisible: value?.visibleTiles.toLocaleString(),
@@ -2771,6 +2805,11 @@ async function main(): Promise<void> {
       ) {
         updateStatus("Configuration ready · load the selected source.", "inactive");
       }
+      updateConfigurationState();
+    },
+    onTilesBoundsStrategySelected(value) {
+      resolveStartupIssue("tilesBounds");
+      pendingConfig = { ...pendingConfig, tilesBoundsStrategy: value };
       updateConfigurationState();
     },
     onCesiumRendererSelected(value) {

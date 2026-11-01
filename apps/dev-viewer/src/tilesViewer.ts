@@ -16,6 +16,7 @@ import { CopcCoreNodeSource } from "@frillab/copc-tiles/adapter/copc-core";
 import {
   createCopcTileResourceProvider,
   createTileResourceServer,
+  type DecodedContentScanProgress,
   type TileResourceServer,
 } from "@frillab/copc-tiles";
 import { registerTileResourceRoute, type TileResourceRoute } from "./tileResourceRoute";
@@ -45,6 +46,7 @@ export type CreateTilesViewerOptions = Readonly<{
   rangeValidation: "head-fallback" | "strict";
   heightOffsetMeters: number;
   verticalGrid?: GtxGeoidGrid;
+  boundsStrategy: "conservative-source-cell" | "decoded-content";
   renderer: "cesium" | "three";
   signal: AbortSignal;
   isCurrent(): boolean;
@@ -61,6 +63,46 @@ const EMPTY_ROUTE_METRICS = Object.freeze({
   glbBytes: 0,
 });
 
+function publishDecodedContentProgress(
+  progress: DecodedContentScanProgress,
+  publish: (update: Partial<TilesPipelineDiagnostics>) => void,
+): void {
+  const datum = progress.verticalDatum;
+  publish({
+    status: progress.phase === "complete" ? "loading" : "scanning",
+    boundsStrategy: "decoded-content",
+    boundsCoverage: "rendered-content-only",
+    geometryBoundsStatus: progress.phase === "complete" ? "complete-decoded-content" : "pending",
+    sourceToEcefStatus: progress.scannedPoints > 0 ? "prepared-by-core" : "not-yet-prepared",
+    transformPlanIdentity: progress.transformPlanIdentity ?? "Plan is established when the first content node is prepared",
+    contentScanPhase: progress.phase,
+    hierarchyNodes: progress.hierarchyNodes,
+    hierarchyPages: progress.hierarchyPages,
+    hierarchyPageBytes: progress.hierarchyPageBytes,
+    contentNodesScanned: progress.scannedNodes,
+    contentNodesTotal: progress.contentNodes,
+    contentPointsScanned: progress.scannedPoints,
+    contentPointsTotal: progress.totalPoints,
+    contentPointDataBytes: progress.totalPointDataBytes,
+    contentEcefBytesScanned: progress.decodedEcefBytesScanned,
+    peakDecodedEcefBufferBytes: progress.peakDecodedEcefBufferBytes,
+    verticalPlacementStatus: datum?.status === "verified"
+      ? "verified"
+      : progress.scannedPoints > 0 ? "unverified" : "not-reported",
+    verticalPlacementReason: datum?.status === "verified"
+      ? `Adapter Core reports verified vertical datum${datum.identifier ? ` ${datum.identifier}` : ""}.`
+      : datum?.identifier
+        ? `Vertical datum ${datum.identifier} is not verified for authoritative placement.`
+        : progress.scannedPoints > 0
+          ? "Vertical datum provenance is unknown; this is diagnostic ECEF placement only."
+          : "Vertical datum provenance is reported after the first prepared content node.",
+    boundsReason: progress.phase === "complete"
+      ? `All ${progress.scannedPoints.toLocaleString()} content points in the complete bounded hierarchy were prepared; source-cell coverage is not claimed.`
+      : `Decoded-content ${progress.phase}: ${progress.scannedPoints.toLocaleString()}/${progress.totalPoints.toLocaleString()} points across ${progress.scannedNodes.toLocaleString()}/${progress.contentNodes.toLocaleString()} content nodes.`,
+    scanDurationMilliseconds: progress.elapsedMilliseconds,
+  });
+}
+
 /**
  * Build a live COPC → public Tiles provider → generated GLB → renderer path.
  * The adapter remains the only owner of COPC, LAZ, CRS, and ECEF preparation.
@@ -73,6 +115,25 @@ export async function createTilesViewerSession(
     sourceCrs: "Not read",
     boundsSupport: "pending",
     boundsReason: "The source metadata and conservative bounds have not been checked yet.",
+    boundsStrategy: options.boundsStrategy,
+    boundsCoverage: "pending",
+    metadataOnlySourceCellStatus: "not-checked",
+    metadataOnlySourceCellReason: "No metadata-only source-cell check has been recorded.",
+    geometryBoundsStatus: "pending",
+    sourceToEcefStatus: "not-yet-prepared",
+    transformPlanIdentity: "Not prepared",
+    contentScanPhase: "not-started",
+    contentNodesScanned: 0,
+    contentNodesTotal: 0,
+    contentPointsScanned: 0,
+    contentPointsTotal: 0,
+    contentPointDataBytes: 0,
+    contentEcefBytesScanned: 0,
+    peakDecodedEcefBufferBytes: 0,
+    sourceRangeBytesObserved: 0,
+    scanDurationMilliseconds: 0,
+    verticalPlacementStatus: "not-reported",
+    verticalPlacementReason: "Prepared points have not been scanned.",
     hierarchyPages: 0,
     hierarchyPageBytes: 0,
     hierarchyNodes: 0,
@@ -139,12 +200,27 @@ export async function createTilesViewerSession(
     assertCurrent();
     const metadata = context.getMetadata();
     const sourceCrs = getSourceCrsLabel(metadata);
+    let sourceRangeBytesObserved = 0;
+    context.setPerformanceObserver?.((event) => {
+      if (event.stage !== "rangeFetch" || event.bytes === undefined) return;
+      sourceRangeBytesObserved += event.bytes;
+      publish({ sourceRangeBytesObserved });
+    });
     publish({
       status: "scanning",
       sourceCrs,
       sourceGeneration: context.sourceGeneration,
       boundsSupport: "pending",
-      boundsReason: "Adapter is checking full-cell WGS 84 ECEF bounds before Tileset creation.",
+      boundsReason: options.boundsStrategy === "decoded-content"
+        ? "Adapter Core will prepare every actual point in the complete bounded hierarchy; source-cell coverage remains a separate criterion."
+        : "Adapter is checking full-cell WGS 84 ECEF bounds before Tileset creation.",
+      boundsStrategy: options.boundsStrategy,
+      boundsCoverage: "pending",
+      geometryBoundsStatus: "pending",
+      sourceToEcefStatus: "not-yet-prepared",
+      contentScanPhase: options.boundsStrategy === "decoded-content" ? "hierarchy" : "not-started",
+      verticalPlacementStatus: "not-reported",
+      verticalPlacementReason: "Prepared points have not been scanned.",
     });
 
     connector = new CopcCoreNodeSource({
@@ -154,8 +230,16 @@ export async function createTilesViewerSession(
       isCurrent: options.isCurrent,
     });
     context = undefined;
+    const decodedContent = options.boundsStrategy === "decoded-content";
     provider = await createCopcTileResourceProvider(connector, {
       scanCompleteHierarchy: true,
+      ...(decodedContent ? {
+        boundsStrategy: "decoded-content" as const,
+        allowDecodedContentBounds: true as const,
+        onDecodedContentProgress: (progress: DecodedContentScanProgress) => {
+          publishDecodedContentProgress(progress, publish);
+        },
+      } : { boundsStrategy: "conservative-source-cell" as const }),
       signal: options.signal,
       ownsSource: true,
       readerLimits: {
@@ -164,16 +248,26 @@ export async function createTilesViewerSession(
         maxTotalHierarchyPageBytes: 8 * 1024 * 1024,
         maxHierarchyNodes: 4096,
         maxNodesPerPage: 8192,
-        maxRequestedNodes: 32,
-        maxPointsPerNode: 200_000,
-        maxTotalPoints: 250_000,
-        maxPointDataBytesPerNode: 8 * 1024 * 1024,
-        maxTotalPointDataBytes: 32 * 1024 * 1024,
-        maxDecodedBytesPerNode: 16 * 1024 * 1024,
-        maxTotalDecodedBytes: 64 * 1024 * 1024,
+        ...(decodedContent ? {
+          maxRequestedNodes: 512,
+          maxPointsPerNode: 2_000_000,
+          maxTotalPoints: 4_000_000,
+          maxPointDataBytesPerNode: 128 * 1024 * 1024,
+          maxTotalPointDataBytes: 256 * 1024 * 1024,
+          maxDecodedBytesPerNode: 192 * 1024 * 1024,
+          maxTotalDecodedBytes: 384 * 1024 * 1024,
+        } : {
+          maxRequestedNodes: 32,
+          maxPointsPerNode: 200_000,
+          maxTotalPoints: 250_000,
+          maxPointDataBytesPerNode: 8 * 1024 * 1024,
+          maxTotalPointDataBytes: 32 * 1024 * 1024,
+          maxDecodedBytesPerNode: 16 * 1024 * 1024,
+          maxTotalDecodedBytes: 64 * 1024 * 1024,
+        }),
         maxConcurrentNodeReads: 2,
       },
-      tilesetOptions: { maxNodes: 4096, maxTotalPoints: 250_000 },
+      tilesetOptions: { maxNodes: 4096, maxTotalPoints: decodedContent ? 4_000_000 : 250_000 },
       selection: { attributes: { rgb: true } },
       maxEncoderPaddingMeters: 0.01,
       maxGlbBytes: 16 * 1024 * 1024,
@@ -198,11 +292,50 @@ export async function createTilesViewerSession(
       void closeServerAndRoutes();
     };
     options.signal.addEventListener("abort", closeRouteOnAbort, { once: true });
+    const decodedSummary = provider.decodedContentScan;
     publish({
       status: "loading",
       sourceCrs,
       boundsSupport: "supported",
-      boundsReason: "Every scanned hierarchy cell has Adapter-certified WGS 84 ECEF bounds.",
+      boundsReason: decodedSummary
+        ? `Every content-bearing node was scanned (${decodedSummary.scannedPoints.toLocaleString()} points); bounds do not cover unobserved source cells. Transform plan ${decodedSummary.transformPlanIdentity}.`
+        : "Every scanned hierarchy cell has Adapter-certified WGS 84 ECEF bounds.",
+      boundsStrategy: provider.boundsStrategy,
+      boundsCoverage: decodedSummary ? "rendered-content-only" : "source-cell-and-descendants",
+      metadataOnlySourceCellStatus: decodedSummary?.metadataOnlySourceCellStatus ?? "not-checked",
+      metadataOnlySourceCellReason: decodedSummary?.metadataOnlySourceCellReasonCode
+        ? `${decodedSummary.metadataOnlySourceCellReasonCode}: ${decodedSummary.metadataOnlySourceCellReason ?? "No reason was provided."}`
+        : decodedSummary?.metadataOnlySourceCellReason ??
+          (decodedSummary?.metadataOnlySourceCellStatus === "supported"
+            ? "Core returned a supported metadata-only source-cell bound."
+            : decodedSummary
+              ? "No metadata-only result is available from this node source."
+              : "The conservative-source-cell result is the active geometry bound."),
+      geometryBoundsStatus: decodedSummary ? "complete-decoded-content" : "conservative-source-cell",
+      sourceToEcefStatus: decodedSummary ? "prepared-by-core" : "not-yet-prepared",
+      transformPlanIdentity: decodedSummary?.transformPlanIdentity ?? "Adapter source-cell operation",
+      contentScanPhase: decodedSummary ? "complete" : "not-started",
+      contentNodesScanned: decodedSummary?.contentNodes ?? 0,
+      contentNodesTotal: decodedSummary?.contentNodes ?? 0,
+      contentPointsScanned: decodedSummary?.scannedPoints ?? 0,
+      contentPointsTotal: decodedSummary?.totalPoints ?? 0,
+      contentPointDataBytes: decodedSummary?.totalPointDataBytes ?? 0,
+      contentEcefBytesScanned: decodedSummary?.decodedEcefBytesScanned ?? 0,
+      peakDecodedEcefBufferBytes: decodedSummary?.peakDecodedEcefBufferBytes ?? 0,
+      sourceRangeBytesObserved,
+      scanDurationMilliseconds: decodedSummary?.scanDurationMilliseconds ?? 0,
+      verticalPlacementStatus: decodedSummary?.verticalPlacement ?? "not-reported",
+      verticalPlacementReason: decodedSummary
+        ? decodedSummary.verticalPlacement === "verified"
+          ? decodedSummary.verticalDatum.corrections.some(({ kind }) => kind === "validated-grid")
+            ? `Adapter Core reports a validated vertical-grid operation for ${decodedSummary.verticalDatum.identifier ?? "the declared source datum"}. This validates the configured operation and coverage, not survey accuracy of the source.`
+            : decodedSummary.verticalDatum.identifier === "WGS 84 ellipsoidal height"
+              ? "Source WKT explicitly declares WGS 84 ellipsoidal height; the vertical operation is identity. This does not claim survey-grade accuracy or a coordinate epoch."
+              : `Adapter Core reports verified vertical datum provenance${decodedSummary.verticalDatum.identifier ? ` for ${decodedSummary.verticalDatum.identifier}` : ""}. This does not by itself establish survey-grade accuracy.`
+          : decodedSummary.verticalDatum.identifier
+            ? `Vertical datum ${decodedSummary.verticalDatum.identifier} is not verified for authoritative placement.`
+            : "Vertical datum provenance is unknown; this is a diagnostic ECEF placement only."
+        : "Conservative source-cell result carries its own vertical proof metadata.",
       hierarchyPages: provider.hierarchyPagesRead,
       hierarchyPageBytes: provider.hierarchyPageBytesRead,
       hierarchyNodes: tilesetNodes,

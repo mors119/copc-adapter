@@ -84,7 +84,7 @@ test("generated Cesium and Three snippets typecheck against the exact consumer p
     assert.equal(installedPackage.version, WORKSPACE_CURRENT_MANIFEST.version);
   }
   const cesiumOptionValues = {
-    ...(consumerProfile.manifest.version === "0.7.1"
+    ...(consumerProfile.manifest.version !== "0.6.0"
       ? {
           "attributes.attributeLoading": "required",
           "attributes.pointFields": ["classification", "rgb"],
@@ -138,7 +138,7 @@ test("generated Cesium and Three snippets typecheck against the exact consumer p
     ],
   };
   const threeOptionValues = {
-    ...(consumerProfile.manifest.version === "0.7.1"
+    ...(consumerProfile.manifest.version !== "0.6.0"
       ? {
           "cache.coordinateCacheLayout": "E",
           "cache.retainSourceCoordinatesForQueries": true,

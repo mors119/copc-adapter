@@ -382,14 +382,15 @@ function declaredUnit(
   let axes = axis
     ? [{ keyword: "AXIS", text: axis }]
     : directSections(section).filter(({ keyword: child }) => child === "AXIS");
-  if (horizontalAxesOnly && isGeographic) {
+  if (horizontalAxesOnly) {
     axes = axes.filter(({ text }) => {
       const parsed = parseAxis(text);
-      return !parsed || (
-        parsed.direction !== "UP" &&
-        parsed.direction !== "DOWN" &&
-        !/\b(?:height|vertical)\b/i.test(parsed.name)
-      );
+      if (!parsed) return true;
+      if (isGeographic) {
+        return parsed.direction !== "UP" && parsed.direction !== "DOWN" &&
+          !/\b(?:height|vertical)\b/i.test(parsed.name);
+      }
+      return ["EAST", "WEST", "NORTH", "SOUTH"].includes(parsed.direction);
     });
   }
   const axisDeclarations = axes.map(({ text }) => ({
@@ -603,6 +604,7 @@ export function resolveCopcCrsMetadata(
     const axes = directSections(horizontal.text).filter(({ keyword }) => keyword === "AXIS").map(({ text }) => parseAxis(text)).filter((axis): axis is { name: string; direction: string } => axis !== undefined);
     const cs = directSections(horizontal.text).find(({ keyword }) => keyword === "CS")?.text.match(/^CS\s*\[\s*"?([A-Z_]+)"?\s*,\s*(\d+)/i);
     if (!identity?.conflict && identity?.authority?.toUpperCase() === "EPSG" && identity.code === "4979" && cs?.[1].toLowerCase() === "ellipsoidal" && Number(cs[2]) === 3 && axes.length === 3 && axes.some(({ direction }) => direction === "UP")) {
+      diagnostic.vertical.identity = { name: "WGS 84 ellipsoidal height", certainty: "explicit" };
       diagnostic.vertical.heightKind = { value: "ellipsoidal", certainty: "explicit" };
       const heightAxis = directSections(horizontal.text)
         .filter(({ keyword }) => keyword === "AXIS")
@@ -638,6 +640,70 @@ export function resolveCopcCrsMetadata(
       diagnostic.evidence.push({ field: "vertical", source: "wkt", value: "EPSG:4979, ellipsoidal 3D CRS with UP axis", certainty: "explicit" });
     } else {
       addReason(diagnostic, "unknown-vertical-reference", "The geographic CRS does not explicitly identify a supported vertical component.");
+    }
+  } else if (horizontal?.keyword === "PROJCRS") {
+    const sections = directSections(horizontal.text);
+    const coordinateSystem = sections.find(({ keyword }) => keyword === "CS")?.text.match(
+      /^CS\s*\[\s*"?([A-Z_]+)"?\s*,\s*(\d+)/i,
+    );
+    const axes = sections.filter(({ keyword }) => keyword === "AXIS");
+    const orderedAxes = axes.map(({ text }) => ({
+      text,
+      axis: parseAxis(text),
+      order: Number(/ORDER\s*\[\s*(\d+)\s*\]/i.exec(text)?.[1]),
+    })).sort((left, right) => left.order - right.order);
+    const baseGeodetic = sections.find(({ keyword }) => keyword === "BASEGEOGCRS" || keyword === "BASEGEODCRS");
+    const baseIdentity = baseGeodetic ? parseIdentity(baseGeodetic.text) : undefined;
+    const heightAxis = orderedAxes[2];
+    const supportedProjectedEllipsoidalHeight =
+      coordinateSystem?.[1].toLowerCase() === "cartesian" &&
+      Number(coordinateSystem[2]) === 3 &&
+      axes.length === 3 &&
+      orderedAxes[0]?.order === 1 && orderedAxes[0].axis?.direction === "EAST" &&
+      orderedAxes[1]?.order === 2 && orderedAxes[1].axis?.direction === "NORTH" &&
+      heightAxis?.order === 3 && heightAxis.axis?.direction === "UP" &&
+      /ellipsoidal\s+height/i.test(heightAxis.axis.name) &&
+      !baseIdentity?.conflict &&
+      baseIdentity?.authority?.toUpperCase() === "EPSG" && baseIdentity.code === "4979";
+
+    if (supportedProjectedEllipsoidalHeight && heightAxis) {
+      diagnostic.vertical.identity = {
+        name: "WGS 84 ellipsoidal height",
+        certainty: "explicit",
+      };
+      diagnostic.vertical.heightKind = { value: "ellipsoidal", certainty: "explicit" };
+      const verticalUnit = declaredUnit(horizontal.text, horizontal.keyword, heightAxis.text, false, "linear");
+      if (verticalUnit?.name === "__conflicting_units__") {
+        addReason(diagnostic, "conflicting-axis-units", "The projected ellipsoidal height axis declares inconsistent units.");
+      } else if (verticalUnit?.name === "__inconsistent_units__") {
+        addReason(diagnostic, "inconsistent-unit-declaration", "The projected ellipsoidal height unit name conflicts with its declared conversion factor.");
+      } else if (verticalUnit?.name === "__unsupported_units__") {
+        addReason(diagnostic, "unsupported-vertical-unit", "The projected ellipsoidal height axis declares a unit that cannot be normalized safely.");
+      } else if (verticalUnit) {
+        diagnostic.vertical.units = unitDiagnostic(verticalUnit);
+        diagnostic.evidence.push({ field: "units", source: "wkt", value: `${verticalUnit.name} (${verticalUnit.toSi})`, certainty: "explicit" });
+        if (!isUnitDeclarationConsistent(verticalUnit)) {
+          diagnostic.vertical.units = { ...diagnostic.vertical.units, standard: "other" };
+          addReason(diagnostic, "inconsistent-unit-declaration", "The projected ellipsoidal height unit name conflicts with its declared conversion factor.");
+        }
+      } else {
+        const hasHeightUnit = allSections(heightAxis.text).some(({ keyword }) => ["LENGTHUNIT", "UNIT"].includes(keyword));
+        addReason(
+          diagnostic,
+          hasHeightUnit ? "unsupported-vertical-unit" : "missing-vertical-unit",
+          hasHeightUnit
+            ? "The projected ellipsoidal height axis declares a unit that cannot be normalized safely."
+            : "The projected ellipsoidal height axis does not declare its coordinate unit.",
+        );
+      }
+      diagnostic.evidence.push({
+        field: "vertical",
+        source: "wkt",
+        value: `BASEGEOGCRS EPSG:4979 with explicit ellipsoidal height UP axis`,
+        certainty: "explicit",
+      });
+    } else {
+      addReason(diagnostic, "unknown-vertical-reference", "The projected CRS does not explicitly identify a supported ellipsoidal height axis on a WGS 84 EPSG:4979 base.");
     }
   } else {
     addReason(diagnostic, "unknown-vertical-reference", "The source does not declare a vertical CRS component.");

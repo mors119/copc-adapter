@@ -71,8 +71,60 @@ hierarchy pages or point data. Any unsupported result stops construction and
 remains available on `CopcTileResourceProviderError.conservativeBoundsResult`.
 It never falls back to decoded-point bounds. The provider does not generate
 implicit subtrees or perform camera-driven requests. Real projected Autzen (EPSG:2992) and SoFi
-(EPSG:32611) are rejected by Adapter 0.7.1, so they cannot use this live
-multi-node path yet.
+(EPSG:32611) are rejected by Adapter 0.7.1 for metadata-only bounds, so they
+cannot use this `conservative-source-cell` multi-node path yet.
+
+For an explicitly bounded content visualization when source-cell bounds are
+unsupported, choose the distinct `decoded-content` strategy and authorize its
+preprocessing separately:
+
+```ts
+const provider = await createCopcTileResourceProvider(source, {
+  scanCompleteHierarchy: true,
+  boundsStrategy: 'decoded-content',
+  allowDecodedContentBounds: true,
+  readerLimits: {
+    maxTotalPoints: 4_000_000, // default total point budget
+    maxTotalPointDataBytes: 256 * 1024 * 1024,
+    maxTotalDecodedBytes: 384 * 1024 * 1024,
+    maxConcurrentNodeReads: 1,
+  },
+  tilesetOptions: { maxTotalPoints: 4_000_000 },
+  onDecodedContentProgress(progress) {
+    console.log(progress.phase, progress.scannedPoints, progress.totalPoints);
+  },
+});
+
+const scan = provider.decodedContentScan;
+if (scan?.coverage !== 'all-content-points-in-complete-hierarchy') {
+  throw new Error('The complete content scan did not finish.');
+}
+console.log(scan.transformPlanIdentity, scan.sourceCrs, scan.verticalPlacement);
+console.log(scan.contentBounds); // per content node, no retained decoded positions
+```
+
+This path completes the bounded hierarchy scan, preflights point and byte
+budgets before point reads, then sequentially prepares every point of every
+content-bearing node. A successful result encloses all those prepared ECEF
+positions and all reconstructed Float32 GLB positions. Parent volumes combine
+their own content and every finalized child volume. It does **not** enclose
+unobserved source-space cells: `getConservativeNodeEcefBounds()` keeps its
+existing contract, the Tileset reports `sourceCellCoverage: false`, and
+`metadataOnlySourceCellStatus` remains separately visible in the scan summary.
+The hard point ceiling is 20 million; all hierarchy, node, compressed-byte,
+prepared-ECEF-byte, GLB, and Tileset limits remain active and may reject a
+source first. No partial Tileset is returned.
+
+Every content tile and its parent carries strategy and source/transform
+provenance in `extras`; the provider summary retains per-node bounds and
+coordinate evidence. Point resources are regenerated on demand and checked
+against the recorded identity and envelope. If Core cannot produce valid
+finite prepared ECEF points, the scan fails. `verticalPlacement: 'unverified'`
+is a geometry diagnostic only and is not authoritative terrain alignment.
+Never assign an unknown vertical CRS to ellipsoidal height or supply an
+unmatched geoid grid. The local Dev Viewer additionally defaults to 4 million
+points and exposes progress, bytes, ECEF buffer size, and placement status;
+the mode is not enabled in the public Playground.
 
 The connector preserves the Adapter source and transform generations, its
 immutable transform plan, actual field availability, and zero-copy ECEF
@@ -120,7 +172,7 @@ The verified bounds cases include generated EPSG:4326 and EPSG:4979 WGS84
 fixtures with explicit ellipsoidal height. Unknown vertical reference returns
 `unsupported-vertical-reference`. Projected EPSG:2992 Autzen and EPSG:32611
 return `unsupported-horizontal-crs`, so these sources cannot use this
-multi-node bounds path. This capability does not itself implement live
+metadata-only `conservative-source-cell` bounds path. This capability does not itself implement live
 multi-node request scheduling or camera-driven COPC refinement.
 
 `TileNodeReader` resolves only requested node keys and has bounded hierarchy
