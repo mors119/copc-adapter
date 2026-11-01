@@ -1234,6 +1234,23 @@ test("plays, stops, replays, and cancels the deterministic Cesium camera demo", 
   await expect(play).toBeDisabled();
   expect(firstSample.engine).toBe("cesium");
   expect(positionDeltaMeters(firstSample, firstStart)).toBeGreaterThan(1);
+
+  // Stop while the deterministic 25-second playback is still active. Keep
+  // resource and pickability polling after the stop so a slow software-WebGL
+  // runner cannot let the demo finish before the stop-button interaction.
+  await stop.click();
+  await expect(stop).toBeDisabled();
+  const stoppedState = await page.evaluate(
+    () => window.__COPC_DEV_VIEWER__!.getCameraState(),
+  );
+  await page.waitForTimeout(250);
+  const afterStop = await page.evaluate(
+    () => window.__COPC_DEV_VIEWER__!.getCameraState(),
+  );
+  expect(positionDeltaMeters(afterStop, stoppedState)).toBeLessThan(0.01);
+  expect(afterStop.headingDegrees).toBeCloseTo(stoppedState.headingDegrees, 10);
+  expect(afterStop.pitchDegrees).toBeCloseTo(stoppedState.pitchDegrees, 10);
+
   await expect
     .poll(() =>
       page.evaluate(
@@ -1248,19 +1265,6 @@ test("plays, stops, replays, and cancels the deterministic Cesium camera demo", 
       ),
     )
     .toBeTruthy();
-
-  await stop.click();
-  await expect(stop).toBeDisabled();
-  const stoppedState = await page.evaluate(
-    () => window.__COPC_DEV_VIEWER__!.getCameraState(),
-  );
-  await page.waitForTimeout(250);
-  const afterStop = await page.evaluate(
-    () => window.__COPC_DEV_VIEWER__!.getCameraState(),
-  );
-  expect(positionDeltaMeters(afterStop, stoppedState)).toBeLessThan(0.01);
-  expect(afterStop.headingDegrees).toBeCloseTo(stoppedState.headingDegrees, 10);
-  expect(afterStop.pitchDegrees).toBeCloseTo(stoppedState.pitchDegrees, 10);
 
   const replayRun = await page.evaluate(async () => {
     document.querySelector<HTMLButtonElement>("#play-camera-demo")!.click();
