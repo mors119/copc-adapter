@@ -794,3 +794,132 @@ comparisons are also open work rather than conclusions from these measurements.
 
 The large SoFi input was downloaded only for the measurement and removed after
 the run. No dataset is included in this change.
+
+## Issue #326 verification follow-up — 2026-11-01
+
+This follow-up records new measurements of the already-implemented E layout
+from PR #382. It supersedes the older sections above that say E browser,
+Worker, packed-consumer, and adoption measurements remain outstanding. The
+historical A/B/C/D findings and their limitations remain unchanged.
+
+### Node E measurement
+
+The full run used revision `a504cafc281f94e0910498e8ff73c23bb5a4b4a5`,
+Node.js `v26.12.1`, V8 `14.6.202.34-node.40`, macOS `25.6.0`, Apple M2 (8
+logical CPUs, 8 GiB RAM), `rustc 1.92.0`, COPC adapter package `0.7.1`, and
+Playwright-independent Node execution. Command:
+
+```sh
+COPC_CACHE_BENCHMARK_SOFI=1 node --expose-gc --import tsx packages/scripts/cache-representation-performance-benchmark.mjs
+```
+
+The harness used 5 warm-ups and 15 samples, with JS/TypeScript and explicitly
+selected Rust/WASM measured separately on the same root nodes and requested
+fields. The raw JSON was written to `/tmp/copc-issue326-cache.json` during the
+run; it is not a committed benchmark artifact. Autzen was 81,123,042 bytes
+(SHA-256 `db2d56cdfa058bffccdc5d6019dae2fc9c6a551df10a5523c06c76a3e25a27fa`);
+SoFi was 2,029,696,615 bytes (SHA-256
+`fd6848a0eaee3e21f7ce3a91af44ed3ae06ae8439b7f65828b4a5d956685f699`).
+
+| Dataset / backend | Points | A retained bytes | E retained bytes | A / E coordinate materialization p50 | A / E warm elevation p50 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Autzen / JS | 61,201 | 4,957,281 | 2,509,241 | 0.253 / 0.220 ms | 4.253 / 3.592 ms |
+| Autzen / Rust-WASM | 61,201 | 4,957,281 | 2,509,241 | 0.249 / 0.117 ms | 4.427 / 3.783 ms |
+| SoFi / JS | 52,296 | 3,922,200 | 1,830,360 | 0.200 / 0.105 ms | 3.755 / 3.153 ms |
+| SoFi / Rust-WASM | 52,296 | 3,922,200 | 1,830,360 | 0.216 / 0.102 ms | 3.636 / 3.104 ms |
+
+E retains 32 coordinate/height bytes per point and reduced the measured total
+retained ArrayBuffer bytes, including the same requested attributes, by 49.4%
+on Autzen and 53.3% on SoFi relative to A. These root-node totals are below the
+configured 256 MiB decoded-cache budget. Materialization and style figures are
+small Node CPU microbenchmarks; they do not predict whole-layer startup or frame
+time.
+
+E height matched the prepared Float64 geographic height exactly on both files
+and backends. The largest ECEF round-trip error was 2.99 nm on Autzen and 3.43
+nm on SoFi; cross-backend geographic component differences were below
+`3.6e-14` degrees, ECEF differences below 5.48 nm, and requested attributes
+were equal. E's Float32 RGBA colors matched A with zero channel delta and zero
+8-bit mismatches for fixed, elevation, RGB, intensity, and classification
+modes. These are implementation-consistency checks, not surveyed geodetic
+accuracy. The requested COPC attributes remain shared; SoFi has no RGB field.
+
+### Real browser, Worker, and packed-consumer evidence
+
+- The 30-minute-plus Autzen Cesium soak ran on revision `a504caf`, package
+  `0.7.1`, Node `v26.12.1`, Headless Chrome `156.0.8078.74`, Cesium `1.146.0`,
+  Apple M2 host, and WebGL2 SwiftShader. Cesium/Three layer caches used E by
+  default. The configured limits were 250,000 rendered points, 256 MiB decoded
+  cache, and 4 concurrent range/Worker jobs. During the 30-minute soak, the
+  decoded cache peaked at 22,789,235 bytes with no sample over budget; stationary
+  periods converged to zero active range requests and workers. The Rust Worker
+  pool peaked at 4 active / 1 queued. Twenty destroy/recreate cycles released
+  the adapter's Workers and primitives. The unforced heap slope was
+  -693,587 bytes/minute; the controlled-GC lifecycle slope was +32,506
+  bytes/cycle. These are Chromium heap proxies, not total process or GPU memory.
+- The same local fixture's separate Three lifecycle soak passed 20 cycles.
+  The packed Three browser check in [PR #422](https://github.com/mors119/copc-adapter/pull/422)
+  rendered 219,951 Rust/E points across 7 nodes,
+  resolved a real Raycaster pick with finite prepared height, and preserved the
+  caller's Scene, Material, Renderer, canvas, and WebGL context after layer
+  destruction. Its 9 requests were all HTTP 206 and transferred 2,377,673
+  bytes. This test used Headless Chrome `156.0.8078.74` with SwiftShader and
+  Three.js revision 180.
+- `npm run test:pack` passed the packed Cesium root-production,
+  Cesium-production, and Vite-dev modes: 13 passed and one pre-existing live
+  USGS imagery test skipped in each mode. `npm run test:pack:three` passed the
+  actual Rust/E render/pick/cleanup consumer without Cesium installed.
+- The bounded SoFi browser streaming test passed for the 2.03 GB input: 74
+  HTTP 206 responses, 8,692,846 bytes transferred (0.4283% of the object), and
+  250,000-point / 256 MiB limits held. The original S3 endpoint does not expose
+  `Content-Range` to browser JavaScript; the existing test shim only exposes
+  that header and preserves response bytes. This does not claim browser
+  compatibility for the unmodified origin.
+
+- The opt-in E-default Cesium first-visible browser benchmark also passed with
+  5 cold and 5 warm runs. It used 40 ms emulated RTT, 50 Mbit/s down, and 10
+  Mbit/s up against the local HTTP 206 server. Cold-run median / nearest-rank
+  p95 was 12.34 / 13.13 s from page navigation to first point draw and 36.99 /
+  45.25 s to the settled 233,383-point quality state. From the first Range
+  request, first point draw was 2.40 / 3.35 s. Cold runs transferred 3,613,853
+  Range bytes by target quality, used a 13,481,005-byte decoded point cache,
+  and peaked at 4 active Workers and 4 active Range requests. Median peak JS
+  heap was 365,220,495 bytes; median summed Chromium process RSS was
+  1,321,697,280 bytes. This RSS method can double-count shared browser pages.
+  The cold series had a median 59 Long Tasks and a median longest task of
+  1,522 ms. Both cold and warm first-point-draw p95 values met the test's
+  4,000 ms limit from first Range response. The browser renderer was
+  software/headless SwiftShader; frame and heap values are environment-specific
+  proxies. These startup values are a baseline for follow-up analysis rather
+  than an end-user performance claim. Reproduce from `apps/dev-viewer` with:
+  `COPC_FIRST_VISIBLE_BENCHMARK=1 npx playwright test e2e/streaming-performance.spec.ts --grep "records first-visible startup latency on Autzen" --workers=1 --reporter=line`.
+
+The soak's own machine-readable result was written outside the repository to
+`/tmp/copc-issue302-autzen-soak.json`. For soak-specific cancellation, low-cache
+eviction, navigation, prefetch, and lifecycle analysis, see the linked #302
+validation issue. Neither temporary JSON output is checked into the package.
+
+### Decision and validation
+
+**ADOPT E for the Cesium/Three layer cache; KEEP A for the public
+`CopcStreamingCore` contract and the explicit compatibility option.** E is
+already the standard Cesium/Three default via merged PR #382; this follow-up
+validates that implementation rather than changing a default. Float32 or
+quantized height remains deferred. The SoFi run had one injected 503 and two
+expected in-flight cancellation responses, zero unexpected failures. The
+original SoFi CORS header-exposure limitation, browser heap/GPU measurement
+limits, and absence of surveyed control points remain.
+
+Checks completed for this follow-up:
+
+- `npm --prefix packages test` — 662 passed, 0 failed.
+- `npm --prefix apps/dev-viewer run test:unit` — 117 passed.
+- Package and dev-viewer typechecks passed.
+- Rust/WASM build passed as part of package tests and packed package builds.
+- `npm run test:pack` — all three consumer modes passed (13 passed, one
+  external live-USGS test skipped per mode).
+- `npm run test:pack:three` — actual packed Three browser render/pick/cleanup
+  passed without Cesium.
+- 30-minute Cesium soak, 20-cycle Three lifecycle soak, SoFi multi-GB browser
+  streaming, predictive-prefetch comparison, and E Node benchmark passed.
+- `git diff --check` passed.
