@@ -108,6 +108,10 @@ function rangeLegend(name: string, range: { min: number; max: number }, units: s
   return `${name} · ${range.min}–${range.max} · ${units}`;
 }
 
+function defaultBoundsHelp(metadata: SchemaNumericDimensionMetadata): string {
+  return `Starting bounds: ${metadata.defaultRange.min}–${metadata.defaultRange.max} ${metadata.units}. ${metadata.defaultRangeNote ?? "These bounds are not observed point-sample limits."}`;
+}
+
 function createPaletteRows(
   target: HTMLElement,
   palette: readonly SchemaDimensionColorStop[],
@@ -270,9 +274,7 @@ function createDimensionStyleControl(options: SchemaSpecialControlOptions): Sche
     help.textContent = selected.decoded
       ? "This field is already decoded. Cesium palette and filter edits can reuse cached points."
       : "This field is defined by the source but is not decoded yet. Apply will request this exact Extra Bytes field and reload the layer.";
-    rangeHelp.textContent = selected.name === "Intensity"
-      ? "Default range uses LAS intensity values from 0 to 65535. Values outside the range use the nearest end color; this is a raw source range, not an observed sample range."
-      : `Default range: ${selected.defaultRange.min}–${selected.defaultRange.max} ${selected.units}. ${selected.defaultRangeNote ?? "Adjust it to fit your data; values outside the range use the nearest end color."}`;
+    rangeHelp.textContent = `${defaultBoundsHelp(selected)} Values outside the range use the nearest end color.`;
     const stops = paletteFrom(currentStyle);
     paletteSummary.textContent = `Advanced · edit palette stops (${stops.length})`;
     legend.style.background = `linear-gradient(to right, ${stops.map(colorCss).join(", ")})`;
@@ -503,8 +505,8 @@ function createDimensionFilterControl(options: SchemaSpecialControlOptions): Sch
     };
     legend.textContent = rangeLegend(filter.name, { min: filter.min, max: filter.max }, selected.units);
     helper.textContent = selected.decoded
-      ? "Inclusive bounds apply to cached values; NoData and missing values are hidden."
-      : "This exact Extra Bytes field will be requested and decoded when you apply the filter.";
+      ? `Inclusive bounds apply to cached values; NoData and missing values are hidden. ${defaultBoundsHelp(selected)}`
+      : `This exact Extra Bytes field will be requested and decoded when you apply the filter. ${defaultBoundsHelp(selected)}`;
     options.onChange(filter);
   };
   const setValue = (value: unknown): void => {
@@ -527,15 +529,20 @@ function createDimensionFilterControl(options: SchemaSpecialControlOptions): Sch
     if (filter && metadata) {
       legend.textContent = rangeLegend(filter.name, filter, metadata.units);
       helper.textContent = metadata.decoded
-        ? "Bounds are inclusive. Values outside them and the configured missing value are hidden."
-        : "This exact Extra Bytes field will be requested and decoded when you apply the filter.";
+        ? `Bounds are inclusive. Values outside them and the configured missing value are hidden. ${defaultBoundsHelp(metadata)}`
+        : `This exact Extra Bytes field will be requested and decoded when you apply the filter. ${defaultBoundsHelp(metadata)}`;
     } else {
       legend.textContent = "";
       helper.textContent = numericDimensionFields(context).length === 0
         ? context.values?.["adapter.backend"] === "rust"
           ? "Rust/WASM can filter standard Intensity; named Extra Bytes filters require copc-js."
           : "Load a source to inspect exact numeric LAS fields."
-        : "Choose a field and inclusive bounds. Values outside the interval are hidden; configure a missing value when needed.";
+        : (() => {
+            const selected = selectedField();
+            return selected
+              ? `Choose inclusive bounds. Values outside the interval are hidden; configure a missing value when needed. ${defaultBoundsHelp(selected)}`
+              : "Choose a field and inclusive bounds. Values outside the interval are hidden; configure a missing value when needed.";
+          })();
     }
   };
   const onFieldChange = (): void => {

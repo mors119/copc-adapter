@@ -61,9 +61,38 @@ test("uses the same schema controls and default Workbench tabs as Playground", a
   await expect(page.getByRole("radiogroup", { name: "Renderer", exact: true })).toBeVisible();
   await expect(page.getByRole("radiogroup", { name: "COPC backend" })).toBeVisible();
   await expect(page.getByRole("radiogroup", { name: "Color mode" })).toBeVisible();
+  const colorModeGroup = page.getByRole("radiogroup", { name: "Color mode" });
+  await page.evaluate(() => {
+    document.querySelector(".workbench-three-column")?.setAttribute("style", "--workbench-left-track: minmax(0, 12rem)");
+  });
+  const colorModeLayout = await colorModeGroup.evaluate((group) => ({
+    clientWidth: group.clientWidth,
+    scrollWidth: group.scrollWidth,
+    buttons: [...group.querySelectorAll("button[role=radio]")].map((button) => ({
+      text: button.textContent?.trim(),
+      width: button.getBoundingClientRect().width,
+      clientWidth: button.clientWidth,
+      scrollWidth: button.scrollWidth,
+      right: button.getBoundingClientRect().right,
+    })),
+  }));
+  expect(colorModeLayout.scrollWidth).toBeLessThanOrEqual(colorModeLayout.clientWidth);
+  expect(colorModeLayout.buttons.every(({ text, width, clientWidth, scrollWidth }) =>
+    Boolean(text) && width > 0 && scrollWidth <= clientWidth,
+  )).toBe(true);
+  const nextColorMode = await colorModeGroup.evaluate((group) => {
+    const enabled = [...group.querySelectorAll<HTMLButtonElement>("button[role=radio]")]
+      .filter((button) => !button.disabled);
+    const selected = enabled.findIndex((button) => button.getAttribute("aria-checked") === "true");
+    return enabled[(selected + 1 + enabled.length) % enabled.length]?.textContent?.trim() ?? "";
+  });
+  await colorModeGroup.locator('button[role="radio"][aria-checked="true"]').focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(colorModeGroup.getByRole("radio", { name: nextColorMode, exact: true })).toHaveAttribute("aria-checked", "true");
+  await page.evaluate(() => document.querySelector(".workbench-three-column")?.removeAttribute("style"));
   await expect(page.getByRole("slider", { name: "Point size" })).toBeVisible();
   await expect(
-    page.locator('.schema-control-section[data-section="streaming"] summary'),
+    page.locator('.schema-control-section[data-section="streaming"] > summary'),
   ).toHaveText("Streaming");
   await expect(
     page.locator(".dev-control-section").filter({
@@ -149,7 +178,7 @@ test("colors cached Intensity with an editable numeric ramp and inclusive filter
 
   const filterSection = page.locator('.schema-control-section[data-section="filtering"]');
   if (!(await filterSection.evaluate((element: HTMLDetailsElement) => element.open))) {
-    await filterSection.locator("summary").click();
+    await filterSection.locator(":scope > summary").click();
   }
   const filter = page.locator('[data-option-id="style.dimensionFilter"]');
   await expect(filter).toBeVisible();
@@ -158,6 +187,9 @@ test("colors cached Intensity with an editable numeric ramp and inclusive filter
   await filter.getByLabel("Inclusive filter minimum").dispatchEvent("change");
   await filter.getByLabel("Inclusive filter maximum").fill("500");
   await filter.getByLabel("Inclusive filter maximum").dispatchEvent("change");
+  await filter.getByLabel("Hide this NoData / missing value").check();
+  await filter.getByLabel("Dimension filter NoData value").fill("0");
+  await filter.getByLabel("Dimension filter NoData value").dispatchEvent("change");
   await page.locator("#apply-settings").click();
   await expect
     .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.lifecycle))
@@ -165,10 +197,11 @@ test("colors cached Intensity with an editable numeric ramp and inclusive filter
   await expect(code).toContainText("dimensionFilter");
   await expect(code).toContainText("min: 25");
   await expect(code).toContainText("max: 500");
+  await expect(code).toContainText("missingValue: 0");
 
   const attributesSection = page.locator('.schema-control-section[data-section="attributes"]');
   if (!(await attributesSection.evaluate((element: HTMLDetailsElement) => element.open))) {
-    await attributesSection.locator("summary").click();
+    await attributesSection.locator(":scope > summary").click();
   }
   await page.locator("#schema-attribute-loading").selectOption("required");
   await page.locator("#apply-settings").click();
@@ -185,6 +218,7 @@ test("colors cached Intensity with an editable numeric ramp and inclusive filter
   await expect(page.locator("#apply-settings")).toBeEnabled();
   await expect(code).toContainText("colorMode: 'elevation'");
   await expect(code).toContainText("max: 500");
+  await expect(code).toContainText("missingValue: 0");
   await expect(code).not.toContainText("max: 400");
 
   await page.locator("#apply-settings").click();
@@ -226,7 +260,7 @@ test("recreates required-loading Cesium when a new Intensity filter needs the fi
 
   const attributesSection = page.locator('.schema-control-section[data-section="attributes"]');
   if (!(await attributesSection.evaluate((element: HTMLDetailsElement) => element.open))) {
-    await attributesSection.locator("summary").click();
+    await attributesSection.locator(":scope > summary").click();
   }
   await page.locator("#schema-attribute-loading").selectOption("required");
   await page.locator("#apply-settings").click();
@@ -239,7 +273,7 @@ test("recreates required-loading Cesium when a new Intensity filter needs the fi
   await expect(code).not.toContainText("dimensionFilter");
   const filterSection = page.locator('.schema-control-section[data-section="filtering"]');
   if (!(await filterSection.evaluate((element: HTMLDetailsElement) => element.open))) {
-    await filterSection.locator("summary").click();
+    await filterSection.locator(":scope > summary").click();
   }
   const filter = page.locator('[data-option-id="style.dimensionFilter"]');
   await filter.getByLabel("Filter numeric LAS field").selectOption("Intensity");
@@ -276,7 +310,7 @@ test("recreates required-loading Cesium when a new Intensity ramp needs the fiel
 
   const attributesSection = page.locator('.schema-control-section[data-section="attributes"]');
   if (!(await attributesSection.evaluate((element: HTMLDetailsElement) => element.open))) {
-    await attributesSection.locator("summary").click();
+    await attributesSection.locator(":scope > summary").click();
   }
   await page.locator("#schema-attribute-loading").selectOption("required");
   await page.locator("#apply-settings").click();
@@ -367,12 +401,12 @@ test("generates shared Code tab output from applied workspace configuration", as
   const pointSize = page.locator("#point-size-value");
   await pointSize.fill("7");
   await pointSize.dispatchEvent("change");
-  await page.locator('.schema-control-section[data-section="performance"] summary').click();
+  await page.locator('.schema-control-section[data-section="performance"] > summary').click();
   const maxPoints = page.locator("#max-points-value");
   await maxPoints.fill("50000");
   await maxPoints.dispatchEvent("change");
 
-  await page.locator('.schema-control-section[data-section="streaming"] summary').click();
+  await page.locator('.schema-control-section[data-section="streaming"] > summary').click();
   const maxNodes = page.locator("#max-nodes-value");
   await maxNodes.fill("8");
   await maxNodes.dispatchEvent("change");
@@ -465,14 +499,14 @@ test("shares Advanced attribute and coordinate-cache policies", async ({ page })
   await expect(code).toContainText("coordinateCacheLayout: 'E'");
   await expect(code).toContainText("retainSourceCoordinatesForQueries: true");
 
-  await page.locator('.schema-control-section[data-section="attributes"] summary').click();
+  await page.locator('.schema-control-section[data-section="attributes"] > summary').click();
   await expect(page.locator("#schema-attribute-loading")).toHaveValue("required");
   await expect(page.locator("#schema-point-field-intensity")).toBeChecked();
   await expect(page.locator(".schema-special-attribute-loading .schema-option__hint"))
     .toContainText("Pending style and filter fields: Position, RGB");
   await expect(page.locator(".schema-special-attribute-loading .schema-option__hint"))
     .toContainText("Pick metadata can include: Position, RGB, Intensity");
-  await page.locator('.schema-control-section[data-section="cache"] summary').click();
+  await page.locator('.schema-control-section[data-section="cache"] > summary').click();
   await expect(page.locator('[data-option-id="cache.coordinateCacheLayout"] select'))
     .toHaveValue("E");
   await expect(page.locator('[data-option-id="cache.retainSourceCoordinatesForQueries"] input[type="checkbox"]'))
@@ -529,7 +563,7 @@ test("applies Focus Lens to the active Cesium session through its runtime operat
     .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.lifecycle))
     .toBe("ready");
 
-  await page.locator('.schema-control-section[data-section="focus"] summary').click();
+  await page.locator('.schema-control-section[data-section="focus"] > summary').click();
   await page.locator("#schema-focus-enabled").check();
   const applyButton = page.locator("#apply-settings");
   await expect(applyButton).toBeEnabled();
@@ -542,6 +576,43 @@ test("applies Focus Lens to the active Cesium session through its runtime operat
       ),
     )
     .toBe(true);
+});
+
+test("Follow Cursor tracks the Cesium viewport without replacing the session or changing manual coordinates", async ({ page }) => {
+  await page.goto("/?debugPanel=0");
+  await expect.poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.lifecycle)).toBe("ready");
+  await page.locator('.schema-control-section[data-section="focus"] > summary').click();
+  await page.locator("#schema-focus-enabled").check();
+  for (const [id, value] of [["schema-focus-x", "0.42"], ["schema-focus-y", "0.63"]]) {
+    await page.locator(`#${id}`).fill(value);
+    await page.locator(`#${id}`).dispatchEvent("change");
+  }
+  await page.locator("#apply-settings").click();
+  const canvas = page.locator("#cesium-container canvas").first();
+  const canvasHandle = await canvas.elementHandle();
+  await page.locator("#schema-focus-follow-cursor").check();
+  const rect = await canvas.evaluate((element) => {
+    const bounds = element.getBoundingClientRect();
+    return { left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height };
+  });
+  await page.mouse.move(rect.left + rect.width * 0.72, rect.top + rect.height * 0.28);
+  await expect(page.locator("#schema-focus-follow-cursor")).toBeChecked();
+  await expect.poll(() => page.evaluate(() =>
+    window.__COPC_DEV_VIEWER__?.getConfiguration().schemaOptionValues?.["streaming.refinementFocus"],
+  )).toMatchObject({ center: { x: 0.42, y: 0.63 }, type: "screen-circle" });
+  await expect(page.locator("#integration-code-warning")).toContainText("host interaction");
+  await expect(canvas).toHaveJSProperty("isConnected", true);
+  expect(await canvasHandle?.evaluate((element) => element === document.querySelector("#cesium-container canvas"))).toBe(true);
+  await page.locator("#schema-focus-follow-cursor").uncheck();
+  await expect(page.locator("#schema-focus-x")).toHaveValue("0.42");
+  await expect(page.locator("#schema-focus-y")).toHaveValue("0.63");
+  await expect(page.locator("#schema-focus-x")).toBeEnabled();
+  await page.locator("#schema-focus-follow-cursor").check();
+  await page.locator("#schema-focus-enabled").uncheck();
+  await expect(page.locator("#schema-focus-follow-cursor")).not.toBeChecked();
+  await expect(page.locator("#schema-focus-x")).toBeDisabled();
+  await page.locator("#rendering-pipeline").selectOption("tiles");
+  await expect(page.locator("#schema-focus-follow-cursor")).toBeDisabled();
 });
 
 test("applies opacity and clipping to the loaded Cesium layer without reading source data", async ({
@@ -588,12 +659,52 @@ test("applies opacity and clipping to the loaded Cesium layer without reading so
     };
   });
 
+  const pickCanvas = page.locator("#cesium-container canvas").first();
+  const pickBounds = await pickCanvas.boundingBox();
+  const pickPosition = await page.evaluate(() =>
+    window.__COPC_DEV_VIEWER__?.getPickablePointScreenPosition(),
+  );
+  if (!pickBounds || !pickPosition) throw new Error("No visible point is available for clipping selection.");
+  await page.mouse.click(pickBounds.x + pickPosition.x, pickBounds.y + pickPosition.y);
+  await expect.poll(() => page.evaluate(() =>
+    window.__COPC_DEV_VIEWER__?.getSelectedPoint()?.world,
+  )).toMatchObject({
+    coordinateSystem: "wgs84-ecef-meters",
+    x: expect.any(Number),
+    y: expect.any(Number),
+    z: expect.any(Number),
+  });
+  const selectedEcef = await page.evaluate(() => {
+    const point = window.__COPC_DEV_VIEWER__?.getSelectedPoint()?.world;
+    return point?.coordinateSystem === "wgs84-ecef-meters"
+      ? [point.x, point.y, point.z]
+      : undefined;
+  });
+  if (!selectedEcef) throw new Error("The selected point has no WGS 84 ECEF coordinates.");
+  const filteringSection = page.locator('.schema-control-section[data-section="filtering"]');
+  if (!(await filteringSection.evaluate((element: HTMLDetailsElement) => element.open))) {
+    await filteringSection.locator(":scope > summary").click();
+  }
+  await page.getByRole("button", { name: "Center box on selected point" }).click();
+  const assistedVolume = await page.evaluate(() =>
+    window.__COPC_DEV_VIEWER__?.getPendingConfiguration().schemaOptionValues?.["filtering.cesiumClippingVolume"],
+  );
+  expect(assistedVolume).toMatchObject({
+    type: "box",
+    coordinateSystem: "wgs84-ecef-meters",
+    minimum: selectedEcef.map((value) => value - 10),
+    maximum: selectedEcef.map((value) => value + 10),
+  });
+
   await page.locator("#schema-opacity-use-default").uncheck();
   const opacity = page.locator("#schema-opacity-value");
   await opacity.fill("0.37");
   await opacity.dispatchEvent("change");
-  await page.locator('.schema-control-section[data-section="filtering"] summary').click();
-  await page.locator("#schema-clipping-enabled").check();
+  await filteringSection.evaluate((element: HTMLDetailsElement) => { element.open = true; });
+  const clippingAdvanced = page.locator(".schema-special-clipping__advanced");
+  if (!(await clippingAdvanced.evaluate((element: HTMLDetailsElement) => element.open))) {
+    await clippingAdvanced.locator(":scope > summary").click();
+  }
   for (const [id, value] of [
     ["schema-clipping-min-x", "-7000000"],
     ["schema-clipping-min-y", "-7000000"],
@@ -694,7 +805,7 @@ test("a rejected schema edit blocks Dev Viewer Apply until corrected", async ({ 
   const applyButton = page.locator("#apply-settings");
   await expect(applyButton).toBeEnabled();
 
-  await page.locator('.schema-control-section[data-section="streaming"] summary').click();
+  await page.locator('.schema-control-section[data-section="streaming"] > summary').click();
   const maxNodes = page.locator("#max-nodes-value");
   await maxNodes.fill("0");
   await maxNodes.dispatchEvent("change");

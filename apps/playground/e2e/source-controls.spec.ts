@@ -162,19 +162,19 @@ test("forwards schema-only settings to the created Playground runtime", async ({
 
   await page.getByRole("radiogroup", { name: "HTTP Range Validation" })
     .getByRole("radio", { name: "Strict" }).click();
-  await page.locator('details[data-section="streaming"] summary').click();
+  await page.locator('details[data-section="streaming"] > summary').click();
   await page.getByRole("radiogroup", { name: "Motion Lookahead" })
     .getByRole("radio", { name: "Off" }).click();
   await page.getByRole("checkbox", { name: "Predictive Prefetch" }).check();
 
-  await page.locator('details[data-section="attributes"] summary').click();
+  await page.locator('details[data-section="attributes"] > summary').click();
   await expect(page.locator("#schema-point-field-intensity")).toBeHidden();
   await page.locator("#schema-attribute-loading").selectOption("required");
   await expect(page.locator("#schema-point-field-intensity")).toBeVisible();
   await page.locator("#schema-point-field-intensity").check();
   await expect(page.locator(".schema-special-attribute-loading .schema-option__hint"))
     .toContainText("Pick metadata can include: Position, Intensity");
-  await page.locator('details[data-section="cache"] summary').click();
+  await page.locator('details[data-section="cache"] > summary').click();
   await page.locator('[data-option-id="cache.coordinateCacheLayout"] select').selectOption("E");
   await page.locator('[data-option-id="cache.retainSourceCoordinatesForQueries"] input[type="checkbox"]').check();
 
@@ -246,9 +246,14 @@ test("applies opacity and Cesium clipping to the active layer without reloading 
 
   const filteringSection = page.locator('details[data-section="filtering"]');
   if (!(await filteringSection.evaluate((element: HTMLDetailsElement) => element.open))) {
-    await filteringSection.locator("summary").evaluate((summary: HTMLElement) => summary.click());
+    await filteringSection.locator(":scope > summary").evaluate((summary: HTMLElement) => summary.click());
   }
   await page.locator("#schema-clipping-enabled").check();
+  await filteringSection.evaluate((element: HTMLDetailsElement) => { element.open = true; });
+  const clippingAdvanced = page.locator(".schema-special-clipping__advanced");
+  if (!(await clippingAdvanced.evaluate((element: HTMLDetailsElement) => element.open))) {
+    await clippingAdvanced.locator(":scope > summary").click();
+  }
   for (const [id, value] of [
     ["schema-clipping-min-x", "-1"],
     ["schema-clipping-min-y", "-1"],
@@ -287,7 +292,7 @@ test("required attribute style errors explain that no field was fetched", async 
     hooks.useCameraResetLayerMock();
   });
 
-  await page.locator('details[data-section="attributes"] summary').click();
+  await page.locator('details[data-section="attributes"] > summary').click();
   await page.locator("#schema-attribute-loading").selectOption("required");
   await page.locator("#copc-file").setInputFiles({
     name: "required-fields.copc.laz",
@@ -748,6 +753,10 @@ test("Cesium color and classification styles use setStyle without replacing the 
   await page.getByRole("radiogroup", { name: "Color mode" }).getByRole("radio", { name: "Intensity" }).click();
   await expect(page.locator("#integration-example")).toContainText("layer.setStyle({ colorMode: 'intensity' });");
   await page.locator("#classification-include-enabled").check();
+  await expect(page.locator('#classification-catalog option[value="2"]')).toHaveText("2 · Ground");
+  await page.locator("#classification-catalog").selectOption("2");
+  await page.locator("#classification-add-include").click();
+  await expect(page.locator("#classification-include")).toHaveValue("2");
   await page.locator("#classification-include").fill("6, 2, 6");
   await page.locator("#classification-include").dispatchEvent("change");
   await expect(page.getByRole("button", { name: "Apply filter" })).toBeEnabled();
@@ -775,6 +784,10 @@ test("Cesium color and classification styles use setStyle without replacing the 
   );
   await page.getByRole("button", { name: "Clear filter" }).click();
   await expect(page.locator("#classification-active")).toHaveText("No filter");
+  await page.locator("#classification-include-enabled").check();
+  await page.locator("#classification-include").fill("256");
+  await page.locator("#classification-include").dispatchEvent("change");
+  await expect(page.locator("#classification-error")).toContainText("integers from 0 to 255");
   const after = await page.evaluate(() => ({
     loads: (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.getMockLoadCount(),
     styles: (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.getMockStyleUpdateCount(),
@@ -905,8 +918,8 @@ test("failed color reconciliation keeps the previous Cesium style and active sta
 
 test("numeric entries retain valid values outside the quick-slider ranges", async ({ page }) => {
   await page.goto("./");
-  await page.locator('details[data-section="streaming"] summary').click();
-  await page.locator('details[data-section="performance"] summary').click();
+  await page.locator('details[data-section="streaming"] > summary').click();
+  await page.locator('details[data-section="performance"] > summary').click();
   await page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.useCameraResetLayerMock());
   await page.locator("#copc-file").setInputFiles({
     name: "wide-config.copc.laz",
@@ -1020,7 +1033,7 @@ test("Reset to defaults clears schema-only and inactive renderer settings before
   const renderer = page.getByRole("radiogroup", { name: "Renderer" });
   const attributesSection = page.locator('details[data-section="attributes"]');
   if (!(await attributesSection.evaluate((element: HTMLDetailsElement) => element.open))) {
-    await attributesSection.locator("summary").click();
+    await attributesSection.locator(":scope > summary").click();
   }
   await page.locator("#schema-attribute-loading").selectOption("required");
   await page.locator("#schema-point-field-intensity").check();
@@ -1046,7 +1059,7 @@ test("Reset to defaults clears schema-only and inactive renderer settings before
   await renderer.getByRole("radio", { name: "Three.js" }).click();
   const streamingSection = page.locator('details[data-section="streaming"]');
   if (!(await streamingSection.evaluate((element: HTMLDetailsElement) => element.open))) {
-    await streamingSection.locator("summary").click();
+    await streamingSection.locator(":scope > summary").click();
   }
   const concurrentLoads = page.locator("#max-concurrent-node-loads");
   await concurrentLoads.fill("7");
@@ -1066,7 +1079,7 @@ test("Reset to defaults clears schema-only and inactive renderer settings before
       ],
   )).toBe(7);
   if (!(await attributesSection.evaluate((element: HTMLDetailsElement) => element.open))) {
-    await attributesSection.locator("summary").click();
+    await attributesSection.locator(":scope > summary").click();
   }
   await page.locator("#schema-attribute-loading").selectOption("required");
   await expect.poll(() => page.evaluate(() =>
@@ -1086,12 +1099,12 @@ test("Reset to defaults clears schema-only and inactive renderer settings before
   )).toBe(false);
 
   if (!(await streamingSection.evaluate((element: HTMLDetailsElement) => element.open))) {
-    await streamingSection.locator("summary").click();
+    await streamingSection.locator(":scope > summary").click();
   }
   await page.locator("#motion-lookahead-control").getByRole("radio", { name: "Off" }).click();
   const sourceSection = page.locator('details[data-section="source"]');
   if (!(await sourceSection.evaluate((element: HTMLDetailsElement) => element.open))) {
-    await sourceSection.locator("summary").click();
+    await sourceSection.locator(":scope > summary").click();
   }
   await page.locator("#range-validation-control").getByRole("radio", { name: "Strict" }).click();
   await expect.poll(() => page.evaluate(() => {
@@ -1126,7 +1139,7 @@ test("Reset to defaults clears schema-only and inactive renderer settings before
 test("Extra Dimensions configures copc-js before the Playground layer is created", async ({ page }) => {
   await page.goto("./");
   await page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.useCameraResetLayerMock());
-  await page.locator('details[data-section="attributes"] summary').click();
+  await page.locator('details[data-section="attributes"] > summary').click();
   const extraDimensions = page.getByRole("textbox", { name: "Extra Dimensions" });
   await extraDimensions.fill("gps-time, leg_id");
   await extraDimensions.dispatchEvent("change");
@@ -1145,7 +1158,7 @@ test("Extra Dimensions configures copc-js before the Playground layer is created
 
 test("synchronizing valid controls clears stale numeric validation", async ({ page }) => {
   await page.goto("./");
-  await page.locator('details[data-section="streaming"] summary').click();
+  await page.locator('details[data-section="streaming"] > summary').click();
   await page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.useCameraResetLayerMock());
   await page.locator("#copc-file").setInputFiles({
     name: "numeric-validation.copc.laz",
@@ -1179,7 +1192,7 @@ test("a rejected schema edit blocks Apply until the value is corrected", async (
     buffer: Buffer.from("local test source"),
   });
   await expect(page.locator("#source-status")).toHaveText("Loaded invalid-schema-edit.copc.laz");
-  await page.locator('details[data-section="streaming"] summary').click();
+  await page.locator('details[data-section="streaming"] > summary').click();
 
   const pointSize = page.locator("#point-size-value");
   await pointSize.fill("4");

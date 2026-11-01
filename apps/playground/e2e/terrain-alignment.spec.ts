@@ -19,7 +19,7 @@ test("explains Three.js and ellipsoid-only Terrain limits without enabling sampl
   await page.goto("./");
   const coordinates = page.locator('#shared-schema-controls details[data-section="coordinates"]');
   if (!(await coordinates.evaluate((element) => (element as HTMLDetailsElement).open))) {
-    await coordinates.locator("summary").click();
+    await coordinates.locator(":scope > summary").click();
   }
   const renderer = page.getByRole("radiogroup", { name: "Renderer" });
   await renderer.getByRole("radio", { name: "Three.js" }).click();
@@ -91,7 +91,7 @@ test("Terrain approval preserves pending edits and copies only the approved plac
 
   const coordinates = page.locator('#shared-schema-controls details[data-section="coordinates"]');
   if (!(await coordinates.evaluate((element) => (element as HTMLDetailsElement).open))) {
-    await coordinates.locator("summary").click();
+    await coordinates.locator(":scope > summary").click();
   }
   const preview = page.locator("#terrain-alignment-preview");
   const estimateButton = page.getByRole("button", { name: "Estimate Terrain" });
@@ -129,6 +129,7 @@ test("Terrain approval preserves pending edits and copies only the approved plac
 
   await estimateButton.click();
   await expect(preview).toContainText("Estimate: ready · current");
+  await expect(preview).toContainText("Preview: numerical proposed adjustment only");
   await expect(preview).toContainText("FixtureTerrainProvider");
   await expect(preview).toContainText("Additional Terrain offset: 2.000 m");
   await expect(preview).toContainText("Existing manual heightOffsetMeters: 0.500 m");
@@ -181,6 +182,7 @@ test("Terrain approval preserves pending edits and copies only the approved plac
 
   await estimateButton.click();
   await expect(preview).toContainText("Estimate: ready · current");
+  await expect(preview).toContainText("Preview: numerical proposed adjustment only");
   await expect(preview).toContainText("Existing manual heightOffsetMeters: 0.500 m");
   await adjustment.evaluate((element) => {
     const input = element as HTMLInputElement;

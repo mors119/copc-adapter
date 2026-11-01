@@ -35,6 +35,7 @@ import {
   PointPrimitiveRenderer,
 } from "@frillab/copc-adapter/cesium";
 import { createCesiumViewer } from "./createViewer";
+import { createCinematicCameraDemo } from "./cinematicCameraDemo";
 import { createCopcDebugPanel } from "./debug/CopcDebugPanel";
 import {
   runSyntheticRendererLayoutComparisonBenchmark,
@@ -70,6 +71,10 @@ import {
   mountTerrainAlignmentControl,
   type TerrainAlignmentControl,
 } from "../../shared/workbench/TerrainAlignmentControl.ts";
+import {
+  mountFollowCursorTracker,
+  type NormalizedScreenPosition,
+} from "../../shared/workbench/followCursor.ts";
 import {
   mountPointPopover,
   type PointScreenPosition,
@@ -318,6 +323,10 @@ type ViewerSession = {
   ): boolean;
   setCameraPreset(preset: CameraPreset): void;
   setCameraRenderDistance(distance: number): void;
+  canPlayCameraDemo?(): boolean;
+  playCameraDemo?(): boolean;
+  stopCameraDemo?(): void;
+  isCameraDemoPlaying?(): boolean;
   getCameraState(): ViewerCameraState;
   setCameraState(state: ViewerCameraState): void;
   getPickablePointScreenPosition(): { x: number; y: number } | undefined;
@@ -326,6 +335,7 @@ type ViewerSession = {
   setOpacity(opacity: number | undefined): void;
   setClippingVolume?(volume: CopcCesiumClippingVolume | undefined): void;
   setRefinementFocus?(focus: RefinementFocus | undefined): void;
+  getFocusCanvas?(): HTMLCanvasElement | undefined;
   destroy(): void;
 };
 
@@ -1067,6 +1077,7 @@ async function createCesiumSession(
   ) => void,
   onPointPositionChanged: (position: PointScreenPosition | undefined) => void,
   applyTrace?: ApplyTrace,
+  onCameraDemoPlayingChange?: (playing: boolean) => void,
 ): Promise<ViewerSession> {
   const applicationPlan = buildSchemaApplicationPlan(
     {
@@ -1132,6 +1143,13 @@ async function createCesiumSession(
     ...(testHighDpiRendering ? { useBrowserRecommendedResolution: false } : {}),
     ...(terrainProvider ? { terrainProvider } : {}),
   });
+  const cameraDemo = createCinematicCameraDemo(
+    viewer,
+    onCameraDemoPlayingChange,
+  );
+  const onCameraMoveEnd = (): void =>
+    onCameraDemoPlayingChange?.(cameraDemo.isPlaying());
+  viewer.camera.moveEnd.addEventListener(onCameraMoveEnd);
   const terrainProviderAvailable =
     !(viewer.terrainProvider instanceof Cesium.EllipsoidTerrainProvider) &&
     viewer.terrainProvider.availability !== undefined;
@@ -1240,12 +1258,27 @@ async function createCesiumSession(
     isTerrainHeightAlignmentEstimateCurrent: (estimate) =>
       layer.isTerrainHeightAlignmentEstimateCurrent(estimate),
     setCameraPreset(preset) {
+      cameraDemo.invalidatePath();
       debugAdapter.setCameraPreset(preset);
     },
     setCameraRenderDistance(distance) {
+      cameraDemo.invalidatePath();
       moveCameraToHeight(viewer, distance);
     },
+    canPlayCameraDemo: () => {
+      const metadata = layer.getMetadata();
+      return Boolean(
+        metadata && metadata.pointCount > 0 && cameraDemo.canPlay(),
+      );
+    },
+    playCameraDemo: () => {
+      const metadata = layer.getMetadata();
+      return Boolean(metadata && metadata.pointCount > 0 && cameraDemo.play());
+    },
+    stopCameraDemo: () => cameraDemo.stop(),
+    isCameraDemoPlaying: () => cameraDemo.isPlaying(),
     setRefinementFocus: (focus) => layer.setRefinementFocus(focus),
+    getFocusCanvas: () => viewer.isDestroyed() ? undefined : viewer.scene.canvas,
     getCameraState(): ViewerCameraState {
       const position = viewer.camera.positionCartographic;
       return {
@@ -1260,6 +1293,7 @@ async function createCesiumSession(
     },
     setCameraState(state) {
       if (state.engine !== "cesium") return;
+      cameraDemo.invalidatePath();
       viewer.camera.setView({
         destination: Cesium.Cartesian3.fromDegrees(
           state.longitudeDegrees,
@@ -1288,6 +1322,8 @@ async function createCesiumSession(
       }
       viewer.scene.postRender.removeEventListener(onPostRender);
       viewer.camera.changed.removeEventListener(onCameraChanged);
+      viewer.camera.moveEnd.removeEventListener(onCameraMoveEnd);
+      cameraDemo.destroy();
       for (const removeListener of removeApplyTraceListeners) {
         removeListener();
       }
@@ -1616,6 +1652,9 @@ async function main(): Promise<void> {
   let workbenchControls: ReturnType<typeof mountDevViewerControls> | undefined;
   let terrainAlignmentControl: TerrainAlignmentControl | undefined;
   let activeSession: ViewerSession | undefined;
+  let followCursorEnabled = false;
+  let followCursorFocus: RefinementFocus | undefined;
+  let lastFollowCursorPosition: NormalizedScreenPosition | undefined;
   let activeMount: HTMLElement | undefined;
   let stagedSession: ViewerSession | undefined;
   let stagedMount: HTMLElement | undefined;
@@ -1635,6 +1674,73 @@ async function main(): Promise<void> {
   let isLoading = false;
   let probeAbortController: AbortController | undefined;
   let disposed = false;
+
+  const readFocusValue = (value: unknown): RefinementFocus | undefined => {
+    if (typeof value !== "object" || value === null) return undefined;
+    const focus = value as Partial<RefinementFocus>;
+    if (
+      focus.type !== "screen-circle" ||
+      typeof focus.center !== "object" || focus.center === null ||
+      !Number.isFinite(focus.center.x) || focus.center.x < 0 || focus.center.x > 1 ||
+      !Number.isFinite(focus.center.y) || focus.center.y < 0 || focus.center.y > 1 ||
+      typeof focus.radius !== "number" || !Number.isFinite(focus.radius) || focus.radius <= 0 || focus.radius > 1 ||
+      typeof focus.detailBias !== "number" || !Number.isFinite(focus.detailBias) || focus.detailBias < 1 || focus.detailBias > 2
+    ) return undefined;
+    return focus as RefinementFocus;
+  };
+  const setLiveFocus = (focus: RefinementFocus | undefined): boolean => {
+    if (activeSession?.renderer !== "cesium" || activeSession.pipeline !== "direct" ||
+      !activeSession.setRefinementFocus) return false;
+    try {
+      activeSession.setRefinementFocus(focus);
+      return true;
+    } catch (error) {
+      followCursorEnabled = false;
+      followCursorTracker.setEnabled(false);
+      setActiveError(error);
+      return false;
+    }
+  };
+  const followCursorTracker = mountFollowCursorTracker({
+    getTarget: () => activeSession?.renderer === "cesium" && activeSession.pipeline === "direct"
+      ? activeSession.getFocusCanvas?.()
+      : undefined,
+    onPosition(position) {
+      lastFollowCursorPosition = position;
+      if (!followCursorEnabled || !followCursorFocus) return;
+      setLiveFocus({ ...followCursorFocus, center: position });
+    },
+  });
+  const isFollowCursorAvailable = (): boolean =>
+    pendingConfig.renderer === "cesium" &&
+    pendingConfig.pipeline === "direct" &&
+    activeSession?.renderer === "cesium" &&
+    activeSession.pipeline === "direct" &&
+    typeof activeSession.setRefinementFocus === "function";
+  const setFollowCursor = (enabled: boolean, rawFocus: unknown): void => {
+    const suppliedFocus = readFocusValue(rawFocus);
+    if (suppliedFocus) followCursorFocus = suppliedFocus;
+    else if (rawFocus === undefined) followCursorFocus = undefined;
+    const focus = suppliedFocus ?? (rawFocus === undefined ? undefined : followCursorFocus);
+    const canFollow = isFollowCursorAvailable();
+    followCursorEnabled = enabled && canFollow && focus !== undefined;
+    followCursorTracker.setEnabled(followCursorEnabled);
+    let applied = false;
+    if (followCursorEnabled && focus) {
+      applied = setLiveFocus({ ...focus, center: lastFollowCursorPosition ?? focus.center });
+    } else if (!followCursorEnabled) {
+      applied = setLiveFocus(focus);
+    }
+    if (applied) {
+      const schemaOptionValues = { ...(activeConfig.schemaOptionValues ?? {}) };
+      if (focus) schemaOptionValues["streaming.refinementFocus"] = focus;
+      else delete schemaOptionValues["streaming.refinementFocus"];
+      activeConfig = { ...activeConfig, schemaOptionValues };
+      refreshIntegrationCode();
+    } else {
+      refreshIntegrationCode();
+    }
+  };
   let lastApplyTrace: ApplyTrace | undefined;
 
   const getPendingDebugState = (): CopcDebugState => ({
@@ -1711,6 +1817,8 @@ async function main(): Promise<void> {
   workbenchStatus.id = "workbench-status";
   workbenchStatus.textContent = "Loading configured source…";
   const loadButton = getElement<HTMLButtonElement>("#load-source");
+  const cameraDemoPlayButton = getElement<HTMLButtonElement>("#play-camera-demo");
+  const cameraDemoStopButton = getElement<HTMLButtonElement>("#stop-camera-demo");
   const applySettingsButton = getElement<HTMLButtonElement>("#apply-settings");
   const reloadCurrentSourceButton = getElement<HTMLButtonElement>(
     "#reload-current-source",
@@ -1945,6 +2053,11 @@ async function main(): Promise<void> {
         hostValidators: verticalGridResources.hostValidators,
       });
       const warnings = [...shareConfigurationWarnings, ...generated.warnings];
+      if (followCursorEnabled) {
+        warnings.push(
+          "Follow Cursor is a Dev Viewer host interaction. The generated snippet uses the configured static Focus Lens center and does not install continuous pointer tracking.",
+        );
+      }
       if (activeConfig.renderer === "cesium" && activeConfig.terrainUrl.trim()) {
         warnings.push(
           "Dev Viewer Terrain is configured on the Cesium viewer, not on the adapter layer. Configure the equivalent Cesium Terrain provider separately in your application.",
@@ -2018,6 +2131,28 @@ async function main(): Promise<void> {
     workbenchStatus.textContent = message;
     workbenchStatus.dataset.status = tone;
   };
+  const refreshCameraDemoControls = (): void => {
+    const playing = activeSession?.isCameraDemoPlaying?.() === true;
+    const available = !disposed &&
+      !isLoading &&
+      activeSession?.renderer === "cesium" &&
+      activeSession.pipeline === "direct" &&
+      activeSession.canPlayCameraDemo?.() === true;
+    cameraDemoPlayButton.disabled = !available || playing;
+    cameraDemoStopButton.disabled = !playing;
+  };
+  const onCameraDemoPlay = (): void => {
+    if (isLoading || !activeSession?.canPlayCameraDemo?.()) return;
+    activeSession.playCameraDemo?.();
+    refreshCameraDemoControls();
+  };
+  const onCameraDemoStop = (): void => {
+    activeSession?.stopCameraDemo?.();
+    refreshCameraDemoControls();
+  };
+  cameraDemoPlayButton.addEventListener("click", onCameraDemoPlay);
+  cameraDemoStopButton.addEventListener("click", onCameraDemoStop);
+  refreshCameraDemoControls();
   const updateConfigurationState = (): void => {
     const dirty = hasUnappliedSettings(activeConfig, pendingConfig);
     const schemaValidationErrors = workbenchControls?.getValidationErrors() ?? [];
@@ -2088,7 +2223,9 @@ async function main(): Promise<void> {
           (tilesStylesDisabled && section?.dataset.section === "style") ||
           (tilesFilteringDisabled && section?.dataset.section === "filtering");
       });
+    workbenchControls?.refreshFocusCursorAvailability();
     terrainAlignmentControl?.update();
+    refreshCameraDemoControls();
     refreshIntegrationCode();
   };
   const showConfigurationError = (message: string): void => {
@@ -2315,6 +2452,7 @@ async function main(): Promise<void> {
     applyTrace?: ApplyTrace,
   ): Promise<void> {
     const currentGeneration = ++generation;
+    activeSession?.stopCameraDemo?.();
     isLoading = false;
     probeAbortController?.abort();
     probeAbortController = undefined;
@@ -2536,6 +2674,7 @@ async function main(): Promise<void> {
               handlePointPicked,
               handlePointPositionChanged,
               applyTrace,
+              refreshCameraDemoControls,
             )
           : createThreeSession(
               candidateMount,
@@ -2584,9 +2723,19 @@ async function main(): Promise<void> {
       activeDebugAdapter = candidateSession.debugAdapter;
       activeDebugAdapter?.activate();
       activeConfig = { ...config };
+      lastFollowCursorPosition = undefined;
       tilesDiagnostics = candidateSession.getTilesDiagnostics?.();
       updateTilesDiagnosticsPanel();
       workbenchControls?.updateContext();
+      if (candidateSession.renderer === "cesium" && candidateSession.pipeline === "direct") {
+        followCursorTracker.refreshTarget();
+        if (followCursorEnabled && followCursorFocus) {
+          setLiveFocus(followCursorFocus);
+        }
+      } else {
+        followCursorEnabled = false;
+        followCursorTracker.setEnabled(false);
+      }
       updatePointVerticalReferenceContext();
       const appliedValues = toWorkbenchOptionValues(config);
       const appliedExtraDimensions = appliedValues["attributes.extraDimensions"];
@@ -2666,6 +2815,16 @@ async function main(): Promise<void> {
     ),
     isVerticalGridApplied: (value) =>
       toWorkbenchOptionValues(activeConfig)["coordinates.verticalTransform"] === value,
+    getFollowCursorEnabled: () => followCursorEnabled,
+    isFollowCursorAvailable,
+    isBusy: () => isLoading,
+    onFollowCursorChange: setFollowCursor,
+    getSelectedPointEcef: () => {
+      const world = activeSession?.getSelectedPoint()?.world;
+      return world?.coordinateSystem === "wgs84-ecef-meters"
+        ? [world.x, world.y, world.z]
+        : undefined;
+    },
     onValidationChange() {
       updateConfigurationState();
     },
@@ -2791,12 +2950,14 @@ async function main(): Promise<void> {
         renderer: value,
         cameraRenderDistance,
       };
+      workbenchControls?.updateContext();
       updateConfigurationState();
       return cameraRenderDistance;
     },
     onPipelineSelected(value) {
       resolveStartupIssue("pipeline");
       pendingConfig = { ...pendingConfig, pipeline: value };
+      workbenchControls?.updateContext();
       if (
         value === "direct" &&
         !activeSession &&
@@ -2823,6 +2984,7 @@ async function main(): Promise<void> {
       updateConfigurationState();
     },
     onCameraPresetSelected(value) {
+      activeSession?.stopCameraDemo?.();
       resolveStartupIssue("cameraPreset");
       resolveStartupIssue("cameraDistance");
       const nextDistance = presetDistance(
@@ -2898,6 +3060,7 @@ async function main(): Promise<void> {
       updateConfigurationState();
     },
     onCameraDistanceSelected(distance) {
+      activeSession?.stopCameraDemo?.();
       activeSession?.setCameraRenderDistance(distance);
       activeConfig = { ...activeConfig, cameraRenderDistance: distance };
       pendingConfig = { ...pendingConfig, cameraRenderDistance: distance };
@@ -2971,6 +3134,9 @@ async function main(): Promise<void> {
     () => {
       disposed = true;
       generation += 1;
+      cameraDemoPlayButton.removeEventListener("click", onCameraDemoPlay);
+      cameraDemoStopButton.removeEventListener("click", onCameraDemoStop);
+      followCursorTracker.destroy();
       probeAbortController?.abort();
       debugPanel.destroy();
       tilesDiagnosticsPanel.destroy();

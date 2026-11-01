@@ -72,6 +72,11 @@ export type DevViewerControlsOptions = {
   readonly verticalGridHostValidators: SchemaHostValidators;
   readonly canLoadVerticalGrid: () => boolean;
   readonly isVerticalGridApplied: (value: unknown) => boolean;
+  readonly getFollowCursorEnabled: () => boolean;
+  readonly isFollowCursorAvailable: () => boolean;
+  readonly isBusy: () => boolean;
+  readonly onFollowCursorChange: (enabled: boolean, focus: unknown) => void;
+  readonly getSelectedPointEcef: () => readonly [number, number, number] | undefined;
 };
 
 export type DevViewerControls = {
@@ -79,6 +84,7 @@ export type DevViewerControls = {
   getValidationErrors(): readonly string[];
   updateContext(): void;
   refreshVerticalGridAvailability(): void;
+  refreshFocusCursorAvailability(): void;
   setNumericDimensionMetadata(
     metadata: Parameters<typeof getWorkbenchNumericDimensions>[0],
     decodedExtraDimensions: readonly string[],
@@ -112,6 +118,7 @@ export function mountDevViewerControls(
   let decodedExtraDimensions: readonly string[] = [];
   let intensityDecoded = false;
   let numericDimensions: readonly SchemaNumericDimensionMetadata[] | undefined;
+  let focusControl: SchemaSpecialControl | undefined;
   const inactiveRendererValues = new Map<
     string,
     { readonly value: unknown; readonly schemaOnly: boolean }
@@ -408,6 +415,24 @@ export function mountDevViewerControls(
         });
         return verticalGridControl;
       }
+      if (controlOptions.option.id === "streaming.refinementFocus") {
+        focusControl = renderSharedSpecialControl({
+          ...controlOptions,
+          followCursor: {
+            enabled: options.getFollowCursorEnabled(),
+            isAvailable: options.isFollowCursorAvailable,
+            isBusy: options.isBusy,
+            onChange: options.onFollowCursorChange,
+          },
+        });
+        return focusControl;
+      }
+      if (controlOptions.option.id === "filtering.cesiumClippingVolume") {
+        return renderSharedSpecialControl({
+          ...controlOptions,
+          getSelectedPointEcef: options.getSelectedPointEcef,
+        });
+      }
       return renderSharedSpecialControl(controlOptions);
     },
     renderAction: options.renderAction,
@@ -424,6 +449,9 @@ export function mountDevViewerControls(
     },
     refreshVerticalGridAvailability(): void {
       verticalGridControl?.updateContext?.(context());
+    },
+    refreshFocusCursorAvailability(): void {
+      focusControl?.refreshAvailability?.();
     },
     setNumericDimensionMetadata(metadata, decoded, decodedIntensity): void {
       sourceMetadata = metadata;

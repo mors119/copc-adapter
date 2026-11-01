@@ -23,12 +23,26 @@ export type SchemaSpecialControlOptions = {
   readonly context: CapabilityContext;
   readonly onChange: (value: unknown) => void;
   readonly hostValidators?: SchemaHostValidators;
+  /**
+   * Host-owned pointer interaction. This state is deliberately outside the
+   * serializable Adapter option value and is available only to the Cesium
+   * Focus Lens control.
+   */
+  readonly followCursor?: {
+    readonly enabled: boolean;
+    readonly isAvailable: () => boolean;
+    readonly isBusy: () => boolean;
+    readonly onChange: (enabled: boolean, focus: unknown) => void;
+  };
+  /** Current selected point in WGS 84 ECEF metres, when the host has one. */
+  readonly getSelectedPointEcef?: () => readonly [number, number, number] | undefined;
 };
 
 export type SchemaSpecialControl = {
   readonly element: HTMLElement;
   setValue?(value: unknown): void;
   updateContext?(context: CapabilityContext): void;
+  refreshAvailability?(): void;
   setChoices?(choices: readonly { readonly value: string; readonly label: string }[]): void;
   destroy?(): void;
 };
@@ -145,6 +159,16 @@ function element<K extends keyof HTMLElementTagNameMap>(
   return result;
 }
 
+function helpDisclosure(text: string): HTMLDetailsElement {
+  const disclosure = element("details", "schema-option__description");
+  const summary = element("summary");
+  summary.textContent = "Help";
+  const content = element("p", "schema-option__description-text");
+  content.textContent = text;
+  disclosure.append(summary, content);
+  return disclosure;
+}
+
 function optionInputId(option: SchemaOption): string {
   return option.presentation?.inputId ??
     option.presentation?.controlId ??
@@ -178,8 +202,7 @@ function mountGenericOption(
   const label = element("label", "ui-field");
   label.htmlFor = optionInputId(option);
   label.append(document.createTextNode(option.label));
-  const description = element("span", "schema-option__description");
-  description.textContent = option.description;
+  const description = helpDisclosure(option.description);
   const error = element("span", "schema-option__error");
   error.setAttribute("role", "status");
   error.hidden = true;
@@ -516,12 +539,19 @@ export function mountSchemaOptionPanel(options: SchemaOptionPanelOptions): Schem
       specializedControl = specialized;
       const wrapper = element("div", "schema-option");
       wrapper.dataset.optionId = option.id;
-      const description = element("span", "schema-option__description");
-      description.textContent = option.description;
+      const description = helpDisclosure(option.description);
       const errorText = element("span", "schema-option__error");
       errorText.hidden = true;
       errorText.setAttribute("role", "status");
-      wrapper.append(specialized.element, description, errorText);
+      if (option.id === "coordinates.verticalTransform") {
+        const advanced = element("details", "schema-option__advanced-resource");
+        const summary = element("summary");
+        summary.textContent = "Advanced · validated vertical grid";
+        advanced.append(summary, specialized.element);
+        wrapper.append(advanced, description, errorText);
+      } else {
+        wrapper.append(specialized.element, description, errorText);
+      }
       const availability = option.rendererUnavailableMessage
         ? element("span", "schema-option__availability")
         : undefined;

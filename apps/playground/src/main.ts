@@ -90,6 +90,8 @@ import {
   type PlaygroundFocusMode,
   type PlaygroundRefinementConfig,
 } from "./refinementConfig";
+import { mountFollowCursorTracker } from "../../shared/workbench/followCursor.ts";
+import { appendClassificationCode, LAS_1_4_CLASSIFICATION_CATALOG } from "../../shared/workbench/lasClassification.ts";
 import {
   defaultPlaygroundUrlConfig,
   readPlaygroundUrlConfig,
@@ -332,6 +334,14 @@ app.innerHTML = `
             <label class="ui-field" for="classification-exclude">Exclude codes (0–255)
               <input id="classification-exclude" type="text" inputmode="numeric" placeholder="e.g. 7, 18">
             </label>
+            <label class="ui-field" for="classification-catalog">Standard LAS 1.4 catalog
+              <select id="classification-catalog"><option value="">Choose a standard class…</option></select>
+            </label>
+            <div class="classification-actions">
+              <button id="classification-add-include" type="button" disabled>Add class to include</button>
+              <button id="classification-add-exclude" type="button" disabled>Add class to exclude</button>
+            </div>
+            <p class="control-hint">Catalog names are standard LAS 1.4 classes, not verified values in the selected source. Numeric entry remains available for user-defined and other codes.</p>
             <div class="classification-actions">
               <button id="apply-classification" type="button" disabled>Apply filter</button>
               <button id="clear-classification" type="button" disabled>Clear filter</button>
@@ -346,12 +356,12 @@ app.innerHTML = `
             <select id="focus-mode">
               <option value="auto-center">Auto center</option>
               <option value="center-boost">Center boost</option>
-              <option value="follow-pointer">Follow pointer</option>
               <option value="pinned">Pinned</option>
             </select>
           </label>
           <p class="control-hint">Algorithm changes apply by reloading the layer. Focus changes update the active layer.</p>
           <label class="focus-checkbox" for="focus-enabled"><input id="focus-enabled" type="checkbox"> Focus enabled</label>
+          <label class="focus-checkbox" for="focus-follow-cursor"><input id="focus-follow-cursor" type="checkbox"> Follow Cursor</label>
           <div class="focus-position-controls" id="focus-position-controls">
             <label for="focus-x">X (0–1) <input id="focus-x" type="number" min="0" max="1" step="0.01" inputmode="decimal"></label>
             <label for="focus-y">Y (0–1) <input id="focus-y" type="number" min="0" max="1" step="0.01" inputmode="decimal"></label>
@@ -489,6 +499,7 @@ const pointPopover = mountPointPopover(viewerFrame);
 const focusGuide = byId<HTMLDivElement>("focus-guide");
 const focusGuideHandle = byId<HTMLButtonElement>("focus-guide-handle");
 const focusModeSelect = byId<HTMLSelectElement>("focus-mode");
+const focusFollowCursorInput = byId<HTMLInputElement>("focus-follow-cursor");
 const focusEnabledInput = byId<HTMLInputElement>("focus-enabled");
 const focusShowGuideInput = byId<HTMLInputElement>("focus-show-guide");
 const focusXInput = byId<HTMLInputElement>("focus-x");
@@ -503,6 +514,12 @@ const classificationIncludeInput = byId<HTMLInputElement>("classification-includ
 const classificationExcludeInput = byId<HTMLInputElement>("classification-exclude");
 const classificationActive = byId<HTMLElement>("classification-active");
 const classificationError = byId<HTMLElement>("classification-error");
+const classificationCatalog = byId<HTMLSelectElement>("classification-catalog");
+const classificationAddInclude = byId<HTMLButtonElement>("classification-add-include");
+const classificationAddExclude = byId<HTMLButtonElement>("classification-add-exclude");
+for (const item of LAS_1_4_CLASSIFICATION_CATALOG) {
+  classificationCatalog.add(new Option(`${item.code} · ${item.label}`, String(item.code)));
+}
 const styleError = byId<HTMLElement>("style-error");
 const applyClassificationButton = byId<HTMLButtonElement>("apply-classification");
 const clearClassificationButton = byId<HTMLButtonElement>("clear-classification");
@@ -526,18 +543,15 @@ terrainProviderUrlInput.value = pendingConfig.terrainUrl;
 // canonical pending configuration through updatePendingConfig/applyFocusSettings.
 let refinementConfig: PlaygroundRefinementConfig = pendingConfig.refinementConfig;
 let followPointerCenter = { ...pendingConfig.refinementConfig.center };
+let focusModeBeforeFollow: PlaygroundFocusMode = refinementConfig.focusMode === "follow-pointer"
+  ? "pinned"
+  : refinementConfig.focusMode;
 let focusDragPointerId: number | undefined;
 let focusDragOffset = { x: 0, y: 0 };
 let pendingDragCenter: { x: number; y: number } | undefined;
 let dragFocusFrame: number | undefined;
 let dragFocusTimer: number | undefined;
 let lastDragFocusUpdateAt = 0;
-let pointerFocusCanvas: HTMLCanvasElement | undefined;
-let pendingPointerCenter: { x: number; y: number } | undefined;
-let pointerFocusFrame: number | undefined;
-let pointerFocusTimer: number | undefined;
-let lastPointerFocusUpdateAt = 0;
-let lastAppliedFocusCenter: { x: number; y: number } | undefined;
 let focusConfigSyncTimer: number | undefined;
 let sourceSelectionGeneration = 0;
 let probeGeneration = 0;
@@ -553,6 +567,25 @@ let pendingRuntime: PlaygroundRuntime | undefined;
 let pendingRuntimeHost: HTMLDivElement | undefined;
 let activeRuntimeReady = false;
 let terrainAlignmentControl: TerrainAlignmentControl | undefined;
+const followCursorTracker = mountFollowCursorTracker({
+  getTarget: () => activeRuntime?.renderer === "cesium"
+    ? activeRuntime.getFocusCanvas()
+    : undefined,
+  onPosition(position) {
+    followPointerCenter = position;
+    updateFocusGuidePosition();
+    if (!activeRuntimeReady || activeRuntime?.renderer !== "cesium") return;
+    const focus = effectiveRefinementFocus(position, activeRuntime.renderer, refinementConfig);
+    if (!focus) return;
+    try {
+      activeRuntime.setRefinementFocus(focus);
+    } catch (error) {
+      styleError.textContent = `Focus settings were not applied. ${safeErrorText(error)}`;
+      styleError.hidden = false;
+      followCursorTracker.setEnabled(false);
+    }
+  },
+});
 let activeDiagnosticsContext: PlaygroundDiagnosticsContext | undefined;
 let browserMeasurements: PlaygroundBrowserMeasurements = {};
 let loadInitiatedAt: number | undefined;
@@ -1247,6 +1280,17 @@ schemaPanel = mountSchemaOptionPanel({
           playgroundOptionValues(appliedConfig)["coordinates.verticalTransform"] === value,
       });
     }
+    if (controlOptions.option.id === "filtering.cesiumClippingVolume") {
+      return renderSharedSpecialControl({
+        ...controlOptions,
+        getSelectedPointEcef: () => {
+          const world = activeRuntime?.getSelectedPoint()?.world;
+          return world?.coordinateSystem === "wgs84-ecef-meters"
+            ? [world.x, world.y, world.z]
+            : undefined;
+        },
+      });
+    }
     return renderSharedSpecialControl(controlOptions);
   },
   renderAction(action) {
@@ -1605,6 +1649,9 @@ function updateClassificationControls(): void {
   classificationExcludeInput.disabled = !activeCesium || !excludeEnabled;
   includeCheckbox.disabled = !activeCesium;
   excludeCheckbox.disabled = !activeCesium;
+  classificationCatalog.disabled = !activeCesium;
+  classificationAddInclude.disabled = !activeCesium || classificationCatalog.value === "";
+  classificationAddExclude.disabled = !activeCesium || classificationCatalog.value === "";
   classificationIncludeInput.value = includeEnabled
     ? pendingConfig.classificationFilter!.include!.join(", ")
     : "";
@@ -1689,6 +1736,25 @@ classificationExcludeInput.addEventListener("change", () => {
     classificationError.hidden = false;
   }
 });
+classificationCatalog.addEventListener("change", () => updateClassificationControls());
+const addCatalogClassToFilter = (target: "include" | "exclude"): void => {
+  if (!/^\d+$/u.test(classificationCatalog.value)) return;
+  const code = Number(classificationCatalog.value);
+  const input = target === "include" ? classificationIncludeInput : classificationExcludeInput;
+  const checkbox = byId<HTMLInputElement>(`classification-${target}-enabled`);
+  checkbox.checked = true;
+  input.value = appendClassificationCode(input.value, code);
+  input.disabled = false;
+  try {
+    updatePendingConfig({ classificationFilter: readClassificationForm() });
+    classificationError.hidden = true;
+  } catch (error) {
+    classificationError.textContent = error instanceof Error ? error.message : String(error);
+    classificationError.hidden = false;
+  }
+};
+classificationAddInclude.addEventListener("click", () => addCatalogClassToFilter("include"));
+classificationAddExclude.addEventListener("click", () => addCatalogClassToFilter("exclude"));
 applyClassificationButton.addEventListener("click", () => {
   try {
     const filter = readClassificationForm();
@@ -1817,7 +1883,12 @@ function updateIntegrationExample(): void {
       : undefined;
     integrationCodePanel.setContent({
       code: generated.code,
-      warnings: generated.warnings,
+      warnings: refinementConfig.focusMode === "follow-pointer"
+        ? [
+            ...generated.warnings,
+            "Follow Cursor is a Playground host interaction. The generated snippet uses the configured static Focus Lens center and does not install continuous pointer tracking.",
+          ]
+        : generated.warnings,
       source: appliedSource,
       sensitiveSourceIncluded: typeof appliedSource === "string" &&
         isPotentiallySensitiveSource(appliedSource) && panelState.includeExactSource,
@@ -1864,13 +1935,17 @@ function updateFocusControls(): void {
     ? activeRuntime?.renderer ?? pendingConfig.renderer
     : pendingConfig.renderer;
   refinementConfig = pendingConfig.refinementConfig;
-  focusModeSelect.value = refinementConfig.focusMode;
+  focusModeSelect.value = refinementConfig.focusMode === "follow-pointer"
+    ? focusModeBeforeFollow
+    : refinementConfig.focusMode;
+  focusFollowCursorInput.checked = refinementConfig.focusMode === "follow-pointer";
   focusEnabledInput.checked = refinementConfig.focusEnabled;
   focusShowGuideInput.checked = refinementConfig.showGuide;
   focusEnabledInput.disabled =
     focusRenderer !== "cesium" || refinementConfig.focusMode === "auto-center";
   focusShowGuideInput.disabled = focusRenderer !== "cesium";
   focusModeSelect.disabled = focusRenderer !== "cesium";
+  focusFollowCursorInput.disabled = focusRenderer !== "cesium";
   focusRadiusSlider.setDisabled(
     focusRenderer !== "cesium" || refinementConfig.focusMode === "auto-center",
   );
@@ -1977,7 +2052,6 @@ function applyFocusSettings(syncUrl = true, cancelReplacement = true): void {
       return;
     }
   }
-  lastAppliedFocusCenter = focus?.center;
   if (syncUrl) writePendingUrlConfig();
   updateApplyState();
   updateIntegrationExample();
@@ -1985,17 +2059,7 @@ function applyFocusSettings(syncUrl = true, cancelReplacement = true): void {
 }
 
 function setFocusMode(mode: PlaygroundFocusMode): void {
-  const previousMode = refinementConfig.focusMode;
-  if (
-    previousMode === "follow-pointer" &&
-    mode !== "follow-pointer" &&
-    mode !== "center-boost"
-  ) {
-    refinementConfig = {
-      ...refinementConfig,
-      center: { ...followPointerCenter },
-    };
-  }
+  if (mode !== "follow-pointer") focusModeBeforeFollow = mode;
   if (mode === "center-boost") {
     refinementConfig = { ...refinementConfig, center: { x: 0.5, y: 0.5 } };
   }
@@ -2004,8 +2068,8 @@ function setFocusMode(mode: PlaygroundFocusMode): void {
     focusMode: mode,
     focusEnabled: mode === "auto-center" ? false : true,
   };
-  if (mode === "follow-pointer")
-    followPointerCenter = { ...refinementConfig.center };
+  if (mode === "follow-pointer") followPointerCenter = { ...refinementConfig.center };
+  followCursorTracker.setEnabled(mode === "follow-pointer" && refinementConfig.focusEnabled);
   applyFocusSettings();
 }
 
@@ -2041,84 +2105,6 @@ function updateFocusGuidePosition(): void {
   focusGuide.style.height = `${diameter}px`;
   focusGuide.style.left = `${canvasRect.left - frameRect.left + center.x * canvasRect.width}px`;
   focusGuide.style.top = `${canvasRect.top - frameRect.top + center.y * canvasRect.height}px`;
-}
-
-function unbindPointerFocus(): void {
-  if (pointerFocusCanvas)
-    pointerFocusCanvas.removeEventListener(
-      "pointermove",
-      onFocusCanvasPointerMove,
-    );
-  pointerFocusCanvas = undefined;
-  if (pointerFocusFrame !== undefined) cancelAnimationFrame(pointerFocusFrame);
-  if (pointerFocusTimer !== undefined) window.clearTimeout(pointerFocusTimer);
-  pointerFocusFrame = undefined;
-  pointerFocusTimer = undefined;
-  pendingPointerCenter = undefined;
-}
-
-function flushFollowPointerUpdate(): void {
-  pointerFocusFrame = undefined;
-  if (
-    !pendingPointerCenter ||
-    activeRuntime?.renderer !== "cesium" ||
-    refinementConfig.focusMode !== "follow-pointer" ||
-    !refinementConfig.focusEnabled
-  )
-    return;
-  const now = performance.now();
-  const interval = 33;
-  if (now - lastPointerFocusUpdateAt < interval) {
-    pointerFocusTimer = window.setTimeout(
-      () => {
-        pointerFocusTimer = undefined;
-        if (pointerFocusFrame === undefined)
-          pointerFocusFrame = requestAnimationFrame(flushFollowPointerUpdate);
-      },
-      interval - (now - lastPointerFocusUpdateAt),
-    );
-    return;
-  }
-  const center = pendingPointerCenter;
-  pendingPointerCenter = undefined;
-  const previous = lastAppliedFocusCenter;
-  if (
-    previous &&
-    Math.abs(center.x - previous.x) < 0.005 &&
-    Math.abs(center.y - previous.y) < 0.005
-  )
-    return;
-  followPointerCenter = center;
-  lastPointerFocusUpdateAt = now;
-  applyFocusSettings(false, false);
-}
-
-function onFocusCanvasPointerMove(event: PointerEvent): void {
-  if (!pointerFocusCanvas || refinementConfig.focusMode !== "follow-pointer")
-    return;
-  const rect = pointerFocusCanvas.getBoundingClientRect();
-  if (rect.width <= 0 || rect.height <= 0) return;
-  const center = {
-    x: Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width)),
-    y: Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height)),
-  };
-  followPointerCenter = center;
-  updateFocusGuidePosition();
-  if (!refinementConfig.focusEnabled) return;
-  pendingPointerCenter = center;
-  if (pointerFocusFrame === undefined && pointerFocusTimer === undefined) {
-    pointerFocusFrame = requestAnimationFrame(flushFollowPointerUpdate);
-  }
-}
-
-function bindPointerFocus(runtime: PlaygroundRuntime): void {
-  unbindPointerFocus();
-  const canvas = runtime.getFocusCanvas();
-  if (!canvas) return;
-  pointerFocusCanvas = canvas;
-  canvas.addEventListener("pointermove", onFocusCanvasPointerMove, {
-    passive: true,
-  });
 }
 
 function finishFocusDrag(): void {
@@ -2483,11 +2469,21 @@ const observeBrowserLongTasks = (
 focusModeSelect.addEventListener("change", () => {
   setFocusMode(focusModeSelect.value as PlaygroundFocusMode);
 });
+focusFollowCursorInput.addEventListener("change", () => {
+  if (focusFollowCursorInput.checked) {
+    setFocusMode("follow-pointer");
+  } else if (refinementConfig.focusMode === "follow-pointer") {
+    setFocusMode(focusModeBeforeFollow);
+  }
+});
 focusEnabledInput.addEventListener("change", () => {
   refinementConfig = {
     ...refinementConfig,
     focusEnabled: focusEnabledInput.checked,
   };
+  followCursorTracker.setEnabled(
+    refinementConfig.focusEnabled && refinementConfig.focusMode === "follow-pointer",
+  );
   applyFocusSettings();
 });
 focusShowGuideInput.addEventListener("change", () => {
@@ -2523,12 +2519,18 @@ focusYInput.addEventListener("change", () => {
 byId<HTMLButtonElement>("focus-reset").addEventListener("click", () => {
   if (refinementConfig.focusMode === "follow-pointer") {
     refinementConfig = { ...refinementConfig, focusMode: "pinned" };
+    focusModeBeforeFollow = "pinned";
+    focusFollowCursorInput.checked = false;
+    followCursorTracker.setEnabled(false);
   }
   refinementConfig = { ...refinementConfig, center: { x: 0.5, y: 0.5 } };
   followPointerCenter = { x: 0.5, y: 0.5 };
   applyFocusSettings();
 });
 
+followCursorTracker.setEnabled(
+  refinementConfig.focusMode === "follow-pointer" && refinementConfig.focusEnabled,
+);
 updateFocusControls();
 updateIntegrationExample();
 
@@ -2592,7 +2594,6 @@ function clearRuntimeObservations(): void {
 function destroyActiveRuntime(clearDiagnostics = true): void {
   pointPopover.clear();
   activeRuntimeReady = false;
-  unbindPointerFocus();
   if (focusDragPointerId !== undefined) {
     const pointerId = focusDragPointerId;
     focusDragPointerId = undefined;
@@ -2608,6 +2609,7 @@ function destroyActiveRuntime(clearDiagnostics = true): void {
   focusConfigSyncTimer = undefined;
   activeRuntime?.destroy();
   activeRuntime = undefined;
+  followCursorTracker.refreshTarget();
   activeRuntimeHost?.remove();
   activeRuntimeHost = undefined;
   if (clearDiagnostics) clearRuntimeObservations();
@@ -2829,7 +2831,6 @@ const loadSource = async (
       loadConfig.renderer,
       loadConfig.refinementConfig,
     );
-    let committedFocus = focus;
     candidate.setRefinementFocus(focus);
     await candidate.ready;
     if (!current()) {
@@ -2874,7 +2875,6 @@ const loadSource = async (
         JSON.stringify(pendingFocusCenter) !== JSON.stringify(loadConfig.refinementConfig.center)
       ) {
         candidate.setRefinementFocus(pendingFocus);
-        committedFocus = pendingFocus;
         committedConfig = {
           ...committedConfig,
           refinementConfig: {
@@ -2930,8 +2930,8 @@ const loadSource = async (
     );
     updateColorChoices(activePointFormat);
     observeBrowserLongTasks(candidate);
-    bindPointerFocus(candidate);
-    lastAppliedFocusCenter = committedFocus?.center;
+    followPointerCenter = { ...refinementConfig.center };
+    followCursorTracker.refreshTarget();
     diagnosticsRefreshCleanup = createDiagnosticsRefreshLoop(
       () => activeRuntime,
       (currentRuntime) => {
@@ -3171,6 +3171,7 @@ const destroyPlayground = (): void => {
   loadGeneration += 1;
   releasePendingRuntime();
   destroyActiveRuntime();
+  followCursorTracker.destroy();
   pointPopover.destroy();
   focusResizeObserver.disconnect();
   focusRadiusSlider.destroy();
