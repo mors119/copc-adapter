@@ -469,7 +469,7 @@ results do not establish model accuracy.
 ### Generic GTX PR baseline validation (historical, 2026-10-21)
 
 - `cd packages && npm run typecheck` — passed.
-- `npm --prefix packages test` — passed, 487/487 tests, no skips; prepares the
+- `npm test -w @frillab/copc-adapter` — passed, 487/487 tests, no skips; prepares the
   Rust/WASM core before running the package suite.
 - `cd packages && npm run build:library` — passed; package declarations and
   Rust/WASM assets built.
@@ -515,7 +515,7 @@ not accepted by the model-specific loader.
 Reproduce the Node measurements with:
 
 ```sh
-npm --prefix packages run benchmark:vertical-grid
+npm run benchmark:vertical-grid -w @frillab/copc-adapter
 ```
 
 The script generated constant 25 m GTX files under the OS temporary directory
@@ -643,7 +643,7 @@ pinned digest above. Reproduce the post-change Node run with:
 ```sh
 COPC_VERTICAL_GRID_SAMPLES=3 \
 COPC_NGA_EGM2008_FILE=/path/to/Und_min2.5x2.5_egm2008_isw=82_WGS84_TideFree_SE \
-npm --prefix packages run benchmark:vertical-grid
+npm run benchmark:vertical-grid -w @frillab/copc-adapter
 ```
 
 The existing script runs synthetic GTX float32 sizes and, when the NGA path is
@@ -657,16 +657,22 @@ point buffers, or renderer resources.
 For a before run, the same benchmark driver can run against the core source at
 base commit `ad5104ea281fe632d4355c3cd64591599099e9df`:
 
+That historical commit stored Adapter under `packages/core`. The commands
+below archive that original path, then stage the source under the current
+`packages/adapter` package layout so the moved benchmark driver resolves the
+repository root correctly.
+
 ```sh
 BASE=/tmp/copc-adapter-issue-323-before
-mkdir -p "$BASE/packages/scripts"
+mkdir -p "$BASE/packages/adapter/scripts"
 git archive ad5104ea281fe632d4355c3cd64591599099e9df packages/core | tar -x -C "$BASE"
-cp packages/scripts/vertical-grid-performance-benchmark.mjs "$BASE/packages/scripts/"
-cp packages/package.json "$BASE/packages/"
-ln -s "$PWD/packages/node_modules" "$BASE/packages/node_modules"
+mv "$BASE/packages/core" "$BASE/packages/adapter/core"
+cp packages/adapter/scripts/vertical-grid-performance-benchmark.mjs "$BASE/packages/adapter/scripts/"
+cp packages/adapter/package.json "$BASE/packages/adapter/"
+ln -s "$PWD/node_modules" "$BASE/node_modules"
 COPC_VERTICAL_GRID_SAMPLES=3 \
 COPC_NGA_EGM2008_FILE=/path/to/Und_min2.5x2.5_egm2008_isw=82_WGS84_TideFree_SE \
-npm --prefix "$BASE/packages" run benchmark:vertical-grid
+npm --prefix "$BASE/packages/adapter" run benchmark:vertical-grid
 ```
 
 On Node v26.12.1, macOS 26.6 (Darwin 25.6), Apple M2 arm64, 8 logical CPUs,
@@ -836,8 +842,8 @@ Validation commands and results for this integration change:
   — passed, 3/3 browser scenarios in 2.1 minutes.
 - `npm --prefix apps/dev-viewer run test:e2e -- e2e/dev-viewer-controls.spec.ts -g 'switches renderer and backend' --reporter=line`
   — passed, 1/1 existing Three.js renderer/backend regression scenario.
-- `npm --prefix packages test` — passed, 493/493 tests.
-- `npm --prefix packages run typecheck` and
+- `npm test -w @frillab/copc-adapter` — passed, 493/493 tests.
+- `npm run typecheck -w @frillab/copc-adapter` and
   `npm --prefix apps/dev-viewer run typecheck` — passed.
 - `npm run test:pack` — passed, 6/6 Chromium cases each for root production,
   explicit Cesium production, and root development consumers.

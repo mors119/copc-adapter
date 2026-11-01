@@ -97,20 +97,20 @@ the real-dataset integration path.
 Fast deterministic backend checks:
 
 ```bash
-npm --prefix packages run test:conformance:unit
+npm run test:conformance:unit -w @frillab/copc-adapter
 ```
 
 Integration checks use the local Autzen copy:
 
 ```bash
 npm run download-samples -- autzen
-npm --prefix packages run test:conformance:integration
+npm run test:conformance:integration -w @frillab/copc-adapter
 ```
 
 The complete application test command also discovers the conformance tests:
 
 ```bash
-npm --prefix packages test
+npm test -w @frillab/copc-adapter
 ```
 
 Use the change-specific Rust, WASM, TypeScript, browser, and packed-consumer

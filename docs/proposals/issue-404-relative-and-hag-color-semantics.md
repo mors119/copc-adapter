@@ -65,8 +65,8 @@ rejects unconfirmed non-ground anchors, reports missing samples, and does not
 modify geometry. That contract is appropriate for an explicit diagnostic; it
 does not make per-point Terrain sampling an acceptable coloring strategy.
 
-Relevant current code is in `packages/core/point/style/pointStyle.ts`,
-`packages/cesium/terrain/terrainHeightAlignmentBatch.ts`, and
+Relevant current code is in `packages/adapter/core/point/style/pointStyle.ts`,
+`packages/adapter/cesium/terrain/terrainHeightAlignmentBatch.ts`, and
 `docs/API.md` (the absolute elevation and Terrain alignment sections).
 
 ## Reference-height choice for dataset-relative color

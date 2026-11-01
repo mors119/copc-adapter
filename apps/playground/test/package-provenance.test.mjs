@@ -79,7 +79,7 @@ test("labels workspace and candidate installs by their actual lockfile origin", 
   );
   assert.equal(
     classifyAdapterSource(
-      { version: "0.7.1", resolved: "file:../../packages", link: true },
+      { version: "0.7.1", resolved: "file:../../packages/adapter", link: true },
       "0.7.1",
     ),
     "Workspace/local",
@@ -89,7 +89,7 @@ test("labels workspace and candidate installs by their actual lockfile origin", 
 test("rejects mixed local and packed-candidate adapter modules but allows shared UI", () => {
   const appDirectory = "/repo/apps/playground";
   const installedPackage = `${appDirectory}/node_modules/@frillab/copc-adapter`;
-  const localAdapterSource = "/repo/packages/core/streaming/CopcStreamingCore.ts";
+  const localAdapterSource = "/repo/packages/adapter/core/streaming/CopcStreamingCore.ts";
   const packedCandidate =
     "/tmp/copc-adapter-packed-consumer-123/node_modules/@frillab/copc-adapter/dist/cesium.js";
   const extractedCandidate =
@@ -105,7 +105,7 @@ test("rejects mixed local and packed-candidate adapter modules but allows shared
     ],
     {
       adapterPackageRoot: installedPackage,
-      repositoryPackageRoot: "/repo/packages",
+      repositoryPackageRoot: "/repo/packages/adapter",
       candidateArtifactsRoot: "/repo/.ci-artifacts",
     },
   );
@@ -123,7 +123,7 @@ test("rejects adapter code loaded from candidate artifacts", () => {
     findUnexpectedAdapterModules([candidateModule], {
       adapterPackageRoot:
         "/repo/apps/playground/node_modules/@frillab/copc-adapter",
-      repositoryPackageRoot: "/repo/packages",
+      repositoryPackageRoot: "/repo/packages/adapter",
       candidateArtifactsRoot: "/repo/.ci-artifacts",
     }),
     [candidateModule],

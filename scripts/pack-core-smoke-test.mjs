@@ -16,7 +16,7 @@ const repositoryDirectory = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
-const packageDirectory = path.resolve(repositoryDirectory, "packages");
+const packageDirectory = path.resolve(repositoryDirectory, "packages/adapter");
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 
 function run(command, args, options = {}) {

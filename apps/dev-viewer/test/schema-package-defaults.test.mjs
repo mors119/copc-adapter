@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import * as CesiumApi from "../../../packages/cesium.ts";
+import * as CesiumApi from "../../../packages/adapter/cesium.ts";
 import {
   WORKSPACE_CURRENT_MANIFEST,
   resolveOptionDefault,

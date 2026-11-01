@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["src/**/*.ts", "test-types/copc-core-api-compatibility.ts"],
+  "exclude": []
+}

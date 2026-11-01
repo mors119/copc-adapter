@@ -3,24 +3,24 @@ import * as THREE from "three";
 import type {
   CopcMetadata,
   CopcPointBuffer,
-} from "../../../packages/core/copc/types/copc";
-import { performanceNow } from "../../../packages/core/copc/performance";
+} from "../../../packages/adapter/core/copc/types/copc";
+import { performanceNow } from "../../../packages/adapter/core/copc/performance";
 import {
   applyPreparedPointHeightOffset,
   transformPointBufferToPreparedPointData,
-} from "../../../packages/core/coordinates/transform/createPointTransformer";
-import { writeEcefForEllipsoidalHeightOffset } from "../../../packages/core/coordinates/transform/ellipsoidalHeightOffset";
-import { createCompactEPointCacheNode } from "../../../packages/core/point/compactEPointCache";
+} from "../../../packages/adapter/core/coordinates/transform/createPointTransformer";
+import { writeEcefForEllipsoidalHeightOffset } from "../../../packages/adapter/core/coordinates/transform/ellipsoidalHeightOffset";
+import { createCompactEPointCacheNode } from "../../../packages/adapter/core/point/compactEPointCache";
 import {
   ThreePointRenderer,
   type ThreePointRendererPerformanceStage,
-} from "../../../packages/three/render/ThreePointRenderer";
+} from "../../../packages/adapter/three/render/ThreePointRenderer";
 import {
   PointPrimitiveRenderer,
   type CesiumPointRenderer,
   type CopcCesiumPointRendererOptions,
   type CopcPointRendererPerformanceStage,
-} from "../../../packages/cesium/render/CopcPointRenderer";
+} from "../../../packages/adapter/cesium/render/CopcPointRenderer";
 import { BatchedGeometryPointRenderer } from "@frillab/copc-adapter/cesium";
 
 export type RendererBenchmarkKind = "point-primitive" | "batched-geometry";

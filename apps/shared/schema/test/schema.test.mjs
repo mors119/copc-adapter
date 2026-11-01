@@ -256,7 +256,7 @@ test("package profiles match the actual pinned and workspace package versions", 
     readFileSync(new URL("../../../playground/package.json", import.meta.url), "utf8"),
   );
   const workspace = JSON.parse(
-    readFileSync(new URL("../../../../packages/package.json", import.meta.url), "utf8"),
+    readFileSync(new URL("../../../../packages/adapter/package.json", import.meta.url), "utf8"),
   );
   const playgroundLock = JSON.parse(
     readFileSync(new URL("../../../playground/package-lock.json", import.meta.url), "utf8"),
@@ -278,10 +278,10 @@ test("package profiles match the actual pinned and workspace package versions", 
     playgroundLock.packages["node_modules/@frillab/copc-adapter"].resolved,
     /^https:\/\/registry\.npmjs\.org\//u,
   );
-  assert.equal(devViewerLock.packages["../../packages"].version, WORKSPACE_CURRENT_MANIFEST.version);
+  assert.equal(devViewerLock.packages["../../packages/adapter"].version, WORKSPACE_CURRENT_MANIFEST.version);
   assert.equal(
     devViewerLock.packages["node_modules/@frillab/copc-adapter"].resolved,
-    "../../packages",
+    "../../packages/adapter",
   );
   assert.equal(devViewerLock.packages["node_modules/@frillab/copc-adapter"].link, true);
   for (const id of NPM_0_7_1_MANIFEST.supportedOptionIds) {

@@ -33,7 +33,7 @@ samples/local/*
 apps/dev-viewer/public/samples/*
 apps/dev-viewer/public/laz-perf.wasm
 apps/dev-viewer/public/wasm/*
-packages/core/wasm/*.wasm
+packages/adapter/core/wasm/*.wasm
 tests/environments/cesium-vite/public/samples/*
 tests/environments/cesium-vite/public/wasm/*
 tests/environments/cesium-vite/public/laz-perf.wasm

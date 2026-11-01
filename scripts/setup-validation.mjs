@@ -52,8 +52,7 @@ async function main() {
   }
 
   run("npm", ["ci"]);
-  run("npm", ["ci", "--prefix", "packages"]);
-  run("npm", ["ci", "--prefix", "apps/dev-viewer"]);
+  run("npm", ["ci", "--prefix", "apps/dev-viewer", "--workspaces=false"]);
   run("npm", ["--prefix", "apps/dev-viewer", "run", "prepare-assets"]);
   run("npm", ["run", "download-samples", "--", "autzen"]);
   run(process.execPath, [

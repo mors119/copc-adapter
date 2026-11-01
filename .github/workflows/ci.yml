@@ -20,6 +20,9 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
       - name: Check Rust formatting
         run: cargo fmt --all -- --check
 
@@ -44,7 +47,6 @@ jobs:
           cache: npm
           cache-dependency-path: |
             package-lock.json
-            packages/package-lock.json
             apps/dev-viewer/package-lock.json
 
       - name: Set up Rust toolchain
@@ -52,37 +54,37 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
 
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
       - name: Install root dependencies
         run: npm ci
 
-      - name: Install adapter dependencies
-        run: npm ci --prefix packages
-
       - name: Install viewer dependencies
-        run: npm ci --prefix apps/dev-viewer
+        run: npm ci --prefix apps/dev-viewer --workspaces=false
 
       - name: Check repository diff
         run: git diff --check
 
       - name: Type check adapter and viewer
         run: |
-          npm --prefix packages run typecheck
+          npm run typecheck -w @frillab/copc-adapter
           npm --prefix apps/dev-viewer run typecheck
 
       - name: Prepare Rust/WASM asset
-        run: npm --prefix packages run prepare-copc-adapter-wasm
+        run: npm run prepare-copc-adapter-wasm -w @frillab/copc-adapter
 
       - name: Download sample dataset
         run: npm run download-samples -- autzen
 
       - name: Run full Node suite with coverage
         run: |
-          npm --prefix packages run coverage:raw
+          npm run coverage:raw -w @frillab/copc-adapter
           npm --prefix apps/dev-viewer run test:unit
 
       - name: Build package and development viewer
         run: |
-          npm --prefix packages run build:library:ci
+          npm run build:library:ci -w @frillab/copc-adapter
           npm --prefix apps/dev-viewer run build:ci
 
   viewer-browser:
@@ -107,25 +109,31 @@ jobs:
           cache: npm
           cache-dependency-path: |
             package-lock.json
-            packages/package-lock.json
             apps/dev-viewer/package-lock.json
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json', 'apps/dev-viewer/package-lock.json') }}
+          restore-keys: ${{ runner.os }}-playwright-
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
 
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
       - name: Install root dependencies
         run: npm ci
 
-      - name: Install adapter dependencies
-        run: npm ci --prefix packages
-
       - name: Install viewer dependencies
-        run: npm ci --prefix apps/dev-viewer
+        run: npm ci --prefix apps/dev-viewer --workspaces=false
 
       - name: Prepare Rust/WASM asset
-        run: npm --prefix packages run prepare-copc-adapter-wasm
+        run: npm run prepare-copc-adapter-wasm -w @frillab/copc-adapter
 
       - name: Download sample dataset
         run: npm run download-samples -- autzen
@@ -173,14 +181,20 @@ jobs:
           cache: npm
           cache-dependency-path: |
             package-lock.json
-            packages/package-lock.json
             apps/dev-viewer/package-lock.json
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json', 'apps/dev-viewer/package-lock.json') }}
+          restore-keys: ${{ runner.os }}-playwright-
 
       - name: Install root dependencies
         run: npm ci
 
       - name: Install viewer dependencies
-        run: npm ci --prefix apps/dev-viewer
+        run: npm ci --prefix apps/dev-viewer --workspaces=false
 
       - name: Install Chromium for packed Three validation
         run: npx --prefix apps/dev-viewer playwright install --with-deps chromium
@@ -190,19 +204,19 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
 
-      - name: Install adapter dependencies
-        run: npm ci --prefix packages
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
 
       - name: Prepare Rust/WASM asset
-        run: npm --prefix packages run prepare-copc-adapter-wasm
+        run: npm run prepare-copc-adapter-wasm -w @frillab/copc-adapter
 
       - name: Build and pack one library candidate
         id: pack
         run: |
           rm -rf ci-artifacts
           mkdir -p ci-artifacts
-          npm --prefix packages run build:library:ci
-          npm pack ./packages --ignore-scripts --pack-destination ci-artifacts
+          npm run build:library:ci -w @frillab/copc-adapter
+          npm pack ./packages/adapter --ignore-scripts --pack-destination ci-artifacts
 
           candidates=()
           while IFS= read -r candidate; do
@@ -256,6 +270,13 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
+      - name: Cache Playwright browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+          restore-keys: ${{ runner.os }}-playwright-
+
       - name: Install root dependencies
         run: npm ci
 
@@ -295,10 +316,67 @@ jobs:
       - name: Run isolated packed Cesium consumer mode
         run: node scripts/pack-smoke-test.mjs "$PACKAGE_CANDIDATE" "${{ matrix.consumer }}"
 
+  tiles-package:
+    needs: [viewer-package]
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+          restore-keys: ${{ runner.os }}-playwright-
+
+      - name: Install root workspaces
+        run: npm ci
+
+      - name: Download verified Adapter package candidate
+        uses: actions/download-artifact@v8
+        with:
+          name: copc-adapter-package-candidate
+          path: ci-artifacts
+
+      - name: Provide built Adapter declarations to the workspace
+        run: |
+          candidates=(ci-artifacts/*.tgz)
+          if [ "${#candidates[@]}" -ne 1 ]; then
+            printf 'Expected exactly one Adapter tarball, found %s\n' "${#candidates[@]}"
+            exit 1
+          fi
+          tar -xzf "${candidates[0]}" -C packages/adapter --strip-components=1 package/dist
+          test -f packages/adapter/dist/core.d.ts
+
+      - name: Install Chromium for Tiles browser fixtures
+        run: npm exec --workspace=@frillab/copc-tiles -- playwright install --with-deps chromium
+
+      - name: Typecheck the candidate Adapter and Tiles Core integration
+        run: |
+          npm run typecheck -w @frillab/copc-adapter
+          npm run typecheck -w @frillab/copc-tiles
+          npm run typecheck:adapter-core -w @frillab/copc-tiles
+
+      - name: Verify Tiles from a clean independent workspace
+        run: npm run verify -w @frillab/copc-tiles
+
+      - name: Audit runtime dependencies
+        run: npm audit --omit=dev
+
   # Preserve the existing required status-check name from the main ruleset.
   # A failure (or skipped/cancelled gate) must never appear as a green viewer-web check.
   viewer-web:
-    needs: [viewer-fast, viewer-browser, viewer-package, viewer-package-consumer]
+    needs: [viewer-fast, viewer-browser, viewer-package, viewer-package-consumer, tiles-package]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
@@ -308,10 +386,11 @@ jobs:
           BROWSER_RESULT: ${{ needs.viewer-browser.result }}
           PACKAGE_BUILD_RESULT: ${{ needs.viewer-package.result }}
           PACKAGE_CONSUMER_RESULT: ${{ needs.viewer-package-consumer.result }}
+          TILES_RESULT: ${{ needs.tiles-package.result }}
         run: |
-          for result in "$FAST_RESULT" "$BROWSER_RESULT" "$PACKAGE_BUILD_RESULT" "$PACKAGE_CONSUMER_RESULT"; do
+          for result in "$FAST_RESULT" "$BROWSER_RESULT" "$PACKAGE_BUILD_RESULT" "$PACKAGE_CONSUMER_RESULT" "$TILES_RESULT"; do
             if [ "$result" != "success" ]; then
-              echo "::error::All viewer gates must succeed (fast=$FAST_RESULT, browser=$BROWSER_RESULT, package-build=$PACKAGE_BUILD_RESULT, package-consumers=$PACKAGE_CONSUMER_RESULT)"
+              echo "::error::All validation gates must succeed (fast=$FAST_RESULT, browser=$BROWSER_RESULT, package-build=$PACKAGE_BUILD_RESULT, package-consumers=$PACKAGE_CONSUMER_RESULT, tiles=$TILES_RESULT)"
               exit 1
             fi
           done

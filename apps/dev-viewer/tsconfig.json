@@ -15,10 +15,10 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true,
     "paths": {
-      "@frillab/copc-adapter": ["../../packages/index.ts"],
-      "@frillab/copc-adapter/cesium": ["../../packages/cesium.ts"],
-      "@frillab/copc-adapter/three": ["../../packages/three.ts"]
+      "@frillab/copc-adapter": ["../../packages/adapter/index.ts"],
+      "@frillab/copc-adapter/cesium": ["../../packages/adapter/cesium.ts"],
+      "@frillab/copc-adapter/three": ["../../packages/adapter/three.ts"]
     }
   },
-  "include": ["src", "../../packages/core/types/**/*.d.ts"]
+  "include": ["src", "../../packages/adapter/core/types/**/*.d.ts"]
 }

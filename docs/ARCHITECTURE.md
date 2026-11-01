@@ -13,6 +13,38 @@ other engine resources.
 
 ## Current architecture
 
+### Workspace package boundaries
+
+The repository root is a private npm workspace. Its `package-lock.json` is the
+authoritative lockfile for the two publishable package workspaces:
+
+```text
+@frillab/copc-tiles ── public /core API ──▶ @frillab/copc-adapter
+      independent npm package                  independent npm package
+```
+
+`packages/adapter` contains the existing Adapter package layout without a new
+source directory: `core/`, `cesium/`, `three/`, `test/`, and `scripts/` remain
+package-relative. It publishes its existing `.`, `/core`, `/cesium`, and
+`/three` exports at version `0.7.1`.
+
+`packages/tiles` publishes version `0.1.0` as a separate package. Its root,
+`/resources`, `/tileset`, and `/tileset/implicit` exports are renderer-free;
+only `/adapter/copc-core` connects through the public Adapter `/core` API.
+Tiles has an optional Adapter peer and a development dependency, while Adapter
+declares no Tiles dependency. This keeps Direct Cesium and Three imports
+independent of Tiles and lets the Tiles Engine run without Adapter or renderer
+packages.
+
+The Dev Viewer typechecks and consumes the current local Adapter workspace.
+The deployed Playground is deliberately outside the package workspaces and
+keeps its own lockfile pinned to published `@frillab/copc-adapter@0.7.1`.
+Packed candidate tests install separately generated tarballs in temporary
+consumers so the workspace symlink cannot hide missing package declarations.
+See [workspace development](monorepo-development.md) for exact commands.
+
+### Current Adapter architecture
+
 The current implementation has a project-owned backend boundary with two
 production choices. `copc-js` is the default. Rust/WASM is an explicit opt-in
 backend whose browser point decoding uses a bounded worker path when workers
@@ -103,12 +135,12 @@ capped at four Workers. Dispatch never assigns more active jobs than the
 configured pool size; the streaming scheduler separately bounds node loads.
 
 The trace follows `CopcJsSource.loadPointDataView` in
-`packages/core/copc/backend/copcJsBackend.ts`, Rust range reads and
-prepared-node dispatch in `packages/core/copc/rustCopcReader.ts`, Worker
-jobs in `packages/core/copc/rustCopcDecodeWorker.ts` and
+`packages/adapter/core/copc/backend/copcJsBackend.ts`, Rust range reads and
+prepared-node dispatch in `packages/adapter/core/copc/rustCopcReader.ts`, Worker
+jobs in `packages/adapter/core/copc/rustCopcDecodeWorker.ts` and
 `rustCopcDecodeWorkerPool.ts`, streaming/cache/render handoff in
-`packages/core/streaming/CopcStreamingController.ts`, and Cesium
-primitive updates in `packages/cesium/render/CopcPointRenderer.ts`.
+`packages/adapter/core/streaming/CopcStreamingController.ts`, and Cesium
+primitive updates in `packages/adapter/cesium/render/CopcPointRenderer.ts`.
 
 If `Worker` is unavailable, the Rust backend uses its Rust/WASM decode and
 preparation path on the main thread. This is an environment capability path,

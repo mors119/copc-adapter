@@ -1,0 +1,1031 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
+import {
+  CopcBackendError,
+  CopcJsBackend,
+  InMemoryByteSource,
+  RustCopcBackend,
+} from "../../../../index.ts";
+import {
+  createCopcContext,
+  createCopcPointFieldSelection,
+} from "../../../../core.ts";
+import { HierarchyLoader } from "../../../../core/copc/hierarchy/HierarchyLoader.ts";
+import {
+  createPointTransformer,
+  transformPointBuffer,
+  transformPointBufferToPreparedPointData,
+} from "../../../../core/coordinates/transform/createPointTransformer.ts";
+import { extractHorizontalUnitScale } from "../../../../core/coordinates/crs/parseCopcWkt.ts";
+import { inspectCopcPoint } from "../../../../core/copc/points/pointInspection.ts";
+import {
+  createCompactEPointCacheNode,
+} from "../../../../core/point/compactEPointCache.ts";
+import { createExperimentalCompactEStreamingCore } from "../../../../core/streaming/CopcStreamingCore.ts";
+import {
+  assertHierarchyParity,
+  assertMetadataParity,
+  assertPointParity,
+  openBackendPair,
+  pointSampleIndices,
+  runBackendContract,
+} from "../../../support/backend-contract.mjs";
+import {
+  createDeterministicCopcFixture,
+  mutateU32,
+} from "../../../support/copc-fixture.mjs";
+
+const samplePath = path.resolve(
+  path.dirname(new URL(import.meta.url).pathname),
+  "../../../../../../samples/local/autzen.copc.laz",
+);
+const skipIntegration = process.env.CONFORMANCE_SKIP_INTEGRATION === "1";
+
+async function withFixture(callback, options) {
+  const fixture = createDeterministicCopcFixture(options);
+  const directory = await mkdtemp(path.join(os.tmpdir(), "copc-conformance-"));
+  const fixturePath = path.join(directory, "fixture.copc.laz");
+  await writeFile(fixturePath, fixture.bytes);
+  try {
+    return await callback(fixture, fixturePath);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+async function captureError(action) {
+  try {
+    await action();
+    assert.fail("expected operation to fail");
+  } catch (error) {
+    assert.ok(error instanceof CopcBackendError, error);
+    return { stage: error.stage, code: error.code };
+  }
+}
+
+test("shared backend contract covers deterministic metadata and hierarchy semantics", async () => {
+  await withFixture(async (fixture, fixturePath) => {
+    await runBackendContract({
+      source: fixturePath,
+      bytes: fixture.bytes,
+      async assertContract({ rust, copcJs }) {
+        const metadata = rust.getMetadata();
+        assert.equal(metadata.pointCount, 42);
+        assert.deepEqual(metadata.bounds, {
+          minX: 1,
+          minY: 2,
+          minZ: 3,
+          maxX: 100,
+          maxY: 200,
+          maxZ: 300,
+        });
+        assert.deepEqual(metadata.scale, { x: 0.01, y: 0.02, z: 0.03 });
+        assert.deepEqual(metadata.offset, { x: 10, y: 20, z: 30 });
+        assert.equal(metadata.spacing, 2.5);
+        assert.deepEqual(metadata.cube, {
+          minX: 40,
+          minY: 50,
+          minZ: 60,
+          maxX: 60,
+          maxY: 70,
+          maxZ: 80,
+        });
+        assert.equal(metadata.wkt, 'PROJCS["Fixture CRS"]');
+        assert.equal(metadata.crsWktProvenance?.selected, "vlr");
+        assertMetadataParity(metadata, copcJs.getMetadata());
+
+        const { rustEntries } = await assertHierarchyParity(rust, copcJs);
+        assert.deepEqual(rustEntries, [
+          {
+            key: "0-0-0-0",
+            kind: "node",
+            level: 0,
+            x: 0,
+            y: 0,
+            z: 0,
+            pointCount: 100,
+            offset: 1200,
+            length: 10,
+          },
+          {
+            key: "1-0-0-0",
+            kind: "node",
+            level: 1,
+            x: 0,
+            y: 0,
+            z: 0,
+            pointCount: 60,
+            offset: 1300,
+            length: 20,
+          },
+          {
+            key: "1-1-0-0",
+            kind: "node",
+            level: 1,
+            x: 1,
+            y: 0,
+            z: 0,
+            pointCount: 40,
+            offset: 1400,
+            length: 5,
+          },
+          {
+            key: "1-1-0-0",
+            kind: "page",
+            pointCount: null,
+            offset: 2048,
+            length: 64,
+          },
+          {
+            key: "2-3-0-0",
+            kind: "node",
+            level: 2,
+            x: 3,
+            y: 0,
+            z: 0,
+            pointCount: 20,
+            offset: 1500,
+            length: 6,
+          },
+        ]);
+      },
+    });
+  });
+});
+
+test("both backends prefer WKT VLRs, use EVLR WKT when needed, and report conflicts", async () => {
+  const wktVlr = 'GEOGCS["VLR CRS"]';
+  const wktEvlr = 'PROJCS["EVLR CRS"]';
+  await withFixture(async (fixture, fixturePath) => {
+    const { rust, copcJs } = await openBackendPair(fixturePath, fixture.bytes);
+    const rustMetadata = rust.getMetadata();
+    const copcJsMetadata = copcJs.getMetadata();
+    assert.equal(rustMetadata.wkt, wktVlr);
+    assert.equal(copcJsMetadata.wkt, wktVlr);
+    assert.equal(rustMetadata.crsWktProvenance?.selected, "vlr");
+    assert.deepEqual(rustMetadata.crsWktProvenance?.available, ["vlr", "evlr"]);
+    assert.equal(rustMetadata.crsWktProvenance?.conflicting, true);
+    assert.ok(rustMetadata.crsDiagnostic?.reasons.some((reason) => reason.code === "conflicting-source-wkt"));
+    assertMetadataParity(rustMetadata, copcJsMetadata);
+  }, { wktVlr, wktEvlr });
+
+  await withFixture(async (fixture, fixturePath) => {
+    const { rust, copcJs } = await openBackendPair(fixturePath, fixture.bytes);
+    const rustMetadata = rust.getMetadata();
+    const copcJsMetadata = copcJs.getMetadata();
+    assert.equal(rustMetadata.wkt, wktEvlr);
+    assert.equal(copcJsMetadata.wkt, wktEvlr);
+    assert.equal(rustMetadata.crsWktProvenance?.selected, "evlr");
+    assert.deepEqual(rustMetadata.crsWktProvenance?.available, ["evlr"]);
+    assert.equal(rustMetadata.crsWktProvenance?.conflicting, true);
+    assert.ok(rustMetadata.crsDiagnostic?.reasons.some((reason) => reason.code === "conflicting-source-wkt"));
+    assertMetadataParity(rustMetadata, copcJsMetadata);
+  }, { wktVlr: null, wktEvlr: [wktEvlr, 'GEOGCS["Later EVLR CRS"]'] });
+
+  await withFixture(async (fixture, fixturePath) => {
+    const { rust, copcJs } = await openBackendPair(fixturePath, fixture.bytes);
+    const rustMetadata = rust.getMetadata();
+    const copcJsMetadata = copcJs.getMetadata();
+    assert.equal(rustMetadata.wkt, wktEvlr);
+    assert.equal(copcJsMetadata.wkt, wktEvlr);
+    assert.equal(rustMetadata.crsWktProvenance?.selected, "evlr");
+    assert.deepEqual(rustMetadata.crsWktProvenance?.available, ["evlr"]);
+    assert.equal(rustMetadata.crsWktProvenance?.conflicting, false);
+    assertMetadataParity(rustMetadata, copcJsMetadata);
+  }, { wktVlr: null, wktEvlr });
+});
+
+test("missing WKT stays unknown for both backends regardless of source bounds", async () => {
+  await withFixture(async (fixture, fixturePath) => {
+    const { rust, copcJs } = await openBackendPair(fixturePath, fixture.bytes);
+    for (const metadata of [rust.getMetadata(), copcJs.getMetadata()]) {
+      assert.equal(metadata.wkt, undefined);
+      assert.equal(metadata.crsDiagnostic?.wkt.metadataSupport, "missing");
+      assert.equal(metadata.crsDiagnostic?.vertical.heightKind.value, "local/unknown");
+      assert.ok(metadata.crsDiagnostic?.reasons.some((reason) => reason.code === "missing-wkt"));
+    }
+    assertMetadataParity(rust.getMetadata(), copcJs.getMetadata());
+  }, { wktVlr: null });
+});
+
+test("both built-in backends open Blob inputs with partial reads and matching metadata", async () => {
+  const fixture = createDeterministicCopcFixture();
+  const ranges = [];
+  class RecordingBlob extends Blob {
+    slice(start, end, contentType) {
+      ranges.push({ start, end });
+      return super.slice(start, end, contentType);
+    }
+  }
+  const blobBytes = new Uint8Array(fixture.bytes.length + 70_000);
+  blobBytes.set(fixture.bytes);
+  const blob = new RecordingBlob([blobBytes]);
+  const rust = await new RustCopcBackend().open(blob);
+  const copcJs = await new CopcJsBackend().open(blob);
+  assert.equal(rust.source, "blob://local-copc");
+  assert.equal(copcJs.source, "blob://local-copc");
+  assertMetadataParity(rust.getMetadata(), copcJs.getMetadata());
+  await assertHierarchyParity(rust, copcJs);
+  assert.ok(ranges.length > 0);
+  assert.ok(ranges.every(({ start, end }) => end - start < blobBytes.length));
+  assert.ok(
+    ranges.every(({ start }) => Number.isSafeInteger(start) && start >= 0),
+  );
+});
+
+test("Rust reports LAS Extra Bytes as unsupported at open and node request boundaries", async () => {
+  await withFixture(async (fixture, fixturePath) => {
+    const configured = await captureError(() =>
+      new RustCopcBackend().open(fixturePath, {
+        extraDimensions: ["leg_id"],
+      }),
+    );
+    assert.deepEqual(configured, { stage: "decode", code: "unsupported" });
+
+    const rust = await new RustCopcBackend({
+      createByteSource: (source) => new InMemoryByteSource(fixture.bytes, source),
+    }).open(fixturePath);
+    const root = await rust.loadHierarchyPage(rust.getRootHierarchyPage());
+    await assert.rejects(
+      rust.loadPointDataBuffer(root.nodes[0], new Set(["position"]), {
+        extraDimensions: ["leg_id"],
+      }),
+      (error) =>
+        error instanceof CopcBackendError &&
+        error.stage === "decode" &&
+        error.code === "unsupported",
+    );
+    rust.destroy();
+  });
+});
+
+test("shared backend contract covers incremental hierarchy discovery from #41", async () => {
+  await withFixture(async (fixture, fixturePath) => {
+    const { rust, copcJs } = await openBackendPair(fixturePath, fixture.bytes);
+    const loaders = [
+      new HierarchyLoader(rust, rust.getMetadata().cube),
+      new HierarchyLoader(copcJs, copcJs.getMetadata().cube),
+    ];
+
+    const shallowTrees = await Promise.all(
+      loaders.map((loader) =>
+        loader.query({
+          bounds: rust.getMetadata().cube,
+          maxLevel: 0,
+        }),
+      ),
+    );
+    for (const tree of shallowTrees) {
+      assert.deepEqual(
+        tree.nodes.map((node) => node.key),
+        ["0-0-0-0"],
+      );
+      assert.equal(tree.nodes[0].childrenComplete, false);
+      assert.equal(tree.pages.length, 1);
+    }
+    for (const loader of loaders) {
+      const diagnostics = loader.getDiagnostics();
+      assert.equal(diagnostics.pageRequests, 1);
+      assert.equal(diagnostics.pageCacheHits, 0);
+      assert.equal(
+        diagnostics.hierarchyBytesFetched,
+        fixture.rootPage.pageLength,
+      );
+      assert.equal(diagnostics.loadedPageCount, 1);
+      assert.equal(diagnostics.discoveredPageCount, 2);
+      assert.equal(diagnostics.completedPageCount, 1);
+      assert.equal(diagnostics.activePageLoads, 0);
+      assert.equal(diagnostics.peakActivePageLoads, 1);
+      assert.equal(diagnostics.rootHierarchyLoadDurationMs, 0);
+      assert.ok(diagnostics.lastQueryDurationMs >= 0);
+      assert.equal(diagnostics.loadedEntryCount, 3);
+    }
+
+    const deepTrees = await Promise.all(
+      loaders.map((loader) =>
+        loader.query({
+          bounds: rust.getMetadata().cube,
+          maxLevel: 2,
+        }),
+      ),
+    );
+    assert.deepEqual(
+      deepTrees.map((tree) => tree.nodes.map((node) => node.key)),
+      [
+        ["0-0-0-0", "1-0-0-0", "1-1-0-0", "2-3-0-0"],
+        ["0-0-0-0", "1-0-0-0", "1-1-0-0", "2-3-0-0"],
+      ],
+    );
+    assert.deepEqual(
+      deepTrees.map(
+        (tree) =>
+          tree.nodes.find((node) => node.key === "0-0-0-0")?.childrenComplete,
+      ),
+      [true, true],
+    );
+    assert.deepEqual(
+      loaders.map((loader) => loader.getDiagnostics().pageRequests),
+      [2, 2],
+    );
+  });
+});
+
+test("Rust range instrumentation proves metadata, hierarchy, and node reads stay partial", async () => {
+  const fixture = createDeterministicCopcFixture();
+  class RecordingByteSource extends InMemoryByteSource {
+    requests = [];
+
+    async readRange(offset, length, options) {
+      this.requests.push({ offset, length });
+      return super.readRange(offset, length, options);
+    }
+  }
+
+  const byteSource = new RecordingByteSource(
+    fixture.bytes,
+    "memory://range-fixture",
+  );
+  const source = await new RustCopcBackend({
+    createByteSource: () => byteSource,
+  }).open(byteSource.source);
+  const root = await source.loadHierarchyPage(source.getRootHierarchyPage());
+  await assert.rejects(
+    () => source.loadPointDataView(root.nodes[0], new Set(["position"])),
+    (error) =>
+      error instanceof CopcBackendError &&
+      error.stage === "decode" &&
+      error.code === "laz-decode",
+  );
+
+  assert.deepEqual(byteSource.requests, [
+    { offset: 0, length: 375 },
+    { offset: 0, length: fixture.pointDataOffset },
+    {
+      offset: fixture.rootPage.pageOffset,
+      length: fixture.rootPage.pageLength,
+    },
+    { offset: 1200, length: 10 },
+  ]);
+  assert.ok(
+    byteSource.requests.every(({ length }) => length < fixture.bytes.length),
+  );
+  assert.ok(
+    byteSource.requests.reduce((total, { length }) => total + length, 0) <
+      fixture.bytes.length,
+  );
+});
+
+test("both backends expose equivalent structured stages for deterministic failures", async () => {
+  const fixture = createDeterministicCopcFixture();
+  const directory = await mkdtemp(
+    path.join(os.tmpdir(), "copc-error-conformance-"),
+  );
+  try {
+    const fixturePath = path.join(directory, "fixture.copc.laz");
+    await writeFile(fixturePath, fixture.bytes);
+    const rustBackend = new RustCopcBackend({
+      createByteSource: (source) =>
+        source === "memory://missing"
+          ? new InMemoryByteSource(new Uint8Array(10), source)
+          : new InMemoryByteSource(fixture.bytes, source),
+    });
+    const copcJsBackend = new CopcJsBackend();
+
+    assert.deepEqual(
+      await Promise.all([
+        captureError(() => rustBackend.open("memory://missing")),
+        captureError(() =>
+          copcJsBackend.open(path.join(directory, "missing.copc.laz")),
+        ),
+      ]),
+      [
+        { stage: "source", code: "source-range" },
+        { stage: "source", code: "source-range" },
+      ],
+    );
+
+    const malformedHeader = fixture.bytes.slice();
+    malformedHeader[0] = 0;
+    const malformedHeaderPath = path.join(
+      directory,
+      "malformed-header.copc.laz",
+    );
+    await writeFile(malformedHeaderPath, malformedHeader);
+    assert.deepEqual(
+      await Promise.all([
+        captureError(() =>
+          new RustCopcBackend({
+            createByteSource: (source) =>
+              new InMemoryByteSource(malformedHeader, source),
+          }).open("memory://malformed-header"),
+        ),
+        captureError(() => copcJsBackend.open(malformedHeaderPath)),
+      ]),
+      [
+        { stage: "metadata", code: "header-parse" },
+        { stage: "metadata", code: "header-parse" },
+      ],
+    );
+
+    const malformedHierarchy = createDeterministicCopcFixture({
+      rootPageLength: 65,
+    });
+    const malformedHierarchyPath = path.join(
+      directory,
+      "malformed-hierarchy.copc.laz",
+    );
+    await writeFile(malformedHierarchyPath, malformedHierarchy.bytes);
+    const rustHierarchy = await new RustCopcBackend({
+      createByteSource: (source) =>
+        new InMemoryByteSource(malformedHierarchy.bytes, source),
+    }).open("memory://malformed-hierarchy");
+    const copcJsHierarchy = await copcJsBackend.open(malformedHierarchyPath);
+    assert.deepEqual(
+      await Promise.all([
+        captureError(() =>
+          rustHierarchy.loadHierarchyPage(rustHierarchy.getRootHierarchyPage()),
+        ),
+        captureError(() =>
+          copcJsHierarchy.loadHierarchyPage(
+            copcJsHierarchy.getRootHierarchyPage(),
+          ),
+        ),
+      ]),
+      [
+        { stage: "hierarchy", code: "hierarchy" },
+        { stage: "hierarchy", code: "hierarchy" },
+      ],
+    );
+
+    const rustPoint = await rustBackend.open("memory://point-decode");
+    const copcJsPoint = await copcJsBackend.open(fixturePath);
+    const rustNode = (
+      await rustPoint.loadHierarchyPage(rustPoint.getRootHierarchyPage())
+    ).nodes[0];
+    const copcJsNode = (
+      await copcJsPoint.loadHierarchyPage(copcJsPoint.getRootHierarchyPage())
+    ).nodes[0];
+    mutateU32(fixture.bytes, 1230, 1);
+    await writeFile(fixturePath, fixture.bytes);
+    const malformedRustNode = {
+      ...rustNode,
+      pointCount: 2,
+      pointDataLength: 34,
+    };
+    const malformedCopcJsNode = {
+      ...copcJsNode,
+      pointCount: 2,
+      pointDataLength: 34,
+    };
+    assert.deepEqual(
+      await Promise.all([
+        captureError(() =>
+          rustPoint.loadPointDataView(malformedRustNode, new Set(["position"])),
+        ),
+        captureError(() =>
+          copcJsPoint.loadPointDataView(
+            malformedCopcJsNode,
+            new Set(["position"]),
+          ),
+        ),
+      ]),
+      [
+        { stage: "decode", code: "laz-decode" },
+        { stage: "decode", code: "laz-decode" },
+      ],
+    );
+
+    assert.deepEqual(
+      await Promise.all([
+        captureError(() =>
+          rustPoint.loadPointDataView(rustNode, new Set(["intensity"])),
+        ),
+        captureError(() =>
+          copcJsPoint.loadPointDataView(copcJsNode, new Set(["intensity"])),
+        ),
+      ]),
+      [
+        { stage: "decode", code: "unsupported" },
+        { stage: "decode", code: "unsupported" },
+      ],
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test(
+  "Autzen backend contract compares metadata, hierarchy, and sampled point attributes",
+  {
+    skip: skipIntegration || !existsSync(samplePath),
+  },
+  async () => {
+    const bytes = await import("node:fs/promises").then(({ readFile }) =>
+      readFile(samplePath),
+    );
+    const { rust, copcJs } = await openBackendPair(samplePath, bytes);
+    assertMetadataParity(rust.getMetadata(), copcJs.getMetadata());
+    const rootPage = await rust.loadHierarchyPage(rust.getRootHierarchyPage());
+    const rootNode = rootPage.nodes.find((node) => node.key === "0-0-0-0");
+    assert.ok(rootNode);
+
+    await assertPointParity(rust, copcJs, rootNode);
+    assert.ok(pointSampleIndices(rootNode.pointCount).length >= 5);
+
+    for (const field of ["intensity", "classification", "rgb"]) {
+      await assertPointParity(
+        rust,
+        copcJs,
+        rootNode,
+        new Set(["position", field]),
+      );
+      const rustView = await rust.loadPointDataView(
+        rootNode,
+        new Set(["position", field]),
+      );
+      const copcJsView = await copcJs.loadPointDataView(
+        rootNode,
+        new Set(["position", field]),
+      );
+      assert.deepEqual(
+        [...rustView.availableFields].sort(),
+        ["position", field].sort(),
+      );
+      assert.deepEqual(
+        [...copcJsView.availableFields].sort(),
+        ["position", field].sort(),
+      );
+      for (const unrequestedField of [
+        "intensity",
+        "classification",
+        "rgb",
+      ].filter((candidate) => candidate !== field)) {
+        assert.equal(rustView.availableFields.has(unrequestedField), false);
+        assert.equal(copcJsView.availableFields.has(unrequestedField), false);
+      }
+    }
+
+    const positionOnlyRust = await rust.loadPointDataView(
+      rootNode,
+      new Set(["position"]),
+    );
+    const positionOnlyJs = await copcJs.loadPointDataView(
+      rootNode,
+      new Set(["position"]),
+    );
+    assert.deepEqual([...positionOnlyRust.availableFields], ["position"]);
+    assert.deepEqual([...positionOnlyJs.availableFields], ["position"]);
+    for (const component of [
+      "intensity",
+      "classification",
+      "red",
+      "green",
+      "blue",
+    ]) {
+      assert.throws(
+        () => positionOnlyRust.getter(component)(0),
+        /unavailable/i,
+      );
+      assert.throws(() => positionOnlyJs.getter(component)(0), /unavailable/i);
+    }
+
+    const allFields = new Set([
+      "position",
+      "intensity",
+      "classification",
+      "rgb",
+    ]);
+    const rustBuffer = await rust.loadPointDataBuffer(rootNode, allFields);
+    const copcJsBuffer = await copcJs.loadPointDataBuffer(rootNode, allFields);
+    assert.equal(rustBuffer.pointCount, rootNode.pointCount);
+    assert.equal(rustBuffer.coordinates.length, rootNode.pointCount * 3);
+    assert.equal(rustBuffer.attributes.intensity.length, rootNode.pointCount);
+    assert.equal(
+      rustBuffer.attributes.classification.length,
+      rootNode.pointCount,
+    );
+    assert.equal(rustBuffer.attributes.red.length, rootNode.pointCount);
+    assert.equal(rustBuffer.attributes.green.length, rootNode.pointCount);
+    assert.equal(rustBuffer.attributes.blue.length, rootNode.pointCount);
+
+    const rgbOnlyFields = new Set(["position", "rgb"]);
+    const rustRgbOnly = await rust.loadPointDataBuffer(
+      rootNode,
+      rgbOnlyFields,
+    );
+    const copcJsRgbOnly = await copcJs.loadPointDataBuffer(
+      rootNode,
+      rgbOnlyFields,
+    );
+    for (const buffer of [rustRgbOnly, copcJsRgbOnly]) {
+      assert.equal(buffer.attributes.red.length, rootNode.pointCount);
+      assert.equal(buffer.attributes.green.length, rootNode.pointCount);
+      assert.equal(buffer.attributes.blue.length, rootNode.pointCount);
+      assert.equal(buffer.attributes.intensity, undefined);
+      assert.equal(buffer.attributes.classification, undefined);
+    }
+
+    const rustInspection = inspectCopcPoint(
+      { nodeKey: rootNode.key, pointIndex: 0 },
+      rootNode,
+      transformPointBuffer(rust.getMetadata(), rustBuffer),
+      "rust",
+    );
+    const copcJsInspection = inspectCopcPoint(
+      { nodeKey: rootNode.key, pointIndex: 0 },
+      rootNode,
+      transformPointBuffer(copcJs.getMetadata(), copcJsBuffer),
+      "copc-js",
+    );
+    assert.deepEqual(
+      { ...rustInspection, backend: undefined },
+      { ...copcJsInspection, backend: undefined },
+    );
+  },
+);
+
+test(
+  "public Core prepares Autzen node data with both built-in backends",
+  {
+    skip: skipIntegration || !existsSync(samplePath),
+  },
+  async () => {
+    const bytes = await readFile(samplePath);
+    for (const backend of ["copc-js", "rust"]) {
+      const source = await createCopcContext(
+        new InMemoryByteSource(bytes, `memory://autzen-${backend}`),
+        backend,
+      );
+      try {
+        const hierarchy = new HierarchyLoader(source, source.getMetadata().cube);
+        const root = await hierarchy.loadRoot();
+        const node = root.nodes.find((entry) => entry.pointCount > 0);
+        assert.ok(node, `${backend} root hierarchy contains a point node`);
+
+        const result = await source.loadPreparedNodeData(
+          node,
+          createCopcPointFieldSelection(["position", "intensity"]),
+        );
+        const coordinates = result.pointData.world.coordinates;
+        assert.ok(coordinates instanceof Float64Array);
+        assert.equal(coordinates.length, node.pointCount * 3);
+        assert.ok(result.availableFields.has("position"));
+        assert.ok(result.availableFields.has("intensity"));
+        assert.equal(
+          result.transformPlan.target.worldCoordinateSystem,
+          "wgs84-ecef-meters",
+        );
+        assert.equal(result.sourceGeneration, source.sourceGeneration);
+        assert.equal(source.isCurrent(result.sourceGeneration), true);
+        assert.equal(result.ecefBoundsKind, "decoded-point-content");
+        assert.ok(result.ecefBounds);
+        for (let index = 0; index < coordinates.length; index += 3) {
+          assert.ok(coordinates[index] >= result.ecefBounds.minX);
+          assert.ok(coordinates[index] <= result.ecefBounds.maxX);
+          assert.ok(coordinates[index + 1] >= result.ecefBounds.minY);
+          assert.ok(coordinates[index + 1] <= result.ecefBounds.maxY);
+          assert.ok(coordinates[index + 2] >= result.ecefBounds.minZ);
+          assert.ok(coordinates[index + 2] <= result.ecefBounds.maxZ);
+        }
+      } finally {
+        source.close();
+      }
+    }
+  },
+);
+
+test(
+  "experimental E reuses the real COPC point range and decode on a cache hit",
+  {
+    skip: skipIntegration || !existsSync(samplePath),
+  },
+  async () => {
+    const core = createExperimentalCompactEStreamingCore({
+      url: samplePath,
+      backend: "copc-js",
+      maxRenderedPoints: 100_000,
+      maxPointCacheBytes: 8 * 1024 * 1024,
+      streaming: {
+        maxNodes: 8,
+        maxDepth: 0,
+        maxRenderDistanceMeters: 100_000,
+        maxScreenSpaceError: 8,
+        maxPointsPerBatch: 100_000,
+      },
+    });
+    try {
+      await core.load();
+      const metadata = core.getMetadata();
+      const transformPoint = createPointTransformer(metadata);
+      const center = transformPoint({
+        x: (metadata.cube.minX + metadata.cube.maxX) / 2,
+        y: (metadata.cube.minY + metadata.cube.maxY) / 2,
+        z: (metadata.cube.minZ + metadata.cube.maxZ) / 2,
+      });
+      const view = {
+        longitude: center.longitude,
+        latitude: center.latitude,
+        height: center.height + 2_000,
+        viewDistanceMeters: 10_000,
+      };
+
+      const first = await core.updateView(view);
+      const points = first.loadedNodePoints.get("0-0-0-0");
+      assert.ok(first?.loadedNodePoints.has("0-0-0-0"));
+      assert.ok(points);
+      assert.equal(points.layout, "E");
+      assert.ok(points.pointCount > 0);
+      assert.equal(
+        points.ecef.length,
+        points.pointCount * 3,
+      );
+      const compactHeight = points.height;
+      assert.ok(compactHeight instanceof Float64Array);
+      assert.equal(compactHeight.length, points.pointCount);
+      const cacheBefore = core.getSnapshot().pointCache;
+      const rangesBefore = core.getSnapshot().rangeRequests;
+
+      const second = await core.updateView(view);
+      const cacheAfter = core.getSnapshot().pointCache;
+      const rangesAfter = core.getSnapshot().rangeRequests;
+      const decodeAfter = core.getSnapshot().performance.decodeDurationMs;
+      assert.ok(second?.loadedNodePoints.has("0-0-0-0"));
+      assert.equal(second.loadedNodePoints.get("0-0-0-0"), points);
+      assert.ok(cacheAfter.hits > cacheBefore.hits);
+      assert.deepEqual(rangesAfter, rangesBefore);
+      assert.equal(decodeAfter, 0);
+
+      const sampleIndices = pointSampleIndices(points.pointCount);
+      for (const pointIndex of sampleIndices) {
+        const offset = pointIndex * 3;
+        assert.equal(
+          compactHeight[pointIndex],
+          second.loadedNodePoints.get("0-0-0-0").height[pointIndex],
+        );
+      }
+    } finally {
+      core.destroy();
+    }
+  },
+);
+
+test(
+  "Autzen range instrumentation proves the selected node uses its exact chunk range",
+  {
+    skip: skipIntegration || !existsSync(samplePath),
+  },
+  async () => {
+    const bytes = await import("node:fs/promises").then(({ readFile }) =>
+      readFile(samplePath),
+    );
+    class RecordingByteSource extends InMemoryByteSource {
+      requests = [];
+
+      async readRange(offset, length, options) {
+        this.requests.push({ offset, length });
+        return super.readRange(offset, length, options);
+      }
+    }
+
+    const byteSource = new RecordingByteSource(bytes, samplePath);
+    const rust = await new RustCopcBackend({
+      createByteSource: () => byteSource,
+    }).open(samplePath);
+    const root = (
+      await rust.loadHierarchyPage(rust.getRootHierarchyPage())
+    ).nodes.find((node) => node.key === "0-0-0-0");
+    assert.ok(root);
+    await rust.loadPointDataBuffer(
+      root,
+      new Set(["position", "intensity", "classification", "rgb"]),
+    );
+
+    assert.ok(
+      byteSource.requests.some(
+        ({ offset, length }) =>
+          offset === root.pointDataOffset && length === root.pointDataLength,
+      ),
+    );
+    assert.ok(byteSource.requests.every(({ length }) => length < bytes.length));
+    assert.ok(
+      byteSource.requests.reduce((total, { length }) => total + length, 0) <
+        bytes.length,
+    );
+  },
+);
+
+test(
+  "copc-js keeps point validation scoped to each concurrent node load",
+  {
+    skip: skipIntegration || !existsSync(samplePath),
+  },
+  async () => {
+    const copcJs = await new CopcJsBackend().open(samplePath);
+    const metadata = copcJs.getMetadata();
+    const hierarchy = await new HierarchyLoader(copcJs, metadata.cube).query({
+      bounds: metadata.cube,
+      maxLevel: 5,
+    });
+    const nodes = hierarchy.nodes
+      .filter((node) => node.pointCount > 1000 && node.pointDataLength > 0)
+      .sort((left, right) => right.pointCount - left.pointCount)
+      .slice(0, 2);
+
+    assert.equal(nodes.length, 2);
+    const views = await Promise.all(
+      nodes.map((node) =>
+        copcJs.loadPointDataView(node, new Set(["position"])),
+      ),
+    );
+
+    assert.deepEqual(
+      views.map((view) => view.pointCount),
+      nodes.map((node) => node.pointCount),
+    );
+  },
+);
+
+test(
+  "coordinate contract rejects axis, scale/offset, height, and projected-unit regressions",
+  {
+    skip: skipIntegration || !existsSync(samplePath),
+  },
+  async () => {
+    const bytes = await import("node:fs/promises").then(({ readFile }) =>
+      readFile(samplePath),
+    );
+    const { rust, copcJs } = await openBackendPair(samplePath, bytes);
+    const metadata = rust.getMetadata();
+    assert.ok(
+      metadata.scale.x > 0 && metadata.scale.y > 0 && metadata.scale.z > 0,
+    );
+    assert.ok(Number.isFinite(metadata.offset.x));
+    assert.ok(Number.isFinite(metadata.offset.y));
+    assert.ok(Number.isFinite(metadata.offset.z));
+    assert.ok(
+      metadata.bounds.maxZ > metadata.bounds.minZ,
+      "height must not be flattened",
+    );
+
+    const node = (
+      await rust.loadHierarchyPage(rust.getRootHierarchyPage())
+    ).nodes.find((entry) => entry.key === "0-0-0-0");
+    const rustView = await rust.loadPointDataView(node, new Set(["position"]));
+    const copcJsView = await copcJs.loadPointDataView(
+      node,
+      new Set(["position"]),
+    );
+    const index = pointSampleIndices(node.pointCount)[3];
+    const rustPoint = ["x", "y", "z"].map((component) =>
+      rustView.getter(component)(index),
+    );
+    const copcJsPoint = ["x", "y", "z"].map((component) =>
+      copcJsView.getter(component)(index),
+    );
+    assert.ok(
+      Math.abs(rustPoint[0] - rustPoint[1]) > 1,
+      "X/Y must remain distinct",
+    );
+    assert.ok(
+      Math.abs(rustPoint[2] - rustPoint[0]) > 1,
+      "height must remain distinct",
+    );
+    assert.deepEqual(rustPoint, copcJsPoint);
+    assert.ok(Math.abs(rustPoint[0] - metadata.offset.x) > metadata.scale.x);
+    assert.ok(Math.abs(rustPoint[1] - metadata.offset.y) > metadata.scale.y);
+    assert.ok(Math.abs(rustPoint[2] - metadata.offset.z) > metadata.scale.z);
+
+    // Stable facts from the official Autzen sample, independently checked from
+    // its LAS integer coordinates and header scale/offset.
+    const firstPoint = [
+      rustView.getter("x")(0),
+      rustView.getter("y")(0),
+      rustView.getter("z")(0),
+    ];
+    assert.deepEqual(firstPoint, [
+      157440 * metadata.scale.x + metadata.offset.x,
+      -192989 * metadata.scale.y + metadata.offset.y,
+      -8554 * metadata.scale.z + metadata.offset.z,
+    ]);
+
+    const transform = createPointTransformer(metadata);
+    const geographic = transform({
+      x: firstPoint[0],
+      y: firstPoint[1],
+      z: firstPoint[2],
+    });
+    assert.ok(Math.abs(geographic.longitude - -123.06253409115912) < 1e-9);
+    assert.ok(Math.abs(geographic.latitude - 44.051092079742745) < 1e-9);
+    assert.ok(Math.abs(geographic.height - 129.58902717805427) < 1e-9);
+    assert.equal(extractHorizontalUnitScale(metadata.wkt), 0.3048);
+
+    // Model a caller-approved #305 residual through the existing #237 offset
+    // path. Rust applies it during fused preparation; JavaScript applies the
+    // same total once while preparing the decoded source buffer.
+    const approvedOffsetMeters = 2.5;
+    const fields = new Set(["position"]);
+    const rustApproved = await new RustCopcBackend({
+      createByteSource: (requestedSource) =>
+        new InMemoryByteSource(bytes, requestedSource),
+    }).open(samplePath, { heightOffsetMeters: approvedOffsetMeters });
+    const rustApprovedNode = (
+      await rustApproved.loadHierarchyPage(rustApproved.getRootHierarchyPage())
+    ).nodes.find((entry) => entry.key === node.key);
+    const rustPrepared = await rustApproved.loadPreparedPointData(
+      rustApprovedNode,
+      fields,
+    );
+    const jsBuffer = await copcJs.loadPointDataBuffer(node, fields);
+    const jsPrepared = transformPointBufferToPreparedPointData(
+      metadata,
+      jsBuffer,
+      approvedOffsetMeters,
+    );
+    const preparedProvenance = {
+      sourceIdentity: samplePath,
+      sourceCrsWkt: metadata.wkt,
+      transformGeneration: 3,
+      heightOffsetMeters: approvedOffsetMeters,
+      verticalDatum: { status: "no-validated-grid-correction" },
+    };
+    const rustE = createCompactEPointCacheNode(rustPrepared, {
+      nodeKey: node.key,
+      provenance: preparedProvenance,
+    });
+    const jsE = createCompactEPointCacheNode(jsPrepared, {
+      nodeKey: node.key,
+      provenance: preparedProvenance,
+    });
+    assert.equal(rustE.nodeKey, jsE.nodeKey);
+    assert.equal(rustE.pointCount, jsE.pointCount);
+    assert.equal(rustE.provenance.sourceIdentity, jsE.provenance.sourceIdentity);
+    assert.equal(rustE.ecef.length, rustE.pointCount * 3);
+    assert.equal(rustE.height.length, rustE.pointCount);
+    assert.equal(rustE.ecef.BYTES_PER_ELEMENT, Float64Array.BYTES_PER_ELEMENT);
+    assert.equal(rustE.height.BYTES_PER_ELEMENT, Float64Array.BYTES_PER_ELEMENT);
+    assert.deepEqual(
+      [...rustPrepared.source.coordinates],
+      [...jsPrepared.source.coordinates],
+      "approved placement must preserve the same original source XYZ",
+    );
+    for (const sampleIndex of pointSampleIndices(node.pointCount)) {
+      const coordinateOffset = sampleIndex * 3;
+      assert.ok(
+        Math.abs(
+          rustPrepared.geographic.coordinates[coordinateOffset + 2] -
+            jsPrepared.geographic.coordinates[coordinateOffset + 2],
+        ) <= 1e-6,
+        `approved height differs for point ${sampleIndex}`,
+      );
+      assert.equal(
+        rustE.height[sampleIndex],
+        rustPrepared.geographic.coordinates[coordinateOffset + 2],
+        `Rust E height must preserve prepared point ${sampleIndex}`,
+      );
+      assert.equal(
+        jsE.height[sampleIndex],
+        jsPrepared.geographic.coordinates[coordinateOffset + 2],
+        `JavaScript E height must preserve prepared point ${sampleIndex}`,
+      );
+      assert.ok(
+        Math.abs(rustE.height[sampleIndex] - jsE.height[sampleIndex]) <= 1e-6,
+        `Rust/JS E height differs for point ${sampleIndex}`,
+      );
+      assert.ok(
+        Math.abs(
+          rustE.ecef[coordinateOffset] - jsE.ecef[coordinateOffset],
+        ) <= 1e-3,
+        `approved ECEF X differs for point ${sampleIndex}`,
+      );
+      for (let axis = 0; axis < 3; axis += 1) {
+        assert.equal(
+          rustE.ecef[coordinateOffset + axis],
+          rustPrepared.world.coordinates[coordinateOffset + axis],
+          `Rust E ECEF axis ${axis} must preserve prepared point ${sampleIndex}`,
+        );
+        assert.equal(
+          jsE.ecef[coordinateOffset + axis],
+          jsPrepared.world.coordinates[coordinateOffset + axis],
+          `JavaScript E ECEF axis ${axis} must preserve prepared point ${sampleIndex}`,
+        );
+      }
+      assert.ok(
+        Math.abs(
+          rustPrepared.geographic.coordinates[coordinateOffset + 2] -
+            transform({
+              x: copcJsView.getter("x")(sampleIndex),
+              y: copcJsView.getter("y")(sampleIndex),
+              z: copcJsView.getter("z")(sampleIndex),
+            }).height -
+            approvedOffsetMeters,
+        ) <= 1e-6,
+        `approved offset was not applied exactly once for point ${sampleIndex}`,
+      );
+    }
+  },
+);

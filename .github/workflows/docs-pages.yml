@@ -6,6 +6,8 @@ on:
       - 'docs/**'
       - 'apps/playground/**'
       - 'apps/shared/**'
+      - 'packages/adapter/**'
+      - 'packages/tiles/**'
       - 'scripts/assemble-pages.mjs'
       - 'scripts/assert-pages-layout.mjs'
       - 'scripts/assert-playground-release.mjs'
@@ -20,6 +22,8 @@ on:
       - 'docs/**'
       - 'apps/playground/**'
       - 'apps/shared/**'
+      - 'packages/adapter/**'
+      - 'packages/tiles/**'
       - 'scripts/assemble-pages.mjs'
       - 'scripts/assert-pages-layout.mjs'
       - 'scripts/assert-playground-release.mjs'
@@ -58,11 +62,18 @@ jobs:
             package-lock.json
             apps/playground/package-lock.json
 
+      - name: Cache Playwright browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json', 'apps/playground/package-lock.json') }}
+          restore-keys: ${{ runner.os }}-playwright-
+
       - name: Install root dependencies
         run: npm ci
 
       - name: Install Playground build dependencies
-        run: npm ci --prefix apps/playground
+        run: npm ci --prefix apps/playground --workspaces=false
 
       - name: Test released package provenance gate
         run: npm --prefix apps/playground run test:provenance

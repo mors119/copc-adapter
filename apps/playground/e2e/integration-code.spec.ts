@@ -79,7 +79,7 @@ test("generates deterministic public Cesium and Three.js snippets with defaults 
   expect(cesiumCode).toContain("layer.setStyle({ colorMode: 'classification' });");
   expect(cesiumCode).toContain("maxPointCacheBytes: 268435456");
   expect(cesiumCode).toContain("maxDepth: 6");
-  expect(cesiumCode).not.toMatch(/packages\/(?:core|cesium|three)\//u);
+  expect(cesiumCode).not.toMatch(/packages\/adapter\/(?:core|cesium|three)\//u);
   expect(cesiumCode).toBe(
     await generatedCode(page, {
       config: { ...config(), colorMode: "classification", backend: "rust", maxNodes: 32 },
@@ -101,7 +101,7 @@ test("generates deterministic public Cesium and Three.js snippets with defaults 
   expect(threeCode).toContain("maxScreenSpaceError: 6");
   expect(threeCode).toContain("maxRenderDistanceMeters: 20000");
   expect(threeCode).not.toContain("setStyle");
-  expect(threeCode).not.toMatch(/packages\/(?:core|cesium|three)\//u);
+  expect(threeCode).not.toMatch(/packages\/adapter\/(?:core|cesium|three)\//u);
 
   const minimalDefaults = await generatedCode(page, {
     config: config(),

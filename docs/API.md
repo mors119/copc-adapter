@@ -167,7 +167,7 @@ are listed here to make their required inputs and defaults discoverable without
 adding them to minimal examples.
 
 The minimal Cesium and Three examples in this API, the [repository README](https://github.com/mors119/copc-adapter/blob/main/README.md),
-the [package README](https://github.com/mors119/copc-adapter/blob/main/packages/README.md),
+the [package README](https://github.com/mors119/copc-adapter/blob/main/packages/adapter/README.md),
 [Examples](EXAMPLES.md), [Korean getting-started guide](ko/getting-started.md),
 and [Korean API guide](ko/api.md) omit default-valued options. The full
 advanced option combinations remain in [Examples](EXAMPLES.md) and the later
@@ -1060,6 +1060,14 @@ cancel query work; early exit drains only already-started bounded reads.
 
 ## COPC Tiles compatibility audit
 
+COPC Tiles now lives in this repository at `packages/tiles` and remains a
+separate npm distribution. The original
+[Tiles repository](https://github.com/FrilLab/copc-tiles) remains unchanged
+and preserves issue history. This compatibility audit and its original Registry integrity
+records are retained as historical evidence for the public Adapter Core
+contract; current workspace and packed-consumer commands are in
+[`monorepo-development.md`](monorepo-development.md).
+
 This audit records the published `@frillab/copc-adapter@0.6.0` baseline checked
 for [issue #383](https://github.com/mors119/copc-adapter/issues/383). That
 artifact exposes `.`, `./cesium`, and `./three`; the root remains the
@@ -1684,7 +1692,7 @@ This is the API-to-Workbench audit for [issue #397](https://github.com/mors119/c
 | Host | Exact package profile verified | Evidence |
 | --- | --- | --- |
 | Public Playground | npm 0.7.1 | apps/playground/package.json and package-lock.json; inspected the exact 0.7.1 tarball declarations. |
-| Dev Viewer | workspace 0.7.1 | packages/package.json, apps/dev-viewer/package-lock.json, and apps/shared/schema/manifests.ts. |
+| Dev Viewer | workspace 0.7.1 | packages/adapter/package.json, apps/dev-viewer/package-lock.json, and apps/shared/schema/manifests.ts. |
 
 The 0.7.0 workspace version quoted in issues #397 and #406 is stale for this checkout. Both hosts now use an exact 0.7.1 API profile, while the npm and workspace manifests independently gate the options each host exposes. The published npm 0.7.1 declarations and the workspace source can differ because the workspace has changes made after that tarball was published; the manifest is the Workbench exposure contract for each host.
 

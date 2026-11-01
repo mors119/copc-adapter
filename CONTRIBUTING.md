@@ -23,9 +23,14 @@ Requirements:
 ```bash
 rustup target add wasm32-unknown-unknown
 npm ci
-npm ci --prefix packages
-npm ci --prefix apps/dev-viewer
+npm ci --prefix apps/dev-viewer --workspaces=false
+npm ci --prefix apps/playground --workspaces=false
 ```
+
+The root install owns the Adapter and Tiles workspaces. The Dev Viewer and
+public Playground keep separate application lockfiles because they have
+different package origins: the Viewer consumes the local Adapter package and
+the Playground consumes the exact published Adapter release.
 
 The viewer tests and examples use the Autzen sample. Download it when needed:
 
@@ -77,8 +82,10 @@ normally need `git diff --check` and validation of changed Markdown links.
 - TypeScript or shared runtime changes:
 
 ```bash
-npm --prefix packages run typecheck
-npm --prefix packages test
+npm run typecheck -w @frillab/copc-adapter
+npm test -w @frillab/copc-adapter
+npm run typecheck -w @frillab/copc-tiles
+npm test -w @frillab/copc-tiles
 ```
 
 - Rust changes:

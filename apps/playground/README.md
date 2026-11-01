@@ -154,14 +154,14 @@ the lockfile and installed metadata. Local packed candidates are labeled
 
 ## Local development
 
-From the repository root, install the root, package, Dev Viewer, and Playground
-dependencies and the Rust WASM target once:
+From the repository root, install the workspaces and each app independently.
+The Playground keeps its locked npm release dependency; it does not consume
+the Adapter workspace:
 
 ```bash
 npm ci
-npm ci --prefix packages
-npm ci --prefix apps/dev-viewer
-npm ci --prefix apps/playground
+npm ci --prefix apps/dev-viewer --workspaces=false
+npm ci --prefix apps/playground --workspaces=false
 rustup target add wasm32-unknown-unknown
 ```
 

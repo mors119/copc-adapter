@@ -63,7 +63,7 @@ The live USGS check is opt-in and is not part of the normal suite. On 2026-10-31
 
 ## Coordinate and pixel semantics
 
-The existing prepared point data retains WGS84 geographic longitude/latitude in degrees, as well as source and ECEF coordinates (`packages/core/copc/types/copc.ts`, `packages/core/point/preparedPoint.ts`). A future Cesium colorizer should consume those already-prepared geographic values; it must not reinterpret raw COPC X/Y as longitude/latitude. The source CRS must be recognized by the existing coordinate pipeline. Unknown datum realization/epoch or unsupported horizontal CRS means no imagery sample; imagery is not a way to hide a bad CRS transformation.
+The existing prepared point data retains WGS84 geographic longitude/latitude in degrees, as well as source and ECEF coordinates (`packages/adapter/core/copc/types/copc.ts`, `packages/adapter/core/point/preparedPoint.ts`). A future Cesium colorizer should consume those already-prepared geographic values; it must not reinterpret raw COPC X/Y as longitude/latitude. The source CRS must be recognized by the existing coordinate pipeline. Unknown datum realization/epoch or unsupported horizontal CRS means no imagery sample; imagery is not a way to hide a bad CRS transformation.
 
 For each valid point, the algorithm should:
 
@@ -80,7 +80,7 @@ This is 2D orthophoto projection. The same XY pixel is applied at every point he
 
 ## Architecture and bounds
 
-The existing Cesium path already produces point colors on CPU: `packages/core/point/style/pointStyle.ts` feeds the batched geometry renderer, while the point-primitive renderer computes per-point colors. The shared streaming cache retains prepared coordinates, so a Cesium-only sampler can color already-decoded/visible nodes without downloading a whole COPC or decoding source points a second time. The sampler should remain inside the Cesium package; a `Cesium.ImageryProvider` is not renderer-neutral and does not make the Three renderer support imagery.
+The existing Cesium path already produces point colors on CPU: `packages/adapter/core/point/style/pointStyle.ts` feeds the batched geometry renderer, while the point-primitive renderer computes per-point colors. The shared streaming cache retains prepared coordinates, so a Cesium-only sampler can color already-decoded/visible nodes without downloading a whole COPC or decoding source points a second time. The sampler should remain inside the Cesium package; a `Cesium.ImageryProvider` is not renderer-neutral and does not make the Three renderer support imagery.
 
 | Approach | Fit to current code | Costs and limits |
 | --- | --- | --- |
