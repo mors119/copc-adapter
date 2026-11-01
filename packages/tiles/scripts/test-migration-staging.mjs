@@ -10,6 +10,7 @@ const repositoryRoot = resolve(packageRoot, '../..');
 const packagePrefix = `${packageRoot.slice(repositoryRoot.length + 1)}${sep}`;
 const stagingRoot = await mkdtemp(join(tmpdir(), 'copc-tiles-workspace-staging-'));
 const stagedPackageRoot = join(stagingRoot, 'packages', 'tiles');
+const preflightOnly = process.argv.includes('--preflight');
 const npmCli = process.env.npm_execpath;
 const npmCommand = npmCli ? process.execPath : 'npm';
 const npmPrefix = npmCli ? [npmCli] : [];
@@ -64,6 +65,24 @@ try {
     }
   }
 
+  // Reuse the very same manifest assertions before installing npm packages.
+  // This avoids discovering stale peer/version expectations after expensive browser jobs.
+  const repositoryLock = JSON.parse(await readFile(join(repositoryRoot, 'package-lock.json'), 'utf8'));
+  for (const workspace of ['packages/adapter', 'packages/tiles']) {
+    const actual = JSON.parse(await readFile(join(repositoryRoot, workspace, 'package.json'), 'utf8'));
+    const locked = repositoryLock.packages?.[workspace];
+    assert.equal(locked?.name, actual.name, `${workspace} name matches root lockfile`);
+    assert.equal(locked?.version, actual.version, `${workspace} version matches root lockfile`);
+  }
+  assert.deepEqual(
+    repositoryLock.packages?.['packages/tiles']?.peerDependencies,
+    manifest.peerDependencies,
+    'Tiles peer dependencies match the root lockfile',
+  );
+
+  if (preflightOnly) {
+    console.log('Fast workspace manifest/lockfile preflight passed; expensive installs and browser tests skipped.');
+  } else {
   await writeFile(join(stagingRoot, 'package.json'), `${JSON.stringify({
     name: 'copc-tiles-migration-staging',
     version: '1.0.0',
@@ -102,6 +121,7 @@ try {
   assert.equal(stagedLock.packages?.['packages/tiles']?.version, '0.1.0');
   assert.equal(stagedLock.packages?.['packages/tiles']?.peerDependencies?.['@frillab/copc-adapter'], '0.7.1');
   console.log('Staged npm Workspace package checks and external packed consumers passed.');
+  }
 } finally {
   await rm(stagingRoot, { recursive: true, force: true });
 }
