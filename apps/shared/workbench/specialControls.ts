@@ -8,6 +8,8 @@ import type {
   SchemaSpecialControl,
   SchemaSpecialControlOptions,
 } from "./SchemaOptionPanel.ts";
+import { appendClassificationCode, LAS_1_4_CLASSIFICATION_CATALOG } from "./lasClassification.ts";
+import { createSelectedPointEcefBox } from "./clippingGeometry.ts";
 import { renderDimensionSpecialControl } from "./dimensionControls.ts";
 
 function textInput(
@@ -56,11 +58,37 @@ function createClassificationControl(
   excludeLabel.htmlFor = excludeEnabled.id;
   excludeLabel.append(excludeEnabled, document.createTextNode("Use exclude list"));
   const exclude = textInput("schema-classification-exclude", "Exclude codes (0–255)", "", "numeric");
+  const catalogLabel = document.createElement("label");
+  catalogLabel.className = "ui-field";
+  catalogLabel.htmlFor = "schema-classification-catalog";
+  catalogLabel.append(document.createTextNode("Standard LAS 1.4 catalog"));
+  const catalog = document.createElement("select");
+  catalog.id = "schema-classification-catalog";
+  catalog.setAttribute("aria-label", "Standard LAS 1.4 classification catalog");
+  catalog.add(new Option("Choose a standard class…", ""));
+  for (const item of LAS_1_4_CLASSIFICATION_CATALOG) {
+    catalog.add(new Option(`${item.code} · ${item.label}`, String(item.code)));
+  }
+  catalogLabel.append(catalog);
+  const addToInclude = document.createElement("button");
+  addToInclude.type = "button";
+  addToInclude.id = "schema-classification-add-include";
+  addToInclude.className = "schema-action";
+  addToInclude.textContent = "Add class to include";
+  const addToExclude = document.createElement("button");
+  addToExclude.type = "button";
+  addToExclude.id = "schema-classification-add-exclude";
+  addToExclude.className = "schema-action";
+  addToExclude.textContent = "Add class to exclude";
+  const catalogNote = document.createElement("p");
+  catalogNote.className = "schema-option__hint";
+  catalogNote.textContent = "These are standard catalog names, not classes verified in the selected source. LAS 1.4 user-defined codes (64–255) remain available through numeric entry.";
   const clear = document.createElement("button");
   clear.type = "button";
+  clear.id = "schema-classification-clear";
   clear.textContent = "Clear filter";
   clear.className = "schema-action";
-  root.append(includeLabel, include.wrapper, excludeLabel, exclude.wrapper, clear);
+  root.append(includeLabel, include.wrapper, excludeLabel, exclude.wrapper, catalogLabel, addToInclude, addToExclude, catalogNote, clear);
 
   const emit = (): void => {
     if (!includeEnabled.checked && !excludeEnabled.checked) {
@@ -78,7 +106,23 @@ function createClassificationControl(
     return () => input.removeEventListener("change", handler);
   });
   const onClear = (): void => options.onChange(null);
+  const onAddToInclude = (): void => {
+    if (!/^\d+$/u.test(catalog.value)) return;
+    includeEnabled.checked = true;
+    include.input.disabled = false;
+    include.input.value = appendClassificationCode(include.input.value, Number(catalog.value));
+    emit();
+  };
+  const onAddToExclude = (): void => {
+    if (!/^\d+$/u.test(catalog.value)) return;
+    excludeEnabled.checked = true;
+    exclude.input.disabled = false;
+    exclude.input.value = appendClassificationCode(exclude.input.value, Number(catalog.value));
+    emit();
+  };
   clear.addEventListener("click", onClear);
+  addToInclude.addEventListener("click", onAddToInclude);
+  addToExclude.addEventListener("click", onAddToExclude);
 
   const setValue = (value: unknown): void => {
     const filter = value && typeof value === "object"
@@ -98,6 +142,8 @@ function createClassificationControl(
     destroy() {
       listeners.forEach((remove) => remove());
       clear.removeEventListener("click", onClear);
+      addToInclude.removeEventListener("click", onAddToInclude);
+      addToExclude.removeEventListener("click", onAddToExclude);
       root.remove();
     },
   };
@@ -108,6 +154,7 @@ function createFocusLensControl(
 ): SchemaSpecialControl {
   const root = document.createElement("div");
   root.className = "schema-special-focus";
+  let currentContext = options.context;
   const enabled = document.createElement("input");
   enabled.type = "checkbox";
   enabled.id = "schema-focus-enabled";
@@ -115,27 +162,73 @@ function createFocusLensControl(
   enabledLabel.className = "ui-field ui-field--inline";
   enabledLabel.htmlFor = enabled.id;
   enabledLabel.append(enabled, document.createTextNode("Enable focus lens"));
+  const followCursor = options.followCursor
+    ? document.createElement("input")
+    : undefined;
+  const followCursorLabel = followCursor
+    ? document.createElement("label")
+    : undefined;
+  if (followCursor && followCursorLabel) {
+    followCursor.type = "checkbox";
+    followCursor.id = "schema-focus-follow-cursor";
+    followCursor.checked = options.followCursor!.enabled;
+    followCursorLabel.className = "ui-field ui-field--inline";
+    followCursorLabel.htmlFor = followCursor.id;
+    followCursorLabel.append(followCursor, document.createTextNode("Follow Cursor"));
+  }
   const centerX = textInput("schema-focus-x", "Center X (0–1)", "0.5");
   const centerY = textInput("schema-focus-y", "Center Y (0–1)", "0.5");
   const radius = textInput("schema-focus-radius", "Radius (0–1)", "0.15");
   const detailBias = textInput("schema-focus-detail-bias", "Detail bias (1–2)", "1.5");
-  root.append(enabledLabel, centerX.wrapper, centerY.wrapper, radius.wrapper, detailBias.wrapper);
+  root.append(enabledLabel);
+  if (followCursorLabel) root.append(followCursorLabel);
+  root.append(centerX.wrapper, centerY.wrapper, radius.wrapper, detailBias.wrapper);
 
   const readNumber = (input: HTMLInputElement): number => {
     if (input.value.trim() === "") return Number.NaN;
     return Number(input.value);
   };
-  const emit = (): void => {
+  const makeFocus = (): SchemaFocusLens | undefined => {
     if (!enabled.checked) {
-      options.onChange(undefined);
-      return;
+      return undefined;
     }
-    options.onChange({
+    return {
       type: "screen-circle",
       center: { x: readNumber(centerX.input), y: readNumber(centerY.input) },
       radius: readNumber(radius.input),
       detailBias: readNumber(detailBias.input),
-    } satisfies SchemaFocusLens);
+    } satisfies SchemaFocusLens;
+  };
+  const syncDisabled = (): void => {
+    const manualDisabled = !enabled.checked || (followCursor?.checked ?? false);
+    for (const input of [centerX.input, centerY.input]) input.disabled = manualDisabled;
+    radius.input.disabled = !enabled.checked;
+    detailBias.input.disabled = !enabled.checked;
+    if (followCursor) {
+      followCursor.disabled = currentContext.renderer !== "cesium" ||
+        !(options.followCursor?.isAvailable() ?? false) ||
+        (options.followCursor?.isBusy() ?? false);
+    }
+  };
+  const emit = (): void => {
+    const focus = makeFocus();
+    if (!focus && followCursor?.checked) {
+      followCursor.checked = false;
+    }
+    syncDisabled();
+    options.onChange(focus);
+    if (followCursor) options.followCursor?.onChange(followCursor.checked, focus);
+  };
+  const onFollowCursorChange = (): void => {
+    if (followCursor?.checked) enabled.checked = true;
+    emit();
+  };
+  const refreshFollowCursorAvailability = (): void => {
+    if (followCursor && !options.followCursor?.isAvailable() && followCursor.checked) {
+      followCursor.checked = false;
+      options.followCursor?.onChange(false, makeFocus());
+    }
+    syncDisabled();
   };
   const inputs = [enabled, centerX.input, centerY.input, radius.input, detailBias.input];
   const listeners = inputs.map((input) => {
@@ -143,24 +236,35 @@ function createFocusLensControl(
     input.addEventListener("change", handler);
     return () => input.removeEventListener("change", handler);
   });
+  if (followCursor) {
+    followCursor.addEventListener("change", onFollowCursorChange);
+    listeners.push(() => followCursor.removeEventListener("change", onFollowCursorChange));
+  }
 
   const setValue = (value: unknown): void => {
     const focus = value && typeof value === "object" && (value as SchemaFocusLens).type === "screen-circle"
       ? value as SchemaFocusLens
       : undefined;
     enabled.checked = focus !== undefined;
-    for (const input of [centerX.input, centerY.input, radius.input, detailBias.input]) {
-      input.disabled = !enabled.checked;
-    }
     centerX.input.value = String(focus?.center.x ?? 0.5);
     centerY.input.value = String(focus?.center.y ?? 0.5);
     radius.input.value = String(focus?.radius ?? 0.15);
     detailBias.input.value = String(focus?.detailBias ?? 1.5);
+    if (!focus && followCursor?.checked) {
+      followCursor.checked = false;
+      options.followCursor?.onChange(false, undefined);
+    }
+    syncDisabled();
   };
   setValue(options.value);
   return {
     element: root,
     setValue,
+    updateContext(context) {
+      currentContext = context;
+      refreshFollowCursorAvailability();
+    },
+    refreshAvailability: refreshFollowCursorAvailability,
     destroy() {
       listeners.forEach((remove) => remove());
       root.remove();
@@ -303,7 +407,7 @@ function createClippingVolumeControl(
   enabledLabel.append(enabled, document.createTextNode("Enable clipping volume"));
   const coordinateHelp = document.createElement("p");
   coordinateHelp.className = "schema-special-clipping__coordinates";
-  coordinateHelp.textContent = "Coordinates are WGS 84 Earth-centred, Earth-fixed (ECEF) XYZ metres from the Earth's centre; they are not longitude, latitude, or Three.js local coordinates.";
+  coordinateHelp.textContent = "WGS 84 ECEF XYZ metres. Clipping affects rendered and picked points, not source loading.";
   const type = document.createElement("select");
   type.id = "schema-clipping-type";
   type.setAttribute("aria-label", "Clipping volume type");
@@ -313,6 +417,35 @@ function createClippingVolumeControl(
   typeLabel.className = "ui-field";
   typeLabel.htmlFor = type.id;
   typeLabel.append(document.createTextNode("Volume type"), type);
+  const assist = document.createElement("div");
+  assist.className = "schema-special-clipping__assist";
+  const assistLabel = document.createElement("label");
+  assistLabel.className = "ui-field";
+  const assistRadius = document.createElement("input");
+  assistRadius.type = "number";
+  assistRadius.min = "0.01";
+  assistRadius.step = "any";
+  assistRadius.value = "10";
+  assistRadius.setAttribute("aria-label", "Selected point clipping box half-width in metres");
+  assistLabel.append(document.createTextNode("Selected-point box half-width (m)"), assistRadius);
+  const centerOnPoint = document.createElement("button");
+  centerOnPoint.type = "button";
+  centerOnPoint.className = "schema-action";
+  centerOnPoint.textContent = "Center box on selected point";
+  const assistStatus = document.createElement("p");
+  assistStatus.className = "schema-option__hint";
+  assistStatus.setAttribute("role", "status");
+  assistStatus.textContent = "Select a point in the Cesium viewport to create a centred ECEF box.";
+  assist.append(assistLabel, centerOnPoint, assistStatus);
+  const advanced = document.createElement("details");
+  advanced.className = "schema-special-clipping__advanced";
+  const advancedSummary = document.createElement("summary");
+  advancedSummary.textContent = "Advanced · edit exact ECEF box or planes";
+  advanced.append(advancedSummary);
+  const advancedHelp = document.createElement("p");
+  advancedHelp.className = "schema-option__hint";
+  advancedHelp.textContent = "Enter Earth-centred coordinates in metres, not longitude/latitude or renderer-local coordinates.";
+  advanced.append(advancedHelp);
   const editor = document.createElement("fieldset");
   editor.id = "schema-clipping-editor";
   const legend = document.createElement("legend");
@@ -339,7 +472,8 @@ function createClippingVolumeControl(
   clear.id = "schema-clipping-clear";
   clear.className = "schema-action";
   clear.textContent = "Clear clipping volume";
-  root.append(enabledLabel, coordinateHelp, typeLabel, editor, clear);
+  advanced.append(typeLabel, editor);
+  root.append(enabledLabel, assist, coordinateHelp, advanced, clear);
 
   let planeInputs: ClippingPlaneInputs[] = [];
   const createPlane = (index: number): ClippingPlaneInputs => {
@@ -422,6 +556,29 @@ function createClippingVolumeControl(
     rebuildPlaneList();
     emit();
   };
+  const onCenterOnPoint = (): void => {
+    const point = options.getSelectedPointEcef?.();
+    const halfWidth = assistRadius.value.trim() === "" ? Number.NaN : Number(assistRadius.value);
+    const box = createSelectedPointEcefBox(point, halfWidth);
+    if (!point || point.some((value) => !Number.isFinite(value))) {
+      assistStatus.textContent = "No selected point with retained WGS 84 ECEF coordinates is available. Pick a Cesium point first.";
+      return;
+    }
+    if (!Number.isFinite(halfWidth) || halfWidth <= 0) {
+      assistStatus.textContent = "Enter a positive half-width in metres.";
+      assistRadius.setAttribute("aria-invalid", "true");
+      return;
+    }
+    assistRadius.removeAttribute("aria-invalid");
+    enabled.checked = true;
+    type.value = "box";
+    if (box?.type !== "box") return;
+    setPointInputs(minimum, box.minimum);
+    setPointInputs(maximum, box.maximum);
+    assistStatus.textContent = `Pending ${halfWidth} m half-width box centered on the selected ECEF point. Apply the filter to activate it.`;
+    updateEditor();
+    emit();
+  };
   const onCoordinateChange = (event: Event): void => {
     if (event.target instanceof HTMLInputElement && event.target.dataset.ecefCoordinate) emit();
   };
@@ -430,6 +587,7 @@ function createClippingVolumeControl(
   type.addEventListener("change", onTypeChange);
   addPlane.addEventListener("click", onAddPlane);
   clear.addEventListener("click", onClear);
+  centerOnPoint.addEventListener("click", onCenterOnPoint);
 
   const setValue = (value: unknown): void => {
     const volume = value && typeof value === "object" ? value as SchemaClippingVolume : undefined;
@@ -463,6 +621,7 @@ function createClippingVolumeControl(
       type.removeEventListener("change", onTypeChange);
       addPlane.removeEventListener("click", onAddPlane);
       clear.removeEventListener("click", onClear);
+      centerOnPoint.removeEventListener("click", onCenterOnPoint);
       root.removeEventListener("change", onCoordinateChange);
       root.remove();
     },

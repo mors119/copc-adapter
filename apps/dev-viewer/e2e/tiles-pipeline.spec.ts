@@ -111,7 +111,7 @@ test("Direct remains the default and the Cesium 3D Tiles pipeline renders genera
   await expect.poll(() => hasDirectSnapshot(page)).toBe(true);
 
   const filteringSection = page.locator('.schema-control-section[data-section="filtering"]');
-  await filteringSection.locator("summary").click();
+  await filteringSection.locator(":scope > summary").click();
   await page.getByRole("checkbox", { name: "Use include list" }).check();
   const classificationInclude = page.getByLabel("Include codes (0–255)");
   await classificationInclude.fill("2");
@@ -130,7 +130,7 @@ test("Direct remains the default and the Cesium 3D Tiles pipeline renders genera
   await expect(
     page.getByRole("radiogroup", { name: "Color mode" }).getByRole("radio", { name: "Elevation" }),
   ).toBeEnabled();
-  await filteringSection.locator(".schema-special-classification button.schema-action").click();
+  await filteringSection.locator("#schema-classification-clear").click();
   await expect(page.locator("#configuration-error")).toBeHidden();
   await page.locator("#rendering-pipeline").selectOption("tiles");
   await expect(page.locator("#apply-settings")).toBeEnabled();

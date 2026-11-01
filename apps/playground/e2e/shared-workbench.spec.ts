@@ -42,6 +42,34 @@ test("uses the shared schema controls and four-tab Workbench shell", async ({
   await expect(page.getByRole("radiogroup", { name: "Renderer" })).toBeVisible();
   await expect(page.getByRole("radiogroup", { name: "COPC backend" })).toBeVisible();
   await expect(page.getByRole("radiogroup", { name: "Color mode" })).toBeVisible();
+  const colorModeGroup = page.getByRole("radiogroup", { name: "Color mode" });
+  await page.evaluate(() => {
+    document.querySelector(".workbench-three-column")?.setAttribute("style", "--workbench-left-track: minmax(0, 12rem)");
+  });
+  const colorModeLayout = await colorModeGroup.evaluate((group) => ({
+    clientWidth: group.clientWidth,
+    scrollWidth: group.scrollWidth,
+    buttons: [...group.querySelectorAll("button[role=radio]")].map((button) => ({
+      text: button.textContent?.trim(),
+      width: button.getBoundingClientRect().width,
+      clientWidth: button.clientWidth,
+      scrollWidth: button.scrollWidth,
+    })),
+  }));
+  expect(colorModeLayout.scrollWidth).toBeLessThanOrEqual(colorModeLayout.clientWidth);
+  expect(colorModeLayout.buttons.every(({ text, width, clientWidth, scrollWidth }) =>
+    Boolean(text) && width > 0 && scrollWidth <= clientWidth,
+  )).toBe(true);
+  const nextColorMode = await colorModeGroup.evaluate((group) => {
+    const enabled = [...group.querySelectorAll<HTMLButtonElement>("button[role=radio]")]
+      .filter((button) => !button.disabled);
+    const selected = enabled.findIndex((button) => button.getAttribute("aria-checked") === "true");
+    return enabled[(selected + 1 + enabled.length) % enabled.length]?.textContent?.trim() ?? "";
+  });
+  await colorModeGroup.locator('button[role="radio"][aria-checked="true"]').focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(colorModeGroup.getByRole("radio", { name: nextColorMode, exact: true })).toHaveAttribute("aria-checked", "true");
+  await page.evaluate(() => document.querySelector(".workbench-three-column")?.removeAttribute("style"));
   await expect(
     page.getByRole("radiogroup", { name: "Color mode" }).getByRole("radio", { name: "Numeric Dimension" }),
   ).toHaveCount(0);
@@ -49,10 +77,10 @@ test("uses the shared schema controls and four-tab Workbench shell", async ({
   await expect(page.locator('[data-option-id="style.dimensionFilter"]')).toHaveCount(0);
   await expect(page.getByRole("slider", { name: "Point size" })).toBeVisible();
   await expect(page.locator("#schema-opacity-slider")).toBeVisible();
-  await page.locator('details[data-section="filtering"] summary').click();
+  await page.locator('details[data-section="filtering"] > summary').click();
   await expect(page.locator("#schema-clipping-enabled")).toBeVisible();
   await expect(
-    page.locator('.schema-control-section[data-section="streaming"] summary'),
+    page.locator('.schema-control-section[data-section="streaming"] > summary'),
   ).toHaveText("Streaming");
 
   const toggle = page.locator("#workbench-left-toggle");
@@ -168,7 +196,7 @@ test("keeps options supported by the installed package profile across renderer c
   const rendererGroup = page.getByRole("radiogroup", { name: "Renderer" });
   const attributesSection = page.locator('details[data-section="attributes"]');
   if (!(await attributesSection.evaluate((element: HTMLDetailsElement) => element.open))) {
-    await attributesSection.locator("summary").click();
+    await attributesSection.locator(":scope > summary").click();
   }
   const attributeLoading = page.locator("#schema-attribute-loading");
   await attributeLoading.selectOption("required");
@@ -196,7 +224,7 @@ test("keeps options supported by the installed package profile across renderer c
 
   const streamingSection = page.locator('details[data-section="streaming"]');
   if (!(await streamingSection.evaluate((element: HTMLDetailsElement) => element.open))) {
-    await streamingSection.locator("summary").click();
+    await streamingSection.locator(":scope > summary").click();
   }
 
   const concurrentLoads = page.locator("#max-concurrent-node-loads");

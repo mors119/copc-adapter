@@ -5,6 +5,7 @@ test("Playground exposes only the pinned EGM2008 profiles and rejects an unrelat
   const gridInput = page.locator("#vertical-grid-file");
   await expect(gridInput).toHaveCount(1);
   await expect(page.locator('[data-option-id="coordinates.verticalTransform"]')).toBeVisible();
+  await page.locator('[data-option-id="coordinates.verticalTransform"] > .schema-option__advanced-resource > summary').click();
   await gridInput.setInputFiles({
     name: "wrong-grid.SE",
     mimeType: "application/octet-stream",
@@ -22,6 +23,7 @@ test("Playground verifies the exact local OSGeo EGM2008 GTX and removes it witho
   test.skip(!gridPath, "Set COPC_WORKBENCH_EGM2008_FILE to the verified OSGeo EGM2008 GTX");
   test.setTimeout(180_000);
   await page.goto("./");
+  await page.locator('[data-option-id="coordinates.verticalTransform"] > .schema-option__advanced-resource > summary').click();
   await page.locator("#vertical-grid-file").setInputFiles(gridPath!);
   await expect(page.locator(".vertical-grid-control__status")).toContainText(
     "verified and pending",

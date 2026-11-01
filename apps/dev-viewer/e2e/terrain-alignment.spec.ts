@@ -361,7 +361,7 @@ async function openFixture(
   await expect(page.locator("#source-status")).toContainText("Ready");
   const coordinates = page.locator('#shared-schema-controls details[data-section="coordinates"]');
   if (!(await coordinates.evaluate((element) => (element as HTMLDetailsElement).open))) {
-    await coordinates.locator("summary").click();
+    await coordinates.locator(":scope > summary").click();
   }
   await expect(page.getByRole("button", { name: "Estimate Terrain" })).toBeVisible();
   await expect
@@ -499,6 +499,7 @@ test("estimates, previews, and applies a WKT2 ellipsoidal fixture only after app
   await page.getByRole("button", { name: "Estimate Terrain" }).click();
   const preview = page.locator("#terrain-alignment-preview");
   await expect(preview).toContainText("Estimate: ready · current");
+  await expect(preview).toContainText("Preview: numerical proposed adjustment only");
   await expect(preview).toContainText("2 accepted · 2 sampled · 0 rejected");
   await expect(preview).toContainText("Robust median residual: 1.500 m");
   await expect(page.getByRole("button", { name: "Approve and apply" })).toBeEnabled();

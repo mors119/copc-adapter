@@ -63,7 +63,7 @@ async function openLodOptions(
 ): Promise<void> {
   const section = page.locator('details[data-section="lod"]');
   if (!(await section.evaluate((element: HTMLDetailsElement) => element.open))) {
-    await section.locator("summary").click();
+    await section.locator(":scope > summary").click();
   }
 }
 
@@ -234,7 +234,7 @@ test("follow-pointer movement does not cancel a pending constructor replacement"
   await openLodOptions(page);
   await useMockLayer(page);
   await loadFile(page, "follow-pointer-replacement.copc.laz");
-  await page.locator("#focus-mode").selectOption("follow-pointer");
+  await page.locator("#focus-follow-cursor").check();
   await page.evaluate(() => {
     const hooks = (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__;
     if (!hooks) throw new Error("Playground test hooks are unavailable");
@@ -365,7 +365,7 @@ test("focus modes update the active Cesium layer without recreating it", async (
     )
     .toBeUndefined();
   await page.locator("#focus-enabled").check();
-  await page.locator("#focus-mode").selectOption("follow-pointer");
+  await page.locator("#focus-follow-cursor").check();
 
   const canvasBounds = await page
     .locator("#cesium-container canvas")
@@ -436,7 +436,15 @@ test("focus modes update the active Cesium layer without recreating it", async (
     .toBeCloseTo(0.72, 2);
   await expect(page).toHaveURL(/focusMode=follow-pointer/);
   await expect(page).toHaveURL(/focusX=0.5000/);
+  await expect(page.locator("#integration-code-warning")).toContainText(
+    "host interaction",
+  );
+  await expect(page.locator("#integration-example")).toContainText(
+    "center: { x: 0.5, y: 0.5 }",
+  );
 
+  await page.locator("#focus-follow-cursor").uncheck();
+  await expect(page.locator("#focus-x")).toHaveValue("0.5");
   await page.locator("#focus-mode").selectOption("pinned");
   await page.locator("#focus-show-guide").check();
   await expect(page.locator("#focus-guide")).toBeVisible();
