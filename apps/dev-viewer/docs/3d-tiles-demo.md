@@ -82,6 +82,12 @@ The projected browser fixture is synthetic. Its successful render is not a
 real projected survey demonstration. It is a real COPC file generated from
 projected source coordinates and exercises the complete hierarchy, multiple
 GLB resources, camera movement, visible geometry, and Direct/Tiles switching.
+In the latest Node 22.14.0 / Chromium run, Cesium preprocessing took 2,566 ms
+and Three.js took 976 ms for 131,072 points and five tileset nodes. Each run
+observed 1,844,492 source Range bytes, a 655,008-byte peak returned ECEF buffer,
+and five GLB requests totaling 2,625,168 bytes. These are one-machine
+measurements; repeated browser runs varied and are not a cross-version
+benchmark.
 
 ## Real source status and limits
 
