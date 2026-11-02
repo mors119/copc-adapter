@@ -164,9 +164,10 @@ test("Direct remains the default and the Cesium 3D Tiles pipeline renders genera
   await filteringSection.locator("#schema-classification-clear").click();
   await expect(page.locator("#configuration-error")).toBeHidden();
   await page.locator("#rendering-pipeline").selectOption("tiles");
-  await expect(page.locator("#apply-settings")).toBeEnabled();
+  await expect(page.locator("#load-source")).toHaveText("Load / Prepare Tiles");
+  await expect(page.locator("#load-source")).toBeEnabled();
   await expect(classificationInclude).toBeDisabled();
-  await page.locator("#apply-settings").click();
+  await page.locator("#load-source").click();
   await expect(page.locator("#source-status")).toHaveAttribute("data-status", "ready");
   await expect(page.locator("#source-status")).toContainText("3D Tiles (Experimental)");
   await expect.poll(async () => (await getTilesDiagnostics(page))?.status).toBe("ready");
@@ -230,6 +231,7 @@ test("Direct remains the default and the Cesium 3D Tiles pipeline renders genera
   expect(cesium!.distinctGlbRequests).toBeGreaterThan(1);
 
   await page.getByRole("tab", { name: "Health" }).click();
+  await page.locator("#tiles-diagnostics-details > summary").click();
   const tilesDiagnosticsPanel = page.locator('[data-diagnostic-section="health-tiles-pipeline"]');
   await expect(tilesDiagnosticsPanel).toContainText("EPSG:4326");
   await expect(tilesDiagnosticsPanel.locator('[data-field="tilesBounds"]')).toHaveText("supported");
@@ -307,31 +309,77 @@ test("the same Tiles pipeline works with the Three.js renderer", async ({ page }
   expect(pageErrors).toEqual([]);
 });
 
-test("unsupported projected COPC reports its conservative bounds reason before any GLB request", async ({ page }) => {
+test("projected COPC offers explicit preparation after metadata-only preflight", async ({ page }) => {
   test.skip(!demoFixturesAvailable, `Run ${fixtureSetupCommand} to generate the ignored COPC fixtures.`);
   test.setTimeout(120_000);
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
 
   await page.goto("/?source=/samples/demo-projected.copc.laz&pipeline=tiles");
-  await expect(page.locator("#source-status")).toHaveAttribute("data-status", "error");
-  await expect.poll(async () => (await getTilesDiagnostics(page))?.status).toBe("error");
+  await expect(page.locator("#tiles-scan-approval")).toBeVisible();
+  await expect(page.locator("#tiles-scan-summary")).toContainText("131,072 points");
+  await expect(page.locator("#tiles-scan-resources")).toContainText("point data");
+  await expect(page.locator("#tiles-scan-identity")).toContainText(/strong ETag|session only/iu);
 
   const projected = await getTilesDiagnostics(page);
   expect(projected).toMatchObject({
-    status: "error",
+    status: "scanning",
     sourceCrs: "EPSG:32611",
     boundsSupport: "unsupported",
   });
-  expect(projected!.boundsReason).toContain("unsupported-horizontal-crs");
+  expect(projected!.metadataOnlySourceCellStatus).toBe("unsupported");
+  expect(projected!.metadataOnlySourceCellReason).toContain("unsupported-horizontal-crs");
   expect(projected!.glbRequests).toBe(0);
   expect(projected!.glbBytes).toBe(0);
+  expect(projected!.contentPointsScanned).toBe(0);
 
+  await page.getByRole("button", { name: "Cancel", exact: true }).last().click();
+  await expect(page.locator("#source-status")).toContainText("Preparation cancelled. No point payloads were read.");
+  await expect(page.locator("#source-status")).toHaveAttribute("data-status", "inactive");
+  expect(await getTilesDiagnostics(page)).toMatchObject({ status: "cancelled", contentPointsScanned: 0 });
   await page.getByRole("tab", { name: "Health" }).click();
+  await page.locator("#tiles-diagnostics-details > summary").click();
   const tilesDiagnosticsPanel = page.locator('[data-diagnostic-section="health-tiles-pipeline"]');
   await expect(tilesDiagnosticsPanel.locator('[data-field="tilesBounds"]')).toHaveText("unsupported");
-  await expect(tilesDiagnosticsPanel.locator('[data-field="tilesBoundsReason"]')).toContainText("unsupported-horizontal-crs");
+  await expect(tilesDiagnosticsPanel.locator('[data-field="tilesMetadataOnlyBounds"]')).toContainText("unsupported-horizontal-crs");
   await expect(tilesDiagnosticsPanel.locator('[data-field="tilesRequested"]')).toContainText("0 points");
+  expect(pageErrors).toEqual([]);
+});
+
+test("cancelling an approved full scan releases its pending range and keeps the prior source active", async ({ page }) => {
+  test.skip(!demoFixturesAvailable, `Run ${fixtureSetupCommand} to generate the ignored COPC fixtures.`);
+  test.setTimeout(120_000);
+  let approved = false;
+  let blockedRequests = 0;
+  let releaseBlocked: (() => void) | undefined;
+  await page.route((url) => url.pathname === "/samples/demo-projected.copc.laz", async (route) => {
+    if (approved && route.request().method() === "GET" && route.request().headers().range) {
+      blockedRequests += 1;
+      await new Promise<void>((resolve) => { releaseBlocked = resolve; });
+      try { await route.abort(); } catch { /* The viewer may already have aborted this request. */ }
+      return;
+    }
+    await route.continue();
+  });
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+
+  await page.goto("/?source=/samples/demo-projected.copc.laz&renderer=cesium");
+  await expect(page.locator("#source-status")).toHaveAttribute("data-status", "ready");
+  expect(await hasDirectSnapshot(page)).toBe(true);
+  await page.locator("#rendering-pipeline").selectOption("tiles");
+  await page.locator("#load-source").click();
+  await expect(page.locator("#tiles-scan-approval")).toBeVisible();
+  await expect(page.locator("#tiles-scan-identity")).toContainText("session only");
+  approved = true;
+  await page.getByRole("button", { name: "Prepare and render" }).click();
+  await expect.poll(() => blockedRequests, { timeout: 30_000 }).toBeGreaterThan(0);
+  await page.locator("#workbench-status").getByRole("button", { name: "Cancel" }).click();
+  releaseBlocked?.();
+  await expect(page.locator("#source-status")).toHaveAttribute("data-status", "inactive");
+  await expect(page.locator("#source-status")).toContainText("Loading cancelled");
+  await expect.poll(() => getActivePipeline(page)).toBe("direct");
+  expect(await hasDirectSnapshot(page)).toBe(true);
   expect(pageErrors).toEqual([]);
 });
 
@@ -347,9 +395,13 @@ for (const renderer of ["cesium", "three"] as const) {
     await expect(page.locator("#source-status")).toHaveAttribute("data-status", "ready");
     await expect.poll(() => hasDirectSnapshot(page)).toBe(true);
 
-    await page.locator("#tiles-bounds-strategy").selectOption("decoded-content");
     await page.locator("#rendering-pipeline").selectOption("tiles");
-    await page.locator("#apply-settings").click();
+    await expect(page.locator("#rendering-pipeline")).toHaveValue("tiles");
+    await expect(page.locator("#load-source")).toHaveText("Load / Prepare Tiles");
+    await expect(page.locator("#load-source")).toBeEnabled();
+    await page.locator("#load-source").click();
+    await expect(page.locator("#tiles-scan-approval")).toBeVisible();
+    await page.getByRole("button", { name: "Prepare and render" }).click();
     await expect(page.locator("#source-status")).toHaveAttribute("data-status", "ready", { timeout: 150_000 });
     await expect.poll(async () => (await getTilesDiagnostics(page))?.status, { timeout: 150_000 }).toBe("ready");
     await expect.poll(async () => (await getTilesDiagnostics(page))?.renderedPoints ?? 0, { timeout: 60_000 }).toBeGreaterThan(0);
@@ -359,7 +411,6 @@ for (const renderer of ["cesium", "three"] as const) {
       status: "ready",
       sourceCrs: "EPSG:32611",
       boundsSupport: "supported",
-      boundsStrategy: "decoded-content",
       boundsCoverage: "rendered-content-only",
       geometryBoundsStatus: "complete-decoded-content",
       metadataOnlySourceCellStatus: "unsupported",
@@ -383,9 +434,10 @@ for (const renderer of ["cesium", "three"] as const) {
     console.log(`Projected ${renderer} decoded-content fixture: ${diagnostics!.contentPointsScanned.toLocaleString()} points, ${diagnostics!.hierarchyNodes} tileset nodes, ${diagnostics!.sourceRangeBytesObserved.toLocaleString()} observed source Range bytes, ${diagnostics!.peakDecodedEcefBufferBytes.toLocaleString()} peak returned ECEF-buffer bytes, ${diagnostics!.scanDurationMilliseconds.toFixed(1)} ms preprocessing, ${diagnostics!.glbRequests} GLB requests / ${diagnostics!.glbBytes.toLocaleString()} bytes.`);
     await expect.poll(async () => getActivePipeline(page)).toBe("tiles");
     await page.getByRole("tab", { name: "Health" }).click();
+    await page.locator("#tiles-diagnostics-details > summary").click();
     const health = page.locator('[data-diagnostic-section="health-tiles-pipeline"]');
     await expect(health.locator('[data-field="tilesBounds"]')).toHaveText("supported");
-    await expect(health.locator('[data-field="tilesBoundsStrategy"]')).toHaveText("decoded-content");
+    await expect(health.locator('[data-field="tilesBoundsStrategy"]')).toHaveText(/decoded-content/iu);
     await expect(health.locator('[data-field="tilesBoundsCoverage"]')).toHaveText("rendered-content-only");
     await expect(health.locator('[data-field="tilesMetadataOnlyBounds"]')).toContainText("unsupported");
     await expect(health.locator('[data-field="tilesMetadataOnlyBounds"]')).toContainText("unsupported-horizontal-crs");
@@ -468,22 +520,23 @@ for (const renderer of ["cesium", "three"] as const) {
 
     await page.goto(`/?source=/samples/demo-projected.copc.laz&renderer=${renderer}`);
     await expect(page.locator("#source-status")).toHaveAttribute("data-status", "ready");
-    await page.locator("#tiles-bounds-strategy").selectOption("decoded-content");
     await page.locator("#rendering-pipeline").selectOption("tiles");
-    await page.locator("#apply-settings").click();
+    await page.locator("#load-source").click();
+    await expect(page.locator("#tiles-scan-approval")).toBeVisible();
+    await expect(page.locator("#tiles-scan-summary")).toContainText("131,072 points");
+    await page.getByRole("button", { name: "Prepare and render" }).click();
     await expect.poll(async () => (await getTilesDiagnostics(page))?.status, { timeout: 90_000 }).toBe("ready");
     const generated = await getTilesDiagnostics(page);
     expect(generated).toMatchObject({
-      boundsStrategy: "decoded-content",
       boundsIndexStatus: "stored",
       contentPointsScanned: 131_072,
       sourceToEcefStatus: "prepared-by-core",
     });
+    expect(generated!.boundsStrategy).toBe("indexed-decoded-content", "a completed scan transitions directly to indexed streaming");
     expect(generated!.sourceFingerprint).toMatch(/^http-etag-sha256:/u);
     expect(generated!.boundsIndexBytes).toBeGreaterThan(0);
 
-    await page.locator("#tiles-bounds-strategy").selectOption("indexed-decoded-content");
-    await page.locator("#apply-settings").click();
+    await page.locator("#load-source").click();
     await expect(page.locator("#source-status")).toHaveAttribute("data-status", "ready");
     await expect.poll(async () => (await getTilesDiagnostics(page))?.status, { timeout: 90_000 }).toBe("ready");
     await expect.poll(async () => (await getTilesDiagnostics(page))?.renderedPoints ?? 0, { timeout: 60_000 }).toBeGreaterThan(0);
@@ -500,6 +553,7 @@ for (const renderer of ["cesium", "three"] as const) {
     expect(streamed!.glbRequests).toBeGreaterThan(0);
     expect(streamed!.renderedPoints).toBeGreaterThan(0);
     expect(streamed!.firstVisibleMilliseconds).toBeGreaterThanOrEqual(0);
+
     expect(pageErrors).toEqual([]);
   });
 }
@@ -551,26 +605,29 @@ test("real Autzen generates one verified index, then streams through Cesium and 
 
   await page.goto(`/?source=${encodeURIComponent(source)}&renderer=cesium`);
   await expect(page.locator("#source-status")).toHaveAttribute("data-status", "ready", { timeout: 90_000 });
-  await page.locator("#tiles-bounds-strategy").selectOption("decoded-content");
-  await page.locator("#tiles-full-scan-max-points").fill("12000000");
   await page.locator("#rendering-pipeline").selectOption("tiles");
-  await page.locator("#apply-settings").click();
+  await page.locator("#load-source").click();
+  await expect(page.locator("#tiles-scan-approval")).toBeVisible();
+  await expect(page.locator("#tiles-scan-summary")).toContainText("10,653,336 points");
+  await page.getByRole("button", { name: "Prepare and render" }).click();
   await expect.poll(async () => (await getTilesDiagnostics(page))?.status, { timeout: 540_000 }).toBe("ready");
   const generated = await getTilesDiagnostics(page);
   expect(generated!.sourcePointCount).toBeGreaterThan(4_000_000);
   expect(generated).toMatchObject({
-    boundsStrategy: "decoded-content",
+    boundsStrategy: "indexed-decoded-content",
     boundsIndexStatus: "stored",
     contentPointsScanned: generated!.sourcePointCount,
     sourceToEcefStatus: "prepared-by-core",
   });
   console.log(`Real Autzen index generation: ${generated!.sourcePointCount.toLocaleString()} points, ${generated!.hierarchyNodes.toLocaleString()} metadata nodes, ${generated!.sourceRangeBytesObserved.toLocaleString()} source bytes, ${generated!.initializationMilliseconds?.toFixed(1)} ms initialization.`);
 
-  await page.locator("#tiles-bounds-strategy").selectOption("indexed-decoded-content");
-  await page.locator("#apply-settings").click();
+  await page.locator("#load-source").click();
   await expect.poll(async () => {
     const diagnostics = await getTilesDiagnostics(page);
-    return diagnostics?.boundsStrategy === "indexed-decoded-content" ? diagnostics.status : "switching";
+    return diagnostics?.boundsStrategy === "indexed-decoded-content" &&
+      diagnostics.boundsIndexStatus === "valid" && diagnostics.contentPointsScanned === 0
+      ? diagnostics.status
+      : "switching";
   }, { timeout: 120_000 }).toBe("ready");
   const cesium = await getTilesDiagnostics(page);
   expect(cesium).toMatchObject({
@@ -590,7 +647,7 @@ test("real Autzen generates one verified index, then streams through Cesium and 
   await expect.poll(async () => (await getTilesDiagnostics(page))?.distinctGlbRequests ?? 0, { timeout: 30_000 }).toBeGreaterThan(initialCesiumGlbs);
   console.log(`Real Autzen Cesium indexed stream: ${visibleCesium!.initializationMilliseconds?.toFixed(1)} ms initialization, ${visibleCesium!.firstVisibleMilliseconds?.toFixed(1)} ms first visible, ${visibleCesium!.decodedPointsBeforeFirstVisible?.toLocaleString()} decoded points, ${visibleCesium!.firstVisibleSourceRangeBytes?.toLocaleString()} source bytes and ${visibleCesium!.firstVisibleResourceBytes?.toLocaleString()} Tiles bytes before visibility; ${visibleCesium!.glbRequests} GLB requests / ${visibleCesium!.glbBytes.toLocaleString()} bytes, ${visibleCesium!.renderedPoints.toLocaleString()} visible points, ${visibleCesium!.peakActiveRequests} max active loads, ${visibleCesium!.cacheEntries} cache entries / ${visibleCesium!.cacheBytes.toLocaleString()} bytes / ${visibleCesium!.cacheEvictions} evictions.`);
 
-  await page.goto(`/?source=${encodeURIComponent(source)}&pipeline=tiles&tilesBounds=indexed-decoded-content&renderer=three`);
+  await page.goto(`/?source=${encodeURIComponent(source)}&pipeline=tiles&renderer=three`);
   await expect(page.locator("#source-status")).toHaveAttribute("data-status", "ready", { timeout: 120_000 });
   const three = await getTilesDiagnostics(page);
   expect(three).toMatchObject({
@@ -616,6 +673,8 @@ test("projected EPSG:32611 with explicitly declared ellipsoidal metres reports v
   page.on("pageerror", (error) => pageErrors.push(error.message));
 
   await page.goto("/?source=/samples/demo-projected-ellipsoidal.copc.laz&pipeline=tiles&tilesBounds=decoded-content&renderer=three");
+  await expect(page.locator("#tiles-scan-approval")).toBeVisible();
+  await page.getByRole("button", { name: "Prepare and render" }).click();
   await expect(page.locator("#source-status")).toHaveAttribute("data-status", "ready");
   await expect.poll(async () => (await getTilesDiagnostics(page))?.status).toBe("ready");
   await expect.poll(async () => (await getTilesDiagnostics(page))?.renderedPoints ?? 0).toBeGreaterThan(0);
@@ -624,7 +683,6 @@ test("projected EPSG:32611 with explicitly declared ellipsoidal metres reports v
   expect(diagnostics).toMatchObject({
     sourceCrs: "EPSG:32611",
     boundsSupport: "supported",
-    boundsStrategy: "decoded-content",
     boundsCoverage: "rendered-content-only",
     geometryBoundsStatus: "complete-decoded-content",
     metadataOnlySourceCellStatus: "unsupported",
@@ -633,6 +691,7 @@ test("projected EPSG:32611 with explicitly declared ellipsoidal metres reports v
     contentPointsTotal: 131_072,
     error: "",
   });
+  expect(["decoded-content", "indexed-decoded-content"]).toContain(diagnostics!.boundsStrategy);
   expect(diagnostics!.verticalPlacementReason).toContain("explicitly declares WGS 84 ellipsoidal height");
   expect(diagnostics!.verticalPlacementReason).toContain("does not claim survey-grade accuracy");
   expect(diagnostics!.hierarchyNodes).toBeGreaterThan(1);

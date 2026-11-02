@@ -1,5 +1,5 @@
 export type TilesPipelineDiagnostics = Readonly<{
-  status: "opening" | "scanning" | "loading" | "ready" | "error" | "closing" | "closed";
+  status: "opening" | "scanning" | "loading" | "ready" | "error" | "cancelled" | "closing" | "closed";
   sourceCrs: string;
   boundsSupport: "pending" | "supported" | "unsupported";
   boundsReason: string;

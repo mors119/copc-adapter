@@ -103,6 +103,7 @@ export function mountDevViewerControls(
   const pipelineSelect = document.querySelector<HTMLSelectElement>("#rendering-pipeline")!;
   const tilesBoundsStrategySelect = document.querySelector<HTMLSelectElement>("#tiles-bounds-strategy")!;
   const tilesFullScanMaxPointsInput = document.querySelector<HTMLInputElement>("#tiles-full-scan-max-points")!;
+  const tilesAdvancedControls = document.querySelector<HTMLDetailsElement>("#tiles-advanced-controls")!;
   const customUrl = document.querySelector<HTMLInputElement>("#custom-source-url")!;
   const fileInput = document.querySelector<HTMLInputElement>("#local-source-file")!;
   const cameraDistanceInput = document.querySelector<HTMLInputElement>("#camera-render-distance")!;
@@ -133,9 +134,10 @@ export function mountDevViewerControls(
   )?.[0];
   sourceSelect.value = initialPreset ?? "custom";
   pipelineSelect.value = options.initialConfig.pipeline;
-  tilesBoundsStrategySelect.value = options.initialConfig.tilesBoundsStrategy ?? "conservative-source-cell";
+  tilesBoundsStrategySelect.value = options.initialConfig.tilesBoundsStrategy ?? "automatic";
   tilesFullScanMaxPointsInput.value = String(options.initialConfig.tilesFullScanMaxPoints ?? 4_000_000);
   tilesFullScanMaxPointsInput.disabled = tilesBoundsStrategySelect.value !== "decoded-content";
+  tilesAdvancedControls.hidden = pipelineSelect.value !== "tiles";
   customUrl.disabled = sourceSelect.value !== "custom";
   if (sourceSelect.value === "custom") customUrl.value = initialUrl;
 
@@ -203,10 +205,12 @@ export function mountDevViewerControls(
   };
   const onPipelineSelectionChange = (): void => {
     if (pipelineSelect.value !== "direct" && pipelineSelect.value !== "tiles") return;
+    tilesAdvancedControls.hidden = pipelineSelect.value !== "tiles";
     options.onPipelineSelected(pipelineSelect.value);
   };
   const onTilesBoundsStrategyChange = (): void => {
-    if (tilesBoundsStrategySelect.value !== "conservative-source-cell" &&
+    if (tilesBoundsStrategySelect.value !== "automatic" &&
+        tilesBoundsStrategySelect.value !== "conservative-source-cell" &&
         tilesBoundsStrategySelect.value !== "indexed-decoded-content" &&
         tilesBoundsStrategySelect.value !== "decoded-content") return;
     tilesFullScanMaxPointsInput.disabled = tilesBoundsStrategySelect.value !== "decoded-content";
