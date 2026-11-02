@@ -346,6 +346,31 @@ test("projected COPC offers explicit preparation after metadata-only preflight",
   expect(pageErrors).toEqual([]);
 });
 
+test("dismissing a reused preparation dialog does not reuse its earlier approval", async ({ page }) => {
+  test.skip(!demoFixturesAvailable, `Run ${fixtureSetupCommand} to generate the ignored COPC fixtures.`);
+  test.setTimeout(180_000);
+  await page.route((url) => url.pathname === "/samples/demo-projected.copc.laz", async (route) => {
+    const response = await route.fetch();
+    const headers = { ...response.headers() };
+    delete headers.etag;
+    await route.fulfill({ response, headers });
+  });
+
+  await page.goto("/?source=/samples/demo-projected.copc.laz&pipeline=tiles");
+  await expect(page.locator("#tiles-scan-approval")).toBeVisible();
+  await page.getByRole("button", { name: "Prepare and render" }).click();
+  await expect(page.locator("#source-status")).toHaveAttribute("data-status", "ready", { timeout: 120_000 });
+  await expect.poll(async () => (await getTilesDiagnostics(page))?.contentPointsScanned ?? 0).toBe(131_072);
+
+  await page.locator("#reload-current-source").click();
+  await expect(page.locator("#tiles-scan-approval")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#tiles-scan-approval")).toBeHidden();
+  await expect(page.locator("#source-status")).toContainText("Preparation cancelled. No point payloads were read.");
+  await expect.poll(async () => (await getTilesDiagnostics(page))?.status).toBe("cancelled");
+  expect((await getTilesDiagnostics(page))?.contentPointsScanned).toBe(0);
+});
+
 test("cancelling an approved full scan releases its pending range and keeps the prior source active", async ({ page }) => {
   test.skip(!demoFixturesAvailable, `Run ${fixtureSetupCommand} to generate the ignored COPC fixtures.`);
   test.setTimeout(120_000);

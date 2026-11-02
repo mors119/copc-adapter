@@ -1418,6 +1418,7 @@ async function createTilesPipelineSession(
     sourcePointCount: number;
     hasReusableSourceIdentity: boolean;
     previousIndexInvalid: boolean;
+    previousIndexNotStreamableReason?: string;
   }>, signal: AbortSignal) => Promise<boolean>,
 ): Promise<ViewerSession> {
   const { createTilesViewerSession } = await import("./tilesViewer");
@@ -2170,6 +2171,7 @@ async function main(): Promise<void> {
     sourcePointCount: number;
     hasReusableSourceIdentity: boolean;
     previousIndexInvalid: boolean;
+    previousIndexNotStreamableReason?: string;
   }>, signal: AbortSignal): Promise<boolean> => {
     const { estimate } = request;
     const points = (value: number): string => value.toLocaleString();
@@ -2181,10 +2183,12 @@ async function main(): Promise<void> {
       `Source metadata reports ${points(request.sourcePointCount)} points. The complete hierarchy declares ${points(estimate.totalPoints)} points across ${points(estimate.contentNodes)} content nodes.`;
     tilesScanResources.textContent =
       `This one-time scan reads about ${bytes(estimate.totalPointDataBytes)} of point data and prepares ${bytes(estimate.totalDecodedEcefBytes)} of ECEF coordinates, processed node by node. The previous point cap is raised only to the exact hierarchy count after approval; the 20-million-point hard limit and byte, node, decoded-memory, concurrency, and GLB limits remain active.`;
-    tilesScanIdentity.textContent = request.hasReusableSourceIdentity
-      ? `${request.previousIndexInvalid
-        ? "The saved index failed validation and will be replaced only after a successful scan."
-        : "No matching saved index is available."} A strong ETag lets the viewer save and reuse the bounds index; points are fetched again when Tiles are rendered.`
+    tilesScanIdentity.textContent = request.previousIndexNotStreamableReason
+      ? `The saved index passed source and transform validation, but ${request.previousIndexNotStreamableReason} Preparation will keep this session on the bounded decoded-content provider.`
+      : request.hasReusableSourceIdentity
+        ? `${request.previousIndexInvalid
+          ? "The saved index failed validation and will be replaced only after a successful scan."
+          : "No matching saved index is available."} A strong ETag lets the viewer save and reuse the bounds index; points are fetched again when Tiles are rendered.`
       : "This source has no reusable strong-ETag identity. Preparation is available for this session only and will not be saved for later sessions.";
 
     return new Promise<boolean>((resolve) => {
@@ -2205,6 +2209,7 @@ async function main(): Promise<void> {
         finish(false);
         return;
       }
+      tilesScanApprovalDialog.returnValue = "";
       tilesScanApprovalDialog.showModal();
     });
   };

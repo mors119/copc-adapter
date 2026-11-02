@@ -63,6 +63,7 @@ export type CreateTilesViewerOptions = Readonly<{
     sourcePointCount: number;
     hasReusableSourceIdentity: boolean;
     previousIndexInvalid: boolean;
+    previousIndexNotStreamableReason?: string;
   }>): Promise<boolean>;
   onError(error: unknown): void;
 }>;
@@ -75,6 +76,18 @@ const EMPTY_ROUTE_METRICS = Object.freeze({
   glbRequestCount: 0,
   distinctGlbRequestCount: 0,
   glbBytes: 0,
+});
+
+// Keep the per-request aggregate cap at 250,000 points. Matching the single
+// node cap to it lets a prepared 200,001-point node stream without raising the
+// streaming request budget; byte and decoded-memory caps remain independent.
+const INDEXED_STREAM_LIMITS = Object.freeze({
+  maxPointsPerNode: 250_000,
+  maxTotalPoints: 250_000,
+  maxPointDataBytesPerNode: 8 * 1024 * 1024,
+  maxTotalPointDataBytes: 32 * 1024 * 1024,
+  maxDecodedBytesPerNode: 16 * 1024 * 1024,
+  maxTotalDecodedBytes: 64 * 1024 * 1024,
 });
 
 function publishDecodedContentProgress(
@@ -232,11 +245,16 @@ export async function createTilesViewerSession(
     if (!server) {
       route?.close();
       cesiumXhrRoute?.close();
-      return Promise.resolve();
+      const source = connector;
+      connector = undefined;
+      return Promise.resolve(source?.close());
     }
     closePromise = server.close().finally(() => {
       route?.close();
       cesiumXhrRoute?.close();
+      const source = connector;
+      connector = undefined;
+      return source?.close();
     });
     return closePromise;
   };
@@ -252,6 +270,7 @@ export async function createTilesViewerSession(
     let boundsIndex: DecodedContentBoundsIndex | undefined;
     let completedScanSummary: Awaited<ReturnType<typeof createCopcTileResourceProvider>>["decodedContentScan"];
     let previousIndexInvalid = false;
+    let previousIndexNotStreamableReason: string | undefined;
     let indexStatus: TilesPipelineDiagnostics["boundsIndexStatus"] =
       options.boundsStrategy === "conservative-source-cell" ? "not-required" : "checking";
     let indexBytes = 0;
@@ -344,12 +363,7 @@ export async function createTilesViewerSession(
             maxTotalDecodedBytes: 384 * 1024 * 1024,
           } : {
             maxRequestedNodes: 32,
-            maxPointsPerNode: 200_000,
-            maxTotalPoints: 250_000,
-            maxPointDataBytesPerNode: 8 * 1024 * 1024,
-            maxTotalPointDataBytes: 32 * 1024 * 1024,
-            maxDecodedBytesPerNode: 16 * 1024 * 1024,
-            maxTotalDecodedBytes: 64 * 1024 * 1024,
+            ...INDEXED_STREAM_LIMITS,
           }),
           maxConcurrentNodeReads: 2,
         },
@@ -372,6 +386,7 @@ export async function createTilesViewerSession(
               sourcePointCount: metadata.pointCount,
               hasReusableSourceIdentity: sourceFingerprint !== undefined,
               previousIndexInvalid,
+              ...(previousIndexNotStreamableReason === undefined ? {} : { previousIndexNotStreamableReason }),
             });
             assertCurrent();
             return approved === true;
@@ -440,9 +455,15 @@ export async function createTilesViewerSession(
             connector = undefined;
             indexStatus = "valid";
           } catch (error) {
-            if (getProviderErrorCode(error) !== "BOUNDS_INDEX_INVALID") throw error;
-            previousIndexInvalid = true;
-            indexStatus = "invalid";
+            if (getProviderErrorCode(error) === "BOUNDS_INDEX_INVALID") {
+              previousIndexInvalid = true;
+              indexStatus = "invalid";
+            } else {
+              const streamLimitReason = getIndexedStreamLimitReason(error);
+              if (!streamLimitReason) throw error;
+              previousIndexNotStreamableReason = streamLimitReason;
+              indexStatus = "valid";
+            }
             publish({ boundsIndexStatus: indexStatus, boundsIndexBytes: indexBytes });
           }
         } else if (indexStatus !== "unavailable") {
@@ -468,13 +489,22 @@ export async function createTilesViewerSession(
         } catch {
           indexStatus = "generated";
         }
-        assertCurrent();
-        await provider.close?.();
-        provider = undefined;
-        provider = await createProvider("indexed-decoded-content", true, generatedIndex);
-        assertCurrent();
-        connector = undefined;
-        indexStatus = indexStatus === "stored" ? "stored" : "generated";
+        const streamLimitReason = getIndexedIndexStreamLimitReason(generatedIndex);
+        if (streamLimitReason) {
+          // The scan provider supports this already-approved hierarchy under
+          // its independent full-scan limits. Keep it for this session instead
+          // of closing it and creating an indexed provider that must reject a
+          // node beyond the unchanged indexed-streaming limits.
+          previousIndexNotStreamableReason = streamLimitReason;
+        } else {
+          assertCurrent();
+          await provider.close?.();
+          provider = undefined;
+          provider = await createProvider("indexed-decoded-content", true, generatedIndex);
+          assertCurrent();
+          connector = undefined;
+          indexStatus = indexStatus === "stored" ? "stored" : "generated";
+        }
       } else {
         connector = undefined;
         indexStatus = "unavailable";
@@ -625,7 +655,11 @@ export async function createTilesViewerSession(
       await closeServerAndRoutes();
     } else {
       await provider?.close?.();
-      if (connector) await connector.close();
+      if (connector) {
+        const source = connector;
+        connector = undefined;
+        await source.close();
+      }
       else context?.close();
     }
     if (getProviderErrorCode(error) === "CONTENT_SCAN_DECLINED") {
@@ -1084,6 +1118,31 @@ function getProviderErrorCode(error: unknown): string | undefined {
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function getIndexedStreamLimitReason(error: unknown): string | undefined {
+  if (getProviderErrorCode(error) !== "RESOURCE_LIMIT") return undefined;
+  const message = getErrorMessage(error);
+  return /(?:maxPointsPerNode|maxPointDataBytesPerNode|maxDecodedBytesPerNode) is/iu.test(message)
+    ? message
+    : undefined;
+}
+
+function getIndexedIndexStreamLimitReason(index: DecodedContentBoundsIndex): string | undefined {
+  for (const { node } of index.nodes) {
+    if (node.pointCount === 0) continue;
+    if (node.pointCount > INDEXED_STREAM_LIMITS.maxPointsPerNode) {
+      return `node ${node.key} declares ${node.pointCount.toLocaleString()} points; indexed streaming permits ${INDEXED_STREAM_LIMITS.maxPointsPerNode.toLocaleString()} points per node.`;
+    }
+    if (node.pointDataLength > INDEXED_STREAM_LIMITS.maxPointDataBytesPerNode) {
+      return `node ${node.key} declares ${node.pointDataLength.toLocaleString()} point-data bytes; indexed streaming permits ${INDEXED_STREAM_LIMITS.maxPointDataBytesPerNode.toLocaleString()} bytes per node.`;
+    }
+    const decodedBytes = node.pointCount * 3 * Float64Array.BYTES_PER_ELEMENT;
+    if (decodedBytes > INDEXED_STREAM_LIMITS.maxDecodedBytesPerNode) {
+      return `node ${node.key} needs ${decodedBytes.toLocaleString()} decoded ECEF bytes; indexed streaming permits ${INDEXED_STREAM_LIMITS.maxDecodedBytesPerNode.toLocaleString()} bytes per node.`;
+    }
+  }
+  return undefined;
 }
 
 function getTilesActionableError(error: unknown): string {

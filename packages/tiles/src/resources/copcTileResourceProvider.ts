@@ -534,11 +534,25 @@ async function createIndexedContentProvider(
     throw new CopcTileResourceProviderError('BOUNDS_INDEX_INVALID', `The complete hierarchy has ${hierarchy.nodes.length} nodes; the configured metadata limit is ${maxNodes}.`);
   }
   for (const node of hierarchy.nodes) {
-    if (node.pointCount > readerLimits.maxPointsPerNode || node.pointDataLength > readerLimits.maxPointDataBytesPerNode ||
-        node.pointCount * 3 * Float64Array.BYTES_PER_ELEMENT > readerLimits.maxDecodedBytesPerNode) {
+    if (node.pointCount > readerLimits.maxPointsPerNode) {
       throw new CopcTileResourceProviderError(
         'RESOURCE_LIMIT',
-        `Node ${node.key} exceeds an individual node read or decode budget; the indexed stream keeps per-node limits active.`,
+        `Node ${node.key} declares ${node.pointCount} points; maxPointsPerNode is ${readerLimits.maxPointsPerNode}.`,
+        { nodeKey: node.key },
+      );
+    }
+    if (node.pointDataLength > readerLimits.maxPointDataBytesPerNode) {
+      throw new CopcTileResourceProviderError(
+        'RESOURCE_LIMIT',
+        `Node ${node.key} declares ${node.pointDataLength} point-data bytes; maxPointDataBytesPerNode is ${readerLimits.maxPointDataBytesPerNode}.`,
+        { nodeKey: node.key },
+      );
+    }
+    const decodedEcefBytes = node.pointCount * 3 * Float64Array.BYTES_PER_ELEMENT;
+    if (!Number.isSafeInteger(decodedEcefBytes) || decodedEcefBytes > readerLimits.maxDecodedBytesPerNode) {
+      throw new CopcTileResourceProviderError(
+        'RESOURCE_LIMIT',
+        `Node ${node.key} needs ${decodedEcefBytes} decoded ECEF bytes; maxDecodedBytesPerNode is ${readerLimits.maxDecodedBytesPerNode}.`,
         { nodeKey: node.key },
       );
     }

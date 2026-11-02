@@ -20,7 +20,12 @@ approved scan raises an older aggregate point cap only to the exact complete
 hierarchy count; the 20-million-point hard limit and independent node, byte,
 decoded-memory, concurrency, and GLB limits still apply. The completed index
 is saved when a strong-ETag identity is available and is used immediately for
-indexed streaming. Without that identity, bounds remain session scoped and
+indexed streaming when every node fits the indexed stream's independent
+per-node limits. If a node exceeds one of those limits, the viewer keeps the
+approved decoded-content provider for the current session instead of opening
+an indexed stream that would reject its GLB request. The verified index is
+still saved when possible; a later session may ask for preparation again.
+Without a reusable strong-ETag identity, bounds remain session scoped and
 must be prepared again in a later session.
 
 `getConservativeNodeEcefBounds()` is unchanged. Projected source-cell bounds
@@ -77,8 +82,10 @@ the Health panel to show:
 - a nonzero observed Range byte count, peak decoded ECEF buffer, and scan time.
 
 If the HTTP server exposes a strong ETag and content length, the scan stores an
-index and switches to indexed streaming automatically; otherwise the prompt
-explains that this is a session-only preparation. The
+index and switches to indexed streaming automatically when the hierarchy fits
+its per-node streaming limits. A larger node keeps the bounded decoded-content
+provider active for the current session. Without a strong ETag, the prompt
+explains that preparation is session-only. The
 diagnostic `boundsSupport: supported` refers to generated geometry bounds
 for all scanned content. It does not change Core's unsupported
 `unsupported-horizontal-crs` full-cell result. The screen discloses that
