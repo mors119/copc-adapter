@@ -130,11 +130,12 @@ npm publish --workspace @frillab/copc-tiles --access public
 
 Never publish the repository root. These commands publish only the selected
 workspace; they do not publish the other package or create Git tags. Keep
-release notes and package-specific support limits in
-[`packages/tiles/CHANGELOG.md`](../packages/tiles/CHANGELOG.md) and
-[`packages/tiles/README.md`](../packages/tiles/README.md). Tiles keeps Adapter
-`0.7.1` as its exact development baseline and declares `^0.7.1 || ^0.8.0` as
-an optional peer range, tested against both packed artifacts.
+release notes and package-specific support limits in the
+[`packages/tiles/CHANGELOG.md`](https://github.com/mors119/copc-adapter/blob/main/packages/tiles/CHANGELOG.md)
+and [`packages/tiles/README.md`](https://github.com/mors119/copc-adapter/blob/main/packages/tiles/README.md).
+Tiles keeps Adapter `0.7.1` as its exact development baseline and declares
+`^0.7.1 || ^0.8.0` as an optional peer range, tested against both packed
+artifacts.
 
 ## Current limits
 
