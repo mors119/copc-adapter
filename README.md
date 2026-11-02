@@ -1,15 +1,27 @@
 # COPC Adapter
 
-[![npm](https://img.shields.io/npm/v/@frillab/copc-adapter.svg)](https://www.npmjs.com/package/@frillab/copc-adapter) [![CI](https://github.com/mors119/copc-adapter/actions/workflows/ci.yml/badge.svg)](https://github.com/mors119/copc-adapter/actions/workflows/ci.yml) [![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://mors119.github.io/copc-adapter/) [![License](https://img.shields.io/github/license/mors119/copc-adapter.svg)](https://github.com/mors119/copc-adapter/blob/main/LICENSE) [![GitHub release](https://img.shields.io/github/v/release/mors119/copc-adapter.svg)](https://github.com/mors119/copc-adapter/releases)
+<p align="center">
+  <a href="https://www.npmjs.com/package/@frillab/copc-adapter"><img src="https://img.shields.io/npm/v/@frillab/copc-adapter.svg" alt="npm version"></a>
+  <a href="https://github.com/mors119/copc-adapter/actions/workflows/ci.yml"><img src="https://github.com/mors119/copc-adapter/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
+  <a href="https://mors119.github.io/copc-adapter/"><img src="https://img.shields.io/badge/docs-GitHub%20Pages-blue" alt="Documentation"></a>
+  <a href="https://github.com/mors119/copc-adapter/blob/main/LICENSE"><img src="https://img.shields.io/github/license/mors119/copc-adapter.svg" alt="License"></a>
+  <a href="https://github.com/mors119/copc-adapter/releases"><img src="https://img.shields.io/github/v/release/mors119/copc-adapter.svg" alt="Latest release"></a>
+</p>
 
-### [Try the Live Playground](https://mors119.github.io/copc-adapter/playground/)
+<p align="center">
+  <strong>Stream and visualize COPC point clouds directly in CesiumJS and Three.js.</strong><br>
+  The direct adapters need no renderer-specific conversion; an optional experimental 3D Tiles pipeline is available too.
+</p>
 
-Stream and visualize COPC point clouds directly in CesiumJS and Three.js
-without converting them into renderer-specific tiles.
+<p align="center">
+  <a href="https://mors119.github.io/copc-adapter/playground/"><strong>Try the Live Playground</strong></a>
+  · <a href="https://mors119.github.io/copc-adapter/">Documentation</a>
+  · <a href="https://www.npmjs.com/package/@frillab/copc-adapter">npm</a>
+</p>
 
-[![CesiumJS preview of a streamed COPC point cloud](docs/assets/main.gif)](https://mors119.github.io/copc-adapter/playground/)
-
-[Documentation](https://mors119.github.io/copc-adapter/) · [npm](https://www.npmjs.com/package/@frillab/copc-adapter)
+<p align="center">
+  <a href="https://mors119.github.io/copc-adapter/playground/"><img src="docs/assets/main.gif" width="100%" alt="CesiumJS preview of a streamed COPC point cloud"></a>
+</p>
 
 ## Visual Examples
 
@@ -17,17 +29,17 @@ The CesiumJS captures use the local Autzen Stadium COPC sample.
 
 ### Styling Modes
 
-<table>
+<table width="100%">
   <tbody>
     <tr>
-      <td><strong>RGB</strong><br><img src="docs/assets/rgb.png" width="120" alt="COPC points colored by original RGB attributes"><br>Original color attributes.</td>
-      <td><strong>Elevation</strong><br><img src="docs/assets/elevation.png" width="120" alt="COPC points colored by elevation"><br>Height-based coloring.</td>
-      <td><strong>Intensity</strong><br><img src="docs/assets/intnsity.png" width="120" alt="COPC points colored by reflected intensity"><br>Reflected intensity values.</td>
+      <td width="33.33%" align="center"><strong>RGB</strong><br><img src="docs/assets/rgb.png" width="100%" alt="COPC points colored by original RGB attributes"><br>Original color attributes.</td>
+      <td width="33.33%" align="center"><strong>Elevation</strong><br><img src="docs/assets/elevation.png" width="100%" alt="COPC points colored by elevation"><br>Height-based coloring.</td>
+      <td width="33.33%" align="center"><strong>Intensity</strong><br><img src="docs/assets/intnsity.png" width="100%" alt="COPC points colored by reflected intensity"><br>Reflected intensity values.</td>
     </tr>
     <tr>
-      <td><strong>Classification</strong><br><img src="docs/assets/classification.png" width="120" alt="COPC points colored by LAS classification"><br>LAS classification codes.</td>
-      <td><strong>Numeric Dimension</strong><br><img src="docs/assets/numeric%20dimension.png" width="120" alt="COPC points colored by a numeric dimension"><br>Numeric field color mapping.</td>
-      <td><strong>Fixed</strong><br><img src="docs/assets/fixed.png" width="120" alt="COPC points rendered in a constant cyan color"><br>Constant color.</td>
+      <td width="33.33%" align="center"><strong>Classification</strong><br><img src="docs/assets/classification.png" width="100%" alt="COPC points colored by LAS classification"><br>LAS classification codes.</td>
+      <td width="33.33%" align="center"><strong>Numeric Dimension</strong><br><img src="docs/assets/numeric%20dimension.png" width="100%" alt="COPC points colored by a numeric dimension"><br>Numeric field color mapping.</td>
+      <td width="33.33%" align="center"><strong>Fixed</strong><br><img src="docs/assets/fixed.png" width="100%" alt="COPC points rendered in a constant cyan color"><br>Constant color.</td>
     </tr>
   </tbody>
 </table>
@@ -79,17 +91,17 @@ JavaScript numbers.
 
 ### Camera-Driven LoD and Streaming
 
-<table>
+<table width="100%">
   <thead>
     <tr>
-      <th>Distant / coarser view</th>
-      <th>Closer / finer view</th>
+      <th width="50%">Distant / coarser view</th>
+      <th width="50%">Closer / finer view</th>
     </tr>
   </thead>
   <tbody>
     <tr>
-      <td><img src="docs/assets/lod-r.png" width="170" alt="Distant view of the COPC point cloud at coarser detail"><br>Distant view with coarser detail.</td>
-      <td><img src="docs/assets/lod-d.png" width="170" alt="Closer view of the COPC point cloud at finer detail"><br>Closer view with finer detail.</td>
+      <td align="center"><img src="docs/assets/lod-r.png" width="100%" alt="Distant view of the COPC point cloud at coarser detail"><br>Distant view with coarser detail.</td>
+      <td align="center"><img src="docs/assets/lod-d.png" width="100%" alt="Closer view of the COPC point cloud at finer detail"><br>Closer view with finer detail.</td>
     </tr>
   </tbody>
 </table>
@@ -114,7 +126,7 @@ for the ownership boundary and current options.
 
 ### Point Selection
 
-<img src="docs/assets/point.gif" width="480" alt="Point selection interaction in the CesiumJS COPC view">
+<img src="docs/assets/point.gif" width="100%" alt="Point selection interaction in the CesiumJS COPC view">
 
 Both adapters expose point picking: Cesium uses `onPointPicked` or
 `getSelectedPoint()`, and Three.js uses `pick({ x, y })`. The hit includes its
@@ -127,14 +139,22 @@ The preview above shows the CesiumJS adapter. The image below shows the
 Three.js adapter; both renderer-specific adapters reuse the shared COPC
 streaming Core while the application owns its viewer or scene.
 
-![COPC point cloud rendered with the Three.js adapter](docs/assets/three.png)
+<img src="docs/assets/three.png" width="100%" alt="COPC point cloud rendered with the Three.js adapter">
+
+### Experimental 3D Tiles pipeline
+
+The Dev Viewer can also serve COPC nodes as on-demand 3D Tiles content. This
+experimental path is separate from the default direct COPC adapters; see the
+[3D Tiles demo guide](apps/dev-viewer/docs/3d-tiles-demo.md) for setup and
+current limits.
+
+<img src="docs/assets/tiles.png" width="100%" alt="COPC point cloud rendered through the experimental 3D Tiles pipeline">
 
 ### Korean Public Dataset
 
-![Korean public COPC dataset rendered in CesiumJS](docs/assets/korea-data.png)
+<img src="docs/assets/korea-data.png" width="100%" alt="Korean public COPC dataset rendered in CesiumJS">
 
-Korean public LAZ dataset converted to COPC and rendered in CesiumJS. Placement
-used a manually configured `heightOffsetMeters: -40`.
+Korean public LAZ dataset converted to COPC and rendered in CesiumJS.
 
 ## Documentation
 

@@ -152,7 +152,7 @@ ECEF XYZ와 prepared height를 유지해 좌표 기준 32 bytes/point를 사용�
 cache-only query와 inspection에 사용하려면 `retainSourceCoordinatesForQueries`를 켜세요.
 point당 24 bytes가 추가되고 `maxPointCacheBytes`에 포함됩니다. `A`는 exact Source,
 Geographic, ECEF 세 좌표를 유지해 72 coordinate bytes/point를 사용합니다. Cache 설정도
-Apply/reload가 필요합니다. 자세한 공개 타입과 기본값은 [영문 API 문서](../API)를 참고하세요.
+Apply/reload가 필요합니다. 자세한 공개 타입과 기본값은 [영문 API 문서](../API.md)를 참고하세요.
 
 ## Point picking
 
@@ -191,11 +191,15 @@ const point = layer.getSelectedPoint();
 
 ## 화면 예시
 
-기존 repository asset:
-
-- `docs/assets/copc-rgb.webp`
-- `docs/assets/copc-elevation.webp`
-- `docs/assets/copc-classification.webp`
+<table width="100%">
+  <tbody>
+    <tr>
+      <td width="33.33%" align="center"><strong>RGB</strong><br><img src="../assets/rgb.png" width="100%" alt="RGB 속성으로 색칠한 COPC 포인트"></td>
+      <td width="33.33%" align="center"><strong>고도</strong><br><img src="../assets/elevation.png" width="100%" alt="고도에 따라 색칠한 COPC 포인트"></td>
+      <td width="33.33%" align="center"><strong>분류</strong><br><img src="../assets/classification.png" width="100%" alt="LAS 분류 코드로 색칠한 COPC 포인트"></td>
+    </tr>
+  </tbody>
+</table>
 
 ## 관련 구현
 
