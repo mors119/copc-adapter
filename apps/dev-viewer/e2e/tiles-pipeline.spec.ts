@@ -342,7 +342,7 @@ for (const renderer of ["cesium", "three"] as const) {
     const pageErrors: string[] = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
 
-    await page.goto(`/?source=/samples/demo-projected.copc.laz&renderer=${renderer}`);
+    await page.goto(`/?source=/samples/demo-projected.copc.laz&tilesFullScanMaxPoints=1000000&renderer=${renderer}`);
     await expect(page.locator("#rendering-pipeline")).toHaveValue("direct");
     await expect(page.locator("#source-status")).toHaveAttribute("data-status", "ready");
     await expect.poll(() => hasDirectSnapshot(page)).toBe(true);

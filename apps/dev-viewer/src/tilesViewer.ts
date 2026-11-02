@@ -26,6 +26,7 @@ import { getTilesBoundsIndex, saveTilesBoundsIndex } from "./tilesBoundsIndexSto
 import { registerTileResourceRoute, type TileResourceRoute } from "./tileResourceRoute";
 import { registerCesiumTileXhrRoute } from "./cesiumTileXhrRoute";
 import { createCesiumViewer } from "./createViewer";
+import { getTilesFullScanPointLimits } from "./devViewerConfig";
 import type {
   TilesPipelineDiagnostics,
   TilesViewerCameraState,
@@ -325,6 +326,7 @@ export async function createTilesViewerSession(
     context = undefined;
     const decodedContent = options.boundsStrategy === "decoded-content";
     const indexedContent = options.boundsStrategy === "indexed-decoded-content";
+    const fullScanPointLimits = getTilesFullScanPointLimits(options.fullScanMaxPoints);
     const providerOptions = {
       scanCompleteHierarchy: true,
       ...(decodedContent ? {
@@ -348,8 +350,7 @@ export async function createTilesViewerSession(
         maxNodesPerPage: 8192,
         ...(decodedContent ? {
           maxRequestedNodes: 512,
-          maxPointsPerNode: 2_000_000,
-          maxTotalPoints: options.fullScanMaxPoints ?? 4_000_000,
+          ...fullScanPointLimits,
           maxPointDataBytesPerNode: 128 * 1024 * 1024,
           maxTotalPointDataBytes: 256 * 1024 * 1024,
           maxDecodedBytesPerNode: 192 * 1024 * 1024,
@@ -365,7 +366,7 @@ export async function createTilesViewerSession(
         }),
         maxConcurrentNodeReads: 2,
       },
-      tilesetOptions: { maxNodes: 4096, maxTotalPoints: decodedContent ? options.fullScanMaxPoints ?? 4_000_000 : null },
+      tilesetOptions: { maxNodes: 4096, maxTotalPoints: decodedContent ? fullScanPointLimits.maxTotalPoints : null },
       selection: { attributes: { rgb: true } },
       maxEncoderPaddingMeters: 0.01,
       maxGlbBytes: 16 * 1024 * 1024,

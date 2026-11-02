@@ -308,6 +308,20 @@ export function validateDevViewerConfig(
   return undefined;
 }
 
+/**
+ * Keep the per-node read cap no higher than the explicit complete-source cap.
+ * TileNodeReader requires these budgets to be internally consistent.
+ */
+export function getTilesFullScanPointLimits(maxTotalPoints = 4_000_000): Readonly<{
+  maxPointsPerNode: number;
+  maxTotalPoints: number;
+}> {
+  return Object.freeze({
+    maxPointsPerNode: Math.min(2_000_000, maxTotalPoints),
+    maxTotalPoints,
+  });
+}
+
 /** Normalize a Terrain service root for Cesium fromUrl, which appends layer.json itself. */
 export function getCesiumTerrainProviderUrl(
   source: string,
