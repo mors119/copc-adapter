@@ -7,7 +7,9 @@
   total check while retaining bounded hierarchy, per-node, batch, request,
   byte, concurrency, GLB, cache, and explicit full-scan budgets.
 - Add an explicit versioned decoded-content bounds index bound to a strong
-  ETag source fingerprint and transform-plan identity. Validate checksum,
+  ETag source fingerprint, resource-selecting query parameters, and
+  transform-plan identity. Exclude known signed credentials from the query
+  identity. Validate checksum,
   complete hierarchy, coverage totals, CRS/vertical evidence, per-node bounds,
   and Float32 reconstruction allowances before serving indexed content.
 - Pin persistent-index Range reads to the recorded strong ETag and track

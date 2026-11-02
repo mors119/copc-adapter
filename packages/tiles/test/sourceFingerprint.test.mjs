@@ -2,24 +2,30 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createHttpEtagSourceFingerprint } from '../src/resources/sourceFingerprint.ts';
 
-test('creates a stable fingerprint from a redacted HTTP resource path, strong ETag, and length', async () => {
+test('preserves resource-selecting query parameters while excluding signed credentials', async () => {
   const first = await createHttpEtagSourceFingerprint(
-    'https://example.test/area.copc.laz?token=one',
+    'https://example.test/copc?dataset=a&token=one',
     '"version-7"',
     4096,
   );
   const sameVersion = await createHttpEtagSourceFingerprint(
-    'https://example.test/area.copc.laz?token=refreshed',
+    'https://example.test/copc?X-Amz-Signature=refreshed&dataset=a',
+    '"version-7"',
+    4096,
+  );
+  const differentResource = await createHttpEtagSourceFingerprint(
+    'https://example.test/copc?dataset=b&token=one',
     '"version-7"',
     4096,
   );
   const changedVersion = await createHttpEtagSourceFingerprint(
-    'https://example.test/area.copc.laz?token=refreshed',
+    'https://example.test/copc?dataset=a&token=refreshed',
     '"version-8"',
     4096,
   );
   assert.match(first, /^http-etag-sha256:[a-f0-9]{64}$/u);
   assert.equal(first, sameVersion);
+  assert.notEqual(first, differentResource, 'different resources cannot share an index key even when ETag and length match');
   assert.notEqual(first, changedVersion);
   assert.doesNotMatch(first, /token|version/u);
 });

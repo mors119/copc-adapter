@@ -530,12 +530,12 @@ async function createIndexedContentProvider(
   }
 
   const indexNodes = new Map(boundsIndex.nodes.map((item) => [item.node.key, item]));
-  const ownContentBounds = new Map<string, EcefAxisAlignedBounds>();
   const preparedNodes = new Map<string, DecodedPreparedTileNode>();
   const includedNodeKeys = new Set<string>();
   const subtreeRawBounds = new Map<string, EcefAxisAlignedBounds>();
   const subtreeTileBounds = new Map<string, EcefAxisAlignedBounds>();
   const tilesetInputs: TilesetNodeInput[] = [];
+  const maxEncoderPaddingMeters = options.maxEncoderPaddingMeters ?? DEFAULT_MAX_ENCODER_PADDING_METERS;
   const commonProvenance: DecodedSourceProvenance = Object.freeze({
     transformPlanIdentity: boundsIndex.transformPlanIdentity,
     sourceCrs: boundsIndex.sourceCrs,
@@ -549,12 +549,11 @@ async function createIndexedContentProvider(
     if (!indexNode) throw new CopcTileResourceProviderError('BOUNDS_INDEX_INVALID', `Indexed node ${node.key} is absent.`, { nodeKey: node.key });
     const includedChildren = (node.children ?? []).filter((childKey) => includedNodeKeys.has(childKey));
     if (node.pointCount === 0 && includedChildren.length === 0) continue;
-    let rawBounds = indexNode.content
+    const ownRawBounds = indexNode.content
       ? ecefRecordToBounds(indexNode.content.contentBoundsEcef)
       : undefined;
-    let volumeBounds = indexNode.content
-      ? indexNode.content.paddedContentBoundsEcef
-      : undefined;
+    let rawBounds = ownRawBounds;
+    let volumeBounds = ownRawBounds;
     for (const childKey of includedChildren) {
       const childRaw = subtreeRawBounds.get(childKey);
       const childVolume = subtreeTileBounds.get(childKey);
@@ -564,21 +563,35 @@ async function createIndexedContentProvider(
     }
     if (!rawBounds || !volumeBounds) throw new CopcTileResourceProviderError('BOUNDS_INDEX_INVALID', `Node ${node.key} has no point content or indexed descendants.`, { nodeKey: node.key });
     subtreeRawBounds.set(node.key, rawBounds);
-    const extraPadding = node.pointCount > 0 ? getFloat32EcefReconstructionErrorBound(volumeBounds) : 0;
-    if (!Number.isFinite(extraPadding) || extraPadding > (options.maxEncoderPaddingMeters ?? DEFAULT_MAX_ENCODER_PADDING_METERS)) {
-      throw new CopcTileResourceProviderError('ENCODER_PADDING_LIMIT', `Node ${node.key} requires ${extraPadding} m of Float32 reconstruction padding, over the configured limit.`, { nodeKey: node.key });
+    const requiredPadding = node.pointCount > 0 ? getFloat32EcefReconstructionErrorBound(volumeBounds) : 0;
+    const encoderPaddingMeters = indexNode.content?.encoderPaddingMeters ?? 0;
+    if (!Number.isFinite(requiredPadding) || requiredPadding > maxEncoderPaddingMeters || encoderPaddingMeters > maxEncoderPaddingMeters) {
+      throw new CopcTileResourceProviderError(
+        'ENCODER_PADDING_LIMIT',
+        `Node ${node.key} requires ${Math.max(requiredPadding, encoderPaddingMeters)} m of Float32 reconstruction padding, over the configured limit.`,
+        { nodeKey: node.key },
+      );
     }
-    const bounds = ensureMinimumHalfExtent(expandBounds(volumeBounds, extraPadding));
+    if (encoderPaddingMeters < requiredPadding) {
+      throw new CopcTileResourceProviderError(
+        'BOUNDS_INDEX_INVALID',
+        `The indexed encoder allowance for node ${node.key} does not cover the reconstructed tile origin and descendant bounds.`,
+        { nodeKey: node.key },
+      );
+    }
+    // Rebuild the same pre-padding subtree envelope used by decoded-content
+    // preprocessing, then apply its persisted allowance once. Starting from
+    // an already padded content box would cross Float32 exponent boundaries
+    // and incorrectly require a second allowance.
+    const bounds = ensureMinimumHalfExtent(expandBounds(volumeBounds, encoderPaddingMeters));
     subtreeTileBounds.set(node.key, bounds);
     const tileChildren = Object.freeze(includedChildren);
     const tilesetNode = Object.freeze({ ...node, children: tileChildren });
     let decodedContentBounds: DecodedContentBoundsProvenance | undefined;
     let contentBounds: EcefAxisAlignedBounds | undefined;
-    let encoderPaddingMeters = extraPadding;
     if (indexNode.content) {
       const indexed = indexNode.content;
       contentBounds = ecefRecordToBounds(indexed.contentBoundsEcef);
-      encoderPaddingMeters = indexed.encoderPaddingMeters;
       decodedContentBounds = Object.freeze({
         strategy: 'decoded-content',
         nodeKey: node.key,
@@ -598,7 +611,6 @@ async function createIndexedContentProvider(
         verticalPlacement: boundsIndex.verticalPlacement,
         heightOffsetMeters: boundsIndex.heightOffsetMeters,
       });
-      completedContentBounds.set(node.key, decodedContentBounds);
     }
     const prepared: DecodedPreparedTileNode = Object.freeze({
       node,

@@ -388,6 +388,69 @@ test('complete decoded-content preprocessing generates a reusable validated inde
   await staleSource.close();
 });
 
+test('reopens a bounds index without reapplying precision allowance to padded bounds', async () => {
+  const fingerprint = `sha256:${'d'.repeat(64)}`;
+  const halfExtent = 131_071.999;
+  const coordinates = new Float64Array(Array.from({ length: 8 }, (_, point) => [
+    point & 1 ? halfExtent : -halfExtent,
+    point & 2 ? halfExtent : -halfExtent,
+    point & 4 ? halfExtent : -halfExtent,
+  ]).flat());
+  const root = Object.freeze({
+    key: 'root', level: 0, x: 0, y: 0, z: 0,
+    pointCount: 8, pointDataOffset: 100, pointDataLength: 192,
+    children: Object.freeze([]), childrenComplete: true,
+  });
+  const rootPage = Object.freeze({ key: 'precision-root', pageOffset: 0, pageLength: 32 });
+  const makeSource = (generation) => {
+    const base = createBrowserFixtureSource(generation);
+    return Object.freeze({
+      ...base,
+      sourceFingerprint: fingerprint,
+      transformPlanIdentity: 'browser-fixture-transform-v1',
+      getRootHierarchyPage: () => rootPage,
+      loadHierarchyPage: async (page, signal) => {
+        if (signal?.aborted) throw new DOMException('Hierarchy read cancelled.', 'AbortError');
+        if (page.key !== rootPage.key) throw new Error(`Unknown hierarchy page ${page.key}.`);
+        return Object.freeze({ nodes: Object.freeze([root]), pages: Object.freeze([]) });
+      },
+      loadNode: async (node, selection, signal) => {
+        const template = await base.loadNode({ ...node, pointCount: 3, pointDataLength: 72 }, selection, signal);
+        return createExperimentalETilePointView({
+          pointCount: coordinates.length / 3,
+          ecef: coordinates.slice(),
+          height: new Float64Array(coordinates.length / 3),
+          attributes: {},
+        }, template.context, { sourceIdentity: base.sourceIdentity, transformGeneration: base.transformGeneration }, selection);
+      },
+    });
+  };
+
+  const generated = await createCopcTileResourceProvider(makeSource(747), {
+    scanCompleteHierarchy: true,
+    boundsStrategy: 'decoded-content',
+    allowDecodedContentBounds: true,
+    createBoundsIndex: true,
+  });
+  const indexedPadding = generated.boundsIndex.nodes[0].content.encoderPaddingMeters;
+  assert.ok(indexedPadding > 0 && indexedPadding < 0.01);
+
+  const indexed = await createCopcTileResourceProvider(makeSource(748), {
+    scanCompleteHierarchy: true,
+    boundsStrategy: 'indexed-decoded-content',
+    boundsIndex: generated.boundsIndex,
+  });
+  const tilesetBytes = await indexed.getResource('tileset.json', new AbortController().signal);
+  const tileset = JSON.parse(new TextDecoder().decode(tilesetBytes));
+  const glb = await indexed.getResource(getExplicitTileContentUri('root'), new AbortController().signal);
+  assert.ok(glb);
+  assertGlbPointsInside(glb, tileset.root.transform, undefined, tileset.root.extras.paddedContentBoundsEcef);
+  const report = await gltfValidator.validateBytes(glb, { uri: 'indexed-power-boundary.glb' });
+  assert.equal(report.issues.numErrors, 0, JSON.stringify(report.issues.messages));
+  await indexed.close();
+  await generated.close();
+});
+
 test('decoded-content requires authorization and rejects over-budget or incomplete hierarchies before point reads', async () => {
   const source = createBrowserFixtureSource(71);
   await assert.rejects(

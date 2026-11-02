@@ -123,12 +123,15 @@ source first. No partial Tileset is returned.
 When the source has a strong ETag, known length, and supported byte ranges, a
 completed scan can be retained as a reusable **decoded-content bounds index**.
 Its versioned JSON record binds a SHA-256 integrity digest, a fingerprint
-derived from source URL identity, strong ETag and byte length, the immutable
-transform-plan identity, CRS and vertical-datum evidence, complete hierarchy
-metadata, every content node's ECEF envelope, and the measured Float32
-reconstruction allowance. The record contains no point positions. The Dev
-Viewer stores at most four indexes in IndexedDB; a different fingerprint or
-transform plan invalidates reuse.
+derived from source URL identity, resource-selecting query parameters, strong
+ETag and byte length, the immutable transform-plan identity, CRS and
+vertical-datum evidence, complete hierarchy metadata, every content node's
+ECEF envelope, and the measured Float32 reconstruction allowance. Known
+credential/signature query fields are excluded from the fingerprint; other
+query parameters are included, so URLs selecting different resources cannot
+share an index key merely because their ETag and length match. The record
+contains no point positions. The Dev Viewer stores at most four indexes in
+IndexedDB; a different fingerprint or transform plan invalidates reuse.
 
 An application can supply a validated index to stream nodes without a
 complete point scan:
