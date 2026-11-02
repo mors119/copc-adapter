@@ -25,6 +25,7 @@ import {
 import type { CopcCesiumLayerSnapshot } from "@frillab/copc-adapter";
 import type { CopcThreeLayerSnapshot } from "@frillab/copc-adapter/three";
 import { loadGtxGeoidGrid, loadNgaEgm2008Grid } from "@frillab/copc-adapter";
+import type { DecodedContentScanEstimate } from "@frillab/copc-tiles";
 import type {
   CopcBackendSelection,
   CopcPointDecoder,
@@ -1013,6 +1014,30 @@ function safeErrorMessage(error: unknown): string {
     .replace(/([?&][^=\s]+)=([^&\s]+)/g, "$1=[redacted]");
 }
 
+function waitForReadyOrAbort(
+  ready: Promise<void>,
+  signal: AbortSignal,
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const finish = (error?: unknown): void => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener("abort", onAbort);
+      if (error === undefined) resolve();
+      else reject(error);
+    };
+    const onAbort = (): void =>
+      finish(new DOMException("Loading cancelled by the user.", "AbortError"));
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    signal.addEventListener("abort", onAbort, { once: true });
+    ready.then(() => finish(), (error: unknown) => finish(error));
+  });
+}
+
 function actionableAttributeLoadingError(error: unknown): string {
   const message = safeErrorMessage(error);
   return /not requested.*source availability was not checked/iu.test(message)
@@ -1412,6 +1437,13 @@ async function createTilesPipelineSession(
   isCurrent: () => boolean,
   onDiagnostics: (diagnostics: TilesPipelineDiagnostics) => void,
   onError: (error: unknown) => void,
+  approveDecodedContentScan: (request: Readonly<{
+    estimate: DecodedContentScanEstimate;
+    sourcePointCount: number;
+    hasReusableSourceIdentity: boolean;
+    previousIndexInvalid: boolean;
+    previousIndexNotStreamableReason?: string;
+  }>, signal: AbortSignal) => Promise<boolean>,
 ): Promise<ViewerSession> {
   const { createTilesViewerSession } = await import("./tilesViewer");
   const verticalGrid = getTilesVerticalGrid(
@@ -1431,6 +1463,7 @@ async function createTilesPipelineSession(
     signal,
     isCurrent,
     onDiagnostics,
+    approveDecodedContentScan: (request) => approveDecodedContentScan(request, signal),
     onError,
   });
   return {
@@ -1485,11 +1518,12 @@ async function main(): Promise<void> {
   }
   if (
     requestedTilesBounds !== null &&
+    requestedTilesBounds !== "automatic" &&
     requestedTilesBounds !== "conservative-source-cell" &&
     requestedTilesBounds !== "indexed-decoded-content" &&
     requestedTilesBounds !== "decoded-content"
   ) {
-    reportStartupIssue("tilesBounds", 'Unknown 3D Tiles bounds strategy; choose "conservative-source-cell", "indexed-decoded-content", or "decoded-content".');
+    reportStartupIssue("tilesBounds", 'Unknown 3D Tiles bounds strategy; choose "automatic", "conservative-source-cell", "indexed-decoded-content", or "decoded-content".');
   }
   if (requestedFullScanMaxPoints !== undefined &&
       (!Number.isSafeInteger(requestedFullScanMaxPoints) || requestedFullScanMaxPoints <= 0 || requestedFullScanMaxPoints > 20_000_000)) {
@@ -1611,9 +1645,11 @@ async function main(): Promise<void> {
   const baseInitialConfig: DevViewerConfig = {
     renderer,
     pipeline: requestedPipeline === "tiles" ? "tiles" : "direct",
-    tilesBoundsStrategy: requestedTilesBounds === "decoded-content" || requestedTilesBounds === "indexed-decoded-content"
+    tilesBoundsStrategy: requestedTilesBounds === "conservative-source-cell" ||
+        requestedTilesBounds === "indexed-decoded-content" ||
+        requestedTilesBounds === "decoded-content"
       ? requestedTilesBounds
-      : "conservative-source-cell",
+      : "automatic",
     tilesFullScanMaxPoints: requestedFullScanMaxPoints ?? 4_000_000,
     cesiumRenderer,
     backend:
@@ -1826,7 +1862,15 @@ async function main(): Promise<void> {
   const viewportPanel = getElement<HTMLElement>("#viewport-panel");
   const workbenchStatus = document.createElement("footer");
   workbenchStatus.id = "workbench-status";
-  workbenchStatus.textContent = "Loading configured source…";
+  const workbenchStatusMessage = document.createElement("span");
+  workbenchStatusMessage.textContent = "Loading configured source…";
+  const cancelLoadButton = document.createElement("button");
+  cancelLoadButton.className = "dev-action dev-action--secondary";
+  cancelLoadButton.type = "button";
+  cancelLoadButton.textContent = "Cancel";
+  cancelLoadButton.hidden = true;
+  cancelLoadButton.setAttribute("aria-label", "Cancel source loading or Tiles preparation");
+  workbenchStatus.append(workbenchStatusMessage, cancelLoadButton);
   const loadButton = getElement<HTMLButtonElement>("#load-source");
   const cameraDemoPlayButton = getElement<HTMLButtonElement>("#play-camera-demo");
   const cameraDemoStopButton = getElement<HTMLButtonElement>("#stop-camera-demo");
@@ -1834,6 +1878,10 @@ async function main(): Promise<void> {
   const reloadCurrentSourceButton = getElement<HTMLButtonElement>(
     "#reload-current-source",
   );
+  const tilesScanApprovalDialog = getElement<HTMLDialogElement>("#tiles-scan-approval");
+  const tilesScanSummary = getElement<HTMLElement>("#tiles-scan-summary");
+  const tilesScanResources = getElement<HTMLElement>("#tiles-scan-resources");
+  const tilesScanIdentity = getElement<HTMLElement>("#tiles-scan-identity");
   const configurationState = getElement<HTMLElement>("#configuration-state");
   const configurationErrorElement = getElement<HTMLElement>(
     "#configuration-error",
@@ -2139,9 +2187,59 @@ async function main(): Promise<void> {
   ): void => {
     status.textContent = message;
     status.dataset.status = tone;
-    workbenchStatus.textContent = message;
+    workbenchStatusMessage.textContent = message;
     workbenchStatus.dataset.status = tone;
   };
+  const requestDecodedContentScanApproval = (request: Readonly<{
+    estimate: DecodedContentScanEstimate;
+    sourcePointCount: number;
+    hasReusableSourceIdentity: boolean;
+    previousIndexInvalid: boolean;
+    previousIndexNotStreamableReason?: string;
+  }>, signal: AbortSignal): Promise<boolean> => {
+    const { estimate } = request;
+    const points = (value: number): string => value.toLocaleString();
+    const bytes = (value: number): string => {
+      if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`;
+      return `${(value / (1024 * 1024)).toFixed(1)} MiB`;
+    };
+    tilesScanSummary.textContent =
+      `Source metadata reports ${points(request.sourcePointCount)} points. The complete hierarchy declares ${points(estimate.totalPoints)} points across ${points(estimate.contentNodes)} content nodes.`;
+    tilesScanResources.textContent =
+      `This one-time scan reads about ${bytes(estimate.totalPointDataBytes)} of point data and prepares ${bytes(estimate.totalDecodedEcefBytes)} of ECEF coordinates, processed node by node. The previous point cap is raised only to the exact hierarchy count after approval; the 20-million-point hard limit and byte, node, decoded-memory, concurrency, and GLB limits remain active.`;
+    tilesScanIdentity.textContent = request.previousIndexNotStreamableReason
+      ? `The saved index passed source and transform validation, but ${request.previousIndexNotStreamableReason} Preparation will keep this session on the bounded decoded-content provider.`
+      : request.hasReusableSourceIdentity
+        ? `${request.previousIndexInvalid
+          ? "The saved index failed validation and will be replaced only after a successful scan."
+          : "No matching saved index is available."} A strong ETag lets the viewer save and reuse the bounds index; points are fetched again when Tiles are rendered.`
+      : "This source has no reusable strong-ETag identity. Preparation is available for this session only and will not be saved for later sessions.";
+
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      const finish = (approved: boolean): void => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", onAbort);
+        tilesScanApprovalDialog.removeEventListener("close", onClose);
+        if (tilesScanApprovalDialog.open) tilesScanApprovalDialog.close("cancel");
+        resolve(approved);
+      };
+      const onClose = (): void => finish(tilesScanApprovalDialog.returnValue === "prepare");
+      const onAbort = (): void => finish(false);
+      tilesScanApprovalDialog.addEventListener("close", onClose, { once: true });
+      signal.addEventListener("abort", onAbort, { once: true });
+      if (signal.aborted) {
+        finish(false);
+        return;
+      }
+      tilesScanApprovalDialog.returnValue = "";
+      tilesScanApprovalDialog.showModal();
+    });
+  };
+  cancelLoadButton.addEventListener("click", () => {
+    probeAbortController?.abort(new DOMException("Load cancelled by the user.", "AbortError"));
+  });
   const refreshCameraDemoControls = (): void => {
     const playing = activeSession?.isCameraDemoPlaying?.() === true;
     const available = !disposed &&
@@ -2184,6 +2282,11 @@ async function main(): Promise<void> {
     configurationState.dataset.dirty = String(dirty);
     configurationErrorElement.textContent = configurationError ?? tilesFilteringError ?? "";
     configurationErrorElement.hidden = !configurationError && !tilesFilteringError;
+    loadButton.textContent = pendingConfig.pipeline === "tiles"
+      ? "Load / Prepare Tiles"
+      : "Load selected source";
+    cancelLoadButton.hidden = !isLoading;
+    cancelLoadButton.disabled = !isLoading;
     applySettingsButton.disabled =
       isLoading ||
       startupIssues.size > 0 ||
@@ -2337,7 +2440,13 @@ async function main(): Promise<void> {
     },
   );
   const tilesDiagnosticsTarget = document.createElement("div");
-  healthPanel.append(tilesDiagnosticsTarget);
+  const tilesDiagnosticsDetails = document.createElement("details");
+  tilesDiagnosticsDetails.className = "dev-control-section";
+  tilesDiagnosticsDetails.id = "tiles-diagnostics-details";
+  const tilesDiagnosticsSummary = document.createElement("summary");
+  tilesDiagnosticsSummary.textContent = "Advanced 3D Tiles diagnostics";
+  tilesDiagnosticsDetails.append(tilesDiagnosticsSummary, tilesDiagnosticsTarget);
+  healthPanel.append(tilesDiagnosticsDetails);
   const tilesDiagnosticsPanel = mountDiagnosticSections(
     tilesDiagnosticsTarget,
     [{
@@ -2405,7 +2514,7 @@ async function main(): Promise<void> {
       tilesHierarchy: value
         ? `${value.hierarchyNodes} nodes · ${value.hierarchyPages} pages · ${value.hierarchyPageBytes.toLocaleString()} bytes`
         : undefined,
-      tilesContentScan: value?.boundsStrategy === "decoded-content"
+      tilesContentScan: value && value.contentPointsTotal > 0
         ? `${value.contentScanPhase} · ${value.contentNodesScanned.toLocaleString()}/${value.contentNodesTotal.toLocaleString()} nodes · ${value.contentPointsScanned.toLocaleString()}/${value.contentPointsTotal.toLocaleString()} points · ${value.contentPointDataBytes.toLocaleString()} point-data bytes · ${value.contentEcefBytesScanned.toLocaleString()} ECEF bytes · ${value.peakDecodedEcefBufferBytes.toLocaleString()} peak ECEF buffer · ${value.scanDurationMilliseconds.toFixed(1)} ms`
         : undefined,
       tilesRangeBytes: value?.sourceRangeBytesObserved.toLocaleString(),
@@ -2566,6 +2675,14 @@ async function main(): Promise<void> {
     let candidateMount: HTMLElement | undefined;
     let candidateSession: ViewerSession | undefined;
     let candidateProbe: CopcSourceProbeResult | undefined;
+    let candidateDestroyed = false;
+    const destroyCandidate = (): void => {
+      if (candidateSession && !candidateDestroyed) {
+        candidateDestroyed = true;
+        candidateSession.destroy();
+      }
+      candidateMount?.remove();
+    };
 
     if (!recreate) {
       try {
@@ -2618,6 +2735,8 @@ async function main(): Promise<void> {
     updateConfigurationState();
     const controller = new AbortController();
     probeAbortController = controller;
+    const destroyCandidateOnAbort = (): void => destroyCandidate();
+    controller.signal.addEventListener("abort", destroyCandidateOnAbort);
 
     try {
       if (
@@ -2658,7 +2777,10 @@ async function main(): Promise<void> {
       stagedMount = candidateMount;
       recordApplyTrace(applyTrace, "candidate-mount-created");
       const reportCandidateError = (error: unknown): void => {
-        if (currentGeneration !== generation || disposed) return;
+        if (
+          currentGeneration !== generation || disposed ||
+          controller.signal.aborted || candidateDestroyed
+        ) return;
         lastError = safeErrorMessage(error);
         if (config.pipeline === "tiles" && tilesDiagnostics) {
           tilesDiagnostics = Object.freeze({
@@ -2700,8 +2822,19 @@ async function main(): Promise<void> {
               if (currentGeneration !== generation || disposed) return;
               tilesDiagnostics = value;
               updateTilesDiagnosticsPanel();
+              if (value.status === "scanning" && value.contentScanPhase === "points") {
+                updateStatus(
+                  `Preparing 3D Tiles · ${value.contentPointsScanned.toLocaleString()} / ${value.contentPointsTotal.toLocaleString()} points`,
+                  "loading",
+                );
+              } else if (value.status === "scanning" && value.contentScanPhase === "preflight") {
+                updateStatus("Review the content-bounds scan estimate to continue.", "loading");
+              } else if (value.status === "scanning") {
+                updateStatus("Checking 3D Tiles bounds and saved index…", "loading");
+              }
             },
             reportCandidateError,
+            (request, signal) => requestDecodedContentScanApproval(request, signal),
           )
         : config.renderer === "cesium"
           ? await createCesiumSession(
@@ -2720,14 +2853,21 @@ async function main(): Promise<void> {
               handlePointPicked,
               handlePointPositionChanged,
             );
+      if (controller.signal.aborted) {
+        destroyCandidate();
+        throw new DOMException("Loading cancelled by the user.", "AbortError");
+      }
       recordApplyTrace(applyTrace, "session-created");
       stagedSession = candidateSession;
       recordApplyTrace(applyTrace, "session-ready-wait-started");
-      await candidateSession.ready;
+      await waitForReadyOrAbort(candidateSession.ready, controller.signal);
       recordApplyTrace(applyTrace, "session-ready");
+      if (controller.signal.aborted) {
+        destroyCandidate();
+        throw new DOMException("Loading cancelled by the user.", "AbortError");
+      }
       if (currentGeneration !== generation || disposed) {
-        candidateSession.destroy();
-        candidateMount.remove();
+        destroyCandidate();
         return;
       }
 
@@ -2815,14 +2955,28 @@ async function main(): Promise<void> {
       debugPanel.refresh();
     } catch (error) {
       if (currentGeneration !== generation || disposed) {
-        candidateSession?.destroy();
-        candidateMount?.remove();
+        destroyCandidate();
         return;
       }
-      candidateSession?.destroy();
-      candidateMount?.remove();
+      destroyCandidate();
       if (stagedSession === candidateSession) stagedSession = undefined;
       if (stagedMount === candidateMount) stagedMount = undefined;
+      const errorCode = error && typeof error === "object"
+        ? (error as { code?: unknown }).code
+        : undefined;
+      if (controller.signal.aborted || errorCode === "CONTENT_SCAN_DECLINED" ||
+          (error instanceof Error && error.name === "AbortError")) {
+        lastError = undefined;
+        configurationError = undefined;
+        updateStatus(
+          errorCode === "CONTENT_SCAN_DECLINED"
+            ? "Preparation cancelled. No point payloads were read."
+            : "Loading cancelled.",
+          "inactive",
+        );
+        debugPanel.refresh();
+        return;
+      }
       lastError = safeErrorMessage(error);
       controller.abort();
       recordApplyTrace(applyTrace, "apply-error");
@@ -2830,6 +2984,7 @@ async function main(): Promise<void> {
       updateStatus(lastError, "error");
       debugPanel.refresh();
     } finally {
+      controller.signal.removeEventListener("abort", destroyCandidateOnAbort);
       if (currentGeneration === generation && !disposed) {
         isLoading = false;
         probeAbortController = undefined;

@@ -27,7 +27,7 @@ import type { SchemaDimensionFilter, SchemaDimensionStyle } from "../../shared/s
 
 export type RenderingEngine = WorkbenchRenderer;
 export type RenderingPipeline = "direct" | "tiles";
-export type TilesBoundsStrategy = "conservative-source-cell" | "indexed-decoded-content" | "decoded-content";
+export type TilesBoundsStrategy = "automatic" | "conservative-source-cell" | "indexed-decoded-content" | "decoded-content";
 export type CesiumPointRendererVariant = "point-primitive" | "batched-geometry";
 export type CameraPreset = WorkbenchCameraPreset;
 
@@ -45,7 +45,7 @@ export type DevViewerConfig = Omit<
   renderer: RenderingEngine;
   /** Developer-only renderer pipeline; Direct remains the compatibility default. */
   pipeline: RenderingPipeline;
-  /** Developer-only opt-in content scan; conservative source-cell remains default. */
+  /** Developer-only strategy preference; automatic chooses the safest available path. */
   tilesBoundsStrategy?: TilesBoundsStrategy;
   /** Limit for explicit full decoded-content preprocessing; defaults to 4 million points. */
   tilesFullScanMaxPoints?: number;
@@ -212,6 +212,7 @@ export function validateDevViewerConfig(
     return "Choose Direct COPC or the experimental 3D Tiles pipeline.";
   }
   if (config.tilesBoundsStrategy !== undefined &&
+      config.tilesBoundsStrategy !== "automatic" &&
       config.tilesBoundsStrategy !== "conservative-source-cell" &&
       config.tilesBoundsStrategy !== "indexed-decoded-content" &&
       config.tilesBoundsStrategy !== "decoded-content") {
@@ -338,8 +339,8 @@ export function hasUnappliedSettings(
 ): boolean {
   return (
     applied.pipeline !== pending.pipeline ||
-    (applied.tilesBoundsStrategy ?? "conservative-source-cell") !==
-      (pending.tilesBoundsStrategy ?? "conservative-source-cell") ||
+    (applied.tilesBoundsStrategy ?? "automatic") !==
+      (pending.tilesBoundsStrategy ?? "automatic") ||
     (applied.tilesFullScanMaxPoints ?? 4_000_000) !==
       (pending.tilesFullScanMaxPoints ?? 4_000_000) ||
     getChangedWorkbenchOptionIds(
@@ -362,8 +363,8 @@ export function needsSessionRecreation(
   if (!hasActiveSession) return true;
   if (
     applied.pipeline !== next.pipeline ||
-    (applied.tilesBoundsStrategy ?? "conservative-source-cell") !==
-      (next.tilesBoundsStrategy ?? "conservative-source-cell") ||
+    (applied.tilesBoundsStrategy ?? "automatic") !==
+      (next.tilesBoundsStrategy ?? "automatic") ||
     applied.pipeline === "tiles" || next.pipeline === "tiles"
   ) {
     return true;

@@ -107,6 +107,18 @@ export type DecodedContentScanProgress = Readonly<{
   verticalDatum?: TileVerticalDatumEvidence;
 }>;
 
+/** Metadata-only estimate shown before an explicitly approved full point scan. */
+export type DecodedContentScanEstimate = Readonly<{
+  hierarchyNodes: number;
+  hierarchyPages: number;
+  hierarchyPageBytes: number;
+  contentNodes: number;
+  totalPoints: number;
+  totalPointDataBytes: number;
+  totalDecodedEcefBytes: number;
+  configuredMaxTotalPoints: number;
+}>;
+
 export type DecodedContentScanSummary = Readonly<{
   strategy: 'decoded-content';
   status: 'complete';
@@ -152,6 +164,8 @@ export type DecodedContentProviderOptions = CopcTileResourceProviderBaseOptions 
   allowDecodedContentBounds: true;
   /** Return a persistent, checksummed index when the source has a verified immutable fingerprint. */
   createBoundsIndex?: boolean;
+  /** Ask the host to approve the metadata-estimated scan before point payloads are read. */
+  approveDecodedContentScan?: (estimate: DecodedContentScanEstimate) => boolean | Promise<boolean>;
   onDecodedContentProgress?: (progress: DecodedContentScanProgress) => void;
 }>;
 
@@ -197,6 +211,7 @@ export type CopcTileResourceProviderErrorCode =
   | 'ENCODER_PADDING_LIMIT'
   | 'POINT_OUTSIDE_CONSERVATIVE_BOUNDS'
   | 'CONTENT_SCAN_NOT_AUTHORIZED'
+  | 'CONTENT_SCAN_DECLINED'
   | 'CONTENT_SCAN_LIMIT'
   | 'CONTENT_SCAN_INVALID'
   | 'BOUNDS_INDEX_INVALID'
@@ -519,11 +534,25 @@ async function createIndexedContentProvider(
     throw new CopcTileResourceProviderError('BOUNDS_INDEX_INVALID', `The complete hierarchy has ${hierarchy.nodes.length} nodes; the configured metadata limit is ${maxNodes}.`);
   }
   for (const node of hierarchy.nodes) {
-    if (node.pointCount > readerLimits.maxPointsPerNode || node.pointDataLength > readerLimits.maxPointDataBytesPerNode ||
-        node.pointCount * 3 * Float64Array.BYTES_PER_ELEMENT > readerLimits.maxDecodedBytesPerNode) {
+    if (node.pointCount > readerLimits.maxPointsPerNode) {
       throw new CopcTileResourceProviderError(
         'RESOURCE_LIMIT',
-        `Node ${node.key} exceeds an individual node read or decode budget; the indexed stream keeps per-node limits active.`,
+        `Node ${node.key} declares ${node.pointCount} points; maxPointsPerNode is ${readerLimits.maxPointsPerNode}.`,
+        { nodeKey: node.key },
+      );
+    }
+    if (node.pointDataLength > readerLimits.maxPointDataBytesPerNode) {
+      throw new CopcTileResourceProviderError(
+        'RESOURCE_LIMIT',
+        `Node ${node.key} declares ${node.pointDataLength} point-data bytes; maxPointDataBytesPerNode is ${readerLimits.maxPointDataBytesPerNode}.`,
+        { nodeKey: node.key },
+      );
+    }
+    const decodedEcefBytes = node.pointCount * 3 * Float64Array.BYTES_PER_ELEMENT;
+    if (!Number.isSafeInteger(decodedEcefBytes) || decodedEcefBytes > readerLimits.maxDecodedBytesPerNode) {
+      throw new CopcTileResourceProviderError(
+        'RESOURCE_LIMIT',
+        `Node ${node.key} needs ${decodedEcefBytes} decoded ECEF bytes; maxDecodedBytesPerNode is ${readerLimits.maxDecodedBytesPerNode}.`,
         { nodeKey: node.key },
       );
     }
@@ -780,9 +809,9 @@ async function createDecodedContentProvider(
   assertSourceCurrent(source, sourceIdentity, sourceGeneration, sourceGeneration, transformGeneration);
   validateDecodedContentHierarchy(hierarchy.nodes);
 
-  const effectiveLimits = preflightDecodedContentHierarchy(hierarchy.nodes, limits, options.tilesetOptions);
+  const preflight = preflightDecodedContentHierarchy(hierarchy.nodes, limits, options.tilesetOptions);
   const contentNodes = hierarchy.nodes.filter((node) => node.pointCount > 0);
-  if (contentNodes.length === 0 || effectiveLimits.totalPoints === 0) {
+  if (contentNodes.length === 0 || preflight.totalPoints === 0) {
     throw new CopcTileResourceProviderError(
       'CONTENT_SCAN_INVALID',
       'Decoded-content bounds require at least one content-bearing node with prepared point positions.',
@@ -793,8 +822,39 @@ async function createDecodedContentProvider(
     hierarchyPages: hierarchy.hierarchyPagesRead,
     hierarchyPageBytes: hierarchy.hierarchyPageBytesRead,
     contentNodes: contentNodes.length,
-    totalPoints: effectiveLimits.totalPoints,
-    totalPointDataBytes: effectiveLimits.totalPointDataBytes,
+    totalPoints: preflight.totalPoints,
+    totalPointDataBytes: preflight.totalPointDataBytes,
+  });
+
+  const approved = options.approveDecodedContentScan
+    ? await options.approveDecodedContentScan(Object.freeze({
+        hierarchyNodes: hierarchy.nodes.length,
+        hierarchyPages: hierarchy.hierarchyPagesRead,
+        hierarchyPageBytes: hierarchy.hierarchyPageBytesRead,
+        contentNodes: contentNodes.length,
+        totalPoints: preflight.totalPoints,
+        totalPointDataBytes: preflight.totalPointDataBytes,
+        totalDecodedEcefBytes: preflight.totalDecodedEcefBytes,
+        configuredMaxTotalPoints: preflight.configuredMaxTotalPoints,
+      }))
+    : false;
+  if (options.approveDecodedContentScan && approved !== true) {
+    throw new CopcTileResourceProviderError(
+      'CONTENT_SCAN_DECLINED',
+      'Full point scan was not approved; no point payloads were read.',
+    );
+  }
+  if (preflight.totalPoints > preflight.configuredMaxTotalPoints && !approved) {
+    throw new CopcTileResourceProviderError(
+      'CONTENT_SCAN_LIMIT',
+      `Hierarchy declares ${preflight.totalPoints} points; the configured maxTotalPoints is ${preflight.configuredMaxTotalPoints}. No point payloads were read.`,
+    );
+  }
+  const effectiveLimits = Object.freeze({
+    ...preflight,
+    // Approval is bound to the complete hierarchy summary above. Use its exact
+    // count as the Tileset's minimum point budget rather than a stale default.
+    maxTotalPoints: approved ? preflight.totalPoints : preflight.configuredMaxTotalPoints,
   });
 
   const ownContentBounds = new Map<string, EcefAxisAlignedBounds>();
@@ -1261,6 +1321,7 @@ function preflightDecodedContentHierarchy(
 ): Readonly<{
   maxNodes: number;
   maxTotalPoints: number;
+  configuredMaxTotalPoints: number;
   totalPoints: number;
   totalPointDataBytes: number;
   totalDecodedEcefBytes: number;
@@ -1300,17 +1361,24 @@ function preflightDecodedContentHierarchy(
     if (![totalPoints, totalPointDataBytes, totalDecodedEcefBytes].every(Number.isSafeInteger)) {
       throw new CopcTileResourceProviderError('CONTENT_SCAN_LIMIT', 'Hierarchy preflight totals exceed the safe integer range. No point payloads were read.', { nodeKey: node.key });
     }
-    if (totalPoints > maxTotalPoints) {
-      throw new CopcTileResourceProviderError('CONTENT_SCAN_LIMIT', `Hierarchy declares ${totalPoints} points; the effective maxTotalPoints is ${maxTotalPoints}. No point payloads were read.`, { nodeKey: node.key });
-    }
-    if (totalPointDataBytes > readerLimits.maxTotalPointDataBytes) {
-      throw new CopcTileResourceProviderError('CONTENT_SCAN_LIMIT', `Hierarchy declares ${totalPointDataBytes} point-data bytes; maxTotalPointDataBytes is ${readerLimits.maxTotalPointDataBytes}. No point payloads were read.`, { nodeKey: node.key });
-    }
-    if (totalDecodedEcefBytes > readerLimits.maxTotalDecodedBytes) {
-      throw new CopcTileResourceProviderError('CONTENT_SCAN_LIMIT', `Prepared ECEF output needs ${totalDecodedEcefBytes} bytes across all content; maxTotalDecodedBytes is ${readerLimits.maxTotalDecodedBytes}. No point payloads were read.`, { nodeKey: node.key });
+    if (totalPoints > 20_000_000) {
+      throw new CopcTileResourceProviderError('CONTENT_SCAN_LIMIT', `Hierarchy declares ${totalPoints} points; full decoded-content scans are limited to 20,000,000 points. No point payloads were read.`, { nodeKey: node.key });
     }
   }
-  return Object.freeze({ maxNodes, maxTotalPoints, totalPoints, totalPointDataBytes, totalDecodedEcefBytes });
+  if (totalPointDataBytes > readerLimits.maxTotalPointDataBytes) {
+    throw new CopcTileResourceProviderError('CONTENT_SCAN_LIMIT', `Hierarchy declares ${totalPointDataBytes} point-data bytes; maxTotalPointDataBytes is ${readerLimits.maxTotalPointDataBytes}. No point payloads were read.`);
+  }
+  if (totalDecodedEcefBytes > readerLimits.maxTotalDecodedBytes) {
+    throw new CopcTileResourceProviderError('CONTENT_SCAN_LIMIT', `Prepared ECEF output needs ${totalDecodedEcefBytes} bytes across all content; maxTotalDecodedBytes is ${readerLimits.maxTotalDecodedBytes}. No point payloads were read.`);
+  }
+  return Object.freeze({
+    maxNodes,
+    maxTotalPoints: Math.min(maxTotalPoints, totalPoints),
+    configuredMaxTotalPoints: maxTotalPoints,
+    totalPoints,
+    totalPointDataBytes,
+    totalDecodedEcefBytes,
+  });
 }
 
 function validateDecodedContentHierarchy(nodes: readonly TileHierarchyNode[]): void {

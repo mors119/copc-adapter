@@ -45,44 +45,16 @@
               </select>
             </label>
             <label class="ui-field" for="rendering-pipeline">
-              Rendering pipeline
+              Mode
               <select id="rendering-pipeline">
                 <option value="direct">Direct COPC (default)</option>
                 <option value="tiles">3D Tiles (Experimental)</option>
               </select>
             </label>
-            <label class="ui-field" for="tiles-bounds-strategy">
-              3D Tiles bounds strategy
-              <select id="tiles-bounds-strategy">
-                <option value="conservative-source-cell">Certified source-cell streaming (default)</option>
-                <option value="indexed-decoded-content">Streaming with a verified content-bounds index</option>
-                <option value="decoded-content">Explicit full point scan + index generation</option>
-              </select>
-            </label>
-            <label class="ui-field" for="tiles-full-scan-max-points">
-              Explicit full-scan point limit
-              <input
-                id="tiles-full-scan-max-points"
-                type="number"
-                min="1"
-                max="20000000"
-                step="100000"
-                value="4000000"
-              />
-            </label>
             <p class="dev-help">
-              The pipeline is independent of the Cesium / Three renderer below.
-              3D Tiles uses the unpublished local Tiles workspace. Appearance
-              controls are disabled in that mode; switch to Direct COPC to use
-              them. Direct streaming controls do not apply. Certified source-cell
-              and verified-index strategies decode only renderer-requested nodes.
-              Indexed streaming requires an existing index and a matching strong
-              HTTP ETag. The explicit full scan reads every point, defaults to a
-              4-million-point limit (maximum 20 million), and can generate a reusable index. Projected
-              sources without certified bounds need that scan once before indexed
-              streaming. Each tileset currently reads the complete bounded
-              hierarchy metadata before rendering; point payloads remain on demand.
-              Unknown vertical provenance is shown as unverified placement.
+              Direct COPC streams the source. 3D Tiles chooses certified bounds
+              or a matching saved index automatically; if a full point scan is
+              needed, you will review its cost before it starts.
             </p>
             <label class="ui-field" for="custom-source-url"
               >COPC URL
@@ -97,10 +69,39 @@
               Load selected source
             </button>
             <p class="dev-help">
-              This loads the selected source with the visible configuration. The
-              current source stays active while the new source is checked and
-              loaded.
+              The current source stays active while the selected source is checked
+              and loaded.
             </p>
+            <details class="dev-control-section" id="tiles-advanced-controls">
+              <summary>Advanced 3D Tiles controls</summary>
+              <label class="ui-field" for="tiles-bounds-strategy">
+                Bounds preference
+                <select id="tiles-bounds-strategy">
+                  <option value="automatic">Automatic (recommended)</option>
+                  <option value="conservative-source-cell">Certified source-cell only</option>
+                  <option value="indexed-decoded-content">Prefer a saved content-bounds index</option>
+                  <option value="decoded-content">Prepare content bounds now</option>
+                </select>
+              </label>
+              <label class="ui-field" for="tiles-full-scan-max-points">
+                Existing full-scan point budget
+                <input
+                  id="tiles-full-scan-max-points"
+                  type="number"
+                  min="1"
+                  max="20000000"
+                  step="100000"
+                  value="4000000"
+                />
+              </label>
+              <p class="dev-help">
+                An approved scan derives its minimum point budget from the complete
+                hierarchy (up to 20 million points). Independent limits remain:
+                4,096 hierarchy nodes, 256 MiB source point data, 384 MiB decoded
+                ECEF output, 2 million points per node, and 16 MiB per GLB.
+                Metadata is read before approval; no full point scan starts silently.
+              </p>
+            </details>
             <label class="dev-file" for="local-source-file"
               >Open local COPC file
               <input
@@ -210,6 +211,18 @@
         <div class="dev-panel__content" id="inspector-content"></div>
       </aside>
     </div>
+    <dialog id="tiles-scan-approval" aria-labelledby="tiles-scan-title">
+      <form method="dialog">
+        <h2 id="tiles-scan-title">Prepare 3D Tiles content bounds?</h2>
+        <p id="tiles-scan-summary"></p>
+        <p id="tiles-scan-resources"></p>
+        <p id="tiles-scan-identity" class="dev-help"></p>
+        <div class="dev-settings-actions">
+          <button class="dev-action dev-action--secondary" value="cancel">Cancel</button>
+          <button class="dev-action" value="prepare">Prepare and render</button>
+        </div>
+      </form>
+    </dialog>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

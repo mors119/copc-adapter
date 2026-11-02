@@ -2,7 +2,7 @@
 
 **COPC → standard 3D Tiles 1.1** as an optional, independently published companion to [COPC Adapter](https://github.com/mors119/copc-adapter). This package is developed at `packages/tiles` in the Adapter npm Workspaces monorepo.
 
-> **Status: 0.1.0 conditional review candidate; not published.** The live provider supports certified `conservative-source-cell` streaming and indexed, rendered-content bounds streaming. Complete `decoded-content` preprocessing is a separate explicit operation with a default 4,000,000-point limit. A generated projected EPSG:32611 COPC fixture exercises both indexed streaming and complete preprocessing in Cesium and Three.js. Real projected bounds still do not certify unobserved source cells, and vertical placement remains separately evidenced. The initial provider traverses complete bounded hierarchy metadata before first render; standard renderers request point nodes and GLBs on demand. See [`docs/implementation-status.md`](docs/implementation-status.md), the [API compatibility matrix](docs/adapter-api-compatibility.md), and the [3D Tiles demo runbook](../../apps/dev-viewer/docs/3d-tiles-demo.md).
+> **Status: 0.1.0 conditional review candidate; not published.** The live provider supports certified `conservative-source-cell` streaming and indexed, rendered-content bounds streaming. Complete `decoded-content` preprocessing is a separate explicitly approved operation with a default 4,000,000-point budget; an approved scan derives its exact minimum point budget from the complete hierarchy and remains capped at 20,000,000 points. A generated projected EPSG:32611 COPC fixture exercises indexed streaming and complete preprocessing in Cesium and Three.js. Real projected bounds still do not certify unobserved source cells, and vertical placement remains separately evidenced. The initial provider traverses complete bounded hierarchy metadata before first render; standard renderers request point nodes and GLBs on demand. See [`docs/implementation-status.md`](docs/implementation-status.md), the [API compatibility matrix](docs/adapter-api-compatibility.md), and the [3D Tiles demo runbook](../../apps/dev-viewer/docs/3d-tiles-demo.md).
 
 ## Why separate?
 
@@ -104,7 +104,13 @@ The COPC connector uses only public `@frillab/copc-adapter/core` APIs and is
 compatible with 0.7.1 and 0.8.x. Real Autzen and SoFi requested-node reads and
 single-node rendering were verified. `createCopcTileResourceProvider()`
 requires explicit `scanCompleteHierarchy: true` authorization for a bounded
-complete metadata traversal. It does not implement another camera selector.
+complete metadata traversal. A host can use `approveDecodedContentScan` to
+present the metadata-only hierarchy estimate (point count, hierarchy size,
+source point-data bytes, and decoded ECEF bytes) and require a user decision
+before any point payload is read. After approval, the scan's aggregate point
+budget is raised only to the exact declared hierarchy count; the 20-million
+hard ceiling and independent node, hierarchy, source-byte, decoded-memory,
+concurrency, and GLB limits remain in force. It does not implement another camera selector.
 The standard renderer requests content URIs and the provider prepares only
 those COPC nodes. The certified `conservative-source-cell` strategy retains
 its existing full-cell proof. For projected sources, the optional

@@ -7,9 +7,26 @@ prepared ECEF node is encoded as a GLB on demand.
 
 | Strategy | What the bound contains | Point reads before Tileset | Projected input |
 | --- | --- | --- | --- |
-| `conservative-source-cell` (default) | The complete source cell and descendants, only when Core returns its existing certified result | None; requested tile nodes decode on demand | Unsupported until a metadata-only projected proof exists |
+| `conservative-source-cell` | The complete source cell and descendants, only when Core returns its existing certified result | None; requested tile nodes decode on demand | Unsupported until a metadata-only projected proof exists |
 | `indexed-decoded-content` | Reusable per-node observed-content bounds and the union of descendant bounds, with GLB reconstruction allowances | None after the index exists; requested tile nodes decode on demand | Supported only with a current, complete index bound to a strong-ETag source fingerprint and transform plan |
 | `decoded-content` (explicit preprocessing) | Every prepared point in every content-bearing node, plus GLB reconstruction padding; never source-cell certification | Every point before Tileset creation; default 4,000,000-point limit, configurable to 20,000,000 | Generates the reusable index where immutable HTTP identity is available |
+
+Dev Viewer selects a safe path automatically: certified source-cell bounds,
+then a matching content-bounds index. If neither is available, it reads only
+metadata to estimate the full scan and waits for an explicit **Prepare and
+render** approval before requesting any point payload. The estimate includes
+hierarchy point count, declared point-data bytes, and prepared ECEF bytes. An
+approved scan raises an older aggregate point cap only to the exact complete
+hierarchy count; the 20-million-point hard limit and independent node, byte,
+decoded-memory, concurrency, and GLB limits still apply. The completed index
+is saved when a strong-ETag identity is available and is used immediately for
+indexed streaming when every node fits the indexed stream's independent
+per-node limits. If a node exceeds one of those limits, the viewer keeps the
+approved decoded-content provider for the current session instead of opening
+an indexed stream that would reject its GLB request. The verified index is
+still saved when possible; a later session may ask for preparation again.
+Without a reusable strong-ETag identity, bounds remain session scoped and
+must be prepared again in a later session.
 
 `getConservativeNodeEcefBounds()` is unchanged. Projected source-cell bounds
 remain unsupported by that method and the original metadata-only full-cell
@@ -51,10 +68,11 @@ synthetic COPC fixture with projected EPSG:32611 east/north metre coordinates.
 Its WKT declares the horizontal CRS only; it has no authoritative vertical CRS.
 The fixture is not a real survey, terrain dataset, or verified-height source.
 
-The viewer initially opens in Direct COPC. Select **Explicit full point scan +
-index generation**, leave the point limit at 4,000,000, select **3D Tiles
-(Experimental)**, then press
-**Apply Settings**. Wait for the Health panel to show:
+The viewer initially opens in Direct COPC. Select **3D Tiles (Experimental)**
+and press **Load / Prepare Tiles**. Certified bounds and a valid saved index
+start immediately. If neither is available, review the source point count and
+expected scan work, then select **Prepare and render** to continue. Wait for
+the Health panel to show:
 
 - bounds strategy `decoded-content`, coverage `rendered-content-only`, and geometry bounds `complete-decoded-content`;
 - source CRS `EPSG:32611` and source-to-ECEF `prepared-by-core`;
@@ -63,10 +81,11 @@ index generation**, leave the point limit at 4,000,000, select **3D Tiles
   visible tiles and visible points greater than zero;
 - a nonzero observed Range byte count, peak decoded ECEF buffer, and scan time.
 
-This fixture declares fewer than four million points, so the default complete
-scan budget is sufficient. If the HTTP server exposes a strong ETag and content
-length, the scan also stores an index; otherwise the diagnostic says the index
-is unavailable and the full scan remains usable for this session. The
+If the HTTP server exposes a strong ETag and content length, the scan stores an
+index and switches to indexed streaming automatically when the hierarchy fits
+its per-node streaming limits. A larger node keeps the bounded decoded-content
+provider active for the current session. Without a strong ETag, the prompt
+explains that preparation is session-only. The
 diagnostic `boundsSupport: supported` refers to generated geometry bounds
 for all scanned content. It does not change Core's unsupported
 `unsupported-horizontal-crs` full-cell result. The screen discloses that
@@ -74,8 +93,8 @@ distinction and keeps the placement warning visible. Use **Far**, **Near**, and
 **Overview** to move the camera. Switch to Direct COPC and back to Tiles to
 exercise source-generation replacement and pipeline recreation.
 
-For Three.js, open the same URL with `renderer=three` and repeat the selector,
-Health, camera, and switching steps.
+For Three.js, open the same URL with `renderer=three` and repeat the load,
+approval, Health, camera, and switching steps.
 
 The second generated file,
 `samples/local/demo-projected-ellipsoidal.copc.laz`, uses the same synthetic
@@ -116,29 +135,28 @@ projected source. The later indexed sessions start without a complete point
 scan:
 
 1. Open the Dev Viewer on the same origin where you will keep the index. Select
-   **Autzen · public HTTP**, **Explicit full point scan + index generation**,
-   and **3D Tiles (Experimental)**. Set **Explicit full-scan point limit** to
-   `12000000` (the default intentionally remains `4000000`) and press **Apply
-   Settings**. Wait for Health to show `stored` and all source points scanned.
-2. Change the strategy to **Streaming with a verified content-bounds index**
-   and apply. Health should show `indexed-decoded-content`, a valid index, zero
-   points scanned in this session, loaded and visible nodes, and nonzero GLB
-   requests. This session reads hierarchy metadata and only the point payloads
-   selected by the renderer.
+   **Autzen · public HTTP** and **3D Tiles (Experimental)**, then press
+   **Load / Prepare Tiles**. Review the 10,653,336-point estimate and approve
+   **Prepare and render**. Health should show `stored` after the complete scan.
+2. Load Autzen again. The saved matching index is checked automatically;
+   Health should show `indexed-decoded-content`, a valid index, zero points
+   scanned in this session, loaded and visible nodes, and nonzero GLB requests.
+   This session reads hierarchy metadata and only the point payloads selected
+   by the renderer.
 3. Use **Near** and **Overview**. Watch distinct GLB requests, source Range
    bytes, requested and visible point counts, active and cancelled loads, and
    cache use change in Health. The resource server holds at most 64 entries or
    32 MiB and evicts least-recently-used entries when those limits are reached.
 4. Reload the same source as Three.js with
-   `&pipeline=tiles&tilesBounds=indexed-decoded-content&renderer=three` in the
-   URL. The same-origin IndexedDB index remains available. Compare camera
-   movement, loaded nodes, visible points, first-visible time, and GLB requests.
+   `&pipeline=tiles&renderer=three` in the URL. The same-origin IndexedDB index
+   remains available. Compare camera movement, loaded nodes, visible points,
+   first-visible time, and GLB requests.
 
 The first explicit scan decodes every Autzen point; it is not cold-start
 streaming. The indexed sessions demonstrate camera-driven loading. A new
 browser profile must generate its own index. A changed strong ETag invalidates
-the fingerprint. If the index is missing or rejected, the viewer reports the
-preprocessing requirement and does not treat content bounds as certified
+the fingerprint. If the index is missing or rejected, the viewer offers a
+complete preparation scan and never treats content bounds as certified
 source-cell bounds. Autzen's vertical NAVD88 evidence remains unverified for
 authoritative placement.
 
@@ -146,10 +164,12 @@ The ordinary `test:e2e:tiles` suite includes generated-index reuse through both
 renderers. To run the optional real 10.6-million-point workflow, set
 `COPC_RUN_AUTZEN_INDEX_E2E=1` before the same Playwright command. Its synthetic
 hierarchy regression declares exactly 4,004,078 points without committing a
-large binary: complete preprocessing rejects at the 4-million default, while
-source-cell streaming creates a Tileset and reads only the requested node.
-A separate generated hierarchy above 20 million points checks that streaming
-does not reject by source total.
+large binary: a full scan without approval remains capped by its configured
+limit, while source-cell streaming creates a Tileset and reads only the
+requested node. A separate regression approves a 4,038,903-point hierarchy
+despite its previous 4,004,078-point cap and verifies that preflight reaches
+the point reader only after approval. A generated hierarchy above 20 million
+points checks that streaming does not reject by source total.
 
 ## Real source status and limits
 
@@ -274,7 +294,8 @@ Record the generated projected fixture at 1440×900 in Chromium. Keep the Health
 panel open so the coverage and height distinction remain visible:
 
 1. **0–6 seconds:** show Direct COPC and the projected source label.
-2. **6–12 seconds:** select explicit full scan, choose 3D Tiles, and apply.
+2. **6–12 seconds:** choose 3D Tiles and select **Load / Prepare Tiles**.
+   Approve the displayed estimate to start the scan.
 3. **12–22 seconds:** show scan progress moving to complete, then point/node
    accounting, GLB requests, visible tiles, visible points, and the explicit
    `unverified` vertical placement.
@@ -290,7 +311,8 @@ SoFi, terrain-aligned, or survey-accurate.
 ## 30–45 second large-source streaming presentation
 
 Before recording, generate and store an Autzen index using the runbook above.
-Then start a fresh session with `tilesBounds=indexed-decoded-content`:
+Then start a fresh session with the default automatic strategy, for example
+`?pipeline=tiles&renderer=cesium`:
 
 1. **0–8 seconds:** show the source total above ten million points, a valid
    index, zero points scanned this session, and the metadata-node total.

@@ -19,6 +19,7 @@ import {
   createTileResourceServer,
   createHttpEtagSourceFingerprint,
   type DecodedContentBoundsIndex,
+  type DecodedContentScanEstimate,
   type DecodedContentScanProgress,
   type TileResourceServer,
 } from "@frillab/copc-tiles";
@@ -52,11 +53,18 @@ export type CreateTilesViewerOptions = Readonly<{
   heightOffsetMeters: number;
   verticalGrid?: GtxGeoidGrid;
   fullScanMaxPoints?: number;
-  boundsStrategy: "conservative-source-cell" | "indexed-decoded-content" | "decoded-content";
+  boundsStrategy: "automatic" | "conservative-source-cell" | "indexed-decoded-content" | "decoded-content";
   renderer: "cesium" | "three";
   signal: AbortSignal;
   isCurrent(): boolean;
   onDiagnostics(value: TilesPipelineDiagnostics): void;
+  approveDecodedContentScan?(request: Readonly<{
+    estimate: DecodedContentScanEstimate;
+    sourcePointCount: number;
+    hasReusableSourceIdentity: boolean;
+    previousIndexInvalid: boolean;
+    previousIndexNotStreamableReason?: string;
+  }>): Promise<boolean>;
   onError(error: unknown): void;
 }>;
 
@@ -68,6 +76,18 @@ const EMPTY_ROUTE_METRICS = Object.freeze({
   glbRequestCount: 0,
   distinctGlbRequestCount: 0,
   glbBytes: 0,
+});
+
+// Keep the per-request aggregate cap at 250,000 points. Matching the single
+// node cap to it lets a prepared 200,001-point node stream without raising the
+// streaming request budget; byte and decoded-memory caps remain independent.
+const INDEXED_STREAM_LIMITS = Object.freeze({
+  maxPointsPerNode: 250_000,
+  maxTotalPoints: 250_000,
+  maxPointDataBytesPerNode: 8 * 1024 * 1024,
+  maxTotalPointDataBytes: 32 * 1024 * 1024,
+  maxDecodedBytesPerNode: 16 * 1024 * 1024,
+  maxTotalDecodedBytes: 64 * 1024 * 1024,
 });
 
 function publishDecodedContentProgress(
@@ -122,7 +142,9 @@ export async function createTilesViewerSession(
     sourceCrs: "Not read",
     boundsSupport: "pending",
     boundsReason: "The source metadata and conservative bounds have not been checked yet.",
-    boundsStrategy: options.boundsStrategy,
+    boundsStrategy: options.boundsStrategy === "decoded-content" || options.boundsStrategy === "indexed-decoded-content"
+      ? options.boundsStrategy
+      : "conservative-source-cell",
     boundsCoverage: "pending",
     metadataOnlySourceCellStatus: "not-checked",
     metadataOnlySourceCellReason: "No metadata-only source-cell check has been recorded.",
@@ -178,6 +200,7 @@ export async function createTilesViewerSession(
   const sessionStartedAt = performance.now();
   let sourceProbeBytes = 0;
   let rangeRequestDiagnostics: RangeRequestDiagnosticsRecorder | undefined;
+  let completedScanSummary: Awaited<ReturnType<typeof createCopcTileResourceProvider>>["decodedContentScan"];
   const publish = (update: Partial<TilesPipelineDiagnostics>): void => {
     const sourceRangeBytesObserved = sourceProbeBytes + (rangeRequestDiagnostics?.getBytesRead() ?? 0);
     if (Object.entries({ ...update, sourceRangeBytesObserved }).every(([key, value]) =>
@@ -186,7 +209,7 @@ export async function createTilesViewerSession(
     diagnostics = Object.freeze({ ...diagnostics, ...update, sourceRangeBytesObserved });
     if (diagnostics.firstVisibleMilliseconds === undefined && diagnostics.visibleTiles > 0) {
       const readStats = provider?.getNodeReadStats();
-      const scannedPoints = provider?.decodedContentScan?.scannedPoints ?? 0;
+      const scannedPoints = completedScanSummary?.scannedPoints ?? provider?.decodedContentScan?.scannedPoints ?? 0;
       diagnostics = Object.freeze({
         ...diagnostics,
         firstVisibleMilliseconds: Math.max(0, performance.now() - sessionStartedAt),
@@ -223,11 +246,16 @@ export async function createTilesViewerSession(
     if (!server) {
       route?.close();
       cesiumXhrRoute?.close();
-      return Promise.resolve();
+      const source = connector;
+      connector = undefined;
+      return Promise.resolve(source?.close());
     }
     closePromise = server.close().finally(() => {
       route?.close();
       cesiumXhrRoute?.close();
+      const source = connector;
+      connector = undefined;
+      return source?.close();
     });
     return closePromise;
   };
@@ -241,11 +269,13 @@ export async function createTilesViewerSession(
     let sourceFingerprint: string | undefined;
     let sourceETag: string | undefined;
     let boundsIndex: DecodedContentBoundsIndex | undefined;
+    let previousIndexInvalid = false;
+    let previousIndexNotStreamableReason: string | undefined;
     let indexStatus: TilesPipelineDiagnostics["boundsIndexStatus"] =
-      options.boundsStrategy === "conservative-source-cell" ? "not-required" : "unavailable";
+      options.boundsStrategy === "conservative-source-cell" ? "not-required" : "checking";
     let indexBytes = 0;
 
-    if (options.boundsStrategy !== "conservative-source-cell" && typeof options.source === "string") {
+    if (typeof options.source === "string") {
       const probe = await probeCopcSource(options.source, {
         rangeValidation: options.rangeValidation,
         signal: options.signal,
@@ -263,26 +293,6 @@ export async function createTilesViewerSession(
         );
         publish({ sourceFingerprint });
       }
-    }
-    if (options.boundsStrategy === "indexed-decoded-content") {
-      if (!sourceFingerprint) {
-        throw new Error(
-          "Indexed streaming requires a remote HTTP source with a readable strong ETag and content length. For a projected source without certified source-cell bounds, run explicit complete decoded-content/index generation on a source with that immutable identity first.",
-        );
-      }
-      indexStatus = "checking";
-      publish({ boundsIndexStatus: indexStatus });
-      boundsIndex = await getTilesBoundsIndex(sourceFingerprint);
-      if (!boundsIndex) {
-        indexStatus = "missing";
-        publish({ boundsIndexStatus: indexStatus });
-        throw new Error(
-          "No reusable content-bounds index matches this source fingerprint. Choose explicit complete decoded-content/index generation once, then return to indexed streaming.",
-        );
-      }
-      indexStatus = "checking";
-      indexBytes = new TextEncoder().encode(JSON.stringify(boundsIndex)).byteLength;
-      publish({ boundsIndexStatus: indexStatus, boundsIndexBytes: indexBytes });
     }
     context = await createCopcContext(options.source, options.backend, {
       signal: options.signal,
@@ -303,11 +313,13 @@ export async function createTilesViewerSession(
       sourceGeneration: context.sourceGeneration,
       boundsSupport: "pending",
       boundsReason: options.boundsStrategy === "decoded-content"
-        ? "Adapter Core will prepare every actual point in the complete bounded hierarchy; source-cell coverage remains a separate criterion."
+        ? "A complete point scan will be offered only after metadata preflight and explicit approval."
         : options.boundsStrategy === "indexed-decoded-content"
-          ? "Adapter is validating the stored content-bounds index against the immutable source and complete hierarchy metadata."
-          : "Adapter is checking full-cell WGS 84 ECEF bounds before Tileset creation.",
-      boundsStrategy: options.boundsStrategy,
+          ? "Checking certified source-cell bounds and any matching content-bounds index."
+          : "Checking certified source-cell bounds before selecting another safe path.",
+      boundsStrategy: options.boundsStrategy === "decoded-content" || options.boundsStrategy === "indexed-decoded-content"
+        ? options.boundsStrategy
+        : "conservative-source-cell",
       boundsCoverage: "pending",
       geometryBoundsStatus: "pending",
       sourceToEcefStatus: "not-yet-prepared",
@@ -324,71 +336,183 @@ export async function createTilesViewerSession(
       isCurrent: options.isCurrent,
     });
     context = undefined;
-    const decodedContent = options.boundsStrategy === "decoded-content";
-    const indexedContent = options.boundsStrategy === "indexed-decoded-content";
     const fullScanPointLimits = getTilesFullScanPointLimits(options.fullScanMaxPoints);
-    const providerOptions = {
-      scanCompleteHierarchy: true,
-      ...(decodedContent ? {
-        boundsStrategy: "decoded-content" as const,
-        allowDecodedContentBounds: true as const,
-        createBoundsIndex: sourceFingerprint !== undefined,
-        onDecodedContentProgress: (progress: DecodedContentScanProgress) => {
-          publishDecodedContentProgress(progress, publish);
+    const createProvider = (
+      strategy: "conservative-source-cell" | "indexed-decoded-content" | "decoded-content",
+      ownsSource: boolean,
+      index?: DecodedContentBoundsIndex,
+    ) => {
+      if (!connector) throw new Error("The COPC source is no longer available for Tiles preparation.");
+      const fullScan = strategy === "decoded-content";
+      const common = {
+        scanCompleteHierarchy: true as const,
+        signal: options.signal,
+        ownsSource,
+        readerLimits: {
+          maxHierarchyPages: 128,
+          maxHierarchyPageBytes: 1024 * 1024,
+          maxTotalHierarchyPageBytes: 8 * 1024 * 1024,
+          maxHierarchyNodes: 4096,
+          maxNodesPerPage: 8192,
+          ...(fullScan ? {
+            maxRequestedNodes: 512,
+            ...fullScanPointLimits,
+            maxPointDataBytesPerNode: 128 * 1024 * 1024,
+            maxTotalPointDataBytes: 256 * 1024 * 1024,
+            maxDecodedBytesPerNode: 192 * 1024 * 1024,
+            maxTotalDecodedBytes: 384 * 1024 * 1024,
+          } : {
+            maxRequestedNodes: 32,
+            ...INDEXED_STREAM_LIMITS,
+          }),
+          maxConcurrentNodeReads: 2,
         },
-      } : indexedContent ? {
-        boundsStrategy: "indexed-decoded-content" as const,
-        boundsIndex,
-      } : { boundsStrategy: "conservative-source-cell" as const }),
-      signal: options.signal,
-      ownsSource: true,
-      readerLimits: {
-        maxHierarchyPages: 128,
-        maxHierarchyPageBytes: 1024 * 1024,
-        maxTotalHierarchyPageBytes: 8 * 1024 * 1024,
-        maxHierarchyNodes: 4096,
-        maxNodesPerPage: 8192,
-        ...(decodedContent ? {
-          maxRequestedNodes: 512,
-          ...fullScanPointLimits,
-          maxPointDataBytesPerNode: 128 * 1024 * 1024,
-          maxTotalPointDataBytes: 256 * 1024 * 1024,
-          maxDecodedBytesPerNode: 192 * 1024 * 1024,
-          maxTotalDecodedBytes: 384 * 1024 * 1024,
-        } : {
-          maxRequestedNodes: 32,
-          maxPointsPerNode: 200_000,
-          maxTotalPoints: 250_000,
-          maxPointDataBytesPerNode: 8 * 1024 * 1024,
-          maxTotalPointDataBytes: 32 * 1024 * 1024,
-          maxDecodedBytesPerNode: 16 * 1024 * 1024,
-          maxTotalDecodedBytes: 64 * 1024 * 1024,
-        }),
-        maxConcurrentNodeReads: 2,
-      },
-      tilesetOptions: { maxNodes: 4096, maxTotalPoints: decodedContent ? fullScanPointLimits.maxTotalPoints : null },
-      selection: { attributes: { rgb: true } },
-      maxEncoderPaddingMeters: 0.01,
-      maxGlbBytes: 16 * 1024 * 1024,
-      maxTilesetBytes: 4 * 1024 * 1024,
-    } as const;
-    provider = await createCopcTileResourceProvider(connector, providerOptions);
-    assertCurrent();
-    connector = undefined;
-    if (provider.boundsStrategy === "indexed-decoded-content") indexStatus = "valid";
-    if (provider.boundsIndex) {
-      indexBytes = new TextEncoder().encode(JSON.stringify(provider.boundsIndex)).byteLength;
+        tilesetOptions: { maxNodes: 4096, maxTotalPoints: fullScan ? fullScanPointLimits.maxTotalPoints : null },
+        selection: { attributes: { rgb: true } },
+        maxEncoderPaddingMeters: 0.01,
+        maxGlbBytes: 16 * 1024 * 1024,
+        maxTilesetBytes: 4 * 1024 * 1024,
+      } as const;
+      if (fullScan) {
+        return createCopcTileResourceProvider(connector, {
+          ...common,
+          boundsStrategy: "decoded-content",
+          allowDecodedContentBounds: true,
+          createBoundsIndex: sourceFingerprint !== undefined,
+          approveDecodedContentScan: async (estimate) => {
+            assertCurrent();
+            const approved = await options.approveDecodedContentScan?.({
+              estimate,
+              sourcePointCount: metadata.pointCount,
+              hasReusableSourceIdentity: sourceFingerprint !== undefined,
+              previousIndexInvalid,
+              ...(previousIndexNotStreamableReason === undefined ? {} : { previousIndexNotStreamableReason }),
+            });
+            assertCurrent();
+            return approved === true;
+          },
+          onDecodedContentProgress: (progress: DecodedContentScanProgress) => {
+            publishDecodedContentProgress(progress, publish);
+          },
+        });
+      }
+      if (strategy === "indexed-decoded-content") {
+        if (!index) throw new Error("The matching content-bounds index is unavailable.");
+        return createCopcTileResourceProvider(connector, {
+          ...common,
+          boundsStrategy: "indexed-decoded-content",
+          boundsIndex: index,
+        });
+      }
+      return createCopcTileResourceProvider(connector, {
+        ...common,
+        boundsStrategy: "conservative-source-cell",
+      });
+    };
+
+    const preference = options.boundsStrategy;
+    let conservativeError: unknown;
+    if (preference === "automatic" || preference === "conservative-source-cell") {
+      try {
+        provider = await createProvider("conservative-source-cell", true);
+        assertCurrent();
+        connector = undefined;
+        indexStatus = "not-required";
+      } catch (error) {
+        if (getProviderErrorCode(error) !== "UNSUPPORTED_BOUNDS" || preference !== "automatic") throw error;
+        conservativeError = error;
+        const bounds = getConservativeBoundsError(error);
+        indexStatus = sourceFingerprint ? "checking" : "unavailable";
+        publish({
+          status: "scanning",
+          boundsSupport: "unsupported",
+          boundsReason: bounds ? `${bounds.reasonCode}: ${bounds.reason}` : getErrorMessage(error),
+          metadataOnlySourceCellStatus: "unsupported",
+          metadataOnlySourceCellReason: bounds
+            ? `${bounds.reasonCode}: ${bounds.reason}`
+            : getErrorMessage(error),
+          boundsIndexStatus: indexStatus,
+        });
+      }
+    }
+
+    if (!provider && (preference === "automatic" || preference === "indexed-decoded-content")) {
       if (sourceFingerprint) {
+        indexStatus = "checking";
+        publish({ boundsIndexStatus: indexStatus });
         try {
-          await saveTilesBoundsIndex(provider.boundsIndex);
-          indexStatus = "stored";
+          boundsIndex = await getTilesBoundsIndex(sourceFingerprint);
         } catch {
-          indexStatus = "generated";
+          boundsIndex = undefined;
+          indexStatus = "unavailable";
+        }
+        assertCurrent();
+        if (boundsIndex) {
+          indexBytes = new TextEncoder().encode(JSON.stringify(boundsIndex)).byteLength;
+          try {
+            provider = await createProvider("indexed-decoded-content", true, boundsIndex);
+            assertCurrent();
+            connector = undefined;
+            indexStatus = "valid";
+          } catch (error) {
+            if (getProviderErrorCode(error) === "BOUNDS_INDEX_INVALID") {
+              previousIndexInvalid = true;
+              indexStatus = "invalid";
+            } else {
+              const streamLimitReason = getIndexedStreamLimitReason(error);
+              if (!streamLimitReason) throw error;
+              previousIndexNotStreamableReason = streamLimitReason;
+              indexStatus = "valid";
+            }
+            publish({ boundsIndexStatus: indexStatus, boundsIndexBytes: indexBytes });
+          }
+        } else if (indexStatus !== "unavailable") {
+          indexStatus = "missing";
         }
       } else {
         indexStatus = "unavailable";
       }
     }
+
+    if (!provider) {
+      const scanProviderOwnsSource = sourceFingerprint === undefined;
+      provider = await createProvider("decoded-content", scanProviderOwnsSource);
+      assertCurrent();
+      completedScanSummary = provider.decodedContentScan;
+      if (sourceFingerprint) {
+        const generatedIndex = provider.boundsIndex;
+        if (!generatedIndex) throw new Error("Completed scan did not produce a reusable content-bounds index.");
+        indexBytes = new TextEncoder().encode(JSON.stringify(generatedIndex)).byteLength;
+        try {
+          await saveTilesBoundsIndex(generatedIndex);
+          indexStatus = "stored";
+        } catch {
+          indexStatus = "generated";
+        }
+        const streamLimitReason = getIndexedIndexStreamLimitReason(generatedIndex);
+        if (streamLimitReason) {
+          // The scan provider supports this already-approved hierarchy under
+          // its independent full-scan limits. Keep it for this session instead
+          // of closing it and creating an indexed provider that must reject a
+          // node beyond the unchanged indexed-streaming limits.
+          previousIndexNotStreamableReason = streamLimitReason;
+        } else {
+          assertCurrent();
+          await provider.close?.();
+          provider = undefined;
+          provider = await createProvider("indexed-decoded-content", true, generatedIndex);
+          assertCurrent();
+          connector = undefined;
+          indexStatus = indexStatus === "stored" ? "stored" : "generated";
+        }
+      } else {
+        connector = undefined;
+        indexStatus = "unavailable";
+      }
+    }
+    if (!provider) throw conservativeError ?? new Error("No safe 3D Tiles bounds strategy is available for this source.");
+    if (provider.boundsStrategy === "indexed-decoded-content" && indexStatus === "checking") indexStatus = "valid";
+    if (provider.boundsIndex) indexBytes = new TextEncoder().encode(JSON.stringify(provider.boundsIndex)).byteLength;
     const tilesetNodes = countTilesetNodes(provider.tileset);
     server = createTileResourceServer(provider, {
       maxResourceBytes: 16 * 1024 * 1024,
@@ -407,10 +531,11 @@ export async function createTilesViewerSession(
     };
     options.signal.addEventListener("abort", closeRouteOnAbort, { once: true });
     publish({ initializationMilliseconds: Math.max(0, performance.now() - sessionStartedAt) });
-    const decodedSummary = provider.decodedContentScan;
+    const decodedSummary = completedScanSummary ?? provider.decodedContentScan;
     const indexedVerticalDatum = provider.boundsIndex?.verticalDatum;
     const indexedVerticalPlacement = provider.boundsIndex?.verticalPlacement;
-    if (provider.boundsStrategy === "indexed-decoded-content" && provider.boundsIndex) {
+    if (provider.boundsStrategy === "indexed-decoded-content" && provider.boundsIndex &&
+        indexStatus !== "stored" && indexStatus !== "generated") {
       indexStatus = "valid";
       indexBytes = new TextEncoder().encode(JSON.stringify(provider.boundsIndex)).byteLength;
     }
@@ -506,7 +631,7 @@ export async function createTilesViewerSession(
   } catch (error) {
     if (closeRouteOnAbort) options.signal.removeEventListener("abort", closeRouteOnAbort);
     const bounds = getConservativeBoundsError(error);
-    const message = error instanceof Error ? error.message : String(error);
+    const message = getTilesActionableError(error);
     if (error && typeof error === "object" &&
         (error as { code?: unknown }).code === "BOUNDS_INDEX_INVALID") {
       publish({ boundsIndexStatus: "invalid" });
@@ -516,22 +641,33 @@ export async function createTilesViewerSession(
         status: "error",
         boundsSupport: "unsupported",
         boundsReason: `${bounds.reasonCode}: ${bounds.reason}`,
+        metadataOnlySourceCellStatus: "unsupported",
+        metadataOnlySourceCellReason: `${bounds.reasonCode}: ${bounds.reason}`,
         error: message,
       });
-    } else if (!options.signal.aborted) {
+    } else if (options.signal.aborted || getProviderErrorCode(error) === "CONTENT_SCAN_DECLINED") {
+      publish({ status: "cancelled", error: "" });
+    } else {
       publish({ status: "error", error: message });
     }
     rendererCleanup?.();
     if (server) {
       await closeServerAndRoutes();
-    } else if (provider) {
-      await provider.close?.();
-    } else if (connector) {
-      await connector.close();
     } else {
-      context?.close();
+      await provider?.close?.();
+      if (connector) {
+        const source = connector;
+        connector = undefined;
+        await source.close();
+      }
+      else context?.close();
     }
-    throw error;
+    if (getProviderErrorCode(error) === "CONTENT_SCAN_DECLINED") {
+      throw Object.assign(new Error("Preparation was cancelled. No point payloads were read."), {
+        code: "CONTENT_SCAN_DECLINED",
+      });
+    }
+    throw Object.assign(new Error(message), { cause: error });
   }
 
   function syncRouteMetrics(): void {
@@ -608,8 +744,9 @@ async function createCesiumTilesRenderer(
   };
   const onFailed = (event: { message?: string }): void => {
     const error = new Error(event.message ?? "Cesium reported a 3D Tiles request failure.");
-    publish({ status: "error", error: error.message });
-    options.onError(error);
+    const message = getTilesActionableError(error);
+    publish({ status: "error", error: message });
+    options.onError(new Error(message, { cause: error }));
   };
   const onCameraMove = (): void => {
     visible.clear();
@@ -813,8 +950,9 @@ async function createThreeTilesRenderer(
   };
   const onError = (event: { error?: unknown }): void => {
     const error = event.error instanceof Error ? event.error : new Error(String(event.error ?? "Three 3D Tiles request failed."));
-    publish({ status: "error", error: error.message });
-    options.onError(error);
+    const message = getTilesActionableError(error);
+    publish({ status: "error", error: message });
+    options.onError(new Error(message, { cause: error }));
   };
   tiles.addEventListener("load-model", onModel);
   tiles.addEventListener("dispose-model", onDisposeModel);
@@ -970,6 +1108,71 @@ function getConservativeBoundsError(error: unknown):
   return candidate.status === "unsupported" && typeof candidate.reasonCode === "string" && typeof candidate.reason === "string"
     ? { reasonCode: candidate.reasonCode, reason: candidate.reason }
     : undefined;
+}
+
+function getProviderErrorCode(error: unknown): string | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" ? code : undefined;
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function getIndexedStreamLimitReason(error: unknown): string | undefined {
+  if (getProviderErrorCode(error) !== "RESOURCE_LIMIT") return undefined;
+  const message = getErrorMessage(error);
+  return /(?:maxPointsPerNode|maxPointDataBytesPerNode|maxDecodedBytesPerNode) is/iu.test(message)
+    ? message
+    : undefined;
+}
+
+function getIndexedIndexStreamLimitReason(index: DecodedContentBoundsIndex): string | undefined {
+  for (const { node } of index.nodes) {
+    if (node.pointCount === 0) continue;
+    if (node.pointCount > INDEXED_STREAM_LIMITS.maxPointsPerNode) {
+      return `node ${node.key} declares ${node.pointCount.toLocaleString()} points; indexed streaming permits ${INDEXED_STREAM_LIMITS.maxPointsPerNode.toLocaleString()} points per node.`;
+    }
+    if (node.pointDataLength > INDEXED_STREAM_LIMITS.maxPointDataBytesPerNode) {
+      return `node ${node.key} declares ${node.pointDataLength.toLocaleString()} point-data bytes; indexed streaming permits ${INDEXED_STREAM_LIMITS.maxPointDataBytesPerNode.toLocaleString()} bytes per node.`;
+    }
+    const decodedBytes = node.pointCount * 3 * Float64Array.BYTES_PER_ELEMENT;
+    if (decodedBytes > INDEXED_STREAM_LIMITS.maxDecodedBytesPerNode) {
+      return `node ${node.key} needs ${decodedBytes.toLocaleString()} decoded ECEF bytes; indexed streaming permits ${INDEXED_STREAM_LIMITS.maxDecodedBytesPerNode.toLocaleString()} bytes per node.`;
+    }
+  }
+  return undefined;
+}
+
+function getTilesActionableError(error: unknown): string {
+  const code = getProviderErrorCode(error);
+  const message = getErrorMessage(error).trim();
+  if (code === "UNSUPPORTED_BOUNDS") {
+    const bounds = getConservativeBoundsError(error);
+    return bounds
+      ? `3D Tiles cannot safely bound this source (${bounds.reasonCode}): ${bounds.reason} Choose a source with certified bounds or approve content-bounds preparation.`
+      : "3D Tiles could not certify safe source bounds. Choose a supported source or approve content-bounds preparation.";
+  }
+  if (code === "BOUNDS_INDEX_INVALID") {
+    return "The saved content-bounds index does not match this source or transform. It was rejected; regenerate it from this source before streaming.";
+  }
+  if (code === "CONTENT_SCAN_LIMIT") {
+    if (/maxTotalPointDataBytes is/iu.test(message)) {
+      return `Content-bounds preparation exceeds the source point-data byte limit. ${message}`;
+    }
+    if (/maxTotalDecodedBytes is/iu.test(message)) {
+      return `Content-bounds preparation exceeds the decoded ECEF memory limit. ${message}`;
+    }
+    if (/maxPointsPerNode is/iu.test(message)) {
+      return `Content-bounds preparation exceeds the per-node point limit. ${message}`;
+    }
+    return message;
+  }
+  if (code === "CONTENT_SCAN_DECLINED") {
+    return "Preparation was cancelled. No point payloads were read.";
+  }
+  return message || "3D Tiles could not load this source. Check the source and try again.";
 }
 
 async function waitFor(

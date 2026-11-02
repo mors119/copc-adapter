@@ -113,8 +113,13 @@ their own content and every finalized child volume. It does **not** enclose
 unobserved source-space cells: `getConservativeNodeEcefBounds()` keeps its
 existing contract, the Tileset reports `sourceCellCoverage: false`, and
 `metadataOnlySourceCellStatus` remains separately visible in the scan summary.
-The default point ceiling is 4 million; an application can choose a higher
-explicit preprocessing limit up to 20 million. This mode must finish before
+The default point budget is 4 million; an application can choose a higher
+explicit preprocessing limit up to 20 million. When `approveDecodedContentScan`
+is provided, it receives the complete metadata-only estimate before any point
+payload is read. If the user approves, the provider derives the minimum
+aggregate point budget from the exact hierarchy count, even when that count is
+above the previous configured budget. The 20-million hard ceiling still
+applies. This mode must finish before
 rendering and is intended to generate a reusable index or produce a bounded
 complete-content result. All hierarchy, node, compressed-byte,
 prepared-ECEF-byte, GLB, and Tileset limits remain active and may reject a

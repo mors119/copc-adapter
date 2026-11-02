@@ -388,6 +388,125 @@ test('complete decoded-content preprocessing generates a reusable validated inde
   await staleSource.close();
 });
 
+test('indexed streaming accepts a prepared 200,001-point node within its unchanged 250,000-point request budget', async () => {
+  const generation = 748;
+  const pointCount = 200_001;
+  const fingerprint = `sha256:${'c'.repeat(64)}`;
+  const base = createBrowserFixtureSource(generation);
+  const rootPage = { key: 'large-node-root', pageOffset: 0, pageLength: 32 };
+  const childPage = { key: 'large-node-child', pageOffset: 32, pageLength: 32 };
+  const root = Object.freeze({
+    key: 'root', level: 0, x: 0, y: 0, z: 0,
+    pointCount: 3, pointDataOffset: 100, pointDataLength: 72,
+    children: Object.freeze(['large']), childrenComplete: true,
+  });
+  const large = Object.freeze({
+    key: 'large', level: 1, x: 0, y: 0, z: 0,
+    pointCount, pointDataOffset: 172, pointDataLength: pointCount * 4,
+    children: Object.freeze([]), childrenComplete: true,
+  });
+  const transformPlan = Object.freeze({
+    schema: 'copc-coordinate-transform-plan',
+    version: 1,
+    identity: Object.freeze({ key: 'browser-fixture-transform-v1' }),
+    manualHeightOffsetMeters: 0,
+  });
+  let pointPayloadReads = 0;
+  const source = {
+    ...base,
+    sourceFingerprint: fingerprint,
+    transformPlanIdentity: 'browser-fixture-transform-v1',
+    getRootHierarchyPage: () => rootPage,
+    loadHierarchyPage: async (page, signal) => {
+      if (signal?.aborted) throw new DOMException('Hierarchy read cancelled.', 'AbortError');
+      if (page.key === rootPage.key) return { nodes: [root], pages: [childPage] };
+      if (page.key === childPage.key) return { nodes: [large], pages: [] };
+      throw new Error(`Unknown synthetic metadata page ${page.key}.`);
+    },
+    loadNode: async (node, _selection, signal) => {
+      if (signal?.aborted) throw new DOMException('Point read cancelled.', 'AbortError');
+      pointPayloadReads += 1;
+      const count = node.pointCount;
+      const ecef = new Float64Array(count * 3);
+      for (let point = 0; point < count; point += 1) {
+        ecef[point * 3] = 6_378_137 + point * 0.000001;
+        ecef[point * 3 + 1] = point % 17 * 0.000001;
+        ecef[point * 3 + 2] = point % 11 * 0.000001;
+      }
+      return createExperimentalETilePointView({
+        pointCount: count,
+        ecef,
+        height: new Float64Array(count),
+      }, {
+        sourceIdentity: base.sourceIdentity,
+        nodeKey: node.key,
+        sourceGeneration: generation,
+        transformGeneration: base.transformGeneration,
+        sourceCrs: { status: 'identified', identifier: 'EPSG:4978', horizontalUnit: 'metre', verticalUnit: 'metre' },
+        verticalDatum: { status: 'verified', identifier: 'WGS 84 ellipsoidal height', corrections: [] },
+        heightOffsetMeters: 0,
+        transformPlan,
+      }, {
+        sourceIdentity: base.sourceIdentity,
+        sourceGeneration: generation,
+        transformGeneration: base.transformGeneration,
+      });
+    },
+  };
+
+  const scan = await createCopcTileResourceProvider(source, {
+    scanCompleteHierarchy: true,
+    boundsStrategy: 'decoded-content',
+    allowDecodedContentBounds: true,
+    createBoundsIndex: true,
+    readerLimits: {
+      maxPointsPerNode: 250_000,
+      maxTotalPoints: 500_000,
+      maxPointDataBytesPerNode: 8 * 1024 * 1024,
+      maxTotalPointDataBytes: 32 * 1024 * 1024,
+      maxDecodedBytesPerNode: 16 * 1024 * 1024,
+      maxTotalDecodedBytes: 64 * 1024 * 1024,
+    },
+    tilesetOptions: { maxTotalPoints: 500_000 },
+  });
+  assert.equal(scan.decodedContentScan.scannedPoints, pointCount + 3);
+  const readsAfterScan = pointPayloadReads;
+
+  await assert.rejects(
+    createCopcTileResourceProvider(source, {
+      scanCompleteHierarchy: true,
+      boundsStrategy: 'indexed-decoded-content',
+      boundsIndex: scan.boundsIndex,
+      readerLimits: { maxPointsPerNode: 200_000, maxTotalPoints: 250_000 },
+    }),
+    (error) => error instanceof CopcTileResourceProviderError && error.code === 'RESOURCE_LIMIT' &&
+      /Node large declares 200001 points; maxPointsPerNode is 200000/u.test(error.message),
+  );
+  assert.equal(pointPayloadReads, readsAfterScan, 'indexed limit preflight rejects before fetching point payloads');
+
+  const indexed = await createCopcTileResourceProvider(source, {
+    scanCompleteHierarchy: true,
+    boundsStrategy: 'indexed-decoded-content',
+    boundsIndex: scan.boundsIndex,
+    readerLimits: {
+      maxRequestedNodes: 32,
+      maxPointsPerNode: 250_000,
+      maxTotalPoints: 250_000,
+      maxPointDataBytesPerNode: 8 * 1024 * 1024,
+      maxTotalPointDataBytes: 32 * 1024 * 1024,
+      maxDecodedBytesPerNode: 16 * 1024 * 1024,
+      maxTotalDecodedBytes: 64 * 1024 * 1024,
+    },
+    tilesetOptions: { maxTotalPoints: null },
+  });
+  const bytes = await indexed.getResource(getExplicitTileContentUri('large'), new AbortController().signal);
+  assert.ok(bytes, 'the indexed provider can render a prepared node above the former 200,000-point per-node limit');
+  assert.ok(bytes.byteLength < 16 * 1024 * 1024);
+  assert.equal(pointPayloadReads, readsAfterScan + 1);
+  await indexed.close();
+  await scan.close();
+});
+
 test('reopens a bounds index without reapplying precision allowance to padded bounds', async () => {
   const fingerprint = `sha256:${'d'.repeat(64)}`;
   const halfExtent = 131_071.999;
@@ -473,6 +592,23 @@ test('decoded-content requires authorization and rejects over-budget or incomple
   );
   assert.deepEqual(source.diagnostics.nodes, []);
 
+  const declinedSource = createBrowserFixtureSource(711);
+  let estimate;
+  await assert.rejects(
+    createCopcTileResourceProvider(declinedSource, {
+      scanCompleteHierarchy: true,
+      boundsStrategy: 'decoded-content',
+      allowDecodedContentBounds: true,
+      approveDecodedContentScan: (value) => {
+        estimate = value;
+        return false;
+      },
+    }),
+    (error) => error instanceof CopcTileResourceProviderError && error.code === 'CONTENT_SCAN_DECLINED',
+  );
+  assert.equal(estimate.totalPoints, 6, 'the complete hierarchy estimate is available before approval');
+  assert.deepEqual(declinedSource.diagnostics.nodes, [], 'declining the estimate reads no point payloads');
+
   const incompleteBase = createBrowserFixtureSource(72);
   const incomplete = {
     ...incompleteBase,
@@ -516,6 +652,99 @@ test('decoded-content requires authorization and rejects over-budget or incomple
       error.code === 'CONTENT_SCAN_INVALID' && /missing-content.*absent from the scanned hierarchy/u.test(error.message),
   );
   assert.deepEqual(missingReferenceBase.diagnostics.nodes, [], 'missing child references fail before point decoding');
+});
+
+test('an approved full scan derives its minimum aggregate point budget from hierarchy metadata', async () => {
+  const children = [
+    declaredNode('left', 1, 0, 0, 0, 3),
+    declaredNode('large-a', 1, 1, 0, 0, 2_000_000),
+    declaredNode('large-b', 1, 0, 1, 0, 2_000_000),
+    declaredNode('large-c', 1, 1, 1, 0, 38_897),
+  ];
+  const fixture = createDeclaredHierarchySource(739, children);
+  const sourcePointCount = 3 + children.reduce((sum, node) => sum + node.pointCount, 0);
+  assert.equal(sourcePointCount, 4_038_903);
+  let estimate;
+  let pointReadAttempts = 0;
+  const source = {
+    ...fixture.source,
+    loadNode: async () => {
+      pointReadAttempts += 1;
+      throw new Error('synthetic point read reached after approval');
+    },
+  };
+
+  await assert.rejects(
+    createCopcTileResourceProvider(source, {
+      scanCompleteHierarchy: true,
+      boundsStrategy: 'decoded-content',
+      allowDecodedContentBounds: true,
+      readerLimits: {
+        maxPointsPerNode: 2_000_000,
+        maxTotalPoints: 4_004_078,
+        maxPointDataBytesPerNode: 128 * 1024 * 1024,
+        maxTotalPointDataBytes: 256 * 1024 * 1024,
+        maxDecodedBytesPerNode: 192 * 1024 * 1024,
+        maxTotalDecodedBytes: 384 * 1024 * 1024,
+      },
+      tilesetOptions: { maxTotalPoints: 4_004_078 },
+      approveDecodedContentScan: (value) => {
+        estimate = value;
+        return true;
+      },
+    }),
+    /synthetic point read reached after approval/u,
+  );
+
+  assert.equal(estimate.totalPoints, sourcePointCount);
+  assert.equal(estimate.configuredMaxTotalPoints, 4_004_078);
+  assert.equal(pointReadAttempts, 1, 'approved preflight proceeds past the previous aggregate cap');
+});
+
+test('approved full scans retain the 20-million-point hard limit before point reads', async () => {
+  const grandchildren = [
+    declaredNode('hard-deep-0', 2, 0, 0, 0, 2_000_000),
+    declaredNode('hard-deep-1', 2, 1, 0, 0, 2_000_000),
+  ];
+  const children = [
+    declaredNode('hard-left', 1, 0, 0, 0, 2_000_000, grandchildren.map(({ key }) => key)),
+    declaredNode('hard-n1', 1, 1, 0, 0, 2_000_000),
+    declaredNode('hard-n2', 1, 0, 1, 0, 2_000_000),
+    declaredNode('hard-n3', 1, 1, 1, 0, 2_000_000),
+    declaredNode('hard-n4', 1, 0, 0, 1, 2_000_000),
+    declaredNode('hard-n5', 1, 1, 0, 1, 2_000_000),
+    declaredNode('hard-n6', 1, 0, 1, 1, 2_000_000),
+    declaredNode('hard-n7', 1, 1, 1, 1, 2_000_000),
+    ...grandchildren,
+  ];
+  const fixture = createDeclaredHierarchySource(7391, children, {
+    rootChildren: children.slice(0, 8).map(({ key }) => key),
+  });
+  let approvalRequested = false;
+  await assert.rejects(
+    createCopcTileResourceProvider(fixture.source, {
+      scanCompleteHierarchy: true,
+      boundsStrategy: 'decoded-content',
+      allowDecodedContentBounds: true,
+      readerLimits: {
+        maxPointsPerNode: 2_000_000,
+        maxTotalPoints: 20_000_000,
+        maxPointDataBytesPerNode: 128 * 1024 * 1024,
+        maxTotalPointDataBytes: 256 * 1024 * 1024,
+        maxDecodedBytesPerNode: 192 * 1024 * 1024,
+        maxTotalDecodedBytes: 384 * 1024 * 1024,
+      },
+      tilesetOptions: { maxTotalPoints: 20_000_000 },
+      approveDecodedContentScan: () => {
+        approvalRequested = true;
+        return true;
+      },
+    }),
+    (error) => error instanceof CopcTileResourceProviderError && error.code === 'CONTENT_SCAN_LIMIT' &&
+      /20,000,000 points/u.test(error.message),
+  );
+  assert.equal(approvalRequested, false, 'the hard limit rejects during metadata preflight');
+  assert.deepEqual(fixture.base.diagnostics.nodes, [], 'the hard limit rejects before any point payload is read');
 });
 
 test('decoded-content omits empty terminal leaves and keeps empty ancestors around content descendants', async () => {
