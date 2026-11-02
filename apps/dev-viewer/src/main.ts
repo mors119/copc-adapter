@@ -1014,6 +1014,30 @@ function safeErrorMessage(error: unknown): string {
     .replace(/([?&][^=\s]+)=([^&\s]+)/g, "$1=[redacted]");
 }
 
+function waitForReadyOrAbort(
+  ready: Promise<void>,
+  signal: AbortSignal,
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const finish = (error?: unknown): void => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener("abort", onAbort);
+      if (error === undefined) resolve();
+      else reject(error);
+    };
+    const onAbort = (): void =>
+      finish(new DOMException("Loading cancelled by the user.", "AbortError"));
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    signal.addEventListener("abort", onAbort, { once: true });
+    ready.then(() => finish(), (error: unknown) => finish(error));
+  });
+}
+
 function actionableAttributeLoadingError(error: unknown): string {
   const message = safeErrorMessage(error);
   return /not requested.*source availability was not checked/iu.test(message)
@@ -2651,6 +2675,14 @@ async function main(): Promise<void> {
     let candidateMount: HTMLElement | undefined;
     let candidateSession: ViewerSession | undefined;
     let candidateProbe: CopcSourceProbeResult | undefined;
+    let candidateDestroyed = false;
+    const destroyCandidate = (): void => {
+      if (candidateSession && !candidateDestroyed) {
+        candidateDestroyed = true;
+        candidateSession.destroy();
+      }
+      candidateMount?.remove();
+    };
 
     if (!recreate) {
       try {
@@ -2703,6 +2735,8 @@ async function main(): Promise<void> {
     updateConfigurationState();
     const controller = new AbortController();
     probeAbortController = controller;
+    const destroyCandidateOnAbort = (): void => destroyCandidate();
+    controller.signal.addEventListener("abort", destroyCandidateOnAbort);
 
     try {
       if (
@@ -2743,7 +2777,10 @@ async function main(): Promise<void> {
       stagedMount = candidateMount;
       recordApplyTrace(applyTrace, "candidate-mount-created");
       const reportCandidateError = (error: unknown): void => {
-        if (currentGeneration !== generation || disposed) return;
+        if (
+          currentGeneration !== generation || disposed ||
+          controller.signal.aborted || candidateDestroyed
+        ) return;
         lastError = safeErrorMessage(error);
         if (config.pipeline === "tiles" && tilesDiagnostics) {
           tilesDiagnostics = Object.freeze({
@@ -2816,14 +2853,21 @@ async function main(): Promise<void> {
               handlePointPicked,
               handlePointPositionChanged,
             );
+      if (controller.signal.aborted) {
+        destroyCandidate();
+        throw new DOMException("Loading cancelled by the user.", "AbortError");
+      }
       recordApplyTrace(applyTrace, "session-created");
       stagedSession = candidateSession;
       recordApplyTrace(applyTrace, "session-ready-wait-started");
-      await candidateSession.ready;
+      await waitForReadyOrAbort(candidateSession.ready, controller.signal);
       recordApplyTrace(applyTrace, "session-ready");
+      if (controller.signal.aborted) {
+        destroyCandidate();
+        throw new DOMException("Loading cancelled by the user.", "AbortError");
+      }
       if (currentGeneration !== generation || disposed) {
-        candidateSession.destroy();
-        candidateMount.remove();
+        destroyCandidate();
         return;
       }
 
@@ -2911,12 +2955,10 @@ async function main(): Promise<void> {
       debugPanel.refresh();
     } catch (error) {
       if (currentGeneration !== generation || disposed) {
-        candidateSession?.destroy();
-        candidateMount?.remove();
+        destroyCandidate();
         return;
       }
-      candidateSession?.destroy();
-      candidateMount?.remove();
+      destroyCandidate();
       if (stagedSession === candidateSession) stagedSession = undefined;
       if (stagedMount === candidateMount) stagedMount = undefined;
       const errorCode = error && typeof error === "object"
@@ -2942,6 +2984,7 @@ async function main(): Promise<void> {
       updateStatus(lastError, "error");
       debugPanel.refresh();
     } finally {
+      controller.signal.removeEventListener("abort", destroyCandidateOnAbort);
       if (currentGeneration === generation && !disposed) {
         isLoading = false;
         probeAbortController = undefined;

@@ -200,6 +200,7 @@ export async function createTilesViewerSession(
   const sessionStartedAt = performance.now();
   let sourceProbeBytes = 0;
   let rangeRequestDiagnostics: RangeRequestDiagnosticsRecorder | undefined;
+  let completedScanSummary: Awaited<ReturnType<typeof createCopcTileResourceProvider>>["decodedContentScan"];
   const publish = (update: Partial<TilesPipelineDiagnostics>): void => {
     const sourceRangeBytesObserved = sourceProbeBytes + (rangeRequestDiagnostics?.getBytesRead() ?? 0);
     if (Object.entries({ ...update, sourceRangeBytesObserved }).every(([key, value]) =>
@@ -208,7 +209,7 @@ export async function createTilesViewerSession(
     diagnostics = Object.freeze({ ...diagnostics, ...update, sourceRangeBytesObserved });
     if (diagnostics.firstVisibleMilliseconds === undefined && diagnostics.visibleTiles > 0) {
       const readStats = provider?.getNodeReadStats();
-      const scannedPoints = provider?.decodedContentScan?.scannedPoints ?? 0;
+      const scannedPoints = completedScanSummary?.scannedPoints ?? provider?.decodedContentScan?.scannedPoints ?? 0;
       diagnostics = Object.freeze({
         ...diagnostics,
         firstVisibleMilliseconds: Math.max(0, performance.now() - sessionStartedAt),
@@ -268,7 +269,6 @@ export async function createTilesViewerSession(
     let sourceFingerprint: string | undefined;
     let sourceETag: string | undefined;
     let boundsIndex: DecodedContentBoundsIndex | undefined;
-    let completedScanSummary: Awaited<ReturnType<typeof createCopcTileResourceProvider>>["decodedContentScan"];
     let previousIndexInvalid = false;
     let previousIndexNotStreamableReason: string | undefined;
     let indexStatus: TilesPipelineDiagnostics["boundsIndexStatus"] =

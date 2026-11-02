@@ -280,6 +280,45 @@ test("Direct remains the default and the Cesium 3D Tiles pipeline renders genera
   expect(pageErrors).toEqual([]);
 });
 
+test("cancelling a Direct source replacement destroys the candidate and preserves the active source", async ({ page }) => {
+  test.skip(!demoFixturesAvailable, `Run ${fixtureSetupCommand} to generate the ignored COPC fixtures.`);
+  test.setTimeout(120_000);
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  let blockedPointRanges = 0;
+  let releaseBlocked: (() => void) | undefined;
+  await page.goto("/?source=/samples/demo-wgs84.copc.laz&renderer=cesium");
+  await expect(page.locator("#source-status")).toHaveAttribute("data-status", "ready");
+  expect(await hasDirectSnapshot(page)).toBe(true);
+  const initialSource = await page.evaluate(() => window.__COPC_DEV_VIEWER__!.getConfiguration().source);
+  await page.locator("#source-selection").selectOption("custom");
+  const replacementSource = new URL("/samples/demo-wgs84.copc.laz?direct-cancel=1", page.url()).href;
+  let replacementRequests = 0;
+  await page.route(/demo-wgs84\.copc\.laz\?direct-cancel=1/u, async (route) => {
+    replacementRequests += 1;
+    const range = route.request().headers().range;
+    const rangeStart = range?.match(/^bytes=(\d+)-/u)?.[1];
+    if (rangeStart !== undefined && replacementRequests > 2) {
+      blockedPointRanges += 1;
+      await new Promise<void>((resolve) => { releaseBlocked = resolve; });
+      try { await route.abort(); } catch { /* The candidate may already have cancelled the request. */ }
+      return;
+    }
+    await route.continue();
+  });
+  await page.locator("#custom-source-url").fill(replacementSource);
+  await page.locator("#load-source").click();
+  await expect.poll(() => blockedPointRanges, { timeout: 30_000 }).toBeGreaterThan(0);
+  await page.locator("#workbench-status").getByRole("button", { name: "Cancel" }).click();
+  releaseBlocked?.();
+  await expect(page.locator("#source-status")).toContainText("Loading cancelled.");
+  await expect.poll(() => getActivePipeline(page)).toBe("direct");
+  await expect.poll(async () => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getConfiguration().source)).toBe(initialSource);
+  expect(await hasDirectSnapshot(page)).toBe(true);
+  await expect(page.locator(".dev-session-mount")).toHaveCount(1);
+  expect(pageErrors).toEqual([]);
+});
+
 test("the same Tiles pipeline works with the Three.js renderer", async ({ page }) => {
   test.skip(!demoFixturesAvailable, `Run ${fixtureSetupCommand} to generate the ignored COPC fixtures.`);
   test.setTimeout(120_000);
@@ -560,6 +599,9 @@ for (const renderer of ["cesium", "three"] as const) {
     expect(generated!.boundsStrategy).toBe("indexed-decoded-content", "a completed scan transitions directly to indexed streaming");
     expect(generated!.sourceFingerprint).toMatch(/^http-etag-sha256:/u);
     expect(generated!.boundsIndexBytes).toBeGreaterThan(0);
+    await expect.poll(async () => (await getTilesDiagnostics(page))?.renderedPoints ?? 0, { timeout: 60_000 }).toBeGreaterThan(0);
+    const generatedVisible = await getTilesDiagnostics(page);
+    expect(generatedVisible!.decodedPointsBeforeFirstVisible).toBeGreaterThanOrEqual(generated!.contentPointsScanned);
 
     await page.locator("#load-source").click();
     await expect(page.locator("#source-status")).toHaveAttribute("data-status", "ready");
