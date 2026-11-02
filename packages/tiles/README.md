@@ -40,6 +40,7 @@ import {
 
 const source = await createCopcCoreNodeSource({
   input: 'https://example.com/data.copc.laz',
+  sourceIdentity: 'catalog:my-copc-dataset', // stable app-owned ID, not a signed URL
 });
 
 const provider = await createCopcTileResourceProvider(source, {
