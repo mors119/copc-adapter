@@ -33,6 +33,12 @@ import type {
   TileNodeReaderLimits,
 } from '../source/tileNodeSource.js';
 import type { TileResourceProvider } from './tileResourceServer.js';
+import {
+  createDecodedContentBoundsIndex,
+  validateContentBoundsSourceFingerprint,
+  validateDecodedContentBoundsIndex,
+  type DecodedContentBoundsIndex,
+} from './decodedContentBoundsIndex.js';
 
 type CopcTileResourceProviderBaseOptions = Readonly<{
   /** Required explicit authorization to scan and materialize the complete hierarchy. */
@@ -45,6 +51,7 @@ type CopcTileResourceProviderBaseOptions = Readonly<{
   maxEncoderPaddingMeters?: number;
   maxGlbBytes?: number;
   maxTilesetBytes?: number;
+  maxBoundsIndexBytes?: number;
   maxAbsolutePositionErrorMeters?: number;
   maxRelativePositionError?: number;
   /** The caller owns the source by default. */
@@ -143,17 +150,41 @@ export type DecodedContentProviderOptions = CopcTileResourceProviderBaseOptions 
   boundsStrategy: 'decoded-content';
   /** Required explicit authorization; this strategy is never the default. */
   allowDecodedContentBounds: true;
+  /** Return a persistent, checksummed index when the source has a verified immutable fingerprint. */
+  createBoundsIndex?: boolean;
   onDecodedContentProgress?: (progress: DecodedContentScanProgress) => void;
 }>;
 
-export type CopcTileResourceProviderOptions = ConservativeSourceCellProviderOptions | DecodedContentProviderOptions;
+export type IndexedDecodedContentProviderOptions = CopcTileResourceProviderBaseOptions & Readonly<{
+  /** Stream with a previously generated and checksum-validated content-bounds index. */
+  boundsStrategy: 'indexed-decoded-content';
+  boundsIndex: unknown;
+  allowDecodedContentBounds?: never;
+  createBoundsIndex?: never;
+  onDecodedContentProgress?: never;
+}>;
+
+export type CopcTileResourceProviderOptions =
+  | ConservativeSourceCellProviderOptions
+  | DecodedContentProviderOptions
+  | IndexedDecodedContentProviderOptions;
 
 export type CopcTileResourceProvider = TileResourceProvider & Readonly<{
   tileset: Readonly<Record<string, unknown>>;
   hierarchyPagesRead: number;
   hierarchyPageBytesRead: number;
-  boundsStrategy: 'conservative-source-cell' | 'decoded-content';
+  boundsStrategy: 'conservative-source-cell' | 'decoded-content' | 'indexed-decoded-content';
   decodedContentScan?: DecodedContentScanSummary;
+  boundsIndex?: DecodedContentBoundsIndex;
+  getNodeReadStats(): TileNodeReadStats;
+}>;
+
+export type TileNodeReadStats = Readonly<{
+  requests: number;
+  requestedPoints: number;
+  decodedPoints: number;
+  activeReads: number;
+  cancelledReads: number;
 }>;
 
 export type CopcTileResourceProviderErrorCode =
@@ -168,6 +199,7 @@ export type CopcTileResourceProviderErrorCode =
   | 'CONTENT_SCAN_NOT_AUTHORIZED'
   | 'CONTENT_SCAN_LIMIT'
   | 'CONTENT_SCAN_INVALID'
+  | 'BOUNDS_INDEX_INVALID'
   | 'POINT_OUTSIDE_DECODED_BOUNDS'
   | 'ENCODER_PADDING_MISMATCH'
   | 'RESOURCE_LIMIT'
@@ -228,6 +260,7 @@ type PendingTileNode = Readonly<{
 const DEFAULT_MAX_ENCODER_PADDING_METERS = 0.01;
 const DEFAULT_MAX_GLB_BYTES = 64 * 1024 * 1024;
 const DEFAULT_MAX_TILESET_BYTES = 16 * 1024 * 1024;
+const DEFAULT_MAX_BOUNDS_INDEX_BYTES = 16 * 1024 * 1024;
 
 /**
  * Build an on-demand explicit Tiles provider over the public, renderer-neutral
@@ -245,6 +278,10 @@ export function createCopcTileResourceProvider(
 ): Promise<CopcTileResourceProvider>;
 export function createCopcTileResourceProvider(
   source: TileNodeSource,
+  options: IndexedDecodedContentProviderOptions,
+): Promise<CopcTileResourceProvider>;
+export function createCopcTileResourceProvider(
+  source: TileNodeSource,
   options: CopcTileResourceProviderOptions,
 ): Promise<CopcTileResourceProvider>;
 export async function createCopcTileResourceProvider(
@@ -256,6 +293,9 @@ export async function createCopcTileResourceProvider(
 
   if (options.boundsStrategy === 'decoded-content') {
     return createDecodedContentProvider(source, options);
+  }
+  if (options.boundsStrategy === 'indexed-decoded-content') {
+    return createIndexedContentProvider(source, options);
   }
   validateSource(source as TileConservativeNodeSource);
   return createConservativeSourceCellProvider(source as TileConservativeNodeSource, options);
@@ -346,7 +386,12 @@ async function createConservativeSourceCellProvider(
     preparedNodes.set(node.key, prepared);
     tilesetInputs.push({ node, bounds });
   }
-  const tileset = createExplicitTileset(tilesetInputs, options.tilesetOptions);
+  const tileset = createExplicitTileset(tilesetInputs, {
+    ...options.tilesetOptions,
+    // The complete metadata hierarchy is bounded separately. Point totals
+    // apply to explicit content preprocessing, not renderer-selected reads.
+    maxTotalPoints: null,
+  });
   const tilesetBytes = new TextEncoder().encode(JSON.stringify(tileset));
   if (tilesetBytes.byteLength > (options.maxTilesetBytes ?? DEFAULT_MAX_TILESET_BYTES)) {
     throw new CopcTileResourceProviderError('RESOURCE_LIMIT', 'Generated tileset.json exceeds its configured byte limit.');
@@ -357,6 +402,7 @@ async function createConservativeSourceCellProvider(
     if (prepared.node.pointCount > 0) contentByUri.set(getExplicitTileContentUri(prepared.node.key), prepared);
   }
   const lifecycle = new AbortController();
+  const nodeReadTracker = createNodeReadTracker();
   const generation = expectedSourceGeneration ?? sourceTransformGeneration;
   let closed = false;
 
@@ -375,6 +421,7 @@ async function createConservativeSourceCellProvider(
     hierarchyPagesRead: hierarchy.hierarchyPagesRead,
     hierarchyPageBytesRead: hierarchy.hierarchyPageBytesRead,
     boundsStrategy: 'conservative-source-cell',
+    getNodeReadStats: nodeReadTracker.snapshot,
     getResource: async (uri: string, signal: AbortSignal): Promise<Uint8Array | undefined> => {
       if (closed) throw new CopcTileResourceProviderError('SOURCE_CLOSED', 'COPC Tiles resource provider is closed.');
       const operation = combineSignals(signal, lifecycle.signal);
@@ -384,7 +431,7 @@ async function createConservativeSourceCellProvider(
         if (uri === 'tileset.json') return tilesetBytes.slice();
         const prepared = contentByUri.get(uri);
         if (!prepared) return undefined;
-        const view = await reader.readNode(prepared.node, options.selection, { signal: operation.signal });
+        const view = await nodeReadTracker.read(reader, prepared.node, options.selection ?? {}, operation.signal);
         assertNotAborted(operation.signal);
         assertSourceCurrent(source, sourceIdentity, sourceGeneration, expectedSourceGeneration, sourceTransformGeneration);
         if (expectedSourceGeneration !== undefined && view.context.sourceGeneration !== expectedSourceGeneration) {
@@ -419,11 +466,283 @@ async function createConservativeSourceCellProvider(
   return provider;
 }
 
+/**
+ * Serve point content from a reusable complete bounds index. Metadata is
+ * traversed once for this explicit Tileset, but no point payload is read until
+ * a renderer asks for a content URI.
+ */
+async function createIndexedContentProvider(
+  source: TileNodeSource,
+  options: IndexedDecodedContentProviderOptions,
+): Promise<CopcTileResourceProvider> {
+  validateDecodedSource(source);
+  if (!source.sourceFingerprint || !source.transformPlanIdentity) {
+    throw new CopcTileResourceProviderError(
+      'BOUNDS_INDEX_INVALID',
+      'Indexed streaming requires a source-provided immutable fingerprint and transform plan identity.',
+    );
+  }
+  try {
+    validateContentBoundsSourceFingerprint(source.sourceFingerprint);
+  } catch (error) {
+    throw new CopcTileResourceProviderError('BOUNDS_INDEX_INVALID', error instanceof Error ? error.message : String(error));
+  }
+  const sourceIdentity = source.sourceIdentity;
+  const sourceGeneration = source.sourceGeneration!;
+  const transformGeneration = source.transformGeneration;
+  const readerLimits = resolveTileNodeReaderLimits(options.readerLimits);
+  const reader = new TileNodeReader(source, options.readerLimits);
+  if (serializedByteLength(options.boundsIndex) > (options.maxBoundsIndexBytes ?? DEFAULT_MAX_BOUNDS_INDEX_BYTES)) {
+    throw new CopcTileResourceProviderError('RESOURCE_LIMIT', 'The decoded-content bounds index exceeds its configured byte limit.');
+  }
+  const hierarchy = await reader.readHierarchy(options.signal === undefined ? {} : { signal: options.signal });
+  assertSourceCurrent(source, sourceIdentity, sourceGeneration, sourceGeneration, transformGeneration);
+  validateDecodedContentHierarchy(hierarchy.nodes);
+
+  let boundsIndex: DecodedContentBoundsIndex;
+  try {
+    boundsIndex = await validateDecodedContentBoundsIndex(options.boundsIndex, {
+      sourceFingerprint: source.sourceFingerprint,
+      transformPlanIdentity: source.transformPlanIdentity,
+      hierarchy: hierarchy.nodes,
+    });
+  } catch (error) {
+    throw new CopcTileResourceProviderError(
+      'BOUNDS_INDEX_INVALID',
+      `The content-bounds index was rejected: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  const requestedMaxNodes = options.tilesetOptions?.maxNodes ?? EXPLICIT_TILESET_DEFAULT_LIMITS.maxNodes;
+  const maxNodes = Math.min(readerLimits.maxHierarchyNodes, requestedMaxNodes);
+  if (!Number.isSafeInteger(maxNodes) || maxNodes <= 0 || maxNodes > EXPLICIT_TILESET_HARD_LIMITS.maxNodes || hierarchy.nodes.length > maxNodes) {
+    throw new CopcTileResourceProviderError('BOUNDS_INDEX_INVALID', `The complete hierarchy has ${hierarchy.nodes.length} nodes; the configured metadata limit is ${maxNodes}.`);
+  }
+  for (const node of hierarchy.nodes) {
+    if (node.pointCount > readerLimits.maxPointsPerNode || node.pointDataLength > readerLimits.maxPointDataBytesPerNode ||
+        node.pointCount * 3 * Float64Array.BYTES_PER_ELEMENT > readerLimits.maxDecodedBytesPerNode) {
+      throw new CopcTileResourceProviderError(
+        'RESOURCE_LIMIT',
+        `Node ${node.key} exceeds an individual node read or decode budget; the indexed stream keeps per-node limits active.`,
+        { nodeKey: node.key },
+      );
+    }
+  }
+
+  const indexNodes = new Map(boundsIndex.nodes.map((item) => [item.node.key, item]));
+  const preparedNodes = new Map<string, DecodedPreparedTileNode>();
+  const includedNodeKeys = new Set<string>();
+  const subtreeRawBounds = new Map<string, EcefAxisAlignedBounds>();
+  const subtreeTileBounds = new Map<string, EcefAxisAlignedBounds>();
+  const tilesetInputs: TilesetNodeInput[] = [];
+  const maxEncoderPaddingMeters = options.maxEncoderPaddingMeters ?? DEFAULT_MAX_ENCODER_PADDING_METERS;
+  const commonProvenance: DecodedSourceProvenance = Object.freeze({
+    transformPlanIdentity: boundsIndex.transformPlanIdentity,
+    sourceCrs: boundsIndex.sourceCrs,
+    verticalDatum: boundsIndex.verticalDatum,
+    heightOffsetMeters: boundsIndex.heightOffsetMeters,
+  });
+  const completedContentBounds = new Map<string, DecodedContentBoundsProvenance>();
+
+  for (const node of [...hierarchy.nodes].sort((left, right) => right.level - left.level)) {
+    const indexNode = indexNodes.get(node.key);
+    if (!indexNode) throw new CopcTileResourceProviderError('BOUNDS_INDEX_INVALID', `Indexed node ${node.key} is absent.`, { nodeKey: node.key });
+    const includedChildren = (node.children ?? []).filter((childKey) => includedNodeKeys.has(childKey));
+    if (node.pointCount === 0 && includedChildren.length === 0) continue;
+    const ownRawBounds = indexNode.content
+      ? ecefRecordToBounds(indexNode.content.contentBoundsEcef)
+      : undefined;
+    let rawBounds = ownRawBounds;
+    let volumeBounds = ownRawBounds;
+    for (const childKey of includedChildren) {
+      const childRaw = subtreeRawBounds.get(childKey);
+      const childVolume = subtreeTileBounds.get(childKey);
+      if (!childRaw || !childVolume) throw new CopcTileResourceProviderError('BOUNDS_INDEX_INVALID', `Index child ${childKey} has no completed bounds.`, { nodeKey: node.key });
+      rawBounds = rawBounds ? unionBounds(rawBounds, childRaw) : childRaw;
+      volumeBounds = volumeBounds ? unionBounds(volumeBounds, childVolume) : childVolume;
+    }
+    if (!rawBounds || !volumeBounds) throw new CopcTileResourceProviderError('BOUNDS_INDEX_INVALID', `Node ${node.key} has no point content or indexed descendants.`, { nodeKey: node.key });
+    subtreeRawBounds.set(node.key, rawBounds);
+    const requiredPadding = node.pointCount > 0 ? getFloat32EcefReconstructionErrorBound(volumeBounds) : 0;
+    const encoderPaddingMeters = indexNode.content?.encoderPaddingMeters ?? 0;
+    if (!Number.isFinite(requiredPadding) || requiredPadding > maxEncoderPaddingMeters || encoderPaddingMeters > maxEncoderPaddingMeters) {
+      throw new CopcTileResourceProviderError(
+        'ENCODER_PADDING_LIMIT',
+        `Node ${node.key} requires ${Math.max(requiredPadding, encoderPaddingMeters)} m of Float32 reconstruction padding, over the configured limit.`,
+        { nodeKey: node.key },
+      );
+    }
+    if (encoderPaddingMeters < requiredPadding) {
+      throw new CopcTileResourceProviderError(
+        'BOUNDS_INDEX_INVALID',
+        `The indexed encoder allowance for node ${node.key} does not cover the reconstructed tile origin and descendant bounds.`,
+        { nodeKey: node.key },
+      );
+    }
+    // Rebuild the same pre-padding subtree envelope used by decoded-content
+    // preprocessing, then apply its persisted allowance once. Starting from
+    // an already padded content box would cross Float32 exponent boundaries
+    // and incorrectly require a second allowance.
+    const bounds = ensureMinimumHalfExtent(expandBounds(volumeBounds, encoderPaddingMeters));
+    subtreeTileBounds.set(node.key, bounds);
+    const tileChildren = Object.freeze(includedChildren);
+    const tilesetNode = Object.freeze({ ...node, children: tileChildren });
+    let decodedContentBounds: DecodedContentBoundsProvenance | undefined;
+    let contentBounds: EcefAxisAlignedBounds | undefined;
+    if (indexNode.content) {
+      const indexed = indexNode.content;
+      contentBounds = ecefRecordToBounds(indexed.contentBoundsEcef);
+      decodedContentBounds = Object.freeze({
+        strategy: 'decoded-content',
+        nodeKey: node.key,
+        sourceIdentity,
+        sourceGeneration,
+        transformGeneration,
+        transformPlanIdentity: boundsIndex.transformPlanIdentity,
+        coordinateSystem: 'wgs84-ecef-meters',
+        contentBoundsEcef: indexed.contentBoundsEcef,
+        paddedContentBoundsEcef: indexed.paddedContentBoundsEcef,
+        encoderPaddingMeters,
+        coverage: 'all-points-in-node',
+        pointCount: indexed.pointCount,
+        scannedPointCount: indexed.pointCount,
+        sourceCrs: boundsIndex.sourceCrs,
+        verticalDatum: boundsIndex.verticalDatum,
+        verticalPlacement: boundsIndex.verticalPlacement,
+        heightOffsetMeters: boundsIndex.heightOffsetMeters,
+      });
+    }
+    const prepared: DecodedPreparedTileNode = Object.freeze({
+      node,
+      tilesetNode,
+      ...(decodedContentBounds === undefined ? {} : { decodedContentBounds }),
+      ...(contentBounds === undefined ? {} : { contentBounds }),
+      bounds,
+      originEcef: centerOf(bounds),
+      encoderPaddingMeters,
+    });
+    includedNodeKeys.add(node.key);
+    preparedNodes.set(node.key, prepared);
+    tilesetInputs.push({ node: tilesetNode, bounds });
+  }
+
+  const generatedTileset = createExplicitTileset(tilesetInputs, {
+    ...options.tilesetOptions,
+    maxNodes,
+    maxTotalPoints: null,
+  });
+  const rootKey = hierarchy.nodes.find((node) => node.level === 0 && node.x === 0 && node.y === 0 && node.z === 0)?.key;
+  const generatedRoot = (generatedTileset as { root?: Record<string, unknown> }).root;
+  if (!rootKey || !generatedRoot) throw new CopcTileResourceProviderError('BOUNDS_INDEX_INVALID', 'The indexed hierarchy has no level-zero Tileset root.');
+  const decoratedRoot = decorateDecodedContentTile(
+    generatedRoot,
+    rootKey,
+    preparedNodes,
+    subtreeRawBounds,
+    subtreeTileBounds,
+    commonProvenance,
+    sourceIdentity,
+    sourceGeneration,
+    transformGeneration,
+  );
+  const tileset = Object.freeze({
+    ...generatedTileset,
+    root: decoratedRoot,
+    extras: Object.freeze({
+      boundsStrategy: 'indexed-decoded-content',
+      boundsCoverage: boundsIndex.coverage,
+      sourceCellCoverage: false,
+      sourceFingerprint: boundsIndex.sourceFingerprint,
+      transformPlanIdentity: boundsIndex.transformPlanIdentity,
+      hierarchyNodes: hierarchy.nodes.length,
+      contentNodes: boundsIndex.contentNodes,
+      totalPoints: boundsIndex.totalPoints,
+      sourceCrs: boundsIndex.sourceCrs,
+      verticalDatum: boundsIndex.verticalDatum,
+      verticalPlacement: boundsIndex.verticalPlacement,
+      heightOffsetMeters: boundsIndex.heightOffsetMeters,
+    }),
+  });
+  const tilesetBytes = new TextEncoder().encode(JSON.stringify(tileset));
+  if (tilesetBytes.byteLength > (options.maxTilesetBytes ?? DEFAULT_MAX_TILESET_BYTES)) {
+    throw new CopcTileResourceProviderError('RESOURCE_LIMIT', 'Generated Tileset exceeds its configured byte limit.');
+  }
+  const contentByUri = new Map<string, DecodedPreparedTileNode>();
+  for (const prepared of preparedNodes.values()) {
+    if (prepared.node.pointCount > 0) contentByUri.set(getExplicitTileContentUri(prepared.node.key), prepared);
+  }
+  const lifecycle = new AbortController();
+  const nodeReadTracker = createNodeReadTracker();
+  let closed = false;
+  const isCurrent = (): boolean => !closed && source.sourceIdentity === sourceIdentity &&
+    source.sourceFingerprint === boundsIndex.sourceFingerprint && source.transformPlanIdentity === boundsIndex.transformPlanIdentity &&
+    source.sourceGeneration === sourceGeneration && source.transformGeneration === transformGeneration && (source.isCurrent?.() ?? true);
+  const provider: CopcTileResourceProvider = Object.freeze({
+    sourceIdentity,
+    generation: sourceGeneration,
+    isCurrent,
+    tileset,
+    hierarchyPagesRead: hierarchy.hierarchyPagesRead,
+    hierarchyPageBytesRead: hierarchy.hierarchyPageBytesRead,
+    boundsStrategy: 'indexed-decoded-content',
+    boundsIndex,
+    getNodeReadStats: nodeReadTracker.snapshot,
+    getResource: async (uri: string, signal: AbortSignal): Promise<Uint8Array | undefined> => {
+      if (closed) throw new CopcTileResourceProviderError('SOURCE_CLOSED', 'COPC Tiles resource provider is closed.');
+      const operation = combineSignals(signal, lifecycle.signal);
+      try {
+        assertNotAborted(operation.signal);
+        assertSourceCurrent(source, sourceIdentity, sourceGeneration, sourceGeneration, transformGeneration);
+        if (source.sourceFingerprint !== boundsIndex.sourceFingerprint || source.transformPlanIdentity !== boundsIndex.transformPlanIdentity) {
+          throw new CopcTileResourceProviderError('STALE_SOURCE', 'Source fingerprint or transform plan changed after the content-bounds index was validated.');
+        }
+        if (uri === 'tileset.json') return tilesetBytes.slice();
+        const prepared = contentByUri.get(uri);
+        if (!prepared) return undefined;
+        const view = await nodeReadTracker.read(reader, prepared.node, options.selection ?? {}, operation.signal);
+        assertNotAborted(operation.signal);
+        assertSourceCurrent(source, sourceIdentity, sourceGeneration, sourceGeneration, transformGeneration);
+        const provenance = prepared.decodedContentBounds;
+        if (!provenance || !prepared.contentBounds) throw new CopcTileResourceProviderError('BOUNDS_INDEX_INVALID', `Node ${prepared.node.key} has no indexed content envelope.`, { nodeKey: prepared.node.key });
+        assertDecodedViewProvenance(view, provenance);
+        assertPointsWithinDecodedBounds(view, provenance, prepared.node.key);
+        const encoded = encodePointCloudGlb(view, encoderOptions(options, prepared));
+        if (!encoded) return undefined;
+        if (encoded.maxAbsoluteErrorMeters > provenance.encoderPaddingMeters) {
+          throw new CopcTileResourceProviderError('ENCODER_PADDING_MISMATCH', `Node ${prepared.node.key} GLB reconstruction error exceeds the index allowance.`, { nodeKey: prepared.node.key, decodedContentBounds: provenance });
+        }
+        assertBoundsWithin(encoded.reconstructedEcefBounds, provenance.paddedContentBoundsEcef, prepared.node.key);
+        assertBoundsWithin(encoded.reconstructedEcefBounds, prepared.bounds, prepared.node.key);
+        return encoded.bytes;
+      } finally {
+        operation.dispose();
+      }
+    },
+    close: async (): Promise<void> => {
+      if (closed) return;
+      closed = true;
+      lifecycle.abort();
+      if (options.ownsSource) await source.close?.();
+    },
+  });
+  return provider;
+}
+
 async function createDecodedContentProvider(
   source: TileNodeSource,
   options: DecodedContentProviderOptions,
 ): Promise<CopcTileResourceProvider> {
   validateDecodedSource(source);
+  if (options.createBoundsIndex) {
+    if (!source.sourceFingerprint) {
+      throw new CopcTileResourceProviderError('BOUNDS_INDEX_INVALID', 'A reusable index requires a verified immutable source fingerprint.');
+    }
+    try {
+      validateContentBoundsSourceFingerprint(source.sourceFingerprint);
+    } catch (error) {
+      throw new CopcTileResourceProviderError('BOUNDS_INDEX_INVALID', error instanceof Error ? error.message : String(error));
+    }
+  }
   const sourceIdentity = source.sourceIdentity;
   const sourceGeneration = source.sourceGeneration!;
   const transformGeneration = source.transformGeneration;
@@ -674,6 +993,38 @@ async function createDecodedContentProvider(
       return bounds;
     })),
   });
+  let boundsIndex: DecodedContentBoundsIndex | undefined;
+  if (options.createBoundsIndex) {
+    if (!source.sourceFingerprint) {
+      throw new CopcTileResourceProviderError(
+        'BOUNDS_INDEX_INVALID',
+        'A reusable bounds index requires a verified immutable source fingerprint; a URL or session identity alone is insufficient.',
+      );
+    }
+    const indexedBounds = new Map(contentNodes.map((node) => {
+      const bounds = completedContentBounds.get(node.key);
+      if (!bounds) throw new CopcTileResourceProviderError('CONTENT_SCAN_INVALID', `Node ${node.key} has no completed content bound.`, { nodeKey: node.key });
+      return [node.key, Object.freeze({
+        contentBoundsEcef: bounds.contentBoundsEcef,
+        paddedContentBoundsEcef: bounds.paddedContentBoundsEcef,
+        encoderPaddingMeters: bounds.encoderPaddingMeters,
+      })] as const;
+    }));
+    boundsIndex = await createDecodedContentBoundsIndex({
+      sourceFingerprint: source.sourceFingerprint,
+      transformPlanIdentity: commonProvenance.transformPlanIdentity,
+      sourceCrs: commonProvenance.sourceCrs,
+      verticalDatum: commonProvenance.verticalDatum,
+      heightOffsetMeters: commonProvenance.heightOffsetMeters,
+      hierarchy: hierarchy.nodes,
+      contentBounds: indexedBounds,
+      totalPoints: effectiveLimits.totalPoints,
+      totalPointDataBytes: effectiveLimits.totalPointDataBytes,
+    });
+    if (serializedByteLength(boundsIndex) > (options.maxBoundsIndexBytes ?? DEFAULT_MAX_BOUNDS_INDEX_BYTES)) {
+      throw new CopcTileResourceProviderError('RESOURCE_LIMIT', 'Generated bounds index exceeds its configured byte limit.');
+    }
+  }
   const tileset = Object.freeze({
     ...generatedTileset,
     root: decoratedRoot,
@@ -704,6 +1055,7 @@ async function createDecodedContentProvider(
   }
 
   const lifecycle = new AbortController();
+  const nodeReadTracker = createNodeReadTracker();
   let closed = false;
   const isCurrent = (): boolean => !closed &&
     source.sourceIdentity === sourceIdentity &&
@@ -719,6 +1071,8 @@ async function createDecodedContentProvider(
     hierarchyPageBytesRead: hierarchy.hierarchyPageBytesRead,
     boundsStrategy: 'decoded-content',
     decodedContentScan,
+    ...(boundsIndex === undefined ? {} : { boundsIndex }),
+    getNodeReadStats: nodeReadTracker.snapshot,
     getResource: async (uri: string, signal: AbortSignal): Promise<Uint8Array | undefined> => {
       if (closed) throw new CopcTileResourceProviderError('SOURCE_CLOSED', 'COPC Tiles resource provider is closed.');
       const operation = combineSignals(signal, lifecycle.signal);
@@ -728,7 +1082,7 @@ async function createDecodedContentProvider(
         if (uri === 'tileset.json') return tilesetBytes.slice();
         const prepared = contentByUri.get(uri);
         if (!prepared) return undefined;
-        const view = await reader.readNode(prepared.node, options.selection, { signal: operation.signal });
+        const view = await nodeReadTracker.read(reader, prepared.node, options.selection ?? {}, operation.signal);
         assertNotAborted(operation.signal);
         assertSourceCurrent(source, sourceIdentity, sourceGeneration, sourceGeneration, transformGeneration);
         const provenance = prepared.decodedContentBounds;
@@ -1065,6 +1419,13 @@ function toEcefBoundsRecord(bounds: EcefAxisAlignedBounds): DecodedContentBounds
   });
 }
 
+function ecefRecordToBounds(record: DecodedContentBoundsProvenance['contentBoundsEcef']): EcefAxisAlignedBounds {
+  return Object.freeze({
+    minimum: Object.freeze([record.minX, record.minY, record.minZ]) as unknown as EcefAxisAlignedBounds['minimum'],
+    maximum: Object.freeze([record.maxX, record.maxY, record.maxZ]) as unknown as EcefAxisAlignedBounds['maximum'],
+  });
+}
+
 function withContentPadding(
   provenance: Omit<DecodedContentBoundsProvenance, 'encoderPaddingMeters' | 'paddedContentBoundsEcef'> | undefined,
   padding: number,
@@ -1181,6 +1542,40 @@ function getMetadataOnlyBoundsStatus(
     };
 }
 
+function createNodeReadTracker(): Readonly<{
+  snapshot(): TileNodeReadStats;
+  read(
+    reader: TileNodeReader,
+    node: TileHierarchyNode,
+    selection: TilePointFieldSelection,
+    signal: AbortSignal,
+  ): Promise<TilePointView>;
+}> {
+  let requests = 0;
+  let requestedPoints = 0;
+  let decodedPoints = 0;
+  let activeReads = 0;
+  let cancelledReads = 0;
+  return Object.freeze({
+    snapshot: () => Object.freeze({ requests, requestedPoints, decodedPoints, activeReads, cancelledReads }),
+    read: async (reader, node, selection, signal) => {
+      requests += 1;
+      requestedPoints += node.pointCount;
+      activeReads += 1;
+      try {
+        const view = await reader.readNode(node, selection, { signal });
+        decodedPoints += view.pointCount;
+        return view;
+      } catch (error) {
+        if (signal.aborted || (error instanceof Error && error.name === 'AbortError')) cancelledReads += 1;
+        throw error;
+      } finally {
+        activeReads -= 1;
+      }
+    },
+  });
+}
+
 function performanceNow(): number {
   return globalThis.performance?.now() ?? Date.now();
 }
@@ -1221,7 +1616,8 @@ function validateOptions(options: CopcTileResourceProviderOptions): void {
   if (
     (options as { boundsStrategy?: unknown }).boundsStrategy !== undefined &&
     (options as { boundsStrategy?: unknown }).boundsStrategy !== 'conservative-source-cell' &&
-    (options as { boundsStrategy?: unknown }).boundsStrategy !== 'decoded-content'
+    (options as { boundsStrategy?: unknown }).boundsStrategy !== 'decoded-content' &&
+    (options as { boundsStrategy?: unknown }).boundsStrategy !== 'indexed-decoded-content'
   ) {
     throw new CopcTileResourceProviderError('INVALID_SOURCE', 'Unknown Tiles bounds strategy.');
   }
@@ -1229,18 +1625,37 @@ function validateOptions(options: CopcTileResourceProviderOptions): void {
       (options as { allowDecodedContentBounds?: unknown }).allowDecodedContentBounds !== undefined) {
     throw new CopcTileResourceProviderError('INVALID_SOURCE', 'Decoded-content authorization is valid only for the decoded-content strategy.');
   }
+  if ((options as { createBoundsIndex?: unknown }).createBoundsIndex !== undefined &&
+      ((options as { boundsStrategy?: unknown }).boundsStrategy !== 'decoded-content' ||
+       typeof (options as { createBoundsIndex?: unknown }).createBoundsIndex !== 'boolean')) {
+    throw new CopcTileResourceProviderError('INVALID_SOURCE', 'Bounds-index generation is an explicit decoded-content preprocessing option.');
+  }
+  if ((options as { boundsStrategy?: unknown }).boundsStrategy === 'indexed-decoded-content' &&
+      !('boundsIndex' in options)) {
+    throw new CopcTileResourceProviderError('BOUNDS_INDEX_INVALID', 'Indexed streaming requires a decoded-content bounds index.');
+  }
   const maxPadding = options.maxEncoderPaddingMeters ?? DEFAULT_MAX_ENCODER_PADDING_METERS;
   const maxGlbBytes = options.maxGlbBytes ?? DEFAULT_MAX_GLB_BYTES;
   const maxTilesetBytes = options.maxTilesetBytes ?? DEFAULT_MAX_TILESET_BYTES;
+  const maxBoundsIndexBytes = options.maxBoundsIndexBytes ?? DEFAULT_MAX_BOUNDS_INDEX_BYTES;
   if (
     !Number.isFinite(maxPadding) || maxPadding < 0 || maxPadding > 100 ||
     !Number.isSafeInteger(maxGlbBytes) || maxGlbBytes <= 0 || maxGlbBytes > 512 * 1024 * 1024 ||
     !Number.isSafeInteger(maxTilesetBytes) || maxTilesetBytes <= 0 || maxTilesetBytes > 128 * 1024 * 1024 ||
+    !Number.isSafeInteger(maxBoundsIndexBytes) || maxBoundsIndexBytes <= 0 || maxBoundsIndexBytes > 128 * 1024 * 1024 ||
     (options.maxAbsolutePositionErrorMeters !== undefined && (!Number.isFinite(options.maxAbsolutePositionErrorMeters) || options.maxAbsolutePositionErrorMeters < 0)) ||
     (options.maxRelativePositionError !== undefined && (!Number.isFinite(options.maxRelativePositionError) || options.maxRelativePositionError < 0)) ||
     (options.ownsSource !== undefined && typeof options.ownsSource !== 'boolean')
   ) {
     throw new CopcTileResourceProviderError('INVALID_SOURCE', 'Provider resource and precision limits must be finite and within their documented bounds.');
+  }
+}
+
+function serializedByteLength(value: unknown): number {
+  try {
+    return new TextEncoder().encode(JSON.stringify(value)).byteLength;
+  } catch (error) {
+    throw new CopcTileResourceProviderError('BOUNDS_INDEX_INVALID', `Bounds index is not JSON serializable: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 

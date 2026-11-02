@@ -15,7 +15,12 @@ export type TilesetNodeInput = Readonly<{
 export type ExplicitTilesetOptions = Readonly<{
   tilesetVersion?: string;
   maxNodes?: number;
-  maxTotalPoints?: number;
+  /**
+   * Maximum point-count sum admitted by complete-source callers. `null`
+   * disables only this global count check for camera-selected streaming;
+   * node, hierarchy, byte, request and GLB limits remain independent.
+   */
+  maxTotalPoints?: number | null;
 }>;
 
 export type ExplicitTilesetErrorCode =
@@ -139,8 +144,10 @@ export function createExplicitTileset(
   if (options.tilesetVersion !== undefined && (typeof options.tilesetVersion !== 'string' || options.tilesetVersion.trim() === '')) {
     throw new ExplicitTilesetError('INVALID_INPUT', 'tilesetVersion must be a non-empty string when provided.');
   }
-  const maxTotalPoints = options.maxTotalPoints ?? EXPLICIT_TILESET_DEFAULT_LIMITS.maxTotalPoints;
-  if (!Number.isSafeInteger(maxTotalPoints) || maxTotalPoints <= 0 || maxTotalPoints > EXPLICIT_TILESET_HARD_LIMITS.maxTotalPoints) {
+  const maxTotalPoints = options.maxTotalPoints === null
+    ? null
+    : options.maxTotalPoints ?? EXPLICIT_TILESET_DEFAULT_LIMITS.maxTotalPoints;
+  if (maxTotalPoints !== null && (!Number.isSafeInteger(maxTotalPoints) || maxTotalPoints <= 0 || maxTotalPoints > EXPLICIT_TILESET_HARD_LIMITS.maxTotalPoints)) {
     throw new ExplicitTilesetError('TILESET_LIMIT', `maxTotalPoints must be a positive safe integer no greater than ${EXPLICIT_TILESET_HARD_LIMITS.maxTotalPoints}.`);
   }
 
@@ -156,7 +163,7 @@ export function createExplicitTileset(
       throw new ExplicitTilesetError('INVALID_INPUT', 'Hierarchy node keys must be unique.', node.key);
     }
     totalPoints += node.pointCount;
-    if (!Number.isSafeInteger(totalPoints) || totalPoints > maxTotalPoints) {
+    if (!Number.isSafeInteger(totalPoints) || (maxTotalPoints !== null && totalPoints > maxTotalPoints)) {
       throw new ExplicitTilesetError('TILESET_LIMIT', `Hierarchy point counts exceed ${maxTotalPoints}.`, node.key);
     }
     const minimum = bounds.minimum;

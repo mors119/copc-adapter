@@ -103,6 +103,18 @@ export class RangeRequestDiagnosticsRecorder {
     abortedSuperseded: 0,
     abortedLifecycle: 0,
   };
+  private bytesRead = 0;
+
+  /** Record bytes actually returned by a source-owned range read. */
+  recordBytes(byteLength: number): void {
+    if (!Number.isSafeInteger(byteLength) || byteLength < 0) return;
+    this.bytesRead = Math.min(MAX_SAFE_COUNTER, this.bytesRead + byteLength);
+  }
+
+  /** Return the cumulative bytes returned by source-owned range reads. */
+  getBytesRead(): number {
+    return this.bytesRead;
+  }
 
   record(outcome: RangeRequestOutcome): void {
     if (outcome === "requested") {
@@ -159,6 +171,7 @@ export class ProjectOwnedByteSource implements RandomAccessByteSource {
       const bytes = await this.delegate.readRange(offset, length, {
         signal: linked.signal,
       });
+      this.diagnostics.recordBytes(bytes.byteLength);
       if (linked.signal.aborted) {
         throw abortError(linked.signal);
       }

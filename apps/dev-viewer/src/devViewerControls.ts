@@ -48,6 +48,7 @@ export type DevViewerControlsOptions = {
   readonly onEngineSelected: (engine: RenderingEngine) => number;
   readonly onPipelineSelected: (pipeline: RenderingPipeline) => void;
   readonly onTilesBoundsStrategySelected: (strategy: TilesBoundsStrategy) => void;
+  readonly onTilesFullScanMaxPointsSelected: (points: number) => void;
   readonly onCesiumRendererSelected: (
     renderer: CesiumPointRendererVariant,
   ) => void;
@@ -101,6 +102,7 @@ export function mountDevViewerControls(
   const sourceSelect = document.querySelector<HTMLSelectElement>("#source-selection")!;
   const pipelineSelect = document.querySelector<HTMLSelectElement>("#rendering-pipeline")!;
   const tilesBoundsStrategySelect = document.querySelector<HTMLSelectElement>("#tiles-bounds-strategy")!;
+  const tilesFullScanMaxPointsInput = document.querySelector<HTMLInputElement>("#tiles-full-scan-max-points")!;
   const customUrl = document.querySelector<HTMLInputElement>("#custom-source-url")!;
   const fileInput = document.querySelector<HTMLInputElement>("#local-source-file")!;
   const cameraDistanceInput = document.querySelector<HTMLInputElement>("#camera-render-distance")!;
@@ -132,6 +134,8 @@ export function mountDevViewerControls(
   sourceSelect.value = initialPreset ?? "custom";
   pipelineSelect.value = options.initialConfig.pipeline;
   tilesBoundsStrategySelect.value = options.initialConfig.tilesBoundsStrategy ?? "conservative-source-cell";
+  tilesFullScanMaxPointsInput.value = String(options.initialConfig.tilesFullScanMaxPoints ?? 4_000_000);
+  tilesFullScanMaxPointsInput.disabled = tilesBoundsStrategySelect.value !== "decoded-content";
   customUrl.disabled = sourceSelect.value !== "custom";
   if (sourceSelect.value === "custom") customUrl.value = initialUrl;
 
@@ -203,8 +207,15 @@ export function mountDevViewerControls(
   };
   const onTilesBoundsStrategyChange = (): void => {
     if (tilesBoundsStrategySelect.value !== "conservative-source-cell" &&
+        tilesBoundsStrategySelect.value !== "indexed-decoded-content" &&
         tilesBoundsStrategySelect.value !== "decoded-content") return;
+    tilesFullScanMaxPointsInput.disabled = tilesBoundsStrategySelect.value !== "decoded-content";
     options.onTilesBoundsStrategySelected(tilesBoundsStrategySelect.value);
+  };
+  const onTilesFullScanMaxPointsChange = (): void => {
+    const points = Number(tilesFullScanMaxPointsInput.value);
+    if (!Number.isSafeInteger(points) || points <= 0 || points > 20_000_000) return;
+    options.onTilesFullScanMaxPointsSelected(points);
   };
   const onCustomUrlInput = (): void => {
     if (sourceSelect.value === "custom") updateSelectedSource();
@@ -230,6 +241,7 @@ export function mountDevViewerControls(
   sourceSelect.addEventListener("change", onSourceSelectionChange);
   pipelineSelect.addEventListener("change", onPipelineSelectionChange);
   tilesBoundsStrategySelect.addEventListener("change", onTilesBoundsStrategyChange);
+  tilesFullScanMaxPointsInput.addEventListener("change", onTilesFullScanMaxPointsChange);
   customUrl.addEventListener("input", onCustomUrlInput);
   fileInput.addEventListener("change", onLocalFileChange);
 
@@ -467,6 +479,7 @@ export function mountDevViewerControls(
       sourceSelect.removeEventListener("change", onSourceSelectionChange);
       pipelineSelect.removeEventListener("change", onPipelineSelectionChange);
       tilesBoundsStrategySelect.removeEventListener("change", onTilesBoundsStrategyChange);
+      tilesFullScanMaxPointsInput.removeEventListener("change", onTilesFullScanMaxPointsChange);
       customUrl.removeEventListener("input", onCustomUrlInput);
       fileInput.removeEventListener("change", onLocalFileChange);
       cameraDistanceInput.removeEventListener("change", onCameraDistanceChange);

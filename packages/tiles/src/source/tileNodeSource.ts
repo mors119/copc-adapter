@@ -115,9 +115,13 @@ export type TileConservativeBoundsResult = Readonly<{
 
 export interface TileNodeSource {
   readonly sourceIdentity: string;
+  /** Strong, caller-verified immutable identity used to reuse a bounds index. */
+  readonly sourceFingerprint?: string;
   /** Adapter source generation when available; changes invalidate prior reads. */
   readonly sourceGeneration?: number;
   readonly transformGeneration: number;
+  /** Immutable Adapter transform plan identity when provided by the source. */
+  readonly transformPlanIdentity?: string;
   /** False after close, source replacement, or a transform-policy change. */
   isCurrent?(): boolean;
   getRootHierarchyPage(): TileHierarchyPage;

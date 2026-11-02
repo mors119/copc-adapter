@@ -4,6 +4,26 @@ import { createServer } from "node:http";
 
 import { probeCopcSource } from "../../../../index.ts";
 
+test("strict probe reports the strong ETag and bounded response bytes for index fingerprinting", async () => {
+  const bytes = new Uint8Array(1024);
+  const result = await probeCopcSource("https://example.test/versioned.copc.laz", {
+    rangeValidation: "strict",
+    fetch: async () => new Response(bytes.slice(), {
+      status: 206,
+      headers: {
+        "Content-Range": "bytes 0-1023/4096",
+        "Content-Length": "1024",
+        ETag: '"version-7"',
+      },
+    }),
+  });
+  assert.equal(result.rangeSupported, true);
+  assert.equal(result.validationLevel, "strict");
+  assert.equal(result.etag, '"version-7"');
+  assert.equal(result.contentLength, 4096);
+  assert.equal(result.bytesRead, 1024);
+});
+
 const FIXTURE_SIZE = 8192;
 
 function makeLasFixture({ copc = true } = {}) {

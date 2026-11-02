@@ -58,6 +58,18 @@ test("a range cancelled before fetch never reaches the byte source", async () =>
   });
 });
 
+test("range diagnostics count only bytes actually returned by the source", async () => {
+  const diagnostics = new RangeRequestDiagnosticsRecorder();
+  const source = new ProjectOwnedByteSource(
+    createByteSource(async (_offset, length) => new Uint8Array(length)),
+    undefined,
+    diagnostics,
+  );
+  await source.readRange(0, 7);
+  await source.readRange(7, 11);
+  assert.equal(diagnostics.getBytesRead(), 18);
+});
+
 test("a range cancelled during fetch records lifecycle cancellation", async () => {
   let resolveStarted;
   const started = new Promise((resolve) => {

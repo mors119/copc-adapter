@@ -379,6 +379,7 @@ export class RustCopcBackend implements CopcBackend {
         : typeof source === "string"
           ? new HttpRangeByteSource(source, {
               rangeValidation: options.rangeValidation,
+              expectedETag: options.expectedSourceETag,
               maxRangeBytes: options.maxRangeBytes,
               maxConcurrentRangeRequests: options.maxConcurrentRangeRequests,
             })

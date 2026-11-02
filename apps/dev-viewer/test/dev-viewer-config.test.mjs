@@ -15,6 +15,7 @@ import {
   getCesiumTerrainProviderUrl,
   getSafeSourceLabel,
   getSafeTerrainSourceLabel,
+  getTilesFullScanPointLimits,
   getTilesVerticalGrid,
   getTilesUnsupportedFilteringError,
   hasUnappliedSettings,
@@ -51,6 +52,21 @@ function createConfig(overrides = {}) {
     ...overrides,
   };
 }
+
+test("keeps full decoded-content scan and per-node point limits consistent", () => {
+  assert.deepEqual(getTilesFullScanPointLimits(1_000_000), {
+    maxPointsPerNode: 1_000_000,
+    maxTotalPoints: 1_000_000,
+  });
+  assert.deepEqual(getTilesFullScanPointLimits(), {
+    maxPointsPerNode: 2_000_000,
+    maxTotalPoints: 4_000_000,
+  });
+  assert.deepEqual(getTilesFullScanPointLimits(20_000_000), {
+    maxPointsPerNode: 2_000_000,
+    maxTotalPoints: 20_000_000,
+  });
+});
 
 test("recognizes only the public refinement and range validation values", () => {
   assert.equal(isRefinementAlgorithm("foveated"), true);

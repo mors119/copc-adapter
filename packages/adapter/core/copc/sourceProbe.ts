@@ -46,6 +46,10 @@ export type CopcSourceProbeResult = {
   readonly returnedRange?: ByteRange;
   /** Full resource length when established; for a 200 response this may be that response's body length. */
   readonly contentLength?: number;
+  /** Bounded response-body bytes inspected by this probe. */
+  readonly bytesRead: number;
+  /** HTTP entity tag when readable; weak tags are not immutable index identities. */
+  readonly etag?: string;
   /** Raw Content-Range header from the first response, when exposed by the browser. */
   readonly contentRange?: string;
   /** True means the response was readable; unknown means fetch was blocked or failed. */
@@ -600,6 +604,7 @@ function resultBase(
     rangeSupported: "unknown",
     validationLevel: "unknown",
     requestedRange,
+    bytesRead: 0,
     corsReadable: "unknown",
     copcDetected: "unknown",
     warnings: [],
@@ -648,6 +653,7 @@ export async function probeCopcSource(
   };
 
   const response = first.response;
+  let bytesRead = first.bytes.byteLength;
   const result: CopcSourceProbeResult = {
     ...base,
     reachable: true,
@@ -661,6 +667,10 @@ export async function probeCopcSource(
     ...(first.contentRange === undefined
       ? {}
       : { contentRange: first.contentRange }),
+    ...(response.headers.get("ETag") === null
+      ? {}
+      : { etag: response.headers.get("ETag")! }),
+    bytesRead,
     ...(first.parsedContentRange
       ? {
           returnedRange: {
@@ -711,6 +721,7 @@ export async function probeCopcSource(
       );
       try {
         const extension = await requestRange(source, extensionRange, options);
+        bytesRead += extension.bytes.byteLength;
         const extensionValidation = await validateProbeRange(
           extension,
           extensionRange,
@@ -792,6 +803,10 @@ export async function probeCopcSource(
       rangeSupported,
       validationLevel,
       contentLength: detectedContentLength,
+      bytesRead,
+      ...(representation.etag === undefined && first.response.headers.get("ETag") === null
+        ? {}
+        : { etag: representation.etag ?? first.response.headers.get("ETag")! }),
       copcDetected: finalInspection.copcDetected,
       ...(finalInspection.pointFormat === undefined
         ? {}

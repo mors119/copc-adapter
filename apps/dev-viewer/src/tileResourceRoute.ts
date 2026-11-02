@@ -6,6 +6,7 @@ export type TileResourceRouteMetrics = Readonly<{
   failedRequestCount: number;
   tilesetRequestCount: number;
   glbRequestCount: number;
+  distinctGlbRequestCount: number;
   glbBytes: number;
 }>;
 
@@ -25,8 +26,10 @@ type RegisteredRoute = {
     failedRequestCount: number;
     tilesetRequestCount: number;
     glbRequestCount: number;
+    distinctGlbRequestCount: number;
     glbBytes: number;
   };
+  readonly distinctGlbPaths: Set<string>;
 };
 
 const routes = new Map<string, RegisteredRoute>();
@@ -54,8 +57,10 @@ export function registerTileResourceRoute(
       failedRequestCount: 0,
       tilesetRequestCount: 0,
       glbRequestCount: 0,
+      distinctGlbRequestCount: 0,
       glbBytes: 0,
     },
+    distinctGlbPaths: new Set(),
   };
   routes.set(id, route);
   installFetchRouter();
@@ -98,7 +103,11 @@ export function registerTileResourceRoute(
       const resourcePath = requestUrl.pathname.slice(match.prefix.length);
       match.metrics.requestCount += 1;
       if (resourcePath === "tileset.json") match.metrics.tilesetRequestCount += 1;
-      if (resourcePath.toLowerCase().endsWith(".glb")) match.metrics.glbRequestCount += 1;
+      if (resourcePath.toLowerCase().endsWith(".glb")) {
+        match.metrics.glbRequestCount += 1;
+        match.distinctGlbPaths.add(resourcePath);
+        match.metrics.distinctGlbRequestCount = match.distinctGlbPaths.size;
+      }
       match.onChange?.();
       const resourceRequest = new Request(
         new URL(`/${resourcePath}`, requestUrl.origin),

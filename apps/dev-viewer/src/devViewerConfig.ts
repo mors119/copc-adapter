@@ -27,7 +27,7 @@ import type { SchemaDimensionFilter, SchemaDimensionStyle } from "../../shared/s
 
 export type RenderingEngine = WorkbenchRenderer;
 export type RenderingPipeline = "direct" | "tiles";
-export type TilesBoundsStrategy = "conservative-source-cell" | "decoded-content";
+export type TilesBoundsStrategy = "conservative-source-cell" | "indexed-decoded-content" | "decoded-content";
 export type CesiumPointRendererVariant = "point-primitive" | "batched-geometry";
 export type CameraPreset = WorkbenchCameraPreset;
 
@@ -47,6 +47,8 @@ export type DevViewerConfig = Omit<
   pipeline: RenderingPipeline;
   /** Developer-only opt-in content scan; conservative source-cell remains default. */
   tilesBoundsStrategy?: TilesBoundsStrategy;
+  /** Limit for explicit full decoded-content preprocessing; defaults to 4 million points. */
+  tilesFullScanMaxPoints?: number;
   cesiumRenderer: CesiumPointRendererVariant;
   refinementAlgorithm: RefinementAlgorithm;
   motionLookahead: boolean;
@@ -211,8 +213,13 @@ export function validateDevViewerConfig(
   }
   if (config.tilesBoundsStrategy !== undefined &&
       config.tilesBoundsStrategy !== "conservative-source-cell" &&
+      config.tilesBoundsStrategy !== "indexed-decoded-content" &&
       config.tilesBoundsStrategy !== "decoded-content") {
-    return "Choose Fast source-cell bounds or bounded decoded-content bounds.";
+    return "Choose certified source-cell streaming, verified indexed streaming, or explicit complete decoded-content preprocessing.";
+  }
+  const fullScanMaxPoints = config.tilesFullScanMaxPoints ?? 4_000_000;
+  if (!Number.isSafeInteger(fullScanMaxPoints) || fullScanMaxPoints <= 0 || fullScanMaxPoints > 20_000_000) {
+    return "The explicit full-scan point limit must be an integer from 1 to 20,000,000.";
   }
   if (
     config.cesiumRenderer !== "point-primitive" &&
@@ -301,6 +308,20 @@ export function validateDevViewerConfig(
   return undefined;
 }
 
+/**
+ * Keep the per-node read cap no higher than the explicit complete-source cap.
+ * TileNodeReader requires these budgets to be internally consistent.
+ */
+export function getTilesFullScanPointLimits(maxTotalPoints = 4_000_000): Readonly<{
+  maxPointsPerNode: number;
+  maxTotalPoints: number;
+}> {
+  return Object.freeze({
+    maxPointsPerNode: Math.min(2_000_000, maxTotalPoints),
+    maxTotalPoints,
+  });
+}
+
 /** Normalize a Terrain service root for Cesium fromUrl, which appends layer.json itself. */
 export function getCesiumTerrainProviderUrl(
   source: string,
@@ -319,6 +340,8 @@ export function hasUnappliedSettings(
     applied.pipeline !== pending.pipeline ||
     (applied.tilesBoundsStrategy ?? "conservative-source-cell") !==
       (pending.tilesBoundsStrategy ?? "conservative-source-cell") ||
+    (applied.tilesFullScanMaxPoints ?? 4_000_000) !==
+      (pending.tilesFullScanMaxPoints ?? 4_000_000) ||
     getChangedWorkbenchOptionIds(
       toWorkbenchOptionValues(applied),
       toWorkbenchOptionValues(pending),

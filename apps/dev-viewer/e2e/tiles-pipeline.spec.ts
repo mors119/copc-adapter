@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 
 const demoFixturesAvailable =
@@ -14,6 +14,10 @@ type TilesDiagnostics = {
   boundsSupport: string;
   boundsReason: string;
   boundsStrategy: string;
+  sourcePointCount: number;
+  sourceFingerprint: string;
+  boundsIndexStatus: string;
+  boundsIndexBytes: number;
   boundsCoverage: string;
   geometryBoundsStatus: string;
   metadataOnlySourceCellStatus: string;
@@ -24,15 +28,27 @@ type TilesDiagnostics = {
   contentPointsScanned: number;
   contentPointsTotal: number;
   sourceRangeBytesObserved: number;
+  firstVisibleSourceRangeBytes: number | undefined;
+  firstVisibleResourceBytes: number | undefined;
+  decodedPointsBeforeFirstVisible: number | undefined;
   peakDecodedEcefBufferBytes: number;
   scanDurationMilliseconds: number;
   hierarchyNodes: number;
   glbRequests: number;
+  distinctGlbRequests: number;
   loadedTiles: number;
   visibleTiles: number;
   renderedPoints: number;
   resourceBytes: number;
+  resourceRequests: number;
+  requestedPointCount: number;
   glbBytes: number;
+  peakActiveRequests: number;
+  cacheEntries: number;
+  cacheBytes: number;
+  cacheEvictions: number;
+  firstVisibleMilliseconds: number | undefined;
+  initializationMilliseconds: number | undefined;
   error: string;
 };
 
@@ -154,6 +170,7 @@ test("Direct remains the default and the Cesium 3D Tiles pipeline renders genera
   await expect(page.locator("#source-status")).toHaveAttribute("data-status", "ready");
   await expect(page.locator("#source-status")).toContainText("3D Tiles (Experimental)");
   await expect.poll(async () => (await getTilesDiagnostics(page))?.status).toBe("ready");
+  await expect.poll(async () => (await getTilesDiagnostics(page))?.renderedPoints ?? 0).toBeGreaterThan(0);
   await expect(
     page.getByRole("radiogroup", { name: "Color mode" }).getByRole("radio", { name: "Elevation" }),
   ).toBeDisabled();
@@ -208,6 +225,9 @@ test("Direct remains the default and the Cesium 3D Tiles pipeline renders genera
       camera.latitudeDegrees - initialCamera.latitudeDegrees,
     );
   }).toBeLessThan(0.001);
+  await page.getByRole("radiogroup", { name: "Camera presets" }).getByRole("radio", { name: "Near" }).click();
+  await expect.poll(async () => JSON.stringify(await getCameraState(page))).not.toBe(JSON.stringify(initialCamera));
+  expect(cesium!.distinctGlbRequests).toBeGreaterThan(1);
 
   await page.getByRole("tab", { name: "Health" }).click();
   const tilesDiagnosticsPanel = page.locator('[data-diagnostic-section="health-tiles-pipeline"]');
@@ -242,6 +262,7 @@ test("Direct remains the default and the Cesium 3D Tiles pipeline renders genera
   await page.locator("#load-source").click();
   await expect(page.locator("#source-status")).toHaveAttribute("data-status", "ready");
   await expect.poll(async () => (await getTilesDiagnostics(page))?.status).toBe("ready");
+  await expect.poll(async () => (await getTilesDiagnostics(page))?.renderedPoints ?? 0).toBeGreaterThan(0);
   expect((await getTilesDiagnostics(page))?.glbRequests).toBeGreaterThan(1);
 
   await page.locator("#rendering-pipeline").selectOption("direct");
@@ -267,6 +288,7 @@ test("the same Tiles pipeline works with the Three.js renderer", async ({ page }
   await expect(page.locator("#source-status")).toHaveAttribute("data-status", "ready");
   await expect(page.locator("#source-status")).toContainText("3D Tiles (Experimental)");
   await expect.poll(async () => (await getTilesDiagnostics(page))?.status).toBe("ready");
+  await expect.poll(async () => (await getTilesDiagnostics(page))?.renderedPoints ?? 0).toBeGreaterThan(0);
 
   const three = await getTilesDiagnostics(page);
   expect(three?.sourceCrs).toBe("EPSG:4326");
@@ -276,6 +298,11 @@ test("the same Tiles pipeline works with the Three.js renderer", async ({ page }
   expect(three!.loadedTiles).toBeGreaterThan(0);
   expect(three!.visibleTiles).toBeGreaterThan(0);
   expect(three!.renderedPoints).toBeGreaterThan(0);
+  const initialThreeCamera = await getCameraState(page);
+  await page.locator("#camera-control").locator("xpath=..").locator("summary").click();
+  await page.getByRole("radiogroup", { name: "Camera presets" }).getByRole("radio", { name: "Near" }).click();
+  await expect.poll(async () => JSON.stringify(await getCameraState(page))).not.toBe(JSON.stringify(initialThreeCamera));
+  expect(three!.distinctGlbRequests).toBeGreaterThan(1);
   await expect(page.locator(".dev-session-mount .tiles-renderer-canvas")).toBeVisible();
   expect(pageErrors).toEqual([]);
 });
@@ -304,7 +331,7 @@ test("unsupported projected COPC reports its conservative bounds reason before a
   const tilesDiagnosticsPanel = page.locator('[data-diagnostic-section="health-tiles-pipeline"]');
   await expect(tilesDiagnosticsPanel.locator('[data-field="tilesBounds"]')).toHaveText("unsupported");
   await expect(tilesDiagnosticsPanel.locator('[data-field="tilesBoundsReason"]')).toContainText("unsupported-horizontal-crs");
-  await expect(tilesDiagnosticsPanel.locator('[data-field="tilesRequested"]')).toHaveText("0");
+  await expect(tilesDiagnosticsPanel.locator('[data-field="tilesRequested"]')).toContainText("0 points");
   expect(pageErrors).toEqual([]);
 });
 
@@ -315,7 +342,7 @@ for (const renderer of ["cesium", "three"] as const) {
     const pageErrors: string[] = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
 
-    await page.goto(`/?source=/samples/demo-projected.copc.laz&renderer=${renderer}`);
+    await page.goto(`/?source=/samples/demo-projected.copc.laz&tilesFullScanMaxPoints=1000000&renderer=${renderer}`);
     await expect(page.locator("#rendering-pipeline")).toHaveValue("direct");
     await expect(page.locator("#source-status")).toHaveAttribute("data-status", "ready");
     await expect.poll(() => hasDirectSnapshot(page)).toBe(true);
@@ -325,6 +352,7 @@ for (const renderer of ["cesium", "three"] as const) {
     await page.locator("#apply-settings").click();
     await expect(page.locator("#source-status")).toHaveAttribute("data-status", "ready", { timeout: 150_000 });
     await expect.poll(async () => (await getTilesDiagnostics(page))?.status, { timeout: 150_000 }).toBe("ready");
+    await expect.poll(async () => (await getTilesDiagnostics(page))?.renderedPoints ?? 0, { timeout: 60_000 }).toBeGreaterThan(0);
 
     const diagnostics = await getTilesDiagnostics(page);
     expect(diagnostics).toMatchObject({
@@ -395,6 +423,192 @@ for (const renderer of ["cesium", "three"] as const) {
   });
 }
 
+for (const renderer of ["cesium", "three"] as const) {
+  test(`a persisted verified bounds index streams projected fixture nodes through ${renderer}`, async ({ page }) => {
+    test.skip(!demoFixturesAvailable, `Run ${fixtureSetupCommand} to generate the ignored COPC fixtures.`);
+    test.setTimeout(180_000);
+    const bytes = readFileSync(new URL("../../../samples/local/demo-projected.copc.laz", import.meta.url));
+    const etag = '"tiles-index-fixture-v1"';
+    await page.route("**/samples/demo-projected.copc.laz", async (route) => {
+      const request = route.request();
+      const headers = {
+        "Accept-Ranges": "bytes",
+        "ETag": etag,
+        "Content-Type": "application/octet-stream",
+      };
+      if (request.method() === "HEAD") {
+        await route.fulfill({ status: 200, headers: { ...headers, "Content-Length": String(bytes.byteLength) } });
+        return;
+      }
+      const range = request.headers().range;
+      const match = range?.match(/^bytes=(\d+)-(\d+)$/);
+      if (!match) {
+        await route.fulfill({ status: 416, headers: { ...headers, "Content-Range": `bytes */${bytes.byteLength}` } });
+        return;
+      }
+      const start = Number(match[1]);
+      const end = Math.min(Number(match[2]), bytes.byteLength - 1);
+      if (start >= bytes.byteLength || end < start) {
+        await route.fulfill({ status: 416, headers: { ...headers, "Content-Range": `bytes */${bytes.byteLength}` } });
+        return;
+      }
+      const body = bytes.subarray(start, end + 1);
+      await route.fulfill({
+        status: 206,
+        body,
+        headers: {
+          ...headers,
+          "Content-Length": String(body.byteLength),
+          "Content-Range": `bytes ${start}-${end}/${bytes.byteLength}`,
+        },
+      });
+    });
+    const pageErrors: string[] = [];
+    page.on("pageerror", (error) => pageErrors.push(error.message));
+
+    await page.goto(`/?source=/samples/demo-projected.copc.laz&renderer=${renderer}`);
+    await expect(page.locator("#source-status")).toHaveAttribute("data-status", "ready");
+    await page.locator("#tiles-bounds-strategy").selectOption("decoded-content");
+    await page.locator("#rendering-pipeline").selectOption("tiles");
+    await page.locator("#apply-settings").click();
+    await expect.poll(async () => (await getTilesDiagnostics(page))?.status, { timeout: 90_000 }).toBe("ready");
+    const generated = await getTilesDiagnostics(page);
+    expect(generated).toMatchObject({
+      boundsStrategy: "decoded-content",
+      boundsIndexStatus: "stored",
+      contentPointsScanned: 131_072,
+      sourceToEcefStatus: "prepared-by-core",
+    });
+    expect(generated!.sourceFingerprint).toMatch(/^http-etag-sha256:/u);
+    expect(generated!.boundsIndexBytes).toBeGreaterThan(0);
+
+    await page.locator("#tiles-bounds-strategy").selectOption("indexed-decoded-content");
+    await page.locator("#apply-settings").click();
+    await expect(page.locator("#source-status")).toHaveAttribute("data-status", "ready");
+    await expect.poll(async () => (await getTilesDiagnostics(page))?.status, { timeout: 90_000 }).toBe("ready");
+    await expect.poll(async () => (await getTilesDiagnostics(page))?.renderedPoints ?? 0, { timeout: 60_000 }).toBeGreaterThan(0);
+    const streamed = await getTilesDiagnostics(page);
+    expect(streamed).toMatchObject({
+      boundsStrategy: "indexed-decoded-content",
+      boundsIndexStatus: "valid",
+      boundsCoverage: "rendered-content-only",
+      sourceToEcefStatus: "prepared-by-core",
+      verticalPlacementStatus: "unverified",
+      contentPointsScanned: 0,
+      error: "",
+    });
+    expect(streamed!.glbRequests).toBeGreaterThan(0);
+    expect(streamed!.renderedPoints).toBeGreaterThan(0);
+    expect(streamed!.firstVisibleMilliseconds).toBeGreaterThanOrEqual(0);
+    expect(pageErrors).toEqual([]);
+  });
+}
+
+test("real Autzen generates one verified index, then streams through Cesium and Three without another point scan", async ({ page }) => {
+  test.skip(process.env.COPC_RUN_AUTZEN_INDEX_E2E !== "1", "Set COPC_RUN_AUTZEN_INDEX_E2E=1 to run the public 10.6-million-point Autzen index demonstration.");
+  test.skip(!autzenFixtureAvailable, "Run `npm run download-samples -- autzen` to download the exact public Autzen COPC object used by this browser check.");
+  test.setTimeout(600_000);
+  const source = "https://data.pointcloud.org/autzen/autzen-classified.copc.laz";
+  const sourceBytes = readFileSync(new URL("../../../samples/local/autzen.copc.laz", import.meta.url));
+  const sourceEtag = '"8cd0aa94dfca432a4b0bbe8ddc51bd0f"';
+  await page.route(source, async (route) => {
+    const request = route.request();
+    const commonHeaders = {
+      "Accept-Ranges": "bytes",
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Expose-Headers": "Accept-Ranges, Content-Length, Content-Range, ETag",
+      "Content-Type": "application/octet-stream",
+      "ETag": sourceEtag,
+    };
+    if (request.method() === "HEAD") {
+      await route.fulfill({ status: 200, headers: { ...commonHeaders, "Content-Length": String(sourceBytes.byteLength) } });
+      return;
+    }
+    const match = request.headers().range?.match(/^bytes=(\d+)-(\d*)$/);
+    if (!match) {
+      await route.fulfill({ status: 416, headers: { ...commonHeaders, "Content-Range": `bytes */${sourceBytes.byteLength}` } });
+      return;
+    }
+    const start = Number(match[1]);
+    const end = Math.min(match[2] ? Number(match[2]) : sourceBytes.byteLength - 1, sourceBytes.byteLength - 1);
+    if (start >= sourceBytes.byteLength || end < start) {
+      await route.fulfill({ status: 416, headers: { ...commonHeaders, "Content-Range": `bytes */${sourceBytes.byteLength}` } });
+      return;
+    }
+    const body = sourceBytes.subarray(start, end + 1);
+    await route.fulfill({
+      status: 206,
+      body,
+      headers: {
+        ...commonHeaders,
+        "Content-Length": String(body.byteLength),
+        "Content-Range": `bytes ${start}-${end}/${sourceBytes.byteLength}`,
+      },
+    });
+  });
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+
+  await page.goto(`/?source=${encodeURIComponent(source)}&renderer=cesium`);
+  await expect(page.locator("#source-status")).toHaveAttribute("data-status", "ready", { timeout: 90_000 });
+  await page.locator("#tiles-bounds-strategy").selectOption("decoded-content");
+  await page.locator("#tiles-full-scan-max-points").fill("12000000");
+  await page.locator("#rendering-pipeline").selectOption("tiles");
+  await page.locator("#apply-settings").click();
+  await expect.poll(async () => (await getTilesDiagnostics(page))?.status, { timeout: 540_000 }).toBe("ready");
+  const generated = await getTilesDiagnostics(page);
+  expect(generated!.sourcePointCount).toBeGreaterThan(4_000_000);
+  expect(generated).toMatchObject({
+    boundsStrategy: "decoded-content",
+    boundsIndexStatus: "stored",
+    contentPointsScanned: generated!.sourcePointCount,
+    sourceToEcefStatus: "prepared-by-core",
+  });
+  console.log(`Real Autzen index generation: ${generated!.sourcePointCount.toLocaleString()} points, ${generated!.hierarchyNodes.toLocaleString()} metadata nodes, ${generated!.sourceRangeBytesObserved.toLocaleString()} source bytes, ${generated!.initializationMilliseconds?.toFixed(1)} ms initialization.`);
+
+  await page.locator("#tiles-bounds-strategy").selectOption("indexed-decoded-content");
+  await page.locator("#apply-settings").click();
+  await expect.poll(async () => {
+    const diagnostics = await getTilesDiagnostics(page);
+    return diagnostics?.boundsStrategy === "indexed-decoded-content" ? diagnostics.status : "switching";
+  }, { timeout: 120_000 }).toBe("ready");
+  const cesium = await getTilesDiagnostics(page);
+  expect(cesium).toMatchObject({
+    boundsStrategy: "indexed-decoded-content",
+    boundsIndexStatus: "valid",
+    contentPointsScanned: 0,
+  });
+  expect(cesium!.sourcePointCount).toBeGreaterThan(4_000_000);
+  await expect.poll(async () => (await getTilesDiagnostics(page))?.renderedPoints ?? 0, { timeout: 60_000 }).toBeGreaterThan(0);
+  const visibleCesium = await getTilesDiagnostics(page);
+  expect(visibleCesium!.renderedPoints).toBeGreaterThan(0);
+  expect(visibleCesium!.firstVisibleSourceRangeBytes).toBeLessThan(generated!.sourceRangeBytesObserved);
+  expect(visibleCesium!.decodedPointsBeforeFirstVisible).toBeLessThan(visibleCesium!.sourcePointCount);
+  const initialCesiumGlbs = visibleCesium!.distinctGlbRequests;
+  await page.locator("#camera-control").locator("xpath=..").locator("summary").click();
+  await page.getByRole("radiogroup", { name: "Camera presets" }).getByRole("radio", { name: "Near" }).click();
+  await expect.poll(async () => (await getTilesDiagnostics(page))?.distinctGlbRequests ?? 0, { timeout: 30_000 }).toBeGreaterThan(initialCesiumGlbs);
+  console.log(`Real Autzen Cesium indexed stream: ${visibleCesium!.initializationMilliseconds?.toFixed(1)} ms initialization, ${visibleCesium!.firstVisibleMilliseconds?.toFixed(1)} ms first visible, ${visibleCesium!.decodedPointsBeforeFirstVisible?.toLocaleString()} decoded points, ${visibleCesium!.firstVisibleSourceRangeBytes?.toLocaleString()} source bytes and ${visibleCesium!.firstVisibleResourceBytes?.toLocaleString()} Tiles bytes before visibility; ${visibleCesium!.glbRequests} GLB requests / ${visibleCesium!.glbBytes.toLocaleString()} bytes, ${visibleCesium!.renderedPoints.toLocaleString()} visible points, ${visibleCesium!.peakActiveRequests} max active loads, ${visibleCesium!.cacheEntries} cache entries / ${visibleCesium!.cacheBytes.toLocaleString()} bytes / ${visibleCesium!.cacheEvictions} evictions.`);
+
+  await page.goto(`/?source=${encodeURIComponent(source)}&pipeline=tiles&tilesBounds=indexed-decoded-content&renderer=three`);
+  await expect(page.locator("#source-status")).toHaveAttribute("data-status", "ready", { timeout: 120_000 });
+  const three = await getTilesDiagnostics(page);
+  expect(three).toMatchObject({
+    boundsStrategy: "indexed-decoded-content",
+    boundsIndexStatus: "valid",
+    contentPointsScanned: 0,
+  });
+  await expect.poll(async () => (await getTilesDiagnostics(page))?.renderedPoints ?? 0, { timeout: 60_000 }).toBeGreaterThan(0);
+  const visibleThree = await getTilesDiagnostics(page);
+  expect(visibleThree!.renderedPoints).toBeGreaterThan(0);
+  const initialThreeGlbs = visibleThree!.distinctGlbRequests;
+  await page.locator("#camera-control").locator("xpath=..").locator("summary").click();
+  await page.getByRole("radiogroup", { name: "Camera presets" }).getByRole("radio", { name: "Near" }).click();
+  await expect.poll(async () => (await getTilesDiagnostics(page))?.distinctGlbRequests ?? 0, { timeout: 30_000 }).toBeGreaterThan(initialThreeGlbs);
+  console.log(`Real Autzen Three indexed stream: ${visibleThree!.initializationMilliseconds?.toFixed(1)} ms initialization, ${visibleThree!.firstVisibleMilliseconds?.toFixed(1)} ms first visible, ${visibleThree!.decodedPointsBeforeFirstVisible?.toLocaleString()} decoded points, ${visibleThree!.firstVisibleSourceRangeBytes?.toLocaleString()} source bytes and ${visibleThree!.firstVisibleResourceBytes?.toLocaleString()} Tiles bytes before visibility; ${visibleThree!.glbRequests} GLB requests / ${visibleThree!.glbBytes.toLocaleString()} bytes, ${visibleThree!.renderedPoints.toLocaleString()} visible points, ${visibleThree!.peakActiveRequests} max active loads, ${visibleThree!.cacheEntries} cache entries / ${visibleThree!.cacheBytes.toLocaleString()} bytes / ${visibleThree!.cacheEvictions} evictions.`);
+  expect(pageErrors).toEqual([]);
+});
+
 test("projected EPSG:32611 with explicitly declared ellipsoidal metres reports verified vertical provenance", async ({ page }) => {
   test.skip(!demoFixturesAvailable, `Run ${fixtureSetupCommand} to generate the ignored COPC fixtures.`);
   test.setTimeout(180_000);
@@ -404,6 +618,7 @@ test("projected EPSG:32611 with explicitly declared ellipsoidal metres reports v
   await page.goto("/?source=/samples/demo-projected-ellipsoidal.copc.laz&pipeline=tiles&tilesBounds=decoded-content&renderer=three");
   await expect(page.locator("#source-status")).toHaveAttribute("data-status", "ready");
   await expect.poll(async () => (await getTilesDiagnostics(page))?.status).toBe("ready");
+  await expect.poll(async () => (await getTilesDiagnostics(page))?.renderedPoints ?? 0).toBeGreaterThan(0);
 
   const diagnostics = await getTilesDiagnostics(page);
   expect(diagnostics).toMatchObject({

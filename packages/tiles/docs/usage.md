@@ -4,8 +4,10 @@ COPC Tiles is a source-neutral 3D Tiles engine. Its optional Adapter connector
 uses the renderer-neutral public `@frillab/copc-adapter/core` API. The adapter
 source still owns COPC ranges, hierarchy parsing, LAZ decode, and CRS/vertical
 preparation. Tiles provides bounded reads for explicitly requested node keys,
-encoding, a live explicit provider for sources with supported conservative
-bounds, and resource serving. It does not schedule camera-driven LOD.
+encoding, a live explicit provider, and resource serving. Cesium or another
+standard 3D Tiles consumer selects visible tiles; Tiles does not add a second
+LOD selector. The initial provider currently reads complete bounded hierarchy
+metadata, then decodes point payloads only for requested content URIs.
 
 ```ts
 import { createCopcCoreNodeSource } from '@frillab/copc-tiles/adapter/copc-core';
@@ -42,9 +44,9 @@ try {
 }
 ```
 
-For a source whose hierarchy cells all have supported conservative ECEF
-bounds, the live provider creates the explicit Tileset from bounded hierarchy
-metadata and reads point data only when its content URI is requested:
+For a source whose hierarchy cells all have supported certified ECEF bounds,
+the provider creates an explicit Tileset from the complete bounded hierarchy
+metadata and reads point data only when a renderer requests its content URI:
 
 ```ts
 import {
@@ -64,15 +66,14 @@ const server = createTileResourceServer(provider, { closeProviderOnShutdown: tru
 await server.close();
 ```
 
-Set `scanCompleteHierarchy: true` to authorize provider construction to scan
-all hierarchy metadata needed to prove complete child discovery and check every
-cell bound. Without this explicit opt-in the provider rejects before reading
-hierarchy pages or point data. Any unsupported result stops construction and
-remains available on `CopcTileResourceProviderError.conservativeBoundsResult`.
-It never falls back to decoded-point bounds. The provider does not generate
-implicit subtrees or perform camera-driven requests. Real projected Autzen (EPSG:2992) and SoFi
-(EPSG:32611) are rejected by Adapter 0.7.1 for metadata-only bounds, so they
-cannot use this `conservative-source-cell` multi-node path yet.
+Set `scanCompleteHierarchy: true` to authorize the bounded full metadata scan
+needed to prove direct-child discovery. This is not lazy hierarchy or subtree
+loading. The default `conservative-source-cell` strategy checks every cell's
+existing Adapter certificate and preserves unsupported results on
+`CopcTileResourceProviderError.conservativeBoundsResult`; it never falls back
+to decoded-point bounds. The provider does not generate implicit subtrees or
+choose visible tiles. Real projected Autzen (EPSG:2992) and SoFi (EPSG:32611)
+remain unsupported by metadata-only bounds.
 
 For an explicitly bounded content visualization when source-cell bounds are
 unsupported, choose the distinct `decoded-content` strategy and authorize its
@@ -83,6 +84,7 @@ const provider = await createCopcTileResourceProvider(source, {
   scanCompleteHierarchy: true,
   boundsStrategy: 'decoded-content',
   allowDecodedContentBounds: true,
+  createBoundsIndex: true, // only with a verified immutable source fingerprint
   readerLimits: {
     maxTotalPoints: 4_000_000, // default total point budget
     maxTotalPointDataBytes: 256 * 1024 * 1024,
@@ -103,7 +105,7 @@ console.log(scan.transformPlanIdentity, scan.sourceCrs, scan.verticalPlacement);
 console.log(scan.contentBounds); // per content node, no retained decoded positions
 ```
 
-This path completes the bounded hierarchy scan, preflights point and byte
+This explicit preprocessing path completes the bounded hierarchy scan, preflights point and byte
 budgets before point reads, then sequentially prepares every point of every
 content-bearing node. A successful result encloses all those prepared ECEF
 positions and all reconstructed Float32 GLB positions. Parent volumes combine
@@ -111,9 +113,55 @@ their own content and every finalized child volume. It does **not** enclose
 unobserved source-space cells: `getConservativeNodeEcefBounds()` keeps its
 existing contract, the Tileset reports `sourceCellCoverage: false`, and
 `metadataOnlySourceCellStatus` remains separately visible in the scan summary.
-The hard point ceiling is 20 million; all hierarchy, node, compressed-byte,
+The default point ceiling is 4 million; an application can choose a higher
+explicit preprocessing limit up to 20 million. This mode must finish before
+rendering and is intended to generate a reusable index or produce a bounded
+complete-content result. All hierarchy, node, compressed-byte,
 prepared-ECEF-byte, GLB, and Tileset limits remain active and may reject a
 source first. No partial Tileset is returned.
+
+When the source has a strong ETag, known length, and supported byte ranges, a
+completed scan can be retained as a reusable **decoded-content bounds index**.
+Its versioned JSON record binds a SHA-256 integrity digest, a fingerprint
+derived from source URL identity, resource-selecting query parameters, strong
+ETag and byte length, the immutable transform-plan identity, CRS and
+vertical-datum evidence, complete hierarchy metadata, every content node's
+ECEF envelope, and the measured Float32 reconstruction allowance. Known
+credential/signature query fields are excluded from the fingerprint; other
+query parameters are included, so URLs selecting different resources cannot
+share an index key merely because their ETag and length match. The record
+contains no point positions. The Dev Viewer stores at most four indexes in
+IndexedDB; a different fingerprint or transform plan invalidates reuse.
+
+An application can supply a validated index to stream nodes without a
+complete point scan:
+
+```ts
+const provider = await createCopcTileResourceProvider(source, {
+  scanCompleteHierarchy: true,
+  boundsStrategy: 'indexed-decoded-content',
+  boundsIndex: persistedIndex,
+  selection: { attributes: { rgb: true } },
+  readerLimits: {
+    maxPointsPerNode: 200_000,
+    maxPointDataBytesPerNode: 8 * 1024 * 1024,
+    maxDecodedBytesPerNode: 16 * 1024 * 1024,
+    maxConcurrentNodeReads: 2,
+  },
+  tilesetOptions: { maxTotalPoints: null },
+});
+```
+
+Index creation is explicit full decoded-content preprocessing; using a valid
+index is the node-streaming operation. A content-derived index certifies only
+the prepared points observed during the complete scan. It does not certify
+unobserved source-space cells or survey-grade vertical placement. It is not a
+substitute for the unchanged `conservative-source-cell` contract. If neither
+certified source-cell bounds nor a compatible complete index is available, a
+projected source requiring safe multi-node tile volumes cannot be streamed
+from metadata alone. Node reads, batches, outstanding requests, caches,
+generated GLBs, and explicit complete scans keep separate budgets; disabling
+the Tileset-wide point total does not disable those limits.
 
 Every content tile and its parent carries strategy and source/transform
 provenance in `extras`; the provider summary retains per-node bounds and
@@ -127,8 +175,8 @@ points and exposes progress, bytes, ECEF buffer size, and placement status;
 the mode is not enabled in the public Playground.
 
 The connector preserves the Adapter source and transform generations, its
-immutable transform plan, actual field availability, and zero-copy ECEF
-Float64 buffers. Missing standard fields and Extra Dimensions are omitted and
+immutable transform plan, actual field availability, and ECEF Float64 buffers.
+Missing standard fields and Extra Dimensions are omitted and
 reported in the node context; Tiles does not create zero-filled attributes.
 Named Extra Bytes must be configured at source open and requested by exact
 case-sensitive name. Adapter's `copc-js` supports exact values where the LAS
@@ -172,19 +220,22 @@ The verified bounds cases include generated EPSG:4326 and EPSG:4979 WGS84
 fixtures with explicit ellipsoidal height. Unknown vertical reference returns
 `unsupported-vertical-reference`. Projected EPSG:2992 Autzen and EPSG:32611
 return `unsupported-horizontal-crs`, so these sources cannot use this
-metadata-only `conservative-source-cell` bounds path. This capability does not itself implement live
-multi-node request scheduling or camera-driven COPC refinement.
+metadata-only `conservative-source-cell` bounds path. An indexed
+decoded-content provider can stream them after an authorized full scan and
+index generation, but its geometry certifies observed point content only.
 
-`TileNodeReader` resolves only requested node keys and has bounded hierarchy
-pages, ranges, decoded points, concurrency, and cancellation. It does not
-materialize the full octree or run Adapter's Direct `NodeSelector`. A complete
-production LOD tileset still needs a conservative policy for cells whose
-points have not yet been decoded.
+`TileNodeReader` resolves requested node keys and has bounded hierarchy pages,
+ranges, decoded points, concurrency, and cancellation. It does not run
+Adapter's Direct `NodeSelector`. The live provider currently reads a complete
+bounded hierarchy metadata traversal before returning `tileset.json`; point
+payloads remain on demand. This is metadata preload, not lazy subtree
+discovery. Cesium or the existing Three.js Tiles renderer selects tile
+content from the camera, and the provider prepares only requested nodes.
 
 ## Adapter compatibility
 
-Tiles pins the verified published `@frillab/copc-adapter@0.7.1` package as an
-exact optional peer and development dependency. Its `/core` subpath publicly
+Tiles keeps the published Adapter 0.7.1 development baseline and supports its
+documented 0.7.1 and compatible 0.8.x `/core` APIs. The subpath publicly
 exports the node-source integration and conservative-bounds types/runtime.
 See the [versioned API matrix](./adapter-api-compatibility.md) for Registry
 integrity, exact method and result semantics, NodeNext checks, backend results,

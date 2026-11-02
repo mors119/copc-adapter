@@ -2,6 +2,22 @@
 
 ## Unreleased — 0.1.0 candidate updates
 
+- Implement renderer-selected COPC node streaming through standard Cesium and
+  Three.js 3D Tiles consumers. Bypass only the streaming Tileset-wide point
+  total check while retaining bounded hierarchy, per-node, batch, request,
+  byte, concurrency, GLB, cache, and explicit full-scan budgets.
+- Add an explicit versioned decoded-content bounds index bound to a strong
+  ETag source fingerprint, resource-selecting query parameters, and
+  transform-plan identity. Exclude known signed credentials from the query
+  identity. Validate checksum,
+  complete hierarchy, coverage totals, CRS/vertical evidence, per-node bounds,
+  and Float32 reconstruction allowances before serving indexed content.
+- Pin persistent-index Range reads to the recorded strong ETag and track
+  actual returned source bytes. Keep full decoded-content/index generation a
+  separate preprocessing choice with the 4,000,000-point default.
+- Show actual source, hierarchy, node, GLB, cancellation, cache, first-visible,
+  and vertical-placement measurements in the Dev Viewer and update the 3D
+  Tiles presentation runbook.
 - Add an explicitly authorized, separately named `decoded-content` resource
   provider strategy. It preflights bounded complete hierarchy metadata and
   point/byte budgets, sequentially scans every prepared point, records
