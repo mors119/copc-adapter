@@ -2,27 +2,142 @@
 
 [![npm](https://img.shields.io/npm/v/@frillab/copc-adapter.svg)](https://www.npmjs.com/package/@frillab/copc-adapter) [![CI](https://github.com/mors119/copc-adapter/actions/workflows/ci.yml/badge.svg)](https://github.com/mors119/copc-adapter/actions/workflows/ci.yml) [![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://mors119.github.io/copc-adapter/) [![License](https://img.shields.io/github/license/mors119/copc-adapter.svg)](https://github.com/mors119/copc-adapter/blob/main/LICENSE) [![GitHub release](https://img.shields.io/github/v/release/mors119/copc-adapter.svg)](https://github.com/mors119/copc-adapter/releases)
 
-Stream and visualize Cloud Optimized Point Cloud (COPC) data directly in
-CesiumJS and Three.js without preprocessing or converting it to
-renderer-specific tiles.
+### [Try the Live Playground](https://mors119.github.io/copc-adapter/playground/)
 
-COPC Adapter reads the original COPC resource in the browser, uses HTTP Range
-requests to load the hierarchy and selected point chunks, and renders them
-through the renderer adapter selected by the application. The application
-keeps ownership of its own viewer or scene.
+Stream and visualize COPC point clouds directly in CesiumJS and Three.js
+without converting them into renderer-specific tiles.
 
-The `@frillab/copc-adapter/core` package subpath also exposes a renderer-neutral
-COPC source for applications that provide their own node scheduler and output
-format; it does not build 3D Tiles content. The `./core` export is available
-from version 0.7.0; version 0.6.0 does not include it. See the
-[source API](https://mors119.github.io/copc-adapter/API#copc-tiles-compatibility-audit)
-for its contract and limits.
+[![CesiumJS preview of a streamed COPC point cloud](docs/assets/main.gif)](https://mors119.github.io/copc-adapter/playground/)
 
-![COPC Adapter demo](docs/assets/copc-main.gif)
+[Documentation](https://mors119.github.io/copc-adapter/) · [npm](https://www.npmjs.com/package/@frillab/copc-adapter)
+
+## Visual Examples
+
+The CesiumJS captures use the local Autzen Stadium COPC sample.
+
+### Styling Modes
+
+<table>
+  <tbody>
+    <tr>
+      <td><strong>RGB</strong><br><img src="docs/assets/rgb.png" width="120" alt="COPC points colored by original RGB attributes"><br>Original color attributes.</td>
+      <td><strong>Elevation</strong><br><img src="docs/assets/elevation.png" width="120" alt="COPC points colored by elevation"><br>Height-based coloring.</td>
+      <td><strong>Intensity</strong><br><img src="docs/assets/intnsity.png" width="120" alt="COPC points colored by reflected intensity"><br>Reflected intensity values.</td>
+    </tr>
+    <tr>
+      <td><strong>Classification</strong><br><img src="docs/assets/classification.png" width="120" alt="COPC points colored by LAS classification"><br>LAS classification codes.</td>
+      <td><strong>Numeric Dimension</strong><br><img src="docs/assets/numeric%20dimension.png" width="120" alt="COPC points colored by a numeric dimension"><br>Numeric field color mapping.</td>
+      <td><strong>Fixed</strong><br><img src="docs/assets/fixed.png" width="120" alt="COPC points rendered in a constant cyan color"><br>Constant color.</td>
+    </tr>
+  </tbody>
+</table>
+
+Attribute-based styles depend on fields available in the dataset and support
+in the selected backend. Rust/WASM supports standard LAS `Intensity` but
+rejects Extra Bytes requests.
+
+The supported modes are:
+
+- `fixed`: stable cyan fallback color
+- `rgb`: source RGB channels
+- `elevation`: transformed dataset height range
+- `intensity`: normalized intensity range
+- `classification`: categorical classification palette
+- `dimension`: an explicit numeric LAS dimension range and color ramp
+
+Attribute-based modes fall back to the fixed color when the required source
+attribute is unavailable. Cesium layers retain intensity, classification, and
+RGB attributes so `setStyle()` can switch modes or apply classification and
+numeric range filters from cached point buffers without fetching point chunks
+again. Classification filters accept LAS codes from `0` through `255`; points
+without a classification value are hidden while a filter is active. Use
+`classificationFilter: null` to clear a classification filter.
+
+Numeric dimension coloring accepts standard LAS `Intensity` on both built-in
+backends and supported scalar Extra Bytes through `copc-js`. Extra Bytes are
+opt-in and count toward the point cache:
+
+```ts
+const layer = new CopcCesiumLayer({
+  url: 'https://example.com/data.copc.laz',
+  colorMode: 'dimension',
+  dimension: {
+    name: 'CanopyHeight',
+    range: { min: 0, max: 50 },
+  },
+  dimensionFilter: { name: 'CanopyHeight', min: 2, max: 40 },
+});
+```
+
+The style's dimension is loaded automatically; add `extraDimensions` for
+additional fields you want to inspect or switch to later. Numeric values clamp
+to the ramp ends, NoData/non-finite values use fixed cyan, and a dimension
+filter hides missing or out-of-range values. `copc-js` supports scalar signed
+and unsigned 8-, 16-, and 32-bit integers plus 32-/64-bit floats for numeric
+styling. 64-bit integer values remain exact for picking but cannot be styled as
+JavaScript numbers.
+
+### Camera-Driven LoD and Streaming
+
+<table>
+  <thead>
+    <tr>
+      <th>Distant / coarser view</th>
+      <th>Closer / finer view</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><img src="docs/assets/lod-r.png" width="170" alt="Distant view of the COPC point cloud at coarser detail"><br>Distant view with coarser detail.</td>
+      <td><img src="docs/assets/lod-d.png" width="170" alt="Closer view of the COPC point cloud at finer detail"><br>Closer view with finer detail.</td>
+    </tr>
+  </tbody>
+</table>
+
+These captures use different camera viewpoints and illustrate behavior rather
+than a same-camera benchmark. The renderer selects point detail according to
+the active camera view and node/point resource budgets.
+
+Camera movement changes hierarchy discovery and selection. With a valid
+perspective camera, hierarchy queries follow a conservative envelope of the
+active view (including oblique views) rather than a box centered only on the
+camera position. Callers without a usable perspective view retain a finite
+camera-based fallback. Cached hierarchy pages are reused as the view changes.
+
+The selector maintains a visible coarse frontier and replaces nodes with finer
+data when screen-space error, view relevance, hysteresis, and node/point
+workload limits permit it. Replacements preserve coarse coverage until finer
+data is ready, while newer camera generations supersede stale asynchronous
+work. See the [streaming validation report](docs/benchmarks/issue-68-streaming.md),
+[architecture guide](docs/ARCHITECTURE.md), and [API documentation](docs/API.md)
+for the ownership boundary and current options.
+
+### Point Selection
+
+<img src="docs/assets/point.gif" width="480" alt="Point selection interaction in the CesiumJS COPC view">
+
+Both adapters expose point picking: Cesium uses `onPointPicked` or
+`getSelectedPoint()`, and Three.js uses `pick({ x, y })`. The hit includes its
+`{ nodeKey, pointIndex }` identity and requested decoded attributes when
+available.
+
+### CesiumJS and Three.js
+
+The preview above shows the CesiumJS adapter. The image below shows the
+Three.js adapter; both renderer-specific adapters reuse the shared COPC
+streaming Core while the application owns its viewer or scene.
+
+![COPC point cloud rendered with the Three.js adapter](docs/assets/three.png)
+
+### Korean Public Dataset
+
+![Korean public COPC dataset rendered in CesiumJS](docs/assets/korea-data.png)
+
+Korean public LAZ dataset converted to COPC and rendered in CesiumJS. Placement
+used a manually configured `heightOffsetMeters: -40`.
 
 ## Documentation
 
-- [Documentation site](https://mors119.github.io/copc-adapter/)
 - [한국어 가이드](https://mors119.github.io/copc-adapter/ko/)
 - [HTTP Range / CORS hosting guide (EN)](https://mors119.github.io/copc-adapter/source-hosting)
 - [HTTP Range / CORS 배포 가이드 (KO)](https://mors119.github.io/copc-adapter/ko/source-requirements)
@@ -47,24 +162,6 @@ The [architecture guide](docs/ARCHITECTURE.md#workspace-package-boundaries)
 and [workspace development guide](docs/monorepo-development.md) describe the
 package and consumer boundaries.
 
-## Try the Playground
-
-[Open Playground](https://mors119.github.io/copc-adapter/playground/)
-
-Paste a browser-readable COPC URL, tune display and LoD settings, inspect
-runtime metrics, and copy integration code. Remote sources must allow HTTP
-Range requests and browser CORS; see the [HTTP Range / CORS hosting
-guide](https://mors119.github.io/copc-adapter/source-hosting). GitHub Pages is
-static and does not proxy private or incompatible sources. Performance depends
-on the browser, hardware, network, and dataset; large datasets stream from
-their source and are not bundled into the Playground.
-
-The repository-owned captures use the local Autzen Stadium sample
-(`/samples/autzen.copc.laz`) rendered in CesiumJS with the demo's `rgb` color
-mode. The streaming capture shows the same dataset while camera movement
-drives view-aware LoD refinement; the static styling examples below also
-include the `elevation` and `classification` modes.
-
 ## Why COPC Adapter
 
 Many point-cloud workflows look like this:
@@ -84,6 +181,16 @@ COPC -> HTTP Range requests -> hierarchy / LoD -> point chunks
 
 It is a focused browser-side path for applications that want to stream COPC
 data without a separate conversion step.
+
+COPC Adapter reads the original COPC resource through HTTP Range requests and
+renders selected point chunks through the chosen renderer adapter while the
+application retains ownership of its viewer or scene. The
+`@frillab/copc-adapter/core` package subpath also exposes a renderer-neutral
+COPC source for applications that provide their own node scheduler and output
+format; it does not build 3D Tiles content. The `./core` export is available
+from version 0.7.0; version 0.6.0 does not include it. See the
+[source API](https://mors119.github.io/copc-adapter/API#copc-tiles-compatibility-audit)
+for its contract and limits.
 
 ## Features
 
@@ -329,89 +436,6 @@ only: it does not perform a geoid or vertical-datum conversion, sample terrain,
 or assume a universal offset for Korean datasets or any other region. Picked
 point `source.z` remains the original source value; `height` and `world` report
 the corrected display position.
-
-## Styling Modes
-
-<table>
-  <thead>
-    <tr>
-      <th>RGB</th>
-      <th>Elevation</th>
-      <th>Classification</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><img src="docs/assets/copc-rgb.webp" width="280" alt="RGB COPC rendering"></td>
-      <td><img src="docs/assets/copc-elevation.webp" width="280" alt="Elevation COPC rendering"></td>
-      <td><img src="docs/assets/copc-classification.webp" width="280" alt="Classification COPC rendering"></td>
-    </tr>
-    <tr>
-      <td><code>colorMode: 'rgb'</code></td>
-      <td><code>colorMode: 'elevation'</code></td>
-      <td><code>colorMode: 'classification'</code></td>
-    </tr>
-  </tbody>
-</table>
-
-The supported modes are:
-
-- `fixed`: stable cyan fallback color
-- `rgb`: source RGB channels
-- `elevation`: transformed dataset height range
-- `intensity`: normalized intensity range
-- `classification`: categorical classification palette
-- `dimension`: an explicit numeric LAS dimension range and color ramp
-
-Attribute-based modes fall back to the fixed color when the required source
-attribute is unavailable. Cesium layers retain intensity, classification, and
-RGB attributes so `setStyle()` can switch modes or apply classification and
-numeric range filters from cached point buffers without fetching point chunks
-again. Classification filters accept LAS codes from `0` through `255`; points
-without a classification value are hidden while a filter is active. Use
-`classificationFilter: null` to clear a classification filter.
-
-Numeric dimension coloring accepts standard LAS `Intensity` on both built-in
-backends and supported scalar Extra Bytes through `copc-js`. Extra Bytes are
-opt-in and count toward the point cache:
-
-```ts
-const layer = new CopcCesiumLayer({
-  url: 'https://example.com/data.copc.laz',
-  colorMode: 'dimension',
-  dimension: {
-    name: 'CanopyHeight',
-    range: { min: 0, max: 50 },
-  },
-  dimensionFilter: { name: 'CanopyHeight', min: 2, max: 40 },
-});
-```
-
-The style's dimension is loaded automatically; add `extraDimensions` for
-additional fields you want to inspect or switch to later. Numeric values clamp
-to the ramp ends, NoData/non-finite values use fixed cyan, and a dimension
-filter hides missing or out-of-range values. `copc-js` supports scalar signed
-and unsigned 8-, 16-, and 32-bit integers plus 32-/64-bit floats for numeric
-styling. 64-bit integer values remain exact for picking but cannot be styled as
-JavaScript numbers. Rust supports standard `Intensity` but rejects Extra Bytes
-requests explicitly.
-
-## Camera-Driven LoD and Streaming
-
-![COPC Adapter streaming demo](docs/assets/copc-streaming.gif)
-
-Camera movement changes hierarchy discovery and selection. With a valid
-perspective camera, hierarchy queries follow a conservative envelope of the
-active view (including oblique views) rather than a box centered only on the
-camera position. Callers without a usable perspective view retain a finite
-camera-based fallback. Cached hierarchy pages are reused as the view changes.
-
-The selector maintains a visible coarse frontier and replaces nodes with finer
-data when screen-space error, view relevance, hysteresis, and node/point
-workload limits permit it. Replacements preserve coarse coverage until finer
-data is ready, while newer camera generations supersede stale asynchronous
-work. See the [architecture guide](docs/ARCHITECTURE.md) for the ownership
-boundary and the [API documentation](docs/API.md) for current options.
 
 ## Architecture
 
