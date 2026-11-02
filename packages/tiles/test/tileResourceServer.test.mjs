@@ -90,8 +90,10 @@ test('deduplicates concurrent resource reads and serves repeat requests from the
     assert.equal(reads, 1);
     assert.equal(server.getStats().cacheEntries, 1);
     assert.equal(server.getStats().cacheBytes, bytes('same-content').byteLength);
+    assert.equal(server.getStats().cacheMisses, 2, 'both concurrent lookups missed before the shared load completed');
     await server.handle(req('/points.glb'));
     assert.equal(reads, 1);
+    assert.equal(server.getStats().cacheHits, 1);
   } finally {
     await server.close();
   }
@@ -107,6 +109,7 @@ test('applies LRU eviction and never exceeds configured cache bytes or entries',
     await (await server.handle(req('/c.glb'))).arrayBuffer();
     assert.equal(server.getStats().cacheBytes, 4);
     assert.equal(server.getStats().cacheEntries, 2);
+    assert.equal(server.getStats().cacheEvictions, 1);
     await (await server.handle(req('/a.glb'))).arrayBuffer();
     await (await server.handle(req('/b.glb'))).arrayBuffer();
     assert.equal(fixture.calls(), 4);
@@ -259,6 +262,7 @@ test('aborts provider work when the only subscriber cancels and invalidates old 
     await server.switchSource(controlledProvider('new-generation', { 'switch.glb': 'new' }).provider);
     assert.equal(switchSignal.aborted, true);
     assert.equal((await stale).status, 410);
+    assert.ok(server.getStats().cancelledLoads >= 2);
     const newResponse = await server.handle(req('/switch.glb'));
     assert.equal(await newResponse.text(), 'new');
   } finally {
@@ -300,6 +304,7 @@ test('bounds simultaneous distinct node loads and rejects excess queue work', as
   try {
     const first = server.handle(req('/first.glb'));
     await firstStarted;
+    assert.equal(server.getStats().peakActiveLoads, 1);
     assert.equal((await server.handle(req('/second.glb'))).status, 503);
     firstResolve(bytes('first'));
     assert.equal(await (await first).text(), 'first');

@@ -30,9 +30,14 @@ export type TileResourceServer = Readonly<{
   getStats(): Readonly<{
     cacheEntries: number;
     cacheBytes: number;
+    cacheHits: number;
+    cacheMisses: number;
+    cacheEvictions: number;
     inFlightLoads: number;
     queuedLoads: number;
     activeLoads: number;
+    peakActiveLoads: number;
+    cancelledLoads: number;
     closed: boolean;
   }>;
 }>;
@@ -117,6 +122,10 @@ export function createTileResourceServer(
   let activeGeneration = initialProvider.generation;
   let closed = false;
   let cacheBytes = 0;
+  let cacheHits = 0;
+  let cacheMisses = 0;
+  let cacheEvictions = 0;
+  let cancelledLoads = 0;
   const cache = new Map<string, CacheEntry>();
   const inFlight = new Map<string, InFlightEntry>();
   const outstandingLoads = new Set<InFlightEntry>();
@@ -132,7 +141,7 @@ export function createTileResourceServer(
   };
 
   const clearGenerationState = (): void => {
-    for (const entry of outstandingLoads) entry.controller.abort();
+    for (const entry of outstandingLoads) abortLoad(entry);
     inFlight.clear();
     cache.clear();
     cacheBytes = 0;
@@ -148,7 +157,11 @@ export function createTileResourceServer(
 
   const getCached = (key: string): Uint8Array | undefined => {
     const entry = cache.get(key);
-    if (!entry) return undefined;
+    if (!entry) {
+      cacheMisses += 1;
+      return undefined;
+    }
+    cacheHits += 1;
     cache.delete(key);
     cache.set(key, entry);
     return entry.bytes;
@@ -168,13 +181,16 @@ export function createTileResourceServer(
       if (oldestKey === undefined) break;
       const oldest = cache.get(oldestKey);
       cache.delete(oldestKey);
-      if (oldest) cacheBytes -= oldest.bytes.byteLength;
+      if (oldest) {
+        cacheBytes -= oldest.bytes.byteLength;
+        cacheEvictions += 1;
+      }
     }
   };
 
   const subscribe = (entry: InFlightEntry, signal: AbortSignal): Promise<Uint8Array | undefined> => {
     if (signal.aborted) {
-      if (entry.subscribers === 0 && !entry.settled) entry.controller.abort();
+      if (entry.subscribers === 0 && !entry.settled) abortLoad(entry);
       return Promise.reject(abortError());
     }
     if (entry.subscribers >= limits.maxSubscribersPerResource) {
@@ -188,7 +204,7 @@ export function createTileResourceServer(
         finished = true;
         signal.removeEventListener('abort', onAbort);
         entry.subscribers -= 1;
-        if (entry.subscribers === 0 && !entry.settled) entry.controller.abort();
+        if (entry.subscribers === 0 && !entry.settled) abortLoad(entry);
       };
       const onAbort = (): void => {
         finish();
@@ -211,6 +227,12 @@ export function createTileResourceServer(
       );
     });
   };
+
+  function abortLoad(entry: InFlightEntry): void {
+    if (entry.settled || entry.controller.signal.aborted) return;
+    cancelledLoads += 1;
+    entry.controller.abort();
+  }
 
   const getResourceBytes = (candidate: TileResourceProvider, uri: string, signal: AbortSignal): Promise<Uint8Array | undefined> => {
     const generation = candidate.generation;
@@ -328,9 +350,14 @@ export function createTileResourceServer(
     getStats: () => Object.freeze({
       cacheEntries: cache.size,
       cacheBytes,
+      cacheHits,
+      cacheMisses,
+      cacheEvictions,
       inFlightLoads: outstandingLoads.size,
       queuedLoads: loadGate.queued,
       activeLoads: loadGate.active,
+      peakActiveLoads: loadGate.peakActive,
+      cancelledLoads,
       closed,
     }),
   });
@@ -388,12 +415,14 @@ export function createStaticTileResourceProvider(
 
 class LoadGate {
   private activeCount = 0;
+  private peakActiveCount = 0;
   private readonly queue: Array<LoadJob<unknown>> = [];
 
   constructor(private readonly concurrency: number, private readonly maxQueued: number) {}
 
   get active(): number { return this.activeCount; }
   get queued(): number { return this.queue.length; }
+  get peakActive(): number { return this.peakActiveCount; }
 
   run<T>(run: () => Promise<T>, signal: AbortSignal): Promise<T> {
     if (signal.aborted) return Promise.reject(abortError());
@@ -430,6 +459,7 @@ class LoadGate {
       return;
     }
     this.activeCount += 1;
+    this.peakActiveCount = Math.max(this.peakActiveCount, this.activeCount);
     Promise.resolve().then(job.run).then(job.resolve, job.reject).finally(() => {
       this.activeCount -= 1;
       this.pump();

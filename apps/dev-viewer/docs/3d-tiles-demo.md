@@ -1,13 +1,15 @@
-# Projected COPC in the experimental 3D Tiles viewer
+# Node-based COPC streaming in the 3D Tiles viewer
 
-This runbook uses the existing public Adapter Core connector and local
-`@frillab/copc-tiles` workspace. It keeps Direct COPC as the default and offers
-two Tiles bounds strategies with different coverage claims:
+This runbook uses the public Adapter Core connector and independent local
+`@frillab/copc-tiles` workspace. Direct COPC remains the default. The renderer
+selects visible Tiles, each requested content URI reads one COPC node, and that
+prepared ECEF node is encoded as a GLB on demand.
 
 | Strategy | What the bound contains | Point reads before Tileset | Projected input |
 | --- | --- | --- | --- |
-| `conservative-source-cell` (default) | The complete source cell and its descendants, only when Core returns a supported certified result | None | Unsupported until a metadata-only projected proof is implemented |
-| `decoded-content` (explicit experimental opt-in) | Every prepared ECEF point in every content-bearing node of the completely scanned hierarchy, plus GLB reconstruction padding | Every point, sequentially, after complete traversal and budget preflight | Can display finite Core-prepared points; this does not prove source-cell coverage or survey-grade height |
+| `conservative-source-cell` (default) | The complete source cell and descendants, only when Core returns its existing certified result | None; requested tile nodes decode on demand | Unsupported until a metadata-only projected proof exists |
+| `indexed-decoded-content` | Reusable per-node observed-content bounds and the union of descendant bounds, with GLB reconstruction allowances | None after the index exists; requested tile nodes decode on demand | Supported only with a current, complete index bound to a strong-ETag source fingerprint and transform plan |
+| `decoded-content` (explicit preprocessing) | Every prepared point in every content-bearing node, plus GLB reconstruction padding; never source-cell certification | Every point before Tileset creation; default 4,000,000-point limit, configurable to 20,000,000 | Generates the reusable index where immutable HTTP identity is available |
 
 `getConservativeNodeEcefBounds()` is unchanged. Projected source-cell bounds
 remain unsupported by that method and the original metadata-only full-cell
@@ -16,6 +18,17 @@ proof remains **BLOCKED**. Decoded-content output records
 result. A successful ECEF content envelope says only that the listed prepared
 positions and their generated GLB reconstruction are enclosed. It does not by
 itself validate the source datum or vertical placement.
+
+Each Tileset currently performs a complete bounded hierarchy metadata scan
+before its first render. This initial release does not lazily discover
+hierarchy pages or subtrees. Point payloads remain on demand: the metadata scan
+does not decode every point in the streaming strategies. Index generation is a
+separate, explicit complete point scan. Dev Viewer stores only index metadata
+in IndexedDB, for up to four source fingerprints; it never stores point buffers
+or GLBs. Indexed reuse requires a readable strong HTTP ETag and content length,
+and Adapter pins later Range responses to that ETag. Local files and remote
+sources without that immutable identity can still use certified source-cell
+streaming, but cannot use this reusable-index path.
 
 ## Reproduce the projected fixture
 
@@ -38,8 +51,9 @@ synthetic COPC fixture with projected EPSG:32611 east/north metre coordinates.
 Its WKT declares the horizontal CRS only; it has no authoritative vertical CRS.
 The fixture is not a real survey, terrain dataset, or verified-height source.
 
-The viewer initially opens in Direct COPC. Select **Bounded decoded-content
-bounds (experimental)**, select **3D Tiles (Experimental)**, then press
+The viewer initially opens in Direct COPC. Select **Explicit full point scan +
+index generation**, leave the point limit at 4,000,000, select **3D Tiles
+(Experimental)**, then press
 **Apply Settings**. Wait for the Health panel to show:
 
 - bounds strategy `decoded-content`, coverage `rendered-content-only`, and geometry bounds `complete-decoded-content`;
@@ -49,7 +63,11 @@ bounds (experimental)**, select **3D Tiles (Experimental)**, then press
   visible tiles and visible points greater than zero;
 - a nonzero observed Range byte count, peak decoded ECEF buffer, and scan time.
 
-The diagnostic `boundsSupport: supported` refers to generated geometry bounds
+This fixture declares fewer than four million points, so the default complete
+scan budget is sufficient. If the HTTP server exposes a strong ETag and content
+length, the scan also stores an index; otherwise the diagnostic says the index
+is unavailable and the full scan remains usable for this session. The
+diagnostic `boundsSupport: supported` refers to generated geometry bounds
 for all scanned content. It does not change Core's unsupported
 `unsupported-horizontal-crs` full-cell result. The screen discloses that
 distinction and keeps the placement warning visible. Use **Far**, **Near**, and
@@ -89,14 +107,58 @@ and five GLB requests totaling 2,625,168 bytes. These are one-machine
 measurements; repeated browser runs varied and are not a cross-version
 benchmark.
 
+## Stream a real source above four million points
+
+Autzen is a real 10,653,336-point COPC source. Its public HTTP endpoint
+currently supports byte ranges and exposes a strong ETag. The first pass below
+is an explicit preprocessing step required to create an index for this
+projected source. The later indexed sessions start without a complete point
+scan:
+
+1. Open the Dev Viewer on the same origin where you will keep the index. Select
+   **Autzen · public HTTP**, **Explicit full point scan + index generation**,
+   and **3D Tiles (Experimental)**. Set **Explicit full-scan point limit** to
+   `12000000` (the default intentionally remains `4000000`) and press **Apply
+   Settings**. Wait for Health to show `stored` and all source points scanned.
+2. Change the strategy to **Streaming with a verified content-bounds index**
+   and apply. Health should show `indexed-decoded-content`, a valid index, zero
+   points scanned in this session, loaded and visible nodes, and nonzero GLB
+   requests. This session reads hierarchy metadata and only the point payloads
+   selected by the renderer.
+3. Use **Near** and **Overview**. Watch distinct GLB requests, source Range
+   bytes, requested and visible point counts, active and cancelled loads, and
+   cache use change in Health. The resource server holds at most 64 entries or
+   32 MiB and evicts least-recently-used entries when those limits are reached.
+4. Reload the same source as Three.js with
+   `&pipeline=tiles&tilesBounds=indexed-decoded-content&renderer=three` in the
+   URL. The same-origin IndexedDB index remains available. Compare camera
+   movement, loaded nodes, visible points, first-visible time, and GLB requests.
+
+The first explicit scan decodes every Autzen point; it is not cold-start
+streaming. The indexed sessions demonstrate camera-driven loading. A new
+browser profile must generate its own index. A changed strong ETag invalidates
+the fingerprint. If the index is missing or rejected, the viewer reports the
+preprocessing requirement and does not treat content bounds as certified
+source-cell bounds. Autzen's vertical NAVD88 evidence remains unverified for
+authoritative placement.
+
+The ordinary `test:e2e:tiles` suite includes generated-index reuse through both
+renderers. To run the optional real 10.6-million-point workflow, set
+`COPC_RUN_AUTZEN_INDEX_E2E=1` before the same Playwright command. Its synthetic
+hierarchy regression declares exactly 4,004,078 points without committing a
+large binary: complete preprocessing rejects at the 4-million default, while
+source-cell streaming creates a Tileset and reads only the requested node.
+A separate generated hierarchy above 20 million points checks that streaming
+does not reject by source total.
+
 ## Real source status and limits
 
 | Source | Current result | Vertical placement |
 | --- | --- | --- |
 | Generated EPSG:32611 fixture | Full decoded-content scan is browser-tested in Cesium and Three.js | **Unverified**; horizontal-only WKT |
 | Generated EPSG:32611 3D fixture | Full decoded-content path and explicit height provenance are browser-tested in Three.js | WGS 84 EPSG:4979 base and ellipsoidal metre UP axis are explicit. The ensemble's stated 2 m accuracy and missing coordinate epoch prevent a survey-grade claim. |
-| Autzen, EPSG:2992 / EPSG:6360 | Full decoded-content scan completed: 278/278 hierarchy nodes, 10,653,336/10,653,336 points, three on-demand GLBs. This is point-content coverage only; selected real-source content is separately browser-rendered. | **Unverified**; NAVD88 height uses US survey feet and no compatible authoritative correction/epoch operation is configured |
-| SoFi, EPSG:32611 | Public source declares 364,384,576 points, exceeding the 20,000,000 API hard limit. It fails preflight and is not a complete decoded-content Tileset. | **Unverified**; source vertical authority is absent/unknown |
+| Autzen, EPSG:2992 / EPSG:6360 | Full decoded-content scan completed for index generation, followed by camera-driven indexed sessions in Cesium and Three. Each renderer requested distinct node GLBs and rendered selected points without another full point scan. | **Unverified**; NAVD88 height uses US survey feet and no compatible authoritative correction/epoch operation is configured |
+| SoFi, EPSG:32611 | Explicit full preprocessing exceeds the 20,000,000 point hard limit; without certified source-cell bounds or a valid index, this projected source is unsupported for Tileset streaming. Selected-node renderer checks remain separate. | **Unverified**; source vertical authority is absent/unknown |
 | EPSG:5186 fixture | Existing fixture has horizontal/ECEF controls but no authoritative vertical CRS or source-Z unit | **Unverified** |
 
 Download local Autzen and reproduce its full bounded content scan plus three
@@ -113,7 +175,9 @@ reads, preflights hierarchy and byte limits, and fails on any incomplete scan.
 It produces a complete content-only Tileset and requests three GLBs; it does
 not render all real Autzen tiles through a camera-driven Cesium/Three session
 or prove source-cell coverage. If the local sample is absent, this test reports
-an explicit skip. The default Dev Viewer budget remains 4,000,000 points.
+an explicit skip. The explicit Dev Viewer budget defaults to 4,000,000 points
+and can be raised to 20,000,000 for complete preprocessing. Normal
+node-streaming strategies do not apply that global total-point limit.
 
 Its coordinates use international feet horizontally and US survey feet
 vertically. A selected-node content render is useful for checking Core point
@@ -204,13 +268,13 @@ provider's 1,849,488-byte maximum ECEF view is an exact returned typed-array
 size, not a claim about decoder or browser heap usage. These are one-machine
 measurements, not a reusable cross-version performance baseline.
 
-## 30–45 second presentation recording
+## 30–45 second generated-fixture bounds presentation
 
 Record the generated projected fixture at 1440×900 in Chromium. Keep the Health
 panel open so the coverage and height distinction remain visible:
 
 1. **0–6 seconds:** show Direct COPC and the projected source label.
-2. **6–12 seconds:** select decoded-content bounds, choose 3D Tiles, and apply.
+2. **6–12 seconds:** select explicit full scan, choose 3D Tiles, and apply.
 3. **12–22 seconds:** show scan progress moving to complete, then point/node
    accounting, GLB requests, visible tiles, visible points, and the explicit
    `unverified` vertical placement.
@@ -223,15 +287,58 @@ For a Three.js take, use `renderer=three`. Caption the scene as a synthetic
 projected fixture with diagnostic, unverified height. Do not label it Autzen,
 SoFi, terrain-aligned, or survey-accurate.
 
+## 30–45 second large-source streaming presentation
+
+Before recording, generate and store an Autzen index using the runbook above.
+Then start a fresh session with `tilesBounds=indexed-decoded-content`:
+
+1. **0–8 seconds:** show the source total above ten million points, a valid
+   index, zero points scanned this session, and the metadata-node total.
+2. **8–20 seconds:** show visible points and GLB requests, then move to Near
+   and point out newly requested node resources.
+3. **20–32 seconds:** orbit and return to Overview. Show source Range bytes,
+   requested versus rendered points, active/cancelled requests, and cache use.
+4. **32–45 seconds:** reload the same source and index as Three.js. Compare
+   visible points, additional GLB requests, and first-visible measurements.
+
+The index preparation pass is not part of this recording. Health should show
+`indexed-decoded-content` and zero complete-scan points for both renderer
+sessions. Keep the NAVD88 unverified-placement note visible.
+
+### Measured real Autzen indexed sessions
+
+On Node 22.14.0 / Chromium 156.0.8078.74, the optional browser test used the
+verified 81,123,042-byte public Autzen object through a local HTTP range
+response harness. Index generation took 121,206 ms and observed 81,187,270
+source bytes across the full point scan. The indexed Cesium session initialized
+in 23,881 ms and showed its first points after 28,052 ms: 199,177 points were
+decoded, 2,444,803 source bytes and 5,289,158 Tiles resource bytes had been
+read, and 131,060 points were visible. It requested 28 GLBs (6,937,036 bytes),
+reached four active loads, and retained 12 cache entries (8,237,450 bytes)
+without eviction. Moving Near triggered additional distinct node GLBs.
+
+The indexed Three session initialized in 36 ms and showed its first points
+after 595 ms: 199,218 points were decoded, 2,405,133 source bytes and
+5,289,238 Tiles resource bytes had been read, and 119,687 points were visible.
+It requested 31 GLBs (5,125,972 bytes), reached four active loads, and retained
+nine cache entries (6,426,386 bytes) without eviction. Moving Near triggered
+additional distinct node GLBs. These one-machine measurements use the real
+survey bytes but a local range harness; they are not live-network latency or a
+cross-version benchmark. The first index generation is a full preprocessing
+pass, not part of either indexed session. Each indexed initialization
+separately read one 8,896-byte COPC hierarchy page containing all 278 metadata
+nodes; that traversal is distinct from the 2.4 MB of source ranges before first
+visibility. Autzen's NAVD88 placement remains unverified.
+
 ## Release-track readiness
 
 This behavior is implemented in the independent, currently unpublished
-`@frillab/copc-tiles` workspace and uses the public Adapter Core 0.7.1
-prepared-node/bounds contract. The same branch prepares Adapter 0.8.0 with a
-narrow WKT2 projected ellipsoidal-height diagnostic and keeps the public
-declaration shape unchanged. Tiles keeps 0.7.1 as its exact development
-baseline, accepts the optional peer range `^0.7.1 || ^0.8.0`, and is packed
-against both package versions. Do not publish either package from this branch.
+`@frillab/copc-tiles` workspace and uses the public Adapter Core 0.8.x
+prepared-node/bounds contract. Adapter adds strong-ETag range pinning and
+aggregate returned-byte diagnostics for immutable index identity; existing
+public APIs remain available. Tiles keeps its optional peer range
+`^0.7.1 || ^0.8.0` and is packed against both package versions. Do not publish
+either package from this branch.
 The public npm Playground stays pinned to Adapter 0.7.1 and does not enable
 unpublished Tiles functionality. The original projected metadata-only
 full-cell proof stays **BLOCKED** and must not be described as completed.

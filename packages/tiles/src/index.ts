@@ -8,3 +8,5 @@ export * from './tileset/explicitTileset.js';
 export * from './tileset/implicitOctreeTileset.js';
 export * from './resources/tileResourceServer.js';
 export * from './resources/copcTileResourceProvider.js';
+export * from './resources/decodedContentBoundsIndex.js';
+export * from './resources/sourceFingerprint.js';

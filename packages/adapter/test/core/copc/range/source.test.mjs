@@ -387,6 +387,37 @@ test("HttpRangeByteSource constructs exact byte ranges and validates 206 bytes",
   assert.equal(await source.size(), 100);
 });
 
+test("HttpRangeByteSource pins persistent-index reads to a caller-supplied strong ETag", async () => {
+  const matching = new HttpRangeByteSource("https://example.test/versioned.copc.laz", {
+    expectedETag: '"version-7"',
+    fetch: async () => makeResponse(206, [1, 2], {
+      "Content-Range": "bytes 0-1/100",
+      ETag: '"version-7"',
+    }),
+  });
+  assert.deepEqual([...(await matching.readRange(0, 2))], [1, 2]);
+
+  const changed = new HttpRangeByteSource("https://example.test/versioned.copc.laz", {
+    expectedETag: '"version-7"',
+    fetch: async () => makeResponse(206, [1, 2], {
+      "Content-Range": "bytes 0-1/100",
+      ETag: '"version-8"',
+    }),
+  });
+  await assert.rejects(
+    () => changed.readRange(0, 2),
+    (error) => error instanceof RangeSourceError && error.code === "source-changed",
+  );
+  assert.throws(
+    () => new HttpRangeByteSource("https://example.test/data", { expectedETag: 'W/"weak"' }),
+    (error) => error instanceof RangeSourceError && error.code === "representation",
+  );
+  assert.throws(
+    () => new HttpRangeByteSource("https://example.test/data", { expectedETag: "unquoted" }),
+    (error) => error instanceof RangeSourceError && error.code === "representation",
+  );
+});
+
 test("HttpRangeByteSource redacts URL credentials and query values from errors", async () => {
   const source = new HttpRangeByteSource(
     "https://viewer:password@example.test/data.copc.laz?X-Amz-Signature=secret#private",

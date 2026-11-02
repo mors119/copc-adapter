@@ -8,7 +8,10 @@
 > [repository development guide](https://github.com/mors119/copc-adapter/blob/main/docs/monorepo-development.md) for
 > migration, packaging, and consumer-validation results.
 
-## Current approved #432 delivery candidate — 2026-11-01
+## Historical #432 delivery candidate snapshot — 2026-11-01
+
+The following section records the state before issue #437 and is superseded by
+the current #437 status below.
 
 The maintainer-approved scope amendment in
 [Adapter issue #432](https://github.com/mors119/copc-adapter/issues/432) adds
@@ -51,7 +54,40 @@ Assessment date: 2026-10-31. This is the Adapter 0.7.1 integration,
 conservative-bounds, and live explicit-resource-provider milestone. The
 package remains unpublished and all T1–T12 issues remain open.
 
-## Current result
+## Issue #437 implementation status — 2026-11-02
+
+COPC Tiles supports renderer-selected node streaming through its explicit
+Tileset resource provider. It builds bounded tile metadata, leaves each node
+GLB on demand, and lets Cesium3DTileset or the existing Three.js Tiles renderer
+request visible and refined content. Streaming bypasses only the Tileset-wide
+point-count sum; node, hierarchy, range, byte, concurrency, batch, GLB, cache,
+and explicit full-scan budgets remain independent. The provider still performs
+a bounded full hierarchy metadata traversal before serving the Tileset; this
+is not lazy subtree discovery.
+
+`conservative-source-cell` remains unchanged. Projected Autzen and SoFi cannot
+use it while Adapter reports unsupported horizontal bounds. An explicit full
+decoded-content scan can produce a versioned, checksummed content-bounds index
+when a verified source fingerprint and immutable transform plan are
+available. Indexed streaming validates source identity, transform plan,
+hierarchy completeness, coverage totals, CRS and vertical evidence, and each
+content/encoder envelope before serving a node. Index bounds cover observed
+prepared points only, not unobserved source cells. Full decoded preprocessing
+retains its 4,000,000-point default; only that explicit mode has the default
+source-wide point ceiling.
+
+The Dev Viewer exposes certified source-cell streaming, indexed
+decoded-content streaming, and separate full decoded-content/index generation.
+Health diagnostics report live node requests, decode, GLB, cache, byte,
+cancellation, first-visible, and placement values. The public Playground
+remains on its published npm integration and is unchanged.
+
+Validation and measured renderer results are recorded in the PR report and
+the Dev Viewer [3D Tiles runbook](../../../apps/dev-viewer/docs/3d-tiles-demo.md).
+A projected source without certified bounds or a compatible persisted index
+reports the required initialization step.
+
+## Historical #432 result snapshot
 
 **CONDITIONAL review candidate.** COPC Tiles pins the actual published
 `@frillab/copc-adapter@0.7.1` package in both its development and optional peer

@@ -43,6 +43,8 @@ export type CopcBackendOpenOptions = {
   rangeRequestDiagnostics?: RangeRequestDiagnosticsRecorder;
   /** HTTP validation policy; defaults to `head-fallback`. Use `strict` to require readable Content-Range. */
   rangeValidation?: RangeValidationPolicy;
+  /** Require the supplied strong HTTP ETag on every range response. */
+  expectedSourceETag?: string;
   /** Per-range byte ceiling. Defaults to 64 MiB; explicit values accept any positive safe integer. */
   maxRangeBytes?: number;
   /** Maximum active HTTP ranges per source. Defaults to 4; any positive safe integer is accepted. */

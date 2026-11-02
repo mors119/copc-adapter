@@ -49,6 +49,8 @@ export type CopcCoreAdapterOptions = Readonly<{
 export type CopcCoreNodeSourceOptions = Readonly<{
   source: CopcConservativeNodeSource;
   sourceIdentity: string;
+  /** Verified SHA-256 or HTTP strong-ETag fingerprint for persistent index reuse. */
+  sourceFingerprint?: string;
   /** Destroy the supplied context on close; defaults to false. */
   ownsSource?: boolean;
   /** Optional application generation guard for source replacement outside this context. */
@@ -82,10 +84,12 @@ export class CopcCoreAdapterError extends Error {
  */
 export class CopcCoreNodeSource implements TileConservativeNodeSource {
   readonly sourceIdentity: string;
+  readonly sourceFingerprint?: string;
   readonly conservativeBoundsSourceIdentity: string;
   readonly sourceGeneration: number;
   readonly transformGeneration: number;
   readonly transformPlan: CoordinateTransformPlan;
+  readonly transformPlanIdentity: string;
   readonly #source: CopcConservativeNodeSource;
   readonly #ownsSource: boolean;
   readonly #isCurrentOverride: (() => boolean) | undefined;
@@ -116,9 +120,11 @@ export class CopcCoreNodeSource implements TileConservativeNodeSource {
     this.#ownsSource = options.ownsSource ?? false;
     this.#isCurrentOverride = options.isCurrent;
     this.sourceIdentity = options.sourceIdentity;
+    if (options.sourceFingerprint !== undefined) this.sourceFingerprint = options.sourceFingerprint;
     this.sourceGeneration = options.source.sourceGeneration;
     this.transformGeneration = options.source.transformGeneration;
     this.transformPlan = options.source.transformPlan;
+    this.transformPlanIdentity = options.source.transformPlan.identity.key;
   }
 
   isCurrent(): boolean {

@@ -19,6 +19,8 @@ export type HttpRangeByteSourceOptions = {
   readonly headers?: HeadersInit;
   /** Known resource size in bytes, used to avoid an initial HEAD request. */
   readonly size?: number;
+  /** Require every range response to carry this exact strong ETag. */
+  readonly expectedETag?: string;
   /** Defaults to `head-fallback`; set `strict` to require a readable matching Content-Range. */
   readonly rangeValidation?: RangeValidationPolicy;
   /** Per-range byte ceiling. Defaults to 64 MiB; explicit values accept any positive safe integer. */
@@ -89,6 +91,7 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
   private readonly rangeValidation: RangeValidationPolicy;
   private readonly maxRangeBytes: number;
   private readonly maxConcurrentRangeRequests: number;
+  private readonly expectedETag: string | undefined;
   private knownSize: number | undefined;
   private knownETag: string | undefined;
   private knownLastModified: string | undefined;
@@ -106,6 +109,11 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
     this.fetchImpl = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.headers = new Headers(options.headers);
     this.rangeValidation = options.rangeValidation ?? "head-fallback";
+    if (options.expectedETag !== undefined &&
+        (typeof options.expectedETag !== "string" || !isStrongHttpEtag(options.expectedETag))) {
+      throw new RangeSourceError("representation", "expectedETag must be a non-empty strong HTTP ETag.", { source });
+    }
+    this.expectedETag = options.expectedETag;
     this.maxRangeBytes = resolveMaxRangeBytes(source, options.maxRangeBytes);
     this.maxConcurrentRangeRequests = resolveMaxConcurrentRangeRequests(
       source,
@@ -377,6 +385,13 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
 
     const etag = headers.get("ETag") || undefined;
     const lastModified = headers.get("Last-Modified") || undefined;
+    if (this.expectedETag !== undefined && etag !== this.expectedETag) {
+      throw new RangeSourceError(
+        "source-changed",
+        "The source ETag does not match the immutable version required by the caller",
+        rangeDetails(this.source, range, status),
+      );
+    }
     if (this.knownETag && etag && this.knownETag !== etag) {
       throw new RangeSourceError(
         "source-changed",
@@ -790,6 +805,10 @@ export class HttpRangeByteSource implements RandomAccessByteSource {
 
 async function cancelResponseBody(response: Response): Promise<void> {
   await response.body?.cancel().catch(() => undefined);
+}
+
+function isStrongHttpEtag(value: string): boolean {
+  return /^"(?:[\x21\x23-\x7e\x80-\xff])*"$/u.test(value);
 }
 
 function coalescePendingReads(

@@ -40,14 +40,19 @@ test("routes Tiles resources to their own server and restores fetch after final 
       new Request(first.url.replace("tileset.json", "content/root.glb")),
     );
     assert.equal(await contentResponse.text(), "first:/content/root.glb");
+    const secondContentResponse = await globalThis.window.fetch(
+      first.url.replace("tileset.json", "content/left.glb"),
+    );
+    assert.equal(await secondContentResponse.text(), "first:/content/left.glb");
     assert.equal(first.getMetrics().tilesetRequestCount, 1);
-    assert.equal(first.getMetrics().glbRequestCount, 1);
-    assert.equal(first.getMetrics().glbBytes, Buffer.byteLength("first:/content/root.glb"));
+    assert.equal(first.getMetrics().glbRequestCount, 2);
+    assert.equal(first.getMetrics().distinctGlbRequestCount, 2);
+    assert.equal(first.getMetrics().glbBytes, Buffer.byteLength("first:/content/root.glbfirst:/content/left.glb"));
 
     const secondResponse = await globalThis.window.fetch(second.url);
     assert.equal(await secondResponse.text(), "second:/tileset.json");
     assert.equal(second.getMetrics().tilesetRequestCount, 1);
-    assert.deepEqual(requests.map(({ label }) => label), ["first", "first", "second"]);
+    assert.deepEqual(requests.map(({ label }) => label), ["first", "first", "first", "second"]);
 
     first.close();
     assert.equal(globalThis.window.fetch, firstRoutedFetch);

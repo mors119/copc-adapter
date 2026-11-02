@@ -531,6 +531,7 @@ export class CopcJsBackend implements CopcBackend {
         signal: options.signal,
         rangeRequestDiagnostics: options.rangeRequestDiagnostics,
         rangeValidation: options.rangeValidation,
+        expectedSourceETag: options.expectedSourceETag,
         maxRangeBytes: options.maxRangeBytes,
         maxConcurrentRangeRequests: options.maxConcurrentRangeRequests,
       });

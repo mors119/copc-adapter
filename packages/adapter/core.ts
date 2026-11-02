@@ -16,6 +16,13 @@ export type {
   CopcNodeSource,
   CopcPreparedNodeData,
 } from "./core/copc/context/createCopcContext";
+export { probeCopcSource } from "./core/copc/sourceProbe";
+export { RangeRequestDiagnosticsRecorder } from "./core/copc/range/requestDiagnostics";
+export type {
+  CopcSourceProbeOptions,
+  CopcSourceProbeResult,
+  ProbeTruth,
+} from "./core/copc/sourceProbe";
 export type {
   CopcConservativeBoundsResult,
   CopcConservativeBoundsUnsupportedReasonCode,

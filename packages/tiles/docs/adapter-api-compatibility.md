@@ -3,7 +3,7 @@
 ## Supported published artifact
 
 The released compatibility baseline is `@frillab/copc-adapter@0.7.1`. The
-decoded-content branch also tests the packed local `0.8.0` candidate. Tiles
+node-streaming branch also tests the packed local `0.8.0` candidate. Tiles
 keeps `0.7.1` as its exact development dependency and declares
 `^0.7.1 || ^0.8.0` as an optional peer range; compatibility beyond these tested
 versions is not claimed.
@@ -40,7 +40,7 @@ the 0.7.0 package.
 | Preserve transform evidence | `sourceGeneration`, `transformGeneration`, `transformPlan`, `isCurrent()` on `CopcNodeSource` | Immutable plan identity and source/vertical CRS, unit, height-offset, and grid evidence. | Source close/replacement makes stale results unusable. | Connector checks node/source/transform identity and keeps height/grid provenance. |
 | Read decoded-point bound | `CopcPreparedNodeData.ecefBounds`, `ecefBoundsKind` | `decoded-point-content` bound encloses only decoded point positions in WGS84 ECEF metres. | Bound has the prepared result's generations. | Kept distinct from source-cell and conservative-cell bounds. |
 | Read conservative source-cell bound | `CopcConservativeNodeSource.getConservativeNodeEcefBounds(nodeKey): CopcConservativeBoundsResult` from `/core` | Synchronous, metadata-only result. Supported values include `boundsEcef`, full-cell-and-descendant coverage, analytic verification/method, vertical reference and units, assumptions, and `encoderErrorPaddingRequired: true`. Unsupported values retain `reasonCode`, `reason`, source-cell bounds, source identity/generations, transform-plan identity, height offset, and optional vertical-grid provenance; they have no `boundsEcef`. | No signal parameter. Evaluation performs no point payload reads or network requests. A closed/stale context throws `CopcStaleSourceError`. | Connector validates exact node/source/cell/transform provenance and copies/freezes the result. It rejects malformed or fabricated bounds. Unsupported results cannot build a Tiles bound. |
-| Build live explicit resources | Tiles `createCopcTileResourceProvider(source, { scanCompleteHierarchy: true, ... })`; public from package root and `/resources` | Default `conservative-source-cell` uses the public conservative result; explicit `decoded-content` uses public prepared Float64 ECEF views and preserves separate strategy provenance. | Both modes use complete bounded hierarchy discovery. Decoded mode preflights point/byte limits, prepares every content point sequentially, checks source/transform generations, and supports cancellation. Content requests reread and validate recorded provenance. | Conservative mode requires supported full-cell results. Decoded mode encloses only all rendered content points and GLB reconstruction; it never claims source-cell coverage and does not validate vertical placement. |
+| Build live explicit resources | Tiles `createCopcTileResourceProvider(source, { scanCompleteHierarchy: true, ... })`; public from package root and `/resources` | `conservative-source-cell` uses the certified result; `indexed-decoded-content` validates a reusable content-bounds index; explicit `decoded-content` scans all prepared content points and can create that index. | The initial implementation discovers the complete bounded metadata hierarchy. Streaming modes read no points before renderer content requests. Index validation checks source fingerprint, transform plan, complete hierarchy, datum evidence, encoder allowance, and SHA-256 integrity. Reads retain node, batch, byte, and cancellation limits. | Conservative mode retains source-cell coverage. Indexed mode covers only scanned content points and descendants; it never claims unobserved source-cell bounds. Full decoded mode is preprocessing with a 4,000,000 default and 20,000,000 hard point budget. |
 
 The published unsupported reason codes are `unsupported-horizontal-crs`,
 `unsupported-horizontal-units`, `unsupported-axis-order`,
@@ -62,16 +62,18 @@ checks decoded points and actual GLB reconstruction error. Default maximum
 accepted padding is 1 cm and can be tightened. Unit fixtures validate the
 generated GLB and Tileset with Khronos and CesiumGS validators.
 
-Tiles' `decoded-content` strategy is a separate provider capability, not a new
-Adapter API. It requires `boundsStrategy: 'decoded-content'` and
-`allowDecodedContentBounds: true`, plus `scanCompleteHierarchy: true`. The
-default total point limit is 4,000,000 and the hard point limit is 20,000,000;
-all reader, byte, node, GLB and Tileset budgets apply. A complete scan records
-source/transform identity and per-content-node CRS/vertical provenance. Every
-prepared point and regenerated GLB is checked against its envelope; parents
-union own content and finalized children. Source-cell metadata results remain
-separately recorded and unchanged. Unknown vertical evidence is reported as
-unverified placement.
+Tiles' `decoded-content` strategy is a separate provider capability. It
+requires `boundsStrategy: 'decoded-content'`,
+`allowDecodedContentBounds: true`, and `scanCompleteHierarchy: true`; set
+`createBoundsIndex: true` only when the node source supplies an immutable
+fingerprint and transform-plan identity. The default total point limit is
+4,000,000; Dev Viewer allows explicit scans up to 20,000,000. A complete scan
+records source/transform identity and per-content-node CRS/vertical provenance.
+For later streaming use `boundsStrategy: 'indexed-decoded-content'` with the
+saved index. The strategy validates complete hierarchy metadata before it
+returns a Tileset but decodes no points until a content URI is requested.
+Source-cell metadata results remain unchanged. Unknown vertical evidence is
+reported as unverified placement.
 
 ## Connector behavior
 

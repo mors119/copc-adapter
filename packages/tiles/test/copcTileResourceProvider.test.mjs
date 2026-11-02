@@ -11,6 +11,47 @@ import { createCopcTileResourceProvider, CopcTileResourceProviderError } from '.
 import { getExplicitTileContentUri } from '../src/tileset/explicitTileset.ts';
 import { createBrowserFixtureSource } from './browser/fixture.ts';
 
+function createDeclaredHierarchySource(generation, childNodes, options = {}) {
+  const base = createBrowserFixtureSource(generation);
+  const rootPage = { key: `declared-root-${generation}`, pageOffset: 0, pageLength: 32 };
+  const childPage = { key: `declared-children-${generation}`, pageOffset: 32, pageLength: 32 };
+  const root = {
+    key: 'root', level: 0, x: 0, y: 0, z: 0,
+    pointCount: 3, pointDataOffset: 100, pointDataLength: 72,
+    children: options.rootChildren ?? childNodes.map((node) => node.key), childrenComplete: true,
+  };
+  const source = {
+    ...base,
+    ...(options.sourceFingerprint ? { sourceFingerprint: options.sourceFingerprint } : {}),
+    transformPlanIdentity: 'browser-fixture-transform-v1',
+    getRootHierarchyPage: () => rootPage,
+    loadHierarchyPage: async (page, signal) => {
+      if (signal?.aborted) throw new DOMException('Hierarchy read cancelled.', 'AbortError');
+      if (page.key === rootPage.key) return { nodes: [root], pages: [childPage] };
+      if (page.key === childPage.key) return { nodes: childNodes, pages: [] };
+      throw new Error(`Unknown synthetic metadata page ${page.key}.`);
+    },
+    getNodeCellBounds: () => base.getNodeCellBounds('root'),
+    getConservativeNodeEcefBounds: (nodeKey) => {
+      const result = base.getConservativeNodeEcefBounds('root');
+      return Object.freeze({ ...result, nodeKey, sourceCellBounds: base.getNodeCellBounds('root') });
+    },
+  };
+  return { source, base, rootPage, childPage };
+}
+
+function declaredNode(key, level, x, y, z, pointCount, children = []) {
+  return Object.freeze({
+    key, level, x, y, z,
+    pointCount, pointDataOffset: 244 + level * 32 + x + y * 2 + z * 4, pointDataLength: 72,
+    children: Object.freeze(children), childrenComplete: true,
+  });
+}
+
+function countTilesetNodes(tile) {
+  return 1 + (tile.children ?? []).reduce((sum, child) => sum + countTilesetNodes(child), 0);
+}
+
 test('builds the complete explicit hierarchy from metadata and reads points only for requested content', async () => {
   const source = createBrowserFixtureSource(7);
   const provider = await createCopcTileResourceProvider(source, {
@@ -60,6 +101,94 @@ test('builds the complete explicit hierarchy from metadata and reads points only
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test('a 4,004,078-point declaration keeps full preprocessing capped while node streaming serves selected nodes', async () => {
+  const children = [
+    declaredNode('left', 1, 0, 0, 0, 3),
+    declaredNode('large-a', 1, 1, 0, 0, 2_000_000),
+    declaredNode('large-b', 1, 0, 1, 0, 2_000_000),
+    declaredNode('large-c', 1, 1, 1, 0, 4_072),
+  ];
+  const fullScan = createDeclaredHierarchySource(740, children);
+  assert.equal(3 + children.reduce((sum, node) => sum + node.pointCount, 0), 4_004_078);
+  await assert.rejects(
+    createCopcTileResourceProvider(fullScan.source, {
+      scanCompleteHierarchy: true,
+      boundsStrategy: 'decoded-content',
+      allowDecodedContentBounds: true,
+    }),
+    (error) => error instanceof CopcTileResourceProviderError && error.code === 'CONTENT_SCAN_LIMIT' &&
+      /maxTotalPoints is 4000000/u.test(error.message),
+  );
+  assert.deepEqual(fullScan.base.diagnostics.nodes, [], 'the over-budget preflight rejects before any point payload is read');
+
+  const streaming = createDeclaredHierarchySource(741, children);
+  const provider = await createCopcTileResourceProvider(streaming.source, {
+    scanCompleteHierarchy: true,
+    readerLimits: {
+      maxRequestedNodes: 32,
+      maxPointsPerNode: 200_000,
+      maxTotalPoints: 250_000,
+      maxPointDataBytesPerNode: 8 * 1024 * 1024,
+      maxTotalPointDataBytes: 32 * 1024 * 1024,
+      maxDecodedBytesPerNode: 16 * 1024 * 1024,
+      maxTotalDecodedBytes: 64 * 1024 * 1024,
+      maxConcurrentNodeReads: 2,
+    },
+    tilesetOptions: { maxTotalPoints: null },
+  });
+  assert.equal(provider.boundsStrategy, 'conservative-source-cell');
+  assert.equal(3 + children.reduce((sum, node) => sum + node.pointCount, 0), 4_004_078);
+  assert.equal(countTilesetNodes(provider.tileset.root), 5);
+  assert.deepEqual(streaming.base.diagnostics.nodes, [], 'tileset creation reads hierarchy and certified bounds only');
+  const rootBytes = await provider.getResource(getExplicitTileContentUri('root'), new AbortController().signal);
+  assert.ok(rootBytes);
+  assert.deepEqual(streaming.base.diagnostics.nodes, ['root'], 'only the renderer-requested root node is decoded');
+  assert.equal(provider.getNodeReadStats().decodedPoints, 3);
+  const tilesetBytes = await provider.getResource('tileset.json', new AbortController().signal);
+  assert.ok(tilesetBytes);
+  const tileset = JSON.parse(new TextDecoder().decode(tilesetBytes));
+  assert.equal(tileset.root.children.length, 4);
+  assert.equal(tileset.root.content.uri, getExplicitTileContentUri('root'));
+  assert.deepEqual(tileset.root.children.map((child) => child.content.uri), children.map(({ key }) => getExplicitTileContentUri(key)));
+  assert.ok(tileset.root.boundingVolume.box.every(Number.isFinite));
+  const report = await gltfValidator.validateBytes(rootBytes, { uri: 'root.glb' });
+  assert.equal(report.issues.numErrors, 0, JSON.stringify(report.issues.messages));
+  assert.equal(report.issues.numWarnings, 0, JSON.stringify(report.issues.messages));
+  await provider.close();
+});
+
+test('a declaration above 20 million points builds a bounded node-streaming Tileset without global point rejection', async () => {
+  const grandchildren = [
+    declaredNode('deep-0', 2, 0, 0, 0, 2_000_000),
+    declaredNode('deep-1', 2, 1, 0, 0, 2_000_000),
+    declaredNode('deep-2', 2, 0, 1, 0, 2_000_000),
+  ];
+  const children = [
+    declaredNode('left', 1, 0, 0, 0, 2_000_000, grandchildren.map(({ key }) => key)),
+    declaredNode('n1', 1, 1, 0, 0, 2_000_000),
+    declaredNode('n2', 1, 0, 1, 0, 2_000_000),
+    declaredNode('n3', 1, 1, 1, 0, 2_000_000),
+    declaredNode('n4', 1, 0, 0, 1, 2_000_000),
+    declaredNode('n5', 1, 1, 0, 1, 2_000_000),
+    declaredNode('n6', 1, 0, 1, 1, 2_000_000),
+    declaredNode('n7', 1, 1, 1, 1, 2_000_000),
+    ...grandchildren,
+  ];
+  const fixture = createDeclaredHierarchySource(742, children, { rootChildren: children.slice(0, 8).map(({ key }) => key) });
+  const provider = await createCopcTileResourceProvider(fixture.source, {
+    scanCompleteHierarchy: true,
+    tilesetOptions: { maxNodes: 32, maxTotalPoints: null },
+  });
+  assert.equal(3 + children.reduce((sum, node) => sum + node.pointCount, 0), 22_000_003);
+  assert.equal(countTilesetNodes(provider.tileset.root), 12);
+  assert.deepEqual(fixture.base.diagnostics.nodes, []);
+  const root = await provider.getResource(getExplicitTileContentUri('root'), new AbortController().signal);
+  assert.ok(root);
+  assert.deepEqual(fixture.base.diagnostics.nodes, ['root']);
+  assert.ok(provider.tileset.root.boundingVolume.box.every(Number.isFinite));
+  await provider.close();
 });
 
 test('decoded-content preprocessing accounts for every point and emits distinct per-node and descendant provenance', async () => {
@@ -175,6 +304,88 @@ test('decoded-content preprocessing accounts for every point and emits distinct 
   }
   assert.deepEqual(source.diagnostics.nodes, ['root', 'left', 'root', 'left']);
   await provider.close();
+});
+
+test('complete decoded-content preprocessing generates a reusable validated index for on-demand node streaming', async () => {
+  const fingerprint = `sha256:${'a'.repeat(64)}`;
+  const scanBase = createBrowserFixtureSource(743);
+  const scanSource = Object.freeze({
+    ...scanBase,
+    sourceFingerprint: fingerprint,
+    transformPlanIdentity: 'browser-fixture-transform-v1',
+  });
+  const generated = await createCopcTileResourceProvider(scanSource, {
+    scanCompleteHierarchy: true,
+    boundsStrategy: 'decoded-content',
+    allowDecodedContentBounds: true,
+    createBoundsIndex: true,
+  });
+  assert.deepEqual(scanBase.diagnostics.nodes, ['root', 'left']);
+  assert.equal(generated.boundsIndex.coverage, 'all-content-points-in-complete-hierarchy');
+  assert.equal(generated.boundsIndex.totalPoints, 6);
+  assert.equal(generated.boundsIndex.contentNodes, 2);
+  assert.equal(generated.boundsIndex.transformPlanIdentity, 'browser-fixture-transform-v1');
+  assert.equal(generated.boundsIndex.verticalDatum.identifier, 'WGS 84 ellipsoidal height');
+  await generated.close();
+
+  const indexedBase = createBrowserFixtureSource(744);
+  const indexedSource = Object.freeze({
+    ...indexedBase,
+    sourceFingerprint: fingerprint,
+    transformPlanIdentity: 'browser-fixture-transform-v1',
+  });
+  const indexed = await createCopcTileResourceProvider(indexedSource, {
+    scanCompleteHierarchy: true,
+    boundsStrategy: 'indexed-decoded-content',
+    boundsIndex: generated.boundsIndex,
+    tilesetOptions: { maxTotalPoints: 1 },
+  });
+  assert.equal(indexed.boundsStrategy, 'indexed-decoded-content');
+  assert.equal(indexed.tileset.extras.totalPoints, 6);
+  assert.deepEqual(indexedBase.diagnostics.nodes, [], 'index validation and full metadata traversal do not decode point payloads');
+  const tilesetBytes = await indexed.getResource('tileset.json', new AbortController().signal);
+  const tileset = JSON.parse(new TextDecoder().decode(tilesetBytes));
+  assert.equal(tileset.extras.sourceCellCoverage, false);
+  assert.equal(tileset.root.extras.nodeKey, 'root');
+  assert.ok(tileset.root.boundingVolume.box.every(Number.isFinite));
+  const rootGlb = await indexed.getResource(getExplicitTileContentUri('root'), new AbortController().signal);
+  assert.ok(rootGlb);
+  assert.deepEqual(indexedBase.diagnostics.nodes, ['root']);
+  const gltfReport = await gltfValidator.validateBytes(rootGlb, { uri: 'indexed-root.glb' });
+  assert.equal(gltfReport.issues.numErrors, 0, JSON.stringify(gltfReport.issues.messages));
+  await indexed.close();
+
+  const corrupted = structuredClone(generated.boundsIndex);
+  corrupted.nodes[0].content.contentBoundsEcef.minX -= 1;
+  const corruptSource = createBrowserFixtureSource(745);
+  await assert.rejects(
+    createCopcTileResourceProvider({
+      ...corruptSource,
+      sourceFingerprint: fingerprint,
+      transformPlanIdentity: 'browser-fixture-transform-v1',
+    }, {
+      scanCompleteHierarchy: true,
+      boundsStrategy: 'indexed-decoded-content',
+      boundsIndex: corrupted,
+    }),
+    (error) => error instanceof CopcTileResourceProviderError && error.code === 'BOUNDS_INDEX_INVALID' && /checksum/u.test(error.message),
+  );
+  assert.deepEqual(corruptSource.diagnostics.nodes, []);
+
+  const staleSource = createBrowserFixtureSource(746);
+  await assert.rejects(
+    createCopcTileResourceProvider({
+      ...staleSource,
+      sourceFingerprint: `sha256:${'b'.repeat(64)}`,
+      transformPlanIdentity: 'browser-fixture-transform-v1',
+    }, {
+      scanCompleteHierarchy: true,
+      boundsStrategy: 'indexed-decoded-content',
+      boundsIndex: generated.boundsIndex,
+    }),
+    (error) => error instanceof CopcTileResourceProviderError && error.code === 'BOUNDS_INDEX_INVALID' && /different immutable source fingerprint/u.test(error.message),
+  );
+  await staleSource.close();
 });
 
 test('decoded-content requires authorization and rejects over-budget or incomplete hierarchies before point reads', async () => {

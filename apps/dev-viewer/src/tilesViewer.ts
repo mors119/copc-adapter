@@ -11,14 +11,18 @@ import type {
   CopcBackendName,
   CopcMetadata,
   GtxGeoidGrid,
+  RangeRequestDiagnosticsRecorder,
 } from "@frillab/copc-adapter/core";
 import { CopcCoreNodeSource } from "@frillab/copc-tiles/adapter/copc-core";
 import {
   createCopcTileResourceProvider,
   createTileResourceServer,
+  createHttpEtagSourceFingerprint,
+  type DecodedContentBoundsIndex,
   type DecodedContentScanProgress,
   type TileResourceServer,
 } from "@frillab/copc-tiles";
+import { getTilesBoundsIndex, saveTilesBoundsIndex } from "./tilesBoundsIndexStore";
 import { registerTileResourceRoute, type TileResourceRoute } from "./tileResourceRoute";
 import { registerCesiumTileXhrRoute } from "./cesiumTileXhrRoute";
 import { createCesiumViewer } from "./createViewer";
@@ -46,7 +50,8 @@ export type CreateTilesViewerOptions = Readonly<{
   rangeValidation: "head-fallback" | "strict";
   heightOffsetMeters: number;
   verticalGrid?: GtxGeoidGrid;
-  boundsStrategy: "conservative-source-cell" | "decoded-content";
+  fullScanMaxPoints?: number;
+  boundsStrategy: "conservative-source-cell" | "indexed-decoded-content" | "decoded-content";
   renderer: "cesium" | "three";
   signal: AbortSignal;
   isCurrent(): boolean;
@@ -60,6 +65,7 @@ const EMPTY_ROUTE_METRICS = Object.freeze({
   failedRequestCount: 0,
   tilesetRequestCount: 0,
   glbRequestCount: 0,
+  distinctGlbRequestCount: 0,
   glbBytes: 0,
 });
 
@@ -131,7 +137,12 @@ export async function createTilesViewerSession(
     contentEcefBytesScanned: 0,
     peakDecodedEcefBufferBytes: 0,
     sourceRangeBytesObserved: 0,
+    sourcePointCount: 0,
+    sourceFingerprint: "",
+    boundsIndexStatus: options.boundsStrategy === "conservative-source-cell" ? "not-required" : "checking",
+    boundsIndexBytes: 0,
     scanDurationMilliseconds: 0,
+    initializationMilliseconds: undefined,
     verticalPlacementStatus: "not-reported",
     verticalPlacementReason: "Prepared points have not been scanned.",
     hierarchyPages: 0,
@@ -142,16 +153,47 @@ export async function createTilesViewerSession(
     visibleTiles: 0,
     renderedPoints: 0,
     resourceBytes: 0,
+    resourceRequests: 0,
     glbRequests: 0,
+    distinctGlbRequests: 0,
     glbBytes: 0,
+    tilesetRequests: 0,
+    requestedPointCount: 0,
+    inFlightRequests: 0,
+    peakActiveRequests: 0,
+    cancelledRequests: 0,
+    cacheEntries: 0,
+    cacheBytes: 0,
+    cacheHits: 0,
+    cacheMisses: 0,
+    cacheEvictions: 0,
+    firstVisibleMilliseconds: undefined,
+    firstVisibleSourceRangeBytes: undefined,
+    firstVisibleResourceBytes: undefined,
+    decodedPointsBeforeFirstVisible: undefined,
     sourceGeneration: undefined,
     error: "",
   });
+  const sessionStartedAt = performance.now();
+  let sourceProbeBytes = 0;
+  let rangeRequestDiagnostics: RangeRequestDiagnosticsRecorder | undefined;
   const publish = (update: Partial<TilesPipelineDiagnostics>): void => {
-    if (Object.entries(update).every(([key, value]) =>
+    const sourceRangeBytesObserved = sourceProbeBytes + (rangeRequestDiagnostics?.getBytesRead() ?? 0);
+    if (Object.entries({ ...update, sourceRangeBytesObserved }).every(([key, value]) =>
       diagnostics[key as keyof TilesPipelineDiagnostics] === value
     )) return;
-    diagnostics = Object.freeze({ ...diagnostics, ...update });
+    diagnostics = Object.freeze({ ...diagnostics, ...update, sourceRangeBytesObserved });
+    if (diagnostics.firstVisibleMilliseconds === undefined && diagnostics.visibleTiles > 0) {
+      const readStats = provider?.getNodeReadStats();
+      const scannedPoints = provider?.decodedContentScan?.scannedPoints ?? 0;
+      diagnostics = Object.freeze({
+        ...diagnostics,
+        firstVisibleMilliseconds: Math.max(0, performance.now() - sessionStartedAt),
+        firstVisibleSourceRangeBytes: diagnostics.sourceRangeBytesObserved,
+        firstVisibleResourceBytes: diagnostics.resourceBytes,
+        decodedPointsBeforeFirstVisible: scannedPoints + (readStats?.decodedPoints ?? 0),
+      });
+    }
     if (options.isCurrent()) options.onDiagnostics(diagnostics);
   };
   const assertCurrent = (): void => {
@@ -189,31 +231,81 @@ export async function createTilesViewerSession(
     return closePromise;
   };
   try {
-    const { createCopcContext } = await import("@frillab/copc-adapter/core");
+    const {
+      createCopcContext,
+      probeCopcSource,
+      RangeRequestDiagnosticsRecorder: RangeRecorder,
+    } = await import("@frillab/copc-adapter/core");
+    rangeRequestDiagnostics = new RangeRecorder();
+    let sourceFingerprint: string | undefined;
+    let sourceETag: string | undefined;
+    let boundsIndex: DecodedContentBoundsIndex | undefined;
+    let indexStatus: TilesPipelineDiagnostics["boundsIndexStatus"] =
+      options.boundsStrategy === "conservative-source-cell" ? "not-required" : "unavailable";
+    let indexBytes = 0;
+
+    if (options.boundsStrategy !== "conservative-source-cell" && typeof options.source === "string") {
+      const probe = await probeCopcSource(options.source, {
+        rangeValidation: options.rangeValidation,
+        signal: options.signal,
+      });
+      assertCurrent();
+      sourceProbeBytes += probe.bytesRead;
+      publish({ sourceRangeBytesObserved: sourceProbeBytes });
+      if (probe.rangeSupported === true && probe.contentLength !== undefined &&
+          probe.etag !== undefined && !probe.etag.startsWith("W/")) {
+        sourceETag = probe.etag;
+        sourceFingerprint = await createHttpEtagSourceFingerprint(
+          options.source,
+          sourceETag,
+          probe.contentLength,
+        );
+        publish({ sourceFingerprint });
+      }
+    }
+    if (options.boundsStrategy === "indexed-decoded-content") {
+      if (!sourceFingerprint) {
+        throw new Error(
+          "Indexed streaming requires a remote HTTP source with a readable strong ETag and content length. For a projected source without certified source-cell bounds, run explicit complete decoded-content/index generation on a source with that immutable identity first.",
+        );
+      }
+      indexStatus = "checking";
+      publish({ boundsIndexStatus: indexStatus });
+      boundsIndex = await getTilesBoundsIndex(sourceFingerprint);
+      if (!boundsIndex) {
+        indexStatus = "missing";
+        publish({ boundsIndexStatus: indexStatus });
+        throw new Error(
+          "No reusable content-bounds index matches this source fingerprint. Choose explicit complete decoded-content/index generation once, then return to indexed streaming.",
+        );
+      }
+      indexStatus = "checking";
+      indexBytes = new TextEncoder().encode(JSON.stringify(boundsIndex)).byteLength;
+      publish({ boundsIndexStatus: indexStatus, boundsIndexBytes: indexBytes });
+    }
     context = await createCopcContext(options.source, options.backend, {
       signal: options.signal,
       rangeValidation: options.rangeValidation,
       heightOffsetMeters: options.heightOffsetMeters,
       verticalGrid: options.verticalGrid,
       maxConcurrentRangeRequests: 3,
+      rangeRequestDiagnostics,
+      ...(sourceETag === undefined ? {} : { expectedSourceETag: sourceETag }),
     });
     assertCurrent();
     const metadata = context.getMetadata();
     const sourceCrs = getSourceCrsLabel(metadata);
-    let sourceRangeBytesObserved = 0;
-    context.setPerformanceObserver?.((event) => {
-      if (event.stage !== "rangeFetch" || event.bytes === undefined) return;
-      sourceRangeBytesObserved += event.bytes;
-      publish({ sourceRangeBytesObserved });
-    });
     publish({
       status: "scanning",
       sourceCrs,
+      sourcePointCount: metadata.pointCount,
       sourceGeneration: context.sourceGeneration,
       boundsSupport: "pending",
       boundsReason: options.boundsStrategy === "decoded-content"
         ? "Adapter Core will prepare every actual point in the complete bounded hierarchy; source-cell coverage remains a separate criterion."
-        : "Adapter is checking full-cell WGS 84 ECEF bounds before Tileset creation.",
+        : options.boundsStrategy === "indexed-decoded-content"
+          ? "Adapter is validating the stored content-bounds index against the immutable source and complete hierarchy metadata."
+          : "Adapter is checking full-cell WGS 84 ECEF bounds before Tileset creation.",
       boundsStrategy: options.boundsStrategy,
       boundsCoverage: "pending",
       geometryBoundsStatus: "pending",
@@ -226,19 +318,25 @@ export async function createTilesViewerSession(
     connector = new CopcCoreNodeSource({
       source: context,
       sourceIdentity: `dev-viewer-tiles-${crypto.randomUUID()}`,
+      ...(sourceFingerprint === undefined ? {} : { sourceFingerprint }),
       ownsSource: true,
       isCurrent: options.isCurrent,
     });
     context = undefined;
     const decodedContent = options.boundsStrategy === "decoded-content";
-    provider = await createCopcTileResourceProvider(connector, {
+    const indexedContent = options.boundsStrategy === "indexed-decoded-content";
+    const providerOptions = {
       scanCompleteHierarchy: true,
       ...(decodedContent ? {
         boundsStrategy: "decoded-content" as const,
         allowDecodedContentBounds: true as const,
+        createBoundsIndex: sourceFingerprint !== undefined,
         onDecodedContentProgress: (progress: DecodedContentScanProgress) => {
           publishDecodedContentProgress(progress, publish);
         },
+      } : indexedContent ? {
+        boundsStrategy: "indexed-decoded-content" as const,
+        boundsIndex,
       } : { boundsStrategy: "conservative-source-cell" as const }),
       signal: options.signal,
       ownsSource: true,
@@ -251,7 +349,7 @@ export async function createTilesViewerSession(
         ...(decodedContent ? {
           maxRequestedNodes: 512,
           maxPointsPerNode: 2_000_000,
-          maxTotalPoints: 4_000_000,
+          maxTotalPoints: options.fullScanMaxPoints ?? 4_000_000,
           maxPointDataBytesPerNode: 128 * 1024 * 1024,
           maxTotalPointDataBytes: 256 * 1024 * 1024,
           maxDecodedBytesPerNode: 192 * 1024 * 1024,
@@ -267,21 +365,36 @@ export async function createTilesViewerSession(
         }),
         maxConcurrentNodeReads: 2,
       },
-      tilesetOptions: { maxNodes: 4096, maxTotalPoints: decodedContent ? 4_000_000 : 250_000 },
+      tilesetOptions: { maxNodes: 4096, maxTotalPoints: decodedContent ? options.fullScanMaxPoints ?? 4_000_000 : null },
       selection: { attributes: { rgb: true } },
       maxEncoderPaddingMeters: 0.01,
       maxGlbBytes: 16 * 1024 * 1024,
       maxTilesetBytes: 4 * 1024 * 1024,
-    });
+    } as const;
+    provider = await createCopcTileResourceProvider(connector, providerOptions);
     assertCurrent();
     connector = undefined;
+    if (provider.boundsStrategy === "indexed-decoded-content") indexStatus = "valid";
+    if (provider.boundsIndex) {
+      indexBytes = new TextEncoder().encode(JSON.stringify(provider.boundsIndex)).byteLength;
+      if (sourceFingerprint) {
+        try {
+          await saveTilesBoundsIndex(provider.boundsIndex);
+          indexStatus = "stored";
+        } catch {
+          indexStatus = "generated";
+        }
+      } else {
+        indexStatus = "unavailable";
+      }
+    }
     const tilesetNodes = countTilesetNodes(provider.tileset);
     server = createTileResourceServer(provider, {
       maxResourceBytes: 16 * 1024 * 1024,
       maxCacheBytes: 32 * 1024 * 1024,
       maxCacheEntries: 64,
-      maxConcurrentLoads: 2,
-      maxQueuedLoads: 4,
+      maxConcurrentLoads: 4,
+      maxQueuedLoads: 32,
       closeProviderOnShutdown: true,
     });
     route = registerTileResourceRoute(server, () => syncRouteMetrics());
@@ -292,16 +405,26 @@ export async function createTilesViewerSession(
       void closeServerAndRoutes();
     };
     options.signal.addEventListener("abort", closeRouteOnAbort, { once: true });
+    publish({ initializationMilliseconds: Math.max(0, performance.now() - sessionStartedAt) });
     const decodedSummary = provider.decodedContentScan;
+    const indexedVerticalDatum = provider.boundsIndex?.verticalDatum;
+    const indexedVerticalPlacement = provider.boundsIndex?.verticalPlacement;
+    if (provider.boundsStrategy === "indexed-decoded-content" && provider.boundsIndex) {
+      indexStatus = "valid";
+      indexBytes = new TextEncoder().encode(JSON.stringify(provider.boundsIndex)).byteLength;
+    }
     publish({
       status: "loading",
       sourceCrs,
+      sourcePointCount: metadata.pointCount,
       boundsSupport: "supported",
       boundsReason: decodedSummary
         ? `Every content-bearing node was scanned (${decodedSummary.scannedPoints.toLocaleString()} points); bounds do not cover unobserved source cells. Transform plan ${decodedSummary.transformPlanIdentity}.`
-        : "Every scanned hierarchy cell has Adapter-certified WGS 84 ECEF bounds.",
+        : provider.boundsStrategy === "indexed-decoded-content"
+          ? `Verified content-bounds index covers ${provider.boundsIndex?.contentNodes.toLocaleString() ?? 0} content nodes and ${provider.boundsIndex?.totalPoints.toLocaleString() ?? 0} points. It does not certify unobserved source cells.`
+          : "Every scanned hierarchy cell has Adapter-certified WGS 84 ECEF bounds.",
       boundsStrategy: provider.boundsStrategy,
-      boundsCoverage: decodedSummary ? "rendered-content-only" : "source-cell-and-descendants",
+      boundsCoverage: decodedSummary || provider.boundsStrategy === "indexed-decoded-content" ? "rendered-content-only" : "source-cell-and-descendants",
       metadataOnlySourceCellStatus: decodedSummary?.metadataOnlySourceCellStatus ?? "not-checked",
       metadataOnlySourceCellReason: decodedSummary?.metadataOnlySourceCellReasonCode
         ? `${decodedSummary.metadataOnlySourceCellReasonCode}: ${decodedSummary.metadataOnlySourceCellReason ?? "No reason was provided."}`
@@ -311,9 +434,9 @@ export async function createTilesViewerSession(
             : decodedSummary
               ? "No metadata-only result is available from this node source."
               : "The conservative-source-cell result is the active geometry bound."),
-      geometryBoundsStatus: decodedSummary ? "complete-decoded-content" : "conservative-source-cell",
-      sourceToEcefStatus: decodedSummary ? "prepared-by-core" : "not-yet-prepared",
-      transformPlanIdentity: decodedSummary?.transformPlanIdentity ?? "Adapter source-cell operation",
+      geometryBoundsStatus: decodedSummary ? "complete-decoded-content" : provider.boundsStrategy === "indexed-decoded-content" ? "indexed-decoded-content" : "conservative-source-cell",
+      sourceToEcefStatus: decodedSummary || provider.boundsStrategy === "indexed-decoded-content" ? "prepared-by-core" : "not-yet-prepared",
+      transformPlanIdentity: decodedSummary?.transformPlanIdentity ?? provider.boundsIndex?.transformPlanIdentity ?? "Adapter source-cell operation",
       contentScanPhase: decodedSummary ? "complete" : "not-started",
       contentNodesScanned: decodedSummary?.contentNodes ?? 0,
       contentNodesTotal: decodedSummary?.contentNodes ?? 0,
@@ -322,9 +445,8 @@ export async function createTilesViewerSession(
       contentPointDataBytes: decodedSummary?.totalPointDataBytes ?? 0,
       contentEcefBytesScanned: decodedSummary?.decodedEcefBytesScanned ?? 0,
       peakDecodedEcefBufferBytes: decodedSummary?.peakDecodedEcefBufferBytes ?? 0,
-      sourceRangeBytesObserved,
       scanDurationMilliseconds: decodedSummary?.scanDurationMilliseconds ?? 0,
-      verticalPlacementStatus: decodedSummary?.verticalPlacement ?? "not-reported",
+      verticalPlacementStatus: decodedSummary?.verticalPlacement ?? indexedVerticalPlacement ?? "not-reported",
       verticalPlacementReason: decodedSummary
         ? decodedSummary.verticalPlacement === "verified"
           ? decodedSummary.verticalDatum.corrections.some(({ kind }) => kind === "validated-grid")
@@ -335,10 +457,18 @@ export async function createTilesViewerSession(
           : decodedSummary.verticalDatum.identifier
             ? `Vertical datum ${decodedSummary.verticalDatum.identifier} is not verified for authoritative placement.`
             : "Vertical datum provenance is unknown; this is a diagnostic ECEF placement only."
-        : "Conservative source-cell result carries its own vertical proof metadata.",
+        : indexedVerticalPlacement === "verified"
+          ? `The content-bounds index preserves verified vertical-datum evidence${indexedVerticalDatum?.identifier ? ` for ${indexedVerticalDatum.identifier}` : ""}; its bounds cover observed content only.`
+          : indexedVerticalDatum?.identifier
+            ? `The content-bounds index records vertical datum ${indexedVerticalDatum.identifier} as unverified.`
+            : provider.boundsStrategy === "indexed-decoded-content"
+              ? "The content-bounds index records vertical placement as unverified."
+              : "Conservative source-cell result carries its own vertical proof metadata.",
       hierarchyPages: provider.hierarchyPagesRead,
       hierarchyPageBytes: provider.hierarchyPageBytesRead,
       hierarchyNodes: tilesetNodes,
+      boundsIndexStatus: indexStatus,
+      boundsIndexBytes: indexBytes,
       sourceGeneration: provider.generation,
     });
 
@@ -376,6 +506,10 @@ export async function createTilesViewerSession(
     if (closeRouteOnAbort) options.signal.removeEventListener("abort", closeRouteOnAbort);
     const bounds = getConservativeBoundsError(error);
     const message = error instanceof Error ? error.message : String(error);
+    if (error && typeof error === "object" &&
+        (error as { code?: unknown }).code === "BOUNDS_INDEX_INVALID") {
+      publish({ boundsIndexStatus: "invalid" });
+    }
     if (bounds) {
       publish({
         status: "error",
@@ -401,11 +535,25 @@ export async function createTilesViewerSession(
 
   function syncRouteMetrics(): void {
     const metrics = route?.getMetrics() ?? EMPTY_ROUTE_METRICS;
+    const serverStats = server?.getStats();
+    const nodeStats = provider?.getNodeReadStats();
     publish({
       requestedTiles: metrics.glbRequestCount,
       resourceBytes: metrics.responseBytes,
+      resourceRequests: metrics.requestCount,
       glbRequests: metrics.glbRequestCount,
+      distinctGlbRequests: metrics.distinctGlbRequestCount,
       glbBytes: metrics.glbBytes,
+      tilesetRequests: metrics.tilesetRequestCount,
+      requestedPointCount: nodeStats?.requestedPoints ?? 0,
+      inFlightRequests: serverStats?.activeLoads ?? 0,
+      peakActiveRequests: serverStats?.peakActiveLoads ?? 0,
+      cancelledRequests: serverStats?.cancelledLoads ?? 0,
+      cacheEntries: serverStats?.cacheEntries ?? 0,
+      cacheBytes: serverStats?.cacheBytes ?? 0,
+      cacheHits: serverStats?.cacheHits ?? 0,
+      cacheMisses: serverStats?.cacheMisses ?? 0,
+      cacheEvictions: serverStats?.cacheEvictions ?? 0,
     });
   }
 }
@@ -438,23 +586,27 @@ async function createCesiumTilesRenderer(
   const initialPitch = Cesium.Math.toRadians(-38);
   let renderedPoints = 0;
   let added = false;
-  let lastTileFailure = "";
   const loaded = new Set<object>();
   const visible = new Map<object, number>();
   const onLoad = (tile: Cesium.Cesium3DTile): void => {
     loaded.add(tile);
     publish({ loadedTiles: loaded.size });
   };
+  const onUnload = (tile: Cesium.Cesium3DTile): void => {
+    loaded.delete(tile);
+    visible.delete(tile);
+    renderedPoints = [...visible.values()].reduce((sum, count) => sum + count, 0);
+    publish({ loadedTiles: loaded.size, visibleTiles: visible.size, renderedPoints });
+  };
   const onVisible = (tile: Cesium.Cesium3DTile): void => {
     const points = tile.content?.pointsLength ?? 0;
     if (points > 0) visible.set(tile, points);
     else visible.delete(tile);
     renderedPoints = [...visible.values()].reduce((sum, count) => sum + count, 0);
-    publish({ visibleTiles: visible.size, renderedPoints });
+    publish({ status: "ready", error: "", visibleTiles: visible.size, renderedPoints });
   };
   const onFailed = (event: { message?: string }): void => {
     const error = new Error(event.message ?? "Cesium reported a 3D Tiles request failure.");
-    lastTileFailure = error.message;
     publish({ status: "error", error: error.message });
     options.onError(error);
   };
@@ -474,6 +626,7 @@ async function createCesiumTilesRenderer(
       throw abortError(options.signal.reason);
     }
     tileset.tileLoad.addEventListener(onLoad);
+    tileset.tileUnload.addEventListener(onUnload);
     tileset.tileVisible.addEventListener(onVisible);
     tileset.tileFailed.addEventListener(onFailed);
     viewer.camera.changed.addEventListener(onCameraMove);
@@ -485,21 +638,7 @@ async function createCesiumTilesRenderer(
       tileset,
       new Cesium.HeadingPitchRange(initialHeading, initialPitch, initialDistance),
     );
-    await waitFor(
-      () => [...visible.values()].some((count) => count > 0),
-      options.signal,
-      45_000,
-      () => {
-        const metrics = route.getMetrics();
-        const position = viewer.camera.positionWC;
-        const direction = viewer.camera.directionWC;
-        const up = viewer.camera.upWC;
-        const frustum = viewer.camera.frustum.computeCullingVolume(position, direction, up);
-        const sphere = tileset!.boundingSphere;
-        const canvas = viewer.scene.canvas;
-        return `Cesium did not make a generated COPC GLB visible (GLBs=${metrics.glbRequestCount}, GLB bytes=${metrics.glbBytes}, loaded tiles=${loaded.size}, visible tiles=${visible.size}, tile error=${lastTileFailure || "none"}, sphere=${JSON.stringify({ center: [sphere.center.x, sphere.center.y, sphere.center.z], radius: sphere.radius, visibility: frustum.computeVisibility(sphere) })}, camera=${JSON.stringify({ position: [position.x, position.y, position.z], direction: [direction.x, direction.y, direction.z], canvas: [canvas.width, canvas.height] })}).`;
-      },
-    );
+    viewer.scene.requestRender();
     publish({
       loadedTiles: loaded.size,
       visibleTiles: visible.size,
@@ -562,6 +701,7 @@ async function createCesiumTilesRenderer(
       viewer.camera.changed.removeEventListener(onCameraMove);
       if (tileset) {
         tileset.tileLoad.removeEventListener(onLoad);
+        tileset.tileUnload.removeEventListener(onUnload);
         tileset.tileVisible.removeEventListener(onVisible);
         tileset.tileFailed.removeEventListener(onFailed);
         viewer.scene.primitives.remove(tileset);
@@ -634,15 +774,24 @@ async function createThreeTilesRenderer(
   let destroyed = false;
   let animationFrame = 0;
   let baseDistance = 200;
-  let loadedTileCount = 0;
-  const loadedUrls = new Set<string>();
+  const loadedTiles = new Set<object>();
   const visibleScenes = new Map<object, THREE.Object3D>();
   const getVisiblePointCount = (): number =>
     [...visibleScenes.values()].reduce((sum, model) => sum + countPointObjects(model), 0);
-  const onModel = (event: { url?: string; scene?: THREE.Object3D }): void => {
-    loadedUrls.add(event.url ?? `model-${loadedUrls.size + 1}`);
-    loadedTileCount = loadedUrls.size;
-    publish({ loadedTiles: loadedTileCount });
+  const onModel = (event: { tile?: object }): void => {
+    if (event.tile) loadedTiles.add(event.tile);
+    publish({ loadedTiles: loadedTiles.size });
+  };
+  const onDisposeModel = (event: { tile?: object }): void => {
+    if (event.tile) {
+      loadedTiles.delete(event.tile);
+      visibleScenes.delete(event.tile);
+    }
+    publish({
+      loadedTiles: loadedTiles.size,
+      visibleTiles: visibleScenes.size,
+      renderedPoints: getVisiblePointCount(),
+    });
   };
   const onTileVisibilityChange = (event: {
     tile?: object;
@@ -656,6 +805,7 @@ async function createThreeTilesRenderer(
       visibleScenes.delete(event.tile);
     }
     publish({
+      ...(event.visible ? { status: "ready", error: "" } : {}),
       visibleTiles: visibleScenes.size,
       renderedPoints: getVisiblePointCount(),
     });
@@ -666,6 +816,7 @@ async function createThreeTilesRenderer(
     options.onError(error);
   };
   tiles.addEventListener("load-model", onModel);
+  tiles.addEventListener("dispose-model", onDisposeModel);
   tiles.addEventListener("tile-visibility-change", onTileVisibilityChange);
   tiles.addEventListener("load-error", onError);
 
@@ -708,11 +859,9 @@ async function createThreeTilesRenderer(
     controls.update();
     camera.updateMatrixWorld();
 
-    await waitFor(() => getVisiblePointCount() > 0, options.signal, 45_000,
-      "Three TilesRenderer did not make a generated COPC GLB visible.");
     publish({
       status: "ready",
-      loadedTiles: loadedTileCount,
+      loadedTiles: loadedTiles.size,
       visibleTiles: visibleScenes.size,
       renderedPoints: getVisiblePointCount(),
     });
@@ -721,6 +870,7 @@ async function createThreeTilesRenderer(
     cancelAnimationFrame(animationFrame);
     resizeObserver.disconnect();
     tiles.removeEventListener("load-model", onModel);
+    tiles.removeEventListener("dispose-model", onDisposeModel);
     tiles.removeEventListener("tile-visibility-change", onTileVisibilityChange);
     tiles.removeEventListener("load-error", onError);
     tiles.dispose();
@@ -758,6 +908,7 @@ async function createThreeTilesRenderer(
       cancelAnimationFrame(animationFrame);
       resizeObserver.disconnect();
       tiles.removeEventListener("load-model", onModel);
+      tiles.removeEventListener("dispose-model", onDisposeModel);
       tiles.removeEventListener("tile-visibility-change", onTileVisibilityChange);
       tiles.removeEventListener("load-error", onError);
       tiles.dispose();

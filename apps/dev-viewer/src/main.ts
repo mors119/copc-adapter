@@ -1426,6 +1426,7 @@ async function createTilesPipelineSession(
     heightOffsetMeters: config.heightOffsetMeters,
     verticalGrid,
     boundsStrategy: config.tilesBoundsStrategy ?? "conservative-source-cell",
+    fullScanMaxPoints: config.tilesFullScanMaxPoints ?? 4_000_000,
     renderer: config.renderer,
     signal,
     isCurrent,
@@ -1464,6 +1465,8 @@ async function main(): Promise<void> {
   const requestedEngine = params.get("renderer");
   const requestedPipeline = params.get("pipeline");
   const requestedTilesBounds = params.get("tilesBounds");
+  const fullScanLimitParam = params.get("tilesFullScanMaxPoints");
+  const requestedFullScanMaxPoints = fullScanLimitParam === null ? undefined : Number(fullScanLimitParam);
   const renderer: RenderingEngine =
     requestedEngine === "three" ? "three" : "cesium";
   const requestedCesiumRenderer = params.get("cesiumRenderer");
@@ -1483,9 +1486,14 @@ async function main(): Promise<void> {
   if (
     requestedTilesBounds !== null &&
     requestedTilesBounds !== "conservative-source-cell" &&
+    requestedTilesBounds !== "indexed-decoded-content" &&
     requestedTilesBounds !== "decoded-content"
   ) {
-    reportStartupIssue("tilesBounds", 'Unknown 3D Tiles bounds strategy; choose "conservative-source-cell" or "decoded-content".');
+    reportStartupIssue("tilesBounds", 'Unknown 3D Tiles bounds strategy; choose "conservative-source-cell", "indexed-decoded-content", or "decoded-content".');
+  }
+  if (requestedFullScanMaxPoints !== undefined &&
+      (!Number.isSafeInteger(requestedFullScanMaxPoints) || requestedFullScanMaxPoints <= 0 || requestedFullScanMaxPoints > 20_000_000)) {
+    reportStartupIssue("tilesFullScanMaxPoints", "The explicit full-scan point limit must be an integer from 1 to 20,000,000.");
   }
   if (
     requestedEngine !== null &&
@@ -1603,7 +1611,10 @@ async function main(): Promise<void> {
   const baseInitialConfig: DevViewerConfig = {
     renderer,
     pipeline: requestedPipeline === "tiles" ? "tiles" : "direct",
-    tilesBoundsStrategy: requestedTilesBounds === "decoded-content" ? "decoded-content" : "conservative-source-cell",
+    tilesBoundsStrategy: requestedTilesBounds === "decoded-content" || requestedTilesBounds === "indexed-decoded-content"
+      ? requestedTilesBounds
+      : "conservative-source-cell",
+    tilesFullScanMaxPoints: requestedFullScanMaxPoints ?? 4_000_000,
     cesiumRenderer,
     backend:
       initialOptions.backend === "rust" || initialOptions.backend === "copc-js"
@@ -2340,6 +2351,8 @@ async function main(): Promise<void> {
         { key: "tilesSourceCrs", label: "Source CRS" },
         { key: "tilesBounds", label: "Bounds status" },
         { key: "tilesBoundsStrategy", label: "Bounds strategy" },
+        { key: "tilesSourcePoints", label: "Total source points" },
+        { key: "tilesBoundsIndex", label: "Content-bounds index" },
         { key: "tilesBoundsCoverage", label: "Bounds coverage" },
         { key: "tilesGeometryBounds", label: "Geometry bounds status" },
         { key: "tilesMetadataOnlyBounds", label: "Metadata-only source-cell result" },
@@ -2350,12 +2363,16 @@ async function main(): Promise<void> {
         { key: "tilesHierarchy", label: "Scanned hierarchy" },
         { key: "tilesContentScan", label: "Decoded-content scan" },
         { key: "tilesRangeBytes", label: "Source Range bytes observed" },
-        { key: "tilesRequested", label: "Content GLB requests" },
-        { key: "tilesLoaded", label: "Loaded tiles" },
+        { key: "tilesFirstVisible", label: "Initialization / first visible" },
+        { key: "tilesResourceRequests", label: "Renderer resource requests" },
+        { key: "tilesRequested", label: "Requested points / GLBs" },
+        { key: "tilesLoaded", label: "Total / loaded tile nodes" },
         { key: "tilesVisible", label: "Visible tiles" },
         { key: "tilesRenderedPoints", label: "Visible points" },
         { key: "tilesResourceBytes", label: "Resource bytes served" },
         { key: "tilesGlbBytes", label: "Generated GLB bytes served" },
+        { key: "tilesInFlight", label: "In-flight / cancelled requests" },
+        { key: "tilesCache", label: "Resource cache usage / evictions" },
         { key: "tilesSourceGeneration", label: "Adapter source generation" },
         { key: "tilesError", label: "Tiles pipeline error" },
       ],
@@ -2370,6 +2387,10 @@ async function main(): Promise<void> {
       tilesSourceCrs: value?.sourceCrs,
       tilesBounds: value?.boundsSupport,
       tilesBoundsStrategy: value?.boundsStrategy,
+      tilesSourcePoints: value?.sourcePointCount.toLocaleString(),
+      tilesBoundsIndex: value
+        ? `${value.boundsIndexStatus} · ${value.boundsIndexBytes.toLocaleString()} index bytes${value.sourceFingerprint ? ` · ${value.sourceFingerprint}` : ""}`
+        : undefined,
       tilesBoundsCoverage: value?.boundsCoverage,
       tilesGeometryBounds: value?.geometryBoundsStatus,
       tilesMetadataOnlyBounds: value
@@ -2388,12 +2409,28 @@ async function main(): Promise<void> {
         ? `${value.contentScanPhase} · ${value.contentNodesScanned.toLocaleString()}/${value.contentNodesTotal.toLocaleString()} nodes · ${value.contentPointsScanned.toLocaleString()}/${value.contentPointsTotal.toLocaleString()} points · ${value.contentPointDataBytes.toLocaleString()} point-data bytes · ${value.contentEcefBytesScanned.toLocaleString()} ECEF bytes · ${value.peakDecodedEcefBufferBytes.toLocaleString()} peak ECEF buffer · ${value.scanDurationMilliseconds.toFixed(1)} ms`
         : undefined,
       tilesRangeBytes: value?.sourceRangeBytesObserved.toLocaleString(),
-      tilesRequested: value?.requestedTiles.toLocaleString(),
-      tilesLoaded: value?.loadedTiles.toLocaleString(),
+      tilesFirstVisible: value?.firstVisibleMilliseconds === undefined
+        ? "Not visible yet"
+        : `${value.initializationMilliseconds?.toFixed(1) ?? "—"} ms initialization · ${value.firstVisibleMilliseconds.toFixed(1)} ms first visible · ${value.firstVisibleSourceRangeBytes?.toLocaleString() ?? "0"} source bytes · ${value.firstVisibleResourceBytes?.toLocaleString() ?? "0"} tile bytes · ${value.decodedPointsBeforeFirstVisible?.toLocaleString() ?? "0"} decoded points`,
+      tilesResourceRequests: value
+        ? `${value.resourceRequests.toLocaleString()} total · ${value.tilesetRequests.toLocaleString()} tileset · ${value.glbRequests.toLocaleString()} GLB / ${value.distinctGlbRequests.toLocaleString()} distinct nodes · ${value.glbBytes.toLocaleString()} GLB bytes`
+        : undefined,
+      tilesRequested: value
+        ? `${value.requestedPointCount.toLocaleString()} points · ${value.glbRequests.toLocaleString()} GLB requests`
+        : undefined,
+      tilesLoaded: value
+        ? `${value.hierarchyNodes.toLocaleString()} total · ${value.loadedTiles.toLocaleString()} loaded`
+        : undefined,
       tilesVisible: value?.visibleTiles.toLocaleString(),
       tilesRenderedPoints: value?.renderedPoints.toLocaleString(),
       tilesResourceBytes: value?.resourceBytes.toLocaleString(),
       tilesGlbBytes: value?.glbBytes.toLocaleString(),
+      tilesInFlight: value
+        ? `${value.inFlightRequests.toLocaleString()} active · ${value.peakActiveRequests.toLocaleString()} max active · ${value.cancelledRequests.toLocaleString()} cancelled`
+        : undefined,
+      tilesCache: value
+        ? `${value.cacheEntries.toLocaleString()} entries · ${value.cacheBytes.toLocaleString()} bytes · ${value.cacheEvictions.toLocaleString()} evictions · ${value.cacheHits.toLocaleString()} hits / ${value.cacheMisses.toLocaleString()} misses`
+        : undefined,
       tilesSourceGeneration: value?.sourceGeneration?.toString(),
       tilesError: value?.error,
     });
@@ -2973,6 +3010,11 @@ async function main(): Promise<void> {
       pendingConfig = { ...pendingConfig, tilesBoundsStrategy: value };
       updateConfigurationState();
     },
+    onTilesFullScanMaxPointsSelected(value) {
+      resolveStartupIssue("tilesFullScanMaxPoints");
+      pendingConfig = { ...pendingConfig, tilesFullScanMaxPoints: value };
+      updateConfigurationState();
+    },
     onCesiumRendererSelected(value) {
       resolveStartupIssue("cesiumRenderer");
       pendingConfig = { ...pendingConfig, cesiumRenderer: value };
@@ -3124,7 +3166,7 @@ async function main(): Promise<void> {
     getConfiguration: () => publicConfig(activeConfig),
     getPendingConfiguration: () => publicConfig(pendingConfig),
     getLastApplyTrace: () => lastApplyTrace?.events.map((event) => ({ ...event })) ?? [],
-    getTilesDiagnostics: () => activeSession?.getTilesDiagnostics?.() ?? tilesDiagnostics,
+    getTilesDiagnostics: () => tilesDiagnostics ?? activeSession?.getTilesDiagnostics?.(),
     getTilesetUrl: () => activeSession?.getTilesetUrl?.(),
     getCameraState: () => activeSession?.getCameraState(),
   };

@@ -18,6 +18,7 @@ export type CopcGetterOptions = {
   signal?: AbortSignal;
   rangeRequestDiagnostics?: RangeRequestDiagnosticsRecorder;
   rangeValidation?: RangeValidationPolicy;
+  expectedSourceETag?: string;
   /** Defaults to 64 MiB; explicit values accept any positive safe integer. */
   maxRangeBytes?: number;
   /** Defaults to 4; explicit values accept any positive safe integer. */
@@ -103,6 +104,7 @@ export function createCopcGetter(
     const byteSource = new ProjectOwnedByteSource(
       new HttpRangeByteSource(resolvedSource, {
         rangeValidation: options.rangeValidation,
+        expectedETag: options.expectedSourceETag,
         maxRangeBytes: options.maxRangeBytes,
         maxConcurrentRangeRequests: options.maxConcurrentRangeRequests,
       }),
