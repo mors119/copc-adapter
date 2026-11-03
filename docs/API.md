@@ -1087,7 +1087,7 @@ The connector consumes the A-shaped prepared-node result directly; the
 experimental Direct E cache remains internal and is neither exposed nor
 rehydrated by this connector. The packed-package checks and separate
 real-source integration are documented in
-[`packages/tiles/docs/adapter-api-compatibility.md`](../packages/tiles/docs/adapter-api-compatibility.md#issue-383-public-contract-decision).
+[`packages/tiles/docs/adapter-api-compatibility.md`](https://github.com/mors119/copc-adapter/blob/main/packages/tiles/docs/adapter-api-compatibility.md#issue-383-public-contract-decision).
 
 | Capability | Existing implementation | Public API in 0.8.0 candidate | Scope and limitation |
 | --- | --- | --- | --- |
