@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { cesiumTestOverrides, cesiumTestVersion } from './cesium-test-dependencies.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const packageRequire = createRequire(import.meta.url);
@@ -41,6 +42,7 @@ async function makeConsumer(directory, dependencies, fixtures) {
     private: true,
     type: 'module',
     dependencies,
+    ...(dependencies.cesium === undefined ? {} : { overrides: cesiumTestOverrides }),
   }, null, 2));
   for (const fixture of fixtures) {
     await cp(join(root, 'test/packed-consumer', fixture), join(directory, fixture));
@@ -139,7 +141,7 @@ try {
     '@frillab/copc-adapter': '0.7.1',
     '@frillab/copc-tiles': packedTiles,
     '@types/three': '0.186.0',
-    cesium: '1.146.0',
+    cesium: cesiumTestVersion,
     three: '0.186.1',
     typescript: '5.9.3',
   }, ['api.ts', 'tsconfig.nodenext.json', 'tsconfig.bundler.json', 'runtime.mjs']);
@@ -173,7 +175,7 @@ try {
     '@frillab/copc-adapter': packedAdapter,
     '@frillab/copc-tiles': packedTiles,
     '@types/three': '0.186.0',
-    cesium: '1.146.0',
+    cesium: cesiumTestVersion,
     three: '0.186.1',
     typescript: '5.9.3',
   }, ['api.ts', 'tsconfig.nodenext.json', 'tsconfig.bundler.json', 'runtime.mjs']);
