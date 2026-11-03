@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { cesiumTestOverrides } from './cesium-test-dependencies.mjs';
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = resolve(packageRoot, '../..');
@@ -135,6 +136,7 @@ try {
     version: '1.0.0',
     private: true,
     workspaces: ['packages/tiles'],
+    overrides: cesiumTestOverrides,
     allowScripts: {
       'better-sqlite3@11.10.0': true,
       'esbuild@0.28.2': true,
