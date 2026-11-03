@@ -1079,6 +1079,16 @@ explicit WKT2 projected WGS 84 ellipsoidal-height diagnostics for a narrowly
 recognized 3D CRS form; it does not add projected source-cell bounds. The 0.6.0
 artifact does not export this subpath.
 
+The implemented optional connector uses the existing public Core contract, so
+this audit does not add a Tiles-specific Adapter API. Its coverage is checked
+against COPC Tiles [T1 input and attribute selection](https://github.com/FrilLab/copc-tiles/issues/1)
+and [T2 requested-node reads](https://github.com/FrilLab/copc-tiles/issues/2).
+The connector consumes the A-shaped prepared-node result directly; the
+experimental Direct E cache remains internal and is neither exposed nor
+rehydrated by this connector. The packed-package checks and separate
+real-source integration are documented in
+[`packages/tiles/docs/adapter-api-compatibility.md`](../packages/tiles/docs/adapter-api-compatibility.md#issue-383-public-contract-decision).
+
 | Capability | Existing implementation | Public API in 0.8.0 candidate | Scope and limitation |
 | --- | --- | --- | --- |
 | Open HTTP and File/Blob sources | Existing `CopcBackend`, `CopcContext`, and Range sources | `createCopcContext()` returns `CopcNodeSource` from `@frillab/copc-adapter/core` | Built-in `copc-js` and opt-in Rust/WASM backends; caller-owned random access is supported |

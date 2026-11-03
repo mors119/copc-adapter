@@ -91,6 +91,93 @@ Adapter's exact `sourceIdentity`; the wrapper exposes that expected value as
 `conservativeBoundsSourceIdentity` so Tiles can validate provenance without
 rewriting Adapter metadata.
 
+## Issue #383 public contract decision
+
+The existing `@frillab/copc-adapter/core` exports cover the implemented Tiles
+connector path, so no Adapter-specific Tiles API is added. This is the
+supported minimum contract for the current connector and is cross-checked
+against [COPC Tiles T1](https://github.com/FrilLab/copc-tiles/issues/1) and
+[T2](https://github.com/FrilLab/copc-tiles/issues/2):
+
+- `createCopcContext()` opens HTTP, `File`/`Blob`, or caller-owned random-access
+  input and returns the public renderer-neutral node-source contract.
+- Public hierarchy methods resolve root and child pages lazily; callers keep
+  the page budget and `childrenComplete` evidence.
+- `loadPreparedNodeData()` decodes the requested node and selected fields,
+  returns ECEF Float64 plus the A-shaped prepared coordinate buffers, and
+  records actual field availability and source/transform generations.
+- Per-request `AbortSignal`, source `close()`, `isCurrent()`, immutable
+  transform provenance, and distinct decoded-point versus conservative
+  source-cell bounds support connector cancellation and validation.
+- The Tiles connector exposes the ECEF and selected attribute buffers as
+  read-only views. It does not depend on Direct `NodeSelector`, renderer
+  packages, or private Adapter imports.
+
+Direct layer E-cache entries remain an internal experiment. The current Tiles
+connector reads nodes through public Core preparation and does not consume or
+rehydrate those layer-cache entries. This is an explicit support boundary; no
+E-cache export is needed for the verified connector path.
+
+Verify packed package declarations and runtime entrypoints with:
+
+```sh
+npm run test:packed-consumer -w @frillab/copc-tiles
+```
+
+The script installs the packed Tiles tarball alongside the exact published
+Adapter `0.7.1` artifact and the packed local Adapter `0.8.0` candidate in
+clean temporary consumers. It runs strict NodeNext and Bundler declaration
+checks and ESM imports for the public Adapter and Tiles entrypoints, including
+the optional Core connector. It also checks renderer-free Core and Adapter-free
+Tiles consumers.
+
+Verify the real COPC-to-Tiles connector path in Chromium against the official
+range-served Autzen source with:
+
+```sh
+curl --fail --location \
+  https://s3.amazonaws.com/hobu-lidar/autzen-classified.copc.laz \
+  --output /tmp/copc-tiles-autzen.copc.laz
+COPC_TILES_AUTZEN=/tmp/copc-tiles-autzen.copc.laz \
+  npm run validate:adapter-integration -w @frillab/copc-tiles
+```
+
+The browser integration opens the public Adapter `/core` context and runs the
+Tiles connector against selected real nodes with both `copc-js` and Rust/WASM.
+It verifies bounded HTTP Range reads, prepared ECEF Float64 positions, actual
+attribute availability, source/transform provenance, GLB encoding and Cesium
+and Three.js consumption. Projected Autzen bounds fail closed before point
+reads. This is a selected-node integration check, not complete-hierarchy
+scanning, safe projected-source bounds, or proof of real multi-node Tiles LOD.
+Keep the npm-packed package checks and browser source integration separate:
+the Adapter runtime is browser-oriented, and its Core package is not a
+Node-runtime integration target.
+
+### Validation record — 2026-11-03
+
+- Adapter and Tiles typechecks passed, including Tiles' packed public-Core
+  compatibility typecheck. The targeted connector suite passed all 21 tests.
+- `npm run test:packed-consumer -w @frillab/copc-tiles` passed against Registry
+  Adapter `0.7.1` and the locally packed Adapter `0.8.0` candidate. The Tiles
+  tarball was 123.2 kB (501.0 kB unpacked); the Adapter candidate was 655.5 kB
+  (2.3 MB unpacked). Strict NodeNext/Bundler consumers, ESM exports, Core-only
+  imports, and Adapter-free Tiles imports passed. Direct renderer bundles
+  contained no Tiles modules.
+- The Autzen Chromium integration passed all four tests with the local `0.8.0`
+  candidate's public `/core` build: both backends failed closed for projected
+  conservative bounds before point reads, and both encoded and rendered one
+  real node through Cesium and Three.js. The selected node was `4-11-2-0` with
+  5,122 points; each backend produced a 119,292-byte GLB with zero Khronos or
+  CesiumGS validator errors or warnings. `copc-js` used 6 Range requests
+  (164,880 bytes); Rust/WASM used 7 (101,455 bytes). Maximum measured GLB
+  reconstruction error was about 1.97 micrometres. The temporary 81,123,042-byte
+  source matched the repository sample SHA-256
+  `db2d56cdfa058bffccdc5d6019dae2fc9c6a551df10a5523c06c76a3e25a27fa`.
+- These are selected-node results. They do not demonstrate a complete Autzen
+  hierarchy scan or safe projected-source multi-node Tiles LOD. The Adapter
+  package was not changed by this audit, so no runtime package-size delta is
+  claimed.
+
 ## Conservative bounds evidence and limits
 
 | Source class | Evidence | Result |
