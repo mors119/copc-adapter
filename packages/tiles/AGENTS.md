@@ -21,8 +21,8 @@ These rules are mandatory for every T1–T12 implementation and review:
 
 ### Independent npm distributions
 
-- `@frillab/copc-adapter` and `@frillab/copc-tiles` are independently versioned and packed workspace packages. Build and publish each package from its own manifest; the monorepo root is private.
-- Adapter `0.7.1` is the currently supported public Core contract. Tiles `0.1.0` remains an unpublished review candidate until separately approved.
+- `@frillab/copc-adapter` and `@frillab/copc-tiles` are independently versioned and packed workspace packages. Build and publish each package from its own manifest; the monorepo root is private. Check the Registry before publishing to avoid reusing an existing version.
+- Adapter `0.7.1` is the currently supported public Core contract. Tiles `0.1.0` is an experimental release; document its support limits and require explicit maintainer approval before publication.
 - Preserve all T1–T12 evidence: numeric precision, official Tiles/glTF conformance, E/A cache ownership/performance, Cesium/Three consumer tests and package isolation.
 - Verify that packed Tiles consumers install a separate Adapter tarball or the published release; workspace symlinks alone do not prove package isolation.
 
