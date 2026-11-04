@@ -38,7 +38,7 @@ jobs:
             if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
               run_validation=true
             else
-              changed_paths=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+              changed_paths=$(git diff --name-only --no-renames "$BASE_SHA" "$HEAD_SHA")
               if [[ -z "$changed_paths" ]] || grep -qv '^docs/' <<< "$changed_paths"; then
                 run_validation=true
               else
