@@ -116,7 +116,7 @@ try {
 
   const manifest = JSON.parse(await readFile(join(stagedPackageRoot, 'package.json'), 'utf8'));
   assert.equal(manifest.name, '@frillab/copc-tiles');
-  assert.equal(manifest.version, '0.1.0');
+  assert.equal(manifest.version, '0.1.1');
   assertAdapterPeerRange(manifest.peerDependencies?.['@frillab/copc-adapter'], 'staged package manifest');
   assert.equal(manifest.peerDependenciesMeta?.['@frillab/copc-adapter']?.optional, true);
   for (const section of ['dependencies', 'optionalDependencies', 'peerDependencies', 'devDependencies']) {
@@ -180,7 +180,7 @@ try {
 
   const stagedLock = JSON.parse(await readFile(join(stagingRoot, 'package-lock.json'), 'utf8'));
   assert.equal(stagedLock.packages?.['packages/tiles']?.name, '@frillab/copc-tiles');
-  assert.equal(stagedLock.packages?.['packages/tiles']?.version, '0.1.0');
+  assert.equal(stagedLock.packages?.['packages/tiles']?.version, '0.1.1');
   assertAdapterPeerRange(
     stagedLock.packages?.['packages/tiles']?.peerDependencies?.['@frillab/copc-adapter'],
     'staged package lockfile',

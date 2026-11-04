@@ -173,7 +173,7 @@ for package development and validation.
 | Package | Directory | Responsibility |
 | --- | --- | --- |
 | `@frillab/copc-adapter@0.8.0` | [`packages/adapter`](packages/adapter/README.md) | COPC Core, Cesium, and Three entrypoints |
-| `@frillab/copc-tiles@0.1.0` | [`packages/tiles`](packages/tiles/README.md) | Source-neutral 3D Tiles engine and optional public Adapter Core connector |
+| `@frillab/copc-tiles@0.1.1` (release candidate; registry latest is `0.1.0`) | [`packages/tiles`](packages/tiles/README.md) | Source-neutral 3D Tiles engine and optional public Adapter Core connector |
 
 The dependency direction is `@frillab/copc-tiles` →
 `@frillab/copc-adapter/core`. Adapter Core and the Tiles Engine do not require

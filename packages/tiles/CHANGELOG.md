@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.1 — 2026-11-04 (release candidate; not published)
+
 ### Changed
 
 - Replace the legacy `3d-tiles-validator` test dependency with the exact
@@ -11,6 +13,11 @@
 - Migrate generated Tileset, subtree, GLB, resource-provider, and real-source
   integration checks to the new validator report, including issue codes,
   coverage, and resource statistics.
+
+### Compatibility
+
+- No public exports, production dependencies, or runtime behavior changed.
+  The published package continues to support Node.js `>=18`.
 
 ### Validation limits
 

@@ -5,7 +5,7 @@ The repository root is private and defines two npm package workspaces:
 | Package | Path | Version | Role |
 | --- | --- | --- | --- |
 | `@frillab/copc-adapter` | `packages/adapter` | `0.8.0` | COPC Core, Cesium, and Three APIs |
-| `@frillab/copc-tiles` | `packages/tiles` | `0.1.0` | Source-neutral 3D Tiles engine and optional Adapter Core connector |
+| `@frillab/copc-tiles` | `packages/tiles` | `0.1.1` candidate | Source-neutral 3D Tiles engine and optional Adapter Core connector |
 
 They are independent npm distributions. Tiles may depend on public Adapter
 Core APIs; Adapter must not depend on Tiles. The root `package-lock.json` is

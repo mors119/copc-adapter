@@ -2035,7 +2035,7 @@ async function main(): Promise<void> {
       integrationCodePanel.setContent({
         code: "// No public integration snippet is available for this experimental pipeline.",
         warnings: [
-          "This demonstration uses the unpublished local @frillab/copc-tiles workspace. npm installation and public Playground support are not included. Share links preserve Adapter settings and return to Direct COPC mode.",
+          "This demonstration uses the local @frillab/copc-tiles workspace build. The package is available on npm, but this hosted Playground does not include the Tiles pipeline. Share links preserve Adapter settings and return to Direct COPC mode.",
         ],
       });
       return;
