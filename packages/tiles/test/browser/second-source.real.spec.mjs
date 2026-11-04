@@ -5,8 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from '@playwright/test';
 import validator from 'gltf-validator';
-import tilesValidator from '3d-tiles-validator';
 import { resetServerStats } from './browser-utils.mjs';
+import { assertValidTileset } from '../tilesetValidation.mjs';
 
 for (const backend of ['copc-js', 'rust']) {
 test(`optional second real COPC /core ${backend}: bounded read, encode, validate and render`, async ({ page }) => {
@@ -92,9 +92,9 @@ test(`optional second real COPC /core ${backend}: bounded read, encode, validate
     await mkdir(join(directory, 'content'));
     await writeFile(join(directory, 'tileset.json'), JSON.stringify(result.tileset));
     await writeFile(join(directory, 'content', 'real.glb'), glb);
-    const report = await tilesValidator.Validators.validateTilesetFile(join(directory, 'tileset.json'));
-    assert.deepEqual(report.issues.filter(issue => issue.severity === 'ERROR'), [], report.serialize());
-    assert.deepEqual(report.issues.filter(issue => issue.severity === 'WARNING'), [], report.serialize());
+    const report = await assertValidTileset(join(directory, 'tileset.json'));
+    assert.deepEqual(report.stats, { tilesets: 1, tiles: 1, resources: 1, glbs: 1, subtrees: 0 });
+    assert.equal(report.coverage.partial.find((entry) => entry.kind === 'gltf-semantics')?.count, 1);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

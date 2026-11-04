@@ -8,6 +8,12 @@
 > [repository development guide](https://github.com/mors119/copc-adapter/blob/main/docs/monorepo-development.md) for
 > migration, packaging, and consumer-validation results.
 
+> **Current validator boundary:** active Tiles tests use the development-only
+> `@frillab/copc-tiles-validate` package for local structural checks and retain
+> Khronos `gltf-validator` for glTF semantics. This package reports partial
+> conformance and does not validate glTF extension semantics. CesiumGS
+> validator results in the dated snapshots below are historical evidence.
+
 ## Historical #432 delivery candidate snapshot — 2026-11-01
 
 The following section records the state before issue #437 and is superseded by
@@ -215,8 +221,8 @@ integration only, not a safe live multi-node Tileset demonstration.
 | `npm run build` | Pass |
 | `npm test` | 88 passed, 0 failed, 0 skipped on Node 18.20.8 and 22.14.0 after verified Sharp rebuild |
 | `npm run validate:gltf` | 10 passed, including Khronos glTF validation |
-| `npm run validate:tileset` | 5 passed, including CesiumGS 3D Tiles validation |
-| `npm run validate:implicit` | 5 passed, including CesiumGS subtree validation |
+| `npm run validate:tileset` | Historical pre-migration result: 5 passed, including CesiumGS 3D Tiles validation |
+| `npm run validate:implicit` | Historical pre-migration result: 5 passed, including CesiumGS subtree validation |
 | `npm run validate:resources` | 10 passed |
 | `npm run test:browser` | 2 passed, 14 skipped (configured real-source fixtures absent in this run); Chromium on macOS arm64 |
 | `npm run validate:adapter-integration` | 4 passed after final integration run (real Autzen content and live-provider fail-closed checks, both backends) |

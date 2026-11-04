@@ -3,11 +3,11 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
-import validator from '3d-tiles-validator';
 import { createExperimentalETilePointView } from '../src/input/tilePointView.ts';
 import { encodePointCloudGlb } from '../src/gltf/pointCloudGlb.ts';
 import { octreeAvailabilityIndex, octreeMortonIndex, octreeSubtreeBitLengths } from '../src/implicit/octreeAvailability.ts';
 import { createImplicitOctreeTileset, ImplicitOctreeError } from '../src/tileset/implicitOctreeTileset.ts';
+import { assertTilesetIssue, assertValidTileset, validateTilesetReport } from './tilesetValidation.mjs';
 
 const rootNode = {
   key: 'root', level: 0, x: 0, y: 0, z: 0,
@@ -167,7 +167,7 @@ test('rejects unsafe ranges, unsupported subtree sizes, and configured work limi
   assertImplicitError('TILESET_LIMIT', () => createImplicitOctreeTileset(inputs, { maxTotalSubtreeBytes: 1 }));
 });
 
-test('CesiumGS validator accepts the generated 3D Tiles 1.1 implicit octree and binary subtrees', async () => {
+test('the structural validator checks implicit availability, reachable subtrees and referenced GLB containers', async () => {
   const result = createImplicitOctreeTileset(inputs, { subtreeLevels: 2, tilesetVersion: 'sparse-fixture-v1' });
   const directory = await mkdtemp(join(tmpdir(), 'copc-tiles-t6-'));
   try {
@@ -187,11 +187,34 @@ test('CesiumGS validator accepts the generated 3D Tiles 1.1 implicit octree and 
       await mkdir(dirname(path), { recursive: true });
       await writeFile(path, pointContent(key, ecef));
     }
-    const report = await validator.Validators.validateTilesetFile(join(directory, 'tileset.json'));
-    const errors = report.issues.filter((issue) => issue.severity === 'ERROR');
-    const warnings = report.issues.filter((issue) => issue.severity === 'WARNING');
-    assert.deepEqual(errors, [], report.serialize());
-    assert.deepEqual(warnings, [], report.serialize());
+    const report = await assertValidTileset(join(directory, 'tileset.json'));
+    assert.equal(report.stats.tilesets, 1);
+    assert.equal(report.stats.tiles, 1);
+    assert.equal(report.stats.subtrees, result.subtrees.size);
+    assert.equal(report.stats.glbs, content.length);
+    assert.equal(report.stats.resources, result.subtrees.size + content.length);
+    assert.ok(report.coverage.checked.some((entry) => entry.kind === 'subtree-availability'));
+    assert.equal(report.coverage.partial.find((entry) => entry.kind === 'gltf-semantics')?.count, content.length);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('reports a malformed reachable binary subtree with its structural issue code', async () => {
+  const result = createImplicitOctreeTileset(inputs, { subtreeLevels: 2, tilesetVersion: 'broken-subtree-v1' });
+  const directory = await mkdtemp(join(tmpdir(), 'copc-tiles-broken-subtree-'));
+  try {
+    await writeFile(join(directory, 'tileset.json'), JSON.stringify(result.tileset));
+    for (const [uri, bytes] of result.subtrees) {
+      const path = join(directory, uri);
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, bytes);
+    }
+    const rootSubtree = [...result.subtrees.keys()][0];
+    await writeFile(join(directory, rootSubtree), Buffer.from('subt'));
+    const report = await validateTilesetReport(join(directory, 'tileset.json'));
+    assertTilesetIssue(report, { code: 'SUBTREE_HEADER', severity: 'ERROR' });
+    assert.equal(report.stats.subtrees, 1);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

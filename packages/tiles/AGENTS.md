@@ -50,6 +50,25 @@ These rules are mandatory for every T1–T12 implementation and review:
 4. VERIFY: unit/type/build, numeric & validator conformance, Cesium/Three browser E2E, malformed-input/security, cancelled requests and packed consumer coverage appropriate to the issue; report skipped or unavailable checks honestly.
 5. REVIEW: document changes, results, risks, pending limitations and upstream API requirements. Stop at **AWAITING MAINTAINER REVIEW**. Never merge, publish, release or auto-close issues without explicit maintainer approval.
 
+## Validation dependency boundaries
+
+- Use the exact, test-only `@frillab/copc-tiles-validate` version recorded in
+  `package.json` for local 3D Tiles structural checks. It is independent of
+  COPC and must not enter package runtime dependencies or public exports.
+- `report.valid` means the implemented structural checks found no errors;
+  `report.conformance` is partial. Keep `coverage` and `stats` in assertion
+  diagnostics. Do not set `failOnUnverified` for producer fixtures with
+  intentionally partial glTF coverage.
+- Keep `gltf-validator` for glTF semantic validation. The structural validator
+  does not validate glTF schemas, extensions, accessors, meshes, or metadata
+  semantics. In particular, its checks do not replace the former
+  CesiumGS extension-aware validation of `EXT_structural_metadata` and
+  `EXT_mesh_features`; preserve direct encoder and renderer assertions and
+  report this remaining gap.
+- The validator development dependency declares Node `>=22.12.0`; this does
+  not change the published Tiles package runtime requirement of Node `>=18`.
+  Keep all production dependencies and imports independent of the validator.
+
 ## Quality and documentation
 
 - All GitHub issues, commits, PRs and code comments in English; README may be Korean.

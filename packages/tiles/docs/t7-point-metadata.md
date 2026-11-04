@@ -31,13 +31,16 @@ and [`EXT_mesh_features`](https://github.com/CesiumGS/glTF/blob/3d-tiles-next/ex
 drafts used by 3D Tiles.
 
 `npm run validate:gltf` checks the GLB with the official Khronos glTF
-Validator, then places a metadata-bearing GLB in a tileset and runs the
-CesiumGS 3D Tiles Validator's extension-aware checks. The Khronos validator
-does not validate these extension semantics; the CesiumGS validator reports
-zero errors and warnings for the fixture. Cesium and Three.js runtime metadata
-inspection is covered by the browser fixtures. The actual one-node Autzen GLB
-also passed the Khronos validator, and Three.js read its RGB, intensity and
-classification data through the standard GLB/metadata plugins. The published
+Validator, then places a metadata-bearing GLB in a Tileset and checks the
+Tileset, referenced file, and GLB container with the test-only
+`@frillab/copc-tiles-validate` structural validator. This validator does not
+check glTF extension semantics; the former CesiumGS extension-aware check is a
+coverage gap after the migration. The existing encoder assertions still read
+the metadata schema, property table, feature mapping, and exact typed values,
+and Cesium and Three.js runtime metadata inspection remains covered by browser
+fixtures. The actual one-node Autzen GLB also passes the Khronos validator, and
+Three.js reads its RGB, intensity and classification data through the standard
+GLB/metadata plugins. The published
 Adapter 0.7.1 `/core` accepts exact named Extra Bytes on `copc-js` when the
 LAS descriptor permits them; Rust/WASM rejects non-empty requests. Real named
 Extra Bytes were not exercised. The current SoFi run verified position,

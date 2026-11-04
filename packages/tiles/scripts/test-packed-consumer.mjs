@@ -50,6 +50,14 @@ async function makeConsumer(directory, dependencies, fixtures) {
   runNpm(['install', '--no-audit', '--no-fund'], directory, `clean consumer install (${directory})`);
 }
 
+async function assertValidatorNotInstalled(directory, label) {
+  const lock = JSON.parse(await readFile(join(directory, 'package-lock.json'), 'utf8'));
+  const installedPath = Object.keys(lock.packages ?? {}).find((path) =>
+    path.endsWith('node_modules/@frillab/copc-tiles-validate'),
+  );
+  assert.equal(installedPath, undefined, `${label} does not install the test-only validator`);
+}
+
 async function installBytes(directory) {
   let total = 0;
   const visit = async (path) => {
@@ -120,6 +128,15 @@ try {
   }
   assert.equal(tileFiles.some((file) => file.endsWith('.copc.laz')), false, 'Tiles tarball excludes COPC datasets');
   assert.equal(tileFiles.some((file) => file.includes('/node_modules/')), false, 'Tiles tarball excludes node_modules');
+  assert.equal(tileFiles.some((file) => file.includes('copc-tiles-validate')), false, 'Tiles tarball excludes the test-only validator');
+  const packedManifestResult = spawnSync('tar', ['-xOzf', packedTilesPath, 'package/package.json'], { encoding: 'utf8' });
+  if (packedManifestResult.error) throw packedManifestResult.error;
+  assert.equal(packedManifestResult.status, 0, 'Tiles tarball manifest can be inspected');
+  const packedManifest = JSON.parse(packedManifestResult.stdout);
+  for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies']) {
+    assert.equal(packedManifest[field]?.['@frillab/copc-tiles-validate'], undefined, `packed Tiles manifest excludes validator from ${field}`);
+    assert.equal(packedManifest[field]?.['3d-tiles-validator'], undefined, `packed Tiles manifest excludes legacy validator from ${field}`);
+  }
 
   let packedAdapterName;
   let packedAdapter;
@@ -145,6 +162,7 @@ try {
     three: '0.186.1',
     typescript: '5.9.3',
   }, ['api.ts', 'tsconfig.nodenext.json', 'tsconfig.bundler.json', 'runtime.mjs']);
+  await assertValidatorNotInstalled(consumerDirectory, 'packed renderer consumer');
 
   const installedAdapterPath = join(consumerDirectory, 'node_modules/@frillab/copc-adapter');
   const installedAdapter = JSON.parse(await readFile(join(installedAdapterPath, 'package.json'), 'utf8'));
@@ -179,6 +197,7 @@ try {
     three: '0.186.1',
     typescript: '5.9.3',
   }, ['api.ts', 'tsconfig.nodenext.json', 'tsconfig.bundler.json', 'runtime.mjs']);
+  await assertValidatorNotInstalled(candidateConsumerDirectory, 'packed candidate consumer');
   const candidateAdapterPath = join(candidateConsumerDirectory, 'node_modules/@frillab/copc-adapter');
   const candidateAdapter = JSON.parse(await readFile(join(candidateAdapterPath, 'package.json'), 'utf8'));
   assert.equal(candidateAdapter.version, '0.8.0', 'second consumer uses the packed Adapter 0.8.0 candidate');
@@ -195,6 +214,7 @@ try {
     '@frillab/copc-adapter': '0.7.1',
     '@frillab/copc-tiles': packedTiles,
   }, ['core-only.mjs']);
+  await assertValidatorNotInstalled(coreOnlyDirectory, 'renderer-free Core consumer');
   const installedRendererPackages = await Promise.all(['cesium', 'three'].map(async (name) => {
     try {
       await readFile(join(coreOnlyDirectory, 'node_modules', name, 'package.json'));
@@ -219,6 +239,7 @@ try {
   await makeConsumer(engineOnlyDirectory, {
     '@frillab/copc-tiles': packedTiles,
   }, ['engine-only.mjs', 'engine-only.ts', 'tsconfig.engine-only.json']);
+  await assertValidatorNotInstalled(engineOnlyDirectory, 'Adapter-free engine consumer');
   for (const name of ['@frillab/copc-adapter', 'cesium', 'three']) {
     let installed = false;
     try {

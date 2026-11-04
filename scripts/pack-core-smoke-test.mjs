@@ -287,6 +287,9 @@ try {
     ["install", "--no-audit", "--no-fund", packagePath, "typescript@~7.0.2"],
     { cwd: consumerDirectory, stdio: "inherit" },
   );
+  if (existsSync(path.join(consumerDirectory, "node_modules/@frillab/copc-tiles-validate"))) {
+    throw new Error("Clean Adapter Core consumer unexpectedly installed the Tiles test validator");
+  }
   for (const renderer of ["cesium", "three"]) {
     if (
       existsSync(path.join(consumerDirectory, "node_modules", renderer))

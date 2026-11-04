@@ -4,10 +4,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import validator from 'gltf-validator';
-import tilesValidator from '3d-tiles-validator';
 import { createExperimentalETilePointView } from '../src/input/tilePointView.ts';
 import { encodePointCloudGlb, GlbEncodingError } from '../src/gltf/pointCloudGlb.ts';
 import { createPaddedEcefBoundsFromConservativeResult } from '../src/tileset/explicitTileset.ts';
+import { assertValidTileset } from './tilesetValidation.mjs';
 
 const context = {
   sourceIdentity: 'glb-fixture',
@@ -291,7 +291,7 @@ test('generated GLBs pass the official Khronos glTF Validator', async () => {
   }
 });
 
-test('CesiumGS 3D Tiles Validator validates structural metadata and per-point feature lookup', async () => {
+test('structural validation inspects the metadata GLB container while encoder assertions verify per-point feature lookup', async () => {
   const fixture = encodePointCloudGlb(pointView({ attributes: {
     intensity: new Uint16Array([12, 65535]),
     classification: new Uint8Array([2, 18]),
@@ -315,11 +315,11 @@ test('CesiumGS 3D Tiles Validator validates structural metadata and per-point fe
       },
     }));
     await writeFile(join(directory, 'points.glb'), fixture.bytes);
-    const report = await tilesValidator.Validators.validateTilesetFile(join(directory, 'tileset.json'));
-    const errors = report.issues.filter((issue) => issue.severity === 'ERROR');
-    const warnings = report.issues.filter((issue) => issue.severity === 'WARNING');
-    assert.deepEqual(errors, [], report.serialize());
-    assert.deepEqual(warnings, [], report.serialize());
+    const report = await assertValidTileset(join(directory, 'tileset.json'));
+    assert.deepEqual(report.stats, { tilesets: 1, tiles: 1, resources: 1, glbs: 1, subtrees: 0 });
+    assert.equal(report.coverage.checked.find((entry) => entry.kind === 'glb-container')?.count, 1);
+    assert.equal(report.coverage.partial.find((entry) => entry.kind === 'gltf-semantics')?.count, 1);
+    assert.ok(report.issues.some((entry) => entry.code === 'GLTF_SEMANTICS_UNVERIFIED' && entry.severity === 'WARNING'));
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

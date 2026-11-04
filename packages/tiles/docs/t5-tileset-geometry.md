@@ -45,7 +45,10 @@ CRS, every geographic cell, or validated vertical-grid behavior. See the
 Fixture verification:
 
 - `npm run validate:tileset` runs hierarchy/bounds/security tests and the
-  CesiumGS 3D Tiles Validator against a generated tileset and GLB content.
+  test-only `@frillab/copc-tiles-validate` structural validator against a
+  generated Tileset and referenced GLB content. Assertions check structural
+  validity, checked coverage, GLB/subtree counts, and partial conformance; they
+  do not claim full 3D Tiles standards conformance.
 - `npm run typecheck` checks the exported TypeScript implementation.
 
 For supported geographic fixtures, the Adapter bound does not include GLB
@@ -53,8 +56,9 @@ Float32 reconstruction error. `createCopcTileResourceProvider` derives an
 error envelope for each content-bearing cell before point reads and propagates
 the largest descendant padding to ancestor volumes, including empty nodes. It
 then verifies decoded point containment and actual GLB error. A two-node live
-source passes the Khronos and CesiumGS validators and renders in the
-Cesium/Three fixtures. Real
+source passes Khronos glTF semantic validation and the new structural Tileset
+checks, then renders in the Cesium/Three fixtures. The structural validator
+does not check glTF extension semantics. Real
 Autzen and SoFi are projected and remain unsupported; one-node renderer checks
 do not evidence projected parent/child cell bounds or real production LOD. No
 unsupported result falls back to decoded-point bounds.

@@ -3,10 +3,10 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import validator from '3d-tiles-validator';
 import { createExperimentalETilePointView } from '../src/input/tilePointView.ts';
 import { encodePointCloudGlb } from '../src/gltf/pointCloudGlb.ts';
 import { createExplicitTileset, ExplicitTilesetError } from '../src/tileset/explicitTileset.ts';
+import { assertValidTileset } from './tilesetValidation.mjs';
 
 const rootNode = {
   key: 'root', level: 0, x: 0, y: 0, z: 0,
@@ -133,7 +133,7 @@ test('safe node-key encoding cannot introduce path traversal', () => {
   assert.equal(uri.includes('..'), false);
 });
 
-test('the official Cesium 3D Tiles Validator accepts generated 1.1 tileset, bounds, transforms and GLB content', async () => {
+test('the structural validator checks generated 1.1 tileset geometry and referenced GLB containers', async () => {
   const tileset = createExplicitTileset(inputs, { tilesetVersion: 'fixture-v1' });
   const directory = await mkdtemp(join(tmpdir(), 'copc-tiles-t5-'));
   try {
@@ -141,11 +141,11 @@ test('the official Cesium 3D Tiles Validator accepts generated 1.1 tileset, boun
     await writeFile(join(directory, 'tileset.json'), JSON.stringify(tileset));
     await writeFile(join(directory, 'content', '726f6f74.glb'), glbFor('root', [6378135, 0, 0]));
     await writeFile(join(directory, 'content', '6c656674.glb'), glbFor('left', [6378132.5, -5, -5]));
-    const report = await validator.Validators.validateTilesetFile(join(directory, 'tileset.json'));
-    const errors = report.issues.filter((issue) => issue.severity === 'ERROR');
-    const warnings = report.issues.filter((issue) => issue.severity === 'WARNING');
-    assert.deepEqual(errors, [], report.serialize());
-    assert.deepEqual(warnings, [], report.serialize());
+    const report = await assertValidTileset(join(directory, 'tileset.json'));
+    assert.deepEqual(report.stats, { tilesets: 1, tiles: 3, resources: 2, glbs: 2, subtrees: 0 });
+    assert.equal(report.coverage.checked.find((entry) => entry.kind === 'tile-structure')?.count, 3);
+    assert.equal(report.coverage.checked.find((entry) => entry.kind === 'glb-container')?.count, 2);
+    assert.equal(report.coverage.partial.find((entry) => entry.kind === 'gltf-semantics')?.count, 2);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
