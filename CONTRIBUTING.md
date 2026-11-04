@@ -107,6 +107,34 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 If a check cannot be run locally, explain why in the pull request.
 
+
+### Codecov coverage reports
+
+Adapter unit tests already run once with Node's built-in coverage in the
+`viewer-fast` CI job. The same test invocation also writes a Git-root-relative
+LCOV file at `packages/adapter/coverage/lcov.info`:
+
+```bash
+npm run coverage:raw -w @frillab/copc-adapter
+```
+
+The runner uses paired `spec` and `lcov` reporters in **one** test execution.
+Its report normalizer excludes tests, tooling, and other workspaces; the report
+contains executed Adapter source modules only. Unloaded modules are not
+automatically included in this first-pass coverage baseline.
+
+Codecov receives this file from the existing `viewer-fast` job, using GitHub
+OIDC and the `adapter-node` flag. No separate coverage test job or permanent
+`CODECOV_TOKEN` is needed. Maintainers must first enable
+`mors119/copc-adapter` in Codecov. Initially the project and patch checks are
+informational and the upload does not block CI, so baseline collection cannot
+weaken existing required test gates.
+
+**Scope:** This upload does not measure Rust native/WASM, the Tiles workspace,
+Dev Viewer, Playground, or browser E2E execution. Add independent collection
+only when existing jobs can reuse their test invocations; do not run the same
+suite twice just for a coverage badge.
+
 ## Pull requests
 
 Please keep each pull request focused and include:

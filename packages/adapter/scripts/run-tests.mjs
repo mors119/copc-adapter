@@ -1,7 +1,8 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { normalizeAdapterLcov } from './normalize-lcov.mjs';
 
 const packageDirectory = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -68,7 +69,21 @@ if (files.length === 0) {
 }
 
 const nodeArguments = ['--import', 'tsx', '--test'];
-if (collectCoverage) nodeArguments.push('--experimental-test-coverage');
+const coverageDirectory = path.join(packageDirectory, 'coverage');
+const coverageRaw = path.join(coverageDirectory, 'lcov.raw.info');
+const coverageFinal = path.join(coverageDirectory, 'lcov.info');
+if (collectCoverage) {
+  mkdirSync(coverageDirectory, { recursive: true });
+  rmSync(coverageRaw, { force: true });
+  rmSync(coverageFinal, { force: true });
+  nodeArguments.push(
+    '--experimental-test-coverage',
+    '--test-reporter=spec',
+    '--test-reporter-destination=stdout',
+    '--test-reporter=lcov',
+    `--test-reporter-destination=${coverageRaw}`,
+  );
+}
 nodeArguments.push(...files.map((file) => path.relative(packageDirectory, file)));
 
 const environment = { ...process.env };
@@ -86,4 +101,15 @@ if (result.error) {
   process.exitCode = 1;
 } else {
   process.exitCode = result.status ?? 1;
+  if (collectCoverage && result.status === 0) {
+    try {
+      const raw = readFileSync(coverageRaw, 'utf8');
+      const normalized = normalizeAdapterLcov(raw, packageDirectory);
+      writeFileSync(coverageFinal, normalized);
+      console.log(`Adapter LCOV ready: ${coverageFinal}`);
+    } catch (error) {
+      console.error('Unable to prepare Adapter LCOV:', error);
+      process.exitCode = 1;
+    }
+  }
 }

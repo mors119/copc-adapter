@@ -86,6 +86,9 @@ jobs:
     if: needs.preflight.outputs.run_validation == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
       - name: Check out repository
@@ -132,6 +135,16 @@ jobs:
         run: |
           npm run coverage:raw -w @frillab/copc-adapter
           npm --prefix apps/dev-viewer run test:unit
+
+      # Reuse the existing Node test execution; no duplicate coverage test job.
+      - name: Upload Adapter Node coverage to Codecov
+        uses: codecov/codecov-action@v7
+        with:
+          files: ./packages/adapter/coverage/lcov.info
+          disable_search: true
+          flags: adapter-node
+          use_oidc: true
+          fail_ci_if_error: false
 
       - name: Build package and development viewer
         run: |

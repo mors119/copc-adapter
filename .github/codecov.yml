@@ -1,0 +1,29 @@
+# Codecov receives Adapter Node test coverage from the existing viewer-fast job.
+# Browser E2E, Tiles, and Rust coverage are not collected by this upload.
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
+
+component_management:
+  individual_components:
+    - component_id: adapter-core
+      name: Adapter Core
+      paths:
+        - packages/adapter/core/**
+        - packages/adapter/core.ts
+        - packages/adapter/index.ts
+    - component_id: adapter-cesium
+      name: Adapter CesiumJS
+      paths:
+        - packages/adapter/cesium/**
+        - packages/adapter/cesium.ts
+    - component_id: adapter-three
+      name: Adapter Three.js
+      paths:
+        - packages/adapter/three/**
+        - packages/adapter/three.ts
