@@ -2,6 +2,7 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@frillab/copc-adapter"><img src="https://img.shields.io/npm/v/@frillab/copc-adapter.svg" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/@frillab/copc-tiles"><img src="https://img.shields.io/npm/v/@frillab/copc-tiles.svg" alt="COPC Tiles npm version"></a>
   <a href="https://github.com/mors119/copc-adapter/actions/workflows/ci.yml"><img src="https://github.com/mors119/copc-adapter/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
   <a href="https://mors119.github.io/copc-adapter/"><img src="https://img.shields.io/badge/docs-GitHub%20Pages-blue" alt="Documentation"></a>
   <a href="https://github.com/mors119/copc-adapter/blob/main/LICENSE"><img src="https://img.shields.io/github/license/mors119/copc-adapter.svg" alt="License"></a>
