@@ -2133,20 +2133,7 @@ test("a failed first render rolls back the shared core and keeps the viewer usab
 });
 
 test("detach invalidates an in-flight core update before stale points reach Cesium", async () => {
-  let resolveDecode;
-  let decodeStarted;
-  const decodeReady = new Promise((resolve) => {
-    decodeStarted = resolve;
-  });
   const source = createBackend();
-  source.decoder = {
-    async decode() {
-      decodeStarted();
-      return new Promise((resolve) => {
-        resolveDecode = resolve;
-      });
-    },
-  };
   const layer = new CopcCesiumLayer({
     url: "memory://stale.copc.laz",
     backend: source.backend,
@@ -2155,18 +2142,51 @@ test("detach invalidates an in-flight core update before stale points reach Cesi
   const viewer = createFakeViewer();
 
   await layer.load();
+  const pendingUpdates = [];
+  layer.controller.core.updateView = async (_view, onProgress) => {
+    const deferred = createDeferred();
+    pendingUpdates.push({ deferred, onProgress });
+    return deferred.promise;
+  };
   layer.attachTo(viewer);
-  await decodeReady;
+  await waitFor(() => pendingUpdates.length === 1);
   layer.detachFrom();
-  resolveDecode({
-    pointCount: 2,
-    coordinates: new Float64Array([-122.6, 44.4, 12, -122.4, 44.6, 18]),
+  layer.attachTo(viewer);
+  const staleUpdate = {
+    selectedNodeKeys: ["stale-node"],
+    removedNodeKeys: [],
+    loadedNodePoints: new Map([[
+      "stale-node",
+      {
+        pointCount: 2,
+        coordinates: new Float64Array([-122.6, 44.4, 12, -122.4, 44.6, 18]),
+      },
+    ]]),
+    replacementGroups: [],
+    generation: 1,
+  };
+  pendingUpdates[0].onProgress(staleUpdate);
+
+  assert.equal(layer.getSnapshot().renderedNodeKeys.includes("stale-node"), false);
+  assert.equal(layer.getSnapshot().renderedPointCount, 0);
+
+  pendingUpdates[0].deferred.resolve(staleUpdate);
+  await waitFor(() => pendingUpdates.length === 2);
+
+  assert.equal(layer.getSnapshot().renderedNodeKeys.includes("stale-node"), false);
+  assert.equal(layer.getSnapshot().renderedPointCount, 0);
+
+  pendingUpdates[1].deferred.resolve({
+    selectedNodeKeys: [],
+    removedNodeKeys: [],
+    loadedNodePoints: new Map(),
+    replacementGroups: [],
+    generation: 2,
   });
   await new Promise((resolve) => setTimeout(resolve, 10));
 
-  assert.equal(layer.getSnapshot().attached, false);
-  assert.equal(layer.getSnapshot().renderedPointCount, 0);
-  assert.equal(viewer.addedCollections.length, 1);
+  assert.equal(layer.getSnapshot().attached, true);
+  assert.equal(viewer.addedCollections.length, 2);
   assert.equal(viewer.removedCollections.length, 1);
   layer.destroy();
 });

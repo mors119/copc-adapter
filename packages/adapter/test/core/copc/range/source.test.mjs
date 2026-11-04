@@ -1453,7 +1453,7 @@ test("HttpRangeByteSource returns independent buffers for duplicate full-span re
   ]);
 
   assert.deepEqual([...first], [10, 11, 12, 13]);
-  assert.deepEqual([...second], [10, 11, 12, 13]);
+  assert.deepEqual([...second], [...first]);
   assert.notEqual(first.buffer, second.buffer);
   assert.deepEqual(
     calls.map(({ offset, length }) => ({ offset, length })),

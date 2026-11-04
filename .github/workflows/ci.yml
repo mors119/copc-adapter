@@ -17,9 +17,37 @@ jobs:
   preflight:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    outputs:
+      run_validation: ${{ steps.scope.outputs.run_validation }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
+
+      - name: Decide whether product validation is needed
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          if [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
+            run_validation=true
+          else
+            if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+              git fetch --no-tags --depth=1 origin "$BASE_SHA" || true
+            fi
+            if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+              run_validation=true
+            else
+              changed_paths=$(git diff --name-only --no-renames "$BASE_SHA" "$HEAD_SHA")
+              if [[ -z "$changed_paths" ]] || grep -qv '^docs/' <<< "$changed_paths"; then
+                run_validation=true
+              else
+                run_validation=false
+              fi
+            fi
+          fi
+          echo "run_validation=$run_validation" >> "$GITHUB_OUTPUT"
+
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
@@ -28,6 +56,7 @@ jobs:
         run: node packages/tiles/scripts/test-migration-staging.mjs --preflight
   rust:
     needs: [preflight]
+    if: needs.preflight.outputs.run_validation == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -54,8 +83,12 @@ jobs:
 
   viewer-fast:
     needs: [preflight]
+    if: needs.preflight.outputs.run_validation == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
       - name: Check out repository
@@ -103,6 +136,16 @@ jobs:
           npm run coverage:raw -w @frillab/copc-adapter
           npm --prefix apps/dev-viewer run test:unit
 
+      # Reuse the existing Node test execution; no duplicate coverage test job.
+      - name: Upload Adapter Node coverage to Codecov
+        uses: codecov/codecov-action@v7
+        with:
+          files: ./packages/adapter/coverage/lcov.info
+          disable_search: true
+          flags: adapter-node
+          use_oidc: true
+          fail_ci_if_error: false
+
       - name: Build package and development viewer
         run: |
           npm run build:library:ci -w @frillab/copc-adapter
@@ -110,6 +153,7 @@ jobs:
 
   viewer-browser:
     needs: [preflight]
+    if: needs.preflight.outputs.run_validation == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     # Test-level shards spread large spec files across isolated runners while
@@ -188,6 +232,7 @@ jobs:
 
   viewer-package:
     needs: [preflight]
+    if: needs.preflight.outputs.run_validation == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     outputs:
@@ -273,7 +318,8 @@ jobs:
           retention-days: 1
 
   viewer-package-consumer:
-    needs: [viewer-package]
+    needs: [preflight, viewer-package]
+    if: needs.preflight.outputs.run_validation == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
@@ -340,7 +386,8 @@ jobs:
         run: node scripts/pack-smoke-test.mjs "$PACKAGE_CANDIDATE" "${{ matrix.consumer }}"
 
   tiles-package:
-    needs: [viewer-package]
+    needs: [preflight, viewer-package]
+    if: needs.preflight.outputs.run_validation == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 90
 
@@ -399,22 +446,40 @@ jobs:
   # Preserve the existing required status-check name from the main ruleset.
   # A failure (or skipped/cancelled gate) must never appear as a green viewer-web check.
   viewer-web:
-    needs: [preflight, viewer-fast, viewer-browser, viewer-package, viewer-package-consumer, tiles-package]
+    needs: [preflight, rust, viewer-fast, viewer-browser, viewer-package, viewer-package-consumer, tiles-package]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
       - name: Require every viewer validation gate
         env:
+          RUN_VALIDATION: ${{ needs.preflight.outputs.run_validation }}
           PREFLIGHT_RESULT: ${{ needs.preflight.result }}
+          RUST_RESULT: ${{ needs.rust.result }}
           FAST_RESULT: ${{ needs.viewer-fast.result }}
           BROWSER_RESULT: ${{ needs.viewer-browser.result }}
           PACKAGE_BUILD_RESULT: ${{ needs.viewer-package.result }}
           PACKAGE_CONSUMER_RESULT: ${{ needs.viewer-package-consumer.result }}
           TILES_RESULT: ${{ needs.tiles-package.result }}
         run: |
-          for result in "$PREFLIGHT_RESULT" "$FAST_RESULT" "$BROWSER_RESULT" "$PACKAGE_BUILD_RESULT" "$PACKAGE_CONSUMER_RESULT" "$TILES_RESULT"; do
+          if [ "$PREFLIGHT_RESULT" != "success" ]; then
+            echo "::error::Workspace preflight must succeed (preflight=$PREFLIGHT_RESULT)"
+            exit 1
+          fi
+
+          if [ "$RUN_VALIDATION" != "true" ]; then
+            for result in "$RUST_RESULT" "$FAST_RESULT" "$BROWSER_RESULT" "$PACKAGE_BUILD_RESULT" "$PACKAGE_CONSUMER_RESULT" "$TILES_RESULT"; do
+              if [ "$result" != "skipped" ]; then
+                echo "::error::Code validation should be skipped for docs-only changes (result=$result)"
+                exit 1
+              fi
+            done
+            echo 'Docs-only change: workspace preflight passed; product validation jobs were skipped.'
+            exit 0
+          fi
+
+          for result in "$PREFLIGHT_RESULT" "$RUST_RESULT" "$FAST_RESULT" "$BROWSER_RESULT" "$PACKAGE_BUILD_RESULT" "$PACKAGE_CONSUMER_RESULT" "$TILES_RESULT"; do
             if [ "$result" != "success" ]; then
-              echo "::error::All validation gates must succeed (preflight=$PREFLIGHT_RESULT, fast=$FAST_RESULT, browser=$BROWSER_RESULT, package-build=$PACKAGE_BUILD_RESULT, package-consumers=$PACKAGE_CONSUMER_RESULT, tiles=$TILES_RESULT)"
+              echo "::error::All validation gates must succeed (preflight=$PREFLIGHT_RESULT, rust=$RUST_RESULT, fast=$FAST_RESULT, browser=$BROWSER_RESULT, package-build=$PACKAGE_BUILD_RESULT, package-consumers=$PACKAGE_CONSUMER_RESULT, tiles=$TILES_RESULT)"
               exit 1
             fi
           done
