@@ -1,5 +1,7 @@
 # Issue 191: Adaptive view distance
 
+> **Historical benchmark record.** Results describe the issue, input, and environment at the time of measurement. Reproduction commands and paths are preserved as recorded and may require the historical checkout; see the [monorepo development guide](../monorepo-development.md) for current setup. These measurements are not current performance guarantees.
+
 ## Method
 
 The Cesium browser runs used the Rust backend, a 20,000 m hard distance cap,

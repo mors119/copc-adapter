@@ -1,11 +1,11 @@
 # Issue #239: Layer API semantics matrix
 
-**Status:** Implemented in the Issue #239 release candidate branch; awaiting
-maintainer review.
+**Status:** Implemented. Issue #239 closed on 2026-10-16. This document is
+retained as the API semantics record.
 **Scope:** Additive CesiumJS and Three.js layer ergonomics. Existing public
 signatures and streaming defaults are preserved.
 
-Issue [#239](https://github.com/mors119/copc-adapter/issues/239) asks for a
+Issue [#239](https://github.com/mors119/copc-adapter/issues/239) asked for a
 small API alignment pass. The maintainer authorized implementation before the
 2026-10-20 functional validation so the new API can be exercised from a
 released package.

@@ -1,5 +1,7 @@
 # Issue 210: bounded HTTP Range coalescing
 
+> **Historical benchmark record.** Results describe the issue, input, and environment at the time of measurement. Reproduction commands and paths are preserved as recorded and may require the historical checkout; see the [monorepo development guide](../monorepo-development.md) for current setup. These measurements are not current performance guarantees.
+
 ## Measurement and decision
 
 Measurements on 2026-10-07 showed one useful same-turn merge in a bounded

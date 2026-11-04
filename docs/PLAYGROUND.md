@@ -106,7 +106,7 @@ development and candidate validation.
 
 The release and renderer coverage for every public layer option, host action,
 copy mapping, and share policy is recorded in the [Workbench capability
-coverage matrix](API.md#workbench-capability-coverage). It distinguishes the
+coverage matrix](api/workbench.md#workbench-capability-coverage). It distinguishes the
 published npm profile from the current workspace profile and keeps workspace-only
 APIs out of public Playground code.
 

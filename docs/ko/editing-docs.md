@@ -33,10 +33,17 @@ docs/ko/*.md
 | API 요약 | `docs/ko/api.md` |
 | 코드 구조 공부 | `docs/ko/architecture.md` |
 | 검증 수치/근거 | `docs/ko/validation.md` |
-| 실제 API 전체 | `docs/API.md` |
+| API 시작점과 이전 앵커 | `docs/API.md` |
+| Core API | `docs/api/core.md` |
+| Cesium API | `docs/api/cesium.md` |
+| Three.js API | `docs/api/three.md` |
+| Coordinates / vertical CRS | `docs/api/coordinates.md` |
+| Workbench API coverage | `docs/api/workbench.md` |
+| 과거 벤치마크 기록 | `docs/benchmarks/` |
+| 설계·연구 문서 상태 | `docs/proposals/` |
 | 실제 설계 전체 | `docs/ARCHITECTURE.md` |
 | backend/CRS conformance | `docs/CONFORMANCE.md` |
-| 대회 시연 절차 | `docs/CONTEST-FUNCTIONAL-TEST.md` |
+| 대회 시연 과거 기록 | `docs/archive/CONTEST-FUNCTIONAL-TEST.md` |
 
 ## VitePress에서 자주 쓰는 Markdown
 

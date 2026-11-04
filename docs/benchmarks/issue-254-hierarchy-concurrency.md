@@ -1,5 +1,7 @@
 # Issue #254: bounded hierarchy page concurrency
 
+> **Historical benchmark record.** Results describe the issue, input, and environment at the time of measurement. Reproduction commands and paths are preserved as recorded and may require the historical checkout; see the [monorepo development guide](../monorepo-development.md) for current setup. These measurements are not current performance guarantees.
+
 This record evaluates the hierarchy-page serialization identified in [issue
 #254](https://github.com/mors119/copc-adapter/issues/254). It compares the
 existing serial traversal with a source-local limit of four independent page

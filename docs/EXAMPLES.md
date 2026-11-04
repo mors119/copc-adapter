@@ -402,7 +402,7 @@ GTX grid, verifying its SHA-256, and enabling it through
 vertical CRS, WGS 84 horizontal frame, `h - H` sign, units, NoData value,
 coverage, and usage terms are documented. No EGM2008 or KNGeoid24 model is
 bundled or automatically selected. See [Explicit vertical CRS grid
-conversion](API.md#explicit-vertical-crs-grid-conversion).
+conversion](api/coordinates.md#explicit-vertical-crs-grid-conversion).
 
 ## EGM2008 in the Workbenches
 
@@ -424,7 +424,7 @@ EGM2008 GTX as Public Domain, attributes the model to NGA, and documents its
 GeographicLib generation ([source and license metadata](https://github.com/OSGeo/proj-datumgrid/blob/master/world/README.WORLD)). Neither
 file is bundled or downloaded. These are two fixed EGM2008 profiles, not a
 generic datum selector or a Korean national height conversion. See [NGA
-EGM2008 2.5-minute grid](API.md#nga-egm2008-25-minute-grid) for operation
+EGM2008 2.5-minute grid](api/coordinates.md#nga-egm2008-25-minute-grid) for operation
 limits and memory details.
 
 ## Opt-in Cesium Terrain Height Estimate
@@ -446,7 +446,7 @@ datum, provider label and warnings; after a separate approval, recreate the
 layer from the same source using the returned effective `heightOffsetMeters`.
 The adapter checks that the estimate still belongs to the selected point and
 active TerrainProvider. See [Explicit Cesium Terrain residual estimate in the
-API guide](API.md#explicit-cesium-terrain-residual-estimate) for the vertical
+API guide](api/coordinates.md#explicit-cesium-terrain-residual-estimate) for the vertical
 reference checks, error cases, cancellation semantics and composition with
 `verticalTransform`.
 

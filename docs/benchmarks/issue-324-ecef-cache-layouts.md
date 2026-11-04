@@ -1,8 +1,6 @@
 # Issues #324 and #326: ECEF cache layout measurement report
 
-> Historical measurement record: some captured commands and paths predate npm
-> Workspaces. The migration preserves the measurements; current workspace
-> commands are in the [monorepo development guide](../monorepo-development.md).
+> **Historical benchmark record.** Results describe the issue, input, and environment at the time of measurement. Reproduction commands and paths are preserved as recorded and may require the historical checkout; see the [monorepo development guide](../monorepo-development.md) for current setup. These measurements are not current performance guarantees.
 
 ## Issue #326 adoption follow-up — 2026-10-28
 

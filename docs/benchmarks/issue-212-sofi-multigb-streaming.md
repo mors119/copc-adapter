@@ -1,8 +1,6 @@
 # Issue 212: SoFi multi-GB browser streaming validation
 
-> Historical reproduction record: the recorded commands predate npm Workspaces
-> and use the former Adapter package path. For current commands, see the
-> [monorepo development guide](../monorepo-development.md).
+> **Historical benchmark record.** Results describe the issue, input, and environment at the time of measurement. Reproduction commands and paths are preserved as recorded and may require the historical checkout; see the [monorepo development guide](../monorepo-development.md) for current setup. These measurements are not current performance guarantees.
 
 This record covers the final browser validation requested by [issue #212](https://github.com/mors119/copc-adapter/issues/212). Measurements were captured on 2026-10-07 against source commit `53944880c1f912f3ceaddf91e8c501056e86019c`.
 

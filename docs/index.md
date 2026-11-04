@@ -29,15 +29,19 @@ features:
 The detailed English technical documents remain the canonical low-level reference:
 
 - [Public API](/API)
-- [Issue #239 layer API semantics](/proposals/issue-239-layer-api)
-- [Issue #244 vertical CRS and geoid-grid decision](/proposals/issue-244-vertical-crs-geoid-grid)
-- [Issue #404 dataset-relative and HAG color semantics](/proposals/issue-404-relative-and-hag-color-semantics)
+- [Core API](/api/core)
+- [Cesium API](/api/cesium)
+- [Three.js API](/api/three)
+- [Coordinates and vertical CRS](/api/coordinates)
+- [Workbench API coverage](/api/workbench)
+- [Proposal and research status](/proposals/)
+- [Historical benchmarks](/benchmarks/)
 - [Architecture](/ARCHITECTURE)
 - [Conformance](/CONFORMANCE)
 - [Examples](/EXAMPLES)
 - [HTTP Range / CORS hosting guide](/source-hosting)
 - [Roadmap](/ROADMAP)
-- [Contest functional-test runbook](/CONTEST-FUNCTIONAL-TEST)
+- [Archived contest functional-test runbook](/archive/CONTEST-FUNCTIONAL-TEST)
 - [Playground and Pages deployment](/PLAYGROUND)
 
 For a more learning-oriented explanation, use the [Korean guide](/ko/).

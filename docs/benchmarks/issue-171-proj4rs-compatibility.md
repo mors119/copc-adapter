@@ -1,8 +1,6 @@
 # Issue #171: `proj4rs` / `proj4wkt` compatibility audit
 
-> Historical validation record: any package paths and install commands below
-> refer to the repository layout at the time of the audit. Current workspace
-> commands are in the [monorepo development guide](../monorepo-development.md).
+> **Historical benchmark record.** Results describe the issue, input, and environment at the time of measurement. Reproduction commands and paths are preserved as recorded and may require the historical checkout; see the [monorepo development guide](../monorepo-development.md) for current setup. These measurements are not current performance guarantees.
 
 Validation date: 2026-09-08
 

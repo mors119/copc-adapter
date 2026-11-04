@@ -104,7 +104,7 @@ WGS 84 Tide-Free 원본 파일이고, 다른 하나는 OSGeo PROJ-DATUMGRID-WORL
 사용하세요. [OSGeo README](https://github.com/OSGeo/proj-datumgrid/blob/master/world/README.WORLD)는
 해당 EGM2008 GTX를 Public Domain으로 표시하고 NGA 모델 및 GeographicLib 생성을 출처로
 기록합니다. 이 흐름은 고정된 EGM2008 변환이며 일반 datum 선택기나 한국 국가 수직 기준 변환이
-아닙니다. 세부 제한과 메모리는 [영문 Public API의 NGA EGM2008 안내](../API#nga-egm2008-25-minute-grid)를 참고하세요.
+아닙니다. 세부 제한과 메모리는 [영문 Coordinates API의 NGA EGM2008 안내](../api/coordinates#nga-egm2008-25-minute-grid)를 참고하세요.
 
 ## Lifecycle
 

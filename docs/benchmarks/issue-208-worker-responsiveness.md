@@ -1,5 +1,7 @@
 # Issue 208: Worker-isolated LAZ and Cesium camera responsiveness
 
+> **Historical benchmark record.** Results describe the issue, input, and environment at the time of measurement. Reproduction commands and paths are preserved as recorded and may require the historical checkout; see the [monorepo development guide](../monorepo-development.md) for current setup. These measurements are not current performance guarantees.
+
 ## Audit conclusion
 
 The two production backends have different decode ownership:
