@@ -2,6 +2,7 @@ import type { RefinementFocus } from "@frillab/copc-adapter/cesium";
 import type { WorkbenchRenderer } from "../../shared/workbench-config";
 import {
   PLAYGROUND_0_8_0_RUNTIME_CAPABILITIES,
+  PLAYGROUND_OPACITY_RESET_VALUES,
   NPM_0_8_0_MANIFEST,
 } from "../../shared/schema/index.ts";
 import {
@@ -64,6 +65,7 @@ export function generateIntegrationCodeResult(
       mode: options.mode,
       manifest: NPM_0_8_0_MANIFEST,
       runtimeCapabilities: PLAYGROUND_0_8_0_RUNTIME_CAPABILITIES,
+      opacityResetValues: PLAYGROUND_OPACITY_RESET_VALUES,
       adapterVersion: options.adapterVersion,
       packageOriginLabel: "verified npm release",
       hostValidators: options.hostValidators,
@@ -87,6 +89,7 @@ export function generateIntegrationCodeResult(
     mode: options.mode,
     manifest: NPM_0_8_0_MANIFEST,
     runtimeCapabilities: PLAYGROUND_0_8_0_RUNTIME_CAPABILITIES,
+    opacityResetValues: PLAYGROUND_OPACITY_RESET_VALUES,
     adapterVersion: options.adapterVersion,
     packageOriginLabel: "verified npm release",
     hostValidators: options.hostValidators,
