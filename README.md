@@ -4,6 +4,7 @@
   <a href="https://www.npmjs.com/package/@frillab/copc-adapter"><img src="https://img.shields.io/npm/v/@frillab/copc-adapter.svg" alt="npm version"></a>
   <a href="https://www.npmjs.com/package/@frillab/copc-tiles"><img src="https://img.shields.io/npm/v/@frillab/copc-tiles.svg" alt="COPC Tiles npm version"></a>
   <a href="https://github.com/mors119/copc-adapter/actions/workflows/ci.yml"><img src="https://github.com/mors119/copc-adapter/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
+  <a href="https://app.codecov.io/github/mors119/copc-adapter"><img src="https://codecov.io/github/mors119/copc-adapter/graph/badge.svg" alt="Codecov coverage: Adapter Node, Tiles Node, native Rust"></a>
   <a href="https://mors119.github.io/copc-adapter/"><img src="https://img.shields.io/badge/docs-GitHub%20Pages-blue" alt="Documentation"></a>
   <a href="https://github.com/mors119/copc-adapter/blob/main/LICENSE"><img src="https://img.shields.io/github/license/mors119/copc-adapter.svg" alt="License"></a>
   <a href="https://github.com/mors119/copc-adapter/releases"><img src="https://img.shields.io/github/v/release/mors119/copc-adapter.svg" alt="Latest release"></a>
@@ -13,6 +14,12 @@
   <strong>Stream and visualize COPC point clouds directly in CesiumJS and Three.js.</strong><br>
   The direct adapters need no renderer-specific conversion; an optional experimental 3D Tiles pipeline is available too.
 </p>
+
+The [coverage badge](https://app.codecov.io/github/mors119/copc-adapter)
+combines Adapter Node tests, Tiles Node tests, and native Rust tests. It does
+**not** represent browser E2E, Rust/WASM execution, or source files not emitted
+by the current test coverage reporters. See [coverage collection](CONTRIBUTING.md#codecov-coverage-reports).
+
 
 <p align="center">
   <a href="https://mors119.github.io/copc-adapter/playground/"><strong>Try the Live Playground</strong></a>

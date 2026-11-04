@@ -1,5 +1,9 @@
-# Codecov receives Adapter Node test coverage from the existing viewer-fast job.
-# Browser E2E, Tiles, and Rust coverage are not collected by this upload.
+# The three coverage uploads are emitted by existing jobs, without re-running
+# unit tests just for coverage. They do not measure browser E2E or Rust/WASM.
+codecov:
+  notify:
+    after_n_builds: 3
+
 coverage:
   status:
     project:
@@ -8,6 +12,20 @@ coverage:
     patch:
       default:
         informational: true
+
+flags:
+  adapter-node:
+    paths:
+      - packages/adapter/
+    carryforward: false
+  tiles-node:
+    paths:
+      - packages/tiles/src/
+    carryforward: false
+  rust-native:
+    paths:
+      - crates/
+    carryforward: false
 
 component_management:
   individual_components:
@@ -27,3 +45,11 @@ component_management:
       paths:
         - packages/adapter/three/**
         - packages/adapter/three.ts
+    - component_id: tiles
+      name: COPC Tiles
+      paths:
+        - packages/tiles/src/**
+    - component_id: rust-native
+      name: Native Rust
+      paths:
+        - crates/**
