@@ -16,9 +16,9 @@ import {
   type UiSegmentOption,
 } from "../../shared/ui-controls";
 import {
-  NPM_0_7_1_CAPABILITIES,
-  PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES,
-  NPM_0_7_1_MANIFEST,
+  NPM_0_8_0_CAPABILITIES,
+  PLAYGROUND_0_8_0_RUNTIME_CAPABILITIES,
+  NPM_0_8_0_MANIFEST,
   getOptionDefinition,
 } from "../../shared/schema/index.ts";
 import {
@@ -1177,8 +1177,8 @@ function handleSchemaOptionChange(optionId: string, value: unknown): void {
       inactiveRendererOptionValues,
       {
         support: {
-          manifest: NPM_0_7_1_MANIFEST,
-          runtimeCapabilities: PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES,
+          manifest: NPM_0_8_0_MANIFEST,
+          runtimeCapabilities: PLAYGROUND_0_8_0_RUNTIME_CAPABILITIES,
         },
       },
     );
@@ -1249,9 +1249,9 @@ function handleSchemaOptionChange(optionId: string, value: unknown): void {
 schemaPanel = mountSchemaOptionPanel({
   target: byId("shared-schema-controls"),
   context: {
-    manifest: NPM_0_7_1_MANIFEST,
+    manifest: NPM_0_8_0_MANIFEST,
     renderer: pendingConfig.renderer,
-    runtimeCapabilities: PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES,
+    runtimeCapabilities: PLAYGROUND_0_8_0_RUNTIME_CAPABILITIES,
   },
   values: playgroundOptionValues(pendingConfig),
   openSections: ["source", "renderer", "backend", "style", "coordinates"],
@@ -1301,10 +1301,10 @@ schemaPanel = mountSchemaOptionPanel({
       getState: () => ({
         contextKey: `${loadGeneration}:${appliedConfig?.renderer ?? pendingConfig.renderer}:${appliedConfig?.terrainUrl ?? pendingConfig.terrainUrl}`,
         renderer: activeRuntime?.renderer ?? pendingConfig.renderer,
-        apiAvailable: NPM_0_7_1_CAPABILITIES.includes("cesium.terrain-alignment") &&
+        apiAvailable: NPM_0_8_0_CAPABILITIES.includes("cesium.terrain-alignment") &&
           activeRuntime?.renderer === "cesium" &&
           typeof activeRuntime.estimateTerrainHeightAlignment === "function",
-        apiUnavailableReason: "The Playground is pinned to published @frillab/copc-adapter 0.7.1; that release provides the single-anchor Terrain API, but not the batch API.",
+        apiUnavailableReason: "The Playground currently provides single-anchor Terrain estimates.",
         batchAvailable: false,
         providerAvailable: (import.meta.env.DEV && terrainAlignmentTestProvider) ||
           activeRuntime?.terrainProviderAvailable === true,
@@ -1798,7 +1798,7 @@ function effectiveRefinementFocus(
 function updateIntegrationExample(): void {
   integrationCodePanel.setTerrainAlignmentRecipeAvailable(
     pendingConfig.renderer === "cesium" &&
-      NPM_0_7_1_CAPABILITIES.includes("cesium.terrain-alignment"),
+      NPM_0_8_0_CAPABILITIES.includes("cesium.terrain-alignment"),
   );
   const config = appliedConfig;
   if (!config || !activeRuntimeReady || appliedSource === undefined) {

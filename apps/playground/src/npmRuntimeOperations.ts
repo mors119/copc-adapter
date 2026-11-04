@@ -4,7 +4,7 @@ import {
   type SchemaRuntimeOperation,
 } from "../../shared/config/workbenchConfiguration.ts";
 import {
-  NPM_0_7_1_OPACITY_RESET_VALUES,
+  PLAYGROUND_OPACITY_RESET_VALUES,
 } from "../../shared/schema/manifests.ts";
 import type { WorkbenchRenderer } from "../../shared/workbench-config.ts";
 
@@ -15,10 +15,10 @@ export function setNpmRuntimeOpacity(
   renderer: WorkbenchRenderer,
   opacity: number | undefined,
 ): void {
-  layer.setOpacity(opacity ?? NPM_0_7_1_OPACITY_RESET_VALUES[renderer]);
+  layer.setOpacity(opacity ?? PLAYGROUND_OPACITY_RESET_VALUES[renderer]);
 }
 
-/** Apply the pinned package's runtime operations, translating its numeric-only opacity reset API. */
+/** Apply Playground runtime operations while preserving its built-in opacity defaults. */
 export async function applyNpmRuntimeOperations(
   layer: NpmRuntimeOperationLayer,
   renderer: WorkbenchRenderer,

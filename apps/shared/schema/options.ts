@@ -6,6 +6,7 @@ import type {
 
 const NPM_0_6 = "npm@0.6.0";
 const NPM_0_7_1 = "npm@0.7.1";
+const NPM_0_8_0 = "npm@0.8.0";
 const WORKSPACE_0_8 = "workspace@0.8.0";
 const BOTH_RENDERERS: readonly SchemaRenderer[] = ["cesium", "three"];
 
@@ -13,6 +14,7 @@ function valueDefault<const Value>(value: Value) {
   return {
     [NPM_0_6]: { kind: "value", value },
     [NPM_0_7_1]: { kind: "value", value },
+    [NPM_0_8_0]: { kind: "value", value },
     [WORKSPACE_0_8]: { kind: "value", value },
   } as const satisfies Readonly<Record<string, SchemaDefault>>;
 }
@@ -21,6 +23,7 @@ function omittedDefault() {
   return {
     [NPM_0_6]: { kind: "omitted" },
     [NPM_0_7_1]: { kind: "omitted" },
+    [NPM_0_8_0]: { kind: "omitted" },
     [WORKSPACE_0_8]: { kind: "omitted" },
   } as const satisfies Readonly<Record<string, SchemaDefault>>;
 }

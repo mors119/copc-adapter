@@ -5,7 +5,7 @@ The repository root is private and defines two npm package workspaces:
 | Package | Path | Version | Role |
 | --- | --- | --- | --- |
 | `@frillab/copc-adapter` | `packages/adapter` | `0.8.0` | COPC Core, Cesium, and Three APIs |
-| `@frillab/copc-tiles` | `packages/tiles` | `0.1.1` candidate | Source-neutral 3D Tiles engine and optional Adapter Core connector |
+| `@frillab/copc-tiles` | `packages/tiles` | `0.1.1` published | Source-neutral 3D Tiles engine and optional Adapter Core connector |
 
 They are independent npm distributions. Tiles may depend on public Adapter
 Core APIs; Adapter must not depend on Tiles. The root `package-lock.json` is
@@ -22,20 +22,20 @@ validate the resulting lock. The full audit reports 11 dev-only findings
 (6 moderate, 5 high); the production dependency audit reports none. No
 automatic dependency fixes were applied as part of this migration.
 
-## Candidate artifact comparison
+## Published artifact sizes
 
-The Adapter candidate built from this repository is 654,469 bytes packed and
-2,322,555 bytes unpacked (129 entries). The existing npm
-`@frillab/copc-adapter@0.7.1` artifact is 646,494 bytes packed and 2,289,736
-bytes unpacked (127 entries). The current `0.8.0` workspace candidate adds
-narrow WKT2 projected-height diagnostics without changing exports or public
-declaration shapes. It remains an unpublished review candidate; package
-packing and isolated consumer tests are not publication approval.
+The published `@frillab/copc-adapter@0.8.0` Registry artifact is 655,534 bytes
+packed and 2,329,620 bytes unpacked (129 entries). It adds batch Terrain
+estimates, opacity reset semantics, and custom elevation range/palette APIs,
+alongside the narrow WKT2 projected-height diagnostic. Adapter 0.7.1 remains
+covered as a compatible older release.
 
-The Tiles candidate is 98,968 bytes packed and 377,803 bytes unpacked (50
-entries), compared with 98,100 packed and 375,100 unpacked in the source
-repository's pre-import pack record. The size increase is documentation and
-package metadata; runtime source and runtime dependencies are unchanged.
+The Registry's current `@frillab/copc-tiles@0.1.1` artifact is 68,448 bytes
+packed and 333,517 bytes unpacked (34 files). Its integrity is
+`sha512-n8uvdJHuHr5GnRSjBXxnhBSp9xXpf67702uO6S/A6X/wDSiE37SIUOgp2CuDnKrb3vLIZioE0audTNhNpaJYyA==`.
+The current workspace updates only the development Adapter baseline to
+published `0.8.0`; Tiles' production dependencies, exports, and runtime code
+are unchanged.
 
 ## Migration baseline
 
@@ -77,7 +77,7 @@ npm --prefix apps/dev-viewer run build
 ```
 
 The public Playground has a different release contract. It installs the exact
-published `@frillab/copc-adapter@0.7.1` tarball from npm using
+published `@frillab/copc-adapter@0.8.0` tarball from npm using
 `apps/playground/package-lock.json`. Do not add the Playground to the root
 workspaces or replace that dependency with a local workspace link.
 
@@ -103,11 +103,13 @@ npm pack --workspace @frillab/copc-tiles --pack-destination /tmp/copc-tiles-pack
 
 The Tiles packed-consumer script packs both workspace artifacts, then installs
 Tiles into clean temporary consumers alongside the exact published Adapter
-0.7.1 package and the local packed Adapter 0.8.0 candidate. The 0.7.1 consumer
-lock confirms a Registry URL and no workspace link. Checks cover renderer-free
+0.8.0 package and the local packed Adapter 0.8.0 candidate. A separate
+0.7.1 consumer retains the older full-renderer strict type/runtime check, and a
+renderer-free Core consumer verifies the old package remains optional for
+renderers. Locks confirm Registry URLs and no workspace links. Checks cover
 Adapter Core, Adapter root/Cesium/Three entrypoints, Adapter-free Tiles Engine,
-Tiles with both Adapter package versions, strict NodeNext and Bundler
-declarations, runtime ESM imports, and renderer bundle graphs:
+strict NodeNext and Bundler declarations, runtime ESM imports, and renderer
+bundle graphs:
 
 ```bash
 npm run test:packed-consumer -w @frillab/copc-tiles
@@ -133,9 +135,10 @@ workspace; they do not publish the other package or create Git tags. Keep
 release notes and package-specific support limits in the
 [`packages/tiles/CHANGELOG.md`](https://github.com/mors119/copc-adapter/blob/main/packages/tiles/CHANGELOG.md)
 and [`packages/tiles/README.md`](https://github.com/mors119/copc-adapter/blob/main/packages/tiles/README.md).
-Tiles keeps Adapter `0.7.1` as its exact development baseline and declares
-`^0.7.1 || ^0.8.0` as an optional peer range, tested against both packed
-artifacts.
+Tiles uses Adapter `0.8.0` as its exact development baseline and declares
+`^0.7.1 || ^0.8.0` as an optional peer range. Packed consumer checks exercise
+the published 0.8.0 baseline, the local 0.8.0 workspace artifact, and the
+published 0.7.1 compatibility release.
 
 ## Current limits
 

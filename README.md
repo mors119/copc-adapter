@@ -173,7 +173,7 @@ for package development and validation.
 | Package | Directory | Responsibility |
 | --- | --- | --- |
 | `@frillab/copc-adapter@0.8.0` | [`packages/adapter`](packages/adapter/README.md) | COPC Core, Cesium, and Three entrypoints |
-| `@frillab/copc-tiles@0.1.1` (release candidate; registry latest is `0.1.0`) | [`packages/tiles`](packages/tiles/README.md) | Source-neutral 3D Tiles engine and optional public Adapter Core connector |
+| [`@frillab/copc-tiles@0.1.1`](https://www.npmjs.com/package/@frillab/copc-tiles) (published experimental release) | [`packages/tiles`](packages/tiles/README.md) | Source-neutral 3D Tiles engine and optional public Adapter Core connector |
 
 The dependency direction is `@frillab/copc-tiles` →
 `@frillab/copc-adapter/core`. Adapter Core and the Tiles Engine do not require
@@ -547,7 +547,7 @@ Each package keeps its own version, exports, files list, and npm artifact.
 Builds clean their own `dist`; Adapter includes its decoder runtime assets,
 Tiles includes its package documentation, and neither tarball includes the
 other package's source or local COPC datasets. The public Playground continues
-to install the exact published Adapter `0.7.1`; the Dev Viewer links the local
+to install the exact published Adapter `0.8.0`; the Dev Viewer links the local
 workspace package. See [workspace development](docs/monorepo-development.md)
 for candidate-package and released-package checks.
 

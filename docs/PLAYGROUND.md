@@ -50,9 +50,10 @@ does not crop the point cloud.
 
 Opacity and clipping are runtime settings. Apply sends them to the active layer
 without reading or decoding the source again. Opacity accepts 0–1; zero hides
-the layer and disables picking. The public npm 0.7.1 setter accepts numeric
-values, so Playground reset sends the built-in renderer defaults (Cesium 1,
-Three.js 0.9). Clipping accepts an inclusive axis-aligned box or an
+the layer and disables picking. The public npm 0.8.0 setter accepts
+`undefined` to clear an override. Playground reset sends its built-in renderer
+defaults (Cesium 1, Three.js 0.9) to preserve the current visual behavior.
+Clipping accepts an inclusive axis-aligned box or an
 intersection of up to six planes in WGS 84 ECEF XYZ metres. It filters drawing
 and picking only, not source reads, and is available with Cesium only.
 

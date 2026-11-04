@@ -26,9 +26,9 @@ authoritative lockfile for the two publishable package workspaces:
 `packages/adapter` contains the existing Adapter package layout without a new
 source directory: `core/`, `cesium/`, `three/`, `test/`, and `scripts/` remain
 package-relative. It publishes its existing `.`, `/core`, `/cesium`, and
-`/three` exports at version `0.7.1`.
+`/three` exports at version `0.8.0`.
 
-`packages/tiles` is independently versioned; its current release candidate is
+`packages/tiles` is independently versioned; its current published version is
 `0.1.1`. Its root,
 `/resources`, `/tileset`, and `/tileset/implicit` exports are renderer-free;
 only `/adapter/copc-core` connects through the public Adapter `/core` API.
@@ -39,7 +39,7 @@ packages.
 
 The Dev Viewer typechecks and consumes the current local Adapter workspace.
 The deployed Playground is deliberately outside the package workspaces and
-keeps its own lockfile pinned to published `@frillab/copc-adapter@0.7.1`.
+keeps its own lockfile pinned to published `@frillab/copc-adapter@0.8.0`.
 Packed candidate tests install separately generated tarballs in temporary
 consumers so the workspace symlink cannot hide missing package declarations.
 See [workspace development](monorepo-development.md) for exact commands.

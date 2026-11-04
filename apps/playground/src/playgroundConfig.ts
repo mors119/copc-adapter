@@ -11,8 +11,8 @@ import {
   type WorkbenchOptionValues,
 } from "../../shared/config/index.ts";
 import {
-  PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES,
-  NPM_0_7_1_MANIFEST,
+  PLAYGROUND_0_8_0_RUNTIME_CAPABILITIES,
+  NPM_0_8_0_MANIFEST,
 } from "../../shared/schema/index.ts";
 import type { SchemaHostValidators } from "../../shared/schema/types.ts";
 
@@ -120,9 +120,9 @@ export function validatePlaygroundConfig(
     },
   );
   const validation = validateWorkbenchConfiguration(values, {
-    manifest: NPM_0_7_1_MANIFEST,
+    manifest: NPM_0_8_0_MANIFEST,
     renderer: config.renderer,
-    runtimeCapabilities: PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES,
+    runtimeCapabilities: PLAYGROUND_0_8_0_RUNTIME_CAPABILITIES,
   }, undefined, hostValidators);
   const errors = [...validation.errors];
   if (config.terrainUrl.trim()) {
@@ -156,9 +156,9 @@ export function buildPlaygroundApplicationPlan(
   return buildSchemaApplicationPlan(
     values,
     {
-      manifest: NPM_0_7_1_MANIFEST,
+      manifest: NPM_0_8_0_MANIFEST,
       renderer,
-      runtimeCapabilities: PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES,
+      runtimeCapabilities: PLAYGROUND_0_8_0_RUNTIME_CAPABILITIES,
     },
     previousValues,
     undefined,

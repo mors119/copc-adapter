@@ -19,6 +19,8 @@ import {
   NPM_0_7_1_MANIFEST,
   PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES,
   NPM_0_7_1_CAPABILITIES,
+  NPM_0_8_0_MANIFEST,
+  NPM_0_8_0_CAPABILITIES,
   OPTION_SCHEMA,
   resolveOptionDefault,
   serializeSchemaValues,
@@ -60,6 +62,7 @@ test("schema integrity: IDs, mappings, defaults, controls, references, and capab
   const capabilities = new Set([
     ...NPM_0_6_CAPABILITIES,
     ...NPM_0_7_1_CAPABILITIES,
+    ...NPM_0_8_0_CAPABILITIES,
     ...WORKSPACE_CURRENT_CAPABILITIES,
   ]);
   const sections = new Set([
@@ -175,7 +178,7 @@ test("schema integrity: IDs, mappings, defaults, controls, references, and capab
       }
     }
     for (const profile of Object.keys(option.defaults)) {
-      assert.ok(["npm@0.6.0", "npm@0.7.1", "workspace@0.8.0"].includes(profile), option.id + " default profile " + profile);
+      assert.ok(["npm@0.6.0", "npm@0.7.1", "npm@0.8.0", "workspace@0.8.0"].includes(profile), option.id + " default profile " + profile);
       const entry = option.defaults[profile];
       assert.ok(["value", "omitted", "derived"].includes(entry.kind), option.id + " default kind");
       if (entry.kind === "value") assert.deepEqual(validateOptionValue(option, entry.value), [], option.id + " default value");
@@ -192,12 +195,20 @@ test("schema integrity: IDs, mappings, defaults, controls, references, and capab
   assert.deepEqual(WORKSPACE_CURRENT_MANIFEST.supportedOptionIds, ids);
   assert.equal(new Set(NPM_0_6_MANIFEST.supportedOptionIds).size, NPM_0_6_MANIFEST.supportedOptionIds.length);
   assert.equal(new Set(NPM_0_7_1_MANIFEST.supportedOptionIds).size, NPM_0_7_1_MANIFEST.supportedOptionIds.length);
+  assert.equal(new Set(NPM_0_8_0_MANIFEST.supportedOptionIds).size, NPM_0_8_0_MANIFEST.supportedOptionIds.length);
   assert.ok(NPM_0_6_MANIFEST.supportedOptionIds.every((id) => ids.includes(id)));
   assert.ok(NPM_0_6_MANIFEST.supportedOptionIds.every((id) => NPM_0_6_MANIFEST.defaults[id]));
   assert.ok(NPM_0_7_1_MANIFEST.supportedOptionIds.every((id) => NPM_0_7_1_MANIFEST.defaults[id]));
+  assert.ok(NPM_0_8_0_MANIFEST.supportedOptionIds.every((id) => NPM_0_8_0_MANIFEST.defaults[id]));
+  assert.deepEqual(
+    NPM_0_8_0_MANIFEST.supportedOptionIds,
+    NPM_0_7_1_MANIFEST.supportedOptionIds,
+    "the dependency update keeps Playground's exposed option set unchanged",
+  );
   assert.ok(ids.every((id) => WORKSPACE_CURRENT_MANIFEST.defaults[id]));
   assert.equal(new Set(NPM_0_6_MANIFEST.capabilities).size, NPM_0_6_MANIFEST.capabilities.length);
   assert.equal(new Set(NPM_0_7_1_MANIFEST.capabilities).size, NPM_0_7_1_MANIFEST.capabilities.length);
+  assert.equal(new Set(NPM_0_8_0_MANIFEST.capabilities).size, NPM_0_8_0_MANIFEST.capabilities.length);
   assert.equal(new Set(WORKSPACE_CURRENT_MANIFEST.capabilities).size, WORKSPACE_CURRENT_MANIFEST.capabilities.length);
   assert.ok(!NPM_0_6_MANIFEST.supportedOptionIds.includes("coordinates.verticalTransform"));
   assert.ok(!NPM_0_6_MANIFEST.supportedOptionIds.includes("style.dimension"));
@@ -235,9 +246,11 @@ test("schema integrity: IDs, mappings, defaults, controls, references, and capab
 test("public release and workspace profiles resolve only known package versions", () => {
   assert.equal(isKnownManifest(NPM_0_6_MANIFEST), true);
   assert.equal(isKnownManifest(NPM_0_7_1_MANIFEST), true);
+  assert.equal(isKnownManifest(NPM_0_8_0_MANIFEST), true);
   assert.equal(isKnownManifest(WORKSPACE_CURRENT_MANIFEST), true);
   assert.equal(getAdapterManifest("npm", "0.6.0"), NPM_0_6_MANIFEST);
   assert.equal(getAdapterManifest("npm", "0.7.1"), NPM_0_7_1_MANIFEST);
+  assert.equal(getAdapterManifest("npm", "0.8.0"), NPM_0_8_0_MANIFEST);
   assert.equal(
     getAdapterManifest("workspace", "0.8.0"),
     WORKSPACE_CURRENT_MANIFEST,
@@ -268,12 +281,12 @@ test("package profiles match the actual pinned and workspace package versions", 
 
   assert.equal(
     playground.devDependencies["@frillab/copc-adapter"],
-    NPM_0_7_1_MANIFEST.version,
+    NPM_0_8_0_MANIFEST.version,
   );
   assert.equal(workspace.version, WORKSPACE_CURRENT_MANIFEST.version);
   assert.equal(
     playgroundLock.packages["node_modules/@frillab/copc-adapter"].version,
-    NPM_0_7_1_MANIFEST.version,
+    NPM_0_8_0_MANIFEST.version,
   );
   assert.match(
     playgroundLock.packages["node_modules/@frillab/copc-adapter"].resolved,
@@ -285,8 +298,8 @@ test("package profiles match the actual pinned and workspace package versions", 
     "../../packages/adapter",
   );
   assert.equal(devViewerLock.packages["node_modules/@frillab/copc-adapter"].link, true);
-  for (const id of NPM_0_7_1_MANIFEST.supportedOptionIds) {
-    assert.ok(NPM_0_7_1_MANIFEST.defaults[id], "missing npm default manifest entry for " + id);
+  for (const id of NPM_0_8_0_MANIFEST.supportedOptionIds) {
+    assert.ok(NPM_0_8_0_MANIFEST.defaults[id], "missing npm default manifest entry for " + id);
   }
 });
 

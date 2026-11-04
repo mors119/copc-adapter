@@ -1,8 +1,8 @@
 import type { RefinementFocus } from "@frillab/copc-adapter/cesium";
 import type { WorkbenchRenderer } from "../../shared/workbench-config";
 import {
-  PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES,
-  NPM_0_7_1_MANIFEST,
+  PLAYGROUND_0_8_0_RUNTIME_CAPABILITIES,
+  NPM_0_8_0_MANIFEST,
 } from "../../shared/schema/index.ts";
 import {
   generateAppliedWorkbenchIntegrationCode,
@@ -43,8 +43,8 @@ export type IntegrationCodeGenerationResult = SharedIntegrationCodeGenerationRes
   AppliedIntegrationCodeGenerationResult;
 
 export const PLAYGROUND_INSTALL_COMMANDS: Readonly<Record<WorkbenchRenderer, string>> = {
-  cesium: `npm install @frillab/copc-adapter@${NPM_0_7_1_MANIFEST.version} cesium@1.146.0`,
-  three: `npm install @frillab/copc-adapter@${NPM_0_7_1_MANIFEST.version} three@0.186.1`,
+  cesium: `npm install @frillab/copc-adapter@${NPM_0_8_0_MANIFEST.version} cesium@1.146.0`,
+  three: `npm install @frillab/copc-adapter@${NPM_0_8_0_MANIFEST.version} three@0.186.1`,
 };
 
 export { isPotentiallySensitiveSource };
@@ -62,8 +62,8 @@ export function generateIntegrationCodeResult(
       includeTerrainAlignmentRecipe: options.includeTerrainAlignmentRecipe,
       approvedTerrainAlignment: options.approvedTerrainAlignment,
       mode: options.mode,
-      manifest: NPM_0_7_1_MANIFEST,
-      runtimeCapabilities: PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES,
+      manifest: NPM_0_8_0_MANIFEST,
+      runtimeCapabilities: PLAYGROUND_0_8_0_RUNTIME_CAPABILITIES,
       adapterVersion: options.adapterVersion,
       packageOriginLabel: "verified npm release",
       hostValidators: options.hostValidators,
@@ -85,8 +85,8 @@ export function generateIntegrationCodeResult(
     includeTerrainAlignmentRecipe: options.includeTerrainAlignmentRecipe,
     approvedTerrainAlignment: options.approvedTerrainAlignment,
     mode: options.mode,
-    manifest: NPM_0_7_1_MANIFEST,
-    runtimeCapabilities: PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES,
+    manifest: NPM_0_8_0_MANIFEST,
+    runtimeCapabilities: PLAYGROUND_0_8_0_RUNTIME_CAPABILITIES,
     adapterVersion: options.adapterVersion,
     packageOriginLabel: "verified npm release",
     hostValidators: options.hostValidators,

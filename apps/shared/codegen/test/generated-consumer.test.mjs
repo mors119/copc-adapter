@@ -13,6 +13,8 @@ import {
   NPM_0_6_MANIFEST,
   NPM_0_7_1_CAPABILITIES,
   NPM_0_7_1_MANIFEST,
+  NPM_0_8_0_CAPABILITIES,
+  NPM_0_8_0_MANIFEST,
   OPTION_SCHEMA,
   WORKSPACE_CURRENT_CAPABILITIES,
   WORKSPACE_CURRENT_MANIFEST,
@@ -46,6 +48,12 @@ const consumerProfile = packedCandidateProfile
     ? {
         manifest: NPM_0_7_1_MANIFEST,
         capabilities: NPM_0_7_1_CAPABILITIES,
+        originLabel: "verified npm consumer fixture",
+      }
+  : packageSpec === "0.8.0"
+    ? {
+        manifest: NPM_0_8_0_MANIFEST,
+        capabilities: NPM_0_8_0_CAPABILITIES,
         originLabel: "verified npm consumer fixture",
       }
   : typeof packageSpec === "string" && packageSpec.startsWith("file:")
@@ -357,10 +365,11 @@ test("generated Cesium and Three snippets typecheck against the exact consumer p
   if (consumerProfile.manifest.supportedOptionIds.includes("rendering.opacity")) {
     const resetCesium = generate("cesium", { "rendering.opacity": undefined });
     const resetThree = generate("three", { "rendering.opacity": undefined });
-    const expectedCesiumReset = consumerProfile.manifest.origin === "npm"
+    const needsNumericReset = consumerProfile.manifest.version === "0.7.1";
+    const expectedCesiumReset = needsNumericReset
       ? /layer\.setOpacity\(1\)/u
       : /layer\.setOpacity\(undefined\)/u;
-    const expectedThreeReset = consumerProfile.manifest.origin === "npm"
+    const expectedThreeReset = needsNumericReset
       ? /layer\.setOpacity\(0\.9\)/u
       : /layer\.setOpacity\(undefined\)/u;
     assert.match(resetCesium.code, expectedCesiumReset);

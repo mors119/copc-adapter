@@ -61,7 +61,7 @@ function styleableDescriptor(dimension: ExtraDimensionDescriptor): boolean {
 
 /**
  * Describe numeric fields from loaded COPC metadata without reading point
- * records. `extraDimensions` are selectable only with copc-js; the 0.7.1
+ * records. `extraDimensions` are selectable only with copc-js; the 0.8.0
  * Rust backend supports standard Intensity but not named Extra Bytes fields.
  */
 export function getWorkbenchNumericDimensions(

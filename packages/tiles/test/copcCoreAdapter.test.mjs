@@ -190,7 +190,7 @@ function wrap(source, overrides = {}) {
   });
 }
 
-test('the installed Registry Adapter 0.7.1 package publishes the renderer-neutral Core and conservative-bounds runtime API', () => {
+test('the installed Adapter 0.8.0 package publishes the renderer-neutral Core and conservative-bounds runtime API', () => {
   assert.equal(typeof adapterCore.createCopcContext, 'function');
   assert.equal(typeof adapterCore.CopcContext, 'function');
   assert.equal(typeof adapterCore.CopcContext.prototype.getConservativeNodeEcefBounds, 'function');
