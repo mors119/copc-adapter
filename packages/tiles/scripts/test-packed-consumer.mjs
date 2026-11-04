@@ -133,6 +133,9 @@ try {
   if (packedManifestResult.error) throw packedManifestResult.error;
   assert.equal(packedManifestResult.status, 0, 'Tiles tarball manifest can be inspected');
   const packedManifest = JSON.parse(packedManifestResult.stdout);
+  const workspaceManifest = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
+  assert.equal(packedManifest.name, workspaceManifest.name, 'packed Tiles manifest retains the package name');
+  assert.equal(packedManifest.version, workspaceManifest.version, 'packed Tiles version matches the workspace release candidate');
   for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies']) {
     assert.equal(packedManifest[field]?.['@frillab/copc-tiles-validate'], undefined, `packed Tiles manifest excludes validator from ${field}`);
     assert.equal(packedManifest[field]?.['3d-tiles-validator'], undefined, `packed Tiles manifest excludes legacy validator from ${field}`);

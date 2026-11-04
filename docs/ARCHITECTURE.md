@@ -28,7 +28,8 @@ source directory: `core/`, `cesium/`, `three/`, `test/`, and `scripts/` remain
 package-relative. It publishes its existing `.`, `/core`, `/cesium`, and
 `/three` exports at version `0.7.1`.
 
-`packages/tiles` publishes version `0.1.0` as a separate package. Its root,
+`packages/tiles` is independently versioned; its current release candidate is
+`0.1.1`. Its root,
 `/resources`, `/tileset`, and `/tileset/implicit` exports are renderer-free;
 only `/adapter/copc-core` connects through the public Adapter `/core` API.
 Tiles has an optional Adapter peer and a development dependency, while Adapter
