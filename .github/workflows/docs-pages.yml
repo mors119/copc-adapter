@@ -45,11 +45,40 @@ jobs:
     name: Workspace manifest preflight
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    outputs:
+      run_playground_e2e: ${{ steps.scope.outputs.run_playground_e2e }}
     permissions:
       contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Decide whether Playground browser validation is needed
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" || -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
+            run_playground_e2e=true
+          else
+            if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+              git fetch --no-tags --depth=1 origin "$BASE_SHA" || true
+            fi
+            if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+              run_playground_e2e=true
+            else
+              changed_paths=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+              if [[ -z "$changed_paths" ]] || grep -qv '^docs/' <<< "$changed_paths"; then
+                run_playground_e2e=true
+              else
+                run_playground_e2e=false
+              fi
+            fi
+          fi
+          echo "run_playground_e2e=$run_playground_e2e" >> "$GITHUB_OUTPUT"
+
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
@@ -100,9 +129,11 @@ jobs:
         run: npm run playground:verify-release
 
       - name: Install Chromium for Playground browser tests
+        if: needs.preflight.outputs.run_playground_e2e == 'true'
         run: npx --prefix apps/playground playwright install --with-deps chromium
 
       - name: Test Playground browser interactions
+        if: needs.preflight.outputs.run_playground_e2e == 'true'
         run: npm --prefix apps/playground run test:e2e
 
       - name: Build and validate complete site

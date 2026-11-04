@@ -173,6 +173,7 @@ test("a stricter workload bound never increases synchronous batch workload", () 
 test("speculative work reserves a slot for current-view demand and is disabled at concurrency one", () => {
   const limiter = new StreamingWorkConcurrencyLimiter(2);
   assert.equal(limiter.tryAcquirePrefetchSlot(), true);
+  assert.equal(limiter.tryAcquirePrefetchSlot(), false);
   assert.equal(
     limiter.tryAcquire(() => true),
     true,
