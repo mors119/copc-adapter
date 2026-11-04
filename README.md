@@ -133,28 +133,27 @@ Both adapters expose point picking: Cesium uses `onPointPicked` or
 `{ nodeKey, pointIndex }` identity and requested decoded attributes when
 available.
 
-### CesiumJS and Three.js
+### More Renderers and Data
 
-The preview above shows the CesiumJS adapter. The image below shows the
-Three.js adapter; both renderer-specific adapters reuse the shared COPC
-streaming Core while the application owns its viewer or scene.
+The preview above shows CesiumJS. These examples cover the Three.js adapter,
+the experimental on-demand 3D Tiles path, and a Korean public dataset.
 
-<img src="docs/assets/three.png" width="100%" alt="COPC point cloud rendered with the Three.js adapter">
-
-### Experimental 3D Tiles pipeline
-
-The Dev Viewer can also serve COPC nodes as on-demand 3D Tiles content. This
-experimental path is separate from the default direct COPC adapters; see the
-[3D Tiles demo guide](apps/dev-viewer/docs/3d-tiles-demo.md) for setup and
-current limits.
-
-<img src="docs/assets/tiles.png" width="100%" alt="COPC point cloud rendered through the experimental 3D Tiles pipeline">
-
-### Korean Public Dataset
-
-<img src="docs/assets/korea-data.png" width="100%" alt="Korean public COPC dataset rendered in CesiumJS">
-
-Korean public LAZ dataset converted to COPC and rendered in CesiumJS.
+<table width="100%">
+  <thead>
+    <tr>
+      <th width="33.33%">Three.js</th>
+      <th width="33.33%">3D Tiles (experimental)</th>
+      <th width="33.33%">Korean public dataset</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td align="center"><img src="docs/assets/three.png" width="100%" alt="COPC point cloud rendered with the Three.js adapter"><br>Shares the COPC streaming Core.</td>
+      <td align="center"><img src="docs/assets/tiles.png" width="100%" alt="COPC point cloud rendered through the experimental 3D Tiles pipeline"><br>On-demand COPC tiles. See the <a href="apps/dev-viewer/docs/3d-tiles-demo.md">demo guide</a> for setup and limits.</td>
+      <td align="center"><img src="docs/assets/korea-data.png" width="100%" alt="Korean public COPC dataset rendered in CesiumJS"><br>Public LAZ data converted to COPC.</td>
+    </tr>
+  </tbody>
+</table>
 
 ## Documentation
 
