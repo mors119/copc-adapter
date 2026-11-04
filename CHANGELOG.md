@@ -6,7 +6,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [0.8.0] - 2026-11-01 (release candidate; not published)
+## [0.8.0] - 2026-11-04
 
 ### Added
 
@@ -351,7 +351,8 @@ original asset-resolution behavior.
 - Added packed-artifact smoke coverage for an external Cesium/Vite consumer.
 - Published the typed ESM library with package-local decoder runtime assets.
 
-[Unreleased]: https://github.com/mors119/copc-adapter/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/mors119/copc-adapter/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/mors119/copc-adapter/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/mors119/copc-adapter/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/mors119/copc-adapter/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/mors119/copc-adapter/compare/v0.5.3...v0.6.0
