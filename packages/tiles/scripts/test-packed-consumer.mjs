@@ -15,6 +15,7 @@ const tempRoot = await mkdtemp(join(tmpdir(), 'copc-tiles-packed-consumer-'));
 const packDirectory = join(tempRoot, 'packs');
 const consumerDirectory = join(tempRoot, 'renderers');
 const candidateConsumerDirectory = join(tempRoot, 'adapter-0.8-candidate');
+const legacyConsumerDirectory = join(tempRoot, 'adapter-0.7.1-compatibility');
 const coreOnlyDirectory = join(tempRoot, 'core-only');
 const engineOnlyDirectory = join(tempRoot, 'engine-only');
 const npmCli = process.env.npm_execpath;
@@ -158,7 +159,7 @@ try {
   }
 
   await makeConsumer(consumerDirectory, {
-    '@frillab/copc-adapter': '0.7.1',
+    '@frillab/copc-adapter': '0.8.0',
     '@frillab/copc-tiles': packedTiles,
     '@types/three': '0.186.0',
     cesium: cesiumTestVersion,
@@ -169,7 +170,7 @@ try {
 
   const installedAdapterPath = join(consumerDirectory, 'node_modules/@frillab/copc-adapter');
   const installedAdapter = JSON.parse(await readFile(join(installedAdapterPath, 'package.json'), 'utf8'));
-  assert.equal(installedAdapter.version, '0.7.1', 'consumer uses the exact Registry Adapter release');
+  assert.equal(installedAdapter.version, '0.8.0', 'consumer uses the exact current Registry Adapter release');
   assert.equal((await lstat(installedAdapterPath)).isSymbolicLink(), false, 'packed Tiles consumer does not resolve the workspace Adapter symlink');
   const consumerLock = JSON.parse(await readFile(join(consumerDirectory, 'package-lock.json'), 'utf8'));
   const adapterLockEntry = consumerLock.packages?.['node_modules/@frillab/copc-adapter'];
@@ -213,11 +214,30 @@ try {
   run(process.execPath, ['runtime.mjs'], candidateConsumerDirectory, 'Adapter 0.8 candidate packed consumer ESM imports');
   console.log(`Adapter 0.8 candidate consumer installed file bytes: ${await installBytes(candidateConsumerDirectory)}`);
 
+  await makeConsumer(legacyConsumerDirectory, {
+    '@frillab/copc-adapter': '0.7.1',
+    '@frillab/copc-tiles': packedTiles,
+    '@types/three': '0.186.0',
+    cesium: cesiumTestVersion,
+    three: '0.186.1',
+    typescript: '5.9.3',
+  }, ['api.ts', 'tsconfig.nodenext.json', 'tsconfig.bundler.json', 'runtime.mjs']);
+  await assertValidatorNotInstalled(legacyConsumerDirectory, 'Adapter 0.7.1 compatibility consumer');
+  const legacyFullAdapter = JSON.parse(await readFile(join(legacyConsumerDirectory, 'node_modules/@frillab/copc-adapter/package.json'), 'utf8'));
+  assert.equal(legacyFullAdapter.version, '0.7.1', 'compatibility consumer uses the exact older Registry release');
+  const legacyCompiler = join(legacyConsumerDirectory, 'node_modules/typescript/bin/tsc');
+  run(process.execPath, [legacyCompiler, '--project', 'tsconfig.nodenext.json'], legacyConsumerDirectory, 'Adapter 0.7.1 strict NodeNext compatibility typecheck');
+  run(process.execPath, [legacyCompiler, '--project', 'tsconfig.bundler.json'], legacyConsumerDirectory, 'Adapter 0.7.1 strict Bundler compatibility typecheck');
+  run(process.execPath, ['runtime.mjs'], legacyConsumerDirectory, 'Adapter 0.7.1 packed compatibility ESM imports');
+  console.log(`Adapter 0.7.1 compatibility consumer installed file bytes: ${await installBytes(legacyConsumerDirectory)}`);
+
   await makeConsumer(coreOnlyDirectory, {
     '@frillab/copc-adapter': '0.7.1',
     '@frillab/copc-tiles': packedTiles,
   }, ['core-only.mjs']);
   await assertValidatorNotInstalled(coreOnlyDirectory, 'renderer-free Core consumer');
+  const legacyAdapter = JSON.parse(await readFile(join(coreOnlyDirectory, 'node_modules/@frillab/copc-adapter/package.json'), 'utf8'));
+  assert.equal(legacyAdapter.version, '0.7.1', 'renderer-free Core consumer retains the older supported Adapter compatibility check');
   const installedRendererPackages = await Promise.all(['cesium', 'three'].map(async (name) => {
     try {
       await readFile(join(coreOnlyDirectory, 'node_modules', name, 'package.json'));

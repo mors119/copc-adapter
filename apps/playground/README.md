@@ -16,10 +16,10 @@ commit and installs that candidate into isolated consumers.
 
 ## Terrain placement estimate
 
-The Playground is pinned to published `@frillab/copc-adapter` 0.7.1. That
-release exposes the single-anchor Cesium Terrain estimate API, so the shared
-Coordinates command can estimate one selected COPC point. It does not expose
-the batch API; Dev Viewer uses the workspace build for multi-anchor estimates.
+The Playground is pinned to published `@frillab/copc-adapter` 0.8.0. Its
+Terrain command currently offers a single-anchor estimate. Adapter 0.8.0 also
+publishes a batch estimate API, which the Playground has not wired into this
+command; Dev Viewer uses the workspace build for multi-anchor estimates.
 Three.js and the ellipsoid-only Cesium viewer cannot sample Terrain, and the
 command explains that state instead of estimating against a placeholder.
 

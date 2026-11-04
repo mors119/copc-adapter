@@ -440,8 +440,8 @@ layer.setOpacity(0.25);
 layer.setOpacity(undefined); // renderer 기본값과 palette alpha 복원
 ```
 
-공개 Playground는 npm `0.7.1`을 사용하며 opacity와 Cesium clipping을 활성 layer에 runtime으로
-적용합니다. 이 배포 버전의 `setOpacity()` 타입은 숫자만 받습니다. Playground의 기본값 선택은
+공개 Playground는 npm `0.8.0`을 사용하며 opacity와 Cesium clipping을 활성 layer에 runtime으로
+적용합니다. 이 배포 버전의 `setOpacity()`는 `undefined`로 override를 지울 수 있습니다. Playground의 기본값 선택은
 Cesium `1` 또는 Three.js `0.9`를 적용하며, 공개 화면의 기본 색상 모드에 해당하는 기본 alpha를
 유지합니다. workspace package를 사용하는 Dev Viewer는 `setOpacity(undefined)`로 override를 지워
 point별 palette alpha를 복원합니다. Clipping은 Cesium 전용이며 Apply해도 source를 다시 읽지 않습니다.

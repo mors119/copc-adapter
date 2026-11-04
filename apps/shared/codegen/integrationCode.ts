@@ -47,6 +47,8 @@ export type IntegrationCodeGenerationOptions = {
   readonly mode?: IntegrationCodeMode;
   readonly manifest: AdapterManifest;
   readonly runtimeCapabilities?: readonly string[];
+  /** Optional host-specific numeric values emitted when opacity is reset. */
+  readonly opacityResetValues?: Readonly<Record<SchemaRenderer, number>>;
   readonly adapterVersion: string;
   /** Human-readable origin that truthfully identifies npm/workspace/candidate. */
   readonly packageOriginLabel: string;
@@ -543,6 +545,7 @@ function buildRuntimeLines(
   context: CapabilityContext,
   schema: readonly SchemaOption[],
   mode: IntegrationCodeMode,
+  opacityResetValues?: Readonly<Record<SchemaRenderer, number>>,
 ): string[] {
   const lines: string[] = [];
   for (const operation of plan.runtimeOperations) {
@@ -586,13 +589,13 @@ function buildRuntimeLines(
     if (
       operation.method === "setOpacity" &&
       operation.optionIds.includes("rendering.opacity") &&
-      argument === undefined &&
-      context.manifest.origin === "npm" &&
-      context.manifest.version === "0.7.1"
+      argument === undefined
     ) {
-      // The published 0.7.1 setter accepts only a number. Its built-in styles
-      // use opaque point colors, with Three's legacy material opacity at 0.9.
-      argument = NPM_0_7_1_OPACITY_RESET_VALUES[plan.renderer];
+      const resetValue = opacityResetValues?.[plan.renderer] ??
+        (context.manifest.origin === "npm" && context.manifest.version === "0.7.1"
+          ? NPM_0_7_1_OPACITY_RESET_VALUES[plan.renderer]
+          : undefined);
+      if (resetValue !== undefined) argument = resetValue;
     }
     const renderedArgument = operation.kind === "patch" && isRecord(argument)
       ? runtimePatchLiteral(argument)
@@ -610,6 +613,7 @@ export function generateIntegrationCodeFromPlan(options: {
   readonly sourceSetup?: readonly string[];
   readonly mode?: IntegrationCodeMode;
   readonly includeTerrainAlignmentRecipe?: boolean;
+  readonly opacityResetValues?: Readonly<Record<SchemaRenderer, number>>;
   readonly packageOriginLabel: string;
   readonly adapterVersion: string;
   readonly schema: readonly SchemaOption[];
@@ -632,7 +636,14 @@ export function generateIntegrationCodeFromPlan(options: {
   const namedImports = [layerName, ...constructor.imports];
   const header = "// Generated against @frillab/copc-adapter v" +
     options.adapterVersion + " (" + options.packageOriginLabel + ").";
-  const runtimeLines = buildRuntimeLines(plan, values, context, schema, mode);
+  const runtimeLines = buildRuntimeLines(
+    plan,
+    values,
+    context,
+    schema,
+    mode,
+    options.opacityResetValues,
+  );
   const terrainRecipeLines = options.includeTerrainAlignmentRecipe
     ? [
         "",
@@ -850,6 +861,9 @@ export function generateWorkbenchIntegrationCode(
     ...(options.includeTerrainAlignmentRecipe
       ? { includeTerrainAlignmentRecipe: true }
       : {}),
+    ...(options.opacityResetValues === undefined
+      ? {}
+      : { opacityResetValues: options.opacityResetValues }),
     packageOriginLabel: options.packageOriginLabel,
     adapterVersion: options.adapterVersion,
     schema,

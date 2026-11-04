@@ -361,6 +361,6 @@ aggregate returned-byte diagnostics for immutable index identity; existing
 public APIs remain available. Tiles keeps its optional peer range
 `^0.7.1 || ^0.8.0` and is packed against both package versions. Do not publish
 either package from this branch.
-The public npm Playground stays pinned to Adapter 0.7.1 and does not enable
+The public npm Playground stays pinned to Adapter 0.8.0 and does not enable
 unpublished Tiles functionality. The original projected metadata-only
 full-cell proof stays **BLOCKED** and must not be described as completed.

@@ -24,7 +24,7 @@ test("initial Three.js opacity operations reach the layer, including zero", asyn
   assert.deepEqual(calls, [0]);
 });
 
-test("initial opacity resets use numeric defaults accepted by npm 0.7.1", async () => {
+test("initial opacity resets use numeric defaults accepted by npm 0.8.0", async () => {
   const cesiumCalls = [];
   const threeCalls = [];
   await applyNpmRuntimeOperations(

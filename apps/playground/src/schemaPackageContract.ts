@@ -11,7 +11,7 @@ import type {
   SchemaFocusLens,
 } from "../../shared/schema/types.ts";
 
-type NpmManifest = typeof import("../../shared/schema/manifests.ts").NPM_0_7_1_MANIFEST;
+type NpmManifest = typeof import("../../shared/schema/manifests.ts").NPM_0_8_0_MANIFEST;
 type CesiumApi = typeof import("@frillab/copc-adapter/cesium");
 type ThreeApi = typeof import("@frillab/copc-adapter/three");
 type CesiumOptions = import("@frillab/copc-adapter/cesium").CopcCesiumLayerOptions;
@@ -57,7 +57,7 @@ type LayerCompatibilityExclusions =
   | "onPointPicked"
   | "opacity";
 
-// Every declared user-facing npm 0.7.1 constructor path exists in its actual
+// Every declared user-facing npm 0.8.0 constructor path exists in its actual
 // published package types, and every public option is represented or is an
 // intentionally excluded callback/debug/compatibility alias.
 export type NpmCesiumPathsExist = AssertNoMissingPublicPaths<CesiumOptions, NpmCesiumPaths>;
@@ -68,7 +68,7 @@ export type NpmCesiumDefaultsMatchApiTypes = Assert<
     "cesium",
     NpmManifest,
     CesiumOptions,
-    "npm@0.7.1"
+    "npm@0.8.0"
   >
 >;
 export type NpmThreeDefaultsMatchApiTypes = Assert<
@@ -77,7 +77,7 @@ export type NpmThreeDefaultsMatchApiTypes = Assert<
     "three",
     NpmManifest,
     ThreeOptions,
-    "npm@0.7.1"
+    "npm@0.8.0"
   >
 >;
 export type NpmCesiumLayerOptionCoverage = Assert<AssertEqual<
@@ -111,10 +111,10 @@ export type NpmCesiumClippingSetterContract = Assert<
   HasMethod<CesiumLayer, "setClippingVolume">
 >;
 export type NpmOpacitySetterUsesNumericOverride = Assert<
-  Equal<Parameters<CesiumLayer["setOpacity"]>[0], number>
+  Equal<Parameters<CesiumLayer["setOpacity"]>[0], number | undefined>
 >;
 export type NpmThreeOpacitySetterUsesNumericOverride = Assert<
-  Equal<Parameters<ThreeLayer["setOpacity"]>[0], number>
+  Equal<Parameters<ThreeLayer["setOpacity"]>[0], number | undefined>
 >;
 type NpmFocusArgument = NonNullable<Parameters<CesiumLayer["setRefinementFocus"]>[0]>;
 type NpmStyleFilter = NonNullable<
@@ -127,8 +127,18 @@ export type NpmClassificationFilterContract = Assert<
 export type NpmTerrainAlignmentPresent = Assert<
   HasMethod<CesiumLayer, "estimateTerrainHeightAlignment">
 >;
-export type NpmTerrainBatchAlignmentAbsent = Assert<
-  Equal<HasMethod<CesiumLayer, "estimateTerrainHeightAlignmentBatch">, false>
+export type NpmTerrainBatchAlignmentPresent = Assert<
+  HasMethod<CesiumLayer, "estimateTerrainHeightAlignmentBatch">
+>;
+export type NpmCesiumElevationOptionsPresent = Assert<
+  HasKey<CesiumOptions, "elevationRange"> extends true
+    ? HasKey<CesiumOptions, "elevationStyle">
+    : false
+>;
+export type NpmThreeElevationOptionsPresent = Assert<
+  HasKey<ThreeOptions, "elevationRange"> extends true
+    ? HasKey<ThreeOptions, "elevationStyle">
+    : false
 >;
 export type NpmThreePickingContract = Assert<HasMethod<ThreeLayer, "pick">>;
 export type NpmBatchedRendererContract = Assert<

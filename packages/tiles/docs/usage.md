@@ -190,7 +190,7 @@ descriptor allows them; Rust/WASM explicitly rejects Extra Bytes requests.
 `view.context.decodedPointEcefBounds` is the bound for that decoded node's
 transformed point content and is labeled
 `decodedPointEcefBoundsKind: 'decoded-point-content'`. It bounds loaded point
-content only. The connector also exposes the Adapter 0.7.1
+content only. The connector also exposes the Adapter 0.8.0
 `source.getConservativeNodeEcefBounds(nodeKey)` capability for a complete
 source cell and its spatial descendants when Adapter certifies the active
 transform. This synchronous metadata-only call does not read points or issue
@@ -239,8 +239,8 @@ content from the camera, and the provider prepares only requested nodes.
 
 ## Adapter compatibility
 
-Tiles keeps the published Adapter 0.7.1 development baseline and supports its
-documented 0.7.1 and compatible 0.8.x `/core` APIs. The subpath publicly
+Tiles uses published Adapter 0.8.0 as its exact development baseline and
+supports the documented 0.7.1 and compatible 0.8.x `/core` APIs. The subpath publicly
 exports the node-source integration and conservative-bounds types/runtime.
 See the [versioned API matrix](./adapter-api-compatibility.md) for Registry
 integrity, exact method and result semantics, NodeNext checks, backend results,

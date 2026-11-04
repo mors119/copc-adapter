@@ -1,15 +1,31 @@
-# Adapter API compatibility — 2026-11-01
+# Adapter API compatibility — 2026-11-04
 
 ## Supported published artifact
 
-The released compatibility baseline is `@frillab/copc-adapter@0.7.1`. The
-node-streaming branch also tests the packed local `0.8.0` candidate. Tiles
-keeps `0.7.1` as its exact development dependency and declares
-`^0.7.1 || ^0.8.0` as an optional peer range; compatibility beyond these tested
-versions is not claimed.
+The current released baseline is `@frillab/copc-adapter@0.8.0`. Tiles uses
+that exact version as its development dependency and declares
+`^0.7.1 || ^0.8.0` as an optional peer range. Packed consumers run the full
+renderer type/runtime matrix against published 0.8.0 and 0.7.1, plus a
+renderer-free Core import check against 0.7.1. Compatibility beyond these
+tested versions is not claimed.
 
-The npm Registry metadata and the actual downloaded Registry tarball were
-checked. The published archive was installed in clean packed consumers.
+The npm Registry metadata and published 0.8.0 tarball were checked. The
+published 0.8.0 archive is installed in clean packed consumers.
+
+| Registry field | Adapter 0.8.0 |
+| --- | --- |
+| Public exports | `.`, `./core`, `./cesium`, `./three` |
+| Tarball | [`copc-adapter-0.8.0.tgz`](https://registry.npmjs.org/@frillab/copc-adapter/-/copc-adapter-0.8.0.tgz) |
+| `dist.integrity` | `sha512-2ASSn7CK0iw8p8PtfMf9mVh1bRPfyS89Eg33FrDkn3bLT2aNjQ9tpUoUvsW+LLbPy8gnqDD92XpKsUCuQMMbNA==` |
+| Packed / unpacked | 655,534 / 2,329,620 bytes; 129 files |
+| Adapter Node engine field | Not declared |
+| Optional renderer peers | `cesium >=1.142.0`, `three >=0.170.0` |
+
+### Previous compatibility artifact — Adapter 0.7.1
+
+The 0.7.1 Registry artifact remains covered by full-renderer and
+renderer-free Core packed consumers. Its metadata and integrity below are
+retained as the compatibility record.
 
 | Registry field | Value |
 | --- | --- |
@@ -29,7 +45,7 @@ the 0.7.0 package.
 
 ## Public contract inventory
 
-| Operation | Public Adapter 0.7.1 / 0.8.0 candidate API | Data and ownership | Cancellation and lifecycle | Tiles coverage and limits |
+| Operation | Public Adapter 0.8.0 API (compatible with 0.7.1) | Data and ownership | Cancellation and lifecycle | Tiles coverage and limits |
 | --- | --- | --- | --- | --- |
 | Open source | `createCopcContext(input, backend, options)` from `@frillab/copc-adapter/core`; `CopcContext` | Supports the public URL, `File`/`Blob`, and random-access inputs; explicit `copc-js` or `rust` backend. | Context close invalidates the source; source and transform generations identify results. | Public ESM and runtime Core capability verified from the Registry package. HTTP Range integration tested. |
 | Read metadata | `CopcNodeSource.getMetadata()`; `CopcMetadata` | Source-space bounds, point count, and CRS evidence. Tiles returns a defensive immutable copy and preserves source units/labels. | Connector checks current source before returning metadata. | Unit and real Autzen integration coverage. |

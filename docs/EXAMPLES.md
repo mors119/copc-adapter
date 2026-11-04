@@ -160,10 +160,10 @@ The Three.js adapter uses the same default appearance and accepts a `File` or
 ## Workbench Capability Matrix
 
 The workspace Dev Viewer uses local workspace APIs. The Playground uses the
-published `@frillab/copc-adapter@0.7.1` package and gates controls against that
+published `@frillab/copc-adapter@0.8.0` package and gates controls against that
 release. “Both” below means Cesium and Three unless a renderer is named.
 
-| Capability | Cesium API | Three API | Dev Viewer | Playground 0.7.1 |
+| Capability | Cesium API | Three API | Dev Viewer | Playground 0.8.0 |
 | --- | --- | --- | --- | --- |
 | Focus Lens screen circle and `setRefinementFocus()` | Yes | No | Cesium only; Follow Cursor is a host preference | Cesium only; Follow Cursor is a host preference |
 | Fixed, RGB, elevation, intensity, classification color modes | Yes | Yes | Both renderers | Both renderers |
@@ -189,7 +189,7 @@ access tokens and signed source URLs out of recordings and copied examples.
 
 - **Source:** Any readable COPC source; Autzen is suitable for a local demo.
 - **Renderer / API:** Cesium only; public `setRefinementFocus()` is in npm and
-  workspace 0.7.1. Three has no Focus Lens method.
+  workspace 0.8.0. Three has no Focus Lens method.
 - **Expected behavior:** Enable Focus Lens, set its radius and detail bias,
   enable Follow Cursor, then move inside the Cesium viewport. The screen-circle
   center follows normalized viewport coordinates. Turning it off restores the
@@ -206,7 +206,7 @@ access tokens and signed source URLs out of recordings and copied examples.
 - **Source:** A COPC source with the attributes for the modes being shown;
   select a source with RGB, intensity, and classification when demonstrating
   all modes.
-- **Renderer / API:** Cesium and Three, npm/workspace 0.7.1; the mode is a
+- **Renderer / API:** Cesium and Three, npm/workspace 0.8.0; the mode is a
   public constructor option, with Cesium `setStyle()` for supported runtime
   changes.
 - **Expected behavior:** Choose Fixed, RGB, Elevation, Intensity, and
@@ -214,8 +214,8 @@ access tokens and signed source URLs out of recordings and copied examples.
   visible. Narrow the sidebar and verify every mode remains readable.
 - **Limitations:** RGB/intensity/classification require retained source fields.
   Dimension coloring is in Dev Viewer when its workspace API profile permits
-  it; the published Playground 0.7.1 manifest hides it. Custom elevation ramps
-  are not exposed in either host.
+  it; the published Playground 0.8.0 manifest hides it. Custom elevation APIs
+  are public in 0.8.0 but no Workbench editor is registered yet.
 - **GIF sequence:** Record each available mode in a full sidebar, resize to a
   narrow sidebar, then use arrow keys on the Color Mode radio group.
 
@@ -225,9 +225,9 @@ access tokens and signed source URLs out of recordings and copied examples.
   an available numeric field such as Intensity. Keep standard attribute
   loading enabled or request the field before loading.
 - **Renderer / API:** Classification filtering is Cesium only on npm/workspace
-  0.7.1. Numeric Dimension coloring is available in Dev Viewer; numeric
+  0.8.0. Numeric Dimension coloring is available in Dev Viewer; numeric
   Dimension filtering is Cesium workspace-only in the current Workbench.
-  Playground 0.7.1 hides Dimension controls.
+  Playground 0.8.0 hides Dimension controls.
 - **Expected behavior:** Use a standard LAS catalog name to add its code to an
   include/exclude list, or enter codes directly. For an available numeric
   field, set an inclusive range; non-finite/missing values remain hidden.
@@ -244,7 +244,7 @@ access tokens and signed source URLs out of recordings and copied examples.
 - **Source:** A readable COPC source with a point that can be picked in the
   active Cesium viewport.
 - **Renderer / API:** Cesium only; public `setClippingVolume()` and
-  `getClippingVolume()` are available in npm/workspace 0.7.1.
+  `getClippingVolume()` are available in npm/workspace 0.8.0.
 - **Expected behavior:** Pick a point, enter a positive half-width in metres,
   and center an axis-aligned box around its WGS 84 ECEF coordinates. Apply the
   pending box; the rendering and picking results reflect the clipping volume.
@@ -259,7 +259,7 @@ access tokens and signed source URLs out of recordings and copied examples.
 
 - **Source:** A readable COPC source whose displayed vertical placement can be
   inspected against a known reference.
-- **Renderer / API:** Cesium and Three, npm/workspace 0.7.1;
+- **Renderer / API:** Cesium and Three, npm/workspace 0.8.0;
   `heightOffsetMeters` is an additive display-height adjustment.
 - **Expected behavior:** Apply a small positive and negative offset and show
   the displayed layer position change.
@@ -274,7 +274,7 @@ access tokens and signed source URLs out of recordings and copied examples.
 - **Source:** COPC metadata with a declared vertical CRS compatible with one of
   the Workbench's checksum-pinned EGM2008 profiles, plus the exact local grid
   file for that profile.
-- **Renderer / API:** Cesium and Three, npm/workspace 0.7.1; public vertical
+- **Renderer / API:** Cesium and Three, npm/workspace 0.8.0; public vertical
   transform support. Grid setup is in the shared advanced Coordinates section.
 - **Expected behavior:** Select the validated profile, load the exact grid,
   review its CRS/units/checksum metadata, then apply the transform and verify
@@ -291,9 +291,10 @@ access tokens and signed source URLs out of recordings and copied examples.
 - **Source:** A COPC source with selectable ground evidence (LAS class 2, or
   an explicitly confirmed ground point), a compatible declared/validated
   vertical reference, and a ready real Cesium Terrain provider.
-- **Renderer / API:** Cesium only, npm/workspace 0.7.1. Playground calls the
-  published single-anchor estimator; workspace Dev Viewer can use the robust
-  batch estimator with multiple anchors.
+- **Renderer / API:** Cesium only, npm/workspace 0.8.0. The published API
+  provides single and batch estimators. Playground currently exposes the
+  single-anchor flow; Dev Viewer can use the batch estimator with multiple
+  anchors.
 - **Expected behavior:** Select ground candidate(s), Estimate, inspect sample
   coverage, residual, spread, vertical reference and final
   `heightOffsetMeters`, adjust by centimetres if useful, and explicitly Apply.

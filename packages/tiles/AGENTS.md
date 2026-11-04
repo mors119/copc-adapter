@@ -22,7 +22,8 @@ These rules are mandatory for every T1–T12 implementation and review:
 ### Independent npm distributions
 
 - `@frillab/copc-adapter` and `@frillab/copc-tiles` are independently versioned and packed workspace packages. Build and publish each package from its own manifest; the monorepo root is private. Check the Registry before publishing to avoid reusing an existing version.
-- Adapter `0.7.1` is the currently supported public Core contract. Tiles is
+- Adapter `0.8.0` is the current public Core baseline. Keep the declared
+  `0.7.1` compatibility range covered by packed-consumer checks. Tiles is
   experimental; document its support limits, verify the next package version
   against npm, and require explicit maintainer approval before publication.
 - Preserve all T1–T12 evidence: numeric precision, official Tiles/glTF conformance, E/A cache ownership/performance, Cesium/Three consumer tests and package isolation.

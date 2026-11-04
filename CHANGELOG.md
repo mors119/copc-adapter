@@ -10,6 +10,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Publish batch Terrain height-alignment estimates for Cesium, optional
+  `setOpacity(undefined)` reset semantics, and custom elevation range/palette
+  options for Cesium and Three.js.
 - Recognize a narrow, explicit WKT2 projected 3D height declaration as WGS 84
   ellipsoidal only when the CRS has a Cartesian three-axis system, ordered
   east/north/up axes, a `BASEGEOGCRS` identified as EPSG:4979, an explicitly

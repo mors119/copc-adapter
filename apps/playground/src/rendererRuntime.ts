@@ -34,8 +34,8 @@ import {
   resolveSchemaBackendSelection,
 } from "../../shared/config/index.ts";
 import {
-  PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES,
-  NPM_0_7_1_MANIFEST,
+  PLAYGROUND_0_8_0_RUNTIME_CAPABILITIES,
+  NPM_0_8_0_MANIFEST,
 } from "../../shared/schema/index.ts";
 import type { PointScreenPosition } from "../../shared/inspection/PointPopover.ts";
 import {
@@ -425,9 +425,9 @@ export async function createPlaygroundRuntime(
     "source.url": options.source,
   });
   const applicationPlan = buildSchemaApplicationPlan(configurationValues, {
-    manifest: NPM_0_7_1_MANIFEST,
+    manifest: NPM_0_8_0_MANIFEST,
     renderer: options.renderer,
-    runtimeCapabilities: PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES,
+    runtimeCapabilities: PLAYGROUND_0_8_0_RUNTIME_CAPABILITIES,
   }, undefined, undefined, options.hostValidators);
 
   if (options.renderer === "cesium") {

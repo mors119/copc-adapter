@@ -5,7 +5,7 @@ is an optional companion to [COPC Adapter](https://github.com/mors119/copc-adapt
 for applications that need the 3D Tiles format. The source-neutral engine has
 no runtime dependencies; the Adapter connector is optional.
 
-> **Version 0.1.1 · Experimental release candidate, not yet published.** The
+> **Version 0.1.1 · Experimental release.** The
 > live provider reads bounded hierarchy metadata before the first render and
 > serves point content on demand. Some projected sources do not have certified
 > bounds and need explicit content

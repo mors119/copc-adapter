@@ -31,6 +31,7 @@ if (process.argv.includes('--preflight')) {
 
   const tilesManifest = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8'));
   const lockedTiles = repositoryLock.packages?.['packages/tiles'];
+  assert.equal(tilesManifest.devDependencies?.['@frillab/copc-adapter'], '0.8.0', 'current published Adapter Core baseline is exact');
   assert.equal(tilesManifest.devDependencies?.['@frillab/copc-tiles-validate'], '0.1.0', 'published structural validator version is exact');
   assert.equal(tilesManifest.devDependencies?.['3d-tiles-validator'], undefined, 'legacy validator is absent from Tiles devDependencies');
   assert.equal(tilesManifest.dependencies?.['@frillab/copc-tiles-validate'], undefined, 'structural validator is not a production dependency');
@@ -42,6 +43,7 @@ if (process.argv.includes('--preflight')) {
     'Tiles peer dependency metadata matches the root lockfile',
   );
   assert.equal(lockedTiles?.devDependencies?.['@frillab/copc-tiles-validate'], '0.1.0', 'structural validator is locked as a development dependency');
+  assert.equal(lockedTiles?.devDependencies?.['@frillab/copc-adapter'], '0.8.0', 'current Adapter baseline is locked as a development dependency');
   assert.equal(lockedTiles?.devDependencies?.['3d-tiles-validator'], undefined, 'legacy validator is absent from the root lockfile workspace entry');
   for (const obsoletePackage of [
     'node_modules/3d-tiles-validator',

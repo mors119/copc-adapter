@@ -17,7 +17,7 @@ test("uses the shared schema controls and four-tab Workbench shell", async ({
   await page.goto("./");
 
   await expect(page.locator(".workbench-provenance")).toHaveText(
-    "npm release 0.7.1 / Playground",
+    "npm release 0.8.0 / Playground",
   );
   const tabs = page.getByRole("tablist", { name: "Workbench details" });
   await expect(tabs.getByRole("tab")).toHaveText([

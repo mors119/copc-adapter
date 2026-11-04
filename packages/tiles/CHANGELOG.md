@@ -2,7 +2,13 @@
 
 ## Unreleased
 
-## 0.1.1 — 2026-11-04 (release candidate; not published)
+### Development
+
+- Update the exact Tiles development Adapter baseline to published `0.8.0`;
+  retain the optional `^0.7.1 || ^0.8.0` peer contract and packed coverage for
+  the older `0.7.1` release.
+
+## 0.1.1 — 2026-11-04
 
 ### Changed
 

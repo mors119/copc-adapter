@@ -85,11 +85,13 @@ const npm071Capabilities = [
   "vertical.gtx-grid",
 ] as const;
 
-/** Numeric reset values for npm 0.7.1, whose setter cannot clear an override. */
-export const NPM_0_7_1_OPACITY_RESET_VALUES = {
+/** Numeric reset values preserve the Playground's established opaque defaults. */
+export const PLAYGROUND_OPACITY_RESET_VALUES = {
   cesium: 1,
   three: 0.9,
 } as const;
+/** Historical 0.7.1 code-generation compatibility values. */
+export const NPM_0_7_1_OPACITY_RESET_VALUES = PLAYGROUND_OPACITY_RESET_VALUES;
 
 const workspaceCapabilities = [
   ...npm06Capabilities,
@@ -165,6 +167,15 @@ export const NPM_0_7_1_MANIFEST = createManifest(
   {},
 );
 
+/** Current public release; the Playground keeps its existing exposed option set. */
+export const NPM_0_8_0_MANIFEST = createManifest(
+  "npm",
+  "0.8.0",
+  npm071SupportedOptionIds,
+  npm071Capabilities,
+  {},
+);
+
 /**
  * The workspace profile follows the current audited source schema. New schema
  * definitions therefore become available to Dev Viewer without maintaining a
@@ -181,6 +192,7 @@ export const WORKSPACE_CURRENT_MANIFEST = createManifest(
 const npmManifests = new Map<string, AdapterManifest>([
   [NPM_0_6_MANIFEST.version, NPM_0_6_MANIFEST],
   [NPM_0_7_1_MANIFEST.version, NPM_0_7_1_MANIFEST],
+  [NPM_0_8_0_MANIFEST.version, NPM_0_8_0_MANIFEST],
 ]);
 const workspaceManifests = new Map<string, AdapterManifest>([
   [WORKSPACE_CURRENT_MANIFEST.version, WORKSPACE_CURRENT_MANIFEST],
@@ -207,4 +219,8 @@ export const NPM_0_7_1_SUPPORTED_OPTION_IDS = npm071SupportedOptionIds;
 export const NPM_0_7_1_CAPABILITIES = npm071Capabilities;
 /** Runtime gates for Playground's pinned npm 0.7.1 public grid loader. */
 export const PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES = npm071Capabilities;
+export const NPM_0_8_0_SUPPORTED_OPTION_IDS = npm071SupportedOptionIds;
+export const NPM_0_8_0_CAPABILITIES = npm071Capabilities;
+/** Runtime gates for Playground's current npm release integration. */
+export const PLAYGROUND_0_8_0_RUNTIME_CAPABILITIES = npm071Capabilities;
 export const WORKSPACE_CURRENT_CAPABILITIES = workspaceCapabilities;
