@@ -1,7 +1,7 @@
 # Issue #328: Cesium imagery-projected point color research
 
 - **Reviewed:** 2026-10-31.
-- **Status:** Technical feasibility demonstrated with a deterministic browser fixture and one live USGS tile. Provider/source rights are not cleared for product use. Do not open an implementation issue yet.
+- **Status:** Research. Technical feasibility was demonstrated with a deterministic browser fixture and one live USGS tile. Provider/source rights are not cleared for product use; do not open an implementation issue yet.
 - **Scope:** Optional 2D imagery projection for COPC point display. This does not change a COPC file or its measured attributes.
 
 Issue [#328](https://github.com/mors119/copc-adapter/issues/328) asks whether COPC points can be colored from imagery that is also available to a CesiumJS application. The result would be **synthetic imagery-projected RGB**, not measured LAS RGB. The research is deliberately separate from the point style API, option manifest, Workbench UI, and code generation.

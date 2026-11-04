@@ -1,8 +1,8 @@
 # Issue #244: Vertical CRS and geoid-grid decision
 
-**Status:** Caller-supplied offline GTX conversion and the pinned NGA EGM2008
-2.5-minute profile are implemented for the supported WKT1/WKT2 compound
-subset. WKT2 compound CRS behavior has a TypeScript/Rust differential fixture.
+**Status:** Implemented for the documented WKT1/WKT2 compound subset, including
+caller-supplied offline GTX conversion and the pinned NGA EGM2008 2.5-minute
+profile. WKT2 compound CRS behavior has a TypeScript/Rust differential fixture.
 The profile matches official grid-node and bilinear reference values, but no
 independent survey/control-point accuracy is claimed. GEOID18 is not applied to
 Autzen because its source frame and coordinate epoch are unspecified;

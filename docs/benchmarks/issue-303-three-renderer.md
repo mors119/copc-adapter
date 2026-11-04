@@ -1,5 +1,7 @@
 # Issue #303 Three.js renderer browser profile
 
+> **Historical benchmark record.** Results describe the issue, input, and environment at the time of measurement. Reproduction commands and paths are preserved as recorded and may require the historical checkout; see the [monorepo development guide](../monorepo-development.md) for current setup. These measurements are not current performance guarantees.
+
 This profile addresses [Issue #303](https://github.com/mors119/copc-adapter/issues/303)
 and closes the measurement gap in the earlier [Issue #142 CPU renderer
 observation](./issue-142-three-renderer.md). That Node benchmark does not create

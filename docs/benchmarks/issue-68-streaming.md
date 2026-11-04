@@ -1,8 +1,6 @@
 # Issue #68 streaming, memory, and backpressure validation
 
-> Historical reproduction record: the recorded commands predate npm Workspaces
-> and use the former Adapter package path. For current commands, see the
-> [monorepo development guide](../monorepo-development.md).
+> **Historical benchmark record.** Results describe the issue, input, and environment at the time of measurement. Reproduction commands and paths are preserved as recorded and may require the historical checkout; see the [monorepo development guide](../monorepo-development.md) for current setup. These measurements are not current performance guarantees.
 
 This is the post-scalability acceptance gate for the combined #45 cache, #46
 Rust worker decode, #48 renderer boundary/instrumentation, and #59 rendered

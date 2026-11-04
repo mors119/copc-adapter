@@ -1,5 +1,8 @@
 # Issue #243: Point-cloud-only EDL research
 
+**Status:** Deferred. Revisit only if Cesium adds a supported per-layer render
+hook or the adapter adopts a separately supported renderer integration point.
+
 **Decision:** Defer a production EDL option. Cesium 1.142.0 exposes EDL for its
 3D Tiles point-cloud renderer, but the COPC adapter renders through
 `PointPrimitiveCollection` or `Primitive`; that public EDL path does not accept

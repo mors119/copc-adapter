@@ -1,5 +1,7 @@
 # Issue #142 Three.js renderer observation
 
+> **Historical benchmark record.** Results describe the issue, input, and environment at the time of measurement. Reproduction commands and paths are preserved as recorded and may require the historical checkout; see the [monorepo development guide](../monorepo-development.md) for current setup. These measurements are not current performance guarantees.
+
 The renderer preparation path was measured with the same node lifecycle used by
 the unit tests: create one `THREE.BufferGeometry` and `THREE.PointsMaterial`,
 replace the node once, then remove it. This is a CPU scene-object benchmark; it

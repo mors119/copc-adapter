@@ -1,7 +1,7 @@
 # Issue #404: Dataset-relative and height-above-ground color semantics
 
-**Status:** Research recommendation; awaiting maintainer review. No production
-API or renderer behavior is changed by this proposal.
+**Status:** Research; awaiting maintainer review. No production API or renderer
+behavior is changed by this proposal.
 **Reviewed:** 2026-10-31.
 **Scope:** Optional height-derived display colors after the absolute elevation
 palette in [issue #395](https://github.com/mors119/copc-adapter/issues/395).
@@ -67,7 +67,8 @@ does not make per-point Terrain sampling an acceptable coloring strategy.
 
 Relevant current code is in `packages/adapter/core/point/style/pointStyle.ts`,
 `packages/adapter/cesium/terrain/terrainHeightAlignmentBatch.ts`, and
-`docs/API.md` (the absolute elevation and Terrain alignment sections).
+[`docs/api/cesium.md`](../api/cesium.md) (absolute elevation styling) and
+[`docs/api/coordinates.md`](../api/coordinates.md) (Terrain alignment).
 
 ## Reference-height choice for dataset-relative color
 

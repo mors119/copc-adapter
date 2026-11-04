@@ -1,5 +1,7 @@
 # Issue #60 occlusion-culling investigation
 
+> **Historical benchmark record.** Results describe the issue, input, and environment at the time of measurement. Reproduction commands and paths are preserved as recorded and may require the historical checkout; see the [monorepo development guide](../monorepo-development.md) for current setup. These measurements are not current performance guarantees.
+
 This report records the bounded investigation required before adding
 occlusion-aware COPC node culling. The result is **defer / not currently
 justified**. The current adapter keeps the #58 frustum, #44 screen-space-error,

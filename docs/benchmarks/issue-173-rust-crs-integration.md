@@ -1,5 +1,7 @@
 # Issue #173 Rust CRS integration
 
+> **Historical benchmark record.** Results describe the issue, input, and environment at the time of measurement. Reproduction commands and paths are preserved as recorded and may require the historical checkout; see the [monorepo development guide](../monorepo-development.md) for current setup. These measurements are not current performance guarantees.
+
 This document records the production Rust CRS capability added to
 `copc-adapter-core`. It builds on the compatibility evidence in
 [issue #171](issue-171-proj4rs-compatibility.md).

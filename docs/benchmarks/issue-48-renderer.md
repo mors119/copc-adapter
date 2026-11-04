@@ -1,8 +1,6 @@
 # Issue #48 renderer benchmark
 
-> Historical reproduction record: the recorded commands predate npm Workspaces
-> and use the former Adapter package path. For current commands, see the
-> [monorepo development guide](../monorepo-development.md).
+> **Historical benchmark record.** Results describe the issue, input, and environment at the time of measurement. Reproduction commands and paths are preserved as recorded and may require the historical checkout; see the [monorepo development guide](../monorepo-development.md) for current setup. These measurements are not current performance guarantees.
 
 This benchmark answers whether the existing Cesium point path is expensive
 enough to require a project-owned renderer boundary. It does not claim that

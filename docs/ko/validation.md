@@ -2,6 +2,8 @@
 
 이 페이지는 COPC Adapter가 무엇을 **실제로 검증했는지**와 무엇을 아직 일반화해서 말하면 안 되는지를 정리합니다.
 
+상세 수치와 재현 기록은 [과거 벤치마크 모음](../benchmarks/)에서 확인할 수 있습니다. 각 문서의 명령과 환경은 기록 당시 기준이며 현재 설정 안내가 아닙니다.
+
 ## 핵심 검증 항목
 
 | 영역 | 현재 근거 |
@@ -122,7 +124,7 @@ Autzen 자체가 EPSG:5186 데이터라는 뜻은 아닙니다.
 
 실제 2026 오픈소스 개발자대회 기능시험 절차는 별도의 runbook으로 관리합니다.
 
-- [Cesium contest functional-test runbook](/CONTEST-FUNCTIONAL-TEST)
+- [Cesium contest functional-test runbook](/archive/CONTEST-FUNCTIONAL-TEST)
 
 이 문서는 공개 기술 검증과 심사 당일 동작 절차를 섞지 않기 위해 분리되어 있습니다.
 

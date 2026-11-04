@@ -209,7 +209,7 @@ application retains ownership of its viewer or scene. The
 COPC source for applications that provide their own node scheduler and output
 format; it does not build 3D Tiles content. The `./core` export is available
 from version 0.7.0; version 0.6.0 does not include it. See the
-[source API](https://mors119.github.io/copc-adapter/API#copc-tiles-compatibility-audit)
+[source API](https://mors119.github.io/copc-adapter/api/core#copc-tiles-compatibility-audit)
 for its contract and limits.
 
 ## Features
@@ -614,7 +614,7 @@ controls, render loop, and UI.
 
 See the [project roadmap](docs/ROADMAP.md) for capability-based development
 stages and remaining goals. Historical measurements remain in
-[`docs/benchmarks/`](docs/benchmarks/).
+[historical benchmark index](docs/benchmarks/index.md).
 
 ## Related Documentation
 
@@ -622,7 +622,9 @@ stages and remaining goals. Historical measurements remain in
 - [API](docs/API.md)
 - [Examples](docs/EXAMPLES.md)
 - [Conformance](docs/CONFORMANCE.md)
-- [Cesium contest functional-test runbook](docs/CONTEST-FUNCTIONAL-TEST.md)
+- [Historical benchmark index](docs/benchmarks/index.md)
+- [Proposal status index](docs/proposals/index.md)
+- [Archived Cesium contest functional-test runbook](docs/archive/CONTEST-FUNCTIONAL-TEST.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Sample datasets](samples/README.md)
 - [Contributing](CONTRIBUTING.md)
