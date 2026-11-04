@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Replace the legacy `3d-tiles-validator` test dependency with the exact
+  published `@frillab/copc-tiles-validate@0.1.0` structural validator. Keep
+  `gltf-validator` for glTF semantic validation and remove the old validator's
+  unused transitive native dependency tree.
+- Migrate generated Tileset, subtree, GLB, resource-provider, and real-source
+  integration checks to the new validator report, including issue codes,
+  coverage, and resource statistics.
+
+### Validation limits
+
+- `@frillab/copc-tiles-validate` is independent of COPC and checks supported
+  local structure and referenced GLB containers. `valid: true` is not full
+  3D Tiles conformance; `conformance` remains `partial` and `coverage` records
+  skipped or partial checks.
+- The new validator does not inspect glTF extension semantics. Direct
+  `EXT_structural_metadata` / `EXT_mesh_features` conformance coverage from the
+  former CesiumGS validator is not replaced. Encoder structure, Khronos glTF
+  checks, and renderer behavior remain tested, but extension-semantic
+  validation is a documented gap.
+
 ## 0.1.0 — Initial release
 
 - Add a source-neutral point-cloud engine for producing standard 3D Tiles 1.1

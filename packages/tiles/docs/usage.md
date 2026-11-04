@@ -250,7 +250,11 @@ and the relationship to [Adapter issue #383](https://github.com/mors119/copc-ada
 
 The configured Autzen Chromium tests run with both `copc-js` and Rust/WASM and
 use bounded HTTP Range requests. They encode a real node, run Khronos and
-CesiumGS validators, and render the same primary GLB bytes in Cesium and Three.
+glTF semantic validation plus `@frillab/copc-tiles-validate` structural
+validation on the actual generated Tileset and GLB, then render the same
+primary GLB bytes in Cesium and Three. Structural validity is not full 3D
+Tiles conformance, and the new validator does not validate glTF extension
+semantics.
 The SoFi test accepts `COPC_TILES_SOFI_URL` or the legacy
 `COPC_TILES_SECOND_COPC_URL`; it is skipped when no real source is configured.
 Both backends use Adapter's `head-fallback` Range validation when the browser

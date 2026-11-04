@@ -31,12 +31,26 @@ if (process.argv.includes('--preflight')) {
 
   const tilesManifest = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8'));
   const lockedTiles = repositoryLock.packages?.['packages/tiles'];
+  assert.equal(tilesManifest.devDependencies?.['@frillab/copc-tiles-validate'], '0.1.0', 'published structural validator version is exact');
+  assert.equal(tilesManifest.devDependencies?.['3d-tiles-validator'], undefined, 'legacy validator is absent from Tiles devDependencies');
+  assert.equal(tilesManifest.dependencies?.['@frillab/copc-tiles-validate'], undefined, 'structural validator is not a production dependency');
+  assert.equal(tilesManifest.peerDependencies?.['@frillab/copc-tiles-validate'], undefined, 'structural validator is not a peer dependency');
   assert.deepEqual(lockedTiles?.peerDependencies, tilesManifest.peerDependencies, 'Tiles peer dependencies match the root lockfile');
   assert.deepEqual(
     lockedTiles?.peerDependenciesMeta,
     tilesManifest.peerDependenciesMeta,
     'Tiles peer dependency metadata matches the root lockfile',
   );
+  assert.equal(lockedTiles?.devDependencies?.['@frillab/copc-tiles-validate'], '0.1.0', 'structural validator is locked as a development dependency');
+  assert.equal(lockedTiles?.devDependencies?.['3d-tiles-validator'], undefined, 'legacy validator is absent from the root lockfile workspace entry');
+  for (const obsoletePackage of [
+    'node_modules/3d-tiles-validator',
+    'node_modules/3d-tiles-tools',
+    'node_modules/better-sqlite3',
+    'node_modules/sharp',
+  ]) {
+    assert.equal(repositoryLock.packages?.[obsoletePackage], undefined, `${obsoletePackage} is absent from the root install graph`);
+  }
   console.log('Fast workspace manifest/lockfile preflight passed; dependency installation and browser tests are deferred.');
   process.exit(0);
 }
@@ -69,7 +83,6 @@ function run(command, args, cwd, label) {
       ...(adapterCandidatePath === undefined
         ? { COPC_ADAPTER_WORKSPACE_ROOT: resolve(repositoryRoot, 'packages/adapter') }
         : { COPC_ADAPTER_PACKED_CANDIDATE: adapterCandidatePath }),
-      SHARP_IGNORE_GLOBAL_LIBVIPS: process.env.SHARP_IGNORE_GLOBAL_LIBVIPS ?? '1',
       npm_config_audit: 'false',
       npm_config_fund: 'false',
     },

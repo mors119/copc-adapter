@@ -32,7 +32,12 @@ The deterministic GLB fixtures run through the official [Khronos glTF
 Validator](https://github.com/KhronosGroup/glTF-Validator) npm package pinned
 to `gltf-validator@2.0.0-dev.3.10`. Colorless and 16-bit RGB outputs currently
 report zero errors and zero warnings. `npm run validate:gltf` runs that
-conformance test directly.
+semantic validation directly and then uses the test-only
+`@frillab/copc-tiles-validate` package to inspect the enclosing Tileset,
+referenced resources, and GLB container structure. The structural validator
+is independent of COPC. Its `valid` result covers implemented structural
+checks only, and its report correctly retains partial conformance and GLB
+semantic coverage. It does not validate glTF extension semantics.
 
 The tests also inspect headers, chunk types and lengths, padding, alignment,
 accessor shape/count, RGB bytes, empty-node behavior, output bounds, rejection
@@ -47,4 +52,5 @@ of unencoded inspection attributes, and deterministic output bytes.
 | 16-bit LAS RGB display policy | Full normalized Uint16 channels, exact buffer round-trip, aligned stride. |
 | Empty, malformed, and bounded output | Empty nodes have no content; invalid buffers fail; point/output limits are enforced. |
 | Khronos validator | Deterministic fixtures and actual Autzen GLB: zero errors and zero warnings. |
+| Tileset structural validator | `validate:gltf` checks the metadata-bearing fixture's local Tileset and GLB container. Coverage remains partial; structural metadata extension semantics are not checked. |
 | Compatible loader and real Autzen node | Cesium and Three fetched and rendered the same 119,292-byte GLB containing 5,122 points from node `4-11-2-0`. This is one pre-generated node; full-source output remains outstanding, so T4 remains partial. |

@@ -3,13 +3,13 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
-import tilesValidator from '3d-tiles-validator';
 import gltfValidator from 'gltf-validator';
 import { getFloat32EcefReconstructionErrorBound } from '../src/geometry/tileLocalCoordinates.ts';
 import { createExperimentalETilePointView } from '../src/input/tilePointView.ts';
 import { createCopcTileResourceProvider, CopcTileResourceProviderError } from '../src/resources/copcTileResourceProvider.ts';
 import { getExplicitTileContentUri } from '../src/tileset/explicitTileset.ts';
 import { createBrowserFixtureSource } from './browser/fixture.ts';
+import { assertValidTileset } from './tilesetValidation.mjs';
 
 function createDeclaredHierarchySource(generation, childNodes, options = {}) {
   const base = createBrowserFixtureSource(generation);
@@ -95,9 +95,9 @@ test('builds the complete explicit hierarchy from metadata and reads points only
       await mkdir(dirname(path), { recursive: true });
       await writeFile(path, bytes);
     }
-    const report = await tilesValidator.Validators.validateTilesetFile(join(directory, 'tileset.json'));
-    assert.deepEqual(report.issues.filter((issue) => issue.severity === 'ERROR'), [], report.serialize());
-    assert.deepEqual(report.issues.filter((issue) => issue.severity === 'WARNING'), [], report.serialize());
+    const report = await assertValidTileset(join(directory, 'tileset.json'));
+    assert.deepEqual(report.stats, { tilesets: 1, tiles: 2, resources: 2, glbs: 2, subtrees: 0 });
+    assert.equal(report.coverage.partial.find((entry) => entry.kind === 'gltf-semantics')?.count, 2);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -296,9 +296,9 @@ test('decoded-content preprocessing accounts for every point and emits distinct 
       await mkdir(dirname(path), { recursive: true });
       await writeFile(path, glb);
     }
-    const tilesReport = await tilesValidator.Validators.validateTilesetFile(join(directory, 'tileset.json'));
-    assert.deepEqual(tilesReport.issues.filter((issue) => issue.severity === 'ERROR'), [], tilesReport.serialize());
-    assert.deepEqual(tilesReport.issues.filter((issue) => issue.severity === 'WARNING'), [], tilesReport.serialize());
+    const tilesReport = await assertValidTileset(join(directory, 'tileset.json'));
+    assert.deepEqual(tilesReport.stats, { tilesets: 1, tiles: 2, resources: 2, glbs: 2, subtrees: 0 });
+    assert.equal(tilesReport.coverage.partial.find((entry) => entry.kind === 'gltf-semantics')?.count, 2);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from '@playwright/test';
 import validator from 'gltf-validator';
-import tilesValidator from '3d-tiles-validator';
 import { resetServerStats } from './browser-utils.mjs';
+import { assertValidTileset } from '../tilesetValidation.mjs';
 
 for (const backend of ['copc-js', 'rust']) {
   test(`real Autzen ${backend} live provider rejects projected bounds before point reads`, async ({ page }) => {
@@ -87,18 +87,19 @@ for (const backend of ['copc-js', 'rust']) {
   console.log(`Autzen Adapter /core ${backend}: ${result.nodeKey}, ${result.nodePointCount} points, fields=${result.availableFields.join(',')}, ranges=${stats.copcRangeCount}, rangeBytes=${stats.copcRangeBytes}, GLB=${Math.floor(result.glbBase64.length * 3 / 4)} bytes, retained point buffers=${result.multiNodeRetainedPointBufferBytes} bytes, encoded node GLBs=${result.multiNodeEncodedGlbBytes} bytes, Khronos errors/warnings=${gltfReport.issues.numErrors}/${gltfReport.issues.numWarnings}, pipelineMs=${JSON.stringify(result.pipelineTimingsMilliseconds)}`);
 
   const directory = await mkdtemp(join(tmpdir(), 'copc-tiles-autzen-one-tile-'));
+  let structuralReport;
   try {
     await mkdir(join(directory, 'content'));
     await writeFile(join(directory, 'tileset.json'), JSON.stringify(result.tileset));
     await writeFile(join(directory, 'content', 'real.glb'), bytes);
-    const report = await tilesValidator.Validators.validateTilesetFile(join(directory, 'tileset.json'));
-    assert.deepEqual(report.issues.filter((issue) => issue.severity === 'ERROR'), [], report.serialize());
-    assert.deepEqual(report.issues.filter((issue) => issue.severity === 'WARNING'), [], report.serialize());
+    structuralReport = await assertValidTileset(join(directory, 'tileset.json'));
+    assert.deepEqual(structuralReport.stats, { tilesets: 1, tiles: 1, resources: 1, glbs: 1, subtrees: 0 });
+    assert.equal(structuralReport.coverage.partial.find((entry) => entry.kind === 'gltf-semantics')?.count, 1);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
 
-  console.log(`Autzen real node encoding: Tileset validator errors/warnings=0/0; one decoded COPC node only, not the complete COPC hierarchy or a production LOD tileset.`);
+  console.log(`Autzen real node structural report: valid=${structuralReport.valid}, conformance=${structuralReport.conformance}, GLBs=${structuralReport.stats.glbs}; one decoded COPC node only, not the complete COPC hierarchy or a production LOD tileset.`);
   console.log(`Autzen conservative bounds: ${result.conservativeBounds.status}/${result.conservativeBounds.reasonCode}; source cell retained in EPSG:2992; bounds evaluation source requests=${result.conservativeBoundsNetworkRequests}.`);
 
   const upload = await page.request.post('/__autzen/upload', {

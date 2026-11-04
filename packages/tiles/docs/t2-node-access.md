@@ -78,8 +78,10 @@ backends in Chromium:
 - `copc-js`: node `4-11-2-0`, 5,122 points, 6 COPC Range GETs / 164,880 bytes.
 - Rust/WASM: same node and points, 7 COPC Range GETs / 101,455 bytes; WASM and
   worker asset reads are separate from COPC ranges.
-- Both outputs passed Khronos glTF and CesiumGS 3D Tiles validators without
-  errors/warnings and rendered in Cesium and Three.
+- The historical pre-migration run reported no errors or warnings from
+  Khronos glTF and CesiumGS 3D Tiles validators, and both outputs rendered in
+  Cesium and Three. Current tests use the source-neutral structural validator;
+  its partial coverage is not equivalent to full 3D Tiles conformance.
 
 SoFi was read directly from the public 2.03 GB object with bounded HTTP Range
 requests. Both backends visited one page (2,599 nodes) and decoded the three

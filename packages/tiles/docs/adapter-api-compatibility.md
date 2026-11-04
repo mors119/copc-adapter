@@ -60,7 +60,10 @@ envelope only for content-bearing cells before point reads, propagates the
 largest descendant padding to ancestor volumes (including empty nodes), then
 checks decoded points and actual GLB reconstruction error. Default maximum
 accepted padding is 1 cm and can be tightened. Unit fixtures validate the
-generated GLB and Tileset with Khronos and CesiumGS validators.
+generated GLB with Khronos `gltf-validator` and the local Tileset with
+`@frillab/copc-tiles-validate`. The latter checks structural references,
+subtrees, and GLB containers; its conformance report remains partial and it
+does not validate glTF extension semantics.
 
 Tiles' `decoded-content` strategy is a separate provider capability. It
 requires `boundsStrategy: 'decoded-content'`,
@@ -168,7 +171,9 @@ Node-runtime integration target.
   conservative bounds before point reads, and both encoded and rendered one
   real node through Cesium and Three.js. The selected node was `4-11-2-0` with
   5,122 points; each backend produced a 119,292-byte GLB with zero Khronos or
-  CesiumGS validator errors or warnings. `copc-js` used 6 Range requests
+  CesiumGS validator errors or warnings in that historical pre-migration run.
+  Current tests use the structural validator and do not claim full standards
+  conformance. `copc-js` used 6 Range requests
   (164,880 bytes); Rust/WASM used 7 (101,455 bytes). Maximum measured GLB
   reconstruction error was about 1.97 micrometres. The temporary 81,123,042-byte
   source matched the repository sample SHA-256

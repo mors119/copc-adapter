@@ -36,10 +36,8 @@
     }
   },
   "allowScripts": {
-    "better-sqlite3@11.10.0": true,
     "esbuild@0.25.12": true,
     "esbuild@0.28.2": true,
-    "fsevents@2.3.3": true,
-    "sharp@0.32.6": true
+    "fsevents@2.3.3": true
   }
 }
