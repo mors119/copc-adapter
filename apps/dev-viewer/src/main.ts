@@ -76,6 +76,7 @@ import {
   mountFollowCursorTracker,
   type NormalizedScreenPosition,
 } from "../../shared/workbench/followCursor.ts";
+import { mountCopcFileDropTarget } from "../../shared/workbench/copcFileDrop.ts";
 import {
   mountPointPopover,
   type PointScreenPosition,
@@ -2564,6 +2565,18 @@ async function main(): Promise<void> {
     refreshIntegrationCode();
     debugPanel.refresh();
   };
+  const rejectLocalFile = (message: string): void => {
+    generation += 1;
+    probeAbortController?.abort();
+    probeAbortController = undefined;
+    isLoading = false;
+    stagedSession?.destroy();
+    stagedSession = undefined;
+    stagedMount?.remove();
+    stagedMount = undefined;
+    setActiveError(new Error(message));
+    updateConfigurationState();
+  };
   const reportProbeFailure = (
     result: CopcSourceProbeResult,
     policy: RangeValidationPolicy,
@@ -2680,6 +2693,8 @@ async function main(): Promise<void> {
       if (candidateSession && !candidateDestroyed) {
         candidateDestroyed = true;
         candidateSession.destroy();
+        if (stagedSession === candidateSession) stagedSession = undefined;
+        if (stagedMount === candidateMount) stagedMount = undefined;
       }
       candidateMount?.remove();
     };
@@ -3256,6 +3271,7 @@ async function main(): Promise<void> {
       pendingConfig = { ...pendingConfig, ...update };
       updateConfigurationState();
     },
+    onLocalFileError: rejectLocalFile,
     onCameraDistanceSelected(distance) {
       activeSession?.stopCameraDemo?.();
       activeSession?.setCameraRenderDistance(distance);
@@ -3273,7 +3289,7 @@ async function main(): Promise<void> {
     getCameraDistance: () => activeConfig.cameraRenderDistance,
   });
 
-  loadButton.addEventListener("click", () => {
+  const loadSelectedSource = (): void => {
     const source = workbenchControls?.getSelectedSource();
     if (source === undefined) {
       setActiveError(new Error("Choose a local COPC file before loading."));
@@ -3281,6 +3297,15 @@ async function main(): Promise<void> {
     }
     pendingConfig = { ...pendingConfig, source };
     void runSession({ ...pendingConfig }, "load");
+  };
+  loadButton.addEventListener("click", loadSelectedSource);
+
+  const copcFileDropTarget = mountCopcFileDropTarget({
+    onFile(file) {
+      if (!workbenchControls?.selectLocalFile(file)) return;
+      loadSelectedSource();
+    },
+    onError: rejectLocalFile,
   });
   applySettingsButton.addEventListener("click", () => {
     const configForCurrentSource: DevViewerConfig = {
@@ -3334,6 +3359,7 @@ async function main(): Promise<void> {
       cameraDemoPlayButton.removeEventListener("click", onCameraDemoPlay);
       cameraDemoStopButton.removeEventListener("click", onCameraDemoStop);
       followCursorTracker.destroy();
+      copcFileDropTarget.destroy();
       probeAbortController?.abort();
       debugPanel.destroy();
       tilesDiagnosticsPanel.destroy();

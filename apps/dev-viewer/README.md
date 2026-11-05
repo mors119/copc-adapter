@@ -32,9 +32,12 @@ package version; it does not indicate the version currently published to npm.
 ## Sources and configuration
 
 Supported sources are the local Autzen fixture, public Autzen and Chicago URLs,
-a custom HTTP/HTTPS URL, and a user-selected COPC File. Remote URLs load directly
-from their host. Local Files use bounded Blob reads, so HTTP Range validation is
-not applicable to them.
+a custom HTTP/HTTPS URL, and a user-selected COPC File. Choose a File with
+**Open local COPC file**, then use **Load selected source**, or drop one COPC
+file anywhere on the page to select and load it immediately. Remote URLs load
+directly from their host. Local Files use bounded Blob slices in the browser;
+their contents are never uploaded. Ordinary LAS/LAZ files without COPC
+hierarchy metadata are rejected, regardless of the filename.
 
 Selecting a different source and pressing **Load selected source** probes and
 loads that source with the visible settings. The active source remains available

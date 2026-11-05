@@ -1,3 +1,41 @@
+.copc-file-drop-overlay {
+  position: fixed;
+  z-index: 10000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(4 10 17 / 68%);
+  pointer-events: none;
+}
+
+.copc-file-drop-overlay[hidden] {
+  display: none;
+}
+
+.copc-file-drop-overlay__message {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  width: min(480px, 100%);
+  padding: 36px 24px;
+  border: 2px dashed var(--ui-accent, #8fc9ff);
+  border-radius: 14px;
+  color: #eff7ff;
+  background: rgb(13 25 38 / 96%);
+  box-shadow: 0 18px 64px rgb(0 0 0 / 38%);
+  text-align: center;
+}
+
+.copc-file-drop-overlay__message strong {
+  font-size: clamp(18px, 3vw, 24px);
+}
+
+.copc-file-drop-overlay__message span {
+  color: var(--ui-muted, #a8b5c3);
+  font-size: 12px;
+}
+
 .workbench-root {
   display: flex;
   flex-direction: column;

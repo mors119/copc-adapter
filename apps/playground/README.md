@@ -58,8 +58,10 @@ warnings when available. Unknown results stay unknown. Known HTTP, CORS,
 Range, or non-COPC failures explain what to check and disable **Load source**.
 If a returned probe has unknown checks, Load remains a deliberate attempt and
 the subsequent load may still fail. Retry Probe explicitly to repeat a check.
-Editing the URL invalidates that probe. A local `File` can load directly; HTTP
-CORS and Range checks do not apply to it.
+Editing the URL invalidates that probe. Choose a local file with **Choose a
+COPC file** or drop one anywhere on the page; either action starts the same
+local loading flow. The file is read in bounded browser-local slices and is
+never uploaded. HTTP CORS and Range checks do not apply to local files.
 
 After a successful load, the source panel shows point count, point format,
 source-coordinate bounds, whether the source supplied WKT, and the active
@@ -251,8 +253,10 @@ npm run pages:build
 - Korean documentation: https://mors119.github.io/copc-adapter/ko/
 - Playground: https://mors119.github.io/copc-adapter/playground/
 
-The Playground accepts local `.copc.laz` files through its file picker. The
-browser reads requested byte slices from the selected `File`; it does not
-upload or store the dataset. Ordinary LAS/LAZ files without COPC hierarchy
-metadata are unsupported. Point inspection shows only attributes present in
-the selected point's decoded data.
+The Playground accepts one local `.copc.laz`, `.copc`, or `.laz` candidate at a
+time through the file picker or page-wide drag-and-drop. The filename only
+identifies a candidate: the existing source loader validates COPC hierarchy
+metadata, so ordinary LAS/LAZ files without it are rejected. File slices stay
+in the browser; contents and local paths are not uploaded or placed in share
+links. Point inspection shows only attributes present in the selected point's
+decoded data.
