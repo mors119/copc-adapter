@@ -27,6 +27,7 @@ import type {
   SchemaNumericDimensionMetadata,
 } from "../../shared/schema/types.ts";
 import type { VerifiedVerticalGrid } from "../../shared/workbench/verticalGridResource.ts";
+import { processLocalCopcFile } from "../../shared/workbench/copcFileDrop.ts";
 import {
   createDefaultDimensionStyle,
   getWorkbenchNumericDimensions,
@@ -64,6 +65,7 @@ export type DevViewerControlsOptions = {
   readonly onMotionLookaheadSelected: (enabled: boolean) => void;
   readonly onRangeValidationSelected: (policy: RangeValidationPolicy) => void;
   readonly onPendingConfigChange: (update: Partial<DevViewerConfig>) => void;
+  readonly onLocalFileError: (message: string) => void;
   readonly onValidationChange: () => void;
   readonly renderAction?: SchemaOptionPanelOptions["renderAction"];
   readonly onCameraDistanceSelected: (distance: number) => void;
@@ -82,6 +84,7 @@ export type DevViewerControlsOptions = {
 
 export type DevViewerControls = {
   getSelectedSource(): string | File | undefined;
+  selectLocalFile(file: File): boolean;
   getValidationErrors(): readonly string[];
   updateContext(): void;
   refreshVerticalGridAvailability(): void;
@@ -224,9 +227,7 @@ export function mountDevViewerControls(
   const onCustomUrlInput = (): void => {
     if (sourceSelect.value === "custom") updateSelectedSource();
   };
-  const onLocalFileChange = (): void => {
-    const file = fileInput.files?.[0];
-    if (!file) return;
+  const acceptLocalFile = (file: File): void => {
     openedLocalFile = file;
     let localFileOption = sourceSelect.querySelector<HTMLOptionElement>(
       'option[value="local-file"]',
@@ -241,6 +242,22 @@ export function mountDevViewerControls(
     customUrl.disabled = true;
     clearSourceDimensionMetadata();
     options.onPendingConfigChange({ source: file });
+  };
+  const selectLocalFile = (file: File): boolean => {
+    let selected = false;
+    processLocalCopcFile(file, {
+      onFile(candidate) {
+        acceptLocalFile(candidate);
+        selected = true;
+      },
+      onError: options.onLocalFileError,
+    });
+    return selected;
+  };
+  const onLocalFileChange = (): void => {
+    const file = fileInput.files?.[0];
+    fileInput.value = "";
+    if (file) selectLocalFile(file);
   };
   sourceSelect.addEventListener("change", onSourceSelectionChange);
   pipelineSelect.addEventListener("change", onPipelineSelectionChange);
@@ -459,6 +476,7 @@ export function mountDevViewerControls(
 
   return {
     getSelectedSource,
+    selectLocalFile,
     getValidationErrors: () => schemaPanel?.getValidationErrors() ?? [],
     updateContext(): void {
       schemaPanel?.update({ values, context: context() });

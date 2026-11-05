@@ -91,6 +91,10 @@ import {
   type PlaygroundRefinementConfig,
 } from "./refinementConfig";
 import { mountFollowCursorTracker } from "../../shared/workbench/followCursor.ts";
+import {
+  mountCopcFileDropTarget,
+  processLocalCopcFile,
+} from "../../shared/workbench/copcFileDrop.ts";
 import { appendClassificationCode, LAS_1_4_CLASSIFICATION_CATALOG } from "../../shared/workbench/lasClassification.ts";
 import {
   defaultPlaygroundUrlConfig,
@@ -240,7 +244,7 @@ app.innerHTML = `
     <main class="workbench" aria-label="COPC Adapter Playground">
       <aside class="side-panel source-panel" id="source-panel" aria-labelledby="source-heading">
         <div class="panel-heading"><div><span class="eyebrow">SOURCE</span><h1 id="source-heading">Load a point cloud</h1></div></div>
-        <p class="panel-intro">Stream a public COPC dataset, provide a browser-readable URL, or choose a local file.</p>
+        <p class="panel-intro">Stream a public COPC dataset, provide a browser-readable URL, or drop a local file anywhere on this page.</p>
         <label class="ui-field" for="remote-source">Source
           <select id="remote-source">
             <option value="autzen">Autzen Stadium · Oregon</option>
@@ -277,7 +281,7 @@ app.innerHTML = `
         <label class="file-picker" for="copc-file">
           <span class="source-symbol" aria-hidden="true">＋</span>
           <strong>Choose a COPC file</strong>
-          <span>.copc.laz files are read locally and are not uploaded</span>
+          <span>Choose or drop one .copc.laz, .copc, or .laz file. It stays in this browser.</span>
           <input id="copc-file" type="file" accept=".copc.laz,.laz,.copc,application/octet-stream">
         </label>
         <p class="source-status ui-status" id="source-status" data-status="unknown" role="status" aria-live="polite">Waiting for a source</p>
@@ -3106,13 +3110,27 @@ remoteLoadButton.addEventListener("click", () => {
   });
 });
 
-fileInput.addEventListener("change", async () => {
-  const file = fileInput.files?.[0];
-  if (!file) return;
-  fileInput.value = "";
+const rejectLocalFile = (message: string): void => {
+  invalidateSourceSelection("Local file selection was rejected.");
+  setStatus(message, "error");
+};
+
+const loadLocalFile = (file: File): Promise<void> => {
   removeSharedSourceParam();
   const selectionGeneration = invalidateSourceSelection("Local file selected. HTTP CORS and Range checks do not apply.");
-  await loadSource(file, file.name, { selectionGeneration, initiatedAt: performance.now() });
+  return loadSource(file, file.name, { selectionGeneration, initiatedAt: performance.now() });
+};
+
+fileInput.addEventListener("change", () => {
+  const file = fileInput.files?.[0];
+  fileInput.value = "";
+  if (!file) return;
+  processLocalCopcFile(file, { onFile: loadLocalFile, onError: rejectLocalFile });
+});
+
+const copcFileDropTarget = mountCopcFileDropTarget({
+  onFile: loadLocalFile,
+  onError: rejectLocalFile,
 });
 
 applyChangesButton.addEventListener("click", () => {
@@ -3170,6 +3188,7 @@ const destroyPlayground = (): void => {
   probeController = undefined;
   loadGeneration += 1;
   releasePendingRuntime();
+  copcFileDropTarget.destroy();
   destroyActiveRuntime();
   followCursorTracker.destroy();
   pointPopover.destroy();

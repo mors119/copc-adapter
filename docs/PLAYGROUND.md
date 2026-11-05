@@ -21,7 +21,13 @@ The matching **Load source** action is enabled only for that exact probed URL
 and is disabled for known incompatibilities. Unknown checks are shown as
 unknown; Load is then an explicit attempt and can still fail. Editing the URL
 invalidates its probe. Local files bypass the HTTP probe and remain in the
-browser.
+browser. Choose a local file with **Choose a COPC file** or drop one COPC file
+anywhere on the page; both actions use the existing local loader. The drop
+overlay identifies the page as the target, and multiple files are rejected
+with a recoverable message. Local Files are read from bounded browser-local
+slices and are never uploaded. Ordinary LAS/LAZ files without valid COPC
+hierarchy metadata are unsupported; a `.copc.laz` filename alone does not
+establish validity.
 
 After load, the source panel displays point count, point format, source bounds,
 source-provided WKT availability, active backend, and renderer when available.

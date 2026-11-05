@@ -128,6 +128,10 @@ jobs:
       - name: Verify exact published npm Playground dependency
         run: npm run playground:verify-release
 
+      - name: Download the COPC fixture for Playground browser tests
+        if: needs.preflight.outputs.run_playground_e2e == 'true'
+        run: npm run download-samples -- autzen
+
       - name: Install Chromium for Playground browser tests
         if: needs.preflight.outputs.run_playground_e2e == 'true'
         run: npx --prefix apps/playground playwright install --with-deps chromium
