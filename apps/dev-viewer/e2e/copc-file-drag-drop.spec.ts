@@ -68,9 +68,8 @@ async function dispatchDrag(
   type: "dragenter" | "dragover" | "dragleave" | "drop",
   selector = "body",
   coordinates?: { readonly x: number; readonly y: number },
-  relatedTargetSelector?: string,
 ): Promise<boolean> {
-  return page.evaluate(({ eventType, targetSelector, x, y, relatedSelector }) => {
+  return page.evaluate(({ eventType, targetSelector, x, y }) => {
     const transfer = (window as Window & {
       __COPC_DRAG_TEST_TRANSFER__?: DataTransfer;
     }).__COPC_DRAG_TEST_TRANSFER__;
@@ -83,10 +82,6 @@ async function dispatchDrag(
       clientX: x,
       clientY: y,
     });
-    if (relatedSelector) {
-      const relatedTarget = document.querySelector(relatedSelector);
-      Object.defineProperty(event, "relatedTarget", { value: relatedTarget });
-    }
     target.dispatchEvent(event);
     return event.defaultPrevented;
   }, {
@@ -94,7 +89,6 @@ async function dispatchDrag(
     targetSelector: selector,
     x: coordinates?.x ?? 20,
     y: coordinates?.y ?? 20,
-    relatedSelector: relatedTargetSelector,
   });
 }
 
@@ -191,9 +185,10 @@ test("drag lifecycle rejects unsupported and multiple files and leaves other dra
   await dispatchDrag(page, "dragenter", "body");
   await expect(page.locator(".copc-file-drop-overlay")).toBeVisible();
   await dispatchDrag(page, "dragenter", "#controls-panel");
-  await dispatchDrag(page, "dragleave", "#controls-panel", { x: 40, y: 40 }, "#viewport-panel");
+  await dispatchDrag(page, "dragleave", "body");
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
   await expect(page.locator(".copc-file-drop-overlay")).toBeVisible();
-  await dispatchDrag(page, "dragleave", "#viewport-panel", { x: -1, y: 40 });
+  await dispatchDrag(page, "dragleave", "#controls-panel", { x: -1, y: 40 });
   await expect(page.locator(".copc-file-drop-overlay")).toBeHidden();
 
   await dispatchDrag(page, "dragenter", "#viewport-panel");

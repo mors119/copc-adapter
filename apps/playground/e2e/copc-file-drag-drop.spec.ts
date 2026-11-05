@@ -144,9 +144,10 @@ test("drop lifecycle handles nested and page-leave events without intercepting t
   await dispatchDrag(page, "dragenter", "body");
   await expect(page.locator(".copc-file-drop-overlay")).toBeVisible();
   await dispatchDrag(page, "dragenter", "#source-panel");
-  await dispatchDrag(page, "dragleave", "#source-panel", { x: 40, y: 40 });
+  await dispatchDrag(page, "dragleave", "body");
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
   await expect(page.locator(".copc-file-drop-overlay")).toBeVisible();
-  await dispatchDrag(page, "dragleave", "#app", { x: -1, y: 40 });
+  await dispatchDrag(page, "dragleave", "#source-panel", { x: -1, y: 40 });
   await expect(page.locator(".copc-file-drop-overlay")).toBeHidden();
 
   await dispatchDrag(page, "dragenter", "#app");

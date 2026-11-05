@@ -87,6 +87,7 @@ export function mountCopcFileDropTarget(
   const overlay = createDropOverlay(document);
   document.body.append(overlay);
   let active = false;
+  let dragDepth = 0;
   let leaveFrame: number | undefined;
 
   const cancelScheduledClear = (): void => {
@@ -104,6 +105,7 @@ export function mountCopcFileDropTarget(
   const clear = (): void => {
     cancelScheduledClear();
     active = false;
+    dragDepth = 0;
     overlay.hidden = true;
     document.documentElement.classList.remove("copc-file-drag-active");
   };
@@ -111,6 +113,7 @@ export function mountCopcFileDropTarget(
   const onDragEnter = (event: DragEvent): void => {
     if (!containsFilePayload(event.dataTransfer)) return;
     event.preventDefault();
+    dragDepth += 1;
     show();
   };
   const onDragOver = (event: DragEvent): void => {
@@ -121,13 +124,16 @@ export function mountCopcFileDropTarget(
   };
   const onDragLeave = (event: DragEvent): void => {
     if (!active || !containsFilePayload(event.dataTransfer)) return;
+    dragDepth = Math.max(0, dragDepth - 1);
     const nextTarget = event.relatedTarget;
     if (nextTarget instanceof Node && document.documentElement.contains(nextTarget)) {
       return;
     }
+    if (dragDepth > 0) return;
 
-    // A null relatedTarget is common for native file drags. Defer the clear
-    // one frame so a nested dragenter can keep the overlay active first.
+    // A null relatedTarget is common for native file drags. Balanced enter and
+    // leave events keep nested transitions active; defer the final clear so a
+    // dragenter at the page boundary can cancel it before the next frame.
     cancelScheduledClear();
     leaveFrame = globalThis.window.requestAnimationFrame(() => {
       leaveFrame = undefined;
