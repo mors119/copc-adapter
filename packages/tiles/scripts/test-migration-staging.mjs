@@ -163,11 +163,16 @@ try {
   console.log(`Staged ${trackedFiles.length} tracked package files under packages/tiles with Node ${process.version}.`);
   runNpm(['install', '--no-audit', '--no-fund'], stagingRoot, 'clean npm Workspace install');
 
+  const collectTilesCoverage = process.env.COPC_TILES_COVERAGE === '1';
+  if (collectTilesCoverage) {
+    // Prevent stale output from being uploaded if any staged verification fails.
+    await rm(join(packageRoot, 'coverage', 'lcov.info'), { force: true });
+  }
   const checks = [
     'typecheck',
     'typecheck:adapter-core',
     'build',
-    'test',
+    collectTilesCoverage ? 'test:coverage' : 'test',
   ];
   if (Number(process.versions.node.split('.')[0]) < 20) {
     console.log('Node 18 run: explicitly skipping browser and packed-bundle checks because pinned Vite 7 requires Node 20+. Run npm run verify on Node 22 for those gates.');
@@ -178,6 +183,12 @@ try {
 
   for (const script of checks) {
     runNpm(['run', `--workspace=${manifest.name}`, script], stagingRoot, `staged ${script}`);
+  }
+  if (collectTilesCoverage) {
+    const destination = join(packageRoot, 'coverage', 'lcov.info');
+    await mkdir(dirname(destination), { recursive: true });
+    await copyFile(join(stagedPackageRoot, 'coverage', 'lcov.info'), destination);
+    console.log('Exported staged Tiles LCOV to ' + destination);
   }
 
   const stagedLock = JSON.parse(await readFile(join(stagingRoot, 'package-lock.json'), 'utf8'));

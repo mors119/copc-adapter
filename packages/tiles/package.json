@@ -62,7 +62,8 @@
     "test:packed-consumer": "node scripts/test-packed-consumer.mjs",
     "test:migration-staging": "node scripts/test-migration-staging.mjs",
     "verify": "node scripts/test-migration-staging.mjs",
-    "bench:engine": "node --expose-gc --import tsx bench/engine.mjs"
+    "bench:engine": "node --expose-gc --import tsx bench/engine.mjs",
+    "test:coverage": "node scripts/run-coverage-tests.mjs"
   },
   "peerDependencies": {
     "@frillab/copc-adapter": "^0.7.1 || ^0.8.0"

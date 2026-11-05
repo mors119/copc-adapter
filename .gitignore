@@ -7,6 +7,7 @@
 # Node
 node_modules
 /packages/adapter/coverage/
+/packages/tiles/coverage/
 dist
 packages/*.tgz
 

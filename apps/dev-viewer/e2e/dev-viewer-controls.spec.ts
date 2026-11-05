@@ -359,6 +359,10 @@ test("switches renderer and backend, applies controls, and inspects a Three poin
   await expect(pointPopover).toContainText("WGS84 ellipsoidal height (m)");
   await expect(page.locator("[data-point-highlight]")).toBeVisible();
   await expect(page.locator("[data-point-inspector]")).toHaveCount(0);
+  // Expand while the selected-point overlay is stationary; the popover tracks
+  // the point during the camera drag, which makes a pointer click unstable.
+  await pointPopover.getByText("More point data").click();
+  await expect(pointPopover).toContainText("Point index");
   const threeHighlight = page.locator("[data-point-highlight]");
   const threeMarkerBeforeMove = await threeHighlight.boundingBox();
   const threeCanvasBounds = await canvas.boundingBox();
@@ -383,7 +387,6 @@ test("switches renderer and backend, applies controls, and inspects a Three poin
       Math.round(threeMarkerBeforeMove.y),
     ]);
   await expect(pointPopover).toBeVisible();
-  await pointPopover.getByText("More point data").click();
   await expect(pointPopover).toContainText("Point index");
   await page.keyboard.press("Escape");
   await expect(pointPopover).toBeHidden();

@@ -110,30 +110,42 @@ If a check cannot be run locally, explain why in the pull request.
 
 ### Codecov coverage reports
 
-Adapter unit tests already run once with Node's built-in coverage in the
-`viewer-fast` CI job. The same test invocation also writes a Git-root-relative
-LCOV file at `packages/adapter/coverage/lcov.info`:
+The CI reuses its **existing** test executions to upload three independent
+source coverage reports to a single [Codecov dashboard](https://app.codecov.io/github/mors119/copc-adapter):
 
-```bash
-npm run coverage:raw -w @frillab/copc-adapter
-```
+- **Adapter Node:** the `viewer-fast` job invokes
+  `npm run coverage:raw -w @frillab/copc-adapter` once and uploads
+  `packages/adapter/coverage/lcov.info` with flag `adapter-node`.
+- **COPC Tiles Node:** the `tiles-package` job runs
+  `COPC_TILES_COVERAGE=1 npm run verify -w @frillab/copc-tiles`.
+  Its isolated staging runner replaces the existing unit-test invocation with
+  `test:coverage` (it does not run both). Before deleting the staged copy, it
+  exports `packages/tiles/coverage/lcov.info` for the `tiles-node` upload.
+  Local runs of the normal `verify` command do not collect coverage.
+- **Native Rust:** the `rust` job runs `cargo llvm-cov --workspace --lcov`
+  **instead of** the original `cargo test --workspace`. It uploads
+  `target/coverage/rust.lcov` with flag `rust-native`. Because llvm-cov
+  does not run Rust documentation tests by default, `cargo test --workspace
+  --doc` preserves those separate tests without rerunning native unit tests.
 
-The runner uses paired `spec` and `lcov` reporters in **one** test execution.
-Its report normalizer excludes tests, tooling, and other workspaces; the report
-contains executed Adapter source modules only. Unloaded modules are not
-automatically included in this first-pass coverage baseline.
+Each report is uploaded once, from its original CI job, using GitHub OIDC;
+no separate coverage test job or permanent `CODECOV_TOKEN` is required.
+The Codecov configuration waits for all **three uploads** before notifying on
+code changes. Enable the repository in Codecov to see results. Project/patch
+checks are initially informational and upload failures do not block the
+existing required test gates.
 
-Codecov receives this file from the existing `viewer-fast` job, using GitHub
-OIDC and the `adapter-node` flag. No separate coverage test job or permanent
-`CODECOV_TOKEN` is needed. Maintainers must first enable
-`mors119/copc-adapter` in Codecov. Initially the project and patch checks are
-informational and the upload does not block CI, so baseline collection cannot
-weaken existing required test gates.
+The [README badge](README.md) displays Codecov's combined result for the
+tracked reports on the default branch. It is **not** total application
+execution coverage: browser E2E, Dev Viewer, Playground, Rust/WASM, and modules
+not loaded by the Node test runners are not measured. In particular, the
+currently emitted LCOV files do not establish 0% coverage for unloaded files,
+so the dashboard must not be interpreted as covering every tracked source
+line. The Rust figure covers native tests, not browser WASM.
 
-**Scope:** This upload does not measure Rust native/WASM, the Tiles workspace,
-Dev Viewer, Playground, or browser E2E execution. Add independent collection
-only when existing jobs can reuse their test invocations; do not run the same
-suite twice just for a coverage badge.
+The existing `viewer-web` aggregate remains the required gate; coverage
+collection does not introduce duplicate full-suite runs. Pure docs-only
+changes still skip product tests, so no new coverage reports are uploaded.
 
 ## Pull requests
 
