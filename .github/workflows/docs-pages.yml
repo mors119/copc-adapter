@@ -7,7 +7,6 @@ on:
       - 'apps/playground/**'
       - 'apps/shared/**'
       - 'packages/adapter/**'
-      - 'packages/tiles/**'
       - 'scripts/assemble-pages.mjs'
       - 'scripts/assert-pages-layout.mjs'
       - 'scripts/assert-playground-release.mjs'
@@ -23,7 +22,6 @@ on:
       - 'apps/playground/**'
       - 'apps/shared/**'
       - 'packages/adapter/**'
-      - 'packages/tiles/**'
       - 'scripts/assemble-pages.mjs'
       - 'scripts/assert-pages-layout.mjs'
       - 'scripts/assert-playground-release.mjs'
@@ -83,8 +81,8 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 22
-      - name: Verify workspaces before browser and install steps
-        run: node packages/tiles/scripts/test-migration-staging.mjs --preflight
+      - name: Verify Adapter workspace and lockfiles
+        run: node scripts/verify-adapter-workspace.mjs
 
   build:
     name: Build complete Pages site

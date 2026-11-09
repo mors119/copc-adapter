@@ -2,8 +2,7 @@
   "name": "copc-adapter",
   "private": true,
   "workspaces": [
-    "packages/adapter",
-    "packages/tiles"
+    "packages/adapter"
   ],
   "engines": {
     "node": ">=18"

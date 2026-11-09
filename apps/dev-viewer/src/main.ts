@@ -25,7 +25,6 @@ import {
 import type { CopcCesiumLayerSnapshot } from "@frillab/copc-adapter";
 import type { CopcThreeLayerSnapshot } from "@frillab/copc-adapter/three";
 import { loadGtxGeoidGrid, loadNgaEgm2008Grid } from "@frillab/copc-adapter";
-import type { DecodedContentScanEstimate } from "@frillab/copc-tiles";
 import type {
   CopcBackendSelection,
   CopcPointDecoder,
@@ -57,10 +56,6 @@ import {
   type DevThreeViewer,
 } from "./threeViewer";
 import type { DevTerrainFixtureProvider } from "./devTerrainFixture";
-import type {
-  TilesPipelineDiagnostics,
-  TilesViewerCameraState,
-} from "./tilesViewerTypes";
 import { mountDevViewerControls } from "./devViewerControls";
 import {
   mountWorkbenchLayout,
@@ -81,7 +76,6 @@ import {
   mountPointPopover,
   type PointScreenPosition,
 } from "../../shared/inspection/PointPopover.ts";
-import { mountDiagnosticSections } from "../../shared/diagnostics/DiagnosticSections.ts";
 import {
   createNgaEgm2008ResourceRegistry,
   createPointVerticalReferenceContext,
@@ -113,7 +107,6 @@ import {
   getCesiumTerrainProviderUrl,
   getSafeSourceLabel,
   getSafeTerrainSourceLabel,
-  getTilesUnsupportedFilteringError,
   hasUnappliedSettings,
   isRangeValidationPolicy,
   isRefinementAlgorithm,
@@ -121,13 +114,11 @@ import {
   restoreDevViewerShareConfiguration,
   sourceSupportsHttpRange,
   toWorkbenchOptionValues,
-  getTilesVerticalGrid,
   validateDevViewerConfig,
   type CameraPreset,
   type CesiumPointRendererVariant,
   type DevViewerConfig,
   type RenderingEngine,
-  type RenderingPipeline,
 } from "./devViewerConfig";
 
 const cesiumRuntimeVersion = (Cesium as typeof Cesium & { VERSION: string })
@@ -298,12 +289,9 @@ type CopcDebugAdapter = {
 
 type ViewerSession = {
   renderer: RenderingEngine;
-  pipeline: RenderingPipeline;
   ready: Promise<void>;
   debugAdapter?: CopcDebugAdapter;
   getSnapshot(): CopcCesiumLayerSnapshot | CopcThreeLayerSnapshot | undefined;
-  getTilesDiagnostics?(): TilesPipelineDiagnostics;
-  getTilesetUrl?(): string;
   getMetadata(): CopcMetadata | undefined;
   getHierarchyDiagnostics(): CopcHierarchyDiagnostics | undefined;
   getSelectedPoint(): CopcPointInspection | undefined;
@@ -406,8 +394,6 @@ declare global {
         stage: ApplyTraceStage;
         elapsedMs: number;
       }>;
-      getTilesDiagnostics(): TilesPipelineDiagnostics | undefined;
-      getTilesetUrl(): string | undefined;
       getCameraState(): ViewerCameraState | undefined;
     };
     __COPC_TEST_TERRAIN_HEIGHT__?: number;
@@ -1256,7 +1242,6 @@ async function createCesiumSession(
 
   return {
     renderer: "cesium",
-    pipeline: "direct",
     terrainSourceStatus,
     terrainProviderAvailable,
     ready: ready.then(() => undefined),
@@ -1402,7 +1387,6 @@ function createThreeSession(
   });
   return {
     renderer: "three",
-    pipeline: "direct",
     terrainSourceStatus:
       "Three.js renderer · the dev-viewer Cesium Terrain provider is not used.",
     terrainProviderAvailable: false,
@@ -1431,66 +1415,6 @@ function createThreeSession(
   };
 }
 
-async function createTilesPipelineSession(
-  container: HTMLElement,
-  config: DevViewerConfig,
-  signal: AbortSignal,
-  isCurrent: () => boolean,
-  onDiagnostics: (diagnostics: TilesPipelineDiagnostics) => void,
-  onError: (error: unknown) => void,
-  approveDecodedContentScan: (request: Readonly<{
-    estimate: DecodedContentScanEstimate;
-    sourcePointCount: number;
-    hasReusableSourceIdentity: boolean;
-    previousIndexInvalid: boolean;
-    previousIndexNotStreamableReason?: string;
-  }>, signal: AbortSignal) => Promise<boolean>,
-): Promise<ViewerSession> {
-  const { createTilesViewerSession } = await import("./tilesViewer");
-  const verticalGrid = getTilesVerticalGrid(
-    config,
-    verticalGridResources.isLoadedGrid,
-  );
-  const viewer = await createTilesViewerSession({
-    container,
-    source: config.source,
-    backend: config.backend,
-    rangeValidation: config.rangeValidation,
-    heightOffsetMeters: config.heightOffsetMeters,
-    verticalGrid,
-    boundsStrategy: config.tilesBoundsStrategy ?? "conservative-source-cell",
-    fullScanMaxPoints: config.tilesFullScanMaxPoints ?? 4_000_000,
-    renderer: config.renderer,
-    signal,
-    isCurrent,
-    onDiagnostics,
-    approveDecodedContentScan: (request) => approveDecodedContentScan(request, signal),
-    onError,
-  });
-  return {
-    renderer: config.renderer,
-    pipeline: "tiles",
-    ready: Promise.resolve(),
-    getSnapshot: () => undefined,
-    getTilesDiagnostics: viewer.getDiagnostics,
-    getTilesetUrl: viewer.getTilesetUrl,
-    getMetadata: () => viewer.metadata,
-    getHierarchyDiagnostics: () => undefined,
-    getSelectedPoint: () => undefined,
-    terrainSourceStatus: "3D Tiles are not Cesium Terrain samples; Terrain alignment is unavailable in Tiles mode.",
-    terrainProviderAvailable: false,
-    setCameraPreset: (preset) => viewer.setCameraPreset(preset),
-    setCameraRenderDistance: (distance) => viewer.setCameraDistance(distance),
-    getCameraState: () => viewer.getCameraState() as ViewerCameraState,
-    setCameraState: (state) => viewer.setCameraState(state as TilesViewerCameraState),
-    getPickablePointScreenPosition: () => undefined,
-    getStyle: () => ({ colorMode: config.colorMode }),
-    setStyle: () => undefined,
-    setOpacity: () => undefined,
-    destroy: () => viewer.destroy(),
-  };
-}
-
 async function main(): Promise<void> {
   const params = new URLSearchParams(window.location.search);
   const initialOptions = getLayerOptions();
@@ -1498,9 +1422,6 @@ async function main(): Promise<void> {
   const initialSource = getCopcUrl();
   const requestedEngine = params.get("renderer");
   const requestedPipeline = params.get("pipeline");
-  const requestedTilesBounds = params.get("tilesBounds");
-  const fullScanLimitParam = params.get("tilesFullScanMaxPoints");
-  const requestedFullScanMaxPoints = fullScanLimitParam === null ? undefined : Number(fullScanLimitParam);
   const renderer: RenderingEngine =
     requestedEngine === "three" ? "three" : "cesium";
   const requestedCesiumRenderer = params.get("cesiumRenderer");
@@ -1514,21 +1435,8 @@ async function main(): Promise<void> {
   const reportStartupIssue = (key: string, message: string): void => {
     startupIssues.set(key, message);
   };
-  if (requestedPipeline !== null && requestedPipeline !== "direct" && requestedPipeline !== "tiles") {
-    reportStartupIssue("pipeline", 'Unknown rendering pipeline; choose "direct" or "tiles".');
-  }
-  if (
-    requestedTilesBounds !== null &&
-    requestedTilesBounds !== "automatic" &&
-    requestedTilesBounds !== "conservative-source-cell" &&
-    requestedTilesBounds !== "indexed-decoded-content" &&
-    requestedTilesBounds !== "decoded-content"
-  ) {
-    reportStartupIssue("tilesBounds", 'Unknown 3D Tiles bounds strategy; choose "automatic", "conservative-source-cell", "indexed-decoded-content", or "decoded-content".');
-  }
-  if (requestedFullScanMaxPoints !== undefined &&
-      (!Number.isSafeInteger(requestedFullScanMaxPoints) || requestedFullScanMaxPoints <= 0 || requestedFullScanMaxPoints > 20_000_000)) {
-    reportStartupIssue("tilesFullScanMaxPoints", "The explicit full-scan point limit must be an integer from 1 to 20,000,000.");
+  if (requestedPipeline && requestedPipeline !== "direct") {
+    reportStartupIssue("pipeline", "The 3D Tiles pipeline has moved to https://github.com/FrilLab/copc-tiles. Remove the pipeline parameter to load COPC directly.");
   }
   if (
     requestedEngine !== null &&
@@ -1645,13 +1553,6 @@ async function main(): Promise<void> {
 
   const baseInitialConfig: DevViewerConfig = {
     renderer,
-    pipeline: requestedPipeline === "tiles" ? "tiles" : "direct",
-    tilesBoundsStrategy: requestedTilesBounds === "conservative-source-cell" ||
-        requestedTilesBounds === "indexed-decoded-content" ||
-        requestedTilesBounds === "decoded-content"
-      ? requestedTilesBounds
-      : "automatic",
-    tilesFullScanMaxPoints: requestedFullScanMaxPoints ?? 4_000_000,
     cesiumRenderer,
     backend:
       initialOptions.backend === "rust" || initialOptions.backend === "copc-js"
@@ -1707,7 +1608,6 @@ async function main(): Promise<void> {
   let stagedSession: ViewerSession | undefined;
   let stagedMount: HTMLElement | undefined;
   let activeDebugAdapter: CopcDebugAdapter | undefined;
-  let tilesDiagnostics: TilesPipelineDiagnostics | undefined;
   let sourceProbe: CopcSourceProbeResult | undefined;
   let sourceProbePolicy: RangeValidationPolicy | undefined;
   let lastSnapshot:
@@ -1737,8 +1637,7 @@ async function main(): Promise<void> {
     return focus as RefinementFocus;
   };
   const setLiveFocus = (focus: RefinementFocus | undefined): boolean => {
-    if (activeSession?.renderer !== "cesium" || activeSession.pipeline !== "direct" ||
-      !activeSession.setRefinementFocus) return false;
+    if (activeSession?.renderer !== "cesium" || !activeSession.setRefinementFocus) return false;
     try {
       activeSession.setRefinementFocus(focus);
       return true;
@@ -1750,7 +1649,7 @@ async function main(): Promise<void> {
     }
   };
   const followCursorTracker = mountFollowCursorTracker({
-    getTarget: () => activeSession?.renderer === "cesium" && activeSession.pipeline === "direct"
+    getTarget: () => activeSession?.renderer === "cesium"
       ? activeSession.getFocusCanvas?.()
       : undefined,
     onPosition(position) {
@@ -1761,10 +1660,8 @@ async function main(): Promise<void> {
   });
   const isFollowCursorAvailable = (): boolean =>
     pendingConfig.renderer === "cesium" &&
-    pendingConfig.pipeline === "direct" &&
     activeSession?.renderer === "cesium" &&
-    activeSession.pipeline === "direct" &&
-    typeof activeSession.setRefinementFocus === "function";
+        typeof activeSession.setRefinementFocus === "function";
   const setFollowCursor = (enabled: boolean, rawFocus: unknown): void => {
     const suppliedFocus = readFocusValue(rawFocus);
     if (suppliedFocus) followCursorFocus = suppliedFocus;
@@ -1870,7 +1767,7 @@ async function main(): Promise<void> {
   cancelLoadButton.type = "button";
   cancelLoadButton.textContent = "Cancel";
   cancelLoadButton.hidden = true;
-  cancelLoadButton.setAttribute("aria-label", "Cancel source loading or Tiles preparation");
+  cancelLoadButton.setAttribute("aria-label", "Cancel source loading");
   workbenchStatus.append(workbenchStatusMessage, cancelLoadButton);
   const loadButton = getElement<HTMLButtonElement>("#load-source");
   const cameraDemoPlayButton = getElement<HTMLButtonElement>("#play-camera-demo");
@@ -1879,10 +1776,6 @@ async function main(): Promise<void> {
   const reloadCurrentSourceButton = getElement<HTMLButtonElement>(
     "#reload-current-source",
   );
-  const tilesScanApprovalDialog = getElement<HTMLDialogElement>("#tiles-scan-approval");
-  const tilesScanSummary = getElement<HTMLElement>("#tiles-scan-summary");
-  const tilesScanResources = getElement<HTMLElement>("#tiles-scan-resources");
-  const tilesScanIdentity = getElement<HTMLElement>("#tiles-scan-identity");
   const configurationState = getElement<HTMLElement>("#configuration-state");
   const configurationErrorElement = getElement<HTMLElement>(
     "#configuration-error",
@@ -2031,16 +1924,6 @@ async function main(): Promise<void> {
     return url.toString();
   };
   const refreshIntegrationCode = (): void => {
-    if (activeConfig.pipeline === "tiles") {
-      integrationCodePanel.setTerrainAlignmentRecipeAvailable(false);
-      integrationCodePanel.setContent({
-        code: "// No public integration snippet is available for this experimental pipeline.",
-        warnings: [
-          "This demonstration uses the local @frillab/copc-tiles workspace build. The package is available on npm, but this hosted Playground does not include the Tiles pipeline. Share links preserve Adapter settings and return to Direct COPC mode.",
-        ],
-      });
-      return;
-    }
     integrationCodePanel.setTerrainAlignmentRecipeAvailable(
       activeConfig.renderer === "cesium" &&
         WORKSPACE_CURRENT_CAPABILITIES.includes("cesium.terrain-alignment"),
@@ -2191,53 +2074,6 @@ async function main(): Promise<void> {
     workbenchStatusMessage.textContent = message;
     workbenchStatus.dataset.status = tone;
   };
-  const requestDecodedContentScanApproval = (request: Readonly<{
-    estimate: DecodedContentScanEstimate;
-    sourcePointCount: number;
-    hasReusableSourceIdentity: boolean;
-    previousIndexInvalid: boolean;
-    previousIndexNotStreamableReason?: string;
-  }>, signal: AbortSignal): Promise<boolean> => {
-    const { estimate } = request;
-    const points = (value: number): string => value.toLocaleString();
-    const bytes = (value: number): string => {
-      if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`;
-      return `${(value / (1024 * 1024)).toFixed(1)} MiB`;
-    };
-    tilesScanSummary.textContent =
-      `Source metadata reports ${points(request.sourcePointCount)} points. The complete hierarchy declares ${points(estimate.totalPoints)} points across ${points(estimate.contentNodes)} content nodes.`;
-    tilesScanResources.textContent =
-      `This one-time scan reads about ${bytes(estimate.totalPointDataBytes)} of point data and prepares ${bytes(estimate.totalDecodedEcefBytes)} of ECEF coordinates, processed node by node. The previous point cap is raised only to the exact hierarchy count after approval; the 20-million-point hard limit and byte, node, decoded-memory, concurrency, and GLB limits remain active.`;
-    tilesScanIdentity.textContent = request.previousIndexNotStreamableReason
-      ? `The saved index passed source and transform validation, but ${request.previousIndexNotStreamableReason} Preparation will keep this session on the bounded decoded-content provider.`
-      : request.hasReusableSourceIdentity
-        ? `${request.previousIndexInvalid
-          ? "The saved index failed validation and will be replaced only after a successful scan."
-          : "No matching saved index is available."} A strong ETag lets the viewer save and reuse the bounds index; points are fetched again when Tiles are rendered.`
-      : "This source has no reusable strong-ETag identity. Preparation is available for this session only and will not be saved for later sessions.";
-
-    return new Promise<boolean>((resolve) => {
-      let settled = false;
-      const finish = (approved: boolean): void => {
-        if (settled) return;
-        settled = true;
-        signal.removeEventListener("abort", onAbort);
-        tilesScanApprovalDialog.removeEventListener("close", onClose);
-        if (tilesScanApprovalDialog.open) tilesScanApprovalDialog.close("cancel");
-        resolve(approved);
-      };
-      const onClose = (): void => finish(tilesScanApprovalDialog.returnValue === "prepare");
-      const onAbort = (): void => finish(false);
-      tilesScanApprovalDialog.addEventListener("close", onClose, { once: true });
-      signal.addEventListener("abort", onAbort, { once: true });
-      if (signal.aborted) {
-        finish(false);
-        return;
-      }
-      tilesScanApprovalDialog.returnValue = "";
-      tilesScanApprovalDialog.showModal();
-    });
-  };
   cancelLoadButton.addEventListener("click", () => {
     probeAbortController?.abort(new DOMException("Load cancelled by the user.", "AbortError"));
   });
@@ -2246,7 +2082,6 @@ async function main(): Promise<void> {
     const available = !disposed &&
       !isLoading &&
       activeSession?.renderer === "cesium" &&
-      activeSession.pipeline === "direct" &&
       activeSession.canPlayCameraDemo?.() === true;
     cameraDemoPlayButton.disabled = !available || playing;
     cameraDemoStopButton.disabled = !playing;
@@ -2266,77 +2101,39 @@ async function main(): Promise<void> {
   const updateConfigurationState = (): void => {
     const dirty = hasUnappliedSettings(activeConfig, pendingConfig);
     const schemaValidationErrors = workbenchControls?.getValidationErrors() ?? [];
-    const tilesFilteringError = pendingConfig.pipeline === "tiles"
-      ? getTilesUnsupportedFilteringError(pendingConfig)
-      : undefined;
     const selectedSourceDiffers = !sameSource(
       activeConfig.source,
       pendingConfig.source,
     );
-    configurationState.textContent = tilesFilteringError
-      ? "Filtering settings are unsupported by 3D Tiles"
-      : dirty
-        ? "Settings not applied"
-        : selectedSourceDiffers
-          ? "Settings applied · selected source differs"
-          : "Settings applied";
+    configurationState.textContent = dirty
+      ? "Settings not applied"
+      : selectedSourceDiffers
+        ? "Settings applied · selected source differs"
+        : "Settings applied";
     configurationState.dataset.dirty = String(dirty);
-    configurationErrorElement.textContent = configurationError ?? tilesFilteringError ?? "";
-    configurationErrorElement.hidden = !configurationError && !tilesFilteringError;
-    loadButton.textContent = pendingConfig.pipeline === "tiles"
-      ? "Load / Prepare Tiles"
-      : "Load selected source";
+    configurationErrorElement.textContent = configurationError ?? "";
+    configurationErrorElement.hidden = !configurationError;
+    loadButton.textContent = "Load selected source";
     cancelLoadButton.hidden = !isLoading;
     cancelLoadButton.disabled = !isLoading;
     applySettingsButton.disabled =
       isLoading ||
       startupIssues.size > 0 ||
       schemaValidationErrors.length > 0 ||
-      Boolean(tilesFilteringError) ||
       (!dirty && !configurationError);
     loadButton.disabled =
-      isLoading || startupIssues.size > 0 || schemaValidationErrors.length > 0 ||
-      Boolean(tilesFilteringError);
+      isLoading || startupIssues.size > 0 || schemaValidationErrors.length > 0;
     reloadCurrentSourceButton.disabled = isLoading || !activeSession;
     controlsPanel
       .querySelectorAll<HTMLInputElement | HTMLSelectElement>("input, select")
       .forEach((control) => {
         control.disabled = isLoading;
       });
-    const tilesStylesDisabled =
-      activeConfig.pipeline === "tiles" || pendingConfig.pipeline === "tiles";
-    const styleSection = controlsPanel.querySelector<HTMLElement>(
-      '.schema-control-section[data-section="style"]',
-    );
-    styleSection?.setAttribute("aria-disabled", String(tilesStylesDisabled));
-    styleSection
-      ?.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>(
-        "input, select, button",
-      )
-      .forEach((control) => {
-        control.disabled = isLoading || tilesStylesDisabled;
-      });
-    const tilesFilteringDisabled =
-      activeConfig.pipeline === "tiles" || pendingConfig.pipeline === "tiles";
-    const filteringSection = controlsPanel.querySelector<HTMLElement>(
-      '.schema-control-section[data-section="filtering"]',
-    );
-    filteringSection?.setAttribute("aria-disabled", String(tilesFilteringDisabled));
-    filteringSection
-      ?.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>(
-        "input, select, button",
-      )
-      .forEach((control) => {
-        control.disabled = isLoading || tilesFilteringDisabled;
-      });
     workbenchControls?.refreshVerticalGridAvailability();
     controlsPanel
       .querySelectorAll<HTMLButtonElement>(".ui-segmented button")
       .forEach((control) => {
-        const section = control.closest<HTMLElement>(".schema-control-section");
-        control.disabled = isLoading ||
-          (tilesStylesDisabled && section?.dataset.section === "style") ||
-          (tilesFilteringDisabled && section?.dataset.section === "filtering");
+        control.disabled = isLoading;
       });
     workbenchControls?.refreshFocusCursorAvailability();
     terrainAlignmentControl?.update();
@@ -2366,9 +2163,7 @@ async function main(): Promise<void> {
   const activeSnapshot = ():
     | CopcCesiumLayerSnapshot
     | CopcThreeLayerSnapshot => {
-    const snapshot = activeSession?.pipeline === "tiles"
-      ? undefined
-      : activeSession?.getSnapshot() ?? lastSnapshot;
+    const snapshot = activeSession?.getSnapshot() ?? lastSnapshot;
     if (!snapshot) {
       // The inspector only reads these fields until a real session exists.
       return {
@@ -2409,9 +2204,7 @@ async function main(): Promise<void> {
         : undefined;
       return {
       snapshot: activeSnapshot(),
-      snapshotIsAvailable: activeSession
-        ? activeSession.pipeline === "direct"
-        : lastSnapshot !== undefined,
+      snapshotIsAvailable: Boolean(activeSession) || lastSnapshot !== undefined,
       metadata: activeSession?.getMetadata(),
       verticalGrid: appliedValues["coordinates.verticalTransform"],
       heightOffsetMeters: activeConfig.renderer === "cesium"
@@ -2440,112 +2233,6 @@ async function main(): Promise<void> {
       };
     },
   );
-  const tilesDiagnosticsTarget = document.createElement("div");
-  const tilesDiagnosticsDetails = document.createElement("details");
-  tilesDiagnosticsDetails.className = "dev-control-section";
-  tilesDiagnosticsDetails.id = "tiles-diagnostics-details";
-  const tilesDiagnosticsSummary = document.createElement("summary");
-  tilesDiagnosticsSummary.textContent = "Advanced 3D Tiles diagnostics";
-  tilesDiagnosticsDetails.append(tilesDiagnosticsSummary, tilesDiagnosticsTarget);
-  healthPanel.append(tilesDiagnosticsDetails);
-  const tilesDiagnosticsPanel = mountDiagnosticSections(
-    tilesDiagnosticsTarget,
-    [{
-      id: "health-tiles-pipeline",
-      title: "Experimental 3D Tiles pipeline",
-      description: "Geometry coverage, Adapter preparation, and vertical placement are reported separately. Decoded-content bounds cover every scanned rendered point, not unobserved source cells.",
-      initiallyOpen: true,
-      fields: [
-        { key: "tilesActivePipeline", label: "Active pipeline" },
-        { key: "tilesAttemptStatus", label: "Tiles attempt status" },
-        { key: "tilesSourceCrs", label: "Source CRS" },
-        { key: "tilesBounds", label: "Bounds status" },
-        { key: "tilesBoundsStrategy", label: "Bounds strategy" },
-        { key: "tilesSourcePoints", label: "Total source points" },
-        { key: "tilesBoundsIndex", label: "Content-bounds index" },
-        { key: "tilesBoundsCoverage", label: "Bounds coverage" },
-        { key: "tilesGeometryBounds", label: "Geometry bounds status" },
-        { key: "tilesMetadataOnlyBounds", label: "Metadata-only source-cell result" },
-        { key: "tilesSourceToEcef", label: "Source-to-ECEF preparation" },
-        { key: "tilesVerticalPlacement", label: "Vertical placement" },
-        { key: "tilesTransformPlan", label: "Transform plan identity" },
-        { key: "tilesBoundsReason", label: "Bounds reason" },
-        { key: "tilesHierarchy", label: "Scanned hierarchy" },
-        { key: "tilesContentScan", label: "Decoded-content scan" },
-        { key: "tilesRangeBytes", label: "Source Range bytes observed" },
-        { key: "tilesFirstVisible", label: "Initialization / first visible" },
-        { key: "tilesResourceRequests", label: "Renderer resource requests" },
-        { key: "tilesRequested", label: "Requested points / GLBs" },
-        { key: "tilesLoaded", label: "Total / loaded tile nodes" },
-        { key: "tilesVisible", label: "Visible tiles" },
-        { key: "tilesRenderedPoints", label: "Visible points" },
-        { key: "tilesResourceBytes", label: "Resource bytes served" },
-        { key: "tilesGlbBytes", label: "Generated GLB bytes served" },
-        { key: "tilesInFlight", label: "In-flight / cancelled requests" },
-        { key: "tilesCache", label: "Resource cache usage / evictions" },
-        { key: "tilesSourceGeneration", label: "Adapter source generation" },
-        { key: "tilesError", label: "Tiles pipeline error" },
-      ],
-    }],
-    { className: "copc-debug-panel__groups", sectionClassName: "copc-debug-panel__section workbench-diagnostic-section" },
-  );
-  const updateTilesDiagnosticsPanel = (): void => {
-    const value = tilesDiagnostics;
-    tilesDiagnosticsPanel.update({
-      tilesActivePipeline: activeConfig.pipeline === "tiles" ? "3D Tiles (Experimental)" : "Direct COPC",
-      tilesAttemptStatus: value?.status ?? "No 3D Tiles attempt in this session",
-      tilesSourceCrs: value?.sourceCrs,
-      tilesBounds: value?.boundsSupport,
-      tilesBoundsStrategy: value?.boundsStrategy,
-      tilesSourcePoints: value?.sourcePointCount.toLocaleString(),
-      tilesBoundsIndex: value
-        ? `${value.boundsIndexStatus} · ${value.boundsIndexBytes.toLocaleString()} index bytes${value.sourceFingerprint ? ` · ${value.sourceFingerprint}` : ""}`
-        : undefined,
-      tilesBoundsCoverage: value?.boundsCoverage,
-      tilesGeometryBounds: value?.geometryBoundsStatus,
-      tilesMetadataOnlyBounds: value
-        ? `${value.metadataOnlySourceCellStatus}${value.metadataOnlySourceCellReason ? ` · ${value.metadataOnlySourceCellReason}` : ""}`
-        : undefined,
-      tilesSourceToEcef: value?.sourceToEcefStatus,
-      tilesVerticalPlacement: value
-        ? `${value.verticalPlacementStatus}${value.verticalPlacementReason ? ` · ${value.verticalPlacementReason}` : ""}`
-        : undefined,
-      tilesTransformPlan: value?.transformPlanIdentity,
-      tilesBoundsReason: value?.boundsReason,
-      tilesHierarchy: value
-        ? `${value.hierarchyNodes} nodes · ${value.hierarchyPages} pages · ${value.hierarchyPageBytes.toLocaleString()} bytes`
-        : undefined,
-      tilesContentScan: value && value.contentPointsTotal > 0
-        ? `${value.contentScanPhase} · ${value.contentNodesScanned.toLocaleString()}/${value.contentNodesTotal.toLocaleString()} nodes · ${value.contentPointsScanned.toLocaleString()}/${value.contentPointsTotal.toLocaleString()} points · ${value.contentPointDataBytes.toLocaleString()} point-data bytes · ${value.contentEcefBytesScanned.toLocaleString()} ECEF bytes · ${value.peakDecodedEcefBufferBytes.toLocaleString()} peak ECEF buffer · ${value.scanDurationMilliseconds.toFixed(1)} ms`
-        : undefined,
-      tilesRangeBytes: value?.sourceRangeBytesObserved.toLocaleString(),
-      tilesFirstVisible: value?.firstVisibleMilliseconds === undefined
-        ? "Not visible yet"
-        : `${value.initializationMilliseconds?.toFixed(1) ?? "—"} ms initialization · ${value.firstVisibleMilliseconds.toFixed(1)} ms first visible · ${value.firstVisibleSourceRangeBytes?.toLocaleString() ?? "0"} source bytes · ${value.firstVisibleResourceBytes?.toLocaleString() ?? "0"} tile bytes · ${value.decodedPointsBeforeFirstVisible?.toLocaleString() ?? "0"} decoded points`,
-      tilesResourceRequests: value
-        ? `${value.resourceRequests.toLocaleString()} total · ${value.tilesetRequests.toLocaleString()} tileset · ${value.glbRequests.toLocaleString()} GLB / ${value.distinctGlbRequests.toLocaleString()} distinct nodes · ${value.glbBytes.toLocaleString()} GLB bytes`
-        : undefined,
-      tilesRequested: value
-        ? `${value.requestedPointCount.toLocaleString()} points · ${value.glbRequests.toLocaleString()} GLB requests`
-        : undefined,
-      tilesLoaded: value
-        ? `${value.hierarchyNodes.toLocaleString()} total · ${value.loadedTiles.toLocaleString()} loaded`
-        : undefined,
-      tilesVisible: value?.visibleTiles.toLocaleString(),
-      tilesRenderedPoints: value?.renderedPoints.toLocaleString(),
-      tilesResourceBytes: value?.resourceBytes.toLocaleString(),
-      tilesGlbBytes: value?.glbBytes.toLocaleString(),
-      tilesInFlight: value
-        ? `${value.inFlightRequests.toLocaleString()} active · ${value.peakActiveRequests.toLocaleString()} max active · ${value.cancelledRequests.toLocaleString()} cancelled`
-        : undefined,
-      tilesCache: value
-        ? `${value.cacheEntries.toLocaleString()} entries · ${value.cacheBytes.toLocaleString()} bytes · ${value.cacheEvictions.toLocaleString()} evictions · ${value.cacheHits.toLocaleString()} hits / ${value.cacheMisses.toLocaleString()} misses`
-        : undefined,
-      tilesSourceGeneration: value?.sourceGeneration?.toString(),
-      tilesError: value?.error,
-    });
-  };
-  updateTilesDiagnosticsPanel();
   setInspectorPolling = (enabled) => debugPanel.setPollingEnabled(enabled);
   debugPanel.setPollingEnabled(
     inspectorExpanded && tabUsesDiagnostics(selectedRightTab),
@@ -2626,19 +2313,6 @@ async function main(): Promise<void> {
       updateStatus(validationError, "error");
       return;
     }
-    const tilesFilteringError = config.pipeline === "tiles"
-      ? getTilesUnsupportedFilteringError(config)
-      : undefined;
-    if (tilesFilteringError) {
-      if (!activeSession) {
-        updateStatus(
-          "Configuration ready · switch to Direct COPC or clear unsupported filter settings.",
-          "inactive",
-        );
-      }
-      updateConfigurationState();
-      return;
-    }
     const schemaValidationErrors = workbenchControls?.getValidationErrors() ?? [];
     if (schemaValidationErrors.length > 0) {
       const message = schemaValidationErrors.join(" ");
@@ -2669,9 +2343,6 @@ async function main(): Promise<void> {
 
     const recreate =
       purpose === "reload" ||
-      activeConfig.pipeline !== config.pipeline ||
-      activeConfig.pipeline === "tiles" ||
-      config.pipeline === "tiles" ||
       !sameSource(activeConfig.source, config.source) ||
       needsSessionRecreation(
         activeConfig,
@@ -2797,14 +2468,6 @@ async function main(): Promise<void> {
           controller.signal.aborted || candidateDestroyed
         ) return;
         lastError = safeErrorMessage(error);
-        if (config.pipeline === "tiles" && tilesDiagnostics) {
-          tilesDiagnostics = Object.freeze({
-            ...tilesDiagnostics,
-            status: "error",
-            error: lastError,
-          });
-          updateTilesDiagnosticsPanel();
-        }
         updateStatus(lastError, "error");
         debugPanel.refresh();
       };
@@ -2824,35 +2487,8 @@ async function main(): Promise<void> {
         pointPopover.updatePosition(position);
       };
       recordApplyTrace(applyTrace, "session-create-started");
-      candidateSession = config.pipeline === "tiles"
-        ? await createTilesPipelineSession(
-            candidateMount,
-            config,
-            controller.signal,
-            () => !disposed && (
-              (candidateSession !== undefined && activeSession === candidateSession) ||
-              currentGeneration === generation
-            ),
-            (value) => {
-              if (currentGeneration !== generation || disposed) return;
-              tilesDiagnostics = value;
-              updateTilesDiagnosticsPanel();
-              if (value.status === "scanning" && value.contentScanPhase === "points") {
-                updateStatus(
-                  `Preparing 3D Tiles · ${value.contentPointsScanned.toLocaleString()} / ${value.contentPointsTotal.toLocaleString()} points`,
-                  "loading",
-                );
-              } else if (value.status === "scanning" && value.contentScanPhase === "preflight") {
-                updateStatus("Review the content-bounds scan estimate to continue.", "loading");
-              } else if (value.status === "scanning") {
-                updateStatus("Checking 3D Tiles bounds and saved index…", "loading");
-              }
-            },
-            reportCandidateError,
-            (request, signal) => requestDecodedContentScanApproval(request, signal),
-          )
-        : config.renderer === "cesium"
-          ? await createCesiumSession(
+      candidateSession = config.renderer === "cesium"
+        ? await createCesiumSession(
               candidateMount,
               config,
               reportCandidateError,
@@ -2888,7 +2524,6 @@ async function main(): Promise<void> {
 
       if (
         previousCamera &&
-        activeConfig.pipeline === config.pipeline &&
         previousCamera.engine === candidateSession.renderer &&
         sameSource(activeConfig.source, config.source)
       ) {
@@ -2916,10 +2551,8 @@ async function main(): Promise<void> {
       activeDebugAdapter?.activate();
       activeConfig = { ...config };
       lastFollowCursorPosition = undefined;
-      tilesDiagnostics = candidateSession.getTilesDiagnostics?.();
-      updateTilesDiagnosticsPanel();
       workbenchControls?.updateContext();
-      if (candidateSession.renderer === "cesium" && candidateSession.pipeline === "direct") {
+      if (candidateSession.renderer === "cesium") {
         followCursorTracker.refreshTarget();
         if (followCursorEnabled && followCursorFocus) {
           setLiveFocus(followCursorFocus);
@@ -2962,8 +2595,7 @@ async function main(): Promise<void> {
       configurationError = undefined;
       lastError = undefined;
       updateStatus(
-        (config.pipeline === "tiles" ? "Ready · 3D Tiles (Experimental) · " : "Ready · ") +
-          getSafeSourceLabel(config.source, window.location.href),
+        "Ready · " + getSafeSourceLabel(config.source, window.location.href),
         "ready",
       );
       recordApplyTrace(applyTrace, "status-ready");
@@ -3161,30 +2793,6 @@ async function main(): Promise<void> {
       updateConfigurationState();
       return cameraRenderDistance;
     },
-    onPipelineSelected(value) {
-      resolveStartupIssue("pipeline");
-      pendingConfig = { ...pendingConfig, pipeline: value };
-      workbenchControls?.updateContext();
-      if (
-        value === "direct" &&
-        !activeSession &&
-        startupIssues.size === 0 &&
-        !configurationError
-      ) {
-        updateStatus("Configuration ready · load the selected source.", "inactive");
-      }
-      updateConfigurationState();
-    },
-    onTilesBoundsStrategySelected(value) {
-      resolveStartupIssue("tilesBounds");
-      pendingConfig = { ...pendingConfig, tilesBoundsStrategy: value };
-      updateConfigurationState();
-    },
-    onTilesFullScanMaxPointsSelected(value) {
-      resolveStartupIssue("tilesFullScanMaxPoints");
-      pendingConfig = { ...pendingConfig, tilesFullScanMaxPoints: value };
-      updateConfigurationState();
-    },
     onCesiumRendererSelected(value) {
       resolveStartupIssue("cesiumRenderer");
       pendingConfig = { ...pendingConfig, cesiumRenderer: value };
@@ -3234,9 +2842,6 @@ async function main(): Promise<void> {
         try {
           if (!activeSession.setStyle) {
             throw new TypeError("The active Cesium layer does not support runtime style updates.");
-          }
-          if (activeSession.pipeline === "tiles") {
-            throw new TypeError("Color styling is unavailable while 3D Tiles is selected. Switch to Direct COPC to change colors.");
           }
           activeSession.setStyle({
             colorMode: value,
@@ -3346,8 +2951,6 @@ async function main(): Promise<void> {
     getConfiguration: () => publicConfig(activeConfig),
     getPendingConfiguration: () => publicConfig(pendingConfig),
     getLastApplyTrace: () => lastApplyTrace?.events.map((event) => ({ ...event })) ?? [],
-    getTilesDiagnostics: () => tilesDiagnostics ?? activeSession?.getTilesDiagnostics?.(),
-    getTilesetUrl: () => activeSession?.getTilesetUrl?.(),
     getCameraState: () => activeSession?.getCameraState(),
   };
 
@@ -3362,7 +2965,6 @@ async function main(): Promise<void> {
       copcFileDropTarget.destroy();
       probeAbortController?.abort();
       debugPanel.destroy();
-      tilesDiagnosticsPanel.destroy();
       integrationCodePanel.destroy();
       rightTabs.destroy();
       workbenchControls?.destroy();

@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   # Cheap assertions must run before any WebGL, WASM, npm packaging, or Rust jobs.
-  # This catches stale package contracts in seconds rather than after a full Tiles verify.
+  # Catch stale Adapter package contracts before heavier product checks.
   preflight:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -52,8 +52,8 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 22
-      - name: Verify npm Workspace manifests and package lock
-        run: node packages/tiles/scripts/test-migration-staging.mjs --preflight
+      - name: Verify standalone Adapter workspace and lockfiles
+        run: node scripts/verify-adapter-workspace.mjs
   rust:
     needs: [preflight]
     if: needs.preflight.outputs.run_validation == 'true'
@@ -409,83 +409,10 @@ jobs:
       - name: Run isolated packed Cesium consumer mode
         run: node scripts/pack-smoke-test.mjs "$PACKAGE_CANDIDATE" "${{ matrix.consumer }}"
 
-  tiles-package:
-    needs: [preflight, viewer-package]
-    if: needs.preflight.outputs.run_validation == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    permissions:
-      contents: read
-      id-token: write
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: package-lock.json
-
-      - name: Cache Playwright browsers
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
-          restore-keys: ${{ runner.os }}-playwright-
-
-      - name: Install root workspaces
-        run: npm ci
-
-      - name: Download verified Adapter package candidate
-        uses: actions/download-artifact@v8
-        with:
-          name: copc-adapter-package-candidate
-          path: ci-artifacts
-
-      - name: Provide built Adapter declarations to the workspace
-        run: |
-          candidates=(ci-artifacts/*.tgz)
-          if [ "${#candidates[@]}" -ne 1 ]; then
-            printf 'Expected exactly one Adapter tarball, found %s\n' "${#candidates[@]}"
-            exit 1
-          fi
-          tar -xzf "${candidates[0]}" -C packages/adapter --strip-components=1 package/dist
-          test -f packages/adapter/dist/core.d.ts
-
-      - name: Install Chromium for Tiles browser fixtures
-        run: npm exec --workspace=@frillab/copc-tiles -- playwright install --with-deps chromium
-
-      - name: Typecheck the candidate Adapter and Tiles Core integration
-        run: |
-          npm run typecheck -w @frillab/copc-adapter
-          npm run typecheck -w @frillab/copc-tiles
-          npm run typecheck:adapter-core -w @frillab/copc-tiles
-
-      - name: Verify Tiles from a clean independent workspace
-        env:
-          COPC_TILES_COVERAGE: '1'
-        run: npm run verify -w @frillab/copc-tiles
-
-      # The staged test executes only once and exports its LCOV before cleanup.
-      - name: Upload Tiles Node coverage to Codecov
-        uses: codecov/codecov-action@v7
-        with:
-          files: ./packages/tiles/coverage/lcov.info
-          disable_search: true
-          flags: tiles-node
-          use_oidc: true
-          fail_ci_if_error: false
-
-      - name: Audit runtime dependencies
-        run: npm audit --omit=dev
-
   # Preserve the existing required status-check name from the main ruleset.
   # A failure (or skipped/cancelled gate) must never appear as a green viewer-web check.
   viewer-web:
-    needs: [preflight, rust, viewer-fast, viewer-browser, viewer-package, viewer-package-consumer, tiles-package]
+    needs: [preflight, rust, viewer-fast, viewer-browser, viewer-package, viewer-package-consumer ]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
@@ -498,7 +425,6 @@ jobs:
           BROWSER_RESULT: ${{ needs.viewer-browser.result }}
           PACKAGE_BUILD_RESULT: ${{ needs.viewer-package.result }}
           PACKAGE_CONSUMER_RESULT: ${{ needs.viewer-package-consumer.result }}
-          TILES_RESULT: ${{ needs.tiles-package.result }}
         run: |
           if [ "$PREFLIGHT_RESULT" != "success" ]; then
             echo "::error::Workspace preflight must succeed (preflight=$PREFLIGHT_RESULT)"
@@ -506,7 +432,7 @@ jobs:
           fi
 
           if [ "$RUN_VALIDATION" != "true" ]; then
-            for result in "$RUST_RESULT" "$FAST_RESULT" "$BROWSER_RESULT" "$PACKAGE_BUILD_RESULT" "$PACKAGE_CONSUMER_RESULT" "$TILES_RESULT"; do
+            for result in "$RUST_RESULT" "$FAST_RESULT" "$BROWSER_RESULT" "$PACKAGE_BUILD_RESULT" "$PACKAGE_CONSUMER_RESULT"; do
               if [ "$result" != "skipped" ]; then
                 echo "::error::Code validation should be skipped for docs-only changes (result=$result)"
                 exit 1
@@ -516,9 +442,9 @@ jobs:
             exit 0
           fi
 
-          for result in "$PREFLIGHT_RESULT" "$RUST_RESULT" "$FAST_RESULT" "$BROWSER_RESULT" "$PACKAGE_BUILD_RESULT" "$PACKAGE_CONSUMER_RESULT" "$TILES_RESULT"; do
+          for result in "$PREFLIGHT_RESULT" "$RUST_RESULT" "$FAST_RESULT" "$BROWSER_RESULT" "$PACKAGE_BUILD_RESULT" "$PACKAGE_CONSUMER_RESULT"; do
             if [ "$result" != "success" ]; then
-              echo "::error::All validation gates must succeed (preflight=$PREFLIGHT_RESULT, rust=$RUST_RESULT, fast=$FAST_RESULT, browser=$BROWSER_RESULT, package-build=$PACKAGE_BUILD_RESULT, package-consumers=$PACKAGE_CONSUMER_RESULT, tiles=$TILES_RESULT)"
+              echo "::error::All validation gates must succeed (preflight=$PREFLIGHT_RESULT, rust=$RUST_RESULT, fast=$FAST_RESULT, browser=$BROWSER_RESULT, package-build=$PACKAGE_BUILD_RESULT, package-consumers=$PACKAGE_CONSUMER_RESULT)"
               exit 1
             fi
           done

@@ -27,10 +27,9 @@ npm ci --prefix apps/dev-viewer --workspaces=false
 npm ci --prefix apps/playground --workspaces=false
 ```
 
-The root install owns the Adapter and Tiles workspaces. The Dev Viewer and
-public Playground keep separate application lockfiles because they have
-different package origins: the Viewer consumes the local Adapter package and
-the Playground consumes the exact published Adapter release.
+The root install owns only the Adapter workspace. The Dev Viewer and public
+Playground keep separate application lockfiles: the Viewer consumes the local
+Adapter package and the Playground consumes the exact published Adapter release.
 
 The viewer tests and examples use the Autzen sample. Download it when needed:
 
@@ -84,8 +83,6 @@ normally need `git diff --check` and validation of changed Markdown links.
 ```bash
 npm run typecheck -w @frillab/copc-adapter
 npm test -w @frillab/copc-adapter
-npm run typecheck -w @frillab/copc-tiles
-npm test -w @frillab/copc-tiles
 ```
 
 - Rust changes:
@@ -110,18 +107,12 @@ If a check cannot be run locally, explain why in the pull request.
 
 ### Codecov coverage reports
 
-The CI reuses its **existing** test executions to upload three independent
+The CI reuses its **existing** test executions to upload two independent
 source coverage reports to a single [Codecov dashboard](https://app.codecov.io/github/mors119/copc-adapter):
 
 - **Adapter Node:** the `viewer-fast` job invokes
   `npm run coverage:raw -w @frillab/copc-adapter` once and uploads
   `packages/adapter/coverage/lcov.info` with flag `adapter-node`.
-- **COPC Tiles Node:** the `tiles-package` job runs
-  `COPC_TILES_COVERAGE=1 npm run verify -w @frillab/copc-tiles`.
-  Its isolated staging runner replaces the existing unit-test invocation with
-  `test:coverage` (it does not run both). Before deleting the staged copy, it
-  exports `packages/tiles/coverage/lcov.info` for the `tiles-node` upload.
-  Local runs of the normal `verify` command do not collect coverage.
 - **Native Rust:** the `rust` job runs `cargo llvm-cov --workspace --lcov`
   **instead of** the original `cargo test --workspace`. It uploads
   `target/coverage/rust.lcov` with flag `rust-native`. Because llvm-cov
@@ -130,13 +121,13 @@ source coverage reports to a single [Codecov dashboard](https://app.codecov.io/g
 
 Each report is uploaded once, from its original CI job, using GitHub OIDC;
 no separate coverage test job or permanent `CODECOV_TOKEN` is required.
-The Codecov configuration waits for all **three uploads** before notifying on
+The Codecov configuration waits for both uploads before notifying on
 code changes. Enable the repository in Codecov to see results. Project/patch
 checks are initially informational and upload failures do not block the
 existing required test gates.
 
 The [README badge](README.md) displays Codecov's combined result for the
-tracked reports on the default branch. It is **not** total application
+Adapter Node and native Rust reports on the default branch. It is **not** total application
 execution coverage: browser E2E, Dev Viewer, Playground, Rust/WASM, and modules
 not loaded by the Node test runners are not measured. In particular, the
 currently emitted LCOV files do not establish 0% coverage for unloaded files,

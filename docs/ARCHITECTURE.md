@@ -15,34 +15,21 @@ other engine resources.
 
 ### Workspace package boundaries
 
-The repository root is a private npm workspace. Its `package-lock.json` is the
-authoritative lockfile for the two publishable package workspaces:
+The repository root is a private npm workspace with one publishable package:
+[`packages/adapter`](../packages/adapter/README.md), exported as
+`@frillab/copc-adapter` with `.`, `/core`, `/cesium`, and `/three`
+entrypoints. The root `package-lock.json` covers Adapter development.
 
-```text
-@frillab/copc-tiles ── public /core API ──▶ @frillab/copc-adapter
-      independent npm package                  independent npm package
-```
+The Dev Viewer consumes the local Adapter workspace, while the separately
+locked public Playground installs the exact published Adapter version.
+Package-consumer checks validate packed artifacts without relying on workspace
+symlinks.
 
-`packages/adapter` contains the existing Adapter package layout without a new
-source directory: `core/`, `cesium/`, `three/`, `test/`, and `scripts/` remain
-package-relative. It publishes its existing `.`, `/core`, `/cesium`, and
-`/three` exports at version `0.8.0`.
-
-`packages/tiles` is independently versioned; its current published version is
-`0.1.1`. Its root,
-`/resources`, `/tileset`, and `/tileset/implicit` exports are renderer-free;
-only `/adapter/copc-core` connects through the public Adapter `/core` API.
-Tiles has an optional Adapter peer and a development dependency, while Adapter
-declares no Tiles dependency. This keeps Direct Cesium and Three imports
-independent of Tiles and lets the Tiles Engine run without Adapter or renderer
-packages.
-
-The Dev Viewer typechecks and consumes the current local Adapter workspace.
-The deployed Playground is deliberately outside the package workspaces and
-keeps its own lockfile pinned to published `@frillab/copc-adapter@0.8.0`.
-Packed candidate tests install separately generated tarballs in temporary
-consumers so the workspace symlink cannot hide missing package declarations.
-See [workspace development](monorepo-development.md) for exact commands.
+COPC-to-3D-Tiles generation is owned by the independent
+[FrilLab/copc-tiles](https://github.com/FrilLab/copc-tiles) project.
+Its optional connector uses the public `@frillab/copc-adapter/core` API.
+The dependency direction is from COPC Tiles to Adapter Core, never the reverse.
+See [workspace development](monorepo-development.md).
 
 ### Current Adapter architecture
 
