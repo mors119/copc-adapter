@@ -1,153 +1,62 @@
-# npm Workspaces development
+# npm Workspace development
 
-The repository root is private and defines two npm package workspaces:
+COPC Adapter is an independent npm distribution maintained in this repository.
+The private repository root defines a single workspace:
 
-| Package | Path | Version | Role |
-| --- | --- | --- | --- |
-| `@frillab/copc-adapter` | `packages/adapter` | `0.8.0` | COPC Core, Cesium, and Three APIs |
-| `@frillab/copc-tiles` | `packages/tiles` | `0.1.1` published | Source-neutral 3D Tiles engine and optional Adapter Core connector |
+| Package | Path | Responsibility |
+| --- | --- | --- |
+| `@frillab/copc-adapter` | `packages/adapter` | COPC Core, CesiumJS, and Three.js adapters |
 
-They are independent npm distributions. Tiles may depend on public Adapter
-Core APIs; Adapter must not depend on Tiles. The root `package-lock.json` is
-the authoritative install lock for both workspaces. Apps are not package
-workspaces and retain app-specific lockfiles.
-
-The workspace lock was regenerated from the two package manifests. Runtime
-dependency versions for the published distributions remain unchanged. The
-combined development graph resolves a small number of transitive development
-dependencies to compatible versions already used elsewhere in the root lock
-(for example `rollup`, `postcss`, `@types/node`, and `tslib`); this changes
-development resolution only. `npm ci` and both package test/build suites
-validate the resulting lock. The full audit reports 11 dev-only findings
-(6 moderate, 5 high); the production dependency audit reports none. No
-automatic dependency fixes were applied as part of this migration.
-
-## Published artifact sizes
-
-The published `@frillab/copc-adapter@0.8.0` Registry artifact is 655,534 bytes
-packed and 2,329,620 bytes unpacked (129 entries). It adds batch Terrain
-estimates, opacity reset semantics, and custom elevation range/palette APIs,
-alongside the narrow WKT2 projected-height diagnostic. Adapter 0.7.1 remains
-covered as a compatible older release.
-
-The Registry's current `@frillab/copc-tiles@0.1.1` artifact is 68,448 bytes
-packed and 333,517 bytes unpacked (34 files). Its integrity is
-`sha512-n8uvdJHuHr5GnRSjBXxnhBSp9xXpf67702uO6S/A6X/wDSiE37SIUOgp2CuDnKrb3vLIZioE0audTNhNpaJYyA==`.
-The current workspace updates only the development Adapter baseline to
-published `0.8.0`; Tiles' production dependencies, exports, and runtime code
-are unchanged.
-
-## Migration baseline
-
-The migration starts from destination `main` commit
-`8b9142e051e0d96b893e1dc8088a4f16ccbd3f7a` and imports Tiles `main` commit
-`5297405def349e83298ea41e2f21549e6d8e25e9`, after merged PRs #18, #19, and
-#20. The source repository remains unchanged.
+`package-lock.json` is the authoritative root workspace lock. The Dev Viewer
+and public Playground are applications outside the package workspace and have
+separate lockfiles. The Dev Viewer links the local Adapter source; the public
+Playground installs an exact published npm release.
 
 ## Install and develop
 
-Install the workspace packages from the repository root:
-
 ```bash
 npm ci
-```
+npm ci --prefix apps/dev-viewer --workspaces=false
+npm ci --prefix apps/playground --workspaces=false
 
-Adapter scripts run in the Adapter workspace, and Tiles scripts run in the
-Tiles workspace:
-
-```bash
 npm run typecheck -w @frillab/copc-adapter
 npm test -w @frillab/copc-adapter
 npm run build -w @frillab/copc-adapter
-
-npm run typecheck -w @frillab/copc-tiles
-npm run typecheck:adapter-core -w @frillab/copc-tiles
-npm test -w @frillab/copc-tiles
-npm run build -w @frillab/copc-tiles
-```
-
-The Dev Viewer uses the local Adapter package and its TypeScript aliases point
-to `packages/adapter`. Install its app dependencies after the root workspace
-install:
-
-```bash
-npm ci --prefix apps/dev-viewer --workspaces=false
 npm --prefix apps/dev-viewer run typecheck
 npm --prefix apps/dev-viewer run build
-```
-
-The public Playground has a different release contract. It installs the exact
-published `@frillab/copc-adapter@0.8.0` tarball from npm using
-`apps/playground/package-lock.json`. Do not add the Playground to the root
-workspaces or replace that dependency with a local workspace link.
-
-```bash
-npm ci --prefix apps/playground --workspaces=false
 npm run playground:verify-release
 npm run playground:build
 ```
 
-The Playground provenance checks verify its manifest, lockfile, resolved
-package path, and bundle sources. The root workspace install alone does not
-replace its app-local install.
+Run the fast workspace manifest and lockfile assertions before expensive
+browser, Rust, or package-consumer jobs:
 
-## Validate package isolation
+```bash
+node scripts/verify-adapter-workspace.mjs
+```
 
-Build and pack either workspace independently. These commands create local
-tarballs only:
+## Package isolation and publication
+
+Build and pack only the Adapter workspace:
 
 ```bash
 npm pack --workspace @frillab/copc-adapter --pack-destination /tmp/copc-adapter-pack
-npm pack --workspace @frillab/copc-tiles --pack-destination /tmp/copc-tiles-pack
+npm run test:pack
 ```
 
-The Tiles packed-consumer script packs both workspace artifacts, then installs
-Tiles into clean temporary consumers alongside the exact published Adapter
-0.8.0 package and the local packed Adapter 0.8.0 candidate. A separate
-0.7.1 consumer retains the older full-renderer strict type/runtime check, and a
-renderer-free Core consumer verifies the old package remains optional for
-renderers. Locks confirm Registry URLs and no workspace links. Checks cover
-Adapter Core, Adapter root/Cesium/Three entrypoints, Adapter-free Tiles Engine,
-strict NodeNext and Bundler declarations, runtime ESM imports, and renderer
-bundle graphs:
+The packed-consumer gate installs and tests the Adapter artifact in a separate
+consumer. The root repository is private and must not be published. Verify
+versioning, export contracts, and release notes before publishing Adapter.
 
-```bash
-npm run test:packed-consumer -w @frillab/copc-tiles
-```
+## Companion 3D Tiles project
 
-`npm run verify -w @frillab/copc-tiles` stages only tracked Tiles package
-files into a disposable workspace and runs the complete package verification
-suite against the published Adapter contract. It verifies that root workspace
-symlinks are not required to build, test, and pack Tiles.
+`@frillab/copc-tiles` is maintained independently at
+[FrilLab/copc-tiles](https://github.com/FrilLab/copc-tiles).
+It generates standard 3D Tiles and has its own release, CI, Codecov, and
+package-consumer tests. The optional connector imports only the documented
+public `@frillab/copc-adapter/core` API, so Adapter does not have a Tiles
+package or renderer dependency.
 
-## Independent publication
-
-Only the package workspaces are publishable. Build, review, and publish them
-independently after maintainer approval:
-
-```bash
-npm publish --workspace @frillab/copc-adapter
-npm publish --workspace @frillab/copc-tiles --access public
-```
-
-Never publish the repository root. These commands publish only the selected
-workspace; they do not publish the other package or create Git tags. Keep
-release notes and package-specific support limits in the
-[`packages/tiles/CHANGELOG.md`](https://github.com/mors119/copc-adapter/blob/main/packages/tiles/CHANGELOG.md)
-and [`packages/tiles/README.md`](https://github.com/mors119/copc-adapter/blob/main/packages/tiles/README.md).
-Tiles uses Adapter `0.8.0` as its exact development baseline and declares
-`^0.7.1 || ^0.8.0` as an optional peer range. Packed consumer checks exercise
-the published 0.8.0 baseline, the local 0.8.0 workspace artifact, and the
-published 0.7.1 compatibility release.
-
-## Current limits
-
-Projected CRS conservative source-cell bounds for Autzen EPSG:2992 and SoFi
-EPSG:32611 remain unsupported. The explicitly authorized decoded-content
-strategy bounds all points in a complete bounded hierarchy and remains a
-separate claim. Live resource hierarchy scans require
-`scanCompleteHierarchy: true` and remain bounded. T1–T12 issues remain open
-and were not transferred or closed; issue ownership may need a later
-maintainer decision. See the original
-[Tiles implementation-status record](https://github.com/FrilLab/copc-tiles/blob/main/docs/implementation-status.md)
-and [Tiles issue tracker](https://github.com/FrilLab/copc-tiles/issues).
+For Tiles-specific bounds, GLB, provider, or validation work, use the
+[standalone Tiles documentation](https://github.com/FrilLab/copc-tiles/tree/main/docs)
+and [issue tracker](https://github.com/FrilLab/copc-tiles/issues).

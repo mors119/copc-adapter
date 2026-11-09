@@ -356,13 +356,11 @@ cancel query work; early exit drains only already-started bounded reads.
 
 ## COPC Tiles compatibility audit
 
-COPC Tiles now lives in this repository at `packages/tiles` and remains a
-separate npm distribution. The original
-[Tiles repository](https://github.com/FrilLab/copc-tiles) remains unchanged
-and preserves issue history. This compatibility audit and its original Registry integrity
-records are retained as historical evidence for the public Adapter Core
-contract; current workspace and packed-consumer commands are in
-[`monorepo-development.md`](../monorepo-development.md).
+COPC Tiles is maintained as a separate npm package in
+[FrilLab/copc-tiles](https://github.com/FrilLab/copc-tiles). This historical
+compatibility audit documents the public Adapter Core contract, not a bundled
+Tiles implementation. Current integration and packed-consumer tests are owned
+by the standalone Tiles repository.
 
 This audit records the published `@frillab/copc-adapter@0.6.0` baseline checked
 for [issue #383](https://github.com/mors119/copc-adapter/issues/383). That
@@ -383,7 +381,7 @@ The connector consumes the A-shaped prepared-node result directly; the
 experimental Direct E cache remains internal and is neither exposed nor
 rehydrated by this connector. The packed-package checks and separate
 real-source integration are documented in
-[`packages/tiles/docs/adapter-api-compatibility.md`](https://github.com/mors119/copc-adapter/blob/main/packages/tiles/docs/adapter-api-compatibility.md#issue-383-public-contract-decision).
+[Tiles Adapter API compatibility record](https://github.com/FrilLab/copc-tiles/blob/main/docs/adapter-api-compatibility.md#issue-383-public-contract-decision).
 
 | Capability | Existing implementation | Public API in 0.8.0 candidate | Scope and limitation |
 | --- | --- | --- | --- |

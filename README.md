@@ -2,9 +2,8 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@frillab/copc-adapter"><img src="https://img.shields.io/npm/v/@frillab/copc-adapter.svg" alt="npm version"></a>
-  <a href="https://www.npmjs.com/package/@frillab/copc-tiles"><img src="https://img.shields.io/npm/v/@frillab/copc-tiles.svg" alt="COPC Tiles npm version"></a>
   <a href="https://github.com/mors119/copc-adapter/actions/workflows/ci.yml"><img src="https://github.com/mors119/copc-adapter/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <a href="https://app.codecov.io/github/mors119/copc-adapter"><img src="https://codecov.io/github/mors119/copc-adapter/graph/badge.svg" alt="Codecov coverage: Adapter Node, Tiles Node, native Rust"></a>
+  <a href="https://app.codecov.io/github/mors119/copc-adapter"><img src="https://codecov.io/github/mors119/copc-adapter/graph/badge.svg" alt="Codecov coverage: Adapter Node and native Rust"></a>
   <a href="https://mors119.github.io/copc-adapter/"><img src="https://img.shields.io/badge/docs-GitHub%20Pages-blue" alt="Documentation"></a>
   <a href="https://github.com/mors119/copc-adapter/blob/main/LICENSE"><img src="https://img.shields.io/github/license/mors119/copc-adapter.svg" alt="License"></a>
   <a href="https://github.com/mors119/copc-adapter/releases"><img src="https://img.shields.io/github/v/release/mors119/copc-adapter.svg" alt="Latest release"></a>
@@ -12,11 +11,11 @@
 
 <p align="center">
   <strong>Stream and visualize COPC point clouds directly in CesiumJS and Three.js.</strong><br>
-  The direct adapters need no renderer-specific conversion; an optional experimental 3D Tiles pipeline is available too.
+  The direct adapters need no renderer-specific conversion.
 </p>
 
 The [coverage badge](https://app.codecov.io/github/mors119/copc-adapter)
-combines Adapter Node tests, Tiles Node tests, and native Rust tests. It does
+combines Adapter Node tests and native Rust tests. It does
 **not** represent browser E2E, Rust/WASM execution, or source files not emitted
 by the current test coverage reporters. See [coverage collection](CONTRIBUTING.md#codecov-coverage-reports).
 
@@ -143,24 +142,15 @@ available.
 
 ### More Renderers and Data
 
-The preview above shows CesiumJS. These examples cover the Three.js adapter,
-the experimental on-demand 3D Tiles path, and a Korean public dataset.
+The CesiumJS preview above is complemented by a Three.js adapter and a Korean
+public COPC dataset.
 
 <table width="100%">
-  <thead>
-    <tr>
-      <th width="33.33%">Three.js</th>
-      <th width="33.33%">3D Tiles (experimental)</th>
-      <th width="33.33%">Korean public dataset</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td align="center"><img src="docs/assets/three.png" width="100%" alt="COPC point cloud rendered with the Three.js adapter"><br>Shares the COPC streaming Core.</td>
-      <td align="center"><img src="docs/assets/tiles.png" width="100%" alt="COPC point cloud rendered through the experimental 3D Tiles pipeline"><br>On-demand COPC tiles. See the <a href="apps/dev-viewer/docs/3d-tiles-demo.md">demo guide</a> for setup and limits.</td>
-      <td align="center"><img src="docs/assets/korea-data.png" width="100%" alt="Korean public COPC dataset rendered in CesiumJS"><br>Public LAZ data converted to COPC.</td>
-    </tr>
-  </tbody>
+  <thead><tr><th width="50%">Three.js</th><th width="50%">Korean public dataset</th></tr></thead>
+  <tbody><tr>
+    <td align="center"><img src="docs/assets/three.png" width="100%" alt="COPC point cloud rendered with Three.js"><br>Shares the COPC streaming Core.</td>
+    <td align="center"><img src="docs/assets/korea-data.png" width="100%" alt="Korean public COPC dataset rendered in CesiumJS"><br>Public LAZ data converted to COPC.</td>
+  </tr></tbody>
 </table>
 
 ## Documentation
@@ -171,23 +161,18 @@ the experimental on-demand 3D Tiles path, and a Korean public dataset.
 - [Validation overview](https://mors119.github.io/copc-adapter/ko/validation)
 - [Public API](https://mors119.github.io/copc-adapter/API)
 
-## npm Workspaces
+## Package boundaries
 
-The repository contains two independently buildable and publishable npm
-packages. The private root workspace owns the single `package-lock.json` used
-for package development and validation.
+This repository publishes only `@frillab/copc-adapter` from
+[`packages/adapter`](packages/adapter/README.md), providing the COPC Core,
+CesiumJS, and Three.js entrypoints. The private root remains an npm workspace,
+while the Dev Viewer and public Playground use independent app lockfiles.
 
-| Package | Directory | Responsibility |
-| --- | --- | --- |
-| `@frillab/copc-adapter@0.8.0` | [`packages/adapter`](packages/adapter/README.md) | COPC Core, Cesium, and Three entrypoints |
-| [`@frillab/copc-tiles@0.1.1`](https://www.npmjs.com/package/@frillab/copc-tiles) (published experimental release) | [`packages/tiles`](packages/tiles/README.md) | Source-neutral 3D Tiles engine and optional public Adapter Core connector |
-
-The dependency direction is `@frillab/copc-tiles` →
-`@frillab/copc-adapter/core`. Adapter Core and the Tiles Engine do not require
-CesiumJS or Three.js. Direct Adapter renderer imports do not import Tiles.
-The [architecture guide](docs/ARCHITECTURE.md#workspace-package-boundaries)
-and [workspace development guide](docs/monorepo-development.md) describe the
-package and consumer boundaries.
+The optional COPC-to-3D-Tiles generation engine lives in the independent
+[FrilLab/copc-tiles](https://github.com/FrilLab/copc-tiles) repository and
+npm package. COPC Adapter does **not** depend on COPC Tiles; consumers can
+combine the two through the public `@frillab/copc-adapter/core` contract
+when needed. See [workspace development](docs/monorepo-development.md).
 
 ## Why COPC Adapter
 
@@ -527,11 +512,6 @@ npm run typecheck -w @frillab/copc-adapter
 npm test -w @frillab/copc-adapter
 npm run coverage -w @frillab/copc-adapter
 npm run build -w @frillab/copc-adapter
-npm run typecheck -w @frillab/copc-tiles
-npm run typecheck:adapter-core -w @frillab/copc-tiles
-npm test -w @frillab/copc-tiles
-npm run build -w @frillab/copc-tiles
-npm run test:packed-consumer -w @frillab/copc-tiles
 npm run test:functional
 npm --prefix apps/dev-viewer run test:e2e
 npm run benchmark:renderer -w @frillab/copc-adapter
@@ -547,16 +527,13 @@ To pack each distribution separately, without publishing:
 
 ```bash
 npm pack --workspace @frillab/copc-adapter --pack-destination /tmp/copc-adapter-pack
-npm pack --workspace @frillab/copc-tiles --pack-destination /tmp/copc-tiles-pack
 ```
 
-Each package keeps its own version, exports, files list, and npm artifact.
-Builds clean their own `dist`; Adapter includes its decoder runtime assets,
-Tiles includes its package documentation, and neither tarball includes the
-other package's source or local COPC datasets. The public Playground continues
-to install the exact published Adapter `0.8.0`; the Dev Viewer links the local
-workspace package. See [workspace development](docs/monorepo-development.md)
-for candidate-package and released-package checks.
+The Adapter package keeps its own version, exports, files list, and npm
+artifact. Its pack excludes local COPC datasets and Tiles source. The public
+Playground installs the exact published Adapter version; the Dev Viewer uses
+the local Adapter workspace. See [workspace development](docs/monorepo-development.md)
+for packed and released consumer checks.
 
 `npm run test:pack` is the release-boundary gate for the generated `.tgz`. It
 builds Rust/WASM and the library, checks the tarball contents, installs it by
