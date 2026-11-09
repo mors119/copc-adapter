@@ -76,7 +76,6 @@ import {
   mountPointPopover,
   type PointScreenPosition,
 } from "../../shared/inspection/PointPopover.ts";
-import { mountDiagnosticSections } from "../../shared/diagnostics/DiagnosticSections.ts";
 import {
   createNgaEgm2008ResourceRegistry,
   createPointVerticalReferenceContext,
@@ -1638,7 +1637,7 @@ async function main(): Promise<void> {
     return focus as RefinementFocus;
   };
   const setLiveFocus = (focus: RefinementFocus | undefined): boolean => {
-    if (activeSession?.renderer !== "cesium" ||       !activeSession.setRefinementFocus) return false;
+    if (activeSession?.renderer !== "cesium" || !activeSession.setRefinementFocus) return false;
     try {
       activeSession.setRefinementFocus(focus);
       return true;
@@ -1661,7 +1660,7 @@ async function main(): Promise<void> {
   });
   const isFollowCursorAvailable = (): boolean =>
     pendingConfig.renderer === "cesium" &&
-        activeSession?.renderer === "cesium" &&
+    activeSession?.renderer === "cesium" &&
         typeof activeSession.setRefinementFocus === "function";
   const setFollowCursor = (enabled: boolean, rawFocus: unknown): void => {
     const suppliedFocus = readFocusValue(rawFocus);
@@ -2083,7 +2082,7 @@ async function main(): Promise<void> {
     const available = !disposed &&
       !isLoading &&
       activeSession?.renderer === "cesium" &&
-            activeSession.canPlayCameraDemo?.() === true;
+      activeSession.canPlayCameraDemo?.() === true;
     cameraDemoPlayButton.disabled = !available || playing;
     cameraDemoStopButton.disabled = !playing;
   };
@@ -2489,7 +2488,7 @@ async function main(): Promise<void> {
       };
       recordApplyTrace(applyTrace, "session-create-started");
       candidateSession = config.renderer === "cesium"
-          ? await createCesiumSession(
+        ? await createCesiumSession(
               candidateMount,
               config,
               reportCandidateError,
