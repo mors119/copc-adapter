@@ -449,6 +449,13 @@ export async function createPlaygroundRuntime(
       selectionIndicator: false,
       timeline: false,
       terrainProvider: new Cesium.EllipsoidTerrainProvider(),
+      // Mock-layer UI tests do not need a continuous SwiftShader render loop.
+      ...(import.meta.env.MODE === "e2e" && layerFactory
+        ? {
+            requestRenderMode: true,
+            maximumRenderTimeChange: Number.POSITIVE_INFINITY,
+          }
+        : {}),
     });
     viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString("#172635");
     viewer.scene.backgroundColor = Cesium.Color.fromCssColorString("#08111d");
