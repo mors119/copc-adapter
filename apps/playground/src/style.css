@@ -1175,3 +1175,115 @@ button {
     padding: 12px;
   }
 }
+
+/* Dismissible, non-blocking help inside the scrollable Source panel. */
+.quick-start-guide {
+  min-width: 0;
+  margin: 0 0 9px;
+}
+.quick-start-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  padding: 5px 0;
+  color: var(--ui-accent);
+  background: transparent;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.quick-start-toggle span {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--ui-border);
+  border-radius: 50%;
+  font-size: 10px;
+}
+.quick-start-card {
+  margin-top: 5px;
+  padding: 12px;
+  border: 1px solid var(--ui-border);
+  border-radius: 8px;
+  color: #eff7ff;
+  background: var(--panel-raised);
+  box-shadow: 0 5px 16px #0000002b;
+  overflow-wrap: anywhere;
+}
+.quick-start-card[hidden] {
+  display: none;
+}
+.quick-start-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+.quick-start-close {
+  border: 0;
+  padding: 3px 0;
+  color: var(--ui-muted);
+  background: transparent;
+  font-size: 10px;
+  cursor: pointer;
+}
+.quick-start-steps {
+  display: grid;
+  gap: 8px;
+  margin: 11px 0;
+  padding-left: 19px;
+  font-size: 11px;
+}
+.quick-start-steps strong,
+.quick-start-steps span {
+  display: block;
+}
+.quick-start-steps span {
+  color: var(--ui-muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+.quick-start-note {
+  margin: 8px 0 0;
+  color: var(--ui-muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+.quick-start-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 12px;
+}
+.quick-start-actions label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ui-muted);
+  font-size: 10px;
+}
+.quick-start-actions input {
+  margin: 0;
+}
+.quick-start-done {
+  min-height: 28px;
+  border: 1px solid var(--ui-accent);
+  border-radius: 5px;
+  padding: 4px 11px;
+  color: var(--ui-accent);
+  background: transparent;
+  font-size: 10px;
+  cursor: pointer;
+}
+.quick-start-toggle:focus-visible,
+.quick-start-close:focus-visible,
+.quick-start-done:focus-visible,
+.quick-start-actions input:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 2px;
+}
