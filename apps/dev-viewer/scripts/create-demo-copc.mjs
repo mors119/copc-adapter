@@ -32,7 +32,7 @@ function run(command, args) {
   });
 }
 
-const workingDirectory = await mkdtemp(join(tmpdir(), "copc-tiles-demo-"));
+const workingDirectory = await mkdtemp(join(tmpdir(), "copc-dev-fixture-"));
 try {
   await mkdir(resolve(outputPath, ".."), { recursive: true });
   const pointFile = join(workingDirectory, "ridge-park.csv");

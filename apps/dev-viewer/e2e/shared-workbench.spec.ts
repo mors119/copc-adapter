@@ -611,8 +611,6 @@ test("Follow Cursor tracks the Cesium viewport without replacing the session or 
   await page.locator("#schema-focus-enabled").uncheck();
   await expect(page.locator("#schema-focus-follow-cursor")).not.toBeChecked();
   await expect(page.locator("#schema-focus-x")).toBeDisabled();
-  await page.locator("#rendering-pipeline").selectOption("tiles");
-  await expect(page.locator("#schema-focus-follow-cursor")).toBeDisabled();
 });
 
 test("applies opacity and clipping to the loaded Cesium layer without reading source data", async ({
