@@ -77,7 +77,7 @@
     "@frillab/copc-adapter": "0.8.0",
     "@frillab/copc-tiles-validate": "0.1.0",
     "@playwright/test": "1.64.1",
-    "3d-tiles-renderer": "0.5.3",
+    "3d-tiles-renderer": "0.5.4",
     "cesium": "1.147.0",
     "gltf-validator": "2.0.0-dev.3.10",
     "semver": "^7.8.5",
