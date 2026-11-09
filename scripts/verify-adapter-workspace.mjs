@@ -25,7 +25,12 @@ for (const [label, manifest] of [["root", root], ["viewer", viewer]]) {
 }
 for (const [label, packages] of [["root lockfile", lock.packages], ["viewer lockfile", viewerLock.packages]]) {
   for (const path of Object.keys(packages)) {
-    assert.equal(/(^|\\/)packages\\/tiles($|\\/)|node_modules\\/@frillab\\/copc-tiles(?:-validate)?($|\\/)|node_modules\\/3d-tiles-renderer($|\\/)/.test(path), false, label + " retains a Tiles package path: " + path);
+    const orphanTilesPath =
+      path === "packages/tiles" ||
+      path.startsWith("packages/tiles/") ||
+      path.includes("node_modules/@frillab/copc-tiles") ||
+      path.includes("node_modules/3d-tiles-renderer");
+    assert.equal(orphanTilesPath, false, label + " retains a Tiles package path: " + path);
   }
 }
 console.log("Standalone COPC Adapter workspace and lockfiles verified.");
