@@ -1,5 +1,16 @@
+import { readFileSync } from "node:fs";
 import { expect, test } from "./ci-diagnostic-fixtures";
 import { getCompletedStreamingState } from "./streaming-state";
+
+const viewerLock = JSON.parse(
+  readFileSync(new URL("../package-lock.json", import.meta.url), "utf8"),
+) as { packages?: Record<string, { version?: string }> };
+const lockedCesiumVersion = viewerLock.packages?.["node_modules/cesium"]?.version;
+if (!lockedCesiumVersion) {
+  throw new Error("The dev-viewer lockfile does not specify the Cesium version.");
+}
+const expectedCesiumVersion =
+  process.env.COPC_EXPECT_CESIUM_VERSION ?? lockedCesiumVersion;
 
 type BenchmarkState = {
   cesiumVersion: string;
@@ -201,9 +212,7 @@ test("prints repeatable synthetic and Autzen renderer performance evidence", asy
     hardwareConcurrency: navigator.hardwareConcurrency,
     cesiumVersion: window.__COPC_DEBUG__?.getState().cesiumVersion,
   }));
-  expect(environment.cesiumVersion).toBe(
-    process.env.COPC_EXPECT_CESIUM_VERSION ?? "1.146.0",
-  );
+  expect(environment.cesiumVersion).toBe(expectedCesiumVersion);
   const pointPrimitiveLayouts = await page.evaluate(
     () =>
       window.__COPC_DEBUG__?.runSyntheticRendererLayoutComparisonBenchmark(
@@ -654,7 +663,7 @@ test("measures dense single-node CPU picking at 250k points at DPR 1 and 2", asy
       await expect
         .poll(() => getState(page))
         .toMatchObject({
-          cesiumVersion: process.env.COPC_EXPECT_CESIUM_VERSION ?? "1.146.0",
+          cesiumVersion: expectedCesiumVersion,
           renderedPointCount: expect.any(Number),
         });
       await expect
@@ -723,7 +732,7 @@ test("measures dense single-node CPU picking at 250k points at DPR 1 and 2", asy
         otherLayerDidNotResolve: true,
       });
       expect(pixelPicking.depthQuantizationProbe).toMatchObject({
-        cesiumVersion: process.env.COPC_EXPECT_CESIUM_VERSION ?? "1.146.0",
+        cesiumVersion: expectedCesiumVersion,
         centerPickHitNode: true,
         pointSeparationMeters: 0.00001,
         resolution: { picked: false, reason: "ambiguous-depth" },
@@ -731,7 +740,7 @@ test("measures dense single-node CPU picking at 250k points at DPR 1 and 2", asy
       const stagingPrecisionProbe =
         pixelPicking.stagingPrecisionProbe as Record<string, unknown>;
       expect(stagingPrecisionProbe).toMatchObject({
-        cesiumVersion: process.env.COPC_EXPECT_CESIUM_VERSION ?? "1.146.0",
+        cesiumVersion: expectedCesiumVersion,
         centerPickHitNode: true,
         resolution: { picked: true, pointIndex: 0 },
       });
@@ -760,7 +769,7 @@ test("measures dense single-node CPU picking at 250k points at DPR 1 and 2", asy
         JSON.stringify({ pointPickingSingleNodeStress: report }, null, 2),
       );
       expect(report).toMatchObject({
-        cesiumVersion: process.env.COPC_EXPECT_CESIUM_VERSION ?? "1.146.0",
+        cesiumVersion: expectedCesiumVersion,
         devicePixelRatio: deviceScaleFactor,
         pointCount: 250_000,
         repetitions: 35,
