@@ -80,7 +80,7 @@
     "3d-tiles-renderer": "0.5.4",
     "cesium": "1.147.0",
     "gltf-validator": "2.0.0-dev.3.10",
-    "semver": "^7.8.5",
+    "semver": "^7.8.6",
     "three": "0.186.1",
     "tsx": "^4.23.13",
     "typescript": "~5.9.3",
