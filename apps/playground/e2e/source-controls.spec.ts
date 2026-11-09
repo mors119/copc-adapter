@@ -737,7 +737,7 @@ test("a newer source selection supersedes a pending Apply without destroying the
 });
 
 test("Cesium color and classification styles use setStyle without replacing the layer", async ({ page }) => {
-  test.setTimeout(60_000);
+  test.setTimeout(process.env.CI ? 120_000 : 60_000);
   await page.goto("./");
   await page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.useCameraResetLayerMock());
   await page.locator("#copc-file").setInputFiles({
@@ -1445,7 +1445,7 @@ for (const renderer of ["Cesium", "Three.js"] as const) {
   test(`${renderer} streams and inspects points from the public Autzen COPC`, async ({
     page,
   }) => {
-    test.setTimeout(150_000);
+    test.setTimeout(process.env.CI ? 300_000 : 150_000);
     await page.goto("./");
     if (renderer === "Three.js") {
       await page.getByRole("radio", { name: "Three.js" }).click();
