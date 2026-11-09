@@ -14,6 +14,22 @@ Viewer aliases the workspace package source and keeps its fixture middleware
 and developer modules in its own entrypoint. CI separately packs the working
 commit and installs that candidate into isolated consumers.
 
+## Quick start guide
+
+The public Playground shows a compact, non-modal Quick start guide in the Source
+panel on first visit. It explains the remote workflow: choose a sample/URL,
+**Probe source** to inspect browser-visible HTTP/CORS/Range/COPC evidence, then
+**Load source** to start streaming. A successful probe is not a guarantee that a
+subsequent load will succeed. Selecting or dropping a local COPC file starts
+loading directly without an HTTP probe; pending settings use **Apply changes**.
+
+The guide can be dismissed and reopened from the **Quick start** button. Its
+checked-by-default **Don't show again** choice saves only a versioned dismissal
+flag in browser local storage; no source URLs, files, or private data are stored.
+If browser storage is unavailable, the guide still works but may reappear on
+the next visit. The card is inline to avoid covering the viewport and supports
+keyboard Escape dismissal.
+
 ## Terrain placement estimate
 
 The Playground is pinned to published `@frillab/copc-adapter` 0.8.0. Its
