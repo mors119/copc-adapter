@@ -140,6 +140,15 @@ jobs:
         if: needs.preflight.outputs.run_playground_e2e == 'true'
         run: npm --prefix apps/playground run test:e2e
 
+      - name: Upload Playground browser traces
+        if: failure() && needs.preflight.outputs.run_playground_e2e == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: playground-playwright-results
+          path: apps/playground/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Build and validate complete site
         run: npm run pages:build
 

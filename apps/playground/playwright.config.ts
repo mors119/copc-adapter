@@ -12,6 +12,7 @@ export default defineConfig({
     baseURL,
     browserName: "chromium",
     headless: true,
+    trace: "retain-on-failure",
     launchOptions: {
       args: [
         "--enable-webgl",
