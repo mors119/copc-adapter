@@ -16,8 +16,8 @@ other engine resources.
 ### Workspace package boundaries
 
 The repository root is a private npm workspace with one publishable package:
-[`packages/adapter`](../packages/adapter/README.md), exported as
-`@frillab/copc-adapter` with `.`, `/core`, `/cesium`, and `/three`
+[the Adapter package](https://github.com/mors119/copc-adapter/blob/main/packages/adapter/README.md),
+exported as `@frillab/copc-adapter` with `.`, `/core`, `/cesium`, and `/three`
 entrypoints. The root `package-lock.json` covers Adapter development.
 
 The Dev Viewer consumes the local Adapter workspace, while the separately
