@@ -110,6 +110,7 @@ import {
   parseClassificationCodes,
   validatePlaygroundConfig,
 } from "./playgroundConfig";
+import { mountQuickStartGuide } from "./QuickStartGuide.ts";
 import "./style.css";
 import "../../shared/workbench/workbench.css";
 
@@ -485,6 +486,7 @@ const workbenchLayout = mountWorkbenchLayout({
 });
 oldWorkbench.remove();
 belowViewer.remove();
+const quickStartGuide = mountQuickStartGuide(sourcePanel);
 
 const viewport = byId<HTMLDivElement>("cesium-container");
 const sourceStatus = byId<HTMLElement>("source-status");
@@ -3189,6 +3191,7 @@ const destroyPlayground = (): void => {
   loadGeneration += 1;
   releasePendingRuntime();
   copcFileDropTarget.destroy();
+  quickStartGuide.destroy();
   destroyActiveRuntime();
   followCursorTracker.destroy();
   pointPopover.destroy();
