@@ -209,7 +209,13 @@ function createElevationStyleControl(
     style?.palette ?? DEFAULT_ELEVATION_PALETTE;
   const renderLegend = (): void => {
     const selectedRange = currentRange(context.values?.["style.elevationRange"]);
-    legend.style.background = `linear-gradient(to right, ${palette().map(colorCss).join(", ")})`;
+    const colors = palette();
+    const gradientStops = colors.flatMap((stop, index) => {
+      const nextStop = colors[index + 1];
+      if (style?.interpolation !== "step" || !nextStop) return [colorCss(stop)];
+      return [colorCss(stop), colorCss({ ...stop, position: nextStop.position })];
+    });
+    legend.style.background = `linear-gradient(to right, ${gradientStops.join(", ")})`;
     const rangeText = selectedRange
       ? `${selectedRange.min}–${selectedRange.max} m`
       : "dataset bounds (m)";
@@ -254,10 +260,12 @@ function createElevationStyleControl(
     const nextInterpolation = interpolation.value as "linear" | "step";
     if (nextInterpolation === "linear" && style?.palette === undefined) {
       style = undefined;
+      renderLegend();
       options.onChange(undefined);
       return;
     }
     style = { ...(style ?? {}), interpolation: nextInterpolation };
+    renderLegend();
     emit();
   };
   const onAdd = (): void => {

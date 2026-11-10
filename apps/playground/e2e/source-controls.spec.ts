@@ -735,7 +735,13 @@ test("applies custom elevation range and ramp through Cesium and copies only app
   await range.getByLabel("Elevation range maximum metres").fill("100");
   await range.getByLabel("Elevation range maximum metres").dispatchEvent("change");
   await ramp.getByLabel("Elevation color preset").selectOption("thermal");
+  const legend = ramp.locator(".dimension-ramp-legend");
+  const linearGradient = await legend.evaluate((element) => (element as HTMLElement).style.background);
+  expect(linearGradient).toContain("rgba(48, 18, 59, 0.9) 0%");
+  expect(linearGradient).toContain("rgba(69, 107, 227, 0.9) 25%");
   await ramp.getByLabel("Elevation ramp interpolation").selectOption("step");
+  const stepGradient = await legend.evaluate((element) => (element as HTMLElement).style.background);
+  expect(stepGradient).toContain("rgba(48, 18, 59, 0.9) 25%, rgba(69, 107, 227, 0.9) 25%");
   await ramp.locator(".dimension-palette-details > summary").click();
   await ramp.getByLabel("Stop 1 alpha from 0 to 1").fill("0.45");
   await ramp.getByLabel("Stop 1 alpha from 0 to 1").dispatchEvent("change");

@@ -278,7 +278,13 @@ test("applies custom elevation ramps with Cesium restyle and Three constructor p
   await range.getByLabel("Elevation range maximum metres").fill("1200");
   await range.getByLabel("Elevation range maximum metres").dispatchEvent("change");
   await ramp.getByLabel("Elevation color preset").selectOption("blue-white-red");
+  const legend = ramp.locator(".dimension-ramp-legend");
+  const linearGradient = await legend.evaluate((element) => (element as HTMLElement).style.background);
+  expect(linearGradient).toContain("rgba(33, 102, 171, 0.9) 0%");
+  expect(linearGradient).toContain("rgba(247, 247, 247, 0.9) 50%");
   await ramp.getByLabel("Elevation ramp interpolation").selectOption("step");
+  const stepGradient = await legend.evaluate((element) => (element as HTMLElement).style.background);
+  expect(stepGradient).toContain("rgba(33, 102, 171, 0.9) 50%, rgba(247, 247, 247, 0.9) 50%");
   await ramp.locator(".dimension-palette-details > summary").click();
   await ramp.getByLabel("Stop 1 alpha from 0 to 1").fill("0.35");
   await ramp.getByLabel("Stop 1 alpha from 0 to 1").dispatchEvent("change");
