@@ -51,8 +51,6 @@ type LayerCompatibilityExclusions =
   | "decoder"
   | "dimension"
   | "dimensionFilter"
-  | "elevationRange"
-  | "elevationStyle"
   | "extraDimensions"
   | "onPointPicked"
   | "opacity";

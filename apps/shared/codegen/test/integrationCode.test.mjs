@@ -15,6 +15,8 @@ import {
   NPM_0_6_MANIFEST,
   NPM_0_7_1_CAPABILITIES,
   NPM_0_7_1_MANIFEST,
+  NPM_0_8_0_CAPABILITIES,
+  NPM_0_8_0_MANIFEST,
   OPTION_SCHEMA,
   WORKSPACE_CURRENT_CAPABILITIES,
   WORKSPACE_CURRENT_MANIFEST,
@@ -155,6 +157,53 @@ test("generates public cache policies and a typed Set for Cesium pointFields", (
   }).code;
   assert.match(three, /coordinateCacheLayout: 'A'/u);
   assert.doesNotMatch(three, /attributeLoading:|pointFields:|retainSourceCoordinatesForQueries/u);
+});
+
+test("copies elevation range and ramp through the released Cesium and Three APIs", () => {
+  const range = { min: -25, max: 1200 };
+  const style = {
+    interpolation: "step",
+    palette: [
+      { position: 0, color: { red: 0, green: 0.1, blue: 0.4, alpha: 0.25 } },
+      { position: 1, color: { red: 1, green: 0.2, blue: 0, alpha: 1 } },
+    ],
+  };
+  const common = {
+    renderer: "cesium",
+    manifest: NPM_0_8_0_MANIFEST,
+    runtimeCapabilities: NPM_0_8_0_CAPABILITIES,
+    adapterVersion: "0.8.0",
+    packageOriginLabel: "verified npm release",
+    source: "https://example.test/area.copc.laz",
+    values: {
+      "renderer.engine": "cesium",
+      "adapter.backend": "copc-js",
+      "rendering.colorMode": "elevation",
+      "style.elevationRange": range,
+      "style.elevationStyle": style,
+    },
+  };
+  const cesium = generateWorkbenchIntegrationCode({ ...common, renderer: "cesium" }).code;
+  assert.match(cesium, /layer\.setStyle\(\{ colorMode: 'elevation', elevationRange: \{ max: 1200, min: -25 \}, elevationStyle:/u);
+  assert.match(cesium, /interpolation: 'step'/u);
+  assert.match(cesium, /alpha: 0\.25/u);
+
+  const three = generateWorkbenchIntegrationCode({
+    ...common,
+    renderer: "three",
+    values: { ...common.values, "renderer.engine": "three" },
+  }).code;
+  assert.match(three, /CopcThreeLayerOptions/u);
+  assert.match(three, /elevationRange: \{\s*max: 1200,\s*min: -25,/u);
+  assert.match(three, /elevationStyle: \{\s*interpolation: 'step'/u);
+  assert.doesNotMatch(three, /layer\.setStyle\(/u);
+
+  assert.throws(() => generateWorkbenchIntegrationCode({
+    ...common,
+    manifest: NPM_0_7_1_MANIFEST,
+    runtimeCapabilities: NPM_0_7_1_CAPABILITIES,
+    adapterVersion: "0.7.1",
+  }), /unsupported/u);
 });
 
 test("emits the same code for equivalent applied values regardless of object key order", () => {

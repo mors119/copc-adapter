@@ -62,6 +62,15 @@ export type SchemaDimensionFilter = {
   readonly missingValue?: number;
 };
 
+/** Explicit absolute display-height bounds in WGS 84 ellipsoidal metres. */
+export type SchemaElevationRange = Readonly<{ min: number; max: number }>;
+
+/** Optional shared RGB(A) ramp used for absolute elevation coloring. */
+export type SchemaElevationStyle = {
+  readonly palette?: readonly SchemaDimensionColorStop[];
+  readonly interpolation?: "linear" | "step";
+};
+
 /** Numeric fields discovered in the loaded LAS metadata for Workbench controls. */
 export type SchemaNumericDimensionMetadata = {
   readonly name: string;
@@ -106,6 +115,8 @@ export type SchemaValueType =
   | "classification-filter"
   | "dimension-style"
   | "dimension-filter"
+  | "elevation-range"
+  | "elevation-style"
   | "focus-lens"
   | "clipping-volume"
   | "vertical-grid";
@@ -123,6 +134,8 @@ export type SchemaControl =
   | "classification-filter"
   | "dimension-style"
   | "dimension-filter"
+  | "elevation-range"
+  | "elevation-style"
   | "focus-lens"
   | "opacity"
   | "clipping-volume"
@@ -171,6 +184,12 @@ export type SchemaValidation =
     }
   | {
       readonly kind: "dimension-filter";
+    }
+  | {
+      readonly kind: "elevation-range";
+    }
+  | {
+      readonly kind: "elevation-style";
     }
   | {
       readonly kind: "focus-lens";

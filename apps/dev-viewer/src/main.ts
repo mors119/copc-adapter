@@ -373,6 +373,7 @@ declare global {
         | CopcCesiumLayerSnapshot
         | CopcThreeLayerSnapshot
         | undefined;
+      getActiveStyle(): CopcCesiumPointStyle | undefined;
       getSelectedPoint(): CopcPointInspection | undefined;
       getPickablePointScreenPosition(): { x: number; y: number } | undefined;
       estimateTerrainHeightAlignmentBatch?(
@@ -2936,6 +2937,9 @@ async function main(): Promise<void> {
           }
         : undefined;
     },
+    getActiveStyle: () => activeSession?.renderer === "cesium"
+      ? activeSession.getStyle()
+      : undefined,
     getSelectedPoint: () => activeSession?.getSelectedPoint(),
     estimateTerrainHeightAlignmentBatch: (candidates, options) => {
       const estimate = activeSession?.estimateTerrainHeightAlignmentBatch?.(

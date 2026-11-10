@@ -5,6 +5,14 @@ type DevViewerFocusTestApi = {
     renderer: string;
     schemaOptionValues?: Readonly<Record<string, unknown>>;
   };
+  getActiveStyle(): {
+    colorMode: string;
+    elevationRange?: { min: number; max: number };
+    elevationStyle?: {
+      interpolation?: string;
+      palette?: readonly { position: number; color: { alpha?: number } }[];
+    };
+  } | undefined;
   getPendingConfiguration(): {
     schemaOptionValues?: Readonly<Record<string, unknown>>;
   };
@@ -247,6 +255,67 @@ test("colors cached Intensity with an editable numeric ramp and inclusive filter
     .toBe("ready");
   await expect(code).toContainText("max: 350");
   expect(pageErrors).toEqual([]);
+});
+
+test("applies custom elevation ramps with Cesium restyle and Three constructor parity", async ({ page }) => {
+  test.setTimeout(180_000);
+  await page.goto("/?debugPanel=0");
+  await expect
+    .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.lifecycle))
+    .toBe("ready");
+  await expect
+    .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.rangeRequests.active))
+    .toBe(0);
+
+  const colorMode = page.getByRole("radiogroup", { name: "Color mode" });
+  await colorMode.getByRole("radio", { name: "Elevation" }).click();
+  const range = page.locator('[data-option-id="style.elevationRange"]');
+  const ramp = page.locator('[data-option-id="style.elevationStyle"]');
+  await expect(range).toBeVisible();
+  await expect(ramp).toBeVisible();
+  await range.getByLabel("Elevation range minimum metres").fill("-25");
+  await range.getByLabel("Elevation range minimum metres").dispatchEvent("change");
+  await range.getByLabel("Elevation range maximum metres").fill("1200");
+  await range.getByLabel("Elevation range maximum metres").dispatchEvent("change");
+  await ramp.getByLabel("Elevation color preset").selectOption("blue-white-red");
+  await ramp.getByLabel("Elevation ramp interpolation").selectOption("step");
+  await ramp.locator(".dimension-palette-details > summary").click();
+  await ramp.getByLabel("Stop 1 alpha from 0 to 1").fill("0.35");
+  await ramp.getByLabel("Stop 1 alpha from 0 to 1").dispatchEvent("change");
+  await expect(page.locator("#apply-settings")).toBeEnabled();
+  await expect(page.locator("#integration-example")).not.toContainText("elevationRange");
+
+  const before = await page.evaluate(() => ({
+    requested: window.__COPC_DEV_VIEWER__?.getSnapshot()?.rangeRequests.requested,
+    config: window.__COPC_DEV_VIEWER__?.getConfiguration(),
+  }));
+  await page.locator("#apply-settings").click();
+  await expect(page.locator("#apply-settings")).toBeDisabled();
+  await expect.poll(() => page.evaluate(() =>
+    window.__COPC_DEV_VIEWER__?.getActiveStyle()?.elevationRange,
+  )).toEqual({ min: -25, max: 1200 });
+  await expect.poll(() => page.evaluate(() =>
+    window.__COPC_DEV_VIEWER__?.getActiveStyle()?.elevationStyle?.interpolation,
+  )).toBe("step");
+  const appliedConfig = await page.evaluate(() => window.__COPC_DEV_VIEWER__?.getConfiguration());
+  expect(appliedConfig?.schemaOptionValues?.["style.elevationRange"]).toEqual({ min: -25, max: 1200 });
+  expect(appliedConfig?.schemaOptionValues?.["style.elevationStyle"]).toMatchObject({ interpolation: "step" });
+  await expect(page.locator("#integration-example")).toContainText("layer.setStyle({");
+  await expect(page.locator("#integration-example")).toContainText("elevationRange");
+  await expect(page.locator("#integration-example")).toContainText("alpha: 0.35");
+  const after = await page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.rangeRequests.requested);
+  expect(after).toBe(before.requested);
+
+  await page.getByRole("radiogroup", { name: "Renderer" }).getByRole("radio", { name: "Three.js" }).click();
+  await page.locator("#apply-settings").click();
+  await expect
+    .poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getSnapshot()?.lifecycle))
+    .toBe("ready");
+  await expect.poll(() => page.evaluate(() => window.__COPC_DEV_VIEWER__?.getConfiguration().renderer)).toBe("three");
+  await expect(page.locator("#integration-example")).toContainText("CopcThreeLayerOptions");
+  await expect(page.locator("#integration-example")).toContainText("elevationRange");
+  await expect(page.locator("#integration-example")).toContainText("elevationStyle");
+  await expect(page.locator("#integration-example")).not.toContainText("layer.setStyle(");
 });
 
 test("recreates required-loading Cesium when a new Intensity filter needs the field", async ({ page }) => {

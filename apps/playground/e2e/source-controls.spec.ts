@@ -34,6 +34,7 @@ type PlaygroundTestHooks = {
   getMockDestroyCount(): number;
   getMockLayerCreateCount(): number;
   getMockStyleUpdateCount(): number;
+  getMockStyleUpdate(): Readonly<Record<string, unknown>> | undefined;
   getMockOpacity(): number | undefined;
   getMockClippingVolume(): {
     readonly type: "box" | "planes";
@@ -706,6 +707,84 @@ test("failed Apply keeps the previous runtime and active generated configuration
   await expect(page.locator("#integration-example")).not.toContainText("pointSize: 4");
   await expect(page.locator(".runtime-host")).toHaveCount(1);
   await expect.poll(() => page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.getMockDestroyCount())).toBe(1);
+});
+
+test("applies custom elevation range and ramp through Cesium and copies only applied values", async ({ page }) => {
+  await page.goto("./");
+  await page.evaluate(() => (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.useCameraResetLayerMock());
+  await page.locator("#copc-file").setInputFiles({
+    name: "elevation-ramp.copc.laz",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("local test source"),
+  });
+  await expect(page.locator("#source-status")).toHaveText("Loaded elevation-ramp.copc.laz");
+  const before = await page.evaluate(() => {
+    const hooks = (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__;
+    return { loads: hooks?.getMockLoadCount(), styles: hooks?.getMockStyleUpdateCount() };
+  });
+
+  const range = page.locator('[data-option-id="style.elevationRange"]');
+  const ramp = page.locator('[data-option-id="style.elevationStyle"]');
+  await expect(range).toBeVisible();
+  await expect(ramp).toBeVisible();
+  await expect(ramp.locator(".elevation-ramp-legend-label")).toContainText("dataset bounds (m)");
+  await expect(ramp.locator(".elevation-ramp-legend-label")).toContainText("WGS 84 ellipsoidal height");
+
+  await range.getByLabel("Elevation range minimum metres").fill("10");
+  await range.getByLabel("Elevation range minimum metres").dispatchEvent("change");
+  await range.getByLabel("Elevation range maximum metres").fill("100");
+  await range.getByLabel("Elevation range maximum metres").dispatchEvent("change");
+  await ramp.getByLabel("Elevation color preset").selectOption("thermal");
+  await ramp.getByLabel("Elevation ramp interpolation").selectOption("step");
+  await ramp.locator(".dimension-palette-details > summary").click();
+  await ramp.getByLabel("Stop 1 alpha from 0 to 1").fill("0.45");
+  await ramp.getByLabel("Stop 1 alpha from 0 to 1").dispatchEvent("change");
+  await expect(page.getByRole("button", { name: "Apply changes" })).toBeEnabled();
+  await expect(page.locator("#integration-example")).not.toContainText("elevationRange");
+
+  await page.getByRole("button", { name: "Apply changes" }).click();
+  await expect(page.getByRole("button", { name: "Apply changes" })).toBeDisabled();
+  const code = page.locator("#integration-example");
+  await expect(code).toContainText("layer.setStyle({");
+  await expect(code).toContainText("elevationRange");
+  await expect(code).toContainText("interpolation: 'step'");
+  await expect(code).toContainText("alpha: 0.45");
+  const applied = await page.evaluate(() => {
+    const hooks = (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__;
+    return {
+      loads: hooks?.getMockLoadCount(),
+      styles: hooks?.getMockStyleUpdateCount(),
+      update: hooks?.getMockStyleUpdate(),
+    };
+  });
+  expect(applied.loads).toBe(before.loads);
+  expect(applied.styles).toBeGreaterThan(before.styles ?? 0);
+  expect(applied.update?.elevationRange).toEqual({ min: 10, max: 100 });
+  expect((applied.update?.elevationStyle as { interpolation?: string } | undefined)?.interpolation).toBe("step");
+
+  await range.getByLabel("Elevation range minimum metres").fill("150");
+  await range.getByLabel("Elevation range minimum metres").dispatchEvent("change");
+  await expect(range.locator(".schema-option__error")).toContainText("minimum less than maximum");
+  await expect(page.getByRole("button", { name: "Apply changes" })).toBeDisabled();
+  await expect(code).toContainText("max: 100");
+
+  await range.getByLabel("Elevation range minimum metres").fill("20");
+  await range.getByLabel("Elevation range minimum metres").dispatchEvent("change");
+  await expect(page.getByRole("button", { name: "Apply changes" })).toBeEnabled();
+  await range.getByRole("button", { name: "Use dataset range" }).click();
+  await ramp.getByRole("button", { name: "Reset ramp" }).click();
+  await page.getByRole("button", { name: "Apply changes" }).click();
+  await expect(page.getByRole("button", { name: "Apply changes" })).toBeDisabled();
+  await expect(code).not.toContainText("elevationRange");
+  await expect(code).not.toContainText("elevationStyle");
+  const reset = await page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.getMockStyleUpdate(),
+  );
+  expect(reset?.elevationRange).toBeNull();
+  expect(reset?.elevationStyle).toBeNull();
+  await expect.poll(() => page.evaluate(() =>
+    (window as Window & { __COPC_PLAYGROUND_TEST__?: PlaygroundTestHooks }).__COPC_PLAYGROUND_TEST__?.getMockLoadCount(),
+  )).toBe(before.loads);
 });
 
 test("a newer source selection supersedes a pending Apply without destroying the active layer", async ({ page }) => {

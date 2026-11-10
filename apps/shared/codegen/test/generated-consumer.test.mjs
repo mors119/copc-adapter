@@ -145,6 +145,18 @@ test("generated Cesium and Three snippets typecheck against the exact consumer p
       { position: 1, color: { red: 1, green: 0.1, blue: 0, alpha: 0.9 } },
     ],
   };
+  const elevationOptionValues = consumerProfile.manifest.capabilities.includes("style.elevation-ramp")
+    ? {
+        "style.elevationRange": { min: -25, max: 1200 },
+        "style.elevationStyle": {
+          interpolation: "step",
+          palette: [
+            { position: 0, color: { red: 0, green: 0.1, blue: 0.4, alpha: 0.25 } },
+            { position: 1, color: { red: 1, green: 0.2, blue: 0, alpha: 1 } },
+          ],
+        },
+      }
+    : {};
   const threeOptionValues = {
     ...(consumerProfile.manifest.version !== "0.6.0"
       ? {
@@ -196,6 +208,7 @@ test("generated Cesium and Three snippets typecheck against the exact consumer p
           "style.dimensionFilter": { name: "scanAngle", min: -20, max: 30 },
         }
       : {}),
+    ...elevationOptionValues,
   };
   assertSupportedOptionsCovered("cesium", cesiumMatrixValues);
   assertSupportedOptionsCovered("three", {
@@ -204,6 +217,7 @@ test("generated Cesium and Three snippets typecheck against the exact consumer p
     ...(consumerProfile.manifest.origin === "workspace"
       ? { "rendering.colorMode": "dimension", "style.dimension": dimensionStyle }
       : {}),
+    ...elevationOptionValues,
   });
 
   const cesium = generate("cesium", {
@@ -241,8 +255,21 @@ test("generated Cesium and Three snippets typecheck against the exact consumer p
       ...(consumerProfile.manifest.origin === "workspace"
         ? { "rendering.colorMode": "dimension", "style.dimension": dimensionStyle }
         : {}),
+      ...elevationOptionValues,
     },
   });
+  const cesiumElevation = consumerProfile.manifest.capabilities.includes("style.elevation-ramp")
+    ? generate("cesium", {
+        "rendering.colorMode": "elevation",
+        ...elevationOptionValues,
+      })
+    : undefined;
+  const threeElevation = consumerProfile.manifest.capabilities.includes("style.elevation-ramp")
+    ? generate("three", {
+        "rendering.colorMode": "elevation",
+        ...elevationOptionValues,
+      })
+    : undefined;
   const workspaceVerticalGrid = consumerProfile.manifest.capabilities.includes("vertical.gtx-grid")
     ? Object.assign(new class { sampleUndulation() { return 0; } }(), {
         gridId: "NGA EGM2008 2.5-minute WGS 84 Tide-Free small-endian grid",
@@ -357,6 +384,13 @@ test("generated Cesium and Three snippets typecheck against the exact consumer p
     assert.match(cesiumMatrix.code, /layer\.setStyle\(\{ classificationFilter: \{ include: \[2, 6\] \}, colorMode: 'intensity' \}\);/u);
   }
   assert.match(cesiumMatrix.code, /layer\.setRefinementFocus\(/u);
+  if (cesiumElevation && threeElevation) {
+    assert.match(cesiumElevation.code, /layer\.setStyle\(\{ colorMode: 'elevation', elevationRange:/u);
+    assert.match(cesiumElevation.code, /interpolation: 'step'/u);
+    assert.match(threeElevation.code, /elevationRange:/u);
+    assert.match(threeElevation.code, /elevationStyle:/u);
+    assert.doesNotMatch(threeElevation.code, /layer\.setStyle\(/u);
+  }
   if (consumerProfile.manifest.origin === "workspace") {
     assert.match(cesiumMatrix.code, /layer\.setOpacity\(0\.42\)/u);
     assert.match(cesiumMatrix.code, /layer\.setClippingVolume\(/u);
@@ -395,6 +429,12 @@ test("generated Cesium and Three snippets typecheck against the exact consumer p
       writeFile(threeFile, three.code),
       writeFile(join(temporaryDirectory, "cesium-options-matrix.ts"), cesiumMatrix.code),
       writeFile(join(temporaryDirectory, "three-options-matrix.ts"), threeMatrix.code),
+      ...(cesiumElevation && threeElevation
+        ? [
+            writeFile(join(temporaryDirectory, "cesium-elevation-ramp.ts"), cesiumElevation.code),
+            writeFile(join(temporaryDirectory, "three-elevation-ramp.ts"), threeElevation.code),
+          ]
+        : []),
       ...(cesiumGrid && threeGrid
         ? [
             writeFile(join(temporaryDirectory, "cesium-vertical-grid.ts"), cesiumGrid.code),

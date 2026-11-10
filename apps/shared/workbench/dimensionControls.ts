@@ -17,7 +17,7 @@ const DEFAULT_PALETTE: readonly SchemaDimensionColorStop[] = [
   { position: 1, color: { red: 0.85, green: 0.1, blue: 0.05, alpha: 0.9 } },
 ];
 
-const MAX_PALETTE_STOPS = 12;
+export const MAX_PALETTE_STOPS = 12;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -71,13 +71,13 @@ function clampByte(value: number): number {
   return Math.max(0, Math.min(255, Math.round(value * 255)));
 }
 
-function colorToHex(color: SchemaDimensionColorStop["color"]): string {
+export function colorToHex(color: SchemaDimensionColorStop["color"]): string {
   return "#" + [color.red, color.green, color.blue]
     .map((component) => clampByte(component).toString(16).padStart(2, "0"))
     .join("");
 }
 
-function hexToColor(hex: string, alpha: number): SchemaDimensionColorStop["color"] {
+export function hexToColor(hex: string, alpha: number): SchemaDimensionColorStop["color"] {
   const value = hex.replace(/^#/u, "");
   return {
     red: Number.parseInt(value.slice(0, 2), 16) / 255,
@@ -99,7 +99,7 @@ function getCurrentFilter(value: unknown): SchemaDimensionFilter | undefined {
     : undefined;
 }
 
-function colorCss(stop: SchemaDimensionColorStop): string {
+export function colorCss(stop: SchemaDimensionColorStop): string {
   const color = stop.color;
   return `rgba(${clampByte(color.red)}, ${clampByte(color.green)}, ${clampByte(color.blue)}, ${color.alpha ?? 0.9}) ${stop.position * 100}%`;
 }
@@ -112,7 +112,7 @@ function defaultBoundsHelp(metadata: SchemaNumericDimensionMetadata): string {
   return `Starting bounds: ${metadata.defaultRange.min}–${metadata.defaultRange.max} ${metadata.units}. ${metadata.defaultRangeNote ?? "These bounds are not observed point-sample limits."}`;
 }
 
-function createPaletteRows(
+export function createPaletteRows(
   target: HTMLElement,
   palette: readonly SchemaDimensionColorStop[],
   onChange: (palette: readonly SchemaDimensionColorStop[]) => void,

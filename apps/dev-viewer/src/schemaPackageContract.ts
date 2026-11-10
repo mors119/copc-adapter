@@ -53,10 +53,6 @@ type LayerCompatibilityExclusions =
   | "extraDimensions"
   // Dimension filtering is a runtime style option and not a constructor path.
   | "dimensionFilter"
-  // Elevation range and palette are public layer APIs; the viewer keeps its
-  // dataset-derived default and does not expose custom ramp controls yet.
-  | "elevationRange"
-  | "elevationStyle"
   | "opacity"
   | "clippingVolume";
 

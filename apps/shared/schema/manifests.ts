@@ -85,6 +85,17 @@ const npm071Capabilities = [
   "vertical.gtx-grid",
 ] as const;
 
+const npm080SupportedOptionIds = [
+  ...npm071SupportedOptionIds,
+  "style.elevationRange",
+  "style.elevationStyle",
+] as const;
+
+const npm080Capabilities = [
+  ...npm071Capabilities,
+  "style.elevation-ramp",
+] as const;
+
 /** Numeric reset values preserve the Playground's established opaque defaults. */
 export const PLAYGROUND_OPACITY_RESET_VALUES = {
   cesium: 1,
@@ -103,6 +114,7 @@ const workspaceCapabilities = [
   "cache.source-coordinate-retention",
   "style.numeric-dimension",
   "style.numeric-dimension-filter",
+  "style.elevation-ramp",
   "cesium.terrain-alignment",
   "vertical.gtx-grid",
 ] as const;
@@ -158,7 +170,7 @@ export const NPM_0_6_MANIFEST = createManifest(
   { cesium: ["streaming.maxConcurrentNodeLoads"] },
 );
 
-/** Exact compatibility manifest for the published Playground package with opacity, clipping, and cache policy APIs. */
+/** Exact compatibility manifest for the published Playground release with opacity, clipping, and cache policy APIs. */
 export const NPM_0_7_1_MANIFEST = createManifest(
   "npm",
   "0.7.1",
@@ -167,12 +179,12 @@ export const NPM_0_7_1_MANIFEST = createManifest(
   {},
 );
 
-/** Current public release; the Playground keeps its existing exposed option set. */
+/** Current public release; includes the public custom elevation ramp controls. */
 export const NPM_0_8_0_MANIFEST = createManifest(
   "npm",
   "0.8.0",
-  npm071SupportedOptionIds,
-  npm071Capabilities,
+  npm080SupportedOptionIds,
+  npm080Capabilities,
   {},
 );
 
@@ -219,8 +231,8 @@ export const NPM_0_7_1_SUPPORTED_OPTION_IDS = npm071SupportedOptionIds;
 export const NPM_0_7_1_CAPABILITIES = npm071Capabilities;
 /** Runtime gates for Playground's pinned npm 0.7.1 public grid loader. */
 export const PLAYGROUND_0_7_1_RUNTIME_CAPABILITIES = npm071Capabilities;
-export const NPM_0_8_0_SUPPORTED_OPTION_IDS = npm071SupportedOptionIds;
-export const NPM_0_8_0_CAPABILITIES = npm071Capabilities;
+export const NPM_0_8_0_SUPPORTED_OPTION_IDS = npm080SupportedOptionIds;
+export const NPM_0_8_0_CAPABILITIES = npm080Capabilities;
 /** Runtime gates for Playground's current npm release integration. */
-export const PLAYGROUND_0_8_0_RUNTIME_CAPABILITIES = npm071Capabilities;
+export const PLAYGROUND_0_8_0_RUNTIME_CAPABILITIES = npm080Capabilities;
 export const WORKSPACE_CURRENT_CAPABILITIES = workspaceCapabilities;
