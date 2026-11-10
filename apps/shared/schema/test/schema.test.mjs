@@ -72,7 +72,8 @@ test("schema integrity: IDs, mappings, defaults, controls, references, and capab
   const controls = new Set([
     "source", "renderer", "select", "attribute-selection", "number", "toggle",
     "attribute-loading", "point-field-selection",
-    "classification-filter", "dimension-style", "dimension-filter", "focus-lens",
+    "classification-filter", "dimension-style", "dimension-filter", "elevation-range",
+    "elevation-style", "focus-lens",
     "opacity", "clipping-volume",
     "vertical-grid", "cesium-renderer",
   ]);
@@ -86,6 +87,8 @@ test("schema integrity: IDs, mappings, defaults, controls, references, and capab
     "classification-filter": "classification-filter",
     "dimension-style": "dimension-style",
     "dimension-filter": "dimension-filter",
+    "elevation-range": "elevation-range",
+    "elevation-style": "elevation-style",
     "focus-lens": "focus-lens",
     "clipping-volume": "clipping-volume",
     "vertical-grid": "vertical-grid",
@@ -100,6 +103,8 @@ test("schema integrity: IDs, mappings, defaults, controls, references, and capab
     "classification-filter": ["classification-filter"],
     "dimension-style": ["dimension-style"],
     "dimension-filter": ["dimension-filter"],
+    "elevation-range": ["elevation-range"],
+    "elevation-style": ["elevation-style"],
     "focus-lens": ["focus-lens"],
     "clipping-volume": ["clipping-volume"],
     "vertical-grid": ["vertical-grid"],
@@ -164,7 +169,7 @@ test("schema integrity: IDs, mappings, defaults, controls, references, and capab
       assert.ok(option.runtimeMethod, option.id + " operation method");
     }
     for (const serialization of [option.serialization]) {
-      for (const key of serialization.kind === "scalar" || serialization.kind === "string-array"
+      for (const key of serialization.kind === "scalar" || serialization.kind === "string-array" || serialization.kind === "json"
         ? [serialization.key]
         : serialization.kind === "classification-filter"
           ? [serialization.includeKey, serialization.excludeKey, serialization.clearKey]
@@ -202,8 +207,8 @@ test("schema integrity: IDs, mappings, defaults, controls, references, and capab
   assert.ok(NPM_0_8_0_MANIFEST.supportedOptionIds.every((id) => NPM_0_8_0_MANIFEST.defaults[id]));
   assert.deepEqual(
     NPM_0_8_0_MANIFEST.supportedOptionIds,
-    NPM_0_7_1_MANIFEST.supportedOptionIds,
-    "the dependency update keeps Playground's exposed option set unchanged",
+    [...NPM_0_7_1_MANIFEST.supportedOptionIds, "style.elevationRange", "style.elevationStyle"],
+    "Playground adds only the verified 0.8.0 elevation ramp options",
   );
   assert.ok(ids.every((id) => WORKSPACE_CURRENT_MANIFEST.defaults[id]));
   assert.equal(new Set(NPM_0_6_MANIFEST.capabilities).size, NPM_0_6_MANIFEST.capabilities.length);
@@ -213,6 +218,10 @@ test("schema integrity: IDs, mappings, defaults, controls, references, and capab
   assert.ok(!NPM_0_6_MANIFEST.supportedOptionIds.includes("coordinates.verticalTransform"));
   assert.ok(!NPM_0_6_MANIFEST.supportedOptionIds.includes("style.dimension"));
   assert.ok(!NPM_0_6_MANIFEST.supportedOptionIds.includes("style.dimensionFilter"));
+  assert.ok(!NPM_0_7_1_MANIFEST.supportedOptionIds.includes("style.elevationRange"));
+  assert.ok(!NPM_0_7_1_MANIFEST.supportedOptionIds.includes("style.elevationStyle"));
+  assert.ok(NPM_0_8_0_MANIFEST.supportedOptionIds.includes("style.elevationRange"));
+  assert.ok(NPM_0_8_0_MANIFEST.supportedOptionIds.includes("style.elevationStyle"));
   assert.ok(!NPM_0_6_CAPABILITIES.includes("style.numeric-dimension"));
   assert.ok(!NPM_0_6_MANIFEST.capabilities.includes("vertical.gtx-grid"));
   assert.ok(!NPM_0_6_MANIFEST.capabilities.includes("cesium.terrain-alignment"));

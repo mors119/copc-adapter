@@ -133,6 +133,21 @@ test("constructor change detection distinguishes Cesium runtime color from Three
     hasConstructorChanges({ ...cesium, colorMode: "rgb" }, cesium),
     false,
   );
+  const elevationRamp = {
+    ...cesium,
+    schemaOptionValues: {
+      "style.elevationRange": { min: -25, max: 1200 },
+      "style.elevationStyle": { interpolation: "step" },
+    },
+  };
+  assert.equal(hasConstructorChanges(elevationRamp, cesium), false);
+  assert.equal(
+    hasConstructorChanges(
+      { ...elevationRamp, renderer: "three" },
+      { ...cesium, renderer: "three" },
+    ),
+    true,
+  );
   assert.equal(
     hasConstructorChanges({ ...cesium, pointSize: 4 }, cesium),
     true,

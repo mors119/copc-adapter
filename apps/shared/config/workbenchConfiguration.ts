@@ -803,7 +803,11 @@ export function buildSchemaApplicationPlan(
   const specializedOptions: SchemaSpecializedOption[] = [];
 
   for (const option of getSupportedOptions(activeContext, schema)) {
-    if (!own(values, option.id) || values[option.id] === undefined) continue;
+    if (
+      !own(values, option.id) ||
+      values[option.id] === undefined ||
+      (values[option.id] === null && option.nullable)
+    ) continue;
     if (!optionIsActive(option, values, activeContext, schema)) continue;
     const mode = getOptionApplyMode(option, activeContext.renderer);
     if (mode === "host") {

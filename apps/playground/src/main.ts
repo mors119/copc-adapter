@@ -729,6 +729,7 @@ declare global {
       getCameraView(): PlaygroundTestCameraView;
       getMockLoadCount(): number;
       getMockStyleUpdateCount(): number;
+      getMockStyleUpdate(): CopcCesiumPointStyleUpdate | undefined;
       getMockOpacity(): number | undefined;
       getMockClippingVolume(): Parameters<CopcCesiumLayer["setClippingVolume"]>[0];
       getAppliedConfig(): IntegrationCodeConfig | undefined;
@@ -795,6 +796,7 @@ if (import.meta.env.DEV) {
   let failNextMockStyle = false;
   let failNextMissingAttributeStyle = false;
   let mockStyleUpdateCount = 0;
+  let mockStyleUpdate: CopcCesiumPointStyleUpdate | undefined;
   let mockOpacity: number | undefined;
   let mockClippingVolume: Parameters<CopcCesiumLayer["setClippingVolume"]>[0];
   let releaseMockLoad: (() => void) | undefined;
@@ -802,6 +804,7 @@ if (import.meta.env.DEV) {
   window.__COPC_PLAYGROUND_TEST__ = {
     useCameraResetLayerMock(): void {
       layerFactory = (options) => {
+        mockStyleUpdate = undefined;
         mockLayerCreateCount += 1;
         mockLayerHeightOffsetMeters = options.heightOffsetMeters;
         mockLayerSettings = {
@@ -978,6 +981,7 @@ if (import.meta.env.DEV) {
               failNextMockStyle = false;
               throw new Error("Injected mock style failure");
             }
+            mockStyleUpdate = structuredClone(update);
             mockStyle = {
               ...mockStyle,
               ...(update.colorMode === undefined ? {} : { colorMode: update.colorMode }),
@@ -1051,6 +1055,9 @@ if (import.meta.env.DEV) {
     },
     getMockLoadCount: () => mockLoadCount,
     getMockStyleUpdateCount: () => mockStyleUpdateCount,
+    getMockStyleUpdate: () => mockStyleUpdate === undefined
+      ? undefined
+      : structuredClone(mockStyleUpdate),
     getMockOpacity: () => mockOpacity,
     getMockClippingVolume: () =>
       mockClippingVolume === undefined ? undefined : structuredClone(mockClippingVolume),
@@ -1483,7 +1490,7 @@ function updateApplyState(): void {
   applyChangesButton.disabled =
     !activeRuntimeReady ||
     appliedSource === undefined ||
-    (!hasPendingConstructorChanges && !hasPendingOpacityOrClippingChanges()) ||
+    (!hasPendingConstructorChanges && !hasPendingRuntimeChanges()) ||
     errors.length > 0 ||
     activeLoadPending ||
     activeRuntimeOperationPending;
@@ -1493,8 +1500,8 @@ function updateApplyState(): void {
       "No layer is active. Settings apply when a source is loaded.";
   } else if (activeLoadPending) {
     configState.textContent = "Applying settings; the active layer remains available until replacement succeeds.";
-  } else if (hasPendingOpacityOrClippingChanges()) {
-    configState.textContent = "Pending opacity and clipping settings apply to the active layer without reloading the source.";
+  } else if (hasPendingRuntimeChanges()) {
+    configState.textContent = "Pending runtime style, opacity, or clipping settings apply to the active layer without reloading the source.";
   } else if (hasPendingConstructorChanges) {
     configState.textContent = "Pending settings differ from the active layer. Apply changes to replace the layer.";
   } else {
@@ -1506,20 +1513,29 @@ function updateApplyState(): void {
   updateIntegrationExample();
 }
 
-function hasPendingOpacityOrClippingChanges(): boolean {
+function hasPendingRuntimeChanges(): boolean {
   if (!appliedConfig) return false;
   const changed = getChangedWorkbenchOptionIds(
     playgroundOptionValues(pendingConfig),
     playgroundOptionValues(appliedConfig),
   );
-  const runtimeOptionIds = new Set([
+  const runtimeOptionIds = new Set<string>([
     "rendering.opacity",
     "filtering.cesiumClippingVolume",
   ]);
+  if (
+    pendingConfig.renderer === "cesium" &&
+    appliedConfig.renderer === "cesium" &&
+    pendingConfig.colorMode === "elevation" &&
+    appliedConfig.colorMode === "elevation"
+  ) {
+    runtimeOptionIds.add("style.elevationRange");
+    runtimeOptionIds.add("style.elevationStyle");
+  }
   return changed.length > 0 && changed.every((id) => runtimeOptionIds.has(id));
 }
 
-async function applyOpacityAndClippingToActiveRuntime(
+async function applyRuntimeChangesToActiveLayer(
   config: IntegrationCodeConfig,
 ): Promise<void> {
   if (!activeRuntime || !appliedConfig || activeLoadPending) return;
@@ -3137,8 +3153,8 @@ const copcFileDropTarget = mountCopcFileDropTarget({
 
 applyChangesButton.addEventListener("click", () => {
   if (!appliedSource || !appliedConfig || validatePlaygroundConfig(pendingConfig, verticalGridResources.hostValidators).length > 0 || invalidNumericInputs.size > 0) return;
-  if (!hasConstructorChanges(pendingConfig, appliedConfig, verticalGridResources.hostValidators) && hasPendingOpacityOrClippingChanges()) {
-    void applyOpacityAndClippingToActiveRuntime(captureWorkbenchConfig());
+  if (!hasConstructorChanges(pendingConfig, appliedConfig, verticalGridResources.hostValidators) && hasPendingRuntimeChanges()) {
+    void applyRuntimeChangesToActiveLayer(captureWorkbenchConfig());
     return;
   }
   void loadSource(appliedSource, activeSourceName, {

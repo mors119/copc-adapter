@@ -201,6 +201,48 @@ test("plan maps nested constructor paths and keeps library-derived defaults omit
   ]);
 });
 
+test("elevation ramps restyle Cesium and rebuild Three using the public option names", () => {
+  const elevationRange = { min: -25, max: 1200 };
+  const elevationStyle = {
+    interpolation: "step",
+    palette: [
+      { position: 0, color: { red: 0, green: 0.1, blue: 0.4, alpha: 0.25 } },
+      { position: 1, color: { red: 1, green: 0.2, blue: 0, alpha: 1 } },
+    ],
+  };
+  const configured = validValues({
+    "style.elevationRange": elevationRange,
+    "style.elevationStyle": elevationStyle,
+  });
+
+  const cesium = buildSchemaApplicationPlan(configured, workspaceCesiumContext);
+  const styleUpdate = cesium.runtimeOperations.find(({ method }) => method === "setStyle");
+  assert.deepEqual(styleUpdate.argument.elevationRange, elevationRange);
+  assert.deepEqual(styleUpdate.argument.elevationStyle, elevationStyle);
+  assert.deepEqual(styleUpdate.optionIds, [
+    "rendering.colorMode",
+    "style.elevationRange",
+    "style.elevationStyle",
+  ]);
+
+  const three = buildSchemaApplicationPlan(
+    { ...configured, "renderer.engine": "three" },
+    workspaceThreeContext,
+  );
+  assert.deepEqual(three.constructorOptions.elevationRange, elevationRange);
+  assert.deepEqual(three.constructorOptions.elevationStyle, elevationStyle);
+  assert.equal(three.runtimeOperations.some(({ method }) => method === "setStyle"), false);
+
+  const reset = buildSchemaApplicationPlan(
+    { ...configured, "style.elevationRange": undefined, "style.elevationStyle": undefined },
+    workspaceCesiumContext,
+    configured,
+  );
+  const resetUpdate = reset.runtimeOperations.find(({ method }) => method === "setStyle");
+  assert.deepEqual(resetUpdate.argument, { elevationRange: null, elevationStyle: null });
+  assert.deepEqual(resetUpdate.rollbackArgument, { elevationRange, elevationStyle });
+});
+
 test("materializes Cesium pointFields as a Set and replaces the layer for cache policy changes", () => {
   const context = {
     manifest: NPM_0_7_1_MANIFEST,

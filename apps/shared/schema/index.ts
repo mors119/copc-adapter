@@ -65,6 +65,8 @@ export type {
   SchemaDimensionColorStop,
   SchemaDimensionFilter,
   SchemaDimensionStyle,
+  SchemaElevationRange,
+  SchemaElevationStyle,
   SchemaDefault,
   SchemaOption,
   SchemaHostValidators,

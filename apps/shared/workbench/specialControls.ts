@@ -11,6 +11,7 @@ import type {
 import { appendClassificationCode, LAS_1_4_CLASSIFICATION_CATALOG } from "./lasClassification.ts";
 import { createSelectedPointEcefBox } from "./clippingGeometry.ts";
 import { renderDimensionSpecialControl } from "./dimensionControls.ts";
+import { renderElevationRampSpecialControl } from "./elevationRampControls.ts";
 
 function textInput(
   id: string,
@@ -756,6 +757,8 @@ function createPointFieldSelectionControl(
 export function renderSharedSpecialControl(
   options: SchemaSpecialControlOptions,
 ): SchemaSpecialControl | undefined {
+  const elevationRampControl = renderElevationRampSpecialControl(options);
+  if (elevationRampControl) return elevationRampControl;
   const dimensionControl = renderDimensionSpecialControl(options);
   if (dimensionControl) return dimensionControl;
   switch (options.option.control) {

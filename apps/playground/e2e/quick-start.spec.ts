@@ -7,7 +7,7 @@ test("first visit explains remote Probe/Load and the local-file exception", asyn
 
   const guide = page.locator("#quick-start-content");
   await expect(guide).toBeVisible();
-  await expect(page.getByRole("button", { name: "Quick start" })).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByRole("button", { name: "Quick start", exact: true })).toHaveAttribute("aria-expanded", "true");
   await expect(guide).toContainText("Choose a source");
   await expect(guide).toContainText("Probe source");
   await expect(guide).toContainText("Load source");
@@ -23,12 +23,12 @@ test("dismissal persists without blocking manual reopening or Escape", async ({ 
 
   await page.getByRole("button", { name: "Got it" }).click();
   await expect(page.locator("#quick-start-content")).toBeHidden();
-  await expect(page.getByRole("button", { name: "Quick start" })).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByRole("button", { name: "Quick start", exact: true })).toHaveAttribute("aria-expanded", "false");
   expect(await page.evaluate((key) => localStorage.getItem(key), preferenceKey)).toBe("1");
 
   await page.reload();
   await expect(page.locator("#quick-start-content")).toBeHidden();
-  const toggle = page.getByRole("button", { name: "Quick start" });
+  const toggle = page.getByRole("button", { name: "Quick start", exact: true });
   await toggle.click();
   await expect(page.locator("#quick-start-content")).toBeVisible();
 

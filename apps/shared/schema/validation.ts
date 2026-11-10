@@ -90,6 +90,46 @@ function validateClippingVolume(
   });
 }
 
+function validateRampPalette(label: string, palette: unknown): string[] {
+  const errors: string[] = [];
+  if (!Array.isArray(palette) || palette.length < 2) {
+    return [label + " palette must contain at least two stops."];
+  }
+  let previous = -1;
+  for (const [index, stopValue] of palette.entries()) {
+    if (!isRecord(stopValue)) {
+      errors.push(label + " palette stop " + index + " must be an object.");
+      continue;
+    }
+    const stop = stopValue as unknown as SchemaDimensionColorStop;
+    if (
+      typeof stop.position !== "number" ||
+      !Number.isFinite(stop.position) ||
+      stop.position < 0 ||
+      stop.position > 1 ||
+      stop.position <= previous
+    ) {
+      errors.push(label + " stop positions must increase strictly from 0 to 1.");
+    }
+    previous = typeof stop.position === "number" ? stop.position : previous;
+    if (!isRecord(stop.color)) {
+      errors.push(label + " palette stop " + index + " must have a color.");
+      continue;
+    }
+    const components = [stop.color.red, stop.color.green, stop.color.blue];
+    if (stop.color.alpha !== undefined) components.push(stop.color.alpha);
+    if (components.some((component) =>
+      typeof component !== "number" || !Number.isFinite(component) || component < 0 || component > 1
+    )) {
+      errors.push(label + " palette colors and alpha must be normalized values from 0 to 1.");
+    }
+  }
+  if (palette[0]?.position !== 0 || palette.at(-1)?.position !== 1) {
+    errors.push(label + " palette must include endpoint stops at 0 and 1.");
+  }
+  return errors;
+}
+
 /** Validate one UI value using schema constraints; adapter checks remain authoritative. */
 export function validateOptionValue(
   option: SchemaOption,
@@ -266,45 +306,40 @@ export function validateOptionValue(
         errors.push(option.label + " NoData value must be finite.");
       }
       if (style.palette !== undefined) {
-        if (!Array.isArray(style.palette) || style.palette.length < 2) {
-          errors.push(option.label + " palette must contain at least two stops.");
-        } else {
-          let previous = -1;
-          for (const [index, stopValue] of style.palette.entries()) {
-            if (!isRecord(stopValue)) {
-              errors.push(option.label + " palette stop " + index + " must be an object.");
-              continue;
-            }
-            const stop = stopValue as unknown as SchemaDimensionColorStop;
-            if (
-              typeof stop.position !== "number" ||
-              !Number.isFinite(stop.position) ||
-              stop.position < 0 ||
-              stop.position > 1 ||
-              stop.position <= previous
-            ) {
-              errors.push(option.label + " stop positions must increase strictly from 0 to 1.");
-            }
-            previous = typeof stop.position === "number" ? stop.position : previous;
-            if (!isRecord(stop.color)) {
-              errors.push(option.label + " palette stop " + index + " must have a color.");
-              continue;
-            }
-            const components = [stop.color.red, stop.color.green, stop.color.blue];
-            if (stop.color.alpha !== undefined) components.push(stop.color.alpha);
-            if (components.some((component) =>
-              typeof component !== "number" || !Number.isFinite(component) || component < 0 || component > 1
-            )) {
-              errors.push(option.label + " palette colors and alpha must be normalized values from 0 to 1.");
-            }
-          }
-          if (
-            style.palette[0]?.position !== 0 ||
-            style.palette.at(-1)?.position !== 1
-          ) {
-            errors.push(option.label + " palette must include endpoint stops at 0 and 1.");
-          }
-        }
+        errors.push(...validateRampPalette(option.label, style.palette));
+      }
+      break;
+    }
+    case "elevation-range": {
+      if (!isRecord(value) || !hasOnlyKeys(value, ["min", "max"])) {
+        errors.push(option.label + " must contain only minimum and maximum bounds.");
+        break;
+      }
+      if (
+        typeof value.min !== "number" ||
+        !Number.isFinite(value.min) ||
+        typeof value.max !== "number" ||
+        !Number.isFinite(value.max) ||
+        value.min >= value.max
+      ) {
+        errors.push(option.label + " must have finite metre bounds with minimum less than maximum.");
+      }
+      break;
+    }
+    case "elevation-style": {
+      if (!isRecord(value) || !hasOnlyKeys(value, ["palette", "interpolation"])) {
+        errors.push(option.label + " contains unsupported fields.");
+        break;
+      }
+      if (
+        value.interpolation !== undefined &&
+        value.interpolation !== "linear" &&
+        value.interpolation !== "step"
+      ) {
+        errors.push(option.label + " interpolation must be linear or step.");
+      }
+      if (value.palette !== undefined) {
+        errors.push(...validateRampPalette(option.label, value.palette));
       }
       break;
     }

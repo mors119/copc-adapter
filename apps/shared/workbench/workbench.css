@@ -499,7 +499,9 @@
 }
 
 .schema-special-dimension,
-.schema-special-dimension-filter {
+.schema-special-dimension-filter,
+.schema-special-elevation-range,
+.schema-special-elevation-style {
   display: grid;
   gap: 0.45rem;
   min-width: 0;
@@ -514,16 +516,34 @@
 .schema-special-dimension input[type="number"],
 .schema-special-dimension select,
 .schema-special-dimension-filter input[type="number"],
-.schema-special-dimension-filter select {
+.schema-special-dimension-filter select,
+.schema-special-elevation-range input[type="number"],
+.schema-special-elevation-style select {
   box-sizing: border-box;
   min-width: 0;
   width: 100%;
 }
 
-.dimension-range-row {
+.schema-special-elevation-range .ui-field,
+.schema-special-elevation-style .ui-field {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.dimension-range-row,
+.elevation-range-row {
   display: grid;
   gap: 0.45rem;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.elevation-range-legend,
+.elevation-ramp-legend-label {
+  color: var(--workbench-muted, #a8b5c3);
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.65rem;
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .dimension-ramp-legend {
