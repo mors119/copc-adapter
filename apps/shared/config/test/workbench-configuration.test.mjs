@@ -545,7 +545,7 @@ test("specialized constructor options are kept out of generic API mapping", () =
   assert.deepEqual(plan.specializedOptions, [
     {
       optionId: "attributes.extraDimensions",
-      handler: "copc-js-extra-dimensions",
+      handler: "backend-extra-dimensions",
       apiPath: "backend.extraDimensions",
       value: ["gps-time"],
     },
@@ -569,9 +569,10 @@ test("specialized Extra Dimensions instantiate the host-selected copc-js backend
     return { type: "configured-copc-js", ...options };
   });
 
-  assert.deepEqual(factoryCalls, [{ extraDimensions: ["gps-time", "leg_id"] }]);
+  assert.deepEqual(factoryCalls, [{ backend: "copc-js", extraDimensions: ["gps-time", "leg_id"] }]);
   assert.deepEqual(backend, {
     type: "configured-copc-js",
+    backend: "copc-js",
     extraDimensions: ["gps-time", "leg_id"],
   });
 
@@ -579,6 +580,16 @@ test("specialized Extra Dimensions instantiate the host-selected copc-js backend
   assert.equal(resolveSchemaBackendSelection(plainPlan, () => {
     throw new Error("The backend factory must not run without specialized options.");
   }), "copc-js");
+});
+
+test("specialized Extra Dimensions select the Rust backend when configured", () => {
+  const values = validValues({
+    "adapter.backend": "rust",
+    "attributes.extraDimensions": ["gps-time"],
+  });
+  const plan = buildSchemaApplicationPlan(values, workspaceCesiumContext);
+  const backend = resolveSchemaBackendSelection(plan, (options) => options);
+  assert.deepEqual(backend, { backend: "rust", extraDimensions: ["gps-time"] });
 });
 
 test("runtime style edits avoid layer recreation and reset nullable filters explicitly", async () => {

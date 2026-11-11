@@ -17,6 +17,12 @@ import type {
 } from "./types/copc";
 import type { RandomAccessByteSource } from "./range/types";
 import type { CopcPointLoadOptions } from "./backend/types";
+import type { CopcExtraDimensionSelection } from "./points/extraDimensions";
+import {
+  mapRustCopcExtraDimensionMetadata,
+  normalizeCopcExtraDimensionSelection,
+  resolveCopcExtraDimensionRequest,
+} from "./points/extraDimensions";
 import type { CopcHierarchyPageLoadOptions } from "./hierarchy/types";
 import type { CopcPointFieldSelection } from "./points/fieldSelection";
 import type { CopcWorkerDiagnostics } from "./backend/types";
@@ -35,6 +41,8 @@ export type RustCopcReaderOptions = {
   readonly maxRangeBytes?: number;
   /** Additive correction to WGS84 ellipsoidal point heights, in metres; defaults to 0. */
   readonly heightOffsetMeters?: number;
+  /** Extra Bytes dimensions to retain for each point; omitted keeps them opt-in. */
+  readonly extraDimensions?: CopcExtraDimensionSelection;
 };
 
 type RustHeaderValue = {
@@ -64,6 +72,17 @@ type RustHeaderValue = {
   root_hierarchy_page_length: number;
   /** Source CRS WKT, when present. */
   wkt?: string;
+  extra_dimensions: Array<{
+    name: string;
+    type?: "signed" | "unsigned" | "float" | null;
+    length: number;
+    byte_offset: number;
+    scale?: number | null;
+    offset?: number | null;
+    no_data?: number | null;
+    no_data_exact?: string | null;
+    supported_scalar?: boolean | null;
+  }>;
 };
 
 type RustHierarchyValue = {
@@ -458,6 +477,8 @@ export class RustCopcReader {
   readonly maxRangeBytes: number;
   /** Additive ellipsoidal-height correction used by prepared-point reads. */
   readonly heightOffsetMeters: number;
+  /** Source-wide Extra Bytes selection after backend and open options merge. */
+  readonly configuredExtraDimensions?: CopcExtraDimensionSelection;
   private readonly byteSource: RandomAccessByteSource;
   private readonly crsWktProvenance: CopcCrsWktProvenance;
   private readonly decodeWorkerPool?: RustCopcDecodeWorkerPool;
@@ -470,12 +491,14 @@ export class RustCopcReader {
     maxRangeBytes: number,
     heightOffsetMeters: number,
     crsWktProvenance: CopcCrsWktProvenance,
+    configuredExtraDimensions?: CopcExtraDimensionSelection,
   ) {
     this.byteSource = byteSource;
     this.source = byteSource.source;
     this.header = header;
     this.maxRangeBytes = maxRangeBytes;
     this.heightOffsetMeters = heightOffsetMeters;
+    this.configuredExtraDimensions = configuredExtraDimensions;
     this.crsWktProvenance = crsWktProvenance;
     this.decodeWorkerPool =
       typeof Worker !== "undefined"
@@ -561,6 +584,7 @@ export class RustCopcReader {
     const header: RustCopcHeader = {
       ...parsedHeader,
       wkt: parsedHeader.wkt ?? undefined,
+      extra_dimensions: parsedHeader.extra_dimensions ?? [],
     };
     const reader = new RustCopcReader(
       byteSource,
@@ -568,6 +592,7 @@ export class RustCopcReader {
       maxRangeBytes,
       heightOffsetMeters,
       crsWktProvenance,
+      normalizeCopcExtraDimensionSelection(options.extraDimensions),
     );
     reader.metadataBytes = metadataBytes;
     reader.decodeWorkerPool?.setMetadata(metadataBytes);
@@ -604,6 +629,7 @@ export class RustCopcReader {
         available: [...this.crsWktProvenance.available],
       },
       crsDiagnostic: resolveCopcCrsMetadata(this.header.wkt, this.crsWktProvenance),
+      extraDimensions: mapRustCopcExtraDimensionMetadata(this.header.extra_dimensions),
     };
   }
 
@@ -681,6 +707,7 @@ export class RustCopcReader {
     fields: CopcPointFieldSelection,
     options: CopcPointLoadOptions = {},
   ): Promise<CopcPointBuffer> {
+    const extraDimensions = this.resolveExtraDimensions(options.extraDimensions);
     const { metadataBytes, chunkBytes, pointCount } = await this.readNodeChunk(
       node,
       fields,
@@ -694,6 +721,7 @@ export class RustCopcReader {
           nodeKey: node.key,
           pointCount,
           requestedFields: getRustPointFieldMask(fields),
+          extraDimensions,
           chunk: chunkBytes,
         },
         options.workload ?? "view",
@@ -717,6 +745,7 @@ export class RustCopcReader {
       fields,
       loadCopcWasm,
       this.maxRangeBytes,
+      extraDimensions,
     );
     this.resolvePerformanceObserver(options.performanceObserver)?.({
       stage: "decode",
@@ -741,6 +770,7 @@ export class RustCopcReader {
     fields: CopcPointFieldSelection,
     options: CopcPointLoadOptions = {},
   ): Promise<PreparedPointData> {
+    const extraDimensions = this.resolveExtraDimensions(options.extraDimensions);
     const { metadataBytes, chunkBytes, pointCount } = await this.readNodeChunk(
       node,
       fields,
@@ -752,6 +782,7 @@ export class RustCopcReader {
       nodeKey: node.key,
       pointCount,
       requestedFields: getRustPointFieldMask(fields),
+      extraDimensions,
       chunk: chunkBytes,
     };
     if (this.decodeWorkerPool) {
@@ -788,6 +819,7 @@ export class RustCopcReader {
       chunkBytes,
       pointCount,
       fields,
+      extraDimensions,
     );
     this.resolvePerformanceObserver(options.performanceObserver)?.({
       stage: "decode",
@@ -803,6 +835,16 @@ export class RustCopcReader {
     });
     throwIfPointLoadAborted(options.signal);
     return result.prepared;
+  }
+
+  private resolveExtraDimensions(
+    requested: readonly string[] | undefined,
+  ): readonly string[] {
+    return resolveCopcExtraDimensionRequest(
+      this.configuredExtraDimensions,
+      requested,
+      this.header.extra_dimensions.map(({ name }) => name),
+    ) ?? [];
   }
 
   private async readNodeChunk(

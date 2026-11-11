@@ -1,5 +1,6 @@
 use crate::binary::{ensure_range, read_f64, read_u16, read_u32, read_u64};
 use crate::error::{CopcError, Result};
+use crate::extra_bytes::{ExtraBytesDescriptor, parse_extra_bytes_descriptors};
 use crate::vlr::{VlrVisit, for_each_evlr, for_each_vlr};
 
 const LAS_HEADER_SIZE: usize = 375;
@@ -20,6 +21,7 @@ pub struct CopcHeader {
     pub root_hierarchy_page_offset: u64,
     pub root_hierarchy_page_length: u64,
     pub wkt: Option<String>,
+    pub extra_dimensions: Vec<ExtraBytesDescriptor>,
 }
 
 struct CopcInfo {
@@ -92,6 +94,7 @@ pub fn parse_header(bytes: &[u8]) -> Result<CopcHeader> {
     let mut copc_info: Option<CopcInfo> = None;
     let mut wkt: Option<String> = None;
     let mut wkt_record_found = false;
+    let mut extra_bytes_payloads: Vec<Vec<u8>> = Vec::new();
 
     for_each_vlr(
         bytes,
@@ -137,6 +140,10 @@ pub fn parse_header(bytes: &[u8]) -> Result<CopcHeader> {
                 if !value.is_empty() {
                     wkt = Some(value);
                 }
+            }
+
+            if record_user_id == "LASF_Spec" && record_id == 4 {
+                extra_bytes_payloads.push(payload.to_vec());
             }
 
             Ok(VlrVisit::Continue)
@@ -187,6 +194,45 @@ pub fn parse_header(bytes: &[u8]) -> Result<CopcHeader> {
             "COPC info VLR (user ID copc, record ID 1) was not found",
         )
     })?;
+    let base_record_length = match point_data_record_format {
+        0 => Some(20),
+        1 => Some(28),
+        2 => Some(26),
+        3 => Some(34),
+        4 => Some(57),
+        5 => Some(63),
+        6 => Some(30),
+        7 => Some(36),
+        8 => Some(38),
+        9 => Some(59),
+        10 => Some(67),
+        _ => None,
+    };
+    let extra_dimensions = if extra_bytes_payloads.is_empty() {
+        Vec::new()
+    } else {
+        let base_record_length = base_record_length.ok_or_else(|| {
+            CopcError::new(
+                "unsupported-point-format",
+                format!(
+                    "LAS point format {point_data_record_format} has no known base record size"
+                ),
+            )
+        })?;
+        let extra_record_length = usize::from(point_data_record_length)
+            .checked_sub(base_record_length)
+            .ok_or_else(|| {
+                CopcError::new(
+                    "malformed-extra-bytes",
+                    "LAS point record is shorter than its format-defined fields",
+                )
+            })?;
+        let payloads = extra_bytes_payloads
+            .iter()
+            .map(Vec::as_slice)
+            .collect::<Vec<_>>();
+        parse_extra_bytes_descriptors(&payloads, extra_record_length)?
+    };
     let root_offset = copc_info.root_offset;
     let root_length = copc_info.root_length;
     if root_length == 0 {
@@ -237,6 +283,7 @@ pub fn parse_header(bytes: &[u8]) -> Result<CopcHeader> {
         root_hierarchy_page_offset: root_offset,
         root_hierarchy_page_length: root_length,
         wkt,
+        extra_dimensions,
     })
 }
 

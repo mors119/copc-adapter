@@ -13,6 +13,7 @@ mod binary;
 mod crs;
 mod decoder;
 mod error;
+mod extra_bytes;
 mod header;
 mod hierarchy;
 mod interleave;
@@ -24,10 +25,14 @@ pub use crs::{
     geographic_to_ecef,
 };
 pub use decoder::{
-    CopcNodeDecoder, DEFAULT_MAX_NODE_CHUNK_BYTES, DecodedCopcNode, FIELD_CLASSIFICATION,
-    FIELD_INTENSITY, FIELD_RGB, decode_copc_node, decode_copc_node_with_max_chunk_bytes,
+    CopcNodeDecoder, DEFAULT_MAX_NODE_CHUNK_BYTES, DecodedCopcNode,
+    DecodedCopcNodeWithExtraDimensions, DecodedExtraDimension, DecodedExtraDimensionValue,
+    DecodedExtraDimensionValues, FIELD_CLASSIFICATION, FIELD_INTENSITY, FIELD_RGB,
+    decode_copc_node, decode_copc_node_with_extra_dimensions,
+    decode_copc_node_with_max_chunk_bytes,
 };
 pub use error::{CopcError, Result};
+pub use extra_bytes::{ExtraBytesDescriptor, ExtraBytesPrimitive, ExtraBytesValue};
 pub use header::{CopcHeader, parse_header};
 pub use hierarchy::{
     RootHierarchy, RootHierarchyNode, RootHierarchyPage, parse_root_hierarchy,
@@ -35,5 +40,6 @@ pub use hierarchy::{
 };
 pub use interleave::interleave_xyz;
 pub use preparation::{
-    CopcNodePreparer, PreparedCopcNode, PreparedPointRange, PreparedPointStatistics,
+    CopcNodePreparer, PreparedCopcNode, PreparedCopcNodeWithExtraDimensions, PreparedPointRange,
+    PreparedPointStatistics,
 };

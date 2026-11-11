@@ -51,9 +51,9 @@ The CesiumJS captures use the local Autzen Stadium COPC sample.
   </tbody>
 </table>
 
-Attribute-based styles depend on fields available in the dataset and support
-in the selected backend. Rust/WASM supports standard LAS `Intensity` but
-rejects Extra Bytes requests.
+Attribute-based styles depend on fields available in the dataset and supported
+by the selected backend. Rust/WASM supports standard LAS attributes and
+selectively decoded scalar LAS Extra Bytes.
 
 The supported modes are:
 
@@ -73,7 +73,7 @@ without a classification value are hidden while a filter is active. Use
 `classificationFilter: null` to clear a classification filter.
 
 Numeric dimension coloring accepts standard LAS `Intensity` on both built-in
-backends and supported scalar Extra Bytes through `copc-js`. Extra Bytes are
+backends and supported scalar Extra Bytes through either backend. Extra Bytes are
 opt-in and count toward the point cache:
 
 ```ts
@@ -91,10 +91,10 @@ const layer = new CopcCesiumLayer({
 The style's dimension is loaded automatically; add `extraDimensions` for
 additional fields you want to inspect or switch to later. Numeric values clamp
 to the ramp ends, NoData/non-finite values use fixed cyan, and a dimension
-filter hides missing or out-of-range values. `copc-js` supports scalar signed
-and unsigned 8-, 16-, and 32-bit integers plus 32-/64-bit floats for numeric
-styling. 64-bit integer values remain exact for picking but cannot be styled as
-JavaScript numbers.
+filter hides missing or out-of-range values. Both built-in backends support
+scalar signed and unsigned 8-, 16-, and 32-bit integers plus 32-/64-bit floats
+for numeric styling. 64-bit integer values remain exact for picking but cannot
+be styled as JavaScript numbers.
 
 ### Camera-Driven LoD and Streaming
 

@@ -11,6 +11,7 @@ function createFakeWorkerHarness({
   fail = false,
   failPrepare = false,
   initFail = false,
+  invalidExtra = false,
 } = {}) {
   const workers = [];
   const initializations = [];
@@ -84,6 +85,24 @@ function createFakeWorkerHarness({
           message.requestedFields & 4 ? new Uint16Array([102]) : undefined;
         const blue =
           message.requestedFields & 4 ? new Uint16Array([103]) : undefined;
+        const extraDimensions = (message.extraDimensions ?? []).map((name) => {
+          if (invalidExtra) {
+            return { name, valueType: "uint64", buffer: new ArrayBuffer(0) };
+          }
+          if (name === "uint64") {
+            const values = new BigUint64Array(message.pointCount);
+            values.fill(9_007_199_254_740_993n);
+            return { name, valueType: "uint64", buffer: values.buffer };
+          }
+          if (name === "int64") {
+            const values = new BigInt64Array(message.pointCount);
+            values.fill(-9_007_199_254_740_995n);
+            return { name, valueType: "int64", buffer: values.buffer };
+          }
+          const values = new Float64Array(message.pointCount);
+          values.fill(1.25);
+          return { name, valueType: "float64", buffer: values.buffer };
+        });
         const response = {
           type: "result",
           id: message.id,
@@ -125,6 +144,7 @@ function createFakeWorkerHarness({
           red: red?.buffer,
           green: green?.buffer,
           blue: blue?.buffer,
+          extraDimensions,
         };
         this.onmessage?.({ data: response });
       }, delay);
@@ -165,11 +185,12 @@ test("Rust decode worker pool passes the configured range limit to workers", asy
   pool.destroy();
 });
 
-function request(nodeKey, pointCount = 1, requestedFields = 0) {
+function request(nodeKey, pointCount = 1, requestedFields = 0, extraDimensions) {
   return {
     nodeKey,
     pointCount,
     requestedFields,
+    ...(extraDimensions ? { extraDimensions } : {}),
     chunk: new Uint8Array([1, 2, 3]),
   };
 }
@@ -250,6 +271,44 @@ test("Rust decode worker pool transfers project-owned XYZ and attributes", async
   assert.deepEqual([...result.attributes.green], [102]);
   assert.deepEqual([...result.attributes.blue], [103]);
   assert.equal(result.decodeDurationMs, 5);
+  pool.destroy();
+});
+
+test("Rust decode workers transfer exact Extra Bytes arrays with their value types", async () => {
+  const harness = createFakeWorkerHarness();
+  const pool = new RustCopcDecodeWorkerPool({
+    workerCount: 1,
+    workerFactory: harness.factory,
+  });
+  pool.setMetadata(new Uint8Array([1]));
+
+  const result = await pool.submit(
+    request("extra-dimensions", 1, 0, ["uint64", "int64", "height"]),
+  );
+  assert.ok(result.attributes.extraDimensions.uint64 instanceof BigUint64Array);
+  assert.ok(result.attributes.extraDimensions.int64 instanceof BigInt64Array);
+  assert.ok(result.attributes.extraDimensions.height instanceof Float64Array);
+  assert.equal(result.attributes.extraDimensions.uint64[0], 9_007_199_254_740_993n);
+  assert.equal(result.attributes.extraDimensions.int64[0], -9_007_199_254_740_995n);
+  assert.equal(result.attributes.extraDimensions.height[0], 1.25);
+  pool.destroy();
+});
+
+test("Rust decode worker pool rejects malformed Extra Bytes transfer buffers", async () => {
+  const harness = createFakeWorkerHarness({ invalidExtra: true });
+  const pool = new RustCopcDecodeWorkerPool({
+    workerCount: 1,
+    workerFactory: harness.factory,
+  });
+  pool.setMetadata(new Uint8Array([1]));
+
+  await assert.rejects(
+    pool.submit(request("invalid-extra-dimensions", 1, 0, ["uint64"])),
+    (error) =>
+      error instanceof RustCopcWorkerError &&
+      error.workerCode === "worker-message" &&
+      /invalid Extra Bytes buffer/u.test(error.message),
+  );
   pool.destroy();
 });
 

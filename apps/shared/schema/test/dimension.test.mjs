@@ -14,6 +14,7 @@ const metadata = {
     { name: "scaled_float", type: "float", length: 4, scale: 2, offset: -3 },
     { name: "rank", type: "unsigned", length: 4, scale: 2, offset: -1 },
     { name: "record_id", type: "unsigned", length: 8 },
+    { name: "byte_pair", type: "unsigned", length: 2, supportedScalar: false },
     { name: "vector", type: "float", length: 12 },
     { name: "Intensity", type: "unsigned", length: 2 },
   ],
@@ -21,7 +22,7 @@ const metadata = {
 
 test("numeric fields use exact metadata, supported scalar types, and truthful decode state", () => {
   const fields = getWorkbenchNumericDimensions(metadata, "copc-js", ["rank"]);
-  assert.deepEqual(fields.map(({ name }) => name), ["Intensity", "height", "scaled_float", "rank", "record_id", "vector"]);
+  assert.deepEqual(fields.map(({ name }) => name), ["Intensity", "height", "scaled_float", "rank", "record_id", "byte_pair", "vector"]);
   assert.equal(fields[0].decoded, true);
   assert.equal(fields.find(({ name }) => name === "height").decoded, false);
   assert.equal(fields.find(({ name }) => name === "height").styleable, true);
@@ -35,15 +36,18 @@ test("numeric fields use exact metadata, supported scalar types, and truthful de
   assert.equal(fields.find(({ name }) => name === "rank").decoded, true);
   assert.equal(fields.find(({ name }) => name === "record_id").styleable, false);
   assert.match(fields.find(({ name }) => name === "record_id").unsupportedReason, /BigInt/u);
+  assert.equal(fields.find(({ name }) => name === "byte_pair").styleable, false);
+  assert.match(fields.find(({ name }) => name === "byte_pair").unsupportedReason, /scalar/u);
   assert.equal(fields.find(({ name }) => name === "vector").styleable, false);
 });
 
-test("Rust metadata does not advertise named Extra Bytes as usable color fields", () => {
+test("Rust metadata advertises scalar Extra Bytes and preserves BigInt limitations", () => {
   const fields = getWorkbenchNumericDimensions(metadata, "rust", ["rank"]);
   assert.equal(fields.find(({ name }) => name === "Intensity").styleable, true);
-  assert.equal(fields.find(({ name }) => name === "rank").styleable, false);
-  assert.match(fields.find(({ name }) => name === "rank").unsupportedReason, /Rust\/WASM/u);
-  assert.equal(fields.find(({ name }) => name === "rank").decoded, false);
+  assert.equal(fields.find(({ name }) => name === "rank").styleable, true);
+  assert.equal(fields.find(({ name }) => name === "rank").decoded, true);
+  assert.equal(fields.find(({ name }) => name === "record_id").styleable, false);
+  assert.match(fields.find(({ name }) => name === "record_id").unsupportedReason, /BigInt/u);
 });
 
 test("default ramps use the exact selected descriptor and carry declared NoData", () => {

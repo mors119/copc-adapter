@@ -9,6 +9,7 @@ type ExtraDimensionDescriptor = {
   readonly name: string;
   readonly type?: "signed" | "unsigned" | "float";
   readonly length: number;
+  readonly supportedScalar?: boolean;
   readonly scale?: number;
   readonly offset?: number;
   readonly noData?: number;
@@ -54,6 +55,7 @@ function floatStarterRange(dimension: ExtraDimensionDescriptor): { min: number; 
 }
 
 function styleableDescriptor(dimension: ExtraDimensionDescriptor): boolean {
+  if (dimension.supportedScalar === false) return false;
   return dimension.type === "signed" || dimension.type === "unsigned"
     ? [1, 2, 4].includes(dimension.length)
     : dimension.type === "float" && [4, 8].includes(dimension.length);
@@ -61,12 +63,12 @@ function styleableDescriptor(dimension: ExtraDimensionDescriptor): boolean {
 
 /**
  * Describe numeric fields from loaded COPC metadata without reading point
- * records. `extraDimensions` are selectable only with copc-js; the 0.8.0
- * Rust backend supports standard Intensity but not named Extra Bytes fields.
+ * records. Scalar Extra Bytes are selectable with both supported backends;
+ * 64-bit integer fields remain inspectable but cannot be numeric color inputs.
  */
 export function getWorkbenchNumericDimensions(
   metadata: CopcMetadataView | undefined,
-  backend: "copc-js" | "rust",
+  _backend: "copc-js" | "rust",
   decodedExtraDimensions: readonly string[] = [],
   intensityDecoded = true,
 ): readonly SchemaNumericDimensionMetadata[] | undefined {
@@ -84,18 +86,15 @@ export function getWorkbenchNumericDimensions(
   for (const dimension of metadata.extraDimensions ?? []) {
     if (dimension.name === "Intensity") continue;
     const typeSupported = styleableDescriptor(dimension);
-    const rustUnsupported = backend === "rust";
     const bigintUnsupported =
       (dimension.type === "signed" || dimension.type === "unsigned") &&
       dimension.length === 8;
-    const styleable = typeSupported && !rustUnsupported;
-    const unsupportedReason = rustUnsupported
-      ? "Named Extra Bytes are not supported by Rust/WASM."
-      : bigintUnsupported
-        ? "64-bit integer fields are preserved as BigInt and cannot be used as numeric colors."
-        : !typeSupported
-          ? "The descriptor is not a supported scalar integer or floating-point field."
-          : undefined;
+    const styleable = typeSupported && !bigintUnsupported;
+    const unsupportedReason = bigintUnsupported
+      ? "64-bit integer fields are preserved as BigInt and cannot be used as numeric colors."
+      : !typeSupported
+        ? "The descriptor is not a supported scalar integer or floating-point field."
+        : undefined;
     const defaultRange = integerRange(dimension) ?? floatStarterRange(dimension) ?? FALLBACK_RANGE;
     result.push({
       name: dimension.name,

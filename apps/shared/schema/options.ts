@@ -241,16 +241,15 @@ export const OPTION_SCHEMA = [
     validation: { kind: "string-array", wildcard: "*" },
     optional: true,
     renderers: BOTH_RENDERERS,
-    requiredCapabilities: ["backend.copc-js.extra-dimensions"],
-    availabilityCondition: {
-      optionId: "adapter.backend",
-      equals: "copc-js",
+    backendCapabilities: {
+      "copc-js": "backend.copc-js.extra-dimensions",
+      rust: "backend.rust.extra-dimensions",
     },
     stability: "stable",
     applyMode: "constructor",
     codeGeneration: {
       kind: "specialized",
-      handler: "copc-js-extra-dimensions",
+      handler: "backend-extra-dimensions",
     },
     serialization: {
       kind: "string-array",

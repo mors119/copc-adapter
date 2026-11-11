@@ -55,6 +55,7 @@ workerScope.onmessage = async (
         new Uint8Array(request.chunk),
         request.pointCount,
         fields,
+        request.extraDimensions ?? [],
       );
       const prepared = result.prepared;
       const response = {
@@ -89,6 +90,18 @@ workerScope.onmessage = async (
         red: prepared.attributes?.red?.buffer,
         green: prepared.attributes?.green?.buffer,
         blue: prepared.attributes?.blue?.buffer,
+        extraDimensions: Object.entries(
+          prepared.attributes?.extraDimensions ?? {},
+        ).map(([name, values]) => ({
+          name,
+          valueType:
+            values instanceof BigUint64Array
+              ? ("uint64" as const)
+              : values instanceof BigInt64Array
+                ? ("int64" as const)
+                : ("float64" as const),
+          buffer: values.buffer,
+        })),
       };
       const transferables = [
         response.coordinates,
@@ -100,6 +113,7 @@ workerScope.onmessage = async (
         response.red,
         response.green,
         response.blue,
+        ...response.extraDimensions.map(({ buffer }) => buffer),
       ].filter((buffer): buffer is ArrayBuffer => buffer !== undefined);
       // `coordinates` and `geographicCoordinates` are aliases by contract;
       // transfer each backing buffer only once.
@@ -113,6 +127,7 @@ workerScope.onmessage = async (
       fields,
       () => loadCopcWasmWorker(wasmBinary!),
       maxRangeBytes,
+      request.extraDimensions ?? [],
     );
     const attributes = result.buffer.attributes;
     const response = {
@@ -128,6 +143,18 @@ workerScope.onmessage = async (
       red: attributes?.red?.buffer,
       green: attributes?.green?.buffer,
       blue: attributes?.blue?.buffer,
+      extraDimensions: Object.entries(attributes?.extraDimensions ?? {}).map(
+        ([name, values]) => ({
+          name,
+          valueType:
+            values instanceof BigUint64Array
+              ? ("uint64" as const)
+              : values instanceof BigInt64Array
+                ? ("int64" as const)
+                : ("float64" as const),
+          buffer: values.buffer,
+        }),
+      ),
     };
     const transferables = [
       response.coordinates,
@@ -136,6 +163,7 @@ workerScope.onmessage = async (
       response.red,
       response.green,
       response.blue,
+      ...response.extraDimensions.map(({ buffer }) => buffer),
     ].filter((buffer): buffer is ArrayBuffer => buffer !== undefined);
     workerScope.postMessage(response, transferables);
   } catch (error: unknown) {

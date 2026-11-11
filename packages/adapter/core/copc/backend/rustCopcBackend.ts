@@ -9,6 +9,7 @@ import {
 import { RangeSourceError, type RandomAccessByteSource } from "../range/types";
 import type {
   CopcHierarchyNode,
+  CopcExtraDimensionReader,
   CopcPointBuffer,
   CopcPointView,
   PreparedPointData,
@@ -33,6 +34,11 @@ import {
   isBlobSource,
 } from "../getter/createCopcGetter";
 import type { CopcInputSource } from "../range/types";
+import {
+  mergeCopcExtraDimensionSelections,
+  normalizeCopcExtraDimensionSelection,
+  type CopcExtraDimensionSelection,
+} from "../points/extraDimensions";
 
 /** Factory for a random-access source, including host-owned file bridges. */
 export type RustByteSourceFactory = (source: string) => RandomAccessByteSource;
@@ -41,6 +47,8 @@ export type RustByteSourceFactory = (source: string) => RandomAccessByteSource;
 export type RustCopcBackendOptions = {
   /** Optional source factory for tests, workers, or a host-owned file bridge. */
   readonly createByteSource?: RustByteSourceFactory;
+  /** Extra Bytes dimensions to retain for every opened source. */
+  readonly extraDimensions?: CopcExtraDimensionSelection;
 };
 
 function fieldAvailable(
@@ -94,6 +102,21 @@ function toCopcPointView(
     blue: (index) => buffer.attributes?.blue?.[index] ?? unavailable("blue"),
   };
 
+  const extraDimensions = new Map<string, CopcExtraDimensionReader>();
+  for (const [name, values] of Object.entries(
+    buffer.attributes?.extraDimensions ?? {},
+  )) {
+    const valueType = values instanceof BigUint64Array
+      ? "uint64"
+      : values instanceof BigInt64Array
+        ? "int64"
+        : "float64";
+    extraDimensions.set(name, {
+      valueType,
+      read: (index) => values[index] as number | bigint,
+    });
+  }
+
   return {
     pointCount: buffer.pointCount,
     availableFields,
@@ -113,6 +136,7 @@ function toCopcPointView(
 
       return getters[component];
     },
+    ...(extraDimensions.size > 0 ? { extraDimensions } : {}),
   };
 }
 
@@ -287,7 +311,6 @@ class RustCopcSource implements CopcSource {
     options: CopcPointLoadOptions = {},
   ): Promise<CopcPointBuffer> {
     try {
-      assertRustExtraDimensionsUnsupported(options);
       return await this.reader.loadPointDataBuffer(node, fields, options);
     } catch (error: unknown) {
       throw mapRustError(this.source, error, "point", node.key);
@@ -300,7 +323,6 @@ class RustCopcSource implements CopcSource {
     options: CopcPointLoadOptions = {},
   ): Promise<PreparedPointData> {
     try {
-      assertRustExtraDimensionsUnsupported(options);
       return await this.reader.loadPreparedPointData(node, fields, options);
     } catch (error: unknown) {
       throw mapRustError(this.source, error, "point", node.key);
@@ -312,7 +334,6 @@ class RustCopcSource implements CopcSource {
     fields: CopcPointFieldSelection,
     options: CopcPointLoadOptions = {},
   ): Promise<CopcPointView> {
-    assertRustExtraDimensionsUnsupported(options);
     return toCopcPointView(
       await this.loadPointDataBuffer(node, fields, options),
       fields,
@@ -336,22 +357,16 @@ class RustCopcSource implements CopcSource {
   }
 }
 
-function assertRustExtraDimensionsUnsupported(
-  options: CopcPointLoadOptions,
-): void {
-  if (options.extraDimensions && options.extraDimensions.length > 0) {
-    throw new Error(
-      "Rust/WASM does not support named COPC Extra Dimension requests",
-    );
-  }
-}
-
 /** Opt-in Rust/WASM implementation of the project-owned COPC backend. */
 export class RustCopcBackend implements CopcBackend {
   private readonly createByteSource?: RustByteSourceFactory;
+  readonly configuredExtraDimensions?: CopcExtraDimensionSelection;
 
   constructor(options: RustCopcBackendOptions = {}) {
     this.createByteSource = options.createByteSource;
+    this.configuredExtraDimensions = normalizeCopcExtraDimensionSelection(
+      options.extraDimensions,
+    );
   }
 
   /** Open and parse a COPC source with the Rust/WASM reader. */
@@ -359,18 +374,10 @@ export class RustCopcBackend implements CopcBackend {
     source: CopcInputSource,
     options: CopcBackendOpenOptions = {},
   ): Promise<CopcSource> {
-    if (
-      options.extraDimensions === "*" ||
-      (Array.isArray(options.extraDimensions) &&
-        options.extraDimensions.length > 0)
-    ) {
-      throw new CopcBackendError(
-        getCopcSourceIdentity(source),
-        "decode",
-        "unsupported",
-        "The Rust COPC backend does not decode LAS Extra Bytes dimensions; select copc-js to use extraDimensions.",
-      );
-    }
+    const extraDimensions = mergeCopcExtraDimensionSelections(
+      this.configuredExtraDimensions,
+      options.extraDimensions,
+    );
     let byteSource: RandomAccessByteSource;
     try {
       const identity = getCopcSourceIdentity(source);
@@ -405,6 +412,7 @@ export class RustCopcBackend implements CopcBackend {
         await RustCopcReader.open(ownedByteSource, {
           maxRangeBytes: options.maxRangeBytes,
           heightOffsetMeters: options.heightOffsetMeters,
+          extraDimensions,
         }),
       );
     } catch (error: unknown) {

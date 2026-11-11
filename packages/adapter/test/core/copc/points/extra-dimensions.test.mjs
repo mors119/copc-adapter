@@ -9,6 +9,8 @@ import {
 import {
   createExtraDimensionReaders,
   mapCopcExtraDimensionMetadata,
+  mapRustCopcExtraDimensionMetadata,
+  resolveCopcExtraDimensionRequest,
   resolveCopcExtraDimensionSelection,
 } from "../../../../core/copc/points/extraDimensions.ts";
 import { inspectCopcPoint } from "../../../../core/copc/points/pointInspection.ts";
@@ -16,6 +18,7 @@ import { validateCopcPointBuffer } from "../../../../core/copc/points/loadPointD
 import { createPreparedPointData } from "../../../../core/point/preparedPoint.ts";
 import { estimateDecodedCpuPointBufferBytes } from "../../../../core/streaming/createNodePointCache.ts";
 import { decodeCopcPointBuffer } from "../../../../core/wasm/copcDecoder.ts";
+import { isCopcDimensionMetadataStyleable } from "../../../../core/point/style/pointStyle.ts";
 
 // LAS point data record format 7: 36 base bytes, then 8 + 8 + 4 extra bytes.
 const RECORD_LENGTH = 36 + 8 + 8 + 4;
@@ -46,6 +49,42 @@ test("dimension metadata preserves source descriptors and decoded NoData values"
   );
 });
 
+test("Rust metadata omits absent values and preserves vector scalar support", () => {
+  const [height, bytePair] = mapRustCopcExtraDimensionMetadata([
+    {
+      name: "height",
+      type: "float",
+      length: 4,
+      scale: null,
+      offset: null,
+      no_data: null,
+      no_data_exact: null,
+      supported_scalar: true,
+    },
+    {
+      name: "byte_pair",
+      type: "unsigned",
+      length: 2,
+      supported_scalar: false,
+    },
+  ]);
+
+  assert.deepEqual(height, {
+    name: "height",
+    type: "float",
+    length: 4,
+    supportedScalar: true,
+  });
+  assert.equal(isCopcDimensionMetadataStyleable(height), true);
+  assert.deepEqual(bytePair, {
+    name: "byte_pair",
+    type: "unsigned",
+    length: 2,
+    supportedScalar: false,
+  });
+  assert.equal(isCopcDimensionMetadataStyleable(bytePair), false);
+});
+
 test("required and explicit dimensions merge without making reads implicit", () => {
   assert.deepEqual(
     resolveCopcExtraDimensionSelection(["leg_id", "CanopyHeight", "leg_id"], ["CanopyHeight", "Intensity"]),
@@ -59,6 +98,41 @@ test("required and explicit dimensions merge without making reads implicit", () 
   assert.throws(
     () => resolveCopcExtraDimensionSelection("height", []),
     /array of names/u,
+  );
+});
+
+test("source-wide and per-node selections resolve names without implicit reads", () => {
+  assert.deepEqual(
+    resolveCopcExtraDimensionRequest(
+      ["leg_id", "missing", "leg_id"],
+      undefined,
+      ["leg_id", "height"],
+    ),
+    ["leg_id"],
+  );
+  assert.deepEqual(
+    resolveCopcExtraDimensionRequest(
+      "*",
+      ["height", "height", "Intensity"],
+      ["leg_id", "height", "Intensity"],
+    ),
+    ["height"],
+  );
+  assert.deepEqual(
+    resolveCopcExtraDimensionRequest("*", undefined, ["height", "Intensity"]),
+    ["height"],
+  );
+  assert.throws(
+    () => resolveCopcExtraDimensionRequest(undefined, ["height"], ["height"]),
+    /must be configured when the source is opened/u,
+  );
+  assert.throws(
+    () => resolveCopcExtraDimensionRequest(["height"], ["missing"], ["height"]),
+    /was not configured when the source was opened/u,
+  );
+  assert.throws(
+    () => resolveCopcExtraDimensionRequest("*", ["missing"], ["height"]),
+    /is not available/u,
   );
 });
 

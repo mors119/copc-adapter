@@ -37,11 +37,12 @@ renderers. Cesium applies ramp and inclusive filter edits through `setStyle()`;
 Three.js receives the ramp as a constructor option and has no runtime dimension
 filter. Controls use Intensity and exact scalar Extra Bytes descriptors from
 loaded metadata. Only explicitly selected Extra Bytes fields are requested
-before decode. Rust/WASM exposes Intensity but not named Extra Bytes, and 64-bit
-integer descriptors stay unavailable to numeric styling because their values
-remain `BigInt`. Structured ramp and filter share state uses bounded JSON.
-The Playground's pinned npm `0.6.0` profile does not advertise these options, so
-its controls and code generator omit them.
+before decode. Both built-in backends expose supported scalar Extra Bytes, and
+64-bit integer descriptors stay unavailable to numeric styling because their
+values remain `BigInt`. Structured ramp and filter share state uses bounded
+JSON. The Playground's pinned npm `0.8.0` profile exposes Extra Bytes for
+`copc-js` but does not advertise Rust Extra Bytes or numeric-dimension styling.
+The workspace profile exposes scalar Extra Bytes for both backends.
 
 Playground and Dev Viewer typechecks compile the schema against their actual
 package declarations. These checks compare constructor paths and nested

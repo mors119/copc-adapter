@@ -208,6 +208,8 @@ export type NpmExtraDimensionNamesSupported = Assert<
 export type NpmExtraDimensionWildcardSupported = Assert<
   "*" extends NpmExtraDimensions ? true : false
 >;
+// The Playground is pinned to the released npm 0.8.0 package. Its profile
+// must not claim the new workspace-only Rust capability before a release.
 export type NpmRustDoesNotClaimExtraDimensions = Assert<
   Equal<HasKey<NpmRustBackend, "extraDimensions">, false>
 >;

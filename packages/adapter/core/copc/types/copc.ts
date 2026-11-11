@@ -98,12 +98,16 @@ export type CopcExtraDimensionMetadata = {
   type?: "signed" | "unsigned" | "float";
   /** Number of source bytes per point for this descriptor. */
   length: number;
+  /** Whether the descriptor is a supported scalar; omitted when unknown. */
+  supportedScalar?: boolean;
   /** LAS scale applied by the backend's point reader, when declared. */
   scale?: number;
   /** LAS offset applied by the backend's point reader, when declared. */
   offset?: number;
   /** Decoded source value used as NoData, when it can be represented as a number. */
   noData?: number;
+  /** Exact unscaled 64-bit NoData sentinel when it exceeds number precision. */
+  noDataExact?: string;
 };
 
 /** One decoded point in the COPC source CRS; axis units are CRS-defined. */
