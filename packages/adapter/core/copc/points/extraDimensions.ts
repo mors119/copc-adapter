@@ -6,6 +6,81 @@ import type {
 /** Names of extra schema dimensions to read per point, or `'*'` for every non-standard one. */
 export type CopcExtraDimensionSelection = readonly string[] | "*";
 
+/** Validate and deduplicate a source-wide Extra Bytes selection. */
+export function normalizeCopcExtraDimensionSelection(
+  selection: CopcExtraDimensionSelection | undefined,
+): CopcExtraDimensionSelection | undefined {
+  if (selection === undefined || selection === "*") return selection;
+  if (!Array.isArray(selection)) {
+    throw new TypeError("extraDimensions must be an array of exact names or '*'");
+  }
+  const names: string[] = [];
+  const seen = new Set<string>();
+  for (const name of selection) {
+    if (typeof name !== "string" || name.trim().length === 0) {
+      throw new TypeError("Extra Dimension names must be non-empty strings");
+    }
+    if (name !== "Intensity" && !seen.has(name)) {
+      names.push(name);
+      seen.add(name);
+    }
+  }
+  return names;
+}
+
+/** Merge backend and source-open selections without enabling implicit reads. */
+export function mergeCopcExtraDimensionSelections(
+  configured: CopcExtraDimensionSelection | undefined,
+  requested: CopcExtraDimensionSelection | undefined,
+): CopcExtraDimensionSelection | undefined {
+  if (configured === "*" || requested === "*") return "*";
+  if (configured === undefined) return normalizeCopcExtraDimensionSelection(requested);
+  if (requested === undefined) return normalizeCopcExtraDimensionSelection(configured);
+  return normalizeCopcExtraDimensionSelection([...configured, ...requested]);
+}
+
+/** Resolve a per-node subset against the configured selection and source schema. */
+export function resolveCopcExtraDimensionRequest(
+  configured: CopcExtraDimensionSelection | undefined,
+  requested: readonly string[] | undefined,
+  availableNames: readonly string[],
+): readonly string[] | undefined {
+  const available = new Set(availableNames);
+  if (requested === undefined) {
+    if (configured === undefined) return undefined;
+    return configured === "*"
+      ? [...available].filter((name) => !STANDARD_DIMENSIONS.has(name))
+      : [...new Set(configured)].filter((name) => available.has(name));
+  }
+  if (!Array.isArray(requested)) {
+    throw new TypeError("extraDimensions must be an array of exact names");
+  }
+  if (requested.length === 0) return [];
+  if (configured === undefined) {
+    throw new Error(
+      "COPC Extra Dimensions must be configured when the source is opened before they can be requested per node",
+    );
+  }
+  const configuredNames = configured === "*" ? undefined : new Set(configured);
+  const seen = new Set<string>();
+  for (const name of requested) {
+    if (typeof name !== "string" || name.trim().length === 0) {
+      throw new TypeError("Extra Dimension names must be non-empty strings");
+    }
+    if (name === "Intensity" || seen.has(name)) continue;
+    seen.add(name);
+    if (configuredNames && !configuredNames.has(name)) {
+      throw new Error(
+        `COPC Extra Dimension was not configured when the source was opened: ${name}`,
+      );
+    }
+    if (!available.has(name)) {
+      throw new Error(`COPC Extra Dimension is not available: ${name}`);
+    }
+  }
+  return [...seen];
+}
+
 /** Convert copc.js descriptors to point-inspection value semantics. */
 export function mapCopcExtraDimensionMetadata(
   descriptors: readonly {

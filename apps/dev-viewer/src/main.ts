@@ -8,6 +8,8 @@ import {
   type CopcBackendName,
   CopcJsBackend,
   type CopcJsBackendOptions,
+  RustCopcBackend,
+  type RustCopcBackendOptions,
   type CopcCesiumPointStyle,
   type CopcCesiumPointStyleUpdate,
   type CopcCesiumClippingVolume,
@@ -1073,10 +1075,13 @@ function createWorkbenchBackend(
 ): CopcBackendSelection | undefined {
   return resolveSchemaBackendSelection(
     applicationPlan,
-    ({ extraDimensions }) =>
-      new CopcJsBackend({
-        extraDimensions: extraDimensions as CopcJsBackendOptions["extraDimensions"],
-      }),
+    ({ backend, extraDimensions }) => backend === "rust"
+      ? new RustCopcBackend({
+          extraDimensions: extraDimensions as RustCopcBackendOptions["extraDimensions"],
+        })
+      : new CopcJsBackend({
+          extraDimensions: extraDimensions as CopcJsBackendOptions["extraDimensions"],
+        }),
   ) as CopcBackendSelection | undefined;
 }
 

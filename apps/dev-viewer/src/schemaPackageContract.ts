@@ -193,8 +193,8 @@ export type WorkspaceExtraDimensionNamesSupported = Assert<
 export type WorkspaceExtraDimensionWildcardSupported = Assert<
   "*" extends WorkspaceExtraDimensions ? true : false
 >;
-export type WorkspaceRustDoesNotClaimExtraDimensions = Assert<
-  Equal<HasKey<WorkspaceRustBackend, "extraDimensions">, false>
+export type WorkspaceRustSupportsExtraDimensions = Assert<
+  HasKey<WorkspaceRustBackend, "extraDimensions">
 >;
 export type WorkspaceFilesAreValidSources = Assert<
   Blob extends WorkspaceInputSource ? true : false

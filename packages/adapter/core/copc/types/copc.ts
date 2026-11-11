@@ -104,6 +104,8 @@ export type CopcExtraDimensionMetadata = {
   offset?: number;
   /** Decoded source value used as NoData, when it can be represented as a number. */
   noData?: number;
+  /** Exact unscaled 64-bit NoData sentinel when it exceeds number precision. */
+  noDataExact?: string;
 };
 
 /** One decoded point in the COPC source CRS; axis units are CRS-defined. */

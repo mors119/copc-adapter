@@ -114,6 +114,7 @@ const workspaceCapabilities = [
   "cache.source-coordinate-retention",
   "style.numeric-dimension",
   "style.numeric-dimension-filter",
+  "backend.rust.extra-dimensions",
   "style.elevation-ramp",
   "cesium.terrain-alignment",
   "vertical.gtx-grid",

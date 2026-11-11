@@ -46,10 +46,10 @@ usable default.
 | `elevationStyle` | `CopcElevationStyle`, optional | Existing five-stop elevation palette with linear interpolation | No | Yes | Yes | Uses the shared normalized RGB(A) stop model. Linear and step interpolation are supported; omitted alpha defaults to `0.9`. Cesium can update or clear it at runtime; Three takes it in the constructor. |
 | `attributeLoading` | `'all'` or `'required'`, optional | `all` for Cesium | No | Yes | No | `all` preserves synchronous runtime restyling by retaining all standard fields. `required` retains the initial color mode's fields, classification for an initial filter, and any explicit `pointFields`. Changing to a mode that needs an unretained field throws before changing style or selection. |
 | `classificationFilter` | `CopcClassificationFilter`, optional | No filter | No | Yes | No | Initial filter applied from the first rendered view. Classification is retained in `required` mode even when the initial color mode is different. |
-| `dimension` | `CopcDimensionStyle`, optional | No dimension style | No | Yes | Yes | Requires an explicit dimension name and finite range. Supports LAS `Intensity` on both built-in backends and supported scalar Extra Bytes on `copc-js`. The named dimension is selected automatically. |
+| `dimension` | `CopcDimensionStyle`, optional | No dimension style | No | Yes | Yes | Requires an explicit dimension name and finite range. Supports LAS `Intensity` on both built-in backends and supported scalar Extra Bytes on both backends. The named dimension is selected automatically. |
 | `dimensionFilter` | `CopcDimensionFilter`, optional | No filter | No | Yes | No | Inclusive numeric range visibility filter, including initial Cesium rendering. The named dimension is selected automatically; missing and non-finite values are hidden. |
 | `clippingVolume` | `CopcCesiumClippingVolume`, optional | No clipping | No | Yes | No | Renderer-space plane intersection (1–6 planes) or inclusive ECEF axis-aligned box. Coordinates are explicitly WGS 84 ECEF metres; clipping filters rendering and picking without reducing source reads. |
-| `extraDimensions` | `readonly string[]`, optional | Only dimensions needed by the initial dimension style/filter | Yes | Yes | Yes | Extra Bytes names to retain for picking or later cached Cesium restyling. Omitted names are not decoded; selection does not request every field. Rust rejects non-empty Extra Bytes selections. |
+| `extraDimensions` | `CopcExtraDimensionSelection`, optional | Only dimensions needed by the initial dimension style/filter | Yes | Yes | Yes | Extra Bytes names, or `'*'` for all non-standard fields, to retain for picking or later cached Cesium restyling. Omitted names are not decoded; selection does not request every field. Both built-in backends preserve unscaled 64-bit integers exactly. |
 | `coordinateCacheLayout` | `'A' | 'E'`, optional | `E` for Cesium/Three layers; direct `CopcStreamingCore` remains A-shaped | No | Yes | Yes | E retains ECEF F64 XYZ plus prepared-height F64 (32 coordinate bytes/point). Select A to retain exact Source and Geographic triples for synchronous inspection. E derives longitude/latitude from ECEF when Geographic is absent and omits source XYZ when Source is absent. |
 | `retainSourceCoordinatesForQueries` | `boolean`, optional | `false` | No | Yes | Yes | With compact E, retains exact source XYZ in the shared point cache for `cache-only` queries. Adds 24 CPU-cache bytes per point and counts toward `maxPointCacheBytes`. No effect with coordinate layout A. |
 | `pointSize` | `number`, optional | `3` pixels | No | Yes | Yes | Cesium uses CSS-pixel diameter; Three uses screen-facing pixel size. Keep. |
@@ -143,12 +143,12 @@ defaults; references point to their detailed contract and example below.
 
 | Public type / entrypoint | Required fields and optional defaults | Core / Cesium / Three applicability | Impact and reference | Status |
 | --- | --- | --- | --- | --- |
-| `CopcBackendOpenOptions` (root, `/cesium`, `/three`) | Optional `signal?: AbortSignal`, `rangeRequestDiagnostics?: RangeRequestDiagnosticsRecorder`, `rangeValidation?: RangeValidationPolicy`, `maxRangeBytes?: number`, `maxConcurrentRangeRequests?: number`, `heightOffsetMeters?: number`, and `extraDimensions?: CopcExtraDimensionSelection`. | Core backend boundary; forwarded by all layers | Source lifetime, HTTP security, range memory/concurrency, height preparation, and opt-in Extra Bytes selection. Rust rejects non-empty Extra Bytes selection. See [Extra schema dimensions](#extra-schema-dimensions). | Keep. |
+| `CopcBackendOpenOptions` (root, `/cesium`, `/three`) | Optional `signal?: AbortSignal`, `rangeRequestDiagnostics?: RangeRequestDiagnosticsRecorder`, `rangeValidation?: RangeValidationPolicy`, `maxRangeBytes?: number`, `maxConcurrentRangeRequests?: number`, `heightOffsetMeters?: number`, and `extraDimensions?: CopcExtraDimensionSelection`. | Core backend boundary; forwarded by all layers | Source lifetime, HTTP security, range memory/concurrency, height preparation, and opt-in Extra Bytes selection. See [Extra schema dimensions](#extra-schema-dimensions). | Keep. |
 | `CopcPointLoadOptions` (root, `/cesium`, `/three`) | Optional `signal?: AbortSignal`, `performanceObserver?: CopcPerformanceObserver \| null`. `undefined` inherits the source observer; `null` suppresses it. | Core backend boundary; adapters use these internally | Cancellation and diagnostic routing only. See [Backend and point contracts](#backend-and-point-contracts). | Keep. |
 | `CopcHierarchyPageLoadOptions` (root, `/cesium`) | Optional `performanceObserver?: CopcPerformanceObserver \| null`; `undefined` inherits the source observer and `null` suppresses it. | Core hierarchy boundary; Three consumers can use source-wide diagnostics | Per-page diagnostic routing only. See [Backend and point contracts](#backend-and-point-contracts). | Keep. |
 | `RangeReadOptions` (root, `/cesium`, `/three`) | Optional `signal?: AbortSignal`; omitted means no per-read cancellation override. | Shared source boundary | Cancels only that read; shared cached source work can remain reusable. See [Direct source utilities](#direct-source-utilities). | Keep. |
 | `CopcJsBackendOptions` (root, `/cesium`, `/three`) | Optional `extraDimensions?: CopcExtraDimensionSelection`; omitted means no nonstandard dimensions are read. | All entrypoints; only `copc-js` | Extra decoded dimensions increase retained point-cache memory. See [Extra schema dimensions](#extra-schema-dimensions). | Keep opt-in. |
-| `RustCopcBackendOptions` (root, `/cesium`, `/three`) | Optional `createByteSource?: RustByteSourceFactory`; omitted uses the backend's built-in source handling. | All entrypoints; only explicit `rust` | Advanced host/test source bridge. There is no silent backend fallback. See [Backend and point contracts](#backend-and-point-contracts). | Keep opt-in. |
+| `RustCopcBackendOptions` (root, `/cesium`, `/three`) | Optional `createByteSource?: RustByteSourceFactory` and `extraDimensions?: CopcExtraDimensionSelection`; omitted uses built-in source handling and reads no nonstandard dimensions. | All entrypoints; only explicit `rust` | Source bridge plus opt-in field selection. There is no silent backend fallback. See [Backend and point contracts](#backend-and-point-contracts) and [Extra schema dimensions](#extra-schema-dimensions). | Keep opt-in. |
 | `GtxGeoidGridOptions` (root, `/cesium`, `/three`) | Required `gridId: string`, `sourceVerticalCrs: string`, `targetVerticalCrs: 'EPSG:4979'`, `horizontalCrs: 'EPSG:4326'`, `referenceEllipsoid: 'WGS84'`, `sha256: string`, `valueUnit: VerticalGridValueUnit`, `valueConvention: 'ellipsoidal-minus-orthometric'`, and `noDataValue: number \| null`. Optional `interpolation?: 'bilinear'` defaults to `bilinear`; `maxGridBytes?: number` defaults to `256 MiB` with `512 MiB` hard limit; `requiresMatchedEpoch?: boolean` defaults false; `sourceCoordinateEpoch?: number` and `gridReferenceEpoch?: number` are omitted unless applicable. | Shared coordinate pipeline | Caller assertions are verified against grid bytes and COPC WKT where possible; bad metadata or uncovered samples fail preparation. See [Explicit vertical CRS grid conversion](/api/coordinates#explicit-vertical-crs-grid-conversion). | Keep opt-in. |
 | `NgaEgm2008GridOptions` (root, `/cesium`, `/three`) | Optional `maxGridBytes?: number`, default `256 MiB`, hard limit `512 MiB`. | Shared coordinate pipeline | Resource bound for the pinned NGA grid loader. See [NGA EGM2008 2.5-minute grid](/api/coordinates#nga-egm2008-25-minute-grid). | Keep opt-in. |
 | `TerrainHeightAlignmentOptions` (root, `/cesium`) | Optional `groundConfirmed?: boolean` (defaults false), `terrainSourceId?: string`, `timeoutMs?: number` (defaults to 30 seconds, cap 60 seconds), and `signal?: AbortSignal`. | Cesium only | One-point opt-in diagnostic; no point correction is applied automatically. See [Explicit Cesium Terrain residual estimate](/api/coordinates#explicit-cesium-terrain-residual-estimate). | Keep opt-in. |
@@ -471,9 +471,8 @@ snapshot, and the transform plan carries the evidence used to prepare the
 coordinates. Empty point nodes have no ECEF content bound.
 Standard fields absent from a source are omitted and listed as unavailable;
 attributes are never zero-filled. Extra Dimension names are case-sensitive.
-The `copc-js` path preserves unscaled 64-bit integer Extra Bytes as `bigint`
-arrays where the source descriptor allows exact reads. Rust/WASM currently
-rejects Extra Bytes requests explicitly.
+Both built-in paths preserve unscaled 64-bit integer Extra Bytes as `bigint`
+arrays where the source descriptor allows exact reads.
 
 ## Backend and point contracts
 
@@ -503,15 +502,15 @@ height offset.
 ### Extra schema dimensions
 
 COPC files can carry dimensions beyond the standard LAS point record, such as
-LAS extra bytes like `leg_id` or `CE`. The `copc-js` backend can read them when
-constructed with `extraDimensions`:
+LAS extra bytes like `leg_id` or `CE`. Either built-in backend can read them
+when constructed with `extraDimensions`:
 
 ```ts
-import { CopcCesiumLayer, CopcJsBackend } from '@frillab/copc-adapter/cesium';
+import { CopcCesiumLayer, RustCopcBackend } from '@frillab/copc-adapter/cesium';
 
 const layer = new CopcCesiumLayer({
   url: 'https://example.com/data.copc.laz',
-  extraDimensions: ['leg_id', 'CE'],
+  backend: new RustCopcBackend({ extraDimensions: ['leg_id', 'CE'] }),
   onPointPicked: (point) => console.log(point?.dimensions),
 });
 ```
@@ -525,25 +524,25 @@ const layer = new CopcCesiumLayer({
 - A dimension referenced by the constructor's `dimension` or
   `dimensionFilter` is requested automatically. Additional names in
   `extraDimensions` are useful for picking or later Cesium restyling. The
-  existing `new CopcJsBackend({ extraDimensions })` configuration remains
-  supported and is combined with names requested by the layer.
+  existing `new CopcJsBackend({ extraDimensions })` and new
+  `new RustCopcBackend({ extraDimensions })` configurations are supported and
+  are combined with names requested by the layer.
 - The picked point reports them as `CopcPointInspection.dimensions`. Values are
   `number`, except 64-bit integer dimensions, which are `bigint` so identifiers
   above `Number.MAX_SAFE_INTEGER` stay exact. Scaled 64-bit integers are read
   through the scale and offset as `number`.
 - `CopcMetadata.extraDimensions` reports the names, signed/unsigned/float
   primitive type, byte length, optional scale/offset, and numeric NoData
-  sentinel provided by the selected parser. This list is absent when a backend
-  cannot reliably supply those descriptors.
-- `copc-js` supports numeric styling/filtering for scalar signed/unsigned
+  sentinel provided by the selected parser. A `noDataExact` string preserves
+  64-bit integer sentinels beyond JavaScript's safe integer range.
+- Both backends support numeric styling/filtering for scalar signed/unsigned
   8-/16-/32-bit integer and 32-/64-bit float Extra Bytes. Scale/offset are
   applied to both displayed and inspected values; numeric NoData is treated as
   missing automatically. 64-bit integer values remain `bigint` for exact
   inspection, but numeric style/filter requests reject them. Vector descriptors
-  and untyped byte fields are unsupported by the current copc-js reader.
-- Rust supports `Intensity` through its standard LAS attribute path. It does
-  not decode Extra Bytes; non-empty `extraDimensions` selections are rejected
-  explicitly and do not trigger a `copc-js` fallback.
+  and untyped byte fields are retained in metadata but explicitly rejected
+  when requested for numeric decoding. The backend never silently falls back
+  to `copc-js`.
 
 `CopcPointFieldSelection` is a `ReadonlySet` of `position`, `intensity`,
 `classification`, and `rgb`. `CopcPointView.availableFields` reports fields

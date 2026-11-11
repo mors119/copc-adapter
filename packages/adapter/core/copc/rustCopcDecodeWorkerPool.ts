@@ -7,6 +7,7 @@ import type {
   RustCopcDecodeWorkerJob,
   RustCopcDecodeWorkerRequest,
   RustCopcDecodeWorkerResponse,
+  RustCopcDecodeWorkerResult,
 } from "./rustCopcDecodeWorkerProtocol";
 import type { CopcWorkerDiagnostics } from "./backend/types";
 import { getCopcWasmBinary } from "../wasm/copcWasm";
@@ -39,6 +40,7 @@ export type RustCopcDecodeRequest = {
   nodeKey: string;
   pointCount: number;
   requestedFields: number;
+  extraDimensions?: readonly string[];
   chunk: Uint8Array;
 };
 
@@ -123,6 +125,90 @@ function bufferFrom(
 ): Uint16Array | Uint8Array | undefined {
   if (!value) return undefined;
   return type === "u16" ? new Uint16Array(value) : new Uint8Array(value);
+}
+
+function extraDimensionValuesFromWorker(
+  entries: RustCopcDecodeWorkerResult["extraDimensions"],
+  pointCount: number,
+): Record<string, Float64Array | BigInt64Array | BigUint64Array> | undefined {
+  if (!entries || entries.length === 0) return undefined;
+  if (!Number.isSafeInteger(pointCount) || pointCount < 0) {
+    throw new RustCopcWorkerError(
+      "worker-message",
+      "worker returned an invalid point count",
+    );
+  }
+  const expectedByteLength = pointCount * 8;
+  if (!Number.isSafeInteger(expectedByteLength)) {
+    throw new RustCopcWorkerError(
+      "worker-message",
+      "worker Extra Bytes array length overflows",
+    );
+  }
+  const dimensions: Record<string, Float64Array | BigInt64Array | BigUint64Array> = {};
+  const seen = new Set<string>();
+  for (const { name, valueType, buffer } of entries) {
+    if (
+      typeof name !== "string" ||
+      name.length === 0 ||
+      seen.has(name) ||
+      !(buffer instanceof ArrayBuffer) ||
+      buffer.byteLength !== expectedByteLength
+    ) {
+      throw new RustCopcWorkerError(
+        "worker-message",
+        "worker returned an invalid Extra Bytes buffer",
+      );
+    }
+    seen.add(name);
+    const values = valueType === "uint64"
+      ? new BigUint64Array(buffer)
+      : valueType === "int64"
+        ? new BigInt64Array(buffer)
+        : valueType === "float64"
+          ? new Float64Array(buffer)
+          : undefined;
+    if (!values) {
+      throw new RustCopcWorkerError(
+        "worker-message",
+        "worker returned an unknown Extra Bytes value type",
+      );
+    }
+    Object.defineProperty(dimensions, name, {
+      value: values,
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
+  }
+  return dimensions;
+}
+
+function attributesFromWorkerResult(
+  response: Extract<RustCopcDecodeWorkerResponse, { type: "result" }>,
+) {
+  const extraDimensions = extraDimensionValuesFromWorker(
+    response.extraDimensions,
+    response.pointCount,
+  );
+  if (
+    !response.intensity &&
+    !response.classification &&
+    !response.red &&
+    !response.green &&
+    !response.blue &&
+    !extraDimensions
+  ) {
+    return undefined;
+  }
+  return {
+    intensity: bufferFrom(response.intensity, "u16") as Uint16Array | undefined,
+    classification: bufferFrom(response.classification, "u8") as Uint8Array | undefined,
+    red: bufferFrom(response.red, "u16") as Uint16Array | undefined,
+    green: bufferFrom(response.green, "u16") as Uint16Array | undefined,
+    blue: bufferFrom(response.blue, "u16") as Uint16Array | undefined,
+    ...(extraDimensions ? { extraDimensions } : {}),
+  };
 }
 
 /** Bounded, FIFO Rust/WASM decode queue owned by one COPC source instance. */
@@ -509,6 +595,7 @@ export class RustCopcDecodeWorkerPool {
       nodeKey: entry.request.nodeKey,
       pointCount: entry.request.pointCount,
       requestedFields: entry.request.requestedFields,
+      extraDimensions: entry.request.extraDimensions,
       chunk,
     };
     try {
@@ -594,34 +681,28 @@ export class RustCopcDecodeWorkerPool {
           this.dispatch();
           return;
         }
-        const attributes =
-          response.intensity ||
-          response.classification ||
-          response.red ||
-          response.green ||
-          response.blue
-            ? {
-                intensity: bufferFrom(response.intensity, "u16") as
-                  | Uint16Array
-                  | undefined,
-                classification: bufferFrom(response.classification, "u8") as
-                  | Uint8Array
-                  | undefined,
-                red: bufferFrom(response.red, "u16") as Uint16Array | undefined,
-                green: bufferFrom(response.green, "u16") as
-                  | Uint16Array
-                  | undefined,
-                blue: bufferFrom(response.blue, "u16") as
-                  | Uint16Array
-                  | undefined,
-              }
-            : undefined;
-        entry.resolve({
-          pointCount: response.pointCount,
-          coordinates: new Float64Array(response.coordinates),
-          attributes,
-          decodeDurationMs: response.durationMs,
-        });
+        try {
+          const attributes = attributesFromWorkerResult(response);
+          entry.resolve({
+            pointCount: response.pointCount,
+            coordinates: new Float64Array(response.coordinates),
+            attributes,
+            decodeDurationMs: response.durationMs,
+          });
+        } catch (error: unknown) {
+          this.failedCount += 1;
+          entry.reject(
+            error instanceof RustCopcWorkerError
+              ? error
+              : new RustCopcWorkerError(
+                  "worker-message",
+                  error instanceof Error ? error.message : String(error),
+                  { nodeKey: entry.request.nodeKey },
+                ),
+          );
+          this.dispatch();
+          return;
+        }
       } else {
         if (
           response.coordinateSystem !== "wgs84-geographic" ||
@@ -645,29 +726,8 @@ export class RustCopcDecodeWorkerPool {
           this.dispatch();
           return;
         }
-        const attributes =
-          response.intensity ||
-          response.classification ||
-          response.red ||
-          response.green ||
-          response.blue
-            ? {
-                intensity: bufferFrom(response.intensity, "u16") as
-                  | Uint16Array
-                  | undefined,
-                classification: bufferFrom(response.classification, "u8") as
-                  | Uint8Array
-                  | undefined,
-                red: bufferFrom(response.red, "u16") as Uint16Array | undefined,
-                green: bufferFrom(response.green, "u16") as
-                  | Uint16Array
-                  | undefined,
-                blue: bufferFrom(response.blue, "u16") as
-                  | Uint16Array
-                  | undefined,
-              }
-            : undefined;
         try {
+          const attributes = attributesFromWorkerResult(response);
           const prepared = createPreparedPointData({
             pointCount: response.pointCount,
             sourceCoordinates: new Float64Array(response.sourceCoordinates),

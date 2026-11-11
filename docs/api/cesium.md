@@ -158,7 +158,8 @@ a separately defined and tested contract.
   not represent dataset-relative or terrain height above ground.
 - `dimension`: `CopcDimensionStyle` for numeric dimension coloring. Required
   when `colorMode` is `'dimension'`. `Intensity` is available on both built-in
-  backends; scalar Extra Bytes are available through `copc-js`.
+  backends; supported scalar Extra Bytes are available through both backends
+  when explicitly selected.
 - `dimensionFilter`: optional inclusive numeric range filter for a named
   dimension. Non-finite and missing values are hidden.
 - `clippingVolume`: optional `CopcCesiumClippingVolume` in WGS 84 ECEF metres.
@@ -492,16 +493,14 @@ replaced by explicit layer opacity. This is absolute displayed elevation;
 dataset-relative and height above ground modes are separate semantics.
 
 LAS Extra Bytes styling supports signed/unsigned 8-, 16-, and 32-bit integers
-and 32-/64-bit floats through `copc-js`. Its point reader applies declared
+and 32-/64-bit floats through either built-in backend. Both paths apply declared
 scale/offset, and returned values match `CopcPointInspection.dimensions`.
 64-bit integer dimensions remain exact `bigint` values for inspection but are
 rejected for numeric styling/filtering. Vector Extra Bytes and untyped byte
-fields are unsupported by the current `copc-js` reader. The Rust backend
-supports the standard `Intensity` dimension through its existing attribute
-path, but does not decode or expose Extra Bytes; requesting them fails with an
-unsupported-backend error and never falls back to JavaScript. `CopcMetadata`
-includes Extra Bytes names, primitive type, byte length, optional scale/offset,
-and numeric NoData when the selected backend provides reliable descriptors.
+fields are retained in metadata but explicitly rejected when requested for
+numeric decoding. `CopcMetadata` includes Extra Bytes names, primitive type,
+byte length, optional scale/offset, numeric NoData, and an exact NoData string
+for 64-bit integers when needed.
 
 Color modes that lack their required source attribute use the existing fixed
 cyan fallback when the initial style requested an attribute that the source

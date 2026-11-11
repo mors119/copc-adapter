@@ -4,8 +4,9 @@ use laz::las::selective::DecompressionSelection;
 use laz::record::{LayeredPointRecordDecompressor, RecordDecompressor};
 use laz::{LazItemType, LazVlr};
 
-use crate::binary::{read_i32, read_u16, read_u32};
+use crate::binary::{read_array, read_i32, read_i64, read_u16, read_u32, read_u64};
 use crate::error::{CopcError, Result};
+use crate::extra_bytes::{ExtraBytesDescriptor, ExtraBytesPrimitive, ExtraBytesValue};
 use crate::header::{CopcHeader, parse_header};
 use crate::vlr::{VlrVisit, for_each_vlr};
 
@@ -16,6 +17,7 @@ pub const FIELD_RGB: u32 = 1 << 2;
 const KNOWN_FIELD_MASK: u32 = FIELD_INTENSITY | FIELD_CLASSIFICATION | FIELD_RGB;
 const MAX_DECODE_POINTS: usize = 5_000_000;
 const MAX_DECODED_NODE_BYTES: usize = MAX_DECODE_POINTS * 38;
+const MAX_EXTRA_DIMENSION_OUTPUT_BYTES: usize = 64 * 1024 * 1024;
 pub const DEFAULT_MAX_NODE_CHUNK_BYTES: usize = 64 * 1024 * 1024;
 
 fn allocate_zeroed<T>(length: usize, what: &str) -> Result<Vec<T>>
@@ -30,6 +32,174 @@ where
     Ok(values)
 }
 
+fn base_record_length(point_format: u8) -> Result<usize> {
+    match point_format {
+        6 => Ok(30),
+        7 => Ok(36),
+        8 => Ok(38),
+        _ => Err(CopcError::new(
+            "unsupported-point-format",
+            "LAS point format is outside the initial COPC decoder scope",
+        )),
+    }
+}
+
+fn select_extra_dimensions<'a>(
+    descriptors: &'a [ExtraBytesDescriptor],
+    requested: &[String],
+    point_count: usize,
+) -> Result<Vec<&'a ExtraBytesDescriptor>> {
+    let mut selected = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for name in requested {
+        if !seen.insert(name) {
+            continue;
+        }
+        let descriptor = descriptors
+            .iter()
+            .find(|descriptor| descriptor.name == *name)
+            .ok_or_else(|| {
+                CopcError::new(
+                    "invalid-value",
+                    format!("COPC Extra Bytes dimension is not available: {name}"),
+                )
+            })?;
+        if !descriptor.is_supported_scalar() {
+            return Err(CopcError::new(
+                "unsupported-value",
+                format!("COPC Extra Bytes dimension {name:?} is not a supported scalar field"),
+            ));
+        }
+        selected.push(descriptor);
+    }
+
+    let output_bytes = selected
+        .len()
+        .checked_mul(point_count)
+        .and_then(|count| count.checked_mul(std::mem::size_of::<u64>()))
+        .ok_or_else(|| CopcError::new("overflow", "Extra Bytes output size overflows"))?;
+    if output_bytes > MAX_EXTRA_DIMENSION_OUTPUT_BYTES {
+        return Err(CopcError::new(
+            "unsupported-value",
+            format!(
+                "Extra Bytes output exceeds the {MAX_EXTRA_DIMENSION_OUTPUT_BYTES}-byte safety limit"
+            ),
+        ));
+    }
+    Ok(selected)
+}
+
+fn allocate_extra_dimension_values(
+    descriptor: &ExtraBytesDescriptor,
+    point_count: usize,
+) -> Result<DecodedExtraDimensionValues> {
+    match descriptor.primitive {
+        Some(ExtraBytesPrimitive::U64)
+            if descriptor.scale.unwrap_or(1.0) == 1.0
+                && descriptor.offset.unwrap_or(0.0) == 0.0 =>
+        {
+            Ok(DecodedExtraDimensionValues::Uint64(allocate_zeroed(
+                point_count,
+                "unsigned 64-bit Extra Bytes",
+            )?))
+        }
+        Some(ExtraBytesPrimitive::I64)
+            if descriptor.scale.unwrap_or(1.0) == 1.0
+                && descriptor.offset.unwrap_or(0.0) == 0.0 =>
+        {
+            Ok(DecodedExtraDimensionValues::Int64(allocate_zeroed(
+                point_count,
+                "signed 64-bit Extra Bytes",
+            )?))
+        }
+        Some(_) => Ok(DecodedExtraDimensionValues::Float64(allocate_zeroed(
+            point_count,
+            "numeric Extra Bytes",
+        )?)),
+        None => Err(CopcError::new(
+            "unsupported-value",
+            "untyped Extra Bytes cannot be decoded as a numeric field",
+        )),
+    }
+}
+
+fn read_extra_value(
+    record: &[u8],
+    offset: usize,
+    descriptor: &ExtraBytesDescriptor,
+) -> Result<ExtraBytesValue> {
+    let value = match descriptor.primitive {
+        Some(ExtraBytesPrimitive::U8) => ExtraBytesValue::Unsigned(u64::from(
+            read_array::<1>(record, offset, "Extra Bytes")?[0],
+        )),
+        Some(ExtraBytesPrimitive::I8) => ExtraBytesValue::Signed(i64::from(
+            read_array::<1>(record, offset, "Extra Bytes")?[0] as i8,
+        )),
+        Some(ExtraBytesPrimitive::U16) => {
+            ExtraBytesValue::Unsigned(u64::from(read_u16(record, offset, "Extra Bytes")?))
+        }
+        Some(ExtraBytesPrimitive::I16) => {
+            let bytes = read_array::<2>(record, offset, "Extra Bytes")?;
+            ExtraBytesValue::Signed(i64::from(i16::from_le_bytes(bytes)))
+        }
+        Some(ExtraBytesPrimitive::U32) => {
+            ExtraBytesValue::Unsigned(u64::from(read_u32(record, offset, "Extra Bytes")?))
+        }
+        Some(ExtraBytesPrimitive::I32) => {
+            ExtraBytesValue::Signed(i64::from(read_i32(record, offset, "Extra Bytes")?))
+        }
+        Some(ExtraBytesPrimitive::U64) => {
+            ExtraBytesValue::Unsigned(read_u64(record, offset, "Extra Bytes")?)
+        }
+        Some(ExtraBytesPrimitive::I64) => {
+            ExtraBytesValue::Signed(read_i64(record, offset, "Extra Bytes")?)
+        }
+        Some(ExtraBytesPrimitive::F32) => {
+            let bytes = read_array::<4>(record, offset, "Extra Bytes")?;
+            ExtraBytesValue::Float(f64::from(f32::from_le_bytes(bytes)))
+        }
+        Some(ExtraBytesPrimitive::F64) => {
+            let bytes = read_array::<8>(record, offset, "Extra Bytes")?;
+            ExtraBytesValue::Float(f64::from_le_bytes(bytes))
+        }
+        None => {
+            return Err(CopcError::new(
+                "unsupported-value",
+                "untyped Extra Bytes cannot be decoded as a numeric field",
+            ));
+        }
+    };
+    Ok(value)
+}
+
+fn apply_extra_dimension_semantics(
+    descriptor: &ExtraBytesDescriptor,
+    value: ExtraBytesValue,
+) -> Result<DecodedExtraDimensionValue> {
+    if descriptor.scale.unwrap_or(1.0) == 1.0 && descriptor.offset.unwrap_or(0.0) == 0.0 {
+        match value {
+            ExtraBytesValue::Unsigned(value)
+                if descriptor.primitive == Some(ExtraBytesPrimitive::U64) =>
+            {
+                return Ok(DecodedExtraDimensionValue::Uint64(value));
+            }
+            ExtraBytesValue::Signed(value)
+                if descriptor.primitive == Some(ExtraBytesPrimitive::I64) =>
+            {
+                return Ok(DecodedExtraDimensionValue::Int64(value));
+            }
+            _ => {}
+        }
+    }
+    let raw_value = match value {
+        ExtraBytesValue::Unsigned(value) => value as f64,
+        ExtraBytesValue::Signed(value) => value as f64,
+        ExtraBytesValue::Float(value) => value,
+    };
+    let scaled = raw_value * descriptor.scale.unwrap_or(1.0) + descriptor.offset.unwrap_or(0.0);
+    Ok(DecodedExtraDimensionValue::Float64(scaled))
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct DecodedCopcNode {
     pub point_count: usize,
@@ -41,12 +211,68 @@ pub struct DecodedCopcNode {
     pub blue: Option<Vec<u16>>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum DecodedExtraDimensionValues {
+    Float64(Vec<f64>),
+    Int64(Vec<i64>),
+    Uint64(Vec<u64>),
+}
+
+impl DecodedExtraDimensionValues {
+    fn set(&mut self, index: usize, value: DecodedExtraDimensionValue) -> Result<()> {
+        match (self, value) {
+            (Self::Float64(values), DecodedExtraDimensionValue::Float64(value)) => {
+                *values.get_mut(index).ok_or_else(|| {
+                    CopcError::new("truncated", "Extra Bytes output index is out of range")
+                })? = value;
+            }
+            (Self::Int64(values), DecodedExtraDimensionValue::Int64(value)) => {
+                *values.get_mut(index).ok_or_else(|| {
+                    CopcError::new("truncated", "Extra Bytes output index is out of range")
+                })? = value;
+            }
+            (Self::Uint64(values), DecodedExtraDimensionValue::Uint64(value)) => {
+                *values.get_mut(index).ok_or_else(|| {
+                    CopcError::new("truncated", "Extra Bytes output index is out of range")
+                })? = value;
+            }
+            _ => {
+                return Err(CopcError::new(
+                    "invalid-value",
+                    "Extra Bytes output type does not match its descriptor",
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum DecodedExtraDimensionValue {
+    Float64(f64),
+    Int64(i64),
+    Uint64(u64),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DecodedExtraDimension {
+    pub name: String,
+    pub values: DecodedExtraDimensionValues,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DecodedCopcNodeWithExtraDimensions {
+    pub node: DecodedCopcNode,
+    pub extra_dimensions: Vec<DecodedExtraDimension>,
+}
+
 /// A validated decoder initialized from one dataset's LAS/LAZ metadata.
 ///
 /// The header and LASZIP VLR are intentionally retained so node jobs do not
 /// repeatedly parse the complete metadata buffer.
 pub struct CopcNodeDecoder {
     header: CopcHeader,
+    extra_dimensions: Vec<ExtraBytesDescriptor>,
     laz_vlr: LazVlr,
     max_node_chunk_bytes: usize,
 }
@@ -211,6 +437,7 @@ impl CopcNodeDecoder {
         validate_laz_layout(&laz_vlr, &header)?;
 
         Ok(Self {
+            extra_dimensions: header.extra_dimensions.clone(),
             header,
             laz_vlr,
             max_node_chunk_bytes,
@@ -227,6 +454,18 @@ impl CopcNodeDecoder {
         point_count: usize,
         requested_fields: u32,
     ) -> Result<DecodedCopcNode> {
+        Ok(self
+            .decode_with_extra_dimensions(chunk, point_count, requested_fields, &[])?
+            .node)
+    }
+
+    pub fn decode_with_extra_dimensions(
+        &self,
+        chunk: &[u8],
+        point_count: usize,
+        requested_fields: u32,
+        requested_extra_dimensions: &[String],
+    ) -> Result<DecodedCopcNodeWithExtraDimensions> {
         if requested_fields & !KNOWN_FIELD_MASK != 0 {
             return Err(CopcError::new(
                 "unsupported-value",
@@ -290,6 +529,11 @@ impl CopcNodeDecoder {
         let has_intensity = requested_fields & FIELD_INTENSITY != 0;
         let has_classification = requested_fields & FIELD_CLASSIFICATION != 0;
         let has_rgb = requested_fields & FIELD_RGB != 0 && header.point_data_record_format >= 7;
+        let selected_extra_dimensions = select_extra_dimensions(
+            &self.extra_dimensions,
+            requested_extra_dimensions,
+            point_count,
+        )?;
         let mut selection = DecompressionSelection::xy_returns_channel().decompress_z();
         if has_intensity {
             selection = selection.decompress_intensity();
@@ -299,6 +543,9 @@ impl CopcNodeDecoder {
         }
         if has_rgb {
             selection = selection.decompress_rgb();
+        }
+        if !selected_extra_dimensions.is_empty() {
+            selection = selection.decompress_extra_bytes();
         }
 
         let mut decompressor = LayeredPointRecordDecompressor::new(Cursor::new(chunk));
@@ -369,6 +616,16 @@ impl CopcNodeDecoder {
         } else {
             None
         };
+        let mut extra_dimensions = selected_extra_dimensions
+            .iter()
+            .map(|descriptor| {
+                Ok(DecodedExtraDimension {
+                    name: descriptor.name.clone(),
+                    values: allocate_extra_dimension_values(descriptor, point_count)?,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let base_record_length = base_record_length(header.point_data_record_format)?;
 
         for index in 0..point_count {
             let record_start = index
@@ -442,16 +699,34 @@ impl CopcNodeDecoder {
                     *value = read_u16(record, 34, "point blue")?;
                 }
             }
+            for (descriptor, dimension) in selected_extra_dimensions
+                .iter()
+                .zip(extra_dimensions.iter_mut())
+            {
+                let field_offset = base_record_length
+                    .checked_add(descriptor.byte_offset)
+                    .ok_or_else(|| {
+                        CopcError::new("overflow", "Extra Bytes field offset overflows")
+                    })?;
+                let raw_value = read_extra_value(record, field_offset, descriptor)?;
+                dimension.values.set(
+                    index,
+                    apply_extra_dimension_semantics(descriptor, raw_value)?,
+                )?;
+            }
         }
 
-        Ok(DecodedCopcNode {
-            point_count,
-            coordinates,
-            intensity,
-            classification,
-            red,
-            green,
-            blue,
+        Ok(DecodedCopcNodeWithExtraDimensions {
+            node: DecodedCopcNode {
+                point_count,
+                coordinates,
+                intensity,
+                classification,
+                red,
+                green,
+                blue,
+            },
+            extra_dimensions,
         })
     }
 }
@@ -479,6 +754,23 @@ pub fn decode_copc_node_with_max_chunk_bytes(
     )
 }
 
+pub fn decode_copc_node_with_extra_dimensions(
+    metadata: &[u8],
+    chunk: &[u8],
+    point_count: usize,
+    requested_fields: u32,
+    requested_extra_dimensions: &[String],
+    max_node_chunk_bytes: usize,
+) -> Result<DecodedCopcNodeWithExtraDimensions> {
+    CopcNodeDecoder::from_metadata_with_max_chunk_bytes(metadata, max_node_chunk_bytes)?
+        .decode_with_extra_dimensions(
+            chunk,
+            point_count,
+            requested_fields,
+            requested_extra_dimensions,
+        )
+}
+
 #[cfg(test)]
 mod tests {
     use laz::record::{LayeredPointRecordCompressor, RecordCompressor};
@@ -503,12 +795,20 @@ mod tests {
         bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
     }
 
+    fn put_i64(bytes: &mut [u8], offset: usize, value: i64) {
+        bytes[offset..offset + 8].copy_from_slice(&value.to_le_bytes());
+    }
+
     fn put_u64(bytes: &mut [u8], offset: usize, value: u64) {
         bytes[offset..offset + 8].copy_from_slice(&value.to_le_bytes());
     }
 
     fn put_f64(bytes: &mut [u8], offset: usize, value: f64) {
         bytes[offset..offset + 8].copy_from_slice(&value.to_le_bytes());
+    }
+
+    fn put_f32(bytes: &mut [u8], offset: usize, value: f32) {
+        bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
     }
 
     fn put_vlr(
@@ -530,6 +830,14 @@ mod tests {
     }
 
     fn compressed_fixture_with_extra(point_format: u8, extra_bytes: u16) -> (Vec<u8>, Vec<u8>) {
+        compressed_fixture_with_extra_data(point_format, extra_bytes, &[])
+    }
+
+    fn compressed_fixture_with_extra_data(
+        point_format: u8,
+        extra_bytes: u16,
+        extra_data: &[Vec<u8>],
+    ) -> (Vec<u8>, Vec<u8>) {
         let base_record_length = match point_format {
             6 => 30,
             7 => 36,
@@ -611,12 +919,38 @@ mod tests {
             for (extra_index, value) in record[base_record_length..].iter_mut().enumerate() {
                 *value = (index * 17 + extra_index) as u8;
             }
+            if let Some(values) = extra_data.get(index) {
+                assert_eq!(values.len(), usize::from(extra_bytes));
+                record[base_record_length..].copy_from_slice(values);
+            }
         }
         let mut compressor = LayeredPointRecordCompressor::new(Vec::new());
         compressor.set_fields_from(laz_vlr.items()).unwrap();
         compressor.compress_many(&raw).unwrap();
         compressor.done().unwrap();
         (metadata, compressor.into_inner())
+    }
+
+    fn extra_bytes_descriptor(name: &str, data_type: u8, options: u8) -> Vec<u8> {
+        let mut descriptor = vec![0; 192];
+        descriptor[2] = data_type;
+        descriptor[3] = options;
+        descriptor[4..4 + name.len()].copy_from_slice(name.as_bytes());
+        descriptor
+    }
+
+    fn append_extra_bytes_vlr(mut metadata: Vec<u8>, descriptors: &[u8]) -> Vec<u8> {
+        let offset = metadata.len();
+        let mut vlr = vec![0; 54 + descriptors.len()];
+        vlr[2..2 + b"LASF_Spec".len()].copy_from_slice(b"LASF_Spec");
+        put_u16(&mut vlr, 18, 4);
+        put_u16(&mut vlr, 20, descriptors.len() as u16);
+        vlr[54..].copy_from_slice(descriptors);
+        metadata.extend_from_slice(&vlr);
+        put_u32(&mut metadata, 96, (offset + vlr.len()) as u32);
+        let count = u32::from_le_bytes(metadata[100..104].try_into().unwrap()) + 1;
+        put_u32(&mut metadata, 100, count);
+        metadata
     }
 
     #[test]
@@ -667,6 +1001,214 @@ mod tests {
                 assert_eq!(result.blue.as_deref(), Some(&[800, 801][..]));
             }
         }
+    }
+
+    #[test]
+    fn selectively_decodes_scalar_extra_bytes_and_preserves_64_bit_integers() {
+        use super::{DecodedExtraDimensionValues, decode_copc_node_with_extra_dimensions};
+        use crate::parse_header;
+
+        let mut raw_first = vec![0; 44];
+        let mut raw_second = vec![0; 44];
+        for (raw, index) in [(&mut raw_first, 0usize), (&mut raw_second, 1usize)] {
+            raw[0] = if index == 0 { 255 } else { 128 };
+            raw[1] = (-2i8 + index as i8) as u8;
+            raw[2..4].copy_from_slice(&(1000u16 + index as u16 * 1000).to_le_bytes());
+            raw[4..6].copy_from_slice(&(-1000i16 - index as i16 * 1000).to_le_bytes());
+            raw[6..10].copy_from_slice(&(100_000u32 + index as u32 * 100_000).to_le_bytes());
+            raw[10..14].copy_from_slice(&(-100_000i32 - index as i32 * 100_000).to_le_bytes());
+            put_u64(raw, 14, 9_007_199_254_740_993 + index as u64);
+            put_i64(raw, 22, -9_007_199_254_740_995 + index as i64);
+            put_f32(raw, 30, 1.5 + index as f32);
+            put_f64(raw, 34, 2.5 + index as f64);
+            raw[42..44].copy_from_slice(&(200u16 + index as u16 * 100).to_le_bytes());
+        }
+        let extras = vec![raw_first, raw_second];
+        let (metadata, chunk) = compressed_fixture_with_extra_data(8, 44, &extras);
+        let mut descriptors = Vec::new();
+        for (name, data_type, options) in [
+            ("u8", 1, 0),
+            ("i8", 2, 0),
+            ("u16", 3, 0),
+            ("i16", 4, 0),
+            ("u32", 5, 0),
+            ("i32", 6, 0),
+            ("u64", 7, 0),
+            ("i64", 8, 0),
+            ("f32", 9, 0),
+            ("f64", 10, 0),
+            ("scaled", 3, 25),
+        ] {
+            let mut descriptor = extra_bytes_descriptor(name, data_type, options);
+            if name == "scaled" {
+                put_u64(&mut descriptor, 40, 10);
+                put_f64(&mut descriptor, 112, 0.5);
+                put_f64(&mut descriptor, 136, 4.0);
+            }
+            descriptors.extend_from_slice(&descriptor);
+        }
+        let metadata = append_extra_bytes_vlr(metadata, &descriptors);
+        let names = [
+            "u8", "i8", "u16", "i16", "u32", "i32", "u64", "i64", "f32", "f64", "scaled",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+        let decoded = decode_copc_node_with_extra_dimensions(
+            &metadata,
+            &chunk,
+            2,
+            0,
+            &names,
+            64 * 1024 * 1024,
+        )
+        .expect("all declared scalar fields should decode");
+        let values = decoded
+            .extra_dimensions
+            .iter()
+            .map(|dimension| (dimension.name.as_str(), &dimension.values))
+            .collect::<std::collections::HashMap<_, _>>();
+        assert_eq!(
+            values["u8"],
+            &DecodedExtraDimensionValues::Float64(vec![255.0, 128.0])
+        );
+        assert_eq!(
+            values["i8"],
+            &DecodedExtraDimensionValues::Float64(vec![-2.0, -1.0])
+        );
+        assert_eq!(
+            values["u16"],
+            &DecodedExtraDimensionValues::Float64(vec![1000.0, 2000.0])
+        );
+        assert_eq!(
+            values["i16"],
+            &DecodedExtraDimensionValues::Float64(vec![-1000.0, -2000.0])
+        );
+        assert_eq!(
+            values["u32"],
+            &DecodedExtraDimensionValues::Float64(vec![100_000.0, 200_000.0])
+        );
+        assert_eq!(
+            values["i32"],
+            &DecodedExtraDimensionValues::Float64(vec![-100_000.0, -200_000.0])
+        );
+        assert_eq!(
+            values["u64"],
+            &DecodedExtraDimensionValues::Uint64(vec![
+                9_007_199_254_740_993,
+                9_007_199_254_740_994
+            ]),
+        );
+        assert_eq!(
+            values["i64"],
+            &DecodedExtraDimensionValues::Int64(vec![
+                -9_007_199_254_740_995,
+                -9_007_199_254_740_994
+            ]),
+        );
+        assert_eq!(
+            values["f32"],
+            &DecodedExtraDimensionValues::Float64(vec![1.5, 2.5])
+        );
+        assert_eq!(
+            values["f64"],
+            &DecodedExtraDimensionValues::Float64(vec![2.5, 3.5])
+        );
+        assert_eq!(
+            values["scaled"],
+            &DecodedExtraDimensionValues::Float64(vec![104.0, 154.0])
+        );
+        assert_eq!(
+            parse_header(&metadata).unwrap().extra_dimensions[10].decoded_no_data(),
+            Some(9.0)
+        );
+
+        let duplicate_request = vec!["u8".to_owned(), "u8".to_owned()];
+        let selected = decode_copc_node_with_extra_dimensions(
+            &metadata,
+            &chunk,
+            2,
+            0,
+            &duplicate_request,
+            64 * 1024 * 1024,
+        )
+        .expect("duplicate requests collapse");
+        assert_eq!(selected.extra_dimensions.len(), 1);
+        assert_eq!(selected.extra_dimensions[0].name, "u8");
+        assert_eq!(
+            decode_copc_node_with_extra_dimensions(
+                &metadata,
+                &chunk,
+                2,
+                0,
+                &["missing".to_owned()],
+                64 * 1024 * 1024,
+            )
+            .unwrap_err()
+            .code(),
+            "invalid-value"
+        );
+    }
+
+    #[test]
+    fn decodes_named_extra_bytes_for_point_formats_6_7_and_8() {
+        use super::{DecodedExtraDimensionValues, decode_copc_node_with_extra_dimensions};
+
+        for point_format in [6, 7, 8] {
+            let (metadata, chunk) = compressed_fixture_with_extra(point_format, 1);
+            let descriptor = extra_bytes_descriptor("echo", 1, 0);
+            let metadata = append_extra_bytes_vlr(metadata, &descriptor);
+            let decoded = decode_copc_node_with_extra_dimensions(
+                &metadata,
+                &chunk,
+                2,
+                0,
+                &["echo".to_owned()],
+                64 * 1024 * 1024,
+            )
+            .expect("supported point format should decode named Extra Bytes");
+            assert_eq!(
+                decoded.extra_dimensions[0].values,
+                DecodedExtraDimensionValues::Float64(vec![0.0, 17.0]),
+            );
+        }
+    }
+
+    #[test]
+    fn explicitly_rejects_vector_and_untyped_extra_byte_values() {
+        use super::decode_copc_node_with_extra_dimensions;
+
+        let (metadata, chunk) = compressed_fixture_with_extra(6, 12);
+        let metadata = append_extra_bytes_vlr(metadata, &extra_bytes_descriptor("vector", 29, 0));
+        assert_eq!(
+            decode_copc_node_with_extra_dimensions(
+                &metadata,
+                &chunk,
+                2,
+                0,
+                &["vector".to_owned()],
+                64 * 1024 * 1024,
+            )
+            .unwrap_err()
+            .code(),
+            "unsupported-value"
+        );
+
+        let (metadata, chunk) = compressed_fixture_with_extra(6, 3);
+        let metadata = append_extra_bytes_vlr(metadata, &extra_bytes_descriptor("opaque", 0, 3));
+        assert_eq!(
+            decode_copc_node_with_extra_dimensions(
+                &metadata,
+                &chunk,
+                2,
+                0,
+                &["opaque".to_owned()],
+                64 * 1024 * 1024,
+            )
+            .unwrap_err()
+            .code(),
+            "unsupported-value"
+        );
     }
 
     #[test]

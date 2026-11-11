@@ -34,6 +34,8 @@ export type RustCopcDecodeWorkerJob = {
   pointCount: number;
   /** Bit mask of optional per-point fields requested by the caller. */
   requestedFields: number;
+  /** Exact, source-validated Extra Bytes names selected for this node. */
+  extraDimensions?: readonly string[];
   /** Encoded point-node bytes, transferred to the worker. */
   chunk: ArrayBuffer;
 };
@@ -110,6 +112,12 @@ export type RustCopcDecodeWorkerResult = {
   green?: ArrayBuffer;
   /** Transferred raw blue channel values, when requested and available. */
   blue?: ArrayBuffer;
+  /** Exact typed arrays for requested Extra Bytes fields. */
+  extraDimensions?: Array<{
+    name: string;
+    valueType: "float64" | "int64" | "uint64";
+    buffer: ArrayBuffer;
+  }>;
 };
 
 /** Structured worker failure, optionally associated with one submitted job. */

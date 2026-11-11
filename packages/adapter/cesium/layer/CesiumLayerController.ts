@@ -1642,9 +1642,8 @@ export class CesiumLayerController {
         (dimension) => dimension.name === name,
       );
       if (!descriptor) {
-        const backend = this.options.backend === "rust" ? "Rust" : "selected";
         throw new Error(
-          `The ${backend} COPC backend does not expose Extra Bytes dimension ${name}; use the copc-js backend for numeric Extra Bytes styling.`,
+          `Extra Bytes dimension ${name} is not present in the source metadata.`,
         );
       }
       if (!isCopcDimensionMetadataStyleable(descriptor)) {

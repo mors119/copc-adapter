@@ -1,6 +1,7 @@
 import type {
   CopcPointAttributes,
   CopcPointBuffer,
+  CopcExtraDimensionValues,
   PreparedPointData,
   PreparedPointStatistics,
 } from "./types/copc";
@@ -18,6 +19,7 @@ import { resolveHeightOffsetMeters } from "../coordinates/transform/heightOffset
 const FIELD_INTENSITY = 1 << 0;
 const FIELD_CLASSIFICATION = 1 << 1;
 const FIELD_RGB = 1 << 2;
+const MAX_EXTRA_DIMENSION_OUTPUT_BYTES = 64 * 1024 * 1024;
 
 export function getRustPointFieldMask(fields: CopcPointFieldSelection): number {
   return (
@@ -39,6 +41,14 @@ type RustDecodeValue = {
   intensity: boolean;
   classification: boolean;
   rgb: boolean;
+  extra_dimensions: RustExtraDimensionLayout[];
+};
+
+type RustExtraDimensionLayout = {
+  name: string;
+  value_type: "float64" | "int64" | "uint64";
+  byte_offset: number;
+  byte_length: number;
 };
 
 type RustPreparerHandle = {
@@ -57,6 +67,7 @@ type RustPrepareValue = {
   intensity: boolean;
   classification: boolean;
   rgb: boolean;
+  extra_dimensions: RustExtraDimensionLayout[];
   statistics: {
     elevation?: RustPreparedRange;
     intensity?: RustPreparedRange;
@@ -110,7 +121,12 @@ export type RustCopcNodePreparationResult = {
 };
 
 function attributesFromResponse(
-  value: { intensity: boolean; classification: boolean; rgb: boolean },
+  value: {
+    intensity: boolean;
+    classification: boolean;
+    rgb: boolean;
+    extra_dimensions: RustExtraDimensionLayout[];
+  },
   pointCount: number,
   memory: WebAssembly.Memory,
   pointers: {
@@ -119,8 +135,15 @@ function attributesFromResponse(
     red: number;
     green: number;
     blue: number;
+    extraDimensions: number;
   },
 ): CopcPointAttributes | undefined {
+  const extraDimensions = readExtraDimensionValues(
+    value.extra_dimensions,
+    pointCount,
+    memory,
+    pointers.extraDimensions,
+  );
   const attributes: CopcPointAttributes = {
     intensity: value.intensity
       ? Uint16Array.from(
@@ -147,10 +170,112 @@ function attributesFromResponse(
           new Uint16Array(memory.buffer, pointers.blue, pointCount),
         )
       : undefined,
+    ...(extraDimensions ? { extraDimensions } : {}),
   };
   return Object.values(attributes).some((values) => values !== undefined)
     ? attributes
     : undefined;
+}
+
+function readExtraDimensionValues(
+  layouts: readonly RustExtraDimensionLayout[],
+  pointCount: number,
+  memory: WebAssembly.Memory,
+  pointer: number,
+): Record<string, CopcExtraDimensionValues> | undefined {
+  if (layouts.length === 0) return undefined;
+  const totalByteLength = layouts.length * pointCount * 8;
+  if (
+    !Number.isSafeInteger(totalByteLength) ||
+    totalByteLength > MAX_EXTRA_DIMENSION_OUTPUT_BYTES ||
+    (pointer === 0 && totalByteLength > 0)
+  ) {
+    throw new RustCopcParseError(
+      "invalid-input",
+      "Rust decoder returned an invalid Extra Bytes output buffer",
+    );
+  }
+  const dimensions: Record<string, CopcExtraDimensionValues> = {};
+  const view = new DataView(memory.buffer);
+  const seen = new Set<string>();
+  for (const layout of layouts) {
+    const byteEnd = layout.byte_offset + layout.byte_length;
+    if (
+      seen.has(layout.name) ||
+      !Number.isSafeInteger(layout.byte_offset) ||
+      layout.byte_offset < 0 ||
+      layout.byte_length !== pointCount * 8 ||
+      !Number.isSafeInteger(byteEnd) ||
+      byteEnd > totalByteLength
+    ) {
+      throw new RustCopcParseError(
+        "invalid-input",
+        "Rust decoder returned an invalid Extra Bytes field layout",
+      );
+    }
+    seen.add(layout.name);
+    const start = pointer + layout.byte_offset;
+    let values: CopcExtraDimensionValues;
+    if (layout.value_type === "uint64") {
+      const typed = new BigUint64Array(pointCount);
+      for (let index = 0; index < pointCount; index += 1) {
+        typed[index] = view.getBigUint64(start + index * 8, true);
+      }
+      values = typed;
+    } else if (layout.value_type === "int64") {
+      const typed = new BigInt64Array(pointCount);
+      for (let index = 0; index < pointCount; index += 1) {
+        typed[index] = view.getBigInt64(start + index * 8, true);
+      }
+      values = typed;
+    } else if (layout.value_type === "float64") {
+      const typed = new Float64Array(pointCount);
+      for (let index = 0; index < pointCount; index += 1) {
+        typed[index] = view.getFloat64(start + index * 8, true);
+      }
+      values = typed;
+    } else {
+      throw new RustCopcParseError(
+        "invalid-input",
+        "Rust decoder returned an unknown Extra Bytes value type",
+      );
+    }
+    Object.defineProperty(dimensions, layout.name, {
+      value: values,
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
+  }
+  return dimensions;
+}
+
+function extraDimensionOutputByteLength(
+  names: readonly string[],
+  pointCount: number,
+): number {
+  const length = names.length * pointCount * 8;
+  if (
+    !Number.isSafeInteger(length) ||
+    length > MAX_EXTRA_DIMENSION_OUTPUT_BYTES
+  ) {
+    throw new RustCopcParseError(
+      "unsupported-value",
+      `Extra Bytes output exceeds the ${MAX_EXTRA_DIMENSION_OUTPUT_BYTES}-byte safety limit`,
+    );
+  }
+  return length;
+}
+
+function encodeExtraDimensionSelection(names: readonly string[]): Uint8Array {
+  const bytes = new TextEncoder().encode(JSON.stringify(names));
+  if (bytes.byteLength > 64 * 1024) {
+    throw new RustCopcParseError(
+      "unsupported-value",
+      "Extra Bytes selection exceeds the 65536-byte safety limit",
+    );
+  }
+  return bytes;
 }
 
 function hasAttributes(
@@ -220,6 +345,7 @@ export class RustCopcNodePreparer {
     chunkBytes: Uint8Array,
     pointCount: number,
     fields: CopcPointFieldSelection,
+    requestedExtraDimensions: readonly string[] = [],
   ): RustCopcNodePreparationResult {
     if (this.handle.handle === 0) {
       throw new RustCopcParseError(
@@ -239,6 +365,11 @@ export class RustCopcNodePreparer {
       );
     }
     const coordinateLength = pointCount * 3;
+    const selectionBytes = encodeExtraDimensionSelection(requestedExtraDimensions);
+    const extraOutputByteLength = extraDimensionOutputByteLength(
+      requestedExtraDimensions,
+      pointCount,
+    );
     let chunkPointer = 0;
     let sourcePointer = 0;
     let geographicPointer = 0;
@@ -248,6 +379,8 @@ export class RustCopcNodePreparer {
     let redPointer = 0;
     let greenPointer = 0;
     let bluePointer = 0;
+    let selectionPointer = 0;
+    let extraDimensionsPointer = 0;
 
     try {
       chunkPointer = requireRustWasmPointer(
@@ -305,18 +438,37 @@ export class RustCopcNodePreparer {
             "blue",
           )
         : 0;
+      selectionPointer = requireRustWasmPointer(
+        this.wasm.alloc_bytes(selectionBytes.byteLength),
+        selectionBytes.byteLength,
+        "Extra Bytes selection",
+      );
+      extraDimensionsPointer = extraOutputByteLength > 0
+        ? requireRustWasmPointer(
+            this.wasm.alloc_bytes(extraOutputByteLength),
+            extraOutputByteLength,
+            "Extra Bytes output",
+          )
+        : 0;
       new Uint8Array(
         this.wasm.memory.buffer,
         chunkPointer,
         chunkBytes.byteLength,
       ).set(chunkBytes);
+      new Uint8Array(
+        this.wasm.memory.buffer,
+        selectionPointer,
+        selectionBytes.byteLength,
+      ).set(selectionBytes);
       const startedAt = performanceNow();
-      const responsePointer = this.wasm.prepare_copc_node_json(
+      const responsePointer = this.wasm.prepare_copc_node_with_extra_dimensions_json(
         this.handle.handle,
         chunkPointer,
         chunkBytes.byteLength,
         pointCount,
         requestedFields,
+        selectionPointer,
+        selectionBytes.byteLength,
         sourcePointer,
         geographicPointer,
         ecefPointer,
@@ -325,6 +477,7 @@ export class RustCopcNodePreparer {
         redPointer,
         greenPointer,
         bluePointer,
+        extraDimensionsPointer,
       );
       try {
         const response = JSON.parse(
@@ -386,6 +539,7 @@ export class RustCopcNodePreparer {
             red: redPointer,
             green: greenPointer,
             blue: bluePointer,
+            extraDimensions: extraDimensionsPointer,
           },
         );
         const statistics: PreparedPointStatistics = {
@@ -422,6 +576,10 @@ export class RustCopcNodePreparer {
       if (redPointer) this.wasm.dealloc_u16(redPointer, pointCount);
       if (greenPointer) this.wasm.dealloc_u16(greenPointer, pointCount);
       if (bluePointer) this.wasm.dealloc_u16(bluePointer, pointCount);
+      if (selectionPointer)
+        this.wasm.dealloc_bytes(selectionPointer, selectionBytes.byteLength);
+      if (extraDimensionsPointer)
+        this.wasm.dealloc_bytes(extraDimensionsPointer, extraOutputByteLength);
     }
   }
 
@@ -441,6 +599,7 @@ export async function decodeRustCopcNode(
   fields: CopcPointFieldSelection,
   loadWasm: () => Promise<CopcWasmExports>,
   maxChunkBytes = DEFAULT_MAX_RANGE_BYTES,
+  requestedExtraDimensions: readonly string[] = [],
 ): Promise<RustCopcNodeDecodeResult> {
   const maximum = resolveWasmMaxRangeBytes("[node chunk]", maxChunkBytes);
   const requestedFields = getRustPointFieldMask(fields);
@@ -455,6 +614,11 @@ export async function decodeRustCopcNode(
     );
   }
   const coordinateLength = pointCount * 3;
+  const selectionBytes = encodeExtraDimensionSelection(requestedExtraDimensions);
+  const extraOutputByteLength = extraDimensionOutputByteLength(
+    requestedExtraDimensions,
+    pointCount,
+  );
   const wasm = await loadWasm();
   let metadataPointer = 0;
   let chunkPointer = 0;
@@ -464,6 +628,8 @@ export async function decodeRustCopcNode(
   let redPointer = 0;
   let greenPointer = 0;
   let bluePointer = 0;
+  let selectionPointer = 0;
+  let extraDimensionsPointer = 0;
 
   try {
     metadataPointer = requireRustWasmPointer(
@@ -504,13 +670,30 @@ export async function decodeRustCopcNode(
     bluePointer = fields.has("rgb")
       ? requireRustWasmPointer(wasm.alloc_u16(pointCount), pointCount, "blue")
       : 0;
+    selectionPointer = requireRustWasmPointer(
+      wasm.alloc_bytes(selectionBytes.byteLength),
+      selectionBytes.byteLength,
+      "Extra Bytes selection",
+    );
+    extraDimensionsPointer = extraOutputByteLength > 0
+      ? requireRustWasmPointer(
+          wasm.alloc_bytes(extraOutputByteLength),
+          extraOutputByteLength,
+          "Extra Bytes output",
+        )
+      : 0;
     const memory = wasm.memory.buffer;
     new Uint8Array(memory, metadataPointer, metadataBytes.byteLength).set(
       metadataBytes,
     );
     new Uint8Array(memory, chunkPointer, chunkBytes.byteLength).set(chunkBytes);
+    new Uint8Array(
+      wasm.memory.buffer,
+      selectionPointer,
+      selectionBytes.byteLength,
+    ).set(selectionBytes);
     const decodeStartedAt = performanceNow();
-    const responsePointer = wasm.decode_copc_node_with_limit_json(
+    const responsePointer = wasm.decode_copc_node_with_limit_and_extra_dimensions_json(
       metadataPointer,
       metadataBytes.byteLength,
       chunkPointer,
@@ -518,12 +701,15 @@ export async function decodeRustCopcNode(
       pointCount,
       requestedFields,
       maximum,
+      selectionPointer,
+      selectionBytes.byteLength,
       coordinatesPointer,
       intensityPointer,
       classificationPointer,
       redPointer,
       greenPointer,
       bluePointer,
+      extraDimensionsPointer,
     );
     const durationMs = performanceNow() - decodeStartedAt;
 
@@ -560,48 +746,26 @@ export async function decodeRustCopcNode(
           coordinateLength,
         ),
       );
-      const attributes: CopcPointAttributes = {
-        intensity: value.intensity
-          ? Uint16Array.from(
-              new Uint16Array(wasm.memory.buffer, intensityPointer, pointCount),
-            )
-          : undefined,
-        classification: value.classification
-          ? Uint8Array.from(
-              new Uint8Array(
-                wasm.memory.buffer,
-                classificationPointer,
-                pointCount,
-              ),
-            )
-          : undefined,
-        red: value.rgb
-          ? Uint16Array.from(
-              new Uint16Array(wasm.memory.buffer, redPointer, pointCount),
-            )
-          : undefined,
-        green: value.rgb
-          ? Uint16Array.from(
-              new Uint16Array(wasm.memory.buffer, greenPointer, pointCount),
-            )
-          : undefined,
-        blue: value.rgb
-          ? Uint16Array.from(
-              new Uint16Array(wasm.memory.buffer, bluePointer, pointCount),
-            )
-          : undefined,
-      };
+      const attributes = attributesFromResponse(
+        value,
+        pointCount,
+        wasm.memory,
+        {
+          intensity: intensityPointer,
+          classification: classificationPointer,
+          red: redPointer,
+          green: greenPointer,
+          blue: bluePointer,
+          extraDimensions: extraDimensionsPointer,
+        },
+      );
       return {
         durationMs,
         buffer: {
           pointCount,
           coordinates,
           coordinateSystem: value.coordinate_system,
-          attributes: Object.values(attributes).some(
-            (values) => values !== undefined,
-          )
-            ? attributes
-            : undefined,
+          attributes,
         },
       };
     } finally {
@@ -619,5 +783,9 @@ export async function decodeRustCopcNode(
     if (redPointer) wasm.dealloc_u16(redPointer, pointCount);
     if (greenPointer) wasm.dealloc_u16(greenPointer, pointCount);
     if (bluePointer) wasm.dealloc_u16(bluePointer, pointCount);
+    if (selectionPointer)
+      wasm.dealloc_bytes(selectionPointer, selectionBytes.byteLength);
+    if (extraDimensionsPointer)
+      wasm.dealloc_bytes(extraDimensionsPointer, extraOutputByteLength);
   }
 }

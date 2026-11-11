@@ -264,9 +264,7 @@ function createDimensionStyleControl(options: SchemaSpecialControlOptions): Sche
       help.textContent = context.numericDimensions === undefined
         ? "Load a COPC source to inspect exact LAS Extra Bytes metadata. No fields are assumed available before metadata is read."
         : [
-            context.values?.["adapter.backend"] === "rust"
-              ? "Rust/WASM exposes standard Intensity coloring. Named LAS Extra Bytes styling requires the JavaScript backend."
-              : "This source has no supported numeric fields for styling.",
+            "This source has no supported numeric fields for styling.",
             unsupportedDimensionSummary(context),
           ].filter(Boolean).join(" ");
       return;
@@ -534,9 +532,7 @@ function createDimensionFilterControl(options: SchemaSpecialControlOptions): Sch
     } else {
       legend.textContent = "";
       helper.textContent = numericDimensionFields(context).length === 0
-        ? context.values?.["adapter.backend"] === "rust"
-          ? "Rust/WASM can filter standard Intensity; named Extra Bytes filters require copc-js."
-          : "Load a source to inspect exact numeric LAS fields."
+        ? "Load a source to inspect exact numeric LAS fields."
         : (() => {
             const selected = selectedField();
             return selected

@@ -367,9 +367,8 @@ export class ThreeLayerController {
           (dimension) => dimension.name === dimensionName,
         );
         if (!descriptor) {
-          const backend = this.options.backend === "rust" ? "Rust" : "selected";
           throw new Error(
-            `The ${backend} COPC backend does not expose Extra Bytes dimension ${dimensionName}; use the copc-js backend for numeric Extra Bytes styling.`,
+            `Extra Bytes dimension ${dimensionName} is not present in the source metadata.`,
           );
         }
         if (!isCopcDimensionMetadataStyleable(descriptor)) {

@@ -400,7 +400,7 @@ function buildConstructorOptions(
   const warnings: string[] = [];
   const verticalGridSetup: string[] = [];
   const supported = new Set(
-    getSupportedOptions({ manifest: plan.manifest, renderer: plan.renderer }, schema)
+    getSupportedOptions({ manifest: plan.manifest, renderer: plan.renderer, values: plan.values }, schema)
       .map(({ id }) => id),
   );
 
@@ -415,7 +415,7 @@ function buildConstructorOptions(
 
   for (const specialized of plan.specializedOptions) {
     switch (specialized.handler) {
-      case "copc-js-extra-dimensions": {
+      case "backend-extra-dimensions": {
         const option = schema.find(({ id }) => id === specialized.optionId);
         const wildcard = option?.validation.kind === "string-array"
           ? option.validation.wildcard
@@ -429,9 +429,11 @@ function buildConstructorOptions(
         ) {
           throw new TypeError("Extra Dimensions has an invalid public constructor mapping.");
         }
-        imports.add("CopcJsBackend");
+        const backend = plan.constructorOptions.backend === "rust" ? "rust" : "copc-js";
+        const backendClass = backend === "rust" ? "RustCopcBackend" : "CopcJsBackend";
+        imports.add(backendClass);
         setPath(options, "backend", expression(
-          "new CopcJsBackend({ extraDimensions: " + literal(specialized.value) + " })",
+          "new " + backendClass + "({ extraDimensions: " + literal(specialized.value) + " })",
         ));
         break;
       }
@@ -835,7 +837,9 @@ export function generateWorkbenchIntegrationCode(
     }
   }
   if (mode === "explicit") fillExplicitDefaults(values, context, schema);
-  const supportedIds = new Set(getSupportedOptions(context, schema).map(({ id }) => id));
+  const supportedIds = new Set(
+    getSupportedOptions({ ...context, values }, schema).map(({ id }) => id),
+  );
   if (
     options.renderer === "three" &&
     values["style.classificationFilter"] !== undefined &&

@@ -420,10 +420,10 @@ test("capability projection filters renderer, release support, runtime capabilit
     },
   };
   assert.ok(
-    getSupportedOptions(rustContext).some(
+    !getSupportedOptions(rustContext).some(
       ({ id }) => id === "attributes.extraDimensions",
     ),
-    "backend selection affects availability, not package support",
+    "the released 0.6.0 capability profile does not promise Rust Extra Bytes",
   );
   assert.ok(
     !getAvailableOptions({
@@ -436,6 +436,34 @@ test("capability projection filters renderer, release support, runtime capabilit
       rustContext,
     ),
   );
+  const workspaceRustContext = {
+    manifest: WORKSPACE_CURRENT_MANIFEST,
+    runtimeCapabilities: WORKSPACE_CURRENT_CAPABILITIES,
+    renderer: "cesium",
+    values: {
+      "adapter.backend": "rust",
+      "attributes.extraDimensions": ["leg_id"],
+    },
+  };
+  assert.ok(getSupportedOptions(workspaceRustContext).some(
+    ({ id }) => id === "attributes.extraDimensions",
+  ));
+  assert.ok(getAvailableOptions(workspaceRustContext).some(
+    ({ id }) => id === "attributes.extraDimensions",
+  ));
+  assert.ok(isOptionAvailable(
+    getOptionDefinition("attributes.extraDimensions"),
+    workspaceRustContext,
+  ));
+  const releasedRustContext = {
+    manifest: NPM_0_8_0_MANIFEST,
+    runtimeCapabilities: NPM_0_8_0_CAPABILITIES,
+    renderer: "cesium",
+    values: { "adapter.backend": "rust" },
+  };
+  assert.ok(!getSupportedOptions(releasedRustContext).some(
+    ({ id }) => id === "attributes.extraDimensions",
+  ));
   assert.ok(
     !getAvailableOptions({
       ...cesiumContext,

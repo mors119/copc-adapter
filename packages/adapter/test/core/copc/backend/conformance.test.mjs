@@ -238,27 +238,21 @@ test("both built-in backends open Blob inputs with partial reads and matching me
   );
 });
 
-test("Rust reports LAS Extra Bytes as unsupported at open and node request boundaries", async () => {
+test("Rust accepts configured Extra Bytes and reports missing requested names explicitly", async () => {
   await withFixture(async (fixture, fixturePath) => {
-    const configured = await captureError(() =>
-      new RustCopcBackend().open(fixturePath, {
-        extraDimensions: ["leg_id"],
-      }),
-    );
-    assert.deepEqual(configured, { stage: "decode", code: "unsupported" });
-
-    const rust = await new RustCopcBackend({
+    const backend = new RustCopcBackend({
       createByteSource: (source) => new InMemoryByteSource(fixture.bytes, source),
-    }).open(fixturePath);
+      extraDimensions: ["leg_id"],
+    });
+    const rust = await backend.open(fixturePath);
+    assert.deepEqual(backend.configuredExtraDimensions, ["leg_id"]);
+    assert.deepEqual(rust.getMetadata().extraDimensions, []);
     const root = await rust.loadHierarchyPage(rust.getRootHierarchyPage());
     await assert.rejects(
       rust.loadPointDataBuffer(root.nodes[0], new Set(["position"]), {
         extraDimensions: ["leg_id"],
       }),
-      (error) =>
-        error instanceof CopcBackendError &&
-        error.stage === "decode" &&
-        error.code === "unsupported",
+      /COPC Extra Dimension is not available: leg_id/u,
     );
     rust.destroy();
   });

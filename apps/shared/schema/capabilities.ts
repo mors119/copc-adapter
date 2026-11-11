@@ -31,7 +31,22 @@ export function getSupportedOptions(
       return false;
     }
     if (!option.renderers.includes(context.renderer)) return false;
-    return (option.requiredCapabilities ?? []).every(
+    const requiredCapabilities = [...(option.requiredCapabilities ?? [])];
+    if (option.backendCapabilities) {
+      const backend = context.values?.["adapter.backend"] ?? resolveOptionDefault(
+        "adapter.backend",
+        context.manifest,
+        new Set(),
+        schema,
+        context.values,
+      );
+      const backendCapability = typeof backend === "string"
+        ? option.backendCapabilities[backend]
+        : undefined;
+      if (!backendCapability) return false;
+      requiredCapabilities.push(backendCapability);
+    }
+    return requiredCapabilities.every(
       (capability) =>
         packageCapabilities.has(capability) &&
         (runtimeCapabilities === undefined ||

@@ -296,20 +296,20 @@ export function transitionRendererOptionValues(
  */
 export function resolveSchemaBackendSelection(
   plan: Pick<SchemaApplicationPlan, "constructorOptions" | "specializedOptions">,
-  createCopcJsBackend: (options: { readonly extraDimensions: unknown }) => unknown,
+  createBackend: (options: {
+    readonly backend: "copc-js" | "rust";
+    readonly extraDimensions: unknown;
+  }) => unknown,
 ): unknown {
   const extraDimensions = plan.specializedOptions.find(
-    ({ handler }) => handler === "copc-js-extra-dimensions",
+    ({ handler }) => handler === "backend-extra-dimensions",
   );
   if (!extraDimensions) return plan.constructorOptions.backend;
-  if (
-    extraDimensions.apiPath !== "backend.extraDimensions" ||
-    (plan.constructorOptions.backend !== undefined &&
-      plan.constructorOptions.backend !== "copc-js")
-  ) {
-    throw new TypeError("Extra Dimensions requires the supported copc-js backend option.");
+  if (extraDimensions.apiPath !== "backend.extraDimensions") {
+    throw new TypeError("Extra Dimensions requires a backend with Extra Bytes support.");
   }
-  return createCopcJsBackend({ extraDimensions: extraDimensions.value });
+  const backend = plan.constructorOptions.backend === "rust" ? "rust" : "copc-js";
+  return createBackend({ backend, extraDimensions: extraDimensions.value });
 }
 
 /** Validate a complete or partial normalized option map for its selected renderer. */

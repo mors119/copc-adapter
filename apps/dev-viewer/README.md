@@ -80,10 +80,10 @@ Extra Bytes are requested by exact field name when you apply a selection. This
 rebuilds the layer if that field was not already decoded. Once loaded, Cesium
 palette and filter changes reuse the cached points through `setStyle()`.
 Cesium filter bounds are inclusive. Three.js applies ramps through layer
-constructor options and does not expose a runtime numeric filter. The Rust/WASM
-backend supports Intensity but not named Extra Bytes. Unsupported vector fields
-and 64-bit integer fields are not offered as numeric controls; 64-bit integers
-remain exact `BigInt` values in point inspection.
+constructor options and does not expose a runtime numeric filter. Both the
+JavaScript and Rust/WASM backends decode selected scalar Extra Bytes.
+Unsupported vector fields and 64-bit integer fields are not offered as numeric
+controls; 64-bit integers remain exact `BigInt` values in point inspection.
 
 Generated examples follow the active renderer's public API. Cesium uses a
 `setStyle()` call after load, while Three.js includes `colorMode: "dimension"`
@@ -91,9 +91,11 @@ and the `dimension` ramp in layer options. For a dataset whose metadata declares
 `CanopyHeight` as a supported scalar Extra Bytes field, an example looks like:
 
 ```ts
+import { CopcCesiumLayer, RustCopcBackend } from "@frillab/copc-adapter/cesium";
+
 const layer = new CopcCesiumLayer({
   url: source,
-  backend: new CopcJsBackend({ extraDimensions: ["CanopyHeight"] }),
+  backend: new RustCopcBackend({ extraDimensions: ["CanopyHeight"] }),
 });
 await layer.load();
 layer.attachTo(viewer);

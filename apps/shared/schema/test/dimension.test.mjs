@@ -38,12 +38,13 @@ test("numeric fields use exact metadata, supported scalar types, and truthful de
   assert.equal(fields.find(({ name }) => name === "vector").styleable, false);
 });
 
-test("Rust metadata does not advertise named Extra Bytes as usable color fields", () => {
+test("Rust metadata advertises scalar Extra Bytes and preserves BigInt limitations", () => {
   const fields = getWorkbenchNumericDimensions(metadata, "rust", ["rank"]);
   assert.equal(fields.find(({ name }) => name === "Intensity").styleable, true);
-  assert.equal(fields.find(({ name }) => name === "rank").styleable, false);
-  assert.match(fields.find(({ name }) => name === "rank").unsupportedReason, /Rust\/WASM/u);
-  assert.equal(fields.find(({ name }) => name === "rank").decoded, false);
+  assert.equal(fields.find(({ name }) => name === "rank").styleable, true);
+  assert.equal(fields.find(({ name }) => name === "rank").decoded, true);
+  assert.equal(fields.find(({ name }) => name === "record_id").styleable, false);
+  assert.match(fields.find(({ name }) => name === "record_id").unsupportedReason, /BigInt/u);
 });
 
 test("default ramps use the exact selected descriptor and carry declared NoData", () => {

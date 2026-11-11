@@ -489,10 +489,13 @@ export async function createPlaygroundRuntime(
     let selectedPoint: CopcPointInspection | undefined;
     const backend = resolveSchemaBackendSelection(
       applicationPlan,
-      ({ extraDimensions }) =>
-        new adapter.CopcJsBackend({
-          extraDimensions: extraDimensions as import("@frillab/copc-adapter/cesium").CopcJsBackendOptions["extraDimensions"],
-        }),
+      ({ backend, extraDimensions }) => backend === "rust"
+        ? new adapter.RustCopcBackend({
+            extraDimensions: extraDimensions as import("@frillab/copc-adapter/cesium").CopcExtraDimensionSelection,
+          } as unknown as import("@frillab/copc-adapter/cesium").RustCopcBackendOptions)
+        : new adapter.CopcJsBackend({
+            extraDimensions: extraDimensions as import("@frillab/copc-adapter/cesium").CopcJsBackendOptions["extraDimensions"],
+          }),
     );
     const layerOptions = {
       ...materializeWorkbenchConstructorOptions(applicationPlan),
@@ -713,10 +716,13 @@ export async function createPlaygroundRuntime(
   let selectedPointObject: ThreeTypes.Points | undefined;
   const backend = resolveSchemaBackendSelection(
     applicationPlan,
-    ({ extraDimensions }) =>
-      new adapter.CopcJsBackend({
-        extraDimensions: extraDimensions as import("@frillab/copc-adapter/three").CopcJsBackendOptions["extraDimensions"],
-      }),
+    ({ backend, extraDimensions }) => backend === "rust"
+      ? new adapter.RustCopcBackend({
+          extraDimensions: extraDimensions as import("@frillab/copc-adapter/three").CopcExtraDimensionSelection,
+        } as unknown as import("@frillab/copc-adapter/three").RustCopcBackendOptions)
+      : new adapter.CopcJsBackend({
+          extraDimensions: extraDimensions as import("@frillab/copc-adapter/three").CopcJsBackendOptions["extraDimensions"],
+        }),
   );
   const layerOptions = {
     ...materializeWorkbenchConstructorOptions(applicationPlan),

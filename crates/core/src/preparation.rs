@@ -1,5 +1,8 @@
 use crate::crs::{CrsTransform, geographic_to_ecef};
-use crate::decoder::{CopcNodeDecoder, DEFAULT_MAX_NODE_CHUNK_BYTES, DecodedCopcNode};
+use crate::decoder::{
+    CopcNodeDecoder, DEFAULT_MAX_NODE_CHUNK_BYTES, DecodedCopcNode,
+    DecodedCopcNodeWithExtraDimensions, DecodedExtraDimension,
+};
 use crate::error::{CopcError, Result};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -27,6 +30,12 @@ pub struct PreparedCopcNode {
     pub green: Option<Vec<u16>>,
     pub blue: Option<Vec<u16>>,
     pub statistics: PreparedPointStatistics,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PreparedCopcNodeWithExtraDimensions {
+    pub prepared: PreparedCopcNode,
+    pub extra_dimensions: Vec<DecodedExtraDimension>,
 }
 
 /// Dataset-scoped point preparation state.
@@ -83,6 +92,21 @@ impl CopcNodePreparer {
         requested_fields: u32,
     ) -> Result<DecodedCopcNode> {
         self.decoder.decode(chunk, point_count, requested_fields)
+    }
+
+    pub fn decode_node_with_extra_dimensions(
+        &self,
+        chunk: &[u8],
+        point_count: usize,
+        requested_fields: u32,
+        requested_extra_dimensions: &[String],
+    ) -> Result<DecodedCopcNodeWithExtraDimensions> {
+        self.decoder.decode_with_extra_dimensions(
+            chunk,
+            point_count,
+            requested_fields,
+            requested_extra_dimensions,
+        )
     }
 
     /// Prepare one decoded node with one traversal for transforms and
@@ -181,6 +205,17 @@ impl CopcNodePreparer {
         })
     }
 
+    pub fn prepare_decoded_with_extra_dimensions(
+        &self,
+        decoded: DecodedCopcNodeWithExtraDimensions,
+    ) -> Result<PreparedCopcNodeWithExtraDimensions> {
+        let prepared = self.prepare_decoded(decoded.node)?;
+        Ok(PreparedCopcNodeWithExtraDimensions {
+            prepared,
+            extra_dimensions: decoded.extra_dimensions,
+        })
+    }
+
     pub fn prepare_node(
         &self,
         chunk: &[u8],
@@ -188,6 +223,21 @@ impl CopcNodePreparer {
         requested_fields: u32,
     ) -> Result<PreparedCopcNode> {
         self.prepare_decoded(self.decode_node(chunk, point_count, requested_fields)?)
+    }
+
+    pub fn prepare_node_with_extra_dimensions(
+        &self,
+        chunk: &[u8],
+        point_count: usize,
+        requested_fields: u32,
+        requested_extra_dimensions: &[String],
+    ) -> Result<PreparedCopcNodeWithExtraDimensions> {
+        self.prepare_decoded_with_extra_dimensions(self.decode_node_with_extra_dimensions(
+            chunk,
+            point_count,
+            requested_fields,
+            requested_extra_dimensions,
+        )?)
     }
 }
 

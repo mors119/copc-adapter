@@ -1,5 +1,7 @@
 use copc_adapter_core::{
-    CopcHeader, CopcNodePreparer, CrsTransform, PreparedCopcNode, RootHierarchy, decode_copc_node,
+    CopcHeader, CopcNodePreparer, CrsTransform, DecodedExtraDimension, DecodedExtraDimensionValues,
+    ExtraBytesPrimitive, PreparedCopcNode, PreparedCopcNodeWithExtraDimensions, RootHierarchy,
+    decode_copc_node, decode_copc_node_with_extra_dimensions,
     decode_copc_node_with_max_chunk_bytes, interleave_xyz, parse_header, parse_root_hierarchy,
     parse_root_hierarchy_with_max_bytes,
 };
@@ -39,6 +41,29 @@ struct CopcHeaderJson {
     root_hierarchy_page_offset: u64,
     root_hierarchy_page_length: u64,
     wkt: Option<String>,
+    extra_dimensions: Vec<ExtraDimensionMetadataJson>,
+}
+
+#[derive(Debug, Serialize)]
+struct ExtraDimensionMetadataJson {
+    name: String,
+    #[serde(rename = "type")]
+    value_type: Option<&'static str>,
+    length: usize,
+    byte_offset: usize,
+    scale: Option<f64>,
+    offset: Option<f64>,
+    no_data: Option<f64>,
+    no_data_exact: Option<String>,
+    supported_scalar: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct ExtraDimensionOutputJson {
+    name: String,
+    value_type: &'static str,
+    byte_offset: usize,
+    byte_length: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -76,6 +101,7 @@ struct DecodeResult {
     intensity: bool,
     classification: bool,
     rgb: bool,
+    extra_dimensions: Vec<ExtraDimensionOutputJson>,
 }
 
 #[derive(Debug, Serialize)]
@@ -119,6 +145,7 @@ struct PrepareResult {
     intensity: bool,
     classification: bool,
     rgb: bool,
+    extra_dimensions: Vec<ExtraDimensionOutputJson>,
     statistics: PreparedPointStatisticsJson,
     decode_duration_ms: f64,
     preparation_duration_ms: f64,
@@ -133,6 +160,17 @@ struct PreparedOutputPointers {
     red: *mut u16,
     green: *mut u16,
     blue: *mut u16,
+    extra_dimensions: *mut u8,
+}
+
+struct DecodedOutputPointers {
+    coordinates: *mut f64,
+    intensity: *mut u16,
+    classification: *mut u8,
+    red: *mut u16,
+    green: *mut u16,
+    blue: *mut u16,
+    extra_dimensions: *mut u8,
 }
 
 struct PreparationTiming {
@@ -228,6 +266,21 @@ fn header_json(value: CopcHeader) -> Result<CopcHeaderJson, ParseError> {
         root_hierarchy_page_offset: root_offset,
         root_hierarchy_page_length: root_length,
         wkt: value.wkt,
+        extra_dimensions: value
+            .extra_dimensions
+            .into_iter()
+            .map(|dimension| ExtraDimensionMetadataJson {
+                name: dimension.name.clone(),
+                value_type: dimension.primitive.map(ExtraBytesPrimitive::metadata_type),
+                length: dimension.length,
+                byte_offset: dimension.byte_offset,
+                scale: dimension.scale,
+                offset: dimension.offset,
+                no_data: dimension.decoded_no_data(),
+                no_data_exact: dimension.exact_no_data_string(),
+                supported_scalar: dimension.is_supported_scalar(),
+            })
+            .collect(),
     })
 }
 
@@ -290,6 +343,117 @@ fn hierarchy_json(value: RootHierarchy) -> Result<RootHierarchyJson, ParseError>
             })
             .collect::<Result<Vec<_>, ParseError>>()?,
     })
+}
+
+fn parse_extra_dimension_selection(bytes: &[u8]) -> Result<Vec<String>, ParseError> {
+    if bytes.len() > 64 * 1024 {
+        return Err(error(
+            "unsupported-value",
+            "Extra Bytes selection JSON exceeds the 65536-byte safety limit",
+        ));
+    }
+    let names: Vec<String> = serde_json::from_slice(bytes).map_err(|_| {
+        error(
+            "invalid-input",
+            "Extra Bytes selection must be a JSON string array",
+        )
+    })?;
+    if names
+        .iter()
+        .any(|name| name.trim().is_empty() || name.len() > 32 || name.contains('\0'))
+    {
+        return Err(error(
+            "invalid-input",
+            "Extra Bytes names must be non-empty LAS names of at most 32 bytes",
+        ));
+    }
+    Ok(names)
+}
+
+fn copy_extra_dimensions(
+    dimensions: Vec<DecodedExtraDimension>,
+    point_count: usize,
+    output_ptr: *mut u8,
+) -> Result<Vec<ExtraDimensionOutputJson>, ParseError> {
+    let dimension_byte_length = point_count
+        .checked_mul(std::mem::size_of::<u64>())
+        .ok_or_else(|| error("overflow", "Extra Bytes output length overflows"))?;
+    let total_byte_length = dimensions
+        .len()
+        .checked_mul(dimension_byte_length)
+        .ok_or_else(|| error("overflow", "Extra Bytes output length overflows"))?;
+    if total_byte_length > 64 * 1024 * 1024 {
+        return Err(error(
+            "unsupported-value",
+            "Extra Bytes output exceeds the 67108864-byte safety limit",
+        ));
+    }
+    let output = if total_byte_length == 0 {
+        &mut [][..]
+    } else {
+        mutable_u8_slice(output_ptr, total_byte_length)?
+    };
+
+    let mut layout = Vec::new();
+    layout
+        .try_reserve_exact(dimensions.len())
+        .map_err(|_| error("allocation", "unable to allocate Extra Bytes output layout"))?;
+    for (dimension_index, dimension) in dimensions.into_iter().enumerate() {
+        let byte_offset = dimension_index
+            .checked_mul(dimension_byte_length)
+            .ok_or_else(|| error("overflow", "Extra Bytes output offset overflows"))?;
+        let byte_end = byte_offset
+            .checked_add(dimension_byte_length)
+            .ok_or_else(|| error("overflow", "Extra Bytes output end overflows"))?;
+        let slots = output
+            .get_mut(byte_offset..byte_end)
+            .ok_or_else(|| error("invalid-input", "Extra Bytes output buffer is too short"))?;
+        let value_type = match dimension.values {
+            DecodedExtraDimensionValues::Float64(values) => {
+                if values.len() != point_count {
+                    return Err(error(
+                        "chunk-length-mismatch",
+                        "Extra Bytes output count is invalid",
+                    ));
+                }
+                for (value, slot) in values.iter().zip(slots.chunks_exact_mut(8)) {
+                    slot.copy_from_slice(&value.to_le_bytes());
+                }
+                "float64"
+            }
+            DecodedExtraDimensionValues::Int64(values) => {
+                if values.len() != point_count {
+                    return Err(error(
+                        "chunk-length-mismatch",
+                        "Extra Bytes output count is invalid",
+                    ));
+                }
+                for (value, slot) in values.iter().zip(slots.chunks_exact_mut(8)) {
+                    slot.copy_from_slice(&value.to_le_bytes());
+                }
+                "int64"
+            }
+            DecodedExtraDimensionValues::Uint64(values) => {
+                if values.len() != point_count {
+                    return Err(error(
+                        "chunk-length-mismatch",
+                        "Extra Bytes output count is invalid",
+                    ));
+                }
+                for (value, slot) in values.iter().zip(slots.chunks_exact_mut(8)) {
+                    slot.copy_from_slice(&value.to_le_bytes());
+                }
+                "uint64"
+            }
+        };
+        layout.push(ExtraDimensionOutputJson {
+            name: dimension.name,
+            value_type,
+            byte_offset,
+            byte_length: dimension_byte_length,
+        });
+    }
+    Ok(layout)
 }
 
 fn parse_header_value(bytes: &[u8]) -> Result<CopcHeaderJson, ParseError> {
@@ -557,10 +721,16 @@ fn prepared_range_json(
 }
 
 fn copy_prepared_node(
-    prepared: PreparedCopcNode,
+    value: PreparedCopcNodeWithExtraDimensions,
     output: PreparedOutputPointers,
     timing: PreparationTiming,
 ) -> Result<PrepareResult, ParseError> {
+    let extra_dimensions = copy_extra_dimensions(
+        value.extra_dimensions,
+        value.prepared.point_count,
+        output.extra_dimensions,
+    )?;
+    let prepared = value.prepared;
     let coordinate_length = prepared
         .point_count
         .checked_mul(3)
@@ -609,6 +779,7 @@ fn copy_prepared_node(
         intensity: intensity_present,
         classification: classification_present,
         rgb: rgb_present,
+        extra_dimensions,
         statistics: PreparedPointStatisticsJson {
             elevation: prepared_range_json(statistics.elevation),
             intensity: prepared_range_json(statistics.intensity),
@@ -625,6 +796,7 @@ fn prepare_copc_node_value(
     chunk_length: usize,
     point_count: usize,
     requested_fields: u32,
+    requested_extra_dimensions: &[String],
     output: PreparedOutputPointers,
 ) -> Result<PrepareResult, ParseError> {
     if handle == 0 {
@@ -636,11 +808,18 @@ fn prepare_copc_node_value(
     let preparer = unsafe { &*(handle as *const CopcNodePreparer) };
     let decode_started = clock_ms();
     let decoded = preparer
-        .decode_node(chunk, point_count, requested_fields)
+        .decode_node_with_extra_dimensions(
+            chunk,
+            point_count,
+            requested_fields,
+            requested_extra_dimensions,
+        )
         .map_err(from_core)?;
     let decode_duration_ms = elapsed_ms(decode_started);
     let preparation_started = clock_ms();
-    let prepared = preparer.prepare_decoded(decoded).map_err(from_core)?;
+    let prepared = preparer
+        .prepare_decoded_with_extra_dimensions(decoded)
+        .map_err(from_core)?;
     let preparation_duration_ms = elapsed_ms(preparation_started);
     copy_prepared_node(
         prepared,
@@ -674,6 +853,7 @@ pub extern "C" fn prepare_copc_node_json(
         chunk_length,
         point_count,
         requested_fields,
+        &[],
         PreparedOutputPointers {
             source: source_ptr,
             geographic: geographic_ptr,
@@ -683,8 +863,57 @@ pub extern "C" fn prepare_copc_node_json(
             red: red_ptr,
             green: green_ptr,
             blue: blue_ptr,
+            extra_dimensions: std::ptr::null_mut(),
         },
     ) {
+        Ok(value) => ParseResponse::success(value),
+        Err(parse_error) => ParseResponse::failure(parse_error),
+    };
+    json_pointer(response)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn prepare_copc_node_with_extra_dimensions_json(
+    handle: usize,
+    chunk_ptr: *const u8,
+    chunk_length: usize,
+    point_count: usize,
+    requested_fields: u32,
+    extra_dimensions_ptr: *const u8,
+    extra_dimensions_length: usize,
+    source_ptr: *mut f64,
+    geographic_ptr: *mut f64,
+    ecef_ptr: *mut f64,
+    intensity_ptr: *mut u16,
+    classification_ptr: *mut u8,
+    red_ptr: *mut u16,
+    green_ptr: *mut u16,
+    blue_ptr: *mut u16,
+    extra_dimensions_output_ptr: *mut u8,
+) -> *mut c_char {
+    let response = match input_slice(extra_dimensions_ptr, extra_dimensions_length)
+        .and_then(parse_extra_dimension_selection)
+        .and_then(|names| {
+            prepare_copc_node_value(
+                handle,
+                chunk_ptr,
+                chunk_length,
+                point_count,
+                requested_fields,
+                &names,
+                PreparedOutputPointers {
+                    source: source_ptr,
+                    geographic: geographic_ptr,
+                    ecef: ecef_ptr,
+                    intensity: intensity_ptr,
+                    classification: classification_ptr,
+                    red: red_ptr,
+                    green: green_ptr,
+                    blue: blue_ptr,
+                    extra_dimensions: extra_dimensions_output_ptr,
+                },
+            )
+        }) {
         Ok(value) => ParseResponse::success(value),
         Err(parse_error) => ParseResponse::failure(parse_error),
     };
@@ -795,7 +1024,29 @@ fn copy_decoded_node(
         intensity: intensity_present,
         classification: classification_present,
         rgb: rgb_present,
+        extra_dimensions: Vec::new(),
     })
+}
+
+fn copy_decoded_node_with_extra_dimensions(
+    decoded: copc_adapter_core::DecodedCopcNodeWithExtraDimensions,
+    output: DecodedOutputPointers,
+) -> Result<DecodeResult, ParseError> {
+    let mut result = copy_decoded_node(
+        decoded.node,
+        output.coordinates,
+        output.intensity,
+        output.classification,
+        output.red,
+        output.green,
+        output.blue,
+    )?;
+    result.extra_dimensions = copy_extra_dimensions(
+        decoded.extra_dimensions,
+        result.point_count,
+        output.extra_dimensions,
+    )?;
+    Ok(result)
 }
 
 /// Decode one COPC node chunk using only the LAS metadata and the exact range
@@ -905,6 +1156,65 @@ pub extern "C" fn decode_copc_node_with_limit_json(
     json_pointer(response)
 }
 
+/// Decode a COPC node and copy the exact requested Extra Bytes fields.
+///
+/// `extra_dimensions_ptr` contains a JSON array of exact field names. The
+/// output array packs one little-endian 64-bit slot per point and field; the
+/// response reports each field's type and byte range.
+#[unsafe(no_mangle)]
+pub extern "C" fn decode_copc_node_with_limit_and_extra_dimensions_json(
+    metadata_ptr: *const u8,
+    metadata_length: usize,
+    chunk_ptr: *const u8,
+    chunk_length: usize,
+    point_count: usize,
+    requested_fields: u32,
+    max_chunk_bytes: usize,
+    extra_dimensions_ptr: *const u8,
+    extra_dimensions_length: usize,
+    coordinates_ptr: *mut f64,
+    intensity_ptr: *mut u16,
+    classification_ptr: *mut u8,
+    red_ptr: *mut u16,
+    green_ptr: *mut u16,
+    blue_ptr: *mut u16,
+    extra_dimensions_output_ptr: *mut u8,
+) -> *mut c_char {
+    let response = match validate_max_range_bytes(max_chunk_bytes).and_then(|limit| {
+        let names = input_slice(extra_dimensions_ptr, extra_dimensions_length)
+            .and_then(parse_extra_dimension_selection)?;
+        let metadata = input_slice(metadata_ptr, metadata_length)?;
+        let chunk = input_slice(chunk_ptr, chunk_length)?;
+        let decoded = decode_copc_node_with_extra_dimensions(
+            metadata,
+            chunk,
+            point_count,
+            requested_fields,
+            &names,
+            limit,
+        )
+        .map_err(from_core)?;
+        let header = parse_header(metadata).map_err(from_core)?;
+        validate_header_for_js(&header)?;
+        copy_decoded_node_with_extra_dimensions(
+            decoded,
+            DecodedOutputPointers {
+                coordinates: coordinates_ptr,
+                intensity: intensity_ptr,
+                classification: classification_ptr,
+                red: red_ptr,
+                green: green_ptr,
+                blue: blue_ptr,
+                extra_dimensions: extra_dimensions_output_ptr,
+            },
+        )
+    }) {
+        Ok(value) => ParseResponse::success(value),
+        Err(parse_error) => ParseResponse::failure(parse_error),
+    };
+    json_pointer(response)
+}
+
 #[unsafe(no_mangle)]
 /// # Safety
 ///
@@ -1004,9 +1314,10 @@ mod tests {
     use serde::ser::{Error as _, Serializer};
 
     use super::{
-        ParseResponse, create_crs_transform_value, free_crs_transform, json_pointer,
-        transform_crs_points_value, try_json_pointer, validate_max_range_bytes,
+        ParseResponse, copy_extra_dimensions, create_crs_transform_value, free_crs_transform,
+        json_pointer, transform_crs_points_value, try_json_pointer, validate_max_range_bytes,
     };
+    use copc_adapter_core::{DecodedExtraDimension, DecodedExtraDimensionValues};
 
     const WGS84_GEOGRAPHIC_WKT: &str = "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]]";
 
@@ -1023,6 +1334,44 @@ mod tests {
             validate_max_range_bytes(0).unwrap_err().code,
             "invalid-value"
         );
+    }
+
+    #[test]
+    fn copies_typed_extra_dimensions_into_little_endian_wasm_slots() {
+        let dimensions = vec![
+            DecodedExtraDimension {
+                name: "unsigned_id".to_owned(),
+                values: DecodedExtraDimensionValues::Uint64(vec![9_007_199_254_740_993]),
+            },
+            DecodedExtraDimension {
+                name: "signed_id".to_owned(),
+                values: DecodedExtraDimensionValues::Int64(vec![-9_007_199_254_740_995]),
+            },
+            DecodedExtraDimension {
+                name: "height".to_owned(),
+                values: DecodedExtraDimensionValues::Float64(vec![12.5]),
+            },
+        ];
+        let mut output = [0; 24];
+        let layouts = copy_extra_dimensions(dimensions, 1, output.as_mut_ptr())
+            .expect("typed Extra Bytes should fit in the caller buffer");
+
+        assert_eq!(layouts[0].name, "unsigned_id");
+        assert_eq!(layouts[0].value_type, "uint64");
+        assert_eq!(layouts[0].byte_offset, 0);
+        assert_eq!(layouts[1].value_type, "int64");
+        assert_eq!(layouts[1].byte_offset, 8);
+        assert_eq!(layouts[2].value_type, "float64");
+        assert_eq!(layouts[2].byte_offset, 16);
+        assert_eq!(
+            u64::from_le_bytes(output[0..8].try_into().unwrap()),
+            9_007_199_254_740_993,
+        );
+        assert_eq!(
+            i64::from_le_bytes(output[8..16].try_into().unwrap()),
+            -9_007_199_254_740_995,
+        );
+        assert_eq!(f64::from_le_bytes(output[16..24].try_into().unwrap()), 12.5,);
     }
 
     impl serde::Serialize for FailingSerialize {

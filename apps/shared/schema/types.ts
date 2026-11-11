@@ -325,6 +325,8 @@ export type SchemaOption = {
   readonly nullable?: boolean;
   readonly renderers: readonly SchemaRenderer[];
   readonly requiredCapabilities?: readonly string[];
+  /** Backend-specific package/runtime capability gates for one option. */
+  readonly backendCapabilities?: Readonly<Record<string, string>>;
   readonly condition?: SchemaCondition;
   /** Unlike a visibility condition, this condition makes the value unsupported. */
   readonly availabilityCondition?: SchemaCondition;

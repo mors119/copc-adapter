@@ -9,6 +9,7 @@ import {
 import {
   createExtraDimensionReaders,
   mapCopcExtraDimensionMetadata,
+  resolveCopcExtraDimensionRequest,
   resolveCopcExtraDimensionSelection,
 } from "../../../../core/copc/points/extraDimensions.ts";
 import { inspectCopcPoint } from "../../../../core/copc/points/pointInspection.ts";
@@ -59,6 +60,41 @@ test("required and explicit dimensions merge without making reads implicit", () 
   assert.throws(
     () => resolveCopcExtraDimensionSelection("height", []),
     /array of names/u,
+  );
+});
+
+test("source-wide and per-node selections resolve names without implicit reads", () => {
+  assert.deepEqual(
+    resolveCopcExtraDimensionRequest(
+      ["leg_id", "missing", "leg_id"],
+      undefined,
+      ["leg_id", "height"],
+    ),
+    ["leg_id"],
+  );
+  assert.deepEqual(
+    resolveCopcExtraDimensionRequest(
+      "*",
+      ["height", "height", "Intensity"],
+      ["leg_id", "height", "Intensity"],
+    ),
+    ["height"],
+  );
+  assert.deepEqual(
+    resolveCopcExtraDimensionRequest("*", undefined, ["height", "Intensity"]),
+    ["height"],
+  );
+  assert.throws(
+    () => resolveCopcExtraDimensionRequest(undefined, ["height"], ["height"]),
+    /must be configured when the source is opened/u,
+  );
+  assert.throws(
+    () => resolveCopcExtraDimensionRequest(["height"], ["missing"], ["height"]),
+    /was not configured when the source was opened/u,
+  );
+  assert.throws(
+    () => resolveCopcExtraDimensionRequest("*", ["missing"], ["height"]),
+    /is not available/u,
   );
 });
 

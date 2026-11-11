@@ -431,6 +431,16 @@ test("emits the public backend and Cesium renderer specialized handlers", () => 
   }).code;
   assert.match(allExtraDimensions, /backend: new CopcJsBackend\(\{ extraDimensions: '\*'\s\}\)/u);
 
+  const rustExtraDimensions = generateWorkspace({
+    values: {
+      renderer: "cesium",
+      backend: "rust",
+      schemaOptionValues: { "attributes.extraDimensions": ["mission_id"] },
+    },
+  }).code;
+  assert.match(rustExtraDimensions, /import \{ CopcCesiumLayer, RustCopcBackend \}/u);
+  assert.match(rustExtraDimensions, /backend: new RustCopcBackend\(\{ extraDimensions: \['mission_id'\]\s\}\)/u);
+
   const batchedRenderer = generate({
     values: {
       renderer: "cesium",

@@ -69,6 +69,24 @@ export type CopcWasmExports = {
     greenPointer: number,
     bluePointer: number,
   ): number;
+  decode_copc_node_with_limit_and_extra_dimensions_json(
+    metadataPointer: number,
+    metadataLength: number,
+    chunkPointer: number,
+    chunkLength: number,
+    pointCount: number,
+    requestedFields: number,
+    maxChunkBytes: number,
+    extraDimensionsPointer: number,
+    extraDimensionsLength: number,
+    coordinatesPointer: number,
+    intensityPointer: number,
+    classificationPointer: number,
+    redPointer: number,
+    greenPointer: number,
+    bluePointer: number,
+    extraDimensionsOutputPointer: number,
+  ): number;
   create_crs_transform_json(pointer: number, length: number): number;
   create_crs_transform_with_height_offset_json(
     pointer: number,
@@ -113,6 +131,24 @@ export type CopcWasmExports = {
     redPointer: number,
     greenPointer: number,
     bluePointer: number,
+  ): number;
+  prepare_copc_node_with_extra_dimensions_json(
+    handle: number,
+    chunkPointer: number,
+    chunkLength: number,
+    pointCount: number,
+    requestedFields: number,
+    extraDimensionsPointer: number,
+    extraDimensionsLength: number,
+    sourcePointer: number,
+    geographicPointer: number,
+    ecefPointer: number,
+    intensityPointer: number,
+    classificationPointer: number,
+    redPointer: number,
+    greenPointer: number,
+    bluePointer: number,
+    extraDimensionsOutputPointer: number,
   ): number;
   free_copc_node_preparer(handle: number): void;
   free_parser_json(pointer: number): void;
