@@ -9,6 +9,7 @@ type ExtraDimensionDescriptor = {
   readonly name: string;
   readonly type?: "signed" | "unsigned" | "float";
   readonly length: number;
+  readonly supportedScalar?: boolean;
   readonly scale?: number;
   readonly offset?: number;
   readonly noData?: number;
@@ -54,6 +55,7 @@ function floatStarterRange(dimension: ExtraDimensionDescriptor): { min: number; 
 }
 
 function styleableDescriptor(dimension: ExtraDimensionDescriptor): boolean {
+  if (dimension.supportedScalar === false) return false;
   return dimension.type === "signed" || dimension.type === "unsigned"
     ? [1, 2, 4].includes(dimension.length)
     : dimension.type === "float" && [4, 8].includes(dimension.length);

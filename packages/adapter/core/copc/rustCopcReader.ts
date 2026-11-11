@@ -12,7 +12,6 @@ import type {
 } from "./hierarchy/types";
 import type {
   CopcMetadata,
-  CopcExtraDimensionMetadata,
   CopcPointBuffer,
   PreparedPointData,
 } from "./types/copc";
@@ -20,6 +19,7 @@ import type { RandomAccessByteSource } from "./range/types";
 import type { CopcPointLoadOptions } from "./backend/types";
 import type { CopcExtraDimensionSelection } from "./points/extraDimensions";
 import {
+  mapRustCopcExtraDimensionMetadata,
   normalizeCopcExtraDimensionSelection,
   resolveCopcExtraDimensionRequest,
 } from "./points/extraDimensions";
@@ -74,14 +74,14 @@ type RustHeaderValue = {
   wkt?: string;
   extra_dimensions: Array<{
     name: string;
-    type?: "signed" | "unsigned" | "float";
+    type?: "signed" | "unsigned" | "float" | null;
     length: number;
     byte_offset: number;
-    scale?: number;
-    offset?: number;
-    no_data?: number;
-    no_data_exact?: string;
-    supported_scalar: boolean;
+    scale?: number | null;
+    offset?: number | null;
+    no_data?: number | null;
+    no_data_exact?: string | null;
+    supported_scalar?: boolean | null;
   }>;
 };
 
@@ -629,17 +629,7 @@ export class RustCopcReader {
         available: [...this.crsWktProvenance.available],
       },
       crsDiagnostic: resolveCopcCrsMetadata(this.header.wkt, this.crsWktProvenance),
-      extraDimensions: this.header.extra_dimensions.map((dimension): CopcExtraDimensionMetadata => ({
-        name: dimension.name,
-        ...(dimension.type === undefined ? {} : { type: dimension.type }),
-        length: dimension.length,
-        ...(dimension.scale === undefined ? {} : { scale: dimension.scale }),
-        ...(dimension.offset === undefined ? {} : { offset: dimension.offset }),
-        ...(dimension.no_data === undefined ? {} : { noData: dimension.no_data }),
-        ...(dimension.no_data_exact === undefined
-          ? {}
-          : { noDataExact: dimension.no_data_exact }),
-      })),
+      extraDimensions: mapRustCopcExtraDimensionMetadata(this.header.extra_dimensions),
     };
   }
 

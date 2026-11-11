@@ -110,6 +110,43 @@ export function mapCopcExtraDimensionMetadata(
   });
 }
 
+/** Normalize Rust LAS descriptor metadata at the public metadata boundary. */
+export function mapRustCopcExtraDimensionMetadata(
+  descriptors: readonly {
+    name: string;
+    type?: "signed" | "unsigned" | "float" | null;
+    length: number;
+    scale?: number | null;
+    offset?: number | null;
+    no_data?: number | null;
+    no_data_exact?: string | null;
+    supported_scalar?: boolean | null;
+  }[],
+): CopcExtraDimensionMetadata[] {
+  return descriptors.map((dimension) => ({
+    name: dimension.name,
+    length: dimension.length,
+    ...(dimension.type !== undefined && dimension.type !== null
+      ? { type: dimension.type }
+      : {}),
+    ...(dimension.scale !== undefined && dimension.scale !== null
+      ? { scale: dimension.scale }
+      : {}),
+    ...(dimension.offset !== undefined && dimension.offset !== null
+      ? { offset: dimension.offset }
+      : {}),
+    ...(dimension.no_data !== undefined && dimension.no_data !== null
+      ? { noData: dimension.no_data }
+      : {}),
+    ...(dimension.no_data_exact !== undefined && dimension.no_data_exact !== null
+      ? { noDataExact: dimension.no_data_exact }
+      : {}),
+    ...(dimension.supported_scalar !== undefined && dimension.supported_scalar !== null
+      ? { supportedScalar: dimension.supported_scalar }
+      : {}),
+  }));
+}
+
 /** Merge explicit and style-required names without enabling implicit all-field reads. */
 export function resolveCopcExtraDimensionSelection(
   explicit: readonly string[] | undefined,

@@ -47,13 +47,18 @@ struct CopcHeaderJson {
 #[derive(Debug, Serialize)]
 struct ExtraDimensionMetadataJson {
     name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "type")]
     value_type: Option<&'static str>,
     length: usize,
     byte_offset: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
     scale: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     offset: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     no_data: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     no_data_exact: Option<String>,
     supported_scalar: bool,
 }
@@ -1314,8 +1319,9 @@ mod tests {
     use serde::ser::{Error as _, Serializer};
 
     use super::{
-        ParseResponse, copy_extra_dimensions, create_crs_transform_value, free_crs_transform,
-        json_pointer, transform_crs_points_value, try_json_pointer, validate_max_range_bytes,
+        ExtraDimensionMetadataJson, ParseResponse, copy_extra_dimensions,
+        create_crs_transform_value, free_crs_transform, json_pointer, transform_crs_points_value,
+        try_json_pointer, validate_max_range_bytes,
     };
     use copc_adapter_core::{DecodedExtraDimension, DecodedExtraDimensionValues};
 
@@ -1372,6 +1378,29 @@ mod tests {
             -9_007_199_254_740_995,
         );
         assert_eq!(f64::from_le_bytes(output[16..24].try_into().unwrap()), 12.5,);
+    }
+
+    #[test]
+    fn omits_absent_optional_extra_dimension_metadata_fields() {
+        let value = ExtraDimensionMetadataJson {
+            name: "height".to_owned(),
+            value_type: Some("float"),
+            length: 4,
+            byte_offset: 0,
+            scale: None,
+            offset: None,
+            no_data: None,
+            no_data_exact: None,
+            supported_scalar: true,
+        };
+        let json = serde_json::to_value(value).expect("metadata should serialize");
+
+        assert_eq!(json["type"], "float");
+        assert_eq!(json["supported_scalar"], true);
+        assert!(json.get("scale").is_none());
+        assert!(json.get("offset").is_none());
+        assert!(json.get("no_data").is_none());
+        assert!(json.get("no_data_exact").is_none());
     }
 
     impl serde::Serialize for FailingSerialize {

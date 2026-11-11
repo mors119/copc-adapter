@@ -98,6 +98,8 @@ export type CopcExtraDimensionMetadata = {
   type?: "signed" | "unsigned" | "float";
   /** Number of source bytes per point for this descriptor. */
   length: number;
+  /** Whether the descriptor is a supported scalar; omitted when unknown. */
+  supportedScalar?: boolean;
   /** LAS scale applied by the backend's point reader, when declared. */
   scale?: number;
   /** LAS offset applied by the backend's point reader, when declared. */

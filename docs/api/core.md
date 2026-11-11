@@ -532,9 +532,10 @@ const layer = new CopcCesiumLayer({
   above `Number.MAX_SAFE_INTEGER` stay exact. Scaled 64-bit integers are read
   through the scale and offset as `number`.
 - `CopcMetadata.extraDimensions` reports the names, signed/unsigned/float
-  primitive type, byte length, optional scale/offset, and numeric NoData
-  sentinel provided by the selected parser. A `noDataExact` string preserves
-  64-bit integer sentinels beyond JavaScript's safe integer range.
+  primitive type, byte length, scalar support, optional scale/offset, and
+  numeric NoData sentinel provided by the selected parser. A `noDataExact`
+  string preserves 64-bit integer sentinels beyond JavaScript's safe integer
+  range.
 - Both backends support numeric styling/filtering for scalar signed/unsigned
   8-/16-/32-bit integer and 32-/64-bit float Extra Bytes. Scale/offset are
   applied to both displayed and inspected values; numeric NoData is treated as

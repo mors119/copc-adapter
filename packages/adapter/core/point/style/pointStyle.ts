@@ -365,6 +365,7 @@ export function cloneCopcDimensionFilter(
 export function isCopcDimensionMetadataStyleable(
   dimension: CopcExtraDimensionMetadata,
 ): boolean {
+  if (dimension.supportedScalar === false) return false;
   if (dimension.type === "signed" || dimension.type === "unsigned") {
     return [1, 2, 4].includes(dimension.length);
   }
