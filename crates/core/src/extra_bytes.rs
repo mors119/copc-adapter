@@ -167,7 +167,8 @@ pub fn parse_extra_bytes_descriptors(
                 payload.len()
             )));
         }
-        for record in payload.chunks_exact(EXTRA_BYTES_DESCRIPTOR_SIZE) {
+        let (records, _) = payload.as_chunks::<EXTRA_BYTES_DESCRIPTOR_SIZE>();
+        for record in records {
             let name = read_name(record)?;
             if !names.insert(name.clone()) {
                 return Err(invalid_descriptor(format!(
