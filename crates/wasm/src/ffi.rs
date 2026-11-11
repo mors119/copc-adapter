@@ -421,7 +421,7 @@ fn copy_extra_dimensions(
                         "Extra Bytes output count is invalid",
                     ));
                 }
-                for (value, slot) in values.iter().zip(slots.chunks_exact_mut(8)) {
+                for (value, slot) in values.iter().zip(slots.as_chunks_mut::<8>().0) {
                     slot.copy_from_slice(&value.to_le_bytes());
                 }
                 "float64"
@@ -433,7 +433,7 @@ fn copy_extra_dimensions(
                         "Extra Bytes output count is invalid",
                     ));
                 }
-                for (value, slot) in values.iter().zip(slots.chunks_exact_mut(8)) {
+                for (value, slot) in values.iter().zip(slots.as_chunks_mut::<8>().0) {
                     slot.copy_from_slice(&value.to_le_bytes());
                 }
                 "int64"
@@ -445,7 +445,7 @@ fn copy_extra_dimensions(
                         "Extra Bytes output count is invalid",
                     ));
                 }
-                for (value, slot) in values.iter().zip(slots.chunks_exact_mut(8)) {
+                for (value, slot) in values.iter().zip(slots.as_chunks_mut::<8>().0) {
                     slot.copy_from_slice(&value.to_le_bytes());
                 }
                 "uint64"
