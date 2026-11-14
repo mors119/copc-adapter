@@ -29,7 +29,7 @@
   },
   "devDependencies": {
     "@frillab/copc-adapter": "file:../../packages/adapter",
-    "@playwright/test": "^1.55.0",
+    "@playwright/test": "^1.65.0",
     "@types/node": "^26.6.6",
     "@types/three": "^0.186.0",
     "cesium": "^1.147.0",
